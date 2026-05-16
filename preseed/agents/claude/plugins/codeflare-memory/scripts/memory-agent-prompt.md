@@ -30,7 +30,7 @@ You will also derive:
 ### 1. Read vars file, then delete it and write counter
 
 Read the vars file with the Read tool to get all variable values.
-Then IMMEDIATELY delete it — this is the deduplication gate. The main
+Then IMMEDIATELY delete it - this is the deduplication gate. The main
 agent checks this file before spawning; deleting it prevents a second
 spawn. Then write the counter as a safety reset.
 
@@ -53,7 +53,7 @@ expressed, surprising facts about the codebase, concept relationships
 worth surfacing later. Skip: CI pass/fail, deploy events, routine git
 operations, tool output, conversation scaffolding.
 
-Also derive a short topic phrase (3-7 words) summarising the segment —
+Also derive a short topic phrase (3-7 words) summarising the segment -
 this becomes the H1 of the capture file.
 
 ### 4. Write capture file into the vault
@@ -102,13 +102,13 @@ Linking convention:
   `[[GraphifyGlobalAdd]]`). Graphify's external-label dedup unifies
   these across the vault and per-repo code graphs.
 - Keep **file paths**, **code symbols**, and **PR/issue references** as
-  prose — they namespace per-project and would never auto-link
+  prose - they namespace per-project and would never auto-link
   meaningfully across repos.
 
 ### 5. Read `$TARGET` and emit a chunk JSON
 
 You wrote `$TARGET` in step 4 using your own conversation as the LLM.
-Now do the same for extraction — read the file back, emit a chunk JSON
+Now do the same for extraction - read the file back, emit a chunk JSON
 matching graphify's schema, build a vault `graph.json`, and merge it
 into the unified global graph. Codeflare ships no LLM provider key for
 graphify, so the headless `graphify extract` path does not apply; you
@@ -138,7 +138,7 @@ Edges:
 
 Node ID format: `{parent_dir}_{filename_stem}` lowercased, non-
 alphanumeric → `_`, then `_{entity}` for subsections within. For
-wikilink concepts: `concept_{normalised_target}` (no file prefix —
+wikilink concepts: `concept_{normalised_target}` (no file prefix -
 concepts must dedupe by label across files and repos).
 
 Write the chunk JSON via the Write tool at the absolute path:
@@ -204,9 +204,9 @@ flock /tmp/graphify-global.lock /usr/local/bin/graphify global add \
 node from any per-repo graph.
 
 If any of steps 5-7 fail (transient I/O, malformed JSON), log it and
-continue — the file is on disk and will be picked up by the next
+continue - the file is on disk and will be picked up by the next
 vault-monitor tick. Do not delete the markdown file.
 
 Compaction note: the vault grows append-only. There is no automated
-compactor in this PR — when `raw/sessions/` becomes unwieldy, the user
+compactor in this PR - when `raw/sessions/` becomes unwieldy, the user
 can prune or summarise files manually via SilverBullet.

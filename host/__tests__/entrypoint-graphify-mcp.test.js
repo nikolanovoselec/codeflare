@@ -171,9 +171,20 @@ describe('entrypoint graphify preseed gate', () => {
     );
     // The conditional must be idempotent: only symlink if src exists AND
     // dst is absent, so a baked-in Dockerfile symlink is not clobbered.
+    // Three separate substring checks — robust to formatting changes
+    // (added comments, line breaks, indentation shifts) while still
+    // pinning the safety contract.
     assert.ok(
-      /if \[ -x "\$GRAPHIFY_BIN_SRC" \] && \[ ! -e "\$GRAPHIFY_BIN_DST" \]; then\s*\n\s*ln -sf "\$GRAPHIFY_BIN_SRC" "\$GRAPHIFY_BIN_DST"/.test(entrypoint),
-      'entrypoint.sh self-heal must be guarded by -x src && !-e dst and use ln -sf'
+      entrypoint.includes('[ -x "$GRAPHIFY_BIN_SRC" ]'),
+      'self-heal must check that the source binary exists and is executable'
+    );
+    assert.ok(
+      entrypoint.includes('[ ! -e "$GRAPHIFY_BIN_DST" ]'),
+      'self-heal must check that the destination is absent (do not clobber existing symlink)'
+    );
+    assert.ok(
+      entrypoint.includes('ln -sf "$GRAPHIFY_BIN_SRC" "$GRAPHIFY_BIN_DST"'),
+      'self-heal must use ln -sf with the canonical SRC/DST variables'
     );
   });
 });

@@ -93,11 +93,16 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026)', () => {
     );
     // The symlink must land BEFORE `graphify --version` smoke-tests so the
     // smoke test exercises the canonical lookup path, not just the uv shim.
-    const linkIdx = dockerfile.indexOf('ln -sf /root/.local/share/uv/tools/graphifyy/bin/graphify');
-    const smokeIdx = dockerfile.indexOf('graphify --version');
+    // Match all occurrences (a future Dockerfile change that introduces a
+    // second symlink for an alternative path must still keep the FIRST
+    // one ahead of the smoke test).
+    const allLinks = [...dockerfile.matchAll(/ln -sf \/root\/\.local\/share\/uv\/tools\/graphifyy\/bin\/graphify/g)];
+    const allSmokes = [...dockerfile.matchAll(/graphify --version/g)];
+    assert.ok(allLinks.length >= 1, 'at least one graphify shim symlink must exist');
+    assert.ok(allSmokes.length >= 1, 'at least one `graphify --version` smoke test must exist');
     assert.ok(
-      linkIdx !== -1 && smokeIdx !== -1 && linkIdx < smokeIdx,
-      'ln -sf must precede graphify --version so the smoke test resolves the canonical symlink'
+      allLinks[0].index < allSmokes[0].index,
+      'first ln -sf must precede the first graphify --version smoke test'
     );
   });
 });

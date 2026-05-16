@@ -10,15 +10,15 @@ Future agents query that graph via `mcp__graphify__*` tools.
 You are triggered by `vault-monitor-hook.sh` when the marker file
 `~/.cache/codeflare-hooks/vault-extract.vars` is present.
 
-## Architecture — read this before anything else
+## Architecture - read this before anything else
 
 Graphify ships two extraction paths:
 
-1. **Headless CLI** (`graphify extract --backend B`) — requires an LLM
+1. **Headless CLI** (`graphify extract --backend B`) - requires an LLM
    provider key (`GEMINI_API_KEY`, `OPENAI_API_KEY`, etc.) in the
    environment. Codeflare deliberately ships none.
 2. **Agent-dispatched** (the path the `/graphify` skill uses with N
-   parallel subagents) — the agent IS the LLM. The subagent reads the
+   parallel subagents) - the agent IS the LLM. The subagent reads the
    files, writes a chunk JSON matching graphify's extraction schema,
    and the orchestrator merges + builds. **No API key needed.**
 
@@ -38,7 +38,7 @@ build steps from graphify's internal Python API.
 
 ## Steps
 
-Execute IN ORDER. Step 6 is the marker advance and MUST be last — any
+Execute IN ORDER. Step 6 is the marker advance and MUST be last - any
 failure between steps 1 and 5 leaves the high-water mark old, and the
 next vault-monitor daemon tick (60s) re-discovers the same files.
 Eventual consistency, no work lost.
@@ -67,9 +67,9 @@ find /home/user/.obsidian_vault \
 
 Exclusions:
 
-- `raw/sessions/` — agent-owned, already merged by the capture sonnet.
-- `graphify-out/` — derived output, would create a feedback loop.
-- `.silverbullet/` — editor config + plug cache, no semantic content.
+- `raw/sessions/` - agent-owned, already merged by the capture sonnet.
+- `graphify-out/` - derived output, would create a feedback loop.
+- `.silverbullet/` - editor config + plug cache, no semantic content.
 
 If the find returns zero files, skip to step 6 (touch the marker so we
 do not keep re-running on the same empty result).
@@ -95,16 +95,16 @@ Read each changed file with the Read tool. For each file, identify:
 
 Edge confidence rubric (from graphify's schema):
 
-- `EXTRACTED` (confidence_score 1.0) — explicit in source (wikilink,
+- `EXTRACTED` (confidence_score 1.0) - explicit in source (wikilink,
   backtick reference, structural containment).
-- `INFERRED` — pick from {0.95, 0.85, 0.75, 0.65, 0.55} per the
+- `INFERRED` - pick from {0.95, 0.85, 0.75, 0.65, 0.55} per the
   graphify rubric; for vault notes, most inferences land at 0.75 or
   0.85.
-- `AMBIGUOUS` (0.1-0.3) — speculative co-occurrence only.
+- `AMBIGUOUS` (0.1-0.3) - speculative co-occurrence only.
 
 Node ID format: `{parent_dir}_{filename_stem}` (lowercased,
 non-alphanumeric → `_`), then `_{entity}` for symbols within a file.
-For wikilink concepts: `concept_{normalised_target}` (no file prefix —
+For wikilink concepts: `concept_{normalised_target}` (no file prefix -
 concepts must dedupe by label across files and repos).
 
 Write the JSON to disk via the Write tool at this absolute path:
@@ -113,7 +113,7 @@ Write the JSON to disk via the Write tool at this absolute path:
 /home/user/.obsidian_vault/graphify-out/.graphify_chunk_01.json
 ```
 
-Schema (must match exactly — graphify's merge step parses this verbatim):
+Schema (must match exactly - graphify's merge step parses this verbatim):
 
 ```json
 {
@@ -138,7 +138,7 @@ Schema (must match exactly — graphify's merge step parses this verbatim):
 If you cannot extract anything from a file (binary, unreadable, empty)
 log the path and skip; continue with the others. If ALL files fail,
 still write an empty chunk JSON (`{"nodes":[],"edges":[],"hyperedges":[],...}`)
-and continue — step 6 needs to advance the marker so we do not loop
+and continue - step 6 needs to advance the marker so we do not loop
 on the same broken files.
 
 ### 4. Build a vault graph.json from the chunk
@@ -169,7 +169,7 @@ The `flock` lock matches the one used by `graphify global add` in step 5
 and `graphify-active-repo.sh`, so concurrent writers do not stomp the
 manifest.
 
-If the build prints `0 nodes, 0 edges`, that is fine — step 5 will
+If the build prints `0 nodes, 0 edges`, that is fine - step 5 will
 no-op via `graphify global add`'s hash dedup. Continue to step 6.
 
 ### 5. Merge the vault graph into the unified global graph
@@ -179,7 +179,7 @@ flock /tmp/graphify-global.lock /usr/local/bin/graphify global add \
     /home/user/.obsidian_vault/graphify-out/graph.json --as vault
 ```
 
-`graphify global add` is hash-keyed and idempotent — re-running it
+`graphify global add` is hash-keyed and idempotent - re-running it
 with the same `graph.json` content is a no-op. Tagged `--as vault` so
 the global manifest can distinguish vault nodes from per-repo nodes.
 The internal `external_labels` pass dedupes concept nodes (those with
@@ -188,7 +188,7 @@ The internal `external_labels` pass dedupes concept nodes (those with
 `global_add` function node from any per-repo graph that has the same
 label.
 
-### 6. Advance the high-water mark — FINAL step
+### 6. Advance the high-water mark - FINAL step
 
 ```bash
 touch ~/.cache/codeflare-hooks/vault-extract.last
@@ -201,6 +201,6 @@ re-discover the changed files and try again.
 
 ## Done
 
-You do not need to respond to the user — this is a background ingestion
+You do not need to respond to the user - this is a background ingestion
 task. The user prompt that triggered the hook is being handled by the
 main agent in parallel and has its own response path.

@@ -65,6 +65,47 @@ export interface VaultRouteResult {
  * `/api/vault/:sid/status` does NOT count as a vault proxy path — the
  * caller (src/index.ts) checks for that pattern before calling us.
  */
+/**
+ * Synthesise `X-Requested-With: XMLHttpRequest` on a request clone when
+ * (and ONLY when) the caller has already validated the request's Origin
+ * against the codeflare CORS allowlist. The synthesis lets SilverBullet's
+ * client.js writes (which never set the header) bypass the CSRF guard in
+ * `authenticateRequest` without weakening protection: per the Fetch spec,
+ * browsers always set Origin on cross-origin state-changing requests, so
+ * once Origin is allowlist-validated, the X-Requested-With check is
+ * redundant defence.
+ *
+ * Safety invariant (enforced by THIS function, not by call-site ordering):
+ *   - If `originValidated` is false → return the original request unchanged.
+ *   - If the request already carries `X-Requested-With` → unchanged.
+ *   - If the method is not state-changing (GET/HEAD/OPTIONS) → unchanged.
+ *   - Otherwise clone the FULL request (preserves body, signal, etc.) and
+ *     set the synthesised header.
+ *
+ * The full-clone form `new Request(request, { headers })` is critical:
+ * `authenticateRequest` only reads method + headers today, but the next
+ * change there could legitimately need the body (e.g. to verify a CSRF
+ * token in the payload); a partial reconstruction would silently fail.
+ *
+ * Browser baseline this depends on: Origin set on every cross-origin
+ * state-changing request. True in all major browsers since 2020
+ * (Chrome 76+, Firefox 70+, Safari 13.1+). Older browsers fall through
+ * the `originValidated=false` branch and hit the original CSRF guard.
+ *
+ * Exported solely so the unit test in src/__tests__/routes/vault.test.ts
+ * can pin the four behavioural cases (validated+write, validated+read,
+ * not-validated+write, header-already-present).
+ */
+export function maybeSynthesizeCsrfHeader(request: Request, originValidated: boolean): Request {
+  if (!originValidated) return request;
+  const method = request.method.toUpperCase();
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return request;
+  if (request.headers.has('X-Requested-With')) return request;
+  const headers = new Headers(request.headers);
+  headers.set('X-Requested-With', 'XMLHttpRequest');
+  return new Request(request, { headers });
+}
+
 export function validateVaultRoute(request: Request): VaultRouteResult {
   const url = new URL(request.url);
   const match = url.pathname.match(/^\/api\/vault\/([^/]+)(\/.*)$/);
@@ -160,35 +201,10 @@ export async function handleVaultRequest(
     let bucketName;
     try {
       // SilverBullet's client.js writes pages via PUT/DELETE/PATCH without
-      // setting `X-Requested-With`, which `authenticateRequest`'s CSRF
-      // guard requires on state-changing methods. The guard exists to
-      // catch cross-origin form-style attacks where Origin can be missing
-      // or spoofed - but per the Fetch spec, browsers ALWAYS set Origin on
-      // cross-origin state-changing requests, so once we have validated
-      // the Origin against the allowlist above, the X-Requested-With
-      // check is redundant defence. Without this synthesis, SilverBullet
-      // writes 403 with the SB client interpreting it as "not
-      // authenticated" (verbatim alert text in user screenshots: "You
-      // are not authenticated, going to reload and hope that that kicks
-      // off authentication"), which sends the browser into a reload
-      // loop and the user reports a "white page" symptom.
-      //
-      // Defensive posture: only synthesise the header when Origin was
-      // explicitly validated. Requests without Origin still fail the
-      // CSRF check, preserving protection against the edge case where a
-      // hypothetical browser bug omits Origin on a forged cross-origin
-      // POST. Body and method are preserved on the cloned request; we
-      // only hand the auth function a header view that satisfies its
-      // CSRF contract.
-      let requestForAuth = request;
-      if (originValidated && !request.headers.has('X-Requested-With')) {
-        const authHeaders = new Headers(request.headers);
-        authHeaders.set('X-Requested-With', 'XMLHttpRequest');
-        requestForAuth = new Request(request.url, {
-          method: request.method,
-          headers: authHeaders,
-        });
-      }
+      // `X-Requested-With`. See `maybeSynthesizeCsrfHeader` for the full
+      // security analysis; safety is enforced inside the helper, not by
+      // statement ordering here.
+      const requestForAuth = maybeSynthesizeCsrfHeader(request, originValidated);
       ({ user, bucketName } = await authenticateRequest(requestForAuth, env));
     } catch (err) {
       if (err instanceof AuthError) {

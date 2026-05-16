@@ -330,6 +330,14 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     // always served with the correct MIME.
     if (upstreamPath === '/.client/service_worker.js') {
       upstreamPath = '/service_worker.js';
+    } else if (
+      upstreamPath !== '/service_worker.js'
+      && upstreamPath.endsWith('/service_worker.js')
+    ) {
+      // Future SilverBullet build emitted a service-worker URL the proxy
+      // does not recognise. Log so a version-bump regression surfaces in
+      // structured logs instead of as a user-reported white-screen.
+      log('warn', 'unexpected service_worker.js path shape', { upstreamPath });
     }
     const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
     const headers: http.OutgoingHttpHeaders = {};

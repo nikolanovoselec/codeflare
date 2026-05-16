@@ -13,7 +13,7 @@
 # (vault-extract-prompt.md Step 1) so a subsequent prompt arriving while
 # extraction is in flight does not re-trigger. If the sonnet crashes
 # before deleting, the next daemon tick (60s) will re-detect the same
-# changes and rewrite the marker — eventual consistency, no work lost.
+# changes and rewrite the marker - eventual consistency, no work lost.
 set -e
 
 USER_HOME="${HOME:-/home/user}"
@@ -34,11 +34,25 @@ cat >/dev/null 2>&1 || true
 # still returns the original files (sonnet hasn't touched LAST_MARKER
 # yet), so the daemon writes a fresh VARS_FILE. When the sonnet
 # eventually finishes and touches LAST_MARKER, that VARS_FILE is left
-# behind — older than LAST_MARKER — and would trigger a spurious
+# behind - older than LAST_MARKER - and would trigger a spurious
 # additional sonnet on the next user prompt with nothing new to extract.
+#
 # Invariant: VARS_FILE is only valid if it is newer than LAST_MARKER.
-# When it isn't, the work is already done; delete the stale marker and
+# When it is not, the work is already done; delete the stale marker and
 # exit silently.
+#
+# Edge cases:
+#   - First-ever boot: LAST_MARKER does not exist yet. The short-circuit
+#     `[ -f "$LAST_MARKER" ]` skips this guard so the first real trigger
+#     still fires.
+#   - Mtime equality (same filesystem-second): `-nt` is strict newer-than,
+#     so VARS_FILE touched in the same second as LAST_MARKER is treated
+#     as stale. Worst case is one missed extraction tick; the daemon will
+#     re-discover the same files on the next 60s tick and rewrite the
+#     marker with a fresh mtime. No data loss.
+#   - Daemon atomicity: the daemon writes VARS_FILE via a tempfile + `mv`
+#     in entrypoint.sh:start_vault_monitor_daemon, so the hook never sees
+#     a partially-written marker.
 if [ -f "$LAST_MARKER" ] && [ ! "$VARS_FILE" -nt "$LAST_MARKER" ]; then
     rm -f "$VARS_FILE" 2>/dev/null || true
     exit 0

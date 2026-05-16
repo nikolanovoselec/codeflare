@@ -1203,11 +1203,19 @@ VAULT_README_EOF
     # never received the SilverBullet config (the skeleton-create block
     # above is gated on `! -d $VAULT` and skips entirely on already-
     # existing vaults). Without the config, SilverBullet runs on its
-    # bare defaults — the user-visible symptom was a missing index page
+    # bare defaults - the user-visible symptom was a missing index page
     # configuration and editor defaults reverting to upstream behaviour.
     # `cp -n` would skip if target exists; instead overwrite so a
     # codeflare-side config update propagates to every active vault on
     # next boot.
+    #
+    # IMPORTANT: this overwrites user hand-edits to `.silverbullet/
+    # config.yaml`. The vault rule (`preseed/agents/claude/rules/
+    # vault.md`) marks `.silverbullet/` as EDITOR CONFIG and instructs
+    # agents (and by extension the user) to leave it alone. Users who
+    # need to customise SilverBullet should either fork the preseed
+    # `config.yaml` file in the codeflare repo or accept that local
+    # edits get reset on every container boot.
     mkdir -p "$VAULT/.silverbullet/_plug"
     if [ -f "$PRESEED_DIR/config.yaml" ] \
        && ! cmp -s "$PRESEED_DIR/config.yaml" "$VAULT/.silverbullet/config.yaml" 2>/dev/null; then

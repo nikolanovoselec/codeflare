@@ -46,7 +46,7 @@ A single 60s daemon polls for user edits and signals a background sonnet to inge
 `-- .silverbullet/     <- EDITOR CONFIG: SilverBullet's config + plug cache
 ```
 
-The first three are where content lives. `graphify-out/` is rebuilt by the extraction sonnet on every change. `.silverbullet/` is owned by the editor.
+The first three are where content lives. `graphify-out/` is updated by the vault-extract sonnet via a chunk-JSON merge on every user-edit tick (not a full re-extract). `.silverbullet/` is owned by the editor.
 
 ## Capture Path (REQ-VAULT-002)
 
@@ -57,7 +57,7 @@ Step 4 of `memory-agent-prompt.md` is the only thing that changed. The sonnet no
 1. Reads the new transcript range.
 2. Identifies decisions, observations, references, and a short topic phrase.
 3. Writes `/home/user/.obsidian_vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter template (session id, captured-at, captured-from-range, then Context / Decisions / Observations / References sections).
-4. Runs `flock /tmp/graphify-global.lock graphify extract --file <file>` then `flock /tmp/graphify-global.lock graphify global add ... --as vault`, so the capture lands in the unified global graph the same turn it is written.
+4. Acts as the LLM extractor: reads the file it just wrote, emits a chunk JSON matching graphify's extraction schema (nodes / edges / hyperedges, with `[[wikilinks]]` as `file_type:concept` nodes carrying `source_file: null` so graphify's `external_labels` dedup in `global_add` unifies them across the vault and per-repo graphs by label), calls `graphify.build.build_from_json` + `graphify.cluster.cluster` + `graphify.export.to_json` from the Python API to produce a `graph.json`, then runs `flock /tmp/graphify-global.lock graphify global add ... --as vault` to merge it. No LLM provider key is needed; codeflare deliberately ships none, and the sonnet itself is the extractor (same pattern as the `/graphify` skill's parallel-subagent dispatch).
 5. Touches `{COUNTER_FILE}.compact` if `raw/sessions/` exceeds 200 files (signals the existing opus-compact path).
 
 The dedup gate (delete the `.vars` file as the first step) is unchanged.
@@ -76,6 +76,8 @@ A second daemon, `start_vault_monitor_daemon` in entrypoint.sh, polls the vault 
 
 If extraction fails mid-flight, `vault-extract.last` is NOT advanced, the next tick re-discovers the same files, and the system converges. Eventual consistency, no work lost.
 
+A complementary guard in `vault-monitor-hook.sh` covers the daemon-vs-sonnet overlap case: the daemon ticks every 60s and a sonnet run takes around 90s, so the daemon may re-write `vault-extract.vars` after the sonnet's step-1 delete. When the sonnet finishes and advances `vault-extract.last`, that re-written `.vars` is left behind, older than `.last`. The hook detects this on the next prompt (`! "$VARS_FILE" -nt "$LAST_MARKER"`), silently deletes the stale marker, and exits 0 instead of triggering a redundant sonnet spawn.
+
 The daemon excludes `raw/sessions/`, `graphify-out/`, and `.silverbullet/` from the find. Those are agent-owned, derived, or editor-config respectively.
 
 `vault-monitor-hook.sh` is the UserPromptSubmit hook for the user-edit path. It exits 0 immediately when `vault-extract.vars` is absent (~99% of prompts), keeping token cost at zero on idle. When the marker is present it emits `additionalContext` pointing the main agent at `vault-extract-prompt.md`.
@@ -84,7 +86,7 @@ The vault-extract sonnet's contract:
 
 1. Delete `vault-extract.vars` (dedup gate).
 2. `find` files newer than `vault-extract.last`, excluding the agent-owned subtrees.
-3. Run `flock /tmp/graphify-global.lock graphify extract --file ...` per file.
+3. Acts as the LLM extractor for each changed file: reads the file, produces a chunk JSON (nodes / edges / hyperedges matching graphify's schema; `[[wikilinks]]` become concept nodes with `source_file: null` for cross-repo dedup), then calls graphify's Python API to build and cluster a `graph.json`.
 4. Run `flock /tmp/graphify-global.lock graphify global add ... --as vault`.
 5. Touch `vault-extract.last` -- FINAL step only.
 
@@ -158,6 +160,9 @@ SilverBullet supports pasting images directly into notes (they land in `raw/past
 | Edits don't appear in graph queries within 60s | Vault-extract marker stale | Look at `~/.cache/codeflare-hooks/vault-extract.last` mtime; force a new tick by touching a file under `notes/`. |
 | Stale session state on reopen after stop | Shutdown bisync was killed mid-write | Look for `TIMED OUT after 60s` in Durable Object logs (`wrangler tail <SCRIPT_NAME>`); raise the watchdog budget in `shutdown_handler` if frequent. |
 | `/api/vault/:sid/` returns 503 | SilverBullet supervisor not ready | The `/api/vault/:sid/status` endpoint reports `vaultReady`; poll it and re-open when true. |
+| Clicking "Quick Note" shows `You are not authenticated, going to reload...` alert, then reloads to a blank/white page | SilverBullet's client.js writes via PUT/DELETE/PATCH without `X-Requested-With`, which `authenticateRequest`'s CSRF guard required (fixed by the Origin-validated synthesis in `src/routes/vault.ts`) | Redeploy the container image to pick up the fix. As a temporary workaround, open the vault in a fresh browser tab (clears any stale ServiceWorker scope that may compound the loop). |
+| SilverBullet opens with wrong index page or default editor mode | Existing vault round-tripped through R2 bisync before the idempotent config sync landed in `init_obsidian_vault` | Redeploy. The boot-time `cmp`-gated sync propagates the preseed `config.yaml` on the next start. |
+| `mcp__graphify__query_graph` returns no vault nodes even after several capture cycles | Older image: capture sonnet called `graphify extract --file` (requires an LLM provider key, codeflare ships none), so every run produced 0 nodes | Redeploy. After the fix, sonnets self-extract via their own conversation and emit chunk JSON that `graphify global add` ingests. |
 
 ## Related Documentation
 

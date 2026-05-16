@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateVaultRoute } from '../../routes/vault';
+import { validateVaultRoute, maybeSynthesizeCsrfHeader } from '../../routes/vault';
 
 /**
  * Unit tests for the validateVaultRoute function.
@@ -73,6 +73,63 @@ describe('validateVaultRoute', () => {
       expect(result.isVaultRoute).toBe(true);
       expect(result.errorResponse).toBeDefined();
       expect(result.errorResponse?.status).toBe(400);
+    });
+  });
+
+  describe('maybeSynthesizeCsrfHeader', () => {
+    function makeRequest(method: string, headers: Record<string, string> = {}, body?: string): Request {
+      const init: RequestInit = { method, headers: new Headers(headers) };
+      if (body !== undefined) {
+        init.body = body;
+      }
+      return new Request('https://codeflare.ch/api/vault/abcdef12/notes/foo.md', init);
+    }
+
+    it('returns the original request when originValidated is false', () => {
+      const req = makeRequest('PUT');
+      const result = maybeSynthesizeCsrfHeader(req, false);
+      expect(result).toBe(req);
+      expect(result.headers.has('X-Requested-With')).toBe(false);
+    });
+
+    it('returns the original request for safe methods even when originValidated', () => {
+      for (const method of ['GET', 'HEAD', 'OPTIONS']) {
+        const req = makeRequest(method);
+        const result = maybeSynthesizeCsrfHeader(req, true);
+        expect(result).toBe(req);
+        expect(result.headers.has('X-Requested-With')).toBe(false);
+      }
+    });
+
+    it('returns the original request when X-Requested-With is already present', () => {
+      const req = makeRequest('PUT', { 'X-Requested-With': 'fetch' });
+      const result = maybeSynthesizeCsrfHeader(req, true);
+      expect(result).toBe(req);
+      expect(result.headers.get('X-Requested-With')).toBe('fetch');
+    });
+
+    it('synthesises X-Requested-With on validated state-changing requests', () => {
+      for (const method of ['POST', 'PUT', 'DELETE', 'PATCH']) {
+        const req = makeRequest(method);
+        const result = maybeSynthesizeCsrfHeader(req, true);
+        expect(result).not.toBe(req);
+        expect(result.headers.get('X-Requested-With')).toBe('XMLHttpRequest');
+        expect(result.method).toBe(method);
+      }
+    });
+
+    it('preserves the request body on cloned PUT', async () => {
+      const req = makeRequest('PUT', { 'Content-Type': 'text/markdown' }, '# hello');
+      const result = maybeSynthesizeCsrfHeader(req, true);
+      expect(result).not.toBe(req);
+      const body = await result.text();
+      expect(body).toBe('# hello');
+    });
+
+    it('case-insensitive method comparison', () => {
+      const req = makeRequest('put');
+      const result = maybeSynthesizeCsrfHeader(req, true);
+      expect(result.headers.get('X-Requested-With')).toBe('XMLHttpRequest');
     });
   });
 
