@@ -537,6 +537,15 @@ describe('enforce-review-spawn.sh — fail-safe behavior', () => {
     // The transcript is append-only JSONL, so a subagent_type entry
     // that appears BEFORE the push line is definitionally pre-push
     // and must not satisfy enforcement.
+    //
+    // Check 1 only enforces code-reviewer + spec-reviewer (the two
+    // parallel agents in round 1 of the protocol). doc-updater is
+    // enforced by Check 2 once spec-reviewer's `completed</status>`
+    // tool-use marker appears AFTER the push. With no SPEC_DONE_LINE
+    // in this transcript, Check 2 doesn't fire, so doc-updater is
+    // NOT in the block reason. That separate enforcement path is
+    // covered by "blocks demanding doc-updater after spec-reviewer
+    // completes" above.
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
@@ -552,7 +561,6 @@ describe('enforce-review-spawn.sh — fail-safe behavior', () => {
       'agents earlier in the transcript than the push must not count');
     assert.match(r.stdout, /code-reviewer/);
     assert.match(r.stdout, /spec-reviewer/);
-    assert.match(r.stdout, /doc-updater/);
   });
 
   it('does not match "git push" inside echo strings (regression for substring false-positive)', () => {
