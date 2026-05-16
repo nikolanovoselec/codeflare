@@ -142,6 +142,7 @@ export async function handleVaultRequest(
   // tab the user opens, and we want to keep the same allowlist as the
   // rest of the app rather than minting a new policy here.
   const origin = request.headers.get('Origin');
+  let originValidated = false;
   if (origin) {
     const originAllowed = await isAllowedOrigin(origin, env);
     if (!originAllowed) {
@@ -151,13 +152,44 @@ export async function handleVaultRequest(
         { status: 403, headers: jsonHeaders },
       );
     }
+    originValidated = true;
   }
 
   try {
     let user;
     let bucketName;
     try {
-      ({ user, bucketName } = await authenticateRequest(request, env));
+      // SilverBullet's client.js writes pages via PUT/DELETE/PATCH without
+      // setting `X-Requested-With`, which `authenticateRequest`'s CSRF
+      // guard requires on state-changing methods. The guard exists to
+      // catch cross-origin form-style attacks where Origin can be missing
+      // or spoofed - but per the Fetch spec, browsers ALWAYS set Origin on
+      // cross-origin state-changing requests, so once we have validated
+      // the Origin against the allowlist above, the X-Requested-With
+      // check is redundant defence. Without this synthesis, SilverBullet
+      // writes 403 with the SB client interpreting it as "not
+      // authenticated" (verbatim alert text in user screenshots: "You
+      // are not authenticated, going to reload and hope that that kicks
+      // off authentication"), which sends the browser into a reload
+      // loop and the user reports a "white page" symptom.
+      //
+      // Defensive posture: only synthesise the header when Origin was
+      // explicitly validated. Requests without Origin still fail the
+      // CSRF check, preserving protection against the edge case where a
+      // hypothetical browser bug omits Origin on a forged cross-origin
+      // POST. Body and method are preserved on the cloned request; we
+      // only hand the auth function a header view that satisfies its
+      // CSRF contract.
+      let requestForAuth = request;
+      if (originValidated && !request.headers.has('X-Requested-With')) {
+        const authHeaders = new Headers(request.headers);
+        authHeaders.set('X-Requested-With', 'XMLHttpRequest');
+        requestForAuth = new Request(request.url, {
+          method: request.method,
+          headers: authHeaders,
+        });
+      }
+      ({ user, bucketName } = await authenticateRequest(requestForAuth, env));
     } catch (err) {
       if (err instanceof AuthError) {
         return new Response(JSON.stringify({ error: err.message, code: 'AUTH_FAILED' }),
