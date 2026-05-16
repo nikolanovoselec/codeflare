@@ -15,4 +15,6 @@ MUST NOT use the graph for:
 
 After source edits: run `graphify update .` (AST-only, free) before answering further structural questions.
 
+**Hard gate (codeflare advanced sessions only)**: after 3 structural searches (`grep`, `rg`, `ag`, `ack`, `git grep`, `find -name|-path|-iname|-ipath|-regex`, `awk /regex/`) in the same turn without a `mcp__graphify__*` call (or `graphify query|path|explain` CLI), the `enforce-graphify.sh` PreToolUse hook denies the next structural search. Bypass is USER-only: `skip graph` in a user message, or `touch /tmp/graphify-bypass` (one-shot, auto-deleted). The agent must never create the sentinel.
+
 Mechanics, build/refresh commands, large-repo flags, persistence: see `~/.claude/skills/graphify/SKILL.md`.

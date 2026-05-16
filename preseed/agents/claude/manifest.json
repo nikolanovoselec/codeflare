@@ -518,6 +518,11 @@
       "advanced"
     ]
   },
+  "plugins/graphify/scripts/enforce-graphify.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "rules/graph-first.md": {
     "modes": [
       "advanced"
