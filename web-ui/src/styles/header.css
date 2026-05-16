@@ -517,6 +517,7 @@
           }
         }
 
+        .header-vault-button,
         .header-storage-button,
         .header-settings-button,
         .header-logout-button {
@@ -531,6 +532,7 @@
           transition: background var(--transition-fast), color var(--transition-fast);
         }
 
+        .header-vault-button:hover,
         .header-storage-button:hover,
         .header-settings-button:hover,
         .header-logout-button:hover {
@@ -538,6 +540,7 @@
           color: var(--color-text-primary);
         }
 
+        .header-vault-button:focus-visible,
         .header-storage-button:focus-visible,
         .header-settings-button:focus-visible,
         .header-logout-button:focus-visible {
@@ -607,6 +610,7 @@
            Mobile: larger touch targets + bookmarks bottom sheet
            ====================================== */
         @media (max-width: 640px) {
+          .header-vault-button,
           .header-storage-button,
           .header-settings-button,
           .header-bookmarks-button {

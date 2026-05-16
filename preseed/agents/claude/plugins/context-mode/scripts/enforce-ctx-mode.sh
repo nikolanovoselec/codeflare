@@ -444,10 +444,19 @@ case "$TOOL_NAME" in
     SEGMENTS_STR=$(printf '%s' "$NORMALIZED" | sed -E "s/(&&|\\|\\||;|\\||&)/$SEP/g")
     # Portable to Bash 3.2 (no mapfile -d). The trailing OR test
     # ensures we still process the segment after the final SEP.
+    #
+    # Use a here-string instead of process substitution `< <(...)`:
+    # PostToolUse hooks are sometimes invoked in environments where the
+    # `/dev/fd/<N>` symlink does not resolve (some restricted runners,
+    # non-/proc-mounted PID namespaces), producing the cryptic
+    # `/dev/fd/63: No such file or directory` from the read redirection.
+    # `<<<` writes the string to a real temp file and feeds it back via
+    # a normal file descriptor, which is portable across the runners
+    # the hook is invoked under.
     SEGMENTS_ARR=()
     while IFS= read -r -d "$SEP" SEGMENT || [[ -n "$SEGMENT" ]]; do
       SEGMENTS_ARR+=("$SEGMENT")
-    done < <(printf '%s' "$SEGMENTS_STR")
+    done <<< "$SEGMENTS_STR"
     for SEGMENT in "${SEGMENTS_ARR[@]}"; do
       check_segment "$SEGMENT"
     done

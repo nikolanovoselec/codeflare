@@ -224,10 +224,13 @@ decompose_and_classify() {
   normalized=$(printf '%s' "$normalized" | awk '{ gsub(/[0-9]*[<>]&[0-9]+|[0-9]*[<>]&-|&>>?|&\|/," "); print }')
   sep=$(printf '\x1f')
   segments_str=$(printf '%s' "$normalized" | awk -v sep="$sep" '{ gsub(/&&|\|\||;|\||&/, sep); print }')
+  # Here-string (not process substitution): some hook runners do not
+  # have /dev/fd/<N> mappings available, which makes `< <(...)` fail
+  # with the cryptic "/dev/fd/63: No such file or directory" error.
   while IFS= read -r -d "$sep" segment || [[ -n "$segment" ]]; do
     if is_search_segment "$segment"; then found_search=1; fi
     if is_graphify_cli_segment "$segment"; then _IS_GRAPHIFY_CLI=1; fi
-  done < <(printf '%s' "$segments_str")
+  done <<< "$segments_str"
   [[ $found_search -eq 1 ]]
 }
 
@@ -305,7 +308,7 @@ while IFS= read -r CMD_OR_CODE; do
   if [ "$_IS_GRAPHIFY_CLI" -eq 1 ]; then
     GRAPHIFY_COUNT=$((GRAPHIFY_COUNT + 1))
   fi
-done < <(printf '%s' "$SINCE" | awk '
+done <<< "$(printf '%s' "$SINCE" | awk '
   /"name":"Bash"/ {
     if (match($0, /"command"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"/)) {
       s = substr($0, RSTART+11, RLENGTH-12)
@@ -329,7 +332,7 @@ done < <(printf '%s' "$SINCE" | awk '
       if (n > 50) break
     }
   }
-')
+')"
 
 # mcp__graphify__* tool_use entries — always count toward GRAPHIFY.
 # Same `grep -c` exit-code quirk as above; `|| true` keeps the captured

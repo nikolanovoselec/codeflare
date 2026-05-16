@@ -165,8 +165,35 @@ fi
 # upstream repo committed graphify-out/). In that case, skip the
 # AskUserQuestion triage and tell the agent to refresh with the cheap
 # AST-only `graphify update .` instead of a full /graphify rebuild.
+#
+# Three candidate paths get inspected because the agent's cwd at hook
+# fire time is unpredictable when the user chains `cd <dir> && clone`
+# (HOOK_CWD = parent, TARGET_DIR = parent/<dir>) versus `clone && cd
+# <dir>` (HOOK_CWD = parent/<dir>, TARGET_DIR may resolve to
+# parent/<dir>/<dir>, which doesn't exist):
+#
+#   1. $TARGET_DIR/graphify-out/graph.json    (original resolution)
+#   2. $HOOK_CWD/graphify-out/graph.json      (agent already cd'd in)
+#   3. git -C "$candidate" ls-files graphify-out/graph.json on any
+#      branch (covers default-branch checkouts of a repo where the
+#      graph is only committed on a non-default branch — e.g. the user
+#      clones main but the graph lives on develop and they're about
+#      to `git checkout develop`).
 EXISTING_GRAPH=""
-if [ -n "$TARGET_DIR" ] && [ -f "$TARGET_DIR/graphify-out/graph.json" ]; then
+graph_present_in() {
+  local d="$1"
+  [ -z "$d" ] && return 1
+  [ -f "$d/graphify-out/graph.json" ] && return 0
+  # Branch-agnostic check: is graphify-out/graph.json committed on ANY
+  # ref in this repo? If so, the agent only needs `git checkout <ref>`
+  # to surface it. `git -C` requires the dir to be a git work tree.
+  if [ -d "$d/.git" ] || git -C "$d" rev-parse --git-dir >/dev/null 2>&1; then
+    git -C "$d" rev-list --all --remotes -- graphify-out/graph.json 2>/dev/null \
+      | head -n 1 | grep -q . && return 0
+  fi
+  return 1
+}
+if graph_present_in "$TARGET_DIR" || graph_present_in "$HOOK_CWD"; then
   EXISTING_GRAPH="yes"
 fi
 

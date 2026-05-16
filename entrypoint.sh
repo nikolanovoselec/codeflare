@@ -1311,6 +1311,26 @@ else
 fi
 echo "[entrypoint] Claude Code bypass permissions consent pre-accepted"
 
+# Legacy MCP server-memory cleanup. The `mcpServers.memory` entry was
+# wired by older container images that bundled `@modelcontextprotocol/
+# server-memory`. The vault-based capture pipeline replaced that
+# subsystem (the npm package is no longer installed in the image), but
+# users who ran an older image have the stale entry baked into their
+# R2-bisynced ~/.claude.json. Without active cleanup, `npx -y` silently
+# re-fetches the package on session start and `/mcp` still reports
+# "memory ✓ connected", confusing users about what is actually
+# persisting their cross-session memory. Idempotent: jq `del` is a
+# no-op when the entry is absent.
+if [ -f "$USER_CLAUDE_JSON" ]; then
+    TMP_JSON=$(mktemp)
+    if jq 'del(.mcpServers.memory)' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
+        mv "$TMP_JSON" "$USER_CLAUDE_JSON"
+    else
+        rm -f "$TMP_JSON"
+    fi
+fi
+echo "[entrypoint] Legacy MCP memory server entry removed from .claude.json (if present)"
+
 # Counter directory used by the memory-capture UserPromptSubmit hook
 # (the hook fires every N prompts to trigger vault capture; the MCP memory server
 # itself was removed — vault is now the persistent memory store).
