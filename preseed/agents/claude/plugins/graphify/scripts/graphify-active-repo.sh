@@ -179,6 +179,11 @@ if [ "$OLD" = "$REPO" ] && [ "$GRAPH_MTIME" -le "$SENTINEL_MTIME" ]; then
     exit 0
 fi
 
+# Writer-must-write-newline contract: the reader in enforce-graphify.sh
+# uses `read -r ACTIVE_REPO < $SENTINEL || ACTIVE_REPO=""`. read -r
+# returns non-zero when the input ends without a newline (EOF on first
+# line), which trips the `||` clause and clobbers the value. Keep the
+# `\n` in printf so the reader's contract holds.
 printf '%s\n' "$REPO" > "$SENTINEL"
 
 # Single-active-repo model: when the user switches FROM repo A's tree

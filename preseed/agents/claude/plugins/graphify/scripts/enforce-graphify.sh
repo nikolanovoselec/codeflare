@@ -72,6 +72,10 @@ ACTIVE_SENTINEL="${HOME:-/home/user}/.cache/codeflare-hooks/graphify-active-cwd"
 if [ -f "$ACTIVE_SENTINEL" ]; then
   # `read -r` consumes exactly the first line without a trailing newline,
   # preserving any path characters (including spaces) verbatim.
+  # Newline contract: relies on graphify-active-repo.sh writing the
+  # sentinel via `printf '%s\n'` (with trailing newline). Without the
+  # newline, `read -r` returns non-zero on EOF and the `||` clause
+  # clobbers the value to "". Writer must keep `\n`.
   read -r ACTIVE_REPO < "$ACTIVE_SENTINEL" || ACTIVE_REPO=""
 fi
 [ -n "$ACTIVE_REPO" ] && [ -d "$ACTIVE_REPO" ] || ACTIVE_REPO="$CWD"

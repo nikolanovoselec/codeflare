@@ -74,13 +74,6 @@
 set +e
 
 # ---------------------------------------------------------------------------
-# Vibe-coding gate
-# ---------------------------------------------------------------------------
-if [ ! -d "sdd" ] || [ ! -f "sdd/README.md" ]; then
-  exit 0
-fi
-
-# ---------------------------------------------------------------------------
 # Read hook input (must come before sentinel cleanup so SubagentStop doesn't
 # eat the one-shot sentinel before the actual Stop event honors it)
 # ---------------------------------------------------------------------------
@@ -91,22 +84,12 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 [ "$HOOK_EVENT" = "Stop" ] || exit 0
 [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] || exit 0
 
-# ---------------------------------------------------------------------------
-# SDD transition gate (REQ-AGENT-022) - do not block turn-end while the
-# user is mid-transition. The condition is the single source of truth
-# defined in spec-discipline.md "Transition gate condition": BOTH
-# transition: true in sdd/config.yml AND at least one **Status:** open
-# item in sdd/init-triage.md (case-insensitive on `open`). Both required.
-#
-# If transition: true is set but no open items exist, this is corrupted
-# state -- let the run proceed so spec-reviewer flags it (Step 0b.5
-# writes a HIGH finding to sdd/.review-needed.md).
-# ---------------------------------------------------------------------------
-if grep -q '^transition:[[:space:]]*true' sdd/config.yml 2>/dev/null \
-   && [ -f "sdd/init-triage.md" ] \
-   && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "sdd/init-triage.md" 2>/dev/null; then
-  exit 0
-fi
+# Vibe-coding gate and SDD transition gate moved below the REPO_DIR
+# derivation so they evaluate `sdd/` from the push target, not the
+# agent's invocation CWD. In codeflare the agent CWD is
+# /home/user/workspace/ (NOT a git repo); cloned repos live one dir
+# below. Evaluating these gates from CWD made every Stop event in such
+# layouts silently exit 0, bypassing enforcement.
 
 # ---------------------------------------------------------------------------
 # Bypass 1: sentinel file (one-shot, auto-delete). Must come AFTER the
@@ -209,10 +192,71 @@ if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -q
 fi
 
 # ---------------------------------------------------------------------------
+# Derive repo dir from the PUSH_LINE tool_use envelope before resolving git.
+#
+# Why: in codeflare the session CWD is /home/user/workspace/ (NOT a git
+# repo); cloned repos live one level down (e.g. /home/user/workspace/codeflare/).
+# The hook is invoked with the agent's CWD, so `git rev-parse` from that
+# dir returns empty and the enforcement silently exits 0. Issue surfaced
+# when round-2 pushes on PR #369 reached main with un-acked HEAD.
+#
+# Strategy: read the PUSH_LINE record's envelope `.cwd` and the leading
+# `cd <path>` prefix from its command/code field. Try each in order until
+# `git rev-parse --git-common-dir` resolves. Then `cd` so all subsequent
+# git/gh calls work unchanged.
+# ---------------------------------------------------------------------------
+PUSH_RECORD=$(sed -n "${PUSH_LINE}p" "$TRANSCRIPT" 2>/dev/null)
+ENVELOPE_CWD=$(echo "$PUSH_RECORD" | jq -r '.cwd // empty' 2>/dev/null)
+CD_PATH=$(echo "$PUSH_RECORD" \
+  | grep -oE '"(command|code)"[[:space:]]*:[[:space:]]*"cd[[:space:]]+[^[:space:]&;|"]+' \
+  | head -1 \
+  | grep -oE 'cd[[:space:]]+[^[:space:]&;|"]+' \
+  | awk '{print $2}')
+if [ -n "$CD_PATH" ] && [ "${CD_PATH:0:1}" != "/" ] && [ -n "$ENVELOPE_CWD" ]; then
+  CD_PATH="$ENVELOPE_CWD/$CD_PATH"
+fi
+
+REPO_DIR=""
+for d in "$CD_PATH" "$ENVELOPE_CWD" "."; do
+  [ -n "$d" ] && [ -d "$d" ] || continue
+  if git -C "$d" rev-parse --git-common-dir >/dev/null 2>&1; then
+    REPO_DIR="$d"
+    break
+  fi
+done
+[ -n "$REPO_DIR" ] || exit 0  # no resolvable git repo from any candidate
+cd "$REPO_DIR" 2>/dev/null || exit 0
+
+# ---------------------------------------------------------------------------
+# Vibe-coding gate (evaluated from REPO_DIR, not invocation CWD)
+# ---------------------------------------------------------------------------
+if [ ! -d "sdd" ] || [ ! -f "sdd/README.md" ]; then
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# SDD transition gate (REQ-AGENT-022) - do not block turn-end while the
+# user is mid-transition. The condition is the single source of truth
+# defined in spec-discipline.md "Transition gate condition": BOTH
+# transition: true in sdd/config.yml AND at least one **Status:** open
+# item in sdd/init-triage.md (case-insensitive on `open`). Both required.
+#
+# If transition: true is set but no open items exist, this is corrupted
+# state -- let the run proceed so spec-reviewer flags it (Step 0b.5
+# writes a HIGH finding to sdd/.review-needed.md).
+# ---------------------------------------------------------------------------
+if grep -q '^transition:[[:space:]]*true' sdd/config.yml 2>/dev/null \
+   && [ -f "sdd/init-triage.md" ] \
+   && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "sdd/init-triage.md" 2>/dev/null; then
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # Resolve git common dir for worktree/submodule compatibility
 # ---------------------------------------------------------------------------
 GIT_COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null)
 [ -n "$GIT_COMMON_DIR" ] || exit 0  # not in a git repo → silent exit
+case "$GIT_COMMON_DIR" in /*) ;; *) GIT_COMMON_DIR="$REPO_DIR/$GIT_COMMON_DIR" ;; esac
 ACK_FILE="$GIT_COMMON_DIR/sdd-last-ack-pr-head"
 COUNT_FILE="$GIT_COMMON_DIR/sdd-review-block-count"
 

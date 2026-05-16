@@ -850,3 +850,89 @@ describe('enforce-review-spawn.sh - 3-strike circuit breaker GIVEUP state', () =
       'GIVEUP is sticky for the same SHA - no re-arm on subsequent Stop events');
   });
 });
+
+// Variants of PUSH_LINE that carry transcript-side cwd hints. These pin
+// the codeflare layout where the agent's invocation CWD is the parent
+// of the cloned repo (e.g. /home/user/workspace/) rather than the repo
+// itself. Without these hints the hook silently exits 0 from a non-repo
+// CWD and bypasses the entire enforcement chain.
+const PUSH_LINE_WITH_ENVELOPE_CWD = (repoDir, ts = '2026-05-16T12:00:00.000Z') =>
+  JSON.stringify({
+    type: 'assistant',
+    cwd: repoDir,
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          name: 'Bash',
+          input: { command: 'git push origin develop' },
+        },
+      ],
+    },
+    timestamp: ts,
+  });
+
+const PUSH_LINE_WITH_CD_PREFIX = (repoDir, ts = '2026-05-16T12:00:00.000Z') =>
+  JSON.stringify({
+    type: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          name: 'Bash',
+          input: { command: `cd ${repoDir} && git push origin develop` },
+        },
+      ],
+    },
+    timestamp: ts,
+  });
+
+describe('enforce-review-spawn.sh - repo-dir derivation from PUSH_LINE', () => {
+  it('blocks when invoked from a non-repo CWD if PUSH_LINE envelope .cwd points at the repo', () => {
+    // Codeflare layout: agent CWD = /home/user/workspace/ (no .git),
+    // repo at /home/user/workspace/codeflare/. Hook must chdir into
+    // the repo before evaluating gates.
+    const repoDir = makeFixture();
+    withSdd(repoDir);
+    const binDir = fakeGh(repoDir, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(repoDir, [PUSH_LINE_WITH_ENVELOPE_CWD(repoDir)]);
+    // Invoke hook from the PARENT directory (not a git repo).
+    const parentCwd = resolve(repoDir, '..');
+    const r = runHook(parentCwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'must derive repo from PUSH_LINE .cwd and enforce, not silently exit');
+    assert.match(r.stdout, /code-reviewer/);
+    assert.match(r.stdout, /spec-reviewer/);
+  });
+
+  it('blocks when invoked from a non-repo CWD if PUSH_LINE command has `cd <repo> &&` prefix', () => {
+    // Second derivation path: the command itself starts with
+    // `cd /abs/path && git push ...`. This is the canonical shape
+    // for ctx_execute/Bash calls that target a specific repo.
+    const repoDir = makeFixture();
+    withSdd(repoDir);
+    const binDir = fakeGh(repoDir, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(repoDir, [PUSH_LINE_WITH_CD_PREFIX(repoDir)]);
+    const parentCwd = resolve(repoDir, '..');
+    const r = runHook(parentCwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'must derive repo from `cd <path>` command prefix and enforce');
+  });
+
+  it('exits 0 silently from non-repo CWD when PUSH_LINE has no derivable repo hint', () => {
+    // Bare `git push` with no envelope .cwd and no cd-prefix: the
+    // hook has no way to find the repo from the transcript. Must
+    // fail-safe to silent exit 0 (do NOT block based on a guess).
+    const repoDir = makeFixture();
+    withSdd(repoDir);
+    const binDir = fakeGh(repoDir, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(repoDir, [PUSH_LINE()]);  // no cwd hints
+    const parentCwd = resolve(repoDir, '..');
+    const r = runHook(parentCwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'no derivable repo hint must fail-safe to silent exit, not block on guess');
+  });
+});
