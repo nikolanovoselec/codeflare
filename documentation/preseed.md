@@ -338,7 +338,7 @@ context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/c
 The integration is sized to stay within ELv2's permitted-use envelope.
 See [AD49](decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) for the full design + license analysis.
 
-### Graphify hard-block PreToolUse hook
+### Graphify hard-block PreToolUse hook (REQ-AGENT-024)
 
 In advanced session mode, `enforce-graphify.sh` is a second PreToolUse hook on the graphify plugin that complements the existing `graph-first-nudge.sh` soft nudge. The soft nudge fires on every grep-class call with an `additionalContext` reminder; the hard-block fires only after the pattern persists.
 
