@@ -8,7 +8,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 - **Vault** -- The persistent directory at `/home/user/.obsidian_vault/` holding markdown notes, pasted assets, and derived graphify output. Bisynced to R2 to survive across sessions.
 - **Capture Sonnet** -- The background sonnet agent spawned by the memory-capture UserPromptSubmit hook. Writes one markdown file per 15-prompt batch into `raw/sessions/` and merges it into the unified global graph.
-- **Vault-monitor Daemon** -- A 60s polling loop in entrypoint.sh that watches for user-curated edits (under `notes/`, `raw/pasted/`) and writes a trigger marker (`vault-extract.vars`) when changes are found. Uses the two-marker pattern (tick / high-water / trigger) to avoid the daemon-advances-mtime-before-extraction-reads-it race.
+- **Vault-monitor Daemon** -- A 60s polling loop in entrypoint.sh that watches for user-curated edits (under `notes/`, `raw/pasted/`) and writes a trigger marker (`vault-extract.vars`) when changes are found. Uses the three-marker pattern (tick / high-water / trigger) to avoid the daemon-advances-mtime-before-extraction-reads-it race.
 - **Vault-extract Sonnet** -- The background sonnet spawned by `vault-monitor-hook.sh`. Runs graphify single-file extraction on the changed files, merges the resulting subgraph into the unified global graph, and advances the high-water marker as its final step.
 - **Unified Global Graph** -- `~/.graphify/global-graph.json`. Hash-keyed merge of every per-repo graphify-out plus the vault's own graph, kept in sync by `graphify global add` calls under `flock /tmp/graphify-global.lock`. The graphify MCP wrapper prefers this graph when present so `mcp__graphify__*` tool calls return a unified view.
 - **SilverBullet** -- The Deno-compiled markdown editor (`silverbullet-server-linux-x86_64`) bound to `127.0.0.1:3030` inside the container. Reachable from the codeflare UI through the Worker proxy at `/api/vault/:sid/`. Auth boundary lives at the Worker.
@@ -51,7 +51,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - Vault content is per-user (each user has their own R2 bucket).
 
 **Priority:** P0
-**Dependencies:** REQ-STORAGE-* (existing rclone bisync infrastructure)
+**Dependencies:** REQ-STOR-002 (file persistence across sessions), REQ-STOR-003 (60s bisync), REQ-STOR-004 (initial sync restores files on container start)
 **Verification:** Automated test (`host/__tests__/entrypoint-vault.test.js` AC: filter order, init function presence)
 **Status:** Implemented
 
@@ -89,7 +89,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 1. `start_vault_monitor_daemon` in entrypoint.sh polls the vault every 60s, excluding `raw/sessions/`, `graphify-out/`, and `.silverbullet/` from the find.
-2. The daemon uses a two-marker pattern: `vault-monitor.tick` (heartbeat), `vault-extract.last` (high-water mark), `vault-extract.vars` (trigger). The find compares against `vault-extract.last`, NOT the tick, so a daemon that advances the wrong marker cannot lose work.
+2. The daemon uses a three-marker pattern: `vault-monitor.tick` (heartbeat), `vault-extract.last` (high-water mark), `vault-extract.vars` (trigger). The find compares against `vault-extract.last`, NOT the tick, so a daemon that advances the wrong marker cannot lose work.
 3. `vault-monitor-hook.sh` (UserPromptSubmit) exits 0 immediately when `vault-extract.vars` is absent (zero-cost on idle prompts) and emits `additionalContext` pointing at `vault-extract-prompt.md` when present.
 4. The vault-extract sonnet deletes `vault-extract.vars` as its first step (dedup gate), runs graphify extraction per changed file, merges via `graphify global add`, and touches `vault-extract.last` as its final step.
 5. If steps 2-4 fail, the high-water marker is NOT advanced; the next daemon tick (within 60s) re-discovers the same files.
@@ -100,7 +100,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-VAULT-001
-**Verification:** Automated test (entrypoint-vault.test.js AC: two-marker pattern presence); E2E (edit `notes/foo.md`, wait 60s, send prompt, confirm extraction)
+**Verification:** Automated test (entrypoint-vault.test.js AC: three-marker pattern presence); E2E (edit `notes/foo.md`, wait 60s, send prompt, confirm extraction)
 **Status:** Implemented
 
 ---
@@ -171,7 +171,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - A 60s bisync timeout vs. a 75s DO destroy budget gives a 15s buffer; this is the minimum that allows graceful process termination after bisync completes.
 
 **Priority:** P0
-**Dependencies:** REQ-SESSION-* (existing destroy() flow)
+**Dependencies:** REQ-SESSION-009 (container destroy wipes session state), REQ-SESSION-011 (graceful shutdown with final sync), REQ-STOR-005 (graceful shutdown performs final sync)
 **Verification:** Automated test (`entrypoint-vault.test.js`, `shutdown-timeout.test.ts`); E2E (edit vault, click Stop, close tab, reopen, confirm edit persisted)
 **Status:** Implemented
 

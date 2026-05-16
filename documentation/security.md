@@ -309,6 +309,10 @@ Base64-encoded inputs are validated with try/catch around `atob()`. Invalid base
 
 Implements [REQ-SEC-007 AC10, AC11](../sdd/security.md#req-sec-007-rate-limiting-on-all-mutation-endpoints).
 
+### Vault Editor Rate Limit (REQ-VAULT-005)
+
+The vault editor proxy at `/api/vault/:sid/*` runs through `validateVaultRoute` -> `handleVaultRequest` in `src/routes/vault.ts`. WebSocket upgrades for SilverBullet's live-edit sync are rate-limited via the same `ws-connect:<email>` bucket as terminal WebSockets (30 connections per 60s window), sharing budget across both surfaces so a runaway editor reconnect cannot starve terminal use. Plain HTTP requests to the editor share the per-user HTTP rate-limit defaults.
+
 ### Session Limits
 
 Per-user cap on concurrent running sessions, configurable by role via `MAX_SESSIONS_USER` (default: 3) and `MAX_SESSIONS_ADMIN` (default: 10) in `wrangler.toml`.

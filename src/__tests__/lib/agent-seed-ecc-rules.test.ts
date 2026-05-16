@@ -113,6 +113,11 @@ describe('ECC rules in agent-seed', () => {
     '.claude/rules/documentation-discipline.md',
     '.claude/rules/tdd-discipline.md',
     '.claude/rules/graph-first.md',
+    // vault.md teaches the agent the obsidian-vault subsystem
+    // (REQ-VAULT-001..007). The vault is a Pro-mode feature gated by the
+    // graphify MCP server and the memory-capture hook; default-mode
+    // sessions don't ship those, so the rule has no audience there.
+    '.claude/rules/vault.md',
   ];
 
   it('non-memory codeflare rules have default+advanced modes', () => {

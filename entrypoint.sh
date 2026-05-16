@@ -773,7 +773,12 @@ start_silverbullet_supervisor() {
 
     echo "[entrypoint] Starting SilverBullet supervisor on $SB_HOST:$SB_PORT (vault=$VAULT_ROOT)..."
 
+    # set -m makes the subshell a process-group leader so the shutdown
+    # handler can kill the supervisor AND its silverbullet child in one
+    # `kill -- -PID` call (otherwise the loop dies but silverbullet keeps
+    # running and the next session can't bind 3030).
     (
+        set -m
         while true; do
             # Vault may not exist on first boot if baseline+init are still
             # racing. Wait it out instead of crash-looping; the daemon
@@ -801,10 +806,25 @@ shutdown_handler() {
     SHUTDOWN_STARTED_AT=$(date +%s)
     echo "[entrypoint] Received shutdown signal, performing final bisync..."
 
-    # Kill sync daemon via PID file
-    kill "$(cat /tmp/sync-daemon.pid 2>/dev/null)" 2>/dev/null || true
-    kill "$(cat /tmp/vault-monitor.pid 2>/dev/null)" 2>/dev/null || true
-    kill "$(cat /tmp/silverbullet.pid 2>/dev/null)" 2>/dev/null || true
+    # Kill background daemons via PID file. For each: signal the whole
+    # process group so children (rclone for the sync daemon, silverbullet
+    # for the editor supervisor) die alongside the supervising subshell.
+    # Falls back to walking descendants if the kernel rejects -PID.
+    kill_pidfile_subtree() {
+        local pidfile="$1"
+        local pid
+        pid="$(cat "$pidfile" 2>/dev/null)"
+        [ -z "$pid" ] && return 0
+        if ! kill -TERM -- "-${pid}" 2>/dev/null; then
+            kill -TERM "$pid" 2>/dev/null || true
+            for child in $(pgrep -P "$pid" 2>/dev/null); do
+                kill -TERM "$child" 2>/dev/null || true
+            done
+        fi
+    }
+    kill_pidfile_subtree /tmp/sync-daemon.pid
+    kill_pidfile_subtree /tmp/vault-monitor.pid
+    kill_pidfile_subtree /tmp/silverbullet.pid
 
     # Perform final bisync to R2 (only if baseline was established).
     # Wrap in `timeout 60` so the DO's destroy() SIGKILL budget (75s,
@@ -821,22 +841,45 @@ shutdown_handler() {
         # Background bisync + watchdog that hard-kills at 60s. Cannot use
         # `timeout(1)` directly because bisync_with_r2 is a shell function;
         # timeout's bash -c child would not see it without `export -f` +
-        # propagating every env var it reads. Background + watcher is
-        # simpler and gives us a clean RC.
-        ( bisync_with_r2 ) &
+        # propagating every env var it reads.
+        #
+        # We need the watchdog to kill the rclone child too (not just the
+        # subshell). `kill -TERM "$BISYNC_PID"` alone propagates only to
+        # the wrapping subshell — rclone keeps running and the half-uploaded
+        # files land in R2 anyway. To kill the whole subtree, run the
+        # subshell as its own process-group leader via `set -m` and then
+        # signal the negative pgid (`kill -- -$BISYNC_PID`).
+        ( set -m; bisync_with_r2 ) &
         BISYNC_PID=$!
-        ( sleep 60 && kill -TERM "$BISYNC_PID" 2>/dev/null && sleep 2 && kill -KILL "$BISYNC_PID" 2>/dev/null ) &
+        ( sleep 60
+          # Negative PID = signal the entire process group. Falls back to
+          # walking pgrep descendants if the kernel rejects (-N) (e.g.
+          # because set -m didn't take inside the subshell).
+          if ! kill -TERM -- "-${BISYNC_PID}" 2>/dev/null; then
+              kill -TERM "$BISYNC_PID" 2>/dev/null
+              for child in $(pgrep -P "$BISYNC_PID" 2>/dev/null); do
+                  kill -TERM "$child" 2>/dev/null
+              done
+          fi
+          sleep 2
+          if ! kill -KILL -- "-${BISYNC_PID}" 2>/dev/null; then
+              kill -KILL "$BISYNC_PID" 2>/dev/null
+              for child in $(pgrep -P "$BISYNC_PID" 2>/dev/null); do
+                  kill -KILL "$child" 2>/dev/null
+              done
+          fi
+        ) &
         WATCHDOG_PID=$!
         wait "$BISYNC_PID" 2>/dev/null
         BISYNC_RC=$?
         kill "$WATCHDOG_PID" 2>/dev/null
         wait "$WATCHDOG_PID" 2>/dev/null
         # Bash reports 143 (128 + SIGTERM) or 137 (128 + SIGKILL) when
-        # the watchdog fired — surface that as a timeout in the log.
+        # the watchdog fired - surface that as a timeout in the log.
         if [ "$BISYNC_RC" -eq 0 ]; then
             echo "[entrypoint] Final bisync completed successfully"
         elif [ "$BISYNC_RC" -eq 143 ] || [ "$BISYNC_RC" -eq 137 ]; then
-            echo "[entrypoint] Final bisync TIMED OUT after 60s — last writes may not have synced. Increase budget if this is frequent."
+            echo "[entrypoint] Final bisync TIMED OUT after 60s - last writes may not have synced. Increase budget if this is frequent."
         else
             echo "[entrypoint] Final bisync failed with rc=$BISYNC_RC"
         fi

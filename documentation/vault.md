@@ -17,7 +17,7 @@ Two parties write to the vault:
 
 A single 60s daemon polls for user edits and signals a background sonnet to ingest them into the unified graphify graph. Future agents query that graph via `mcp__graphify__*` and see captures + user notes + every active repo's code, merged.
 
-## Directory Layout
+## Directory Layout (REQ-VAULT-001)
 
 ```
 .obsidian_vault/
@@ -40,7 +40,7 @@ Step 4 of `memory-agent-prompt.md` is the only thing that changed. The sonnet no
 1. Reads the new transcript range.
 2. Identifies decisions, observations, references, and a short topic phrase.
 3. Writes `/home/user/.obsidian_vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter template (session id, captured-at, captured-from-range, then Context / Decisions / Observations / References sections).
-4. Runs `flock /tmp/graphify-global.lock graphify extract --file <file>` then `flock graphify global add ... --as vault`, so the capture lands in the unified global graph the same turn it is written.
+4. Runs `flock /tmp/graphify-global.lock graphify extract --file <file>` then `flock /tmp/graphify-global.lock graphify global add ... --as vault`, so the capture lands in the unified global graph the same turn it is written.
 5. Touches `{COUNTER_FILE}.compact` if `raw/sessions/` exceeds 200 files (signals the existing opus-compact path).
 
 The dedup gate (delete the `.vars` file as the first step) is unchanged.
@@ -88,7 +88,7 @@ All four serialise via `flock /tmp/graphify-global.lock`. The locking is necessa
 
 The Dockerfile installs the `silverbullet-server-linux-x86_64` binary at `/usr/local/bin/silverbullet`, pinned by version + SHA256. `start_silverbullet_supervisor` in entrypoint.sh runs the server on `127.0.0.1:3030` against the vault, supervised with a 5s restart loop so an editor crash never requires a container restart.
 
-The editor is reached from the codeflare UI through the Worker proxy at `/api/vault/:sid/`. Auth + tier + rate-limit happens at the Worker (`src/routes/vault.ts:handleVaultRequest`), mirroring the auth chain for terminal WebSocket upgrades. The in-container HTTP server (`host/src/server.ts`) has a `/vault/*` HTTP branch and a WS upgrade passthrough that proxies to `127.0.0.1:3030`. WebSocket upgrades for live-edit sync share the same per-user `ws-connect:<email>` rate-limit bucket as terminal WebSockets.
+The editor is reached from the codeflare UI through the Worker proxy at `/api/vault/:sid/`. Auth, tier check, and rate-limiting are enforced at the Worker -- see [security.md](./security.md). The in-container HTTP server (`host/src/server.ts`) has a `/vault/*` HTTP branch and a WS upgrade passthrough that proxies to `127.0.0.1:3030`.
 
 The Vault button in `Header.tsx` (`mdiChartGantt` icon, between Bookmarks and Storage) opens the editor in a new tab via `window.open`. It only renders when an active session exists and the layout passes `onVaultOpen` -- terminal view only.
 
@@ -103,7 +103,7 @@ Two paired fixes bundled with the vault PR:
 
 If the bisync exceeds 60s, the log records `TIMED OUT after 60s` -- a recognisable string for operators triaging stale-session reports.
 
-## First-session Expectations
+## First-session Expectations (REQ-VAULT-001)
 
 A brand-new session boots with an empty vault. The skeleton (subdirectories, README, empty `graph.json`, SilverBullet config) is created by `init_obsidian_vault()` in entrypoint.sh on every boot, but the function is idempotent -- a returning session inherits the R2-restored content untouched.
 
@@ -121,7 +121,7 @@ SilverBullet supports pasting images directly into notes (they land in `raw/past
 | `curl http://127.0.0.1:3030/` returns nothing inside the container | SilverBullet supervisor not yet up | Wait 5s and retry; check `/tmp/silverbullet.log` for the restart-loop output. |
 | `mcp__graphify__query_graph` returns no vault nodes | Global graph not built yet, or wrapper still pointing at per-repo graph | Check `~/.graphify/global-graph.json` exists; if it does, restart the MCP wrapper (it polls on a 2s loop). |
 | Edits don't appear in graph queries within 60s | Vault-extract marker stale | Look at `~/.cache/codeflare-hooks/vault-extract.last` mtime; force a new tick by touching a file under `notes/`. |
-| Stale session state on reopen after stop | Shutdown bisync was killed mid-write | Look for `TIMED OUT after 60s` in container logs; raise the watchdog budget in `shutdown_handler` if frequent. |
+| Stale session state on reopen after stop | Shutdown bisync was killed mid-write | Look for `TIMED OUT after 60s` in Durable Object logs (`wrangler tail <SCRIPT_NAME>`); raise the watchdog budget in `shutdown_handler` if frequent. |
 | `/api/vault/:sid/` returns 503 | SilverBullet supervisor not ready | The `/api/vault/:sid/status` endpoint reports `vaultReady`; poll it and re-open when true. |
 
 ## Related Documentation

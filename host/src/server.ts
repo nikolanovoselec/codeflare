@@ -353,8 +353,17 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
   res.end(JSON.stringify({ error: 'Not found' }));
 });
 
-// Create WebSocket server
-const wss = new WebSocketServer({ server, path: '/terminal', maxPayload: WS_MAX_PAYLOAD });
+// Create WebSocket server.
+//
+// We deliberately use `noServer: true` (not the `{server, path}` form): when
+// the `ws` library is given a `server` it attaches its own internal
+// 'upgrade' listener that unconditionally calls handleUpgrade for every
+// upgrade and `abortHandshake(socket, 400)` on path mismatch — which
+// would destroy `/vault/*` upgrades before the vault WSS could claim
+// them. Routing both /terminal and /vault from a single
+// `server.on('upgrade')` below gives each WSS exclusive control over
+// its own paths.
+const wss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
 
 wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
   const { query } = parseUrl(req.url ?? '', true);
@@ -488,23 +497,40 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
 // Vault WebSocket proxy → SilverBullet at SILVERBULLET_HOST:SILVERBULLET_PORT.
 //
 // SilverBullet uses WS for live-edit sync; the path is whatever the
-// SilverBullet client picks (e.g. `/.client/ws`). We can't bind the
-// WSS to a single fixed path the way the terminal WSS does, so we use
-// `noServer: true` and route upgrade events ourselves.
-//
-// The existing terminal WSS (path:'/terminal') has already attached its
-// own upgrade listener; both listeners receive every upgrade event.
-// We only `handleUpgrade` on /vault/* paths and ignore everything
-// else, leaving the terminal WSS to handle /terminal as it always has.
+// SilverBullet client picks (e.g. `/.client/ws`). We route /vault/* via
+// `noServer: true` and proxy to upstream below.
 const vaultWss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
 
+// Single upgrade dispatcher for the whole server. Both `wss` (terminal)
+// and `vaultWss` (vault) use noServer:true; this listener inspects the
+// upgrade URL and routes to the correct WSS. Unknown paths get the
+// socket destroyed cleanly (HTTP 400) so misrouted clients fail fast.
 server.on('upgrade', (req, socket, head) => {
   const { pathname } = parseUrl(req.url ?? '');
-  if (!pathname || !pathname.startsWith('/vault')) return;
 
+  if (pathname === '/terminal') {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    });
+    return;
+  }
+
+  if (pathname && pathname.startsWith('/vault')) {
+    handleVaultUpgrade(req, socket, head);
+    return;
+  }
+
+  // Unknown WS path. Refuse cleanly so the client sees a proper
+  // handshake failure rather than hanging.
+  socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+  socket.destroy();
+});
+
+function handleVaultUpgrade(req: http.IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): void {
+  const { pathname } = parseUrl(req.url ?? '');
   // Strip the `/vault` prefix; the worker already stripped its own
   // `/api/vault/:sid` prefix. SilverBullet sees its native WS path.
-  const upstreamPath = pathname.slice('/vault'.length) || '/';
+  const upstreamPath = (pathname ?? '/vault').slice('/vault'.length) || '/';
   const search = (req.url ?? '').includes('?')
     ? '?' + (req.url ?? '').split('?').slice(1).join('?')
     : '';
@@ -571,7 +597,7 @@ server.on('upgrade', (req, socket, head) => {
       closeBoth(1011, 'upstream-error');
     });
   });
-});
+}
 
 // Pre-warm state (module-level so /health endpoint can read prewarmReady)
 let prewarmReady = false;
