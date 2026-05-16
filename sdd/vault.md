@@ -23,11 +23,11 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - Two-bucket model for vault vs. workspace (vault sits inside the existing R2 bucket, with explicit filter includes)
 - Desktop Obsidian or web-VNC clients (SilverBullet covers the editing surface)
 - Standalone vault-only container (vault lives inside the session container)
-- Migration of legacy `~/.memory/session-*.jsonl` into the vault (separate concern; read side stays in MCP memory)
+- Migration of legacy `~/.memory/session-*.jsonl` into the vault (MCP server-memory subsystem is removed; no historical graph is preserved)
 
 ### Domain Dependencies
 
-- **Memory** -- Reuses the `memory-capture.sh` UserPromptSubmit hook and `~/.memory/counter/` state. The capture sonnet's Step 4 was rewritten to write into the vault instead of MCP memory; the dedup gate (`.vars` marker) is unchanged.
+- **Memory** -- Reuses the `memory-capture.sh` UserPromptSubmit hook and `~/.memory/counter/` state. The capture sonnet writes Step 4's output into the vault (MCP server-memory has been removed from the stack); the dedup gate (`.vars` marker) is unchanged.
 - **Storage** -- Vault persistence is provided by the existing rclone bisync to R2. One new include filter (`+ .obsidian_vault/**`) is added to `RCLONE_FILTERS_COMMON`, ordered BEFORE the existing `**/graphify-out/**` exclude so first-match semantics keep vault content sync'd.
 - **Session Lifecycle** -- The bundled shutdown bisync reliability fix raises the DO `destroy()` SIGTERM-to-SIGKILL budget from 25s to 75s, so the entrypoint's 60s final bisync can complete cleanly. Without this, vault edits made in the last seconds before shutdown were silently lost to R2.
 - **Subscription** -- Vault features (preseed entries, SilverBullet supervisor) are gated to advanced session mode via the existing manifest mode filter (`"modes": ["advanced"]` on every new preseed entry).
@@ -187,7 +187,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 1. `preseed/agents/claude/manifest.json` registers `plugins/codeflare-vault/.claude-plugin/plugin.json`, `plugins/codeflare-vault/scripts/vault-monitor-hook.sh`, `plugins/codeflare-vault/scripts/vault-extract-prompt.md`, and `rules/vault.md` -- all in advanced mode only.
 2. The Dockerfile copies `preseed/silverbullet/` to `/opt/silverbullet-preseed/` so `init_obsidian_vault()` can install the editor config without baking it into every R2 sync.
 3. `scripts/generate-agent-seed.mjs` (run as `prebuild`) embeds the manifest contents into `src/lib/agent-seed.generated.ts`, which is what the Worker ships to the container at boot.
-4. `preseed/agents/claude/rules/memory.md` is updated to document the post-vault split (capture writes to vault; MCP memory read-only).
+4. `preseed/agents/claude/rules/memory.md` is updated to document the vault-only capture path.
 
 **Constraints:**
 - Default-mode sessions do NOT get the vault plugin; the editor is an advanced-tier feature.
