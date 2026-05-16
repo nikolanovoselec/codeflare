@@ -196,3 +196,163 @@ describe('entrypoint settings.json hook merge - enforce-ctx-mode.sh dedup', () =
     );
   });
 });
+
+// Reproduces the prod accumulation observed in production verification of
+// PR #367: vault-monitor-hook.sh registered 2x on UserPromptSubmit and the
+// graphify hooks (graphify-clone-prompt.sh, graphify-session-start.sh)
+// registered 10x each. Without the extended MANAGED_HOOKS_REGEX, the merge
+// preserves every prior copy because the prune regex only knew about
+// codeflare-(hooks|memory)/scripts/ + enforce-ctx-mode.sh + context-mode
+// invocations.
+function accumulatedVaultGraphifySettingsFixture() {
+  const vaultHook = 'bash /home/user/.claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh';
+  const memoryHook = 'bash /home/user/.claude/plugins/codeflare-memory/scripts/memory-capture.sh';
+  const graphifyClone = 'bash /home/user/.claude/plugins/graphify/scripts/graphify-clone-prompt.sh';
+  const graphifyStart = 'bash /home/user/.claude/plugins/graphify/scripts/graphify-session-start.sh';
+  return JSON.stringify({
+    skipDangerousModePermissionPrompt: true,
+    hooks: {
+      UserPromptSubmit: [
+        {
+          matcher: '',
+          hooks: [
+            { type: 'command', command: vaultHook },
+            { type: 'command', command: memoryHook },
+            { type: 'command', command: vaultHook },
+          ],
+        },
+      ],
+      PostToolUse: [
+        {
+          matcher: 'Bash',
+          hooks: [
+            { type: 'command', command: graphifyClone },
+            { type: 'command', command: graphifyClone },
+            { type: 'command', command: graphifyClone },
+            { type: 'command', command: graphifyClone },
+            { type: 'command', command: graphifyClone },
+            { type: 'command', command: graphifyClone },
+            { type: 'command', command: graphifyClone },
+            { type: 'command', command: graphifyClone },
+            { type: 'command', command: graphifyClone },
+            { type: 'command', command: graphifyClone },
+          ],
+        },
+      ],
+      SessionStart: [
+        {
+          matcher: 'startup',
+          hooks: Array.from({ length: 10 }, () => ({ type: 'command', command: graphifyStart })),
+        },
+        {
+          // User-added SessionStart hook on the default matcher — must survive.
+          matcher: '',
+          hooks: [
+            { type: 'command', command: 'bash /home/user/custom/my-session-start.sh' },
+          ],
+        },
+      ],
+    },
+  });
+}
+
+// Canonical advanced-mode config with one copy of each managed hook on its
+// canonical matcher (mirrors what entrypoint.sh assembles into SETTINGS_CONFIG).
+function advancedVaultGraphifySettingsConfig() {
+  const vaultHook = 'bash /home/user/.claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh';
+  const memoryHook = 'bash /home/user/.claude/plugins/codeflare-memory/scripts/memory-capture.sh';
+  const graphifyClone = 'bash /home/user/.claude/plugins/graphify/scripts/graphify-clone-prompt.sh';
+  const graphifyStart = 'bash /home/user/.claude/plugins/graphify/scripts/graphify-session-start.sh';
+  return {
+    skipDangerousModePermissionPrompt: true,
+    hooks: {
+      UserPromptSubmit: [
+        {
+          matcher: '',
+          hooks: [
+            { type: 'command', command: memoryHook },
+            { type: 'command', command: vaultHook },
+          ],
+        },
+      ],
+      PostToolUse: [
+        {
+          matcher: 'Bash',
+          hooks: [{ type: 'command', command: graphifyClone }],
+        },
+      ],
+      SessionStart: [
+        {
+          matcher: 'startup',
+          hooks: [{ type: 'command', command: graphifyStart }],
+        },
+      ],
+    },
+  };
+}
+
+describe('entrypoint settings.json hook merge - vault + graphify dedup', () => {
+  it('vault-monitor-hook.sh duplicated 2x collapses to exactly 1 on UserPromptSubmit', () => {
+    const merged = runJqMerge(accumulatedVaultGraphifySettingsFixture(), advancedVaultGraphifySettingsConfig());
+    const ups = merged?.hooks?.UserPromptSubmit ?? [];
+    const defaultMatcher = ups.find((e) => e.matcher === '');
+    assert.ok(defaultMatcher, 'UserPromptSubmit default matcher must exist after merge');
+    const vaultCount = defaultMatcher.hooks.filter((h) => h.command.includes('vault-monitor-hook.sh')).length;
+    assert.equal(
+      vaultCount,
+      1,
+      `expected exactly 1 vault-monitor-hook.sh entry, got ${vaultCount}: ${JSON.stringify(defaultMatcher.hooks)}`,
+    );
+  });
+
+  it('memory-capture.sh stays exactly 1 (was already managed by codeflare-memory regex)', () => {
+    const merged = runJqMerge(accumulatedVaultGraphifySettingsFixture(), advancedVaultGraphifySettingsConfig());
+    const ups = merged?.hooks?.UserPromptSubmit ?? [];
+    const defaultMatcher = ups.find((e) => e.matcher === '');
+    const memCount = defaultMatcher.hooks.filter((h) => h.command.includes('memory-capture.sh')).length;
+    assert.equal(memCount, 1, 'memory-capture.sh should remain exactly 1 after dedup');
+  });
+
+  it('graphify-clone-prompt.sh duplicated 10x collapses to exactly 1 on PostToolUse[Bash]', () => {
+    const merged = runJqMerge(accumulatedVaultGraphifySettingsFixture(), advancedVaultGraphifySettingsConfig());
+    const post = merged?.hooks?.PostToolUse ?? [];
+    const bashMatcher = post.find((e) => e.matcher === 'Bash');
+    assert.ok(bashMatcher, 'PostToolUse Bash matcher must exist after merge');
+    const cloneCount = bashMatcher.hooks.filter((h) => h.command.includes('graphify-clone-prompt.sh')).length;
+    assert.equal(
+      cloneCount,
+      1,
+      `expected exactly 1 graphify-clone-prompt.sh entry, got ${cloneCount}`,
+    );
+  });
+
+  it('graphify-session-start.sh duplicated 10x collapses to exactly 1 on SessionStart[startup]', () => {
+    const merged = runJqMerge(accumulatedVaultGraphifySettingsFixture(), advancedVaultGraphifySettingsConfig());
+    const ss = merged?.hooks?.SessionStart ?? [];
+    const startupMatcher = ss.find((e) => e.matcher === 'startup');
+    assert.ok(startupMatcher, 'SessionStart startup matcher must exist after merge');
+    const startCount = startupMatcher.hooks.filter((h) => h.command.includes('graphify-session-start.sh')).length;
+    assert.equal(
+      startCount,
+      1,
+      `expected exactly 1 graphify-session-start.sh entry, got ${startCount}`,
+    );
+  });
+
+  it('user-added SessionStart hook on default matcher survives the prune', () => {
+    const merged = runJqMerge(accumulatedVaultGraphifySettingsFixture(), advancedVaultGraphifySettingsConfig());
+    const ss = merged?.hooks?.SessionStart ?? [];
+    const userMatcher = ss.find((e) => e.matcher === '');
+    assert.ok(userMatcher, 'user-added SessionStart default-matcher entry must survive');
+    assert.equal(userMatcher.hooks[0].command, 'bash /home/user/custom/my-session-start.sh');
+  });
+
+  it('downgrade to default mode: vault and graphify managed hooks are pruned', () => {
+    const merged = runJqMerge(accumulatedVaultGraphifySettingsFixture(), defaultModeSettingsConfig());
+    const allCommands = JSON.stringify(merged?.hooks ?? {});
+    assert.ok(!allCommands.includes('vault-monitor-hook.sh'), 'vault-monitor-hook.sh must be pruned on downgrade');
+    assert.ok(!allCommands.includes('graphify-clone-prompt.sh'), 'graphify-clone-prompt.sh must be pruned on downgrade');
+    assert.ok(!allCommands.includes('graphify-session-start.sh'), 'graphify-session-start.sh must be pruned on downgrade');
+    assert.ok(!allCommands.includes('memory-capture.sh'), 'memory-capture.sh must be pruned on downgrade');
+  });
+});
