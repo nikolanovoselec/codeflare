@@ -54,7 +54,7 @@ separate Recreate click is required; the UI shows a confirmation
 when the toggle completes. On Stripe-driven or Settings-driven
 reconciliation, preseed files are overwritten to match the new mode;
 user-created files are never deleted. Implements
-[REQ-AGENT-004](../sdd/agents.md#req-agent-004) AC4–AC5 and
+[REQ-AGENT-004](../sdd/agents.md#req-agent-004) AC4 - AC5 and
 [REQ-AGENT-005](../sdd/agents.md#req-agent-005).
 
 **Cleanup on Recreate**: `reconcileAgentConfigs()` seeds
@@ -117,11 +117,11 @@ MCP tool).
 
 **Rules (25 files, 3 in both modes + 22 advanced-only)**: Core
 environment rules (`cloudflare-environment`, `no-local-builds`,
-`git-workflow`) in both modes — `git-workflow` is the umbrella
+`git-workflow`) in both modes - `git-workflow` is the umbrella
 core rule that delegates branched mechanics to the `ci-monitoring`,
 `git-review-pipeline`, `pr-workflow`, and `deploy-credentials`
-skills. The discipline triad — `spec-discipline`,
-`documentation-discipline`, `tdd-discipline` — is advanced-only
+skills. The discipline triad - `spec-discipline`,
+`documentation-discipline`, `tdd-discipline` - is advanced-only
 core-minimum rules (Pro-mode SDD workflow opt-in: identity, status
 vocabulary, severity, and skill pointers; detection algorithms and
 content-quality checks live in their respective `*-enforce` skill
@@ -262,7 +262,7 @@ correctly by excluding keys that have a variant in the target mode.
 
 ## Settings.json Merge
 
-Implements [REQ-AGENT-008](../sdd/agents.md#req-agent-008) AC3–AC5.
+Implements [REQ-AGENT-008](../sdd/agents.md#req-agent-008) AC3 - AC5.
 
 `entrypoint.sh` merges settings into `~/.claude/settings.json`
 using a two-phase strategy. Non-hooks settings (statusLine,
@@ -313,7 +313,7 @@ is done via `settings.json` (see above).
   in settings.json, scripts delivered via plugin)
 - **codeflare-hooks**: Scripts for commit attribution blocking,
   git-push review reminders, and SDD review-agent sequential
-  enforcement — `spec-reviewer` runs first, then `doc-updater`
+  enforcement - `spec-reviewer` runs first, then `doc-updater`
   sequentially; on non-SDD projects (no `sdd/`) no agents fire and
   the push is friction-free (vibe-coding mode). Each tool-gated hook
   is registered on two matcher entries covering three tool names: the
@@ -373,9 +373,9 @@ The hook surfaces blocks as `hookSpecificOutput.permissionDecision: deny` with a
 
 `/sdd init` is the single entry point for bootstrapping SDD on a project. It detects one of three scenarios from project state and dispatches automatically:
 
-- **Greenfield** — empty project. Agent drafts vision / actors / domains / requirements from the user's prose and writes scaffolding.
-- **Import** — substantive existing code, no `sdd/` yet. Two-output model: behavior clearly determinable from source / tests / comments / commits / PRs becomes official REQs in `sdd/{domain}.md`; everything unclear (magic numbers, retry policies, ambiguous contracts, orphan code) becomes triage entries in `sdd/init-triage.md` with the agent's `**Context:**` (file:line, git author, commit refs, related tests/PRs) and `**Recommendation:**` (best-guess answer with one-line `**Rationale:**`) populated up front.
-- **Resume** — `sdd/` exists and `sdd/init-triage.md` has at least one `**Status:** open` item. Agent surfaces one item at a time with refreshed Context. Five decisions: `accept` (use the recommendation as-is, fold into REQ), `correct` (free-form prose describing what the thing is for and how it works; agent folds purpose into Intent and behavior into ACs), `lost` (one-line Reason required, no spec write), `skip` (stays open, no spec write), `quit`. Only `accept` and `correct` promote anything into the official spec.
+- **Greenfield** - empty project. Agent drafts vision / actors / domains / requirements from the user's prose and writes scaffolding.
+- **Import** - substantive existing code, no `sdd/` yet. Two-output model: behavior clearly determinable from source / tests / comments / commits / PRs becomes official REQs in `sdd/{domain}.md`; everything unclear (magic numbers, retry policies, ambiguous contracts, orphan code) becomes triage entries in `sdd/init-triage.md` with the agent's `**Context:**` (file:line, git author, commit refs, related tests/PRs) and `**Recommendation:**` (best-guess answer with one-line `**Rationale:**`) populated up front.
+- **Resume** - `sdd/` exists and `sdd/init-triage.md` has at least one `**Status:** open` item. Agent surfaces one item at a time with refreshed Context. Five decisions: `accept` (use the recommendation as-is, fold into REQ), `correct` (free-form prose describing what the thing is for and how it works; agent folds purpose into Intent and behavior into ACs), `lost` (one-line Reason required, no spec write), `skip` (stays open, no spec write), `quit`. Only `accept` and `correct` promote anything into the official spec.
 
 While `sdd/init-triage.md` contains any open items, `sdd/config.yml` carries `transition: true`. The transition gate condition is the conjunction `transition: true` in config AND `**Status:** open` items in the triage file (case-insensitive on `open`); all enforcement layers test both. During transition the entire review pipeline is suspended:
 
@@ -404,10 +404,10 @@ See [Preseed Troubleshooting](preseed-troubleshooting.md) for hook debugging, at
 
 ## Related Documentation
 
-- [Preseed Troubleshooting](preseed-troubleshooting.md) — Hook debugging and checkpoint reset
+- [Preseed Troubleshooting](preseed-troubleshooting.md) - Hook debugging and checkpoint reset
 - [Memory](memory.md) - Vault-based cross-session memory and the
   capture hook chain
-- [Container](container.md#claude-code-integration) — Claude Code
+- [Container](container.md#claude-code-integration) - Claude Code
   configuration
-- [Storage & Sync](storage-and-sync.md) — R2 sync internals
-- [Decisions](decisions/README.md) — Architecture decisions
+- [Storage & Sync](storage-and-sync.md) - R2 sync internals
+- [Decisions](decisions/README.md) - Architecture decisions
