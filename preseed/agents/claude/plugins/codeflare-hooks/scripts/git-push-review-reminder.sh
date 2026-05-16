@@ -18,8 +18,12 @@
 # is intentional: drafts often want early feedback, and silent skip
 # would surprise users whose draft is the de-facto review target. Users
 # who want a review-free WIP branch should defer the PR open until they
-# are ready, OR use the sentinel/magic-phrase USER bypasses on a per-push
-# basis.
+# are ready, OR use the magic-phrase USER bypass on a per-push basis.
+#
+# No sentinel-file bypass here — PR-open is rare enough that the
+# magic phrase suffices. The sibling enforce-review-spawn.sh hook
+# (PR-sync) owns the /tmp/review-bypass sentinel; do not mirror it
+# here to avoid divergent bypass semantics across the two hooks.
 #
 # This switches the cost model from per-push (every commit + push pair
 # burned a full review) to per-PR (one review at PR-open + one per push

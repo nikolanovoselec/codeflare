@@ -3,6 +3,7 @@
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
 ## 2026-05-16
+- SDD review-bypass sentinel moved from `sdd/.skip-next-review` (in-repo, risked accidental commits) to `/tmp/review-bypass` (per-session, never committed, never survives container restart). REQ-AGENT-021 AC4 contract unchanged; only the path moved. Hook bypass logic, magic-phrase fallback, and 3-strike circuit breaker are identical. `REVIEW_BYPASS_FILE` env override added for hermetic test isolation; production reads the default path.
 - Memory domain rewritten: the MCP `server-memory` knowledge-graph substrate (per-session JSONL files, merge-on-boot, two-phase capture+compaction, 5000-observation threshold) is removed. The obsidian vault at `/home/user/.obsidian_vault/` is now the sole cross-session memory store; captures land as markdown under `raw/sessions/` and the unified graphify graph (`~/.graphify/global-graph.json`) is queried via `mcp__graphify__*`. REQ-MEM-001, REQ-MEM-002, REQ-MEM-004, REQ-MEM-006, REQ-MEM-008 rewritten; REQ-MEM-003 (two-phase compaction), REQ-MEM-005 (per-session JSONL), REQ-MEM-007 (5000-observation compaction trigger) deleted. New REQ-MEM-001 dependency on REQ-VAULT-002.
 
 ## 2026-05-15

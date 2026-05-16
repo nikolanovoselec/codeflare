@@ -113,8 +113,13 @@ fi
 # HOOK_EVENT check so a SubagentStop event doesn't consume the sentinel
 # before the actual Stop event has a chance to honor it.
 # ---------------------------------------------------------------------------
-if [ -f "/tmp/review-bypass" ]; then
-  rm -f "/tmp/review-bypass" 2>/dev/null || true
+# Sentinel path is overridable via REVIEW_BYPASS_FILE for hermetic
+# tests; production reads /tmp/review-bypass. Codeflare runs a
+# single-user container, so /tmp scoping is sufficient — multi-user
+# hosts should set REVIEW_BYPASS_FILE per user.
+BYPASS_FILE="${REVIEW_BYPASS_FILE:-/tmp/review-bypass}"
+if [ -f "$BYPASS_FILE" ]; then
+  rm -f "$BYPASS_FILE" 2>/dev/null || true
   exit 0
 fi
 

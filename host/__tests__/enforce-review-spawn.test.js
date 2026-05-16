@@ -11,7 +11,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, utimesSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,9 +106,11 @@ function writeTranscript(cwd, lines) {
   return path;
 }
 
-function runHook(cwd, { event = 'Stop', transcriptPath, binDir }) {
+function runHook(cwd, { event = 'Stop', transcriptPath, binDir, bypassFile }) {
   const env = { ...process.env };
   if (binDir) env.PATH = `${binDir}:${process.env.PATH}`;
+  // Per-test sentinel path keeps tests hermetic from production /tmp/review-bypass.
+  if (bypassFile) env.REVIEW_BYPASS_FILE = bypassFile;
   // Prevent the hook from finding a real gh in PATH if we want it absent
   return spawnSync('bash', [HOOK], {
     cwd,
@@ -181,18 +183,14 @@ describe('enforce-review-spawn.sh — bypass 1: sentinel file', () => {
   it('exits 0 and deletes the sentinel file (one-shot)', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    writeFileSync('/tmp/review-bypass', '');
-    try {
-      const t = writeTranscript(cwd, [PUSH_LINE()]);
-      const r = runHook(cwd, { transcriptPath: t });
-      assert.equal(r.status, 0);
-      assert.equal(r.stdout, '');
-      assert.equal(existsSync('/tmp/review-bypass'), false,
-        'sentinel must be deleted on use (one-shot semantics)');
-    } finally {
-      // Guarantee no leak across tests if the hook didn't delete it.
-      try { unlinkSync('/tmp/review-bypass'); } catch {}
-    }
+    const bypassFile = join(cwd, 'review-bypass');
+    writeFileSync(bypassFile, '');
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, bypassFile });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.equal(existsSync(bypassFile), false,
+      'sentinel must be deleted on use (one-shot semantics)');
   });
 });
 

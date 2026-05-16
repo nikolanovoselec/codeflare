@@ -40,5 +40,5 @@ The legacy v4 timestamp file `.git/sdd-last-ack-push` (if present from a prior i
 ## Related Documentation
 
 - [Preseed System](preseed.md) - Session modes, components, deployment, multi-agent support
-- [Memory](memory.md) - MCP memory server, capture/compact, R2 sync
+- [Memory](memory.md) - Vault-based cross-session memory, automatic capture, hook mechanics
 - [Container](container.md#claude-code-integration) - Claude Code configuration
