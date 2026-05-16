@@ -107,6 +107,39 @@ export function maybeSynthesizeCsrfHeader(request: Request, originValidated: boo
   return new Request(request, { headers });
 }
 
+/**
+ * Minimal no-op Service Worker served by the Worker for `service_worker.js`
+ * registration requests. SilverBullet's real SW (offline-cache bundle) cannot
+ * be served via the vault proxy because Chrome omits cookies on the SW script
+ * fetch — the browser's `navigator.serviceWorker.register()` call sends only
+ * `Accept`, `DNT`, and `Service-Worker: script` (no `Cookie`), so any cookie-
+ * gated route returns 401 and registration fails permanently. The vault UI
+ * does not depend on SilverBullet's offline cache; all editor operations run
+ * from page context with cookies intact, so a no-op SW is enough to satisfy
+ * the browser's registration handshake without breaking anything functional.
+ *
+ * If a real SW becomes load-bearing in a future SilverBullet version, the
+ * mitigation is to inline its source here (the fetch still cannot reach the
+ * container without cookies).
+ */
+export const VAULT_NOOP_SERVICE_WORKER_JS =
+  '// Codeflare vault no-op service worker — see src/routes/vault.ts.\n' +
+  'self.addEventListener("install", () => self.skipWaiting());\n' +
+  'self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));\n';
+
+/**
+ * Identify a browser-initiated Service Worker registration GET. The
+ * `service-worker: script` request header is set by the user agent and not
+ * forgeable from page JavaScript, so it is a safe selector for the auth-
+ * bypass that follows. The path-suffix check pins the SilverBullet-served
+ * SW URL; any other path falls through to the normal auth chain.
+ */
+export function isServiceWorkerRegistration(request: Request, remainingPath: string | undefined): boolean {
+  if (request.method !== 'GET') return false;
+  if (remainingPath !== '/service_worker.js') return false;
+  return request.headers.get('service-worker') === 'script';
+}
+
 export function validateVaultRoute(request: Request): VaultRouteResult {
   const url = new URL(request.url);
   const match = url.pathname.match(/^\/api\/vault\/([^/]+)(\/.*)$/);
@@ -167,6 +200,25 @@ export async function handleVaultRequest(
     );
   }
 
+  // Service Worker registration fetches arrive without the session cookie
+  // (Chrome 76+ omits credentials on the SW script fetch even for same-
+  // origin same-site requests), so the normal auth chain would return 401
+  // and registration would fail forever. Serve a no-op SW directly from the
+  // Worker to satisfy the browser's registration handshake without round-
+  // tripping to the container; the SW JS is identical for every session
+  // and contains no user data. See VAULT_NOOP_SERVICE_WORKER_JS for context.
+  if (isServiceWorkerRegistration(request, remainingPath)) {
+    return new Response(VAULT_NOOP_SERVICE_WORKER_JS, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/javascript; charset=utf-8',
+        'Service-Worker-Allowed': '/',
+        'Cache-Control': 'no-cache',
+        'X-Request-ID': requestId,
+      },
+    });
+  }
+
   // Browser WS upgrade requires Origin; CLI clients without Sec-Fetch-Mode
   // are exempted (matches terminal.ts behaviour).
   if (isWebSocket) {
@@ -197,6 +249,16 @@ export async function handleVaultRequest(
     originValidated = true;
   }
 
+  // Hoisted out of the inner try so line 342's container.fetch can forward
+  // the same body-owning Request that authenticateRequest received. The
+  // original `request` body is a one-shot ReadableStream; once the CSRF
+  // synthesiser builds a clone via `new Request(request, { headers })`,
+  // the original is disturbed and any later `new Request(url, request)`
+  // throws "This ReadableStream is disturbed". Forwarding `requestForAuth`
+  // instead means a PUT body is read exactly once: by the container fetch.
+  // For GETs and unvalidated-origin requests, the helper returns `request`
+  // unchanged, so this is a no-op there.
+  let requestForAuth = request;
   try {
     let user;
     let bucketName;
@@ -205,7 +267,7 @@ export async function handleVaultRequest(
       // `X-Requested-With`. See `maybeSynthesizeCsrfHeader` for the full
       // security analysis; safety is enforced inside the helper, not by
       // statement ordering here.
-      const requestForAuth = maybeSynthesizeCsrfHeader(request, originValidated);
+      requestForAuth = maybeSynthesizeCsrfHeader(request, originValidated);
       ({ user, bucketName } = await authenticateRequest(requestForAuth, env));
     } catch (err) {
       if (err instanceof AuthError) {
@@ -306,7 +368,12 @@ export async function handleVaultRequest(
       isWebSocket: !!isWebSocket,
     });
 
-    const response = await container.fetch(new Request(vaultUrl.toString(), request));
+    // Forward the auth-validated request (NOT the original `request`): see
+    // the `let requestForAuth = request` comment above. Using `request`
+    // here triggers "ReadableStream is disturbed" on PUT/POST/PATCH because
+    // the CSRF synthesiser has already consumed the body to build its
+    // header-rewritten clone.
+    const response = await container.fetch(new Request(vaultUrl.toString(), requestForAuth));
 
     // SilverBullet 2.8.0 emits `<base href="/" />` in its index HTML so
     // every relative asset reference (e.g. `.client/client.js`) resolves
