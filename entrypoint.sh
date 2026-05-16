@@ -54,6 +54,11 @@ USER_CLAUDE_JSON="$USER_HOME/.claude.json"
 mkdir -p "$USER_HOME" "$USER_WORKSPACE" "$USER_CLAUDE_DIR"
 export HOME="$USER_HOME"
 
+# Force HTML visualization generation regardless of graph size.
+# Default graphify limit is 5000 nodes; codeflare repos routinely exceed this.
+# Codeflare policy: graph.html is never skipped (user directive).
+export GRAPHIFY_VIZ_NODE_LIMIT=100000
+
 # Track sync status
 SYNC_STATUS="pending"
 SYNC_ERROR=""

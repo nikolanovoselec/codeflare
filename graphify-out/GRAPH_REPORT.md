@@ -1,16 +1,16 @@
 # Graph Report - codeflare  (2026-05-16)
 
 ## Corpus Check
-- 585 files · ~1,215,192 words
+- 585 files · ~1,215,201 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 8546 nodes · 12125 edges · 643 communities (462 shown, 181 thin omitted)
+- 8546 nodes · 12125 edges · 642 communities (462 shown, 180 thin omitted)
 - Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 367 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b087add4`
+- Built from commit: `d4813440`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -618,7 +618,6 @@
 - [[_COMMUNITY_Community 605|Community 605]]
 - [[_COMMUNITY_Community 606|Community 606]]
 - [[_COMMUNITY_Community 607|Community 607]]
-- [[_COMMUNITY_Community 608|Community 608]]
 - [[_COMMUNITY_Community 609|Community 609]]
 - [[_COMMUNITY_Community 610|Community 610]]
 - [[_COMMUNITY_Community 611|Community 611]]
@@ -780,7 +779,7 @@
 - **Living spec circular workflow with three review agents** — concept_living_specification, concept_circular_workflow, concept_three_review_agents, agent_code_reviewer, agent_spec_reviewer, agent_doc_updater, concept_persistent_knowledge_graph [EXTRACTED 0.95]
 - **Enterprise agentic control plane (gateway + identity + MCP portal + isolation)** — concept_zero_trust, concept_control_plane, product_cloudflare_ai_gateway, concept_identity_lineage, concept_managed_oauth, concept_mcp_server_portal, concept_codemode, concept_hypervisor_isolation, concept_secure_web_gateway [EXTRACTED 0.95]
 
-## Communities (643 total, 181 thin omitted)
+## Communities (642 total, 180 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.03
@@ -811,8 +810,8 @@ Cohesion: 0.03
 Nodes (49): browser, checkbox, dataTransfer, deleteBtn, docsFolder, downloadBtn, dropZone, fileCheckbox (+41 more)
 
 ### Community 7 - "Community 7"
-Cohesion: 0.11
-Nodes (17): app, bucketName, DeleteBodySchema, deleted, deletedMatches, deletedPrefixes, errorMatches, errors (+9 more)
+Cohesion: 0.1
+Nodes (24): emptyR2Bucket(), extractTag(), getR2Url(), parseInitiateMultipartUploadXml(), parseListObjectsXml(), decodeXmlEntities(), StorageListResult, app (+16 more)
 
 ### Community 8 - "Community 8"
 Cohesion: 0.11
@@ -967,8 +966,8 @@ Cohesion: 0.06
 Nodes (33): applyMetricsUpdate(), active, after, before, firstCall, loadPromise, metrics, mockCreateSession (+25 more)
 
 ### Community 46 - "Community 46"
-Cohesion: 0.19
-Nodes (21): sessionIds, checkSetupComplete(), createMobilePage(), createPage(), createTestPage(), launchBrowser(), navigateToDashboard(), navigateToSessionView() (+13 more)
+Cohesion: 0.13
+Nodes (19): BASE_URL, TIMEOUTS, checkSetupComplete(), launchBrowser(), navigateToDashboard(), navigateToSessionView(), registerScreenshotOnFailure(), waitForContainerReady (in-page fetch poll) (+11 more)
 
 ### Community 47 - "Community 47"
 Cohesion: 0.06
@@ -1071,8 +1070,8 @@ Cohesion: 0.08
 Nodes (25): addEventSpy, defaultProps, dispose, event, FitAddonClass, focusoutCalls, getKeyboardHeightMock, isTouchDeviceMock (+17 more)
 
 ### Community 72 - "Community 72"
-Cohesion: 0.09
-Nodes (22): computeKeyMd5(), getSseCopyHeaders(), getSseHeaders(), base64Key, copyHeaders, expectedMd5, h1, h2 (+14 more)
+Cohesion: 0.08
+Nodes (26): computeKeyMd5(), getSseCopyHeaders(), getSseHeaders(), base64Key, copyHeaders, expectedMd5, h1, h2 (+18 more)
 
 ### Community 73 - "Community 73"
 Cohesion: 0.08
@@ -1271,8 +1270,8 @@ Cohesion: 0.14
 Nodes (17): Codeflare Brand Header, File Browser (Assets, Documentation, Examples, Workspace, Getting Started.md), New Session Button, Recent Sessions List (Claude vNxxx), Codeflare Dashboard Screenshot, Dashboard Left Sidebar, Storage Usage Panel (nikola-novoselec), Tips and Tricks Panel (+9 more)
 
 ### Community 123 - "Community 123"
-Cohesion: 0.29
-Nodes (6): card, cardMatch, cpu, dot, el, url
+Cohesion: 0.18
+Nodes (14): sessionIds, createMobilePage(), createPage(), createTestPage(), setPreference(), startContainerViaApi(), stopSessionViaApi(), waitForContainerReadyViaApi() (+6 more)
 
 ### Community 124 - "Community 124"
 Cohesion: 0.05
@@ -1351,8 +1350,8 @@ Cohesion: 0.12
 Nodes (17): context-mode-cache-heal.mjs (SessionStart hook with matcher:null), entrypoint context-mode preseed gate tests, entrypoint settings.json + plugin enablement tests, entrypoint settings.json hooks-merge matcher-null guard, entrypoint chmod .mjs hooks tests, entrypoint.sh, git-push-review-reminder PostToolUse hook (issue #243), graphify-out/ artifact directory (+9 more)
 
 ### Community 143 - "Community 143"
-Cohesion: 0.12
-Nodes (18): emptyR2Bucket(), extractTag(), getR2Url(), parseInitiateMultipartUploadXml(), parseListObjectsXml(), client, deleteCall, env (+10 more)
+Cohesion: 0.13
+Nodes (11): client, deleteCall, env, listCalls, mockFetch, mockFetchLocal, mockSign, result (+3 more)
 
 ### Community 144 - "Community 144"
 Cohesion: 0.14
@@ -1511,8 +1510,8 @@ Cohesion: 0.07
 Nodes (24): activeTab, addButton, closeBtn, closeButton, inactiveTab, isMobileMock, rafCallbacks, tab1 (+16 more)
 
 ### Community 183 - "Community 183"
-Cohesion: 0.18
-Nodes (11): Anthropic auth URL bounce-in button, Bookmarks dropdown (save/apply/rename/delete preset), Header component tests, Usage dropdown item (monthlySeconds / quota), Samsung dashboard-bounce on visibility return, Layout component tests, viewState machine (dashboard <-> expanding <-> terminal <-> collapsing), Bookmark preset save/apply flow (+3 more)
+Cohesion: 0.33
+Nodes (6): Samsung dashboard-bounce on visibility return, Layout component tests, viewState machine (dashboard <-> expanding <-> terminal <-> collapsing), createMockWebGLContext helper, SplashCursor component tests, WebGL fluid simulation cursor effect
 
 ### Community 184 - "Community 184"
 Cohesion: 0.22
@@ -1611,8 +1610,8 @@ Cohesion: 0.2
 Nodes (10): N+1 Query Prevention (batch fetch), Component composition, Compound Components pattern, Context + Reducer pattern, ErrorBoundary React class, Framer Motion animations, frontend-patterns skill, useDebounce hook (+2 more)
 
 ### Community 209 - "Community 209"
-Cohesion: 0.07
-Nodes (25): PROTECTED_PATHS, longKey, maxKey, result, app, bucketName, key, objectUrl (+17 more)
+Cohesion: 0.08
+Nodes (21): PROTECTED_PATHS, longKey, maxKey, result, app, bucketName, key, objectUrl (+13 more)
 
 ### Community 210 - "Community 210"
 Cohesion: 0.2
@@ -1655,8 +1654,8 @@ Cohesion: 0.22
 Nodes (9): applyMetricsUpdate helper (preserves bucketName), Auth expiry (401 ApiError) detection, loadSessions generation counter (concurrent calls), 3-consecutive-miss removal threshold, MOCK-DRIFT RISK annotation pattern, Batch status from KV (avoid DO wake), Session Ready Detection Tests, Session limits (maxSessions + isAtSessionLimit) (+1 more)
 
 ### Community 220 - "Community 220"
-Cohesion: 0.14
-Nodes (11): start, fileKeys, fileNames, keys, start, testFileContent, BASE_URL, TIMEOUTS (+3 more)
+Cohesion: 0.22
+Nodes (7): start, fileKeys, fileNames, keys, start, testFileContent, createSessionViaApi()
 
 ### Community 221 - "Community 221"
 Cohesion: 0.22
@@ -1695,8 +1694,8 @@ Cohesion: 0.07
 Nodes (27): 1. Fork this repo, 2. Set secrets, 3. Deploy, 4. Run the setup wizard, Architecture, CI/CD, Cloudflare WAF blocking API requests, code:mermaid (flowchart LR) (+19 more)
 
 ### Community 230 - "Community 230"
-Cohesion: 0.25
-Nodes (8): OnboardingLanding at / route, /setup redirect when configured=false, App setup/onboarding routing tests, Setup ConfigureStep tests, Admin and Allowed user lists with tag remove, mdiXml logo (replaces mdiBrain/mdiMenu), KittScanner inside setup-container (loading/denied/authorized), SetupWizard component tests
+Cohesion: 0.15
+Nodes (13): OnboardingLanding at / route, /setup redirect when configured=false, App setup/onboarding routing tests, Setup ConfigureStep tests, Admin and Allowed user lists with tag remove, Anthropic auth URL bounce-in button, Bookmarks dropdown (save/apply/rename/delete preset), mdiXml logo (replaces mdiBrain/mdiMenu) (+5 more)
 
 ### Community 231 - "Community 231"
 Cohesion: 0.25
@@ -2613,7 +2612,7 @@ Nodes (3): code:bash (python3 -c "), code:block6 (Corpus: X files · ~Y words), 
 ## Knowledge Gaps
 - **4890 isolated node(s):** `sessionIds`, `createdSessionIds`, `requests`, `limitHeader`, `remainingHeader` (+4885 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **181 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **180 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
