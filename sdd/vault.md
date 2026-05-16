@@ -194,7 +194,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - The vault skeleton is created at runtime, not baked into the image, so a returning session never overwrites restored content.
 
 **Priority:** P0
-**Dependencies:** REQ-AGENT-* (preseed pipeline)
+**Dependencies:** REQ-AGENT-006 (preseed configs from single source), REQ-AGENT-008 (preseed deployed to container on start), REQ-AGENT-014 (manifest-driven preseed pipeline)
 **Verification:** Automated test (`entrypoint-vault.test.js` AC: preseed manifest entries + file presence); E2E (fresh session, confirm `~/.claude/plugins/codeflare-vault/` exists)
 **Status:** Implemented
 
