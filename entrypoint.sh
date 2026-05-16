@@ -1645,14 +1645,14 @@ if [ -f "$SETTINGS_FILE" ]; then
     # Implements REQ-AGENT-008
     # Merge non-hooks settings with *, rebuild hooks separately to avoid
     # jq array-replace destroying user-added hooks or leaving stale managed hooks.
-    # "Managed" = command path contains codeflare-(hooks|memory)/scripts/,
-    # references enforce-ctx-mode.sh (both the legacy ~/.claude/hooks/ path
-    # and the current ~/.claude/plugins/context-mode/scripts/ path), OR is
-    # a context-mode hook invocation (any of: bare `context-mode`,
-    # `bunx context-mode@*`, or `npx -y context-mode@*` for legacy compat
-    # with sessions that still have stale settings.json from before the
-    # build-time install landed). Adding to MANAGED_HOOKS_REGEX must
-    # happen here AND in any other place that prunes managed hooks.
+    # "Managed" = command path contains codeflare-(hooks|memory|vault)/scripts/
+    # OR graphify/scripts/, references enforce-ctx-mode.sh (both the legacy
+    # ~/.claude/hooks/ path and the current ~/.claude/plugins/context-mode/
+    # scripts/ path), OR is a context-mode hook invocation (any of: bare
+    # `context-mode`, `bunx context-mode@*`, or `npx -y context-mode@*` for
+    # legacy compat with sessions that still have stale settings.json from
+    # before the build-time install landed). Adding to MANAGED_HOOKS_REGEX
+    # must happen here AND in any other place that prunes managed hooks.
     if jq --argjson cfg "$SETTINGS_CONFIG" '
       . as $orig |
       (del(.hooks) * ($cfg | del(.hooks))) +
@@ -1665,7 +1665,7 @@ if [ -f "$SETTINGS_FILE" ]; then
             [($existArr[] | .matcher // ""), ($cfgArr[] | .matcher // "")] | unique |
             map(. as $m |
               [$existArr[] | select((.matcher // "") == $m) | (.hooks // [])[] |
-                select((.command // "") | test("codeflare-(hooks|memory)/scripts/|enforce-ctx-mode\\.sh|(^context-mode |(bunx|npx) (-y )?context-mode@.* hook claude-code)") | not)
+                select((.command // "") | test("codeflare-(hooks|memory|vault)/scripts/|graphify/scripts/|enforce-ctx-mode\\.sh|(^context-mode |(bunx|npx) (-y )?context-mode@.* hook claude-code)") | not)
               ] as $user |
               [$cfgArr[] | select((.matcher // "") == $m) | (.hooks // [])[]] as $mgr |
               {matcher: $m, hooks: ($user + $mgr)}
