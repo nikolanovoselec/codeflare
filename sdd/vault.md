@@ -76,7 +76,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-VAULT-001, REQ-MEM-001
-**Verification:** Automated test (vault-monitor and capture script structure); E2E (drive 15+ prompts and grep `raw/sessions/`)
+**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: vault-monitor and capture script structure); E2E (drive 15+ prompts and grep `raw/sessions/`)
 **Status:** Implemented
 
 ---
@@ -100,7 +100,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-VAULT-001
-**Verification:** Structural audit (`entrypoint-vault.audit.js` AC: three-marker pattern presence); E2E (edit `notes/foo.md`, wait 60s, send prompt, confirm extraction)
+**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: three-marker pattern presence); E2E (edit `notes/foo.md`, wait 60s, send prompt, confirm extraction)
 **Status:** Implemented
 
 ---
@@ -123,7 +123,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-VAULT-001, REQ-VAULT-002, REQ-VAULT-003
-**Verification:** Automated test (mcp-lazy resolution chain, active-repo hook structure); E2E (clone two repos, query, confirm cross-source results)
+**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: mcp-lazy resolution chain, active-repo hook structure); E2E (clone two repos, query, confirm cross-source results)
 **Status:** Implemented
 
 ---
@@ -172,7 +172,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-SESSION-009 (container destroy wipes session state), REQ-SESSION-011 (graceful shutdown with final sync), REQ-STOR-005 (graceful shutdown performs final sync)
-**Verification:** Automated test (`src/__tests__/container/index.test.ts` - 75s SIGKILL fallback + shutdownElapsedMs telemetry); structural audit (`entrypoint-vault.audit.js`); E2E (edit vault, click Stop, close tab, reopen, confirm edit persisted)
+**Verification:** Automated test (`src/__tests__/container/index.test.ts` AC: 75s SIGKILL fallback + shutdownElapsedMs telemetry); structural audit (`host/__audits__/entrypoint-vault.audit.js`); E2E (edit vault, click Stop, close tab, reopen, confirm edit persisted)
 **Status:** Implemented
 
 ---
@@ -195,7 +195,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-AGENT-006 (preseed configs from single source), REQ-AGENT-008 (preseed deployed to container on start), REQ-AGENT-014 (manifest-driven preseed pipeline)
-**Verification:** Structural audit (`entrypoint-vault.audit.js` AC: preseed manifest entries + file presence); E2E (fresh session, confirm `~/.claude/plugins/codeflare-vault/` exists)
+**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: preseed manifest entries + file presence); E2E (fresh session, confirm `~/.claude/plugins/codeflare-vault/` exists)
 **Status:** Implemented
 
 ---
