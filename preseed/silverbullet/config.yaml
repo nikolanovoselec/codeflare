@@ -1,0 +1,16 @@
+# SilverBullet config for the codeflare in-container vault.
+#
+# Auth boundary is the codeflare Worker proxy (validates session cookie).
+# SilverBullet binds to 127.0.0.1:3030 inside the container — not exposed
+# externally. Disable SB's own auth; the proxy handles it.
+#
+# Reference: https://silverbullet.md/Configuration
+
+# No built-in auth; rely on the Worker proxy.
+# (SilverBullet's "no users defined" state is auth-less by design.)
+
+# Index page shown when the user opens the vault.
+indexPage: "README"
+
+# Default editor mode.
+defaultMode: "edit"

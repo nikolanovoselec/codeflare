@@ -309,6 +309,9 @@ const Layout: Component<LayoutProps> = (props) => {
           userName={props.userName}
           onSettingsClick={handleSettingsClick}
           onStoragePanelToggle={handleStoragePanelToggle}
+          onVaultOpen={sessionStore.activeSessionId
+            ? () => window.open(`/api/vault/${sessionStore.activeSessionId}/`, '_blank', 'noopener')
+            : undefined}
           onLogoClick={showDashboard() ? undefined : handleOpenDashboard}
           sessions={sessionStore.sessions}
           activeSessionId={sessionStore.activeSessionId}

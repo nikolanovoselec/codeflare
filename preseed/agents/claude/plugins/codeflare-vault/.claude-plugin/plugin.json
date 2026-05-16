@@ -1,0 +1,5 @@
+{
+  "name": "codeflare-vault",
+  "description": "Persistent Obsidian-style vault: captures session markdown + monitors user-curated changes, feeds the unified graphify graph",
+  "version": "1.0.0"
+}

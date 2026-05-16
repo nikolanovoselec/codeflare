@@ -68,6 +68,13 @@ const PTY_CLEANUP_INTERVAL_MS = parseInt(process.env.PTY_CLEANUP_INTERVAL_MS ?? 
 const WS_MAX_PAYLOAD = 64 * 1024;        // 64KB WebSocket max payload
 const MAX_CONTROL_MSG_LENGTH = 200;       // Max length for JSON control message detection
 
+// SilverBullet supervisor binds on 127.0.0.1:3030 inside the container
+// (see entrypoint.sh:start_silverbullet_supervisor). The /vault HTTP +
+// WS branch below proxies to it. Localhost-only by design — the auth
+// boundary is the Worker proxy at /api/vault/:sid/.
+const SILVERBULLET_HOST = process.env.SILVERBULLET_HOST ?? '127.0.0.1';
+const SILVERBULLET_PORT = parseInt(process.env.SILVERBULLET_PORT ?? '3030', 10);
+
 // Parse TAB_CONFIG for expected process names per terminal tab
 // TAB_CONFIG is set by the Container DO before container start
 const tabConfigMap: Record<string, string> = {};
@@ -301,6 +308,46 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     return;
   }
 
+  // Vault HTTP proxy → SilverBullet at SILVERBULLET_HOST:SILVERBULLET_PORT.
+  // Strip the `/vault` prefix; the worker already strips its own
+  // `/api/vault/:sid` prefix before forwarding. SilverBullet sees a
+  // clean `/<remaining>` path.
+  if (pathname && pathname.startsWith('/vault')) {
+    const upstreamPath = pathname.slice('/vault'.length) || '/';
+    const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
+    const headers: http.OutgoingHttpHeaders = {};
+    for (const [k, v] of Object.entries(req.headers)) {
+      const lk = k.toLowerCase();
+      // Hop-by-hop headers and any auth we injected for the container
+      // boundary must NOT be forwarded to the in-container app.
+      if (lk === 'connection' || lk === 'keep-alive' || lk === 'transfer-encoding'
+        || lk === 'upgrade' || lk === 'proxy-authenticate' || lk === 'proxy-authorization'
+        || lk === 'te' || lk === 'trailer' || lk === 'authorization' || lk === 'host') continue;
+      if (v !== undefined) headers[k] = v as string | string[];
+    }
+    const upstreamReq = http.request({
+      host: SILVERBULLET_HOST,
+      port: SILVERBULLET_PORT,
+      method,
+      path: upstreamPath + search,
+      headers,
+    }, (upstreamRes) => {
+      res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+      upstreamRes.pipe(res);
+    });
+    upstreamReq.on('error', (err) => {
+      log('warn', 'Vault proxy upstream error', { error: err.message, path: upstreamPath });
+      if (!res.headersSent) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Vault editor unreachable', code: 'VAULT_UPSTREAM_UNREACHABLE' }));
+      } else {
+        res.end();
+      }
+    });
+    req.pipe(upstreamReq);
+    return;
+  }
+
   // 404 for unknown paths
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found' }));
@@ -436,6 +483,94 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
   });
 
   // Connection ready - no JSON message, just start sending PTY data
+});
+
+// Vault WebSocket proxy → SilverBullet at SILVERBULLET_HOST:SILVERBULLET_PORT.
+//
+// SilverBullet uses WS for live-edit sync; the path is whatever the
+// SilverBullet client picks (e.g. `/.client/ws`). We can't bind the
+// WSS to a single fixed path the way the terminal WSS does, so we use
+// `noServer: true` and route upgrade events ourselves.
+//
+// The existing terminal WSS (path:'/terminal') has already attached its
+// own upgrade listener; both listeners receive every upgrade event.
+// We only `handleUpgrade` on /vault/* paths and ignore everything
+// else, leaving the terminal WSS to handle /terminal as it always has.
+const vaultWss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
+
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = parseUrl(req.url ?? '');
+  if (!pathname || !pathname.startsWith('/vault')) return;
+
+  // Strip the `/vault` prefix; the worker already stripped its own
+  // `/api/vault/:sid` prefix. SilverBullet sees its native WS path.
+  const upstreamPath = pathname.slice('/vault'.length) || '/';
+  const search = (req.url ?? '').includes('?')
+    ? '?' + (req.url ?? '').split('?').slice(1).join('?')
+    : '';
+
+  vaultWss.handleUpgrade(req, socket, head, (clientWs) => {
+    const upstreamUrl = `ws://${SILVERBULLET_HOST}:${SILVERBULLET_PORT}${upstreamPath}${search}`;
+    let upstream: WebSocket;
+    try {
+      upstream = new WebSocket(upstreamUrl, {
+        headers: {
+          // Forward any client headers SilverBullet wants to inspect
+          // (cookie, X-Forwarded-For). Drop hop-by-hop headers — the
+          // `ws` client sets those itself.
+          ...Object.fromEntries(
+            Object.entries(req.headers).filter(([k]) => {
+              const lk = k.toLowerCase();
+              return lk !== 'connection' && lk !== 'upgrade'
+                && lk !== 'sec-websocket-key' && lk !== 'sec-websocket-version'
+                && lk !== 'sec-websocket-extensions' && lk !== 'sec-websocket-protocol'
+                && lk !== 'authorization' && lk !== 'host';
+            }),
+          ) as Record<string, string>,
+        },
+      });
+    } catch (err) {
+      log('warn', 'Vault WS upstream construct failed', { error: (err as Error).message });
+      clientWs.close(1011, 'upstream-construct-failed');
+      return;
+    }
+
+    const closeBoth = (code: number, reason: string): void => {
+      try { clientWs.close(code, reason); } catch { /* ignore */ }
+      try { upstream.close(code, reason); } catch { /* ignore */ }
+    };
+
+    upstream.on('open', () => {
+      // Bridge in both directions. `ws` emits Buffer for binary frames
+      // and string for text frames; send() handles both transparently.
+      clientWs.on('message', (data, isBinary) => {
+        if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
+      });
+      upstream.on('message', (data, isBinary) => {
+        if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary });
+      });
+    });
+
+    clientWs.on('close', (code, reason) => {
+      if (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING) {
+        try { upstream.close(code, reason.toString()); } catch { /* ignore */ }
+      }
+    });
+    upstream.on('close', (code, reason) => {
+      if (clientWs.readyState === WebSocket.OPEN || clientWs.readyState === WebSocket.CONNECTING) {
+        try { clientWs.close(code, reason.toString()); } catch { /* ignore */ }
+      }
+    });
+
+    clientWs.on('error', (err) => {
+      log('warn', 'Vault WS client error', { message: err.message });
+      closeBoth(1011, 'client-error');
+    });
+    upstream.on('error', (err) => {
+      log('warn', 'Vault WS upstream error', { message: err.message });
+      closeBoth(1011, 'upstream-error');
+    });
+  });
 });
 
 // Pre-warm state (module-level so /health endpoint can read prewarmReady)
@@ -581,6 +716,7 @@ function shutdown(signal: string): void {
   sessionManager.killAll();
   sessionManager.stopCleanup();
   wss.close();
+  vaultWss.close();
   server.close();
   process.exit(0);
 }

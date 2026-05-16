@@ -108,6 +108,12 @@ export class container extends Container<Env> {
   private _containerAuthToken: string | null = null;
   private _sessionId: string | null = null;
   private _userEmail: string | null = null;
+  /**
+   * Timestamp captured at the start of destroy(); read by onStop() to
+   * log shutdown elapsed-ms. Helps telemetry decide whether the 75s
+   * SIGTERM budget is right or needs another bump.
+   */
+  private _shutdownStartedAt = 0;
   /** Monotonic usage counter (seconds) — sent to Timekeeper for delta computation */
   private _usageSeconds = 0;
   private containerStartedAt = 0;
@@ -434,9 +440,17 @@ export class container extends Container<Env> {
     }
 
     if (this.ctx.container?.running) {
-      const timeoutMs = 25_000;
+      // 75s = 60s budget for the entrypoint's final bisync (set in
+      // entrypoint.sh:shutdown_handler) plus a 15s buffer for clean
+      // process exit. Was 25_000 originally; raised to 75_000 alongside
+      // the vault rollout because vault edits in the last seconds
+      // before shutdown were silently truncated when the SDK SIGKILLed
+      // mid-bisync, leaving R2 in a partial state that the next
+      // session loaded as stale.
+      this._shutdownStartedAt = Date.now();
+      const timeoutMs = 75_000;
       const pollMs = 250;
-      const start = Date.now();
+      const start = this._shutdownStartedAt;
       try {
         await this.stop('SIGTERM');
         while (this.ctx.container?.running && Date.now() - start < timeoutMs) {
@@ -467,7 +481,8 @@ export class container extends Container<Env> {
     // Kill the collectMetrics alarm loop — without this, the schedule
     // continues firing on a dead container indefinitely (zombie alarms).
     try { this.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
-    this.logger.info('Container stopped');
+    const shutdownElapsedMs = this._shutdownStartedAt > 0 ? Date.now() - this._shutdownStartedAt : null;
+    this.logger.info('Container stopped', { shutdownElapsedMs });
     await updateKvStatus(this.ctx, this.env, this._bucketName, 'stopped', 'lastActiveAt');
   }
 

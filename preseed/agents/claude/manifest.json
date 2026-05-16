@@ -44,6 +44,21 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-vault/.claude-plugin/plugin.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-vault/scripts/vault-monitor-hook.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-vault/scripts/vault-extract-prompt.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "rules/cloudflare-environment.md": {
     "modes": [
       "default",
@@ -51,6 +66,11 @@
     ]
   },
   "rules/memory.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/vault.md": {
     "modes": [
       "advanced"
     ]

@@ -28,6 +28,7 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
      This wires the graphify semantic merge driver for `graph.json`. The driver itself is registered globally in the container image, so this `.gitattributes` line is the only per-repo setup needed. Without it, concurrent edits produce corrupt JSON on merge.
    - Stage and commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `.graphify_root`, `.graphify_labels.json`, and optionally `graph.html` + `wiki/`. Subsequent contributors clone the repo and inherit the graph for free.
    - For repos the user does NOT have push permission to (cloned open-source projects, read-only forks): graphify-out/ stays in the working tree only, ephemeral, no R2 fallback. Do not try to persist via bisync.
+   - **Before the commit step, merge this repo's graph into the unified global graph** so `mcp__graphify__*` tool calls see it alongside the vault and any other active repos: `flock /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as <repo-basename>`. Hash-keyed and idempotent. The `flock` serialises against the capture sonnet and the vault-monitor sonnet, which also write the global graph.
 
    When two sessions both run `graphify update .` and produce conflicting `graph.json`, the merge driver auto-resolves on `git merge` / `git pull`. No manual JSON wrangling.
 

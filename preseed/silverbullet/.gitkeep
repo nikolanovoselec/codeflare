@@ -1,0 +1,9 @@
+# Preseed assets for SilverBullet copied into /opt/silverbullet-preseed/ at
+# build time (Dockerfile) and into /home/user/.obsidian_vault/.silverbullet/
+# at first session boot (entrypoint.sh).
+#
+# - config.yaml         Always present. Auth-less SB config.
+# - atlas.plug.js       Best-effort. If Atlas plug binary is available at
+#                       implementation time, drop here and entrypoint will
+#                       install it. If absent, vault visualisation falls back
+#                       to graphify-out/graph.html (always available).

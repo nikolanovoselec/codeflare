@@ -5,6 +5,7 @@ import userRoutes from './routes/user-profile';
 import containerRoutes from './routes/container/index';
 import sessionRoutes from './routes/session/index';
 import terminalRoutes, { validateWebSocketRoute, handleWebSocketUpgrade } from './routes/terminal';
+import vaultRoutes, { validateVaultRoute, handleVaultRequest } from './routes/vault';
 import usersRoutes from './routes/users';
 import setupRoutes from './routes/setup/index';
 import storageRoutes from './routes/storage';
@@ -223,6 +224,7 @@ app.route('/api/user', userRoutes);
 app.route('/api/container', containerRoutes);
 app.route('/api/sessions', sessionRoutes);
 app.route('/api/terminal', terminalRoutes);
+app.route('/api/vault', vaultRoutes);
 app.route('/api/users', usersRoutes);
 app.route('/api/storage', storageRoutes);
 app.route('/api/presets', presetRoutes);
@@ -297,6 +299,21 @@ export default {
 
       // Handle WebSocket upgrade
       return handleWebSocketUpgrade(request, env, ctx, wsRouteResult);
+    }
+
+    // Vault proxy (HTTP + WS) — intercept BEFORE Hono so SilverBullet's
+    // static assets and live-sync WS URLs are not filtered by Hono
+    // routes. `/api/vault/:sid/status` falls through to Hono for the
+    // small JSON status endpoint; everything else is proxied to the
+    // in-container SilverBullet server.
+    const vaultRouteResult = validateVaultRoute(request);
+    if (vaultRouteResult.isVaultRoute) {
+      if (vaultRouteResult.errorResponse) {
+        return vaultRouteResult.errorResponse;
+      }
+      if (vaultRouteResult.remainingPath !== '/status') {
+        return handleVaultRequest(request, env, ctx, vaultRouteResult);
+      }
     }
 
     // Only route API and health requests through Hono

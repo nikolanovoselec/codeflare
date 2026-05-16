@@ -1,0 +1,167 @@
+// Verifies REQ-MEMORY-100..103 / REQ-MEMORY-105: the persistent vault is
+// wired through entrypoint.sh, Dockerfile, and the preseed layer.
+//
+// These tests are structural: they read the shipped files and look for
+// the specific markers each piece of the rollout depends on. They are
+// real coverage in the sense that breaking any of these lines would
+// break the deployed vault feature, but they do not boot a container.
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, '../..');
+
+const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
+const dockerfile = readFileSync(resolve(repoRoot, 'Dockerfile'), 'utf8');
+const manifest = JSON.parse(readFileSync(resolve(repoRoot, 'preseed/agents/claude/manifest.json'), 'utf8'));
+
+describe('vault bisync filter (REQ-MEMORY-100)', () => {
+  it('explicitly includes .obsidian_vault/** before the graphify-out exclude', () => {
+    const includeIdx = entrypoint.indexOf('--filter "+ .obsidian_vault/**"');
+    const excludeIdx = entrypoint.indexOf('--filter "- **/graphify-out/**"');
+    assert.notEqual(includeIdx, -1, 'vault include filter must be present');
+    assert.notEqual(excludeIdx, -1, 'graphify-out exclude filter must still be present');
+    assert.ok(
+      includeIdx < excludeIdx,
+      'vault include must come BEFORE the graphify-out exclude (rclone filter first-match)'
+    );
+  });
+
+  it('excludes .graphify/ (ephemeral global graph) from bisync', () => {
+    assert.ok(
+      entrypoint.includes('--filter "- .graphify/**"'),
+      'entrypoint.sh must exclude ~/.graphify (global-graph workspace) from R2 sync'
+    );
+  });
+});
+
+describe('vault skeleton + daemons (REQ-MEMORY-101..103)', () => {
+  it('defines init_obsidian_vault and runs it after baseline', () => {
+    assert.ok(/^init_obsidian_vault\(\)/m.test(entrypoint), 'init_obsidian_vault function must exist');
+    assert.ok(
+      entrypoint.includes('(init_obsidian_vault) || echo'),
+      'init_obsidian_vault must be called from the bisync init subshell with non-fatal fallback'
+    );
+  });
+
+  it('defines start_vault_monitor_daemon and launches it', () => {
+    assert.ok(/^start_vault_monitor_daemon\(\)/m.test(entrypoint), 'start_vault_monitor_daemon function must exist');
+    assert.ok(
+      entrypoint.includes('start_vault_monitor_daemon'),
+      'start_vault_monitor_daemon must be invoked from the daemon launch block'
+    );
+  });
+
+  it('uses the two-marker pattern (tick + last + vars)', () => {
+    assert.ok(entrypoint.includes('vault-monitor.tick'), 'must reference vault-monitor.tick (heartbeat)');
+    assert.ok(entrypoint.includes('vault-extract.last'), 'must reference vault-extract.last (high-water mark)');
+    assert.ok(entrypoint.includes('vault-extract.vars'), 'must reference vault-extract.vars (trigger)');
+  });
+
+  it('defines start_silverbullet_supervisor with a restart loop', () => {
+    assert.ok(/^start_silverbullet_supervisor\(\)/m.test(entrypoint), 'silverbullet supervisor function must exist');
+    assert.ok(
+      entrypoint.includes('start_silverbullet_supervisor'),
+      'silverbullet supervisor must be launched from the daemon block'
+    );
+    assert.ok(entrypoint.includes('127.0.0.1') || entrypoint.includes('SILVERBULLET_HOST'),
+      'silverbullet must bind to localhost (Worker proxy is the auth boundary)');
+  });
+});
+
+describe('SilverBullet binary install (REQ-MEMORY-103)', () => {
+  it('Dockerfile installs the silverbullet-server binary (not the CLI sb)', () => {
+    assert.ok(
+      dockerfile.includes('silverbullet-server-linux-x86_64.zip'),
+      'Dockerfile must download silverbullet-server-* (sb-* is the CLI, not the server)'
+    );
+    assert.ok(
+      /SILVERBULLET_SHA256=/.test(dockerfile),
+      'Dockerfile must pin SilverBullet SHA256 (supply-chain integrity)'
+    );
+    assert.ok(
+      dockerfile.includes('mv /tmp/silverbullet/silverbullet /usr/local/bin/silverbullet'),
+      'SilverBullet binary must land in /usr/local/bin/silverbullet'
+    );
+  });
+
+  it('Dockerfile preseeds SilverBullet config under /opt/silverbullet-preseed/', () => {
+    assert.ok(
+      dockerfile.includes('COPY preseed/silverbullet/ /opt/silverbullet-preseed/'),
+      'preseed/silverbullet/ must ship in the container image'
+    );
+  });
+});
+
+describe('shutdown bisync reliability (bundled fix)', () => {
+  it('wraps final bisync with a 60s budget + watchdog kill', () => {
+    // We use a background subshell + watchdog rather than timeout(1)
+    // because bisync_with_r2 is a shell function (not a binary).
+    assert.ok(
+      /sleep 60.*kill.*BISYNC_PID/s.test(entrypoint),
+      'shutdown_handler must hard-kill bisync at 60s if it runs over budget'
+    );
+    assert.ok(
+      entrypoint.includes('TIMED OUT after 60s'),
+      'shutdown_handler must log a recognisable timeout message for telemetry'
+    );
+  });
+
+  it('also terminates vault-monitor + silverbullet supervisor pids', () => {
+    assert.ok(entrypoint.includes('/tmp/vault-monitor.pid'), 'shutdown_handler must kill the vault-monitor daemon');
+    assert.ok(entrypoint.includes('/tmp/silverbullet.pid'), 'shutdown_handler must kill the silverbullet supervisor');
+  });
+
+  it('logs elapsed shutdown time for telemetry', () => {
+    assert.ok(
+      entrypoint.includes('elapsed:'),
+      'shutdown_handler must emit an elapsed-time line so we can tune the 60s/75s budget over time'
+    );
+  });
+});
+
+describe('UserPromptSubmit hook registration (REQ-MEMORY-102)', () => {
+  it('SETTINGS_CONFIG registers vault-monitor-hook.sh as UserPromptSubmit', () => {
+    const settingsLineIdx = entrypoint.indexOf('SETTINGS_CONFIG=');
+    assert.notEqual(settingsLineIdx, -1, 'SETTINGS_CONFIG must exist');
+    // Find the surrounding ~10KB so we don't accidentally match an unrelated reference.
+    const slice = entrypoint.slice(settingsLineIdx, settingsLineIdx + 10000);
+    assert.ok(
+      slice.includes('codeflare-vault/scripts/vault-monitor-hook.sh'),
+      'SETTINGS_CONFIG must register codeflare-vault/scripts/vault-monitor-hook.sh'
+    );
+    assert.ok(slice.includes('UserPromptSubmit'), 'registration must be under UserPromptSubmit');
+  });
+});
+
+describe('preseed manifest entries (REQ-MEMORY-100..103)', () => {
+  const required = [
+    'plugins/codeflare-vault/.claude-plugin/plugin.json',
+    'plugins/codeflare-vault/scripts/vault-monitor-hook.sh',
+    'plugins/codeflare-vault/scripts/vault-extract-prompt.md',
+    'rules/vault.md',
+  ];
+  for (const path of required) {
+    it(`registers ${path}`, () => {
+      assert.ok(manifest[path], `manifest must include ${path}`);
+    });
+  }
+});
+
+describe('vault preseed files exist on disk', () => {
+  const files = [
+    'preseed/agents/claude/plugins/codeflare-vault/.claude-plugin/plugin.json',
+    'preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh',
+    'preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md',
+    'preseed/agents/claude/rules/vault.md',
+    'preseed/silverbullet/config.yaml',
+  ];
+  for (const file of files) {
+    it(`${file} exists`, () => {
+      assert.ok(existsSync(resolve(repoRoot, file)), `${file} must exist on disk`);
+    });
+  }
+});

@@ -15,11 +15,15 @@ Two problems this wrapper solves:
    must rebind G to the right repo's graph.
 
 Resolution chain (in priority):
-  (a) Sentinel file at ~/.cache/codeflare-hooks/graphify-active-cwd
+  (a) Global graph at ~/.graphify/global-graph.json — the unified merge
+      of the persistent vault plus every globally-added per-repo graph
+      (REQ-MEMORY-104). Preferred when present so mcp__graphify__* tools
+      always see the unified view across vault + active repos.
+  (b) Sentinel file at ~/.cache/codeflare-hooks/graphify-active-cwd
       written by the graphify-active-repo.sh PostToolUse hook (Bash,
       Edit, Write, Read, ctx_execute, ctx_batch_execute). Walks up from
       sentinel cwd to find a parent dir containing graphify-out/ or .git/.
-  (b) Fallback: freshest mtime across
+  (c) Fallback: freshest mtime across
       CODEFLARE_WORKSPACE/*/graphify-out/graph.json. Used before the
       first hook fires and when the sentinel points at a repo without a
       graph yet.
@@ -58,6 +62,12 @@ SENTINEL_PATH: Path = Path(
         str(Path.home() / ".cache" / "codeflare-hooks" / "graphify-active-cwd"),
     )
 )
+GLOBAL_GRAPH_PATH: Path = Path(
+    os.environ.get(
+        "GRAPHIFY_GLOBAL_GRAPH",
+        str(Path.home() / ".graphify" / "global-graph.json"),
+    )
+)
 
 _original_load = gs._load_graph
 
@@ -88,7 +98,21 @@ def _walk_up_for_repo_root(start: Path) -> Optional[Path]:
 
 
 def _resolve_active() -> Tuple[Optional[Path], Optional[Path]]:
-    """Return (repo_root, graph_path). Either may be None."""
+    """Return (repo_root, graph_path). Either may be None.
+
+    Priority: global merged graph > sentinel-pinned repo > freshest workspace
+    graph. When the global graph is present it always wins so MCP tool
+    handlers see the unified vault+repos view.
+    """
+    try:
+        if GLOBAL_GRAPH_PATH.is_file():
+            return None, GLOBAL_GRAPH_PATH
+    except Exception as exc:
+        print(
+            f"[graphify-lazy] global graph check failed: {exc!r}",
+            file=sys.stderr,
+        )
+
     try:
         if SENTINEL_PATH.is_file():
             raw = SENTINEL_PATH.read_text().strip()

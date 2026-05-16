@@ -169,4 +169,31 @@ if [ "$OLD" = "$REPO" ]; then
 fi
 
 printf '%s\n' "$REPO" > "$SENTINEL"
+
+# Auto-add this repo's graphify-out/graph.json to the global graph the
+# first time we see it. This is how a fresh `git clone` ends up in
+# `mcp__graphify__*` queries without the user remembering to run
+# `graphify global add` manually.
+#
+# Idempotent: graphify maintains its own manifest at
+# ~/.graphify/global-manifest.json keyed on graph.json content hash, so
+# re-running global add with the same graph.json is a no-op. We still
+# pre-check the manifest to avoid spawning graphify (which is several
+# hundred MB of Python imports) on every repo switch.
+#
+# flock serialises against the capture + vault-extract sonnets which
+# also write the global graph.
+GRAPH_JSON="$REPO/graphify-out/graph.json"
+GLOBAL_MANIFEST="${GRAPHIFY_GLOBAL_MANIFEST:-$HOME/.graphify/global-manifest.json}"
+if [ -f "$GRAPH_JSON" ] && command -v graphify >/dev/null 2>&1; then
+    REPO_BASENAME=$(basename "$REPO")
+    ALREADY=""
+    if [ -f "$GLOBAL_MANIFEST" ]; then
+        ALREADY=$(jq -r --arg p "$GRAPH_JSON" '.entries[]? | select(.path == $p) | .path' "$GLOBAL_MANIFEST" 2>/dev/null || true)
+    fi
+    if [ -z "$ALREADY" ]; then
+        (flock /tmp/graphify-global.lock graphify global add "$GRAPH_JSON" --as "$REPO_BASENAME" >/dev/null 2>&1) || true
+    fi
+fi
+
 exit 0

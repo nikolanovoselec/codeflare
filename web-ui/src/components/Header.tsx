@@ -17,6 +17,7 @@ import {
   mdiFileCabinet,
   mdiOpenInNew,
   mdiClockTimeEightOutline,
+  mdiChartGantt,
 } from '@mdi/js';
 import Icon from './Icon';
 import SessionSwitcher from './SessionSwitcher';
@@ -34,6 +35,7 @@ interface HeaderProps {
   userName?: string;
   onSettingsClick?: () => void;
   onStoragePanelToggle?: () => void;
+  onVaultOpen?: () => void;
   onLogoClick?: () => void;
   sessions: SessionWithStatus[];
   activeSessionId: string | null;
@@ -49,7 +51,7 @@ interface HeaderProps {
  *
  * Layout:
  * +-----------------------------------------------------------------------------------+
- * | [</>] [Session Switcher]          [Avatar] [Bookmarks] [Storage] [Settings] [Dashboard] |
+ * | [</>] [Session Switcher]          [Avatar] [Bookmarks] [Vault] [Storage] [Settings] [Dashboard] |
  * +-----------------------------------------------------------------------------------+
  */
 const Header: Component<HeaderProps> = (props) => {
@@ -512,6 +514,22 @@ const Header: Component<HeaderProps> = (props) => {
             </div>
           </Show>
         </div>
+
+        {/* Vault button — opens the persistent Obsidian-style vault
+            (SilverBullet) in a new tab. Rendered only when the parent
+            passes onVaultOpen (terminal-view + active session present);
+            otherwise the button does not appear. */}
+        <Show when={props.onVaultOpen}>
+          <button
+            class="header-vault-button"
+            data-testid="header-vault-button"
+            title="Open vault"
+            type="button"
+            onClick={() => props.onVaultOpen?.()}
+          >
+            <Icon path={mdiChartGantt} size={20} />
+          </button>
+        </Show>
 
         {/* Storage button */}
         <button

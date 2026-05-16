@@ -21,6 +21,7 @@ Technical reference documentation for Codeflare.
 | [Troubleshooting](troubleshooting.md) | Diagnostic commands, common failures, resolutions | Operators |
 | [Mobile Terminal](mobile.md) | Keyboard handling, scroll stability, touch input | Developers |
 | [Memory](memory.md) | MCP memory server, automatic capture, two-phase compaction | Developers |
+| [Vault](vault.md) | Persistent obsidian-style note vault, unified graphify graph, SilverBullet editor | Developers |
 | [Preseed System](preseed.md) | Session modes, manifest pipeline, multi-agent adaptation, hooks | Developers |
 | [Preseed Troubleshooting](preseed-troubleshooting.md) | Hook debugging, attribution blocking, checkpoint reset | Developers |
 | [Token Scopes](token-scopes.md) | GitHub PAT and Cloudflare API token scope guidance | Operators |
