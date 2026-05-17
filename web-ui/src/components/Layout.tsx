@@ -61,27 +61,42 @@ const Layout: Component<LayoutProps> = (props) => {
   const WARMUP_MAX_ATTEMPTS = 60; // 3 min ceiling, then user must restart
   const STEADY_INTERVAL_MS = 60000; // post-ready slow re-probe cadence
   const [vaultReadyBySession, setVaultReadyBySession] = createSignal<Record<string, boolean>>({});
-  createEffect(() => {
+  // Attempts persisted per session across effect re-runs. The effect tracks
+  // sessionStore.sessions[*].status, which can re-fire while the warmup loop
+  // is in flight (status polling produces new array refs); a per-effect-run
+  // counter would reset each time and the WARMUP_MAX_ATTEMPTS cap would
+  // never be reached. Persisting here makes the cap session-lifetime-bound.
+  const attemptsBySession: Record<string, number> = {};
+  // Memoize the running-flag so the effect only re-runs when running-ness
+  // actually flips, not on every metrics/ptyActive churn from session
+  // polling. Without this the probe chain restarts on every status tick.
+  const activeRunningSid = createMemo<string | null>(() => {
     const sid = sessionStore.activeSessionId;
-    if (!sid) return;
+    if (!sid) return null;
     const s = sessionStore.sessions.find((x) => x.id === sid);
-    if (!s || s.status !== 'running') {
-      // Session stopped or missing: invalidate any cached ready flag so a
-      // restart under the same id re-probes. Without this the button would
-      // lie about readiness across stop / start cycles.
-      if (vaultReadyBySession()[sid]) {
-        setVaultReadyBySession((prev) => {
-          const next = { ...prev };
-          delete next[sid];
-          return next;
-        });
+    return s && s.status === 'running' ? sid : null;
+  });
+  createEffect(() => {
+    const sid = activeRunningSid();
+    if (!sid) {
+      // No active running session: drop any latch for the previously active
+      // sid so a restart under the same id re-probes from scratch.
+      const prevSid = untrack(() => sessionStore.activeSessionId);
+      if (prevSid) {
+        delete attemptsBySession[prevSid];
+        if (untrack(vaultReadyBySession)[prevSid]) {
+          setVaultReadyBySession((prev) => {
+            const next = { ...prev };
+            delete next[prevSid];
+            return next;
+          });
+        }
       }
       return;
     }
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let attempts = 0;
     const probeOnce = async (): Promise<boolean> => {
       try {
         const res = await fetch(`/api/vault/${sid}/`, {
@@ -96,15 +111,16 @@ const Layout: Component<LayoutProps> = (props) => {
     };
     const warmup = async () => {
       if (cancelled) return;
-      attempts += 1;
+      attemptsBySession[sid] = (attemptsBySession[sid] ?? 0) + 1;
       const ok = await probeOnce();
       if (cancelled) return;
       if (ok) {
+        attemptsBySession[sid] = 0; // success resets the budget
         setVaultReadyBySession((prev) => ({ ...prev, [sid]: true }));
         timer = setTimeout(steady, STEADY_INTERVAL_MS);
         return;
       }
-      if (attempts >= WARMUP_MAX_ATTEMPTS) return; // give up; user must restart
+      if (attemptsBySession[sid] >= WARMUP_MAX_ATTEMPTS) return; // give up
       timer = setTimeout(warmup, WARMUP_INTERVAL_MS);
     };
     const steady = async () => {
@@ -112,22 +128,25 @@ const Layout: Component<LayoutProps> = (props) => {
       const ok = await probeOnce();
       if (cancelled) return;
       if (!ok) {
-        // SB likely crashed mid-session. Clear the latch and fall back into
-        // warmup so the button disables itself until SB recovers.
+        // SB likely crashed mid-session. Clear the latch (button disables
+        // itself) and restart the warmup chain in-place. Reading the latch
+        // via untrack prevents this write from re-running the effect, so
+        // there is exactly one warmup chain at any time.
         setVaultReadyBySession((prev) => {
           const next = { ...prev };
           delete next[sid];
           return next;
         });
-        attempts = 0;
+        attemptsBySession[sid] = 0;
         timer = setTimeout(warmup, WARMUP_INTERVAL_MS);
         return;
       }
       timer = setTimeout(steady, STEADY_INTERVAL_MS);
     };
-    if (vaultReadyBySession()[sid]) {
-      // Prior effect run already latched ready; skip warmup and go straight
-      // to steady-state re-probe.
+    // `untrack` so the latch read does not subscribe the effect to its own
+    // writes (steady() clears the latch on crash; tracking would spawn a
+    // parallel warmup chain via effect re-run).
+    if (untrack(vaultReadyBySession)[sid]) {
       timer = setTimeout(steady, STEADY_INTERVAL_MS);
     } else {
       warmup();
