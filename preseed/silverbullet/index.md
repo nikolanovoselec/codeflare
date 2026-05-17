@@ -37,6 +37,8 @@ ${some(query[[
 # Recently modified pages
 ${query[[
   from p = index.contentPages()
+  where p.name != "index" and p.name != "CONFIG"
+    and p.name != "README" and p.name != "STYLES"
   order by p.lastModified desc
   limit 10
   select templates.fullPageItem(p) 
