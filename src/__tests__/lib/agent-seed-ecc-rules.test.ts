@@ -118,6 +118,10 @@ describe('ECC rules in agent-seed', () => {
     // graphify MCP server and the memory-capture hook; default-mode
     // sessions don't ship those, so the rule has no audience there.
     '.claude/rules/vault.md',
+    // vault-note-capture.md is the trigger rule that maps "take a note"
+    // phrases to the vault-note-capture skill. The vault itself is
+    // Pro-mode-only, so the trigger has no audience in default mode.
+    '.claude/rules/vault-note-capture.md',
   ];
 
   it('non-memory codeflare rules have default+advanced modes', () => {
