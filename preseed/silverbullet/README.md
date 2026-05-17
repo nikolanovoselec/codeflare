@@ -42,6 +42,18 @@ Suggested folder layout:
 - `Journal/` - daily entries (SB has a "Journal: Today" button).
 - `Raw/Pasted/` - drop screenshots, PDFs, anything binary here.
 
+### Ask your coding agent to capture for you
+
+You don't have to switch to SilverBullet to file a note. While you're chatting with your coding agent, say any of:
+
+- "Take a note: <thing>"
+- "Note this down: <thing>"
+- "Document this decision: <thing>"
+- "Remind me to <thing>"
+- "Save this: <thing>"
+
+The agent writes the file under the right `Notes/<Category>/` subfolder (`Reminders/`, `Decisions/`, `References/`, `Reading/`, `Debugging/`, `Projects/...`), with a dated filename and PascalCase `[[wikilinks]]` for any concepts. The note shows up in SilverBullet within a couple seconds and in the knowledge graph within ~60 seconds. Reports just the file path back; no chat sprawl.
+
 ### Drop a PDF or screenshot
 
 Drag the file into the SilverBullet window. SB writes it to `Raw/Pasted/` and inserts an embed. The PDF plug renders it inline; images render as previews.
@@ -57,7 +69,7 @@ Anything you write in the vault gets extracted into the knowledge graph within ~
 ### Examples
 
 - **Decision log**: write `Notes/Decisions/2026-05-17-deno-vs-bun.md`. Use `[[Deno]]` and `[[Bun]]` as wikilinks. Later ask the agent "remind me why we picked X" - it surfaces the note.
-- **API reference dump**: paste a third-party API doc into `Notes/Refs/Stripe-Webhooks.md`. Agent can pull from it when writing code.
+- **API reference dump**: paste a third-party API doc into `Notes/References/Stripe-Webhooks.md`. Agent can pull from it when writing code.
 - **Reading notes**: drop a PDF in `Raw/Pasted/`, write a summary in `Notes/Reading/Title.md` linking to it. Graph connects the summary to whatever concepts you wikilinked.
 - **Project journal**: daily entries under `Journal/`. Use the "Journal: Today" button on [[Index]] to create one.
 
@@ -83,14 +95,14 @@ Anything you write in the vault gets extracted into the knowledge graph within ~
 
 Two hooks keep the graph current:
 
-- **Transcript capture** fires every 15 chat prompts. A background sonnet writes a session observation file into `Raw/Sessions/` and re-extracts it.
-- **Vault monitor** polls the vault every 60 seconds for edits outside `Raw/Sessions/`. When it finds changes, the next chat prompt spawns a sonnet that extracts the changed files into the graph.
+- **Transcript capture** fires every 15 chat prompts. A background extraction agent writes a session observation file into `Raw/Sessions/` and re-extracts it.
+- **Vault monitor** polls the vault every 60 seconds for edits outside `Raw/Sessions/`. When it finds changes, the next chat prompt spawns an extraction agent that ingests the changed files into the graph.
 
 You don't have to do anything. Just write notes; the graph updates itself.
 
 ## Things to avoid
 
-- Don't delete files inside `Raw/Sessions/` (agent-managed; deletes are wasted - they'll re-extract on the next prompt).
+- Don't delete files inside `Raw/Sessions/` (agent-managed; deletes are wasted - the extraction agent regenerates them on the next prompt).
 - Don't write into `graphify-out/` (it's regenerated).
 - Don't run `git init` in the vault. It syncs via rclone bisync, not git.
 - Don't try to access SilverBullet from outside the Codeflare proxy. Port 3030 is bound to localhost; the proxy is the auth boundary.

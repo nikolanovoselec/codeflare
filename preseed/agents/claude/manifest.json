@@ -1,221 +1,4 @@
 {
-  "plugins/codeflare-hooks/.claude-plugin/plugin.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-hooks/scripts/block-attributed-commits.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-hooks/scripts/git-push-review-reminder.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-hooks/scripts/enforce-review-spawn.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-memory/.claude-plugin/plugin.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-memory/scripts/memory-capture.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-memory/scripts/memory-agent-prompt.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-vault/.claude-plugin/plugin.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-vault/scripts/vault-monitor-hook.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-vault/scripts/vault-extract-prompt.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/cloudflare-environment.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "rules/memory.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/vault.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/no-local-builds.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "rules/spec-discipline.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/documentation-discipline.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/tdd-discipline.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/common/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/git-workflow.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "rules/common/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/typescript/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/typescript/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/typescript/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/typescript/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/python/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/python/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/python/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/python/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/golang/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/golang/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/golang/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/golang/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/swift/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/swift/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/swift/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/swift/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/cloudflare-stack/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/consult-llm/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/github-cloudflare-ship/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/github-cloudflare-ship/references/workflow-templates.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/github-cloudflare-ship/references/wrangler-templates.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
   "agents/architect.md": {
     "modes": [
       "advanced"
@@ -227,6 +10,11 @@
     ]
   },
   "agents/code-reviewer.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/deep-reviewer.md": {
     "modes": [
       "advanced"
     ]
@@ -246,17 +34,12 @@
       "advanced"
     ]
   },
-  "agents/tdd-guide.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "agents/spec-reviewer.md": {
     "modes": [
       "advanced"
     ]
   },
-  "agents/deep-reviewer.md": {
+  "agents/tdd-guide.md": {
     "modes": [
       "advanced"
     ]
@@ -281,186 +64,62 @@
       "advanced"
     ]
   },
-  "skills/api-design/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/backend-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/content-hash-cache-pattern/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/database-migrations/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/deployment-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/iterative-retrieval/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/search-first/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-enforce/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-enforce-ac/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-enforce-truth/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/doc-enforce/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/doc-enforce-lanes/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/doc-enforce-shape/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/doc-enforce-truth/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/tdd-enforce/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ci-monitoring/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/git-review-pipeline/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/pr-workflow/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/deploy-credentials/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "plugins/known_marketplaces.json": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/root-readme.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/sdd-readme.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/sdd-glossary.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/sdd-constraints.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/sdd-changes.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/sdd-config.yml": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-readme.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-architecture.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-api-reference.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-configuration.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-deployment.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-decisions-readme.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/gitignore-additions.txt": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "commands/sdd.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-hooks/.claude-plugin/plugin.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-hooks/scripts/block-attributed-commits.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-hooks/scripts/enforce-review-spawn.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-hooks/scripts/git-push-review-reminder.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-memory/.claude-plugin/plugin.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-memory/scripts/memory-agent-prompt.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-memory/scripts/memory-capture.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-vault/.claude-plugin/plugin.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-vault/scripts/vault-extract-prompt.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-vault/scripts/vault-monitor-hook.sh": {
     "modes": [
       "advanced"
     ]
@@ -492,23 +151,7 @@
       "advanced"
     ]
   },
-  "plugins/graphify/scripts/graphify-mcp-lazy.py": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "plugins/graphify/scripts/graphify-active-repo.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/graphify/scripts/graphify-session-start.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/graphify/scripts/graphify-clone-prompt.sh": {
+  "plugins/graphify/scripts/enforce-graphify.sh": {
     "modes": [
       "advanced"
     ]
@@ -518,7 +161,76 @@
       "advanced"
     ]
   },
-  "plugins/graphify/scripts/enforce-graphify.sh": {
+  "plugins/graphify/scripts/graphify-active-repo.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/graphify/scripts/graphify-clone-prompt.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/graphify/scripts/graphify-mcp-lazy.py": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "plugins/graphify/scripts/graphify-session-start.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/known_marketplaces.json": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "rules/cloudflare-environment.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "rules/common/coding-style.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/common/security.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/documentation-discipline.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/git-workflow.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "rules/golang/coding-style.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/golang/patterns.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/golang/security.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/golang/testing.md": {
     "modes": [
       "advanced"
     ]
@@ -528,7 +240,305 @@
       "advanced"
     ]
   },
+  "rules/memory.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/no-local-builds.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "rules/python/coding-style.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/python/patterns.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/python/security.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/python/testing.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/spec-discipline.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/swift/coding-style.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/swift/patterns.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/swift/security.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/swift/testing.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/tdd-discipline.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/typescript/coding-style.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/typescript/patterns.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/typescript/security.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/typescript/testing.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/vault-note-capture.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/vault.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/api-design/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/backend-patterns/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ci-monitoring/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-stack/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/consult-llm/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/content-hash-cache-pattern/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/database-migrations/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/deploy-credentials/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/deployment-patterns/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce-lanes/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce-shape/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce-truth/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-patterns/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/git-review-pipeline/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/github-cloudflare-ship/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/github-cloudflare-ship/references/workflow-templates.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/github-cloudflare-ship/references/wrangler-templates.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "skills/graphify/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/iterative-retrieval/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/pr-workflow/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/search-first/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-api-reference.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-architecture.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-configuration.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-decisions-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-deployment.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/gitignore-additions.txt": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/root-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-changes.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-config.yml": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-constraints.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-glossary.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce-ac/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce-truth/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/tdd-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/vault-note-capture/SKILL.md": {
     "modes": [
       "advanced"
     ]
