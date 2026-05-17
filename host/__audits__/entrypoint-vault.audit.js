@@ -220,6 +220,10 @@ describe('vault preseed files exist on disk', () => {
     'preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md',
     'preseed/agents/claude/rules/vault.md',
     'preseed/silverbullet/config.yaml',
+    'preseed/silverbullet/index.md',
+    'preseed/silverbullet/CONFIG.md',
+    'preseed/silverbullet/README.md',
+    'preseed/silverbullet/STYLES.md',
   ];
   for (const file of files) {
     it(`${file} exists`, () => {

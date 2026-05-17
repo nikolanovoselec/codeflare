@@ -3,7 +3,7 @@ the vault root holds bootstrap settings (indexPage, defaultMode);
 this page holds runtime settings federated into SB on first browser
 open.
 
-`Library/Std` is SilverBullet's bundled template/widget library — it
+`Library/Std` is SilverBullet's bundled template/widget library - it
 provides `widgets.commandButton`, `templates.fullPageItem`,
 `tags.page`, `index.contentPages()` and the other primitives the
 dashboard ([[index]]) uses. Without it the dashboard queries fail

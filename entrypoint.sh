@@ -1187,9 +1187,9 @@ init_user_vault() {
     # stale content surviving across preseed updates. These four files are
     # codeflare-authoritative, not user-editable. User content lives in
     # notes/, Inbox/, Journal/, raw/pasted/ (never touched by this block).
-    local PRESEED_PAGES="index.md CONFIG.md README.md STYLES.md"
+    local PRESEED_PAGES=(index.md CONFIG.md README.md STYLES.md)
     local PAGE
-    for PAGE in $PRESEED_PAGES; do
+    for PAGE in "${PRESEED_PAGES[@]}"; do
         if [ -f "$PRESEED_DIR/$PAGE" ] \
            && ! cmp -s "$PRESEED_DIR/$PAGE" "$VAULT/$PAGE" 2>/dev/null; then
             cp "$PRESEED_DIR/$PAGE" "$VAULT/$PAGE"

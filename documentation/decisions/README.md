@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD54 throughout the codebase and documentation. 40 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD55 throughout the codebase and documentation. 41 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -65,6 +65,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) | Graphify MCP available everywhere, discipline advanced-only | Architecture |
 | [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking) | Graphify hot-reload wrapper with multi-repo sentinel tracking | Architecture |
 | [AD54](#ad54-vault-directory-must-use-a-non-hidden-basename) | Vault directory must use a non-hidden basename | Storage |
+| [AD55](#ad55-codeflare-brands-the-vault-editor-via-preseed-managed-stylesmd) | Codeflare brands the vault editor via preseed-managed STYLES.md | Architecture |
 
 ---
 
@@ -894,6 +895,30 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 **Alternative considered:** Mount the dot-prefixed directory into a non-hidden path via bind mount or symlink. Rejected: adds fragile entrypoint complexity and bisync would still see the original dot-prefixed path. A clean rename is simpler and permanent.
 
 **Related REQ:** REQ-VAULT-001.
+
+---
+
+### AD55: Codeflare brands the vault editor via preseed-managed STYLES.md
+
+**Category:** Architecture
+
+**Status:** Active
+
+**Context:** SilverBullet supports custom editor themes via a `STYLES.md` page at the vault root tagged `#meta/styles`. Without a managed theme, the editor renders SilverBullet's default visual language, which has no codeflare identity (different palette, different fonts, different border treatments from the rest of the codeflare UI). The vault is a user-owned space inside a user-owned R2 bucket; allowing per-user theme customisation would let the editor drift visually from the rest of codeflare, but defaulting to no theme would make the editor feel grafted-on rather than native.
+
+**Decision:** `STYLES.md` is a preseed-managed, always-overwritten file. Codeflare owns its content; `init_user_vault()` syncs it from `/opt/silverbullet-preseed/STYLES.md` on every container boot, gated so identical files are not rewritten. Users cannot customise the editor theme by editing `STYLES.md` in-place inside SilverBullet -- edits are silently reverted on the next session start. Theme changes must go through a `preseed/silverbullet/STYLES.md` change in the repo. The shipped theme mirrors the codeflare design tokens (`web-ui/src/styles/design-tokens.css`): zinc dark palette, Inter sans / JetBrains Mono code, blue accent (HSL 217 / 91% / 60%).
+
+**Consequences:**
+- The vault editor reflects codeflare branding consistently across users and sessions; switching between codeflare UI and SilverBullet feels native rather than grafted.
+- Users who want custom styling cannot achieve it without forking the project or opening a PR to `preseed/silverbullet/STYLES.md`. This is the explicit trade-off: brand consistency over per-user theming.
+- Preseed theme updates propagate to all users on next session boot with no per-user migration.
+- The always-overwrite contract is documented in `documentation/vault.md` (three-tier durability) and in the in-vault `README.md` so users discover the constraint before hand-editing.
+
+**Alternative considered:** Ship `STYLES.md` as recreate-if-missing only, preserving user edits. Rejected: the same user who deletes `index.md` or `CONFIG.md` and expects automatic recovery (the always-overwrite contract for those files) would not expect `STYLES.md` to behave differently. Mixing tiers within the same set of preseed pages was deemed more confusing than the cost of disallowing in-place theme edits.
+
+**Alternative considered:** Use SilverBullet's `theme:` setting in `.silverbullet/config.yaml` instead of a separate `STYLES.md` page. Rejected: the bootstrap `config.yaml` carries only the runtime essentials (indexPage, defaultMode); a 200-line CSS payload belongs in a markdown page where the `#meta/styles` tag is SilverBullet's canonical extension point.
+
+**Related REQ:** REQ-VAULT-001 (AC7 lists the four preseed-authoritative pages including STYLES.md).
 
 ---
 
