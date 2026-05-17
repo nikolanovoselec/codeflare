@@ -1223,25 +1223,11 @@ VAULT_README_EOF
         echo "[entrypoint] Vault skeleton initialized"
     fi
 
-    # Idempotent preseed-config sync. This runs on every boot, not just
-    # on first-time vault creation, because existing vaults that
-    # round-tripped through R2 bisync from older codeflare versions
-    # never received the SilverBullet config (the skeleton-create block
-    # above is gated on `! -d $VAULT` and skips entirely on already-
-    # existing vaults). Without the config, SilverBullet runs on its
-    # bare defaults - the user-visible symptom was a missing index page
-    # configuration and editor defaults reverting to upstream behaviour.
-    # `cp -n` would skip if target exists; instead overwrite so a
-    # codeflare-side config update propagates to every active vault on
-    # next boot.
-    #
-    # IMPORTANT: this overwrites user hand-edits to `.silverbullet/
-    # config.yaml`. The vault rule (`preseed/agents/claude/rules/
-    # vault.md`) marks `.silverbullet/` as EDITOR CONFIG and instructs
-    # agents (and by extension the user) to leave it alone. Users who
-    # need to customise SilverBullet should either fork the preseed
-    # `config.yaml` file in the codeflare repo or accept that local
-    # edits get reset on every container boot.
+    # Idempotent preseed-config sync on every boot (skeleton block above is
+    # gated on a missing vault, so existing R2-restored vaults never received
+    # the config otherwise). Overwrites user hand-edits to .silverbullet/;
+    # the vault rule marks .silverbullet/ as editor config that should be
+    # changed via the codeflare preseed, not in place.
     mkdir -p "$VAULT/.silverbullet/_plug"
     if [ -f "$PRESEED_DIR/config.yaml" ] \
        && ! cmp -s "$PRESEED_DIR/config.yaml" "$VAULT/.silverbullet/config.yaml" 2>/dev/null; then
@@ -1253,26 +1239,24 @@ VAULT_README_EOF
         cp "$PRESEED_DIR/atlas.plug.js" "$VAULT/.silverbullet/_plug/atlas.plug.js"
     fi
 
-    # Preseeded plugs. Shipped as "rogue plugs" under Library/Codeflare/ so
-    # they auto-load via space.listPlugs() discovery without requiring a
-    # Library Manager manifest (which fails on this build, see #ToFix). The
-    # Library/Codeflare/ namespace is reserved for codeflare-managed plugs;
-    # user-installed plugs land under other Library/ subdirs and survive
-    # bisync independently. Always overwrite so a codeflare-side plug bump
-    # propagates on next boot. Best-effort: missing source dir is fine.
+    # Preseeded plugs land under Library/Codeflare/ (codeflare-managed
+    # namespace, overwrite-on-boot). User plugs in other Library/ subdirs
+    # are untouched. nullglob makes the loop a no-op when no plug files
+    # match (instead of iterating the literal glob string).
     if [ -d "$PRESEED_DIR/plugs" ]; then
         mkdir -p "$VAULT/Library/Codeflare"
         local PLUG_FILE
+        shopt -s nullglob
         for PLUG_FILE in "$PRESEED_DIR/plugs"/*/*.plug.js; do
-            [ -f "$PLUG_FILE" ] || continue
             if ! cmp -s "$PLUG_FILE" "$VAULT/Library/Codeflare/$(basename "$PLUG_FILE")" 2>/dev/null; then
                 cp "$PLUG_FILE" "$VAULT/Library/Codeflare/"
                 echo "[entrypoint] Preseeded plug synced: $(basename "$PLUG_FILE")"
             fi
         done
+        shopt -u nullglob
     fi
 
-    # Seed the global graph with the vault. Hash-keyed idempotent — safe to
+    # Seed the global graph with the vault. Hash-keyed idempotent - safe to
     # re-run on every boot. Best-effort: if graphify global isn't available
     # (e.g. graphify plugin disabled), continue.
     if command -v graphify >/dev/null 2>&1; then

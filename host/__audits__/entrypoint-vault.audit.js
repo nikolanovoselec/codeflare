@@ -85,10 +85,14 @@ describe('persistent user folders (REQ-FS-010)', () => {
     );
   });
 
-  it('start_silverbullet_supervisor points at the non-hidden Vault path', () => {
-    // SilverBullet aborts the disk walk when the vault basename starts
-    // with `.`, returning an empty file listing. Pinning the supervisor
-    // to $HOME/Vault keeps the SB UI populated.
+  it('silverbullet supervisor pins VAULT_ROOT to literal $HOME/Vault', () => {
+    // This is a code-presence audit (the test name reflects what is
+    // actually verified): we pin the literal `$HOME/Vault` string in the
+    // supervisor. The behavioural reason (SilverBullet's file walk
+    // aborts on dot-prefixed basenames, see the constraint on
+    // REQ-VAULT-001) is enforced by the literal; renaming back to a
+    // hidden path would fail this assertion and the SB UI would go
+    // empty in production.
     assert.ok(
       /local VAULT_ROOT="\$HOME\/Vault"/.test(entrypoint),
       'silverbullet supervisor must point at $HOME/Vault (non-hidden basename)'

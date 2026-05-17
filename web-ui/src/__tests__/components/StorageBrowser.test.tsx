@@ -28,7 +28,19 @@ const mockSetSelection = vi.fn();
 const mockUploadFiles = vi.fn();
 const mockSelectAll = vi.fn();
 const mockClearSelection = vi.fn();
-const mockSearchFiles = vi.fn((_q: string) => ({ objects: mockObjects, prefixes: mockPrefixes }));
+// Match the real store contract: a search query filters by case-insensitive
+// substring against the object key and prefix string. Returning the full
+// unfiltered state (the previous behaviour) silently passed any test that
+// rendered the search bar without verifying the filtered result actually
+// reached the DOM. The filter mirrors the simple `.includes` semantics of
+// stores/storage.ts.searchFiles for the slice the component cares about.
+const mockSearchFiles = vi.fn((q: string) => {
+  const needle = q.toLowerCase();
+  return {
+    objects: mockObjects.filter((o: { key: string }) => o.key.toLowerCase().includes(needle)),
+    prefixes: mockPrefixes.filter((p: string) => p.toLowerCase().includes(needle)),
+  };
+});
 const mockFetchStats = vi.fn();
 const mockOpenPreview = vi.fn();
 const mockClosePreview = vi.fn();
@@ -455,7 +467,12 @@ describe('StorageBrowser', () => {
       );
       expect(tooltip).toBeInTheDocument();
       expect(tooltip?.textContent).toContain('Holds your codebase');
-      expect(tooltip?.textContent).toContain('/home/user/Workspace');
+      // In-container path must live in the dedicated path subspan, not
+      // anywhere in the tooltip text, so a regression that drops the
+      // path line still fails the assertion.
+      const pathLine = tooltip?.querySelector('.workspace-sync-tooltip-path');
+      expect(pathLine).toBeInTheDocument();
+      expect(pathLine?.textContent).toContain('/home/user/Workspace');
     });
 
     it('renders Vault, Uploads, Temporary at storage root even when R2 is empty', () => {
@@ -479,7 +496,9 @@ describe('StorageBrowser', () => {
       const icon = vaultFolder.querySelector('[data-testid="special-folder-icon-vault"]') as HTMLElement;
       fireEvent.click(icon);
       const tooltip = vaultFolder.querySelector('[data-testid="special-folder-tooltip-vault"]');
-      expect(tooltip?.textContent).toContain('/home/user/Vault');
+      const pathLine = tooltip?.querySelector('.workspace-sync-tooltip-path');
+      expect(pathLine).toBeInTheDocument();
+      expect(pathLine?.textContent).toContain('/home/user/Vault');
     });
 
     it('opening a second tooltip closes the first (single-open behaviour)', () => {
@@ -523,7 +542,7 @@ describe('StorageBrowser', () => {
         expect(globalThis.URL.revokeObjectURL).toHaveBeenCalled();
       });
 
-      // openPreview should NOT be called — download is triggered instead
+      // openPreview should NOT be called - download is triggered instead
       expect(mockOpenPreview).not.toHaveBeenCalled();
       // Verify the full download chain completed
       expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -650,7 +669,7 @@ describe('StorageBrowser', () => {
       // (Vault/Uploads/Temporary) are injected into the listing even
       // when R2 has nothing under them, so the panel is intentionally
       // never empty at root after this change. The empty-state
-      // placeholder still has to fire one level down — pick a deep
+      // placeholder still has to fire one level down - pick a deep
       // prefix that the special-folders injection ignores.
       mockPrefixes = [];
       mockObjects = [];
@@ -823,7 +842,7 @@ describe('StorageBrowser', () => {
       const deleteBtn = screen.getByTitle('Delete selected');
       fireEvent.click(deleteBtn);
 
-      // Selection mode should be deactivated — checkbox should disappear
+      // Selection mode should be deactivated - checkbox should disappear
       // The select mode button should no longer be active
       const selectBtn = screen.getByTitle('Selection mode');
       expect(selectBtn.classList.contains('storage-icon-btn--active')).toBe(false);

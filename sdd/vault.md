@@ -45,14 +45,17 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. The `.graphify/` directory (ephemeral global-graph workspace) is excluded with `- .graphify/**` so the merged graph is regenerated on boot from the per-source `graphify-out/` files rather than carrying stale state across sessions.
 3. The skeleton (subdirectories + README + empty `graph.json` + SilverBullet config + best-effort Atlas plug) is created by `init_user_vault()` in entrypoint.sh, idempotent so a returning session does not overwrite restored content.
 4. `init_user_vault()` runs AFTER `establish_bisync_baseline()` and BEFORE the daemon launch block, so we never write the empty skeleton over R2-restored content.
+5. `init_user_vault()` also `mkdir -p`s `/home/user/Uploads` and `/home/user/Temporary` alongside the vault. Both folders are persistent (`RCLONE_FILTERS_COMMON` includes `+ Uploads/**` and `+ Temporary/**`, placed BEFORE the global graphify-out exclude) so a file dropped into either survives session restart and is visible in the storage panel and from every device.
+6. The R2 storage panel surfaces Workspace, Vault, Uploads, and Temporary as "special folders" at the bucket root: each appears unconditionally (Workspace gated by the workspace-sync preference), each renders an info icon that toggles a tooltip showing the folder's purpose and the in-container path it materialises at (`/home/user/Workspace`, `/home/user/Vault`, `/home/user/Uploads`, `/home/user/Temporary`).
 
 **Constraints:**
 - The vault is committed to the same R2 bucket as `/home/user/workspace` -- no two-bucket separation.
 - Vault content is per-user (each user has their own R2 bucket).
+- The vault directory MUST live at a non-hidden basename (`Vault`, not `.user_vault` or any other dot-prefixed path). SilverBullet's disk walker (`server/disk_space_primitives.go` `FetchFileList`) aborts the walk when the root basename starts with `.`, returning an empty file listing even when notes are on disk.
 
 **Priority:** P0
 **Dependencies:** REQ-STOR-002 (file persistence across sessions), REQ-STOR-003 (60s bisync), REQ-STOR-004 (initial sync restores files on container start)
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: filter order, init function presence); E2E (fresh session, `ls /home/user/Vault/`)
+**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: filter order, init function presence, Uploads/Temporary mkdir, supervisor uses `$HOME/Vault`); special-folder registry unit test (`web-ui/src/__tests__/lib/special-folders.test.ts`); E2E (fresh session, `ls /home/user/{Vault,Uploads,Temporary}`, storage panel shows the four special folders with tooltips containing their container paths)
 **Status:** Implemented
 
 ---
@@ -196,14 +199,16 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. The Dockerfile copies `preseed/silverbullet/` to `/opt/silverbullet-preseed/` so `init_user_vault()` can install the editor config without baking it into every R2 sync.
 3. `scripts/generate-agent-seed.mjs` (run as `prebuild`) embeds the manifest contents into `src/lib/agent-seed.generated.ts`, which is what the Worker ships to the container at boot.
 4. `preseed/agents/claude/rules/memory.md` is updated to document the vault-only capture path.
+5. On every boot, `init_user_vault()` copies the SilverBullet plugs preseeded under `/opt/silverbullet-preseed/plugs/` into `~/Vault/Library/Codeflare/` so the editor opens with the baseline productivity plugs listed in `preseed/silverbullet/plugs/MANIFEST.md` (pdf, treeview, github, graph) available immediately, with no per-session install step. The copy is idempotent (overwrite-on-content-diff) so a codeflare-side plug pin bump propagates on next boot; user-installed plugs land under other `Library/` subdirectories and are untouched.
 
 **Constraints:**
 - Default-mode sessions do NOT get the vault plugin; the editor is an advanced-tier feature.
 - The vault skeleton is created at runtime, not baked into the image, so a returning session never overwrites restored content.
+- `Library/Codeflare/` is reserved for codeflare-managed plugs; the user keeps their own plugs in other `Library/` subdirectories so codeflare's overwrite-on-boot never clobbers user state.
 
 **Priority:** P0
 **Dependencies:** REQ-AGENT-006 (preseed configs from single source), REQ-AGENT-008 (preseed deployed to container on start), REQ-AGENT-014 (manifest-driven preseed pipeline)
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: preseed manifest entries + file presence); E2E (fresh session, confirm `~/.claude/plugins/codeflare-vault/` exists)
+**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: preseed manifest entries + file presence); plug manifest presence (`preseed/silverbullet/plugs/MANIFEST.md` lists the shipped plugs); E2E (fresh session, confirm `~/.claude/plugins/codeflare-vault/` exists and `~/Vault/Library/Codeflare/*.plug.js` populates)
 **Status:** Implemented
 
 ---

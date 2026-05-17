@@ -26,8 +26,23 @@ interface FileListProps {
 }
 
 const getFileName = (key: string): string => {
-  const parts = key.split('/');
-  return parts[parts.length - 1] || parts[parts.length - 2] || key;
+  // Walk the path segments back-to-front so a trailing slash (folder-shaped
+  // key) returns the directory name rather than an empty string. Falls
+  // back to the raw key for pathological inputs (empty, just slashes).
+  const parts = key.split('/').filter(Boolean);
+  return parts[parts.length - 1] || key;
+};
+
+// Render obj.lastModified as a human-relative string, guarding against the
+// empty/invalid case (synthetic injection produces no objects[] entry, but
+// a future R2 response with a stat error could leave the field empty;
+// new Date('') -> Invalid Date -> formatter returns 'NaN' which leaks into
+// the UI). Returns '' for unrenderable timestamps.
+const formatLastModified = (raw: string): string => {
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '';
+  return formatRelativeTime(d);
 };
 
 const getFolderName = (prefix: string): string => {
@@ -148,7 +163,7 @@ const FileList: Component<FileListProps> = (props) => {
                 {getFileName(obj.key)}
               </span>
               <span class="storage-item-size">{formatSize(obj.size)}</span>
-              <span class="storage-item-modified">{formatRelativeTime(new Date(obj.lastModified))}</span>
+              <span class="storage-item-modified">{formatLastModified(obj.lastModified)}</span>
             </div>
           );
         }}
