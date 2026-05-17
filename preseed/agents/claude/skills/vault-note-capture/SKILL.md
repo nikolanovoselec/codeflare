@@ -5,7 +5,7 @@ description: When user says "take a note", "note this down", "write it down", "s
 
 # Vault note capture
 
-The user keeps cross-session notes in `~/Vault/Notes/` (a SilverBullet space; persisted to R2; ingested into the unified graphify graph by the vault-monitor daemon). When they ask you to capture something, write a file — don't just acknowledge.
+The user keeps cross-session notes in `~/Vault/Notes/` (a SilverBullet space; persisted to R2; ingested into the unified graphify graph by the vault-monitor daemon). When they ask you to capture something, write a file - don't just acknowledge.
 
 ## Workflow
 
@@ -20,7 +20,7 @@ The user keeps cross-session notes in `~/Vault/Notes/` (a SilverBullet space; pe
 
 2. **Filename**: `YYYY-MM-DD-<short-kebab-slug>.md`. Date prefix enables chronological scan; slug is 3-6 words capturing the gist.
 
-3. **Body shape** (tight — user will edit in SilverBullet if needed):
+3. **Body shape** (tight - user will edit in SilverBullet if needed):
 
    ```markdown
    # <Short title>
@@ -40,13 +40,13 @@ The user keeps cross-session notes in `~/Vault/Notes/` (a SilverBullet space; pe
    - `[[PascalCaseConcept]]` for things you want the unified graph to dedup across notes and code (named patterns, product names, function names that are also concepts).
    - File paths, snake_case symbols, PR/issue URLs → leave as prose. They namespace per-project; auto-linking creates noise.
 
-5. **Report back**: just the file path on one line. Don't quote the body — the user opens it in SilverBullet. Do NOT manually trigger extraction; the vault-monitor daemon picks it up on the next 60s tick.
+5. **Report back**: just the file path on one line. Don't quote the body - the user opens it in SilverBullet. Do NOT manually trigger extraction; the vault-monitor daemon picks it up on the next 60s tick.
 
 ## Hard rules
 
 - **Never write to** `Raw/Sessions/` (agent-capture-only; deterministic).
-- **Never write to** the four preseed pages (`Index.md`, `README.md`, `CONFIG.md`, `STYLES.md`) — they're Codeflare-authoritative and overwritten on next boot.
-- **Don't sprawl**. If user says "note this about X", capture X — not the whole prior turn. If broader context is needed, ask one short question.
+- **Never write to** the four preseed pages (`Index.md`, `README.md`, `CONFIG.md`, `STYLES.md`) - they're Codeflare-authoritative and overwritten on next boot.
+- **Don't sprawl**. If user says "note this about X", capture X - not the whole prior turn. If broader context is needed, ask one short question.
 
 ## Edge cases
 

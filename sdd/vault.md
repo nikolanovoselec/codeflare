@@ -200,7 +200,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Applies To:** Agent
 
 **Acceptance Criteria:**
-1. `preseed/agents/claude/manifest.json` registers `plugins/codeflare-vault/.claude-plugin/plugin.json`, `plugins/codeflare-vault/scripts/vault-monitor-hook.sh`, `plugins/codeflare-vault/scripts/vault-extract-prompt.md`, and `rules/vault.md` -- all in advanced mode only.
+1. `preseed/agents/claude/manifest.json` registers `plugins/codeflare-vault/.claude-plugin/plugin.json`, `plugins/codeflare-vault/scripts/vault-monitor-hook.sh`, `plugins/codeflare-vault/scripts/vault-extract-prompt.md`, `rules/vault.md`, `rules/vault-note-capture.md`, and `skills/vault-note-capture/SKILL.md` -- all in advanced mode only.
 2. The Dockerfile copies `preseed/silverbullet/` to `/opt/silverbullet-preseed/` so `init_user_vault()` can install the editor config without baking it into every R2 sync.
 3. `scripts/generate-agent-seed.mjs` (run as `prebuild`) embeds the manifest contents into `src/lib/agent-seed.generated.ts`, which is what the Worker ships to the container at boot.
 4. `preseed/agents/claude/rules/memory.md` is updated to document the vault-only capture path.
