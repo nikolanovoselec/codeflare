@@ -56,7 +56,19 @@ const Layout: Component<LayoutProps> = (props) => {
     const sid = sessionStore.activeSessionId;
     if (!sid) return;
     const s = sessionStore.sessions.find((x) => x.id === sid);
-    if (!s || s.status !== 'running') return;
+    if (!s || s.status !== 'running') {
+      // Session stopped/missing — invalidate any cached ready flag so a
+      // restart under the same id re-probes. Without this the button would
+      // lie about readiness across stop → start cycles.
+      if (vaultReadyBySession()[sid]) {
+        setVaultReadyBySession((prev) => {
+          const next = { ...prev };
+          delete next[sid];
+          return next;
+        });
+      }
+      return;
+    }
     if (vaultReadyBySession()[sid]) return; // already proven ready
 
     let cancelled = false;
