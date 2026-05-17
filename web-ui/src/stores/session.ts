@@ -263,13 +263,15 @@ async function loadSessions(): Promise<void> {
         continue;
       }
 
-      // Store timestamp fields from batch-status
-      if (batchStatus.lastActiveAt || batchStatus.lastStartedAt) {
-        const idx = sessionsWithStatus.findIndex(s => s.id === session.id);
-        if (idx !== -1) {
-          if (batchStatus.lastActiveAt) setState('sessions', idx, 'lastActiveAt', batchStatus.lastActiveAt);
-          if (batchStatus.lastStartedAt) setState('sessions', idx, 'lastStartedAt', batchStatus.lastStartedAt);
-        }
+      // Propagate per-session fields from batch-status onto SessionWithStatus.
+      // ptyActive/startupStage are frontend-only mirrors of the latest poll —
+      // consumers (e.g. Layout vault-button gate) read them off the session.
+      const idx = sessionsWithStatus.findIndex(s => s.id === session.id);
+      if (idx !== -1) {
+        if (batchStatus.lastActiveAt) setState('sessions', idx, 'lastActiveAt', batchStatus.lastActiveAt);
+        if (batchStatus.lastStartedAt) setState('sessions', idx, 'lastStartedAt', batchStatus.lastStartedAt);
+        setState('sessions', idx, 'ptyActive', batchStatus.ptyActive);
+        setState('sessions', idx, 'startupStage', batchStatus.startupStage);
       }
 
       // Populate sessionMetrics from batch-status metrics

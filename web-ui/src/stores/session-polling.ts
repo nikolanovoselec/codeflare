@@ -162,11 +162,15 @@ export async function refreshSessionStatuses(): Promise<void> {
       const remote = batchStatuses[session.id];
       if (!remote) continue;
 
-      // Store timestamp fields
+      // Propagate per-session fields from batch-status onto SessionWithStatus.
+      // ptyActive/startupStage are frontend-only mirrors of the latest poll —
+      // consumers (e.g. Layout vault-button gate) read them off the session.
       const idx = getState().sessions.findIndex(s => s.id === session.id);
       if (idx !== -1) {
         if (remote.lastActiveAt) setStateRaw('sessions', idx, 'lastActiveAt', remote.lastActiveAt);
         if (remote.lastStartedAt) setStateRaw('sessions', idx, 'lastStartedAt', remote.lastStartedAt);
+        setStateRaw('sessions', idx, 'ptyActive', remote.ptyActive);
+        setStateRaw('sessions', idx, 'startupStage', remote.startupStage);
       }
 
       // Populate sessionMetrics from batch-status metrics

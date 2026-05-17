@@ -54,6 +54,10 @@ export type SessionStatus = 'stopped' | 'initializing' | 'running' | 'stopping' 
 
 export interface SessionWithStatus extends Omit<Session, 'status'> {
   status: SessionStatus;
+  /** Whether the session PTY is currently active (derived from batch-status; frontend-only) */
+  ptyActive?: boolean;
+  /** Container init stage (derived from batch-status; 'ready' means daemons are up) */
+  startupStage?: string;
 }
 
 /**
