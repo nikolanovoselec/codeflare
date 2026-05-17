@@ -28,7 +28,7 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
      This wires the graphify semantic merge driver for `graph.json`. The driver itself is registered globally in the container image, so this `.gitattributes` line is the only per-repo setup needed. Without it, concurrent edits produce corrupt JSON on merge.
    - Stage and commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `.graphify_root`, `.graphify_labels.json`, and optionally `graph.html` + `wiki/`. Subsequent contributors clone the repo and inherit the graph for free.
    - For repos the user does NOT have push permission to (cloned open-source projects, read-only forks): graphify-out/ stays in the working tree only, ephemeral, no R2 fallback. Do not try to persist via bisync.
-   - **Before the commit step, merge this repo's graph into the unified global graph** so `mcp__graphify__*` tool calls see it alongside the vault and any other active repos: `flock /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as <repo-basename>`. Hash-keyed and idempotent. The `flock` serialises against the capture sonnet and the vault-monitor sonnet, which also write the global graph.
+   - **Before the commit step, merge this repo's graph into the unified global graph** so `mcp__graphify__*` tool calls see it alongside the vault and any other active repos: `flock /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as <repo-basename>`. Hash-keyed and idempotent. The `flock` serialises against the capture agent (haiku) and the vault-extract agent (haiku), which also write the global graph.
 
    When two sessions both run `graphify update .` and produce conflicting `graph.json`, the merge driver auto-resolves on `git merge` / `git pull`. No manual JSON wrangling.
 
@@ -42,9 +42,21 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
 
 7. **Discipline rule.** When `graphify-out/graph.json` exists, `~/.claude/rules/graph-first.md` applies: prefer focused MCP queries over Grep for architecture, dependency, and call-flow questions.
 
+8. **Mandatory build-mode choice before any extraction.** Before dispatching Part B subagents (Step B2 of the upstream protocol), ALWAYS present the user with an `AskUserQuestion` offering exactly two modes:
+   - **AST-only** - free, no token cost; code structure + call/import/contains edges only; no semantic concepts from docs / papers / images.
+   - **Full (AST + semantic)** - AST plus N parallel Haiku subagents extracting concepts from docs / papers / images. Include the actual subagent count (`ceil(uncached_non_code_files / 22) + image_count`) and a wall-time estimate (~45s per parallel batch).
+
+   Default recommendation: **AST-only** when the user is testing, exploring, or running on > 200 files / > 100k words; **Full** when this is the first build of a target project they will work on long-term.
+
+   Skip the question only when (a) the corpus has zero docs / papers / images (code-only fast path makes the choice moot), or (b) `--no-semantic` was passed explicitly. If AST-only is chosen, skip Part B entirely and treat AST as the full extraction (same flow as the code-only fast path).
+
+   This choice is separate from the "split by subfolder" question the upstream protocol asks on > 200 files - ask both in sequence (subfolder first, then build mode against the chosen scope).
+
+9. **Spawn Part B semantic subagents with `model: "haiku"`.** Graphify semantic extraction is a templated structured-output task: each subagent reads files and emits chunk JSON matching graphify's schema. Same workload class as the vault-extract agent that already runs on Haiku. The `Task` calls in Step B2 must include `model: "haiku"` so per-build cost matches vault-extract economics (~1/8 of Opus, ~1/3 of Sonnet). Override to Sonnet only when `--mode deep` was passed; never escalate to Opus from this skill.
+
 ---
 
-The upstream graphify extraction pipeline is reproduced below in full. It is the canonical algorithm; do not improvise on it.
+The upstream graphify extraction pipeline is reproduced below in full. It is the canonical algorithm; do not improvise on it. The two operational notes above (#8 mandatory build-mode question, #9 Haiku subagents) are codeflare-specific overrides that bind on top of the upstream Step 2 + Step B2 below - apply them even where the upstream text does not mention them.
 
 ---
 
