@@ -158,6 +158,56 @@ describe('container DO class', () => {
       expect(mockCtx.blockConcurrencyWhile).toHaveBeenCalledTimes(1);
     });
 
+    it('restores containerAuthToken from storage so DO wake does not desync from a running container', async () => {
+      // Regression for the silent-401 bug: prior to persistence, every DO
+      // wake regenerated a fresh UUID via updateEnvVars() while the
+      // container process kept its old CONTAINER_AUTH_TOKEN env var, so the
+      // Bearer header attached by the fetch override no longer matched and
+      // every proxied request received `{"error":"Unauthorized"}` from
+      // host/src/server.ts until the user manually recreated the session.
+      const PRIOR_TOKEN = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return PRIOR_TOKEN;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      // Constructor's blockConcurrencyWhile runs synchronously via the mock,
+      // but the inner async body needs a microtask flush before envVars
+      // settles. Awaiting any pending tasks here is enough.
+      await Promise.resolve();
+
+      // The token in envVars (which is what the container reads on next
+      // start) must equal what storage already had — NOT a fresh UUID.
+      expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe(PRIOR_TOKEN);
+      // And storage.put must NOT be called with a new UUID for this key.
+      const putKeys = mockStorage.put.mock.calls.map((c) => c[0]);
+      expect(putKeys).not.toContain('containerAuthToken');
+    });
+
+    it('persists a freshly-generated containerAuthToken so subsequent wakes restore it', async () => {
+      // No prior token in storage → generator path. Must write back so the
+      // next wake's restore branch sees a value and skips re-generation.
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await Promise.resolve();
+
+      // Generator emitted SOMETHING that looks like a UUID.
+      const tok = instance.envVars?.CONTAINER_AUTH_TOKEN;
+      expect(tok).toMatch(/^[0-9a-f-]{36}$/);
+
+      // And it landed in storage under the same key the restore reads.
+      const putCalls = mockStorage.put.mock.calls;
+      const tokenPut = putCalls.find((c) => c[0] === 'containerAuthToken');
+      expect(tokenPut).toBeDefined();
+      expect(tokenPut?.[1]).toBe(tok);
+    });
+
   });
 
   describe('internal route dispatch', () => {
