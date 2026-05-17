@@ -10,17 +10,18 @@ web-ui/dist/
 wrangler.toml.bak
 e2e-artifacts/
 
-# graphify (canonical pattern set lives in graphify SKILL.md note 3)
+# graphify (canonical pattern set lives in preseed/agents/claude/skills/graphify/SKILL.md note 3)
 # Regenerable build outputs - large, no value cross-machine:
 graphify-out/cache/
 graphify-out/.cache/
 graphify-out/.chunks/
 graphify-out/manifest.json
 graphify-out/obsidian/
-# Working-tree intermediates - mostly cleaned by the build's Step 9,
-# gitignored for safety on interrupted runs:
+# Working-tree intermediates - cleaned by the build's Step 9,
+# gitignored as the safety net for runs interrupted before cleanup:
 .graphify_ast.json
 .graphify_semantic.json
+.graphify_semantic_new.json
 .graphify_extract.json
 .graphify_detect.json
 .graphify_analysis.json

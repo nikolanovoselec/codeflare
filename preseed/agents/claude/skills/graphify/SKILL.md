@@ -24,11 +24,12 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
      graphify-out/manifest.json
      graphify-out/obsidian/
 
-     # graphify working-tree intermediates (created mid-run; most are
-     # cleaned by Step 9, gitignore is the safety net for the rest and
-     # for runs interrupted before cleanup)
+     # graphify working-tree intermediates (created mid-run; cleaned by
+     # Step 9, gitignored as the safety net for runs interrupted before
+     # cleanup runs)
      .graphify_ast.json
      .graphify_semantic.json
+     .graphify_semantic_new.json
      .graphify_extract.json
      .graphify_detect.json
      .graphify_analysis.json
@@ -697,7 +698,7 @@ cost_path.write_text(json.dumps(cost, indent=2))
 print(f'This run: {input_tok:,} input tokens, {output_tok:,} output tokens')
 print(f'All time: {cost[\"total_input_tokens\"]:,} input, {cost[\"total_output_tokens\"]:,} output ({len(cost[\"runs\"])} runs)')
 "
-rm -f .graphify_detect.json .graphify_extract.json .graphify_ast.json .graphify_semantic.json .graphify_analysis.json .graphify_labels.json
+rm -f .graphify_detect.json .graphify_extract.json .graphify_ast.json .graphify_semantic.json .graphify_semantic_new.json .graphify_analysis.json .graphify_labels.json
 rm -f .graphify_cached.json .graphify_uncached.txt .graphify_old.json .graphify_chunk_*.txt
 rm -f graphify-out/.needs_update 2>/dev/null || true
 ```
