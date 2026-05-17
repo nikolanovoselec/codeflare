@@ -210,7 +210,10 @@ export class container extends Container<Env> {
     // change the steady-state.
     if (!this._containerAuthToken) {
       this._containerAuthToken = crypto.randomUUID();
-      this.ctx.storage.put('containerAuthToken', this._containerAuthToken).catch((err) => {
+      // Promise.resolve() wrap: in production ctx.storage.put returns a
+      // Promise per the Workers Runtime API, but some test mocks return
+      // undefined synchronously. Wrapping makes `.catch` safe in both.
+      Promise.resolve(this.ctx.storage.put('containerAuthToken', this._containerAuthToken)).catch((err) => {
         this.logger.warn('Failed to persist containerAuthToken', { error: toErrorMessage(err) });
       });
     }
