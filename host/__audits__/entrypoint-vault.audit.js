@@ -124,7 +124,7 @@ describe('vault skeleton + daemons (REQ-MEMORY-101..103)', () => {
   });
 
   it('excludes all four preseed-managed root pages from the daemon find (REQ-VAULT-003 AC1)', () => {
-    for (const page of ['index.md', 'CONFIG.md', 'README.md', 'STYLES.md']) {
+    for (const page of ['Index.md', 'CONFIG.md', 'README.md', 'STYLES.md']) {
       assert.ok(
         entrypoint.includes(`-not -path "$VAULT_ROOT/${page}"`),
         `vault-monitor daemon must exclude ${page} from -newer find (codeflare-authoritative; agent cp must not trigger extraction)`
@@ -236,7 +236,7 @@ describe('vault preseed files exist on disk', () => {
     'preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md',
     'preseed/agents/claude/rules/vault.md',
     'preseed/silverbullet/config.yaml',
-    'preseed/silverbullet/index.md',
+    'preseed/silverbullet/Index.md',
     'preseed/silverbullet/CONFIG.md',
     'preseed/silverbullet/README.md',
     'preseed/silverbullet/STYLES.md',

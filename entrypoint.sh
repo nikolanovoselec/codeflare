@@ -693,12 +693,13 @@ start_sync_daemon() {
 # If extraction fails the marker stays old; next tick re-discovers the
 # same files (eventual consistency, no work lost).
 #
-# Excluded paths: raw/sessions/ (agent-owned, written by capture hook
+# Excluded paths: Raw/Sessions/ (agent-owned, written by capture hook
 # which already merges), graphify-out/ (derived), .silverbullet/ (config
-# + cache, no semantic content), index.md at vault root (SilverBullet
-# rewrites it on every supervisor boot when its "empty space" heuristic
-# fires, so every container restart / SB crash + restart would otherwise
-# bump the marker and spawn an extract sonnet for boilerplate content).
+# + cache, no semantic content), and the four preseed-managed root
+# pages Index.md, README.md, CONFIG.md, STYLES.md (codeflare-
+# authoritative per REQ-VAULT-001 AC7 - agent-side cp from preseed
+# must not count as a user edit, or every container boot would re-
+# trigger extraction for boilerplate content).
 # ============================================================================
 start_vault_monitor_daemon() {
     local VAULT_ROOT="$HOME/Vault"
@@ -739,11 +740,11 @@ start_vault_monitor_daemon() {
         # and would otherwise re-trigger extraction on every boot).
         local CHANGED
         CHANGED=$(find "$VAULT_ROOT" \
-            \( -path "$VAULT_ROOT/raw/sessions" -o \
+            \( -path "$VAULT_ROOT/Raw/Sessions" -o \
                -path "$VAULT_ROOT/graphify-out" -o \
                -path "$VAULT_ROOT/.silverbullet" \) -prune -o \
             -type f \
-            -not -path "$VAULT_ROOT/index.md" \
+            -not -path "$VAULT_ROOT/Index.md" \
             -not -path "$VAULT_ROOT/CONFIG.md" \
             -not -path "$VAULT_ROOT/README.md" \
             -not -path "$VAULT_ROOT/STYLES.md" \
@@ -1183,17 +1184,17 @@ init_user_vault() {
     fi
 
     # Critical directories. Always mkdir -p on every boot so a user who
-    # deletes raw/sessions/, notes/, etc. cannot break the agent hooks
+    # deletes Raw/Sessions/, Notes/, etc. cannot break the agent hooks
     # or SilverBullet on the next session start.
-    mkdir -p "$VAULT/raw/sessions" "$VAULT/raw/pasted" "$VAULT/notes" \
+    mkdir -p "$VAULT/Raw/Sessions" "$VAULT/Raw/Pasted" "$VAULT/Notes" \
              "$VAULT/graphify-out" "$VAULT/.silverbullet/_plug"
 
     # Preseed-managed pages. Always overwritten from preseed on every boot
     # so SilverBullet cannot be permanently broken by file deletion or by
     # stale content surviving across preseed updates. These four files are
     # codeflare-authoritative, not user-editable. User content lives in
-    # notes/, Inbox/, Journal/, raw/pasted/ (never touched by this block).
-    local PRESEED_PAGES=(index.md CONFIG.md README.md STYLES.md)
+    # Notes/, Inbox/, Journal/, Raw/Pasted/ (never touched by this block).
+    local PRESEED_PAGES=(Index.md CONFIG.md README.md STYLES.md)
     local PAGE
     local PRESEED_PAGE_WRITTEN=0
     for PAGE in "${PRESEED_PAGES[@]}"; do

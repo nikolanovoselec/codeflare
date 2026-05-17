@@ -42,7 +42,7 @@ Execution protocol:
 2. If it EXISTS → spawn a background **sonnet** Task agent with the
    hook's instructions. The agent deletes the `.vars` file first (dedup
    gate), writes a markdown capture into
-   `/home/user/Vault/raw/sessions/`, then merges it into the
+   `/home/user/Vault/Raw/Sessions/`, then merges it into the
    unified global graph via `graphify global add`.
 3. If it does NOT exist → do nothing.
 4. Then respond to the user's actual message.

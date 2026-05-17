@@ -59,17 +59,23 @@ step 6.
 
 ```bash
 find /home/user/Vault \
-    \( -path /home/user/Vault/raw/sessions -o \
+    \( -path /home/user/Vault/Raw/Sessions -o \
        -path /home/user/Vault/graphify-out -o \
        -path /home/user/Vault/.silverbullet \) -prune -o \
-    -type f -newer ~/.cache/codeflare-hooks/vault-extract.last -print
+    -type f \
+    -not -path /home/user/Vault/Index.md \
+    -not -path /home/user/Vault/README.md \
+    -not -path /home/user/Vault/CONFIG.md \
+    -not -path /home/user/Vault/STYLES.md \
+    -newer ~/.cache/codeflare-hooks/vault-extract.last -print
 ```
 
 Exclusions:
 
-- `raw/sessions/` - agent-owned, already merged by the capture sonnet.
+- `Raw/Sessions/` - agent-owned, already merged by the capture sonnet.
 - `graphify-out/` - derived output, would create a feedback loop.
 - `.silverbullet/` - editor config + plug cache, no semantic content.
+- `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` - codeflare-authoritative preseed pages (REQ-VAULT-001 AC7); never user-edits.
 
 If the find returns zero files, skip to step 6 (touch the marker so we
 do not keep re-running on the same empty result).

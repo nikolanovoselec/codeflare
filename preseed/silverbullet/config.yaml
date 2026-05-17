@@ -1,7 +1,7 @@
-# SilverBullet config for the codeflare in-container vault.
+# SilverBullet config for the Codeflare in-container vault.
 #
-# Auth boundary is the codeflare Worker proxy (validates session cookie).
-# SilverBullet binds to 127.0.0.1:3030 inside the container — not exposed
+# Auth boundary is the Codeflare Worker proxy (validates session cookie).
+# SilverBullet binds to 127.0.0.1:3030 inside the container - not exposed
 # externally. Disable SB's own auth; the proxy handles it.
 #
 # Reference: https://silverbullet.md/Configuration
@@ -10,9 +10,9 @@
 # (SilverBullet's "no users defined" state is auth-less by design.)
 
 # Index page shown when the user opens the vault. The dashboard
-# (quick notes, journal, tasks, recently modified) lives in index.md;
-# README.md is the vault-contract reference page, linked from index.
-indexPage: "index"
+# (quick notes, journal, tasks, recently modified) lives in Index.md;
+# README.md is the vault-contract reference page, linked from Index.
+indexPage: "Index"
 
 # Default editor mode.
 defaultMode: "edit"

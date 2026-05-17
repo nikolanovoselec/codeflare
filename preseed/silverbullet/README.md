@@ -1,6 +1,6 @@
 # Vault & SilverBullet
 
-This vault is your personal knowledge layer inside codeflare. Anything you write here persists across sessions (synced to R2) and feeds the unified knowledge graph that your AI agent queries before answering you.
+This vault is your personal knowledge layer inside Codeflare. Anything you write here persists across sessions (synced to R2) and feeds the unified knowledge graph that your AI agent queries before answering you.
 
 ## Why a vault?
 
@@ -9,19 +9,19 @@ Codeflare sessions are ephemeral - the container is rebuilt every time you start
 The vault solves that. It is the one place where:
 
 - Notes you write survive across sessions.
-- The agent's transcript captures (one file per ~15 prompts) land in `raw/sessions/`.
+- The agent's transcript captures (one file per ~15 prompts) land in `Raw/Sessions/`.
 - File edits trigger re-extraction into the knowledge graph - so the agent can find what you wrote when you ask it questions later.
 
 ## What is SilverBullet?
 
-[SilverBullet](https://silverbullet.md) is a self-hosted, markdown-first note editor. It runs as a small server inside your codeflare container on `127.0.0.1:3030`, fronted by the codeflare auth proxy so only you can reach it. Click the **Vault** button in the codeflare header to open it.
+[SilverBullet](https://silverbullet.md) is a self-hosted, markdown-first note editor. It runs as a small server inside your Codeflare container on `127.0.0.1:3030`, fronted by the Codeflare auth proxy so only you can reach it. Click the **Vault** button (graph icon) in the Codeflare header to open it.
 
 Reasons to use it (instead of just dropping .md files in a folder):
 
 - **Live preview & inline editing**. Markdown renders in place; you edit and read in the same view.
 - **Wikilinks** (`[[Page Name]]`) auto-resolve and auto-suggest. Build a web of notes without managing folders.
 - **Backlinks**. Every page shows what links to it.
-- **Queries**. Embed `${query[[...]]}` blocks that auto-populate lists (recently modified pages, open tasks, etc.). The dashboard on [[index]] uses this.
+- **Queries**. Embed `${query[[...]]}` blocks that auto-populate lists (recently modified pages, open tasks, etc.). The dashboard on [[Index]] uses this.
 - **Plugs** (plugins). PDF viewer, treeview sidebar, GitHub integration, graph view - all preseeded in `Library/Codeflare/`.
 - **Drag-and-drop**. Drop images, PDFs, or text snippets directly into a page.
 
@@ -29,7 +29,7 @@ Reasons to use it (instead of just dropping .md files in a folder):
 
 ### Capture a quick note
 
-On [[index]], click the **Quick Note** button. SilverBullet creates a timestamped page under `Inbox/`. Write whatever, hit Esc when done. The note shows up in "Recent quick notes" on the dashboard.
+On [[Index]], click the **Quick Note** button. SilverBullet creates a timestamped page under `Inbox/`. Write whatever, hit Esc when done. The note shows up in "Recent quick notes" on the dashboard.
 
 ### Create a regular note
 
@@ -37,14 +37,14 @@ Press `Ctrl/Cmd-K` (or click anywhere in the page title bar) to open the page sw
 
 Suggested folder layout:
 
-- `notes/` - durable, organized prose. Concept notes, runbooks, references.
+- `Notes/` - durable, organized prose. Concept notes, runbooks, references.
 - `Inbox/` - quick captures you'll process later.
 - `Journal/` - daily entries (SB has a "Journal: Today" button).
-- `raw/pasted/` - drop screenshots, PDFs, anything binary here.
+- `Raw/Pasted/` - drop screenshots, PDFs, anything binary here.
 
 ### Drop a PDF or screenshot
 
-Drag the file into the SilverBullet window. SB writes it to `raw/pasted/` and inserts an embed. The PDF plug renders it inline; images render as previews.
+Drag the file into the SilverBullet window. SB writes it to `Raw/Pasted/` and inserts an embed. The PDF plug renders it inline; images render as previews.
 
 ### Use the agent's memory
 
@@ -56,24 +56,24 @@ Anything you write in the vault gets extracted into the knowledge graph within ~
 
 ### Examples
 
-- **Decision log**: write `notes/Decisions/2026-05-17-deno-vs-bun.md`. Use `[[Deno]]` and `[[Bun]]` as wikilinks. Later ask the agent "remind me why we picked X" - it surfaces the note.
-- **API reference dump**: paste a third-party API doc into `notes/Refs/Stripe-Webhooks.md`. Agent can pull from it when writing code.
-- **Reading notes**: drop a PDF in `raw/pasted/`, write a summary in `notes/Reading/Title.md` linking to it. Graph connects the summary to whatever concepts you wikilinked.
-- **Project journal**: daily entries under `Journal/`. Use the "Journal: Today" button on [[index]] to create one.
+- **Decision log**: write `Notes/Decisions/2026-05-17-deno-vs-bun.md`. Use `[[Deno]]` and `[[Bun]]` as wikilinks. Later ask the agent "remind me why we picked X" - it surfaces the note.
+- **API reference dump**: paste a third-party API doc into `Notes/Refs/Stripe-Webhooks.md`. Agent can pull from it when writing code.
+- **Reading notes**: drop a PDF in `Raw/Pasted/`, write a summary in `Notes/Reading/Title.md` linking to it. Graph connects the summary to whatever concepts you wikilinked.
+- **Project journal**: daily entries under `Journal/`. Use the "Journal: Today" button on [[Index]] to create one.
 
 ## Vault structure
 
 | Path | Owner | Purpose |
 |------|-------|---------|
-| `index.md` | preseed (overwritten each boot) | Dashboard - quick notes, journal, tasks, recently modified |
+| `Index.md` | preseed (overwritten each boot) | Dashboard - quick notes, journal, tasks, recently modified |
 | `README.md` | preseed (overwritten each boot) | This file |
 | `CONFIG.md` | preseed (overwritten each boot) | SilverBullet runtime config (Library/Std federation) |
 | `STYLES.md` | preseed (overwritten each boot) | Codeflare theme |
-| `notes/` | you | Curated prose. Write freely. |
+| `Notes/` | you | Curated prose. Write freely. |
 | `Journal/` | you (via SB button) | Daily entries. |
 | `Inbox/` | you (via SB button) | Quick captures. |
-| `raw/sessions/` | agent | Transcript captures, ~one per 15 prompts. Don't hand-edit. |
-| `raw/pasted/` | you | Drag-drop zone for PDFs, images, anything. |
+| `Raw/Sessions/` | agent | Transcript captures, ~one per 15 prompts. Don't hand-edit. |
+| `Raw/Pasted/` | you | Drag-drop zone for PDFs, images, anything. |
 | `Library/Codeflare/` | preseed (overwritten each boot) | Bundled SB plugs (PDF, treeview, github, graph). |
 | `Library/Std/` | federated from silverbullet.md on first browser open | SB's standard widget/template library. Required for the dashboard. |
 | `graphify-out/` | graphify CLI | Vault knowledge graph (build output - never edit). |
@@ -83,16 +83,16 @@ Anything you write in the vault gets extracted into the knowledge graph within ~
 
 Two hooks keep the graph current:
 
-- **Transcript capture** fires every 15 chat prompts. A background sonnet writes a session observation file into `raw/sessions/` and re-extracts it.
-- **Vault monitor** polls the vault every 60 seconds for edits outside `raw/sessions/`. When it finds changes, the next chat prompt spawns a sonnet that extracts the changed files into the graph.
+- **Transcript capture** fires every 15 chat prompts. A background sonnet writes a session observation file into `Raw/Sessions/` and re-extracts it.
+- **Vault monitor** polls the vault every 60 seconds for edits outside `Raw/Sessions/`. When it finds changes, the next chat prompt spawns a sonnet that extracts the changed files into the graph.
 
 You don't have to do anything. Just write notes; the graph updates itself.
 
 ## Things to avoid
 
-- Don't delete files inside `raw/sessions/` (agent-managed; deletes are wasted - they'll re-extract on the next prompt).
+- Don't delete files inside `Raw/Sessions/` (agent-managed; deletes are wasted - they'll re-extract on the next prompt).
 - Don't write into `graphify-out/` (it's regenerated).
 - Don't run `git init` in the vault. It syncs via rclone bisync, not git.
-- Don't try to access SilverBullet from outside the codeflare proxy. Port 3030 is bound to localhost; the proxy is the auth boundary.
+- Don't try to access SilverBullet from outside the Codeflare proxy. Port 3030 is bound to localhost; the proxy is the auth boundary.
 
-If you delete preseed-managed files (`index.md`, `README.md`, `CONFIG.md`, `STYLES.md`, `Library/Codeflare/*`), they're recreated on the next session boot. SB cannot be broken by deletion.
+If you delete preseed-managed files (`Index.md`, `README.md`, `CONFIG.md`, `STYLES.md`, `Library/Codeflare/*`), they're recreated on the next session boot. SB cannot be broken by deletion.

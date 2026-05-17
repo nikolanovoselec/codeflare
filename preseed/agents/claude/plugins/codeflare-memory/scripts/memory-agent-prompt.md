@@ -61,11 +61,11 @@ this becomes the H1 of the capture file.
 Compute the target path:
 
 ```
-TARGET=/home/user/Vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md
+TARGET=/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md
 ```
 
 Create parent dirs if missing (`mkdir -p
-/home/user/Vault/raw/sessions`), then write the file using the
+/home/user/Vault/Raw/Sessions`), then write the file using the
 Write tool with this exact template (replace each `{...}` placeholder):
 
 ```markdown
@@ -208,5 +208,5 @@ continue - the file is on disk and will be picked up by the next
 vault-monitor tick. Do not delete the markdown file.
 
 Compaction note: the vault grows append-only. There is no automated
-compactor in this PR - when `raw/sessions/` becomes unwieldy, the user
+compactor in this PR - when `Raw/Sessions/` becomes unwieldy, the user
 can prune or summarise files manually via SilverBullet.

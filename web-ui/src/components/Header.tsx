@@ -16,7 +16,7 @@ import {
   mdiFileCabinet,
   mdiOpenInNew,
   mdiClockTimeEightOutline,
-  mdiChartGantt,
+  mdiGraphOutline,
 } from '@mdi/js';
 import Icon from './Icon';
 import SessionSwitcher from './SessionSwitcher';
@@ -526,7 +526,7 @@ const Header: Component<HeaderProps> = (props) => {
             type="button"
             onClick={() => props.onVaultOpen?.()}
           >
-            <Icon path={mdiChartGantt} size={20} />
+            <Icon path={mdiGraphOutline} size={20} />
           </button>
         </Show>
 

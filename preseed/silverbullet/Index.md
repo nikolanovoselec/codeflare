@@ -1,4 +1,4 @@
-This is your codeflare vault. Notes here persist across sessions and feed the cross-session memory that your AI agent uses to remember decisions, code references, and prior conversations.
+This is your Codeflare vault. Notes here persist across sessions and feed the cross-session memory that your AI agent uses to remember decisions, code references, and prior conversations.
 
 New to this? Read [[README]] for what the vault is, why it exists, and how to use SilverBullet.
 
@@ -37,7 +37,7 @@ ${some(query[[
 # Recently modified pages
 ${query[[
   from p = index.contentPages()
-  where p.name != "index" and p.name != "CONFIG"
+  where p.name != "Index" and p.name != "CONFIG"
     and p.name != "README" and p.name != "STYLES"
   order by p.lastModified desc
   limit 10
