@@ -52,10 +52,11 @@ describe('graphify-active-repo.sh', () => {
   });
 
   after(() => {
-    // Recursive remove with `force: true` so per-test symlinks (which
-    // Node's rm follows as references, not directories) and any leftover
-    // sentinel/workspace subtrees are all cleared. `baseTmp` is the
-    // sole top-level we created; nothing else under /tmp is touched.
+    // rmSync removes symlinks as links (does NOT follow them), so the
+    // per-test symHome is unlinked without recursing into realHome —
+    // realHome is itself a subtree under baseTmp and gets removed
+    // independently on the same pass. `force: true` swallows ENOENT
+    // for anything an individual test already cleaned up.
     rmSync(baseTmp, { recursive: true, force: true });
   });
 
@@ -468,6 +469,7 @@ function runHookNoGraphify(input, sentinelDir) {
 describe('graphify-active-repo.sh single-active-repo maintenance', () => {
   let baseTmp, sentinelDir, workspace;
   before(() => { baseTmp = mkdtempSync(join(tmpdir(), 'gf-maint-')); });
+  after(() => { rmSync(baseTmp, { recursive: true, force: true }); });
   beforeEach(() => {
     sentinelDir = mkdtempSync(join(baseTmp, 'sentinel-'));
     workspace = mkdtempSync(join(baseTmp, 'ws-'));
