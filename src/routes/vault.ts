@@ -1,6 +1,6 @@
 /**
  * Vault routes — proxy from the Worker to the in-container SilverBullet
- * server that hosts the persistent vault at /home/user/.user_vault.
+ * server that hosts the persistent vault at /home/user/Vault.
  *
  * Two responsibilities, mirroring src/routes/terminal.ts:
  *

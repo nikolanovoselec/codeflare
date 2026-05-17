@@ -4,6 +4,7 @@ import { sessionStore } from '../stores/session';
 import { getDownloadUrl } from '../api/storage';
 import { extractFilesFromDrop } from '../lib/file-upload';
 import { logger } from '../lib/logger';
+import { ALWAYS_VISIBLE_SPECIAL_PREFIXES } from '../lib/special-folders';
 import Button from './ui/Button';
 import StorageBreadcrumbs from './storage/StorageBreadcrumbs';
 import StorageToolbar from './storage/StorageToolbar';
@@ -65,6 +66,24 @@ const StorageBrowser: Component = () => {
       };
     }
 
+    // Always-on special folders (Vault, Uploads, Temporary). These are
+    // auto-created by the container entrypoint and bisynced unconditionally,
+    // so they should appear in the storage panel even when R2 has no objects
+    // under them yet (otherwise a brand-new user sees a confusing empty panel
+    // and cannot tell whether the rows even exist). At any other prefix the
+    // standard listing wins.
+    if (storageStore.currentPrefix === '') {
+      const missing = ALWAYS_VISIBLE_SPECIAL_PREFIXES.filter(
+        (p) => !workspaceFiltered.prefixes.includes(p),
+      );
+      if (missing.length > 0) {
+        workspaceFiltered = {
+          ...workspaceFiltered,
+          prefixes: [...workspaceFiltered.prefixes, ...missing].sort(),
+        };
+      }
+    }
+
     if (showHiddenItems()) {
       return workspaceFiltered;
     }
@@ -81,7 +100,10 @@ const StorageBrowser: Component = () => {
     }
   });
 
-  const [workspaceTooltipVisible, setWorkspaceTooltipVisible] = createSignal(false);
+  // Which special-folder info tooltip is currently expanded (workspace/,
+  // Vault/, Uploads/, Temporary/), or null. Single-tooltip state — opening a
+  // second one closes the first, matching the prior workspace-only behaviour.
+  const [openSpecialTooltip, setOpenSpecialTooltip] = createSignal<string | null>(null);
   const [lastSelectedId, setLastSelectedId] = createSignal<string | null>(null);
   const selectedKeySet = createMemo(() => new Set(storageStore.selectedKeys));
   const selectedPrefixSet = createMemo(() => new Set(storageStore.selectedPrefixes));
@@ -305,8 +327,8 @@ const StorageBrowser: Component = () => {
           selectionModeEnabled={selectionModeEnabled}
           selectedKeySet={selectedKeySet}
           selectedPrefixSet={selectedPrefixSet}
-          workspaceTooltipVisible={workspaceTooltipVisible}
-          setWorkspaceTooltipVisible={setWorkspaceTooltipVisible}
+          openSpecialTooltip={openSpecialTooltip}
+          setOpenSpecialTooltip={setOpenSpecialTooltip}
           applySelection={applySelection}
           triggerDownload={triggerDownload}
           handleDragOver={handleDragOver}

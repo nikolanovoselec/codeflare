@@ -423,34 +423,87 @@ describe('StorageBrowser', () => {
       render(() => <StorageBrowser />);
 
       const workspaceFolder = screen.getByTestId('folder-workspace');
-      const syncIcon = workspaceFolder.querySelector('[data-testid="workspace-container-icon"]');
+      const syncIcon = workspaceFolder.querySelector('[data-testid="special-folder-icon-workspace"]');
       expect(syncIcon).toBeInTheDocument();
     });
 
-    it('does not show container sync icon for non-workspace folders', () => {
+    it('does not show container sync icon for non-special folders', () => {
       mockPrefixes = ['docs/'];
       render(() => <StorageBrowser />);
 
       const docsFolder = screen.getByTestId('folder-docs');
-      const syncIcon = docsFolder.querySelector('[data-testid="workspace-container-icon"]');
-      expect(syncIcon).not.toBeInTheDocument();
+      // No `special-folder-icon-*` should be attached to an ordinary folder.
+      const anySpecialIcon = docsFolder.querySelector('[data-testid^="special-folder-icon-"]');
+      expect(anySpecialIcon).not.toBeInTheDocument();
     });
 
-    it('shows tooltip text when workspace container icon is clicked', () => {
+    it('shows tooltip text plus container path when workspace icon is clicked', () => {
       mockPrefixes = ['workspace/'];
       render(() => <StorageBrowser />);
 
       const workspaceFolder = screen.getByTestId('folder-workspace');
-      const syncIcon = workspaceFolder.querySelector('[data-testid="workspace-container-icon"]') as HTMLElement;
+      const syncIcon = workspaceFolder.querySelector('[data-testid="special-folder-icon-workspace"]') as HTMLElement;
       expect(syncIcon).toBeInTheDocument();
 
       // Click the icon to toggle tooltip
       fireEvent.click(syncIcon!);
 
-      // Tooltip text should appear
-      const tooltip = workspaceFolder.querySelector('.workspace-sync-tooltip');
+      // Tooltip body should contain the workspace description and the
+      // in-container path the user expects to find their files at.
+      const tooltip = workspaceFolder.querySelector(
+        '[data-testid="special-folder-tooltip-workspace"]',
+      );
       expect(tooltip).toBeInTheDocument();
-      expect(tooltip?.textContent).toBe('Holds your codebase and other assets. Disabling sync in settings is recommended, clone your repositories fresh every session.');
+      expect(tooltip?.textContent).toContain('Holds your codebase');
+      expect(tooltip?.textContent).toContain('/home/user/Workspace');
+    });
+
+    it('renders Vault, Uploads, Temporary at storage root even when R2 is empty', () => {
+      mockPrefixes = [];
+      mockObjects = [];
+      render(() => <StorageBrowser />);
+
+      // Three always-on special folders the entrypoint auto-creates and
+      // bisyncs. They must appear in the storage panel before any user
+      // content has landed under them.
+      expect(screen.getByTestId('folder-Vault')).toBeInTheDocument();
+      expect(screen.getByTestId('folder-Uploads')).toBeInTheDocument();
+      expect(screen.getByTestId('folder-Temporary')).toBeInTheDocument();
+    });
+
+    it('shows container path in Vault tooltip', () => {
+      mockPrefixes = [];
+      render(() => <StorageBrowser />);
+
+      const vaultFolder = screen.getByTestId('folder-Vault');
+      const icon = vaultFolder.querySelector('[data-testid="special-folder-icon-vault"]') as HTMLElement;
+      fireEvent.click(icon);
+      const tooltip = vaultFolder.querySelector('[data-testid="special-folder-tooltip-vault"]');
+      expect(tooltip?.textContent).toContain('/home/user/Vault');
+    });
+
+    it('opening a second tooltip closes the first (single-open behaviour)', () => {
+      mockPrefixes = ['workspace/'];
+      render(() => <StorageBrowser />);
+
+      const workspaceFolder = screen.getByTestId('folder-workspace');
+      const workspaceIcon = workspaceFolder.querySelector('[data-testid="special-folder-icon-workspace"]') as HTMLElement;
+      fireEvent.click(workspaceIcon);
+      expect(
+        workspaceFolder.querySelector('[data-testid="special-folder-tooltip-workspace"]'),
+      ).toBeInTheDocument();
+
+      const uploadsFolder = screen.getByTestId('folder-Uploads');
+      const uploadsIcon = uploadsFolder.querySelector('[data-testid="special-folder-icon-uploads"]') as HTMLElement;
+      fireEvent.click(uploadsIcon);
+
+      // Uploads tooltip is now open; workspace tooltip must be closed.
+      expect(
+        uploadsFolder.querySelector('[data-testid="special-folder-tooltip-uploads"]'),
+      ).toBeInTheDocument();
+      expect(
+        workspaceFolder.querySelector('[data-testid="special-folder-tooltip-workspace"]'),
+      ).not.toBeInTheDocument();
     });
   });
 

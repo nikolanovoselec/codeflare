@@ -5,6 +5,7 @@ import { formatRelativeTime, formatSize } from '../../lib/format';
 import { isTouchDevice } from '../../lib/mobile';
 import Icon from '../Icon';
 import { mdiTrainCarContainer } from '@mdi/js';
+import { SPECIAL_FOLDERS, SpecialFolder, getSpecialFolder } from '../../lib/special-folders';
 
 interface FileListProps {
   displayedItems: Accessor<{ objects: Array<{ key: string; size: number; lastModified: string }>; prefixes: string[] }>;
@@ -12,8 +13,10 @@ interface FileListProps {
   selectionModeEnabled: Accessor<boolean>;
   selectedKeySet: Accessor<Set<string>>;
   selectedPrefixSet: Accessor<Set<string>>;
-  workspaceTooltipVisible: Accessor<boolean>;
-  setWorkspaceTooltipVisible: (v: boolean) => void;
+  // Which special-folder tooltip is currently expanded, keyed by prefix
+  // (e.g. 'workspace/'). null means none. One tooltip at a time.
+  openSpecialTooltip: Accessor<string | null>;
+  setOpenSpecialTooltip: (prefix: string | null) => void;
   applySelection: (targetId: string, shiftKey: boolean) => void;
   triggerDownload: (key: string) => void;
   handleDragOver: (e: DragEvent) => void;
@@ -28,13 +31,11 @@ const getFileName = (key: string): string => {
 };
 
 const getFolderName = (prefix: string): string => {
+  const special = getSpecialFolder(prefix);
+  if (special) return special.label;
   const parts = prefix.split('/').filter(Boolean);
-  const name = parts[parts.length - 1] || prefix;
-  return name === 'workspace' ? 'Workspace' : name;
+  return parts[parts.length - 1] || prefix;
 };
-
-const isWorkspaceFolder = (prefix: string): boolean =>
-  prefix === 'workspace/';
 
 const FileList: Component<FileListProps> = (props) => {
   return (
@@ -76,23 +77,39 @@ const FileList: Component<FileListProps> = (props) => {
               </Show>
               <span class="storage-item-icon-dot" style={{ "background-color": icon.color }} />
               <span class="storage-item-name">{getFolderName(prefix)}</span>
-              <Show when={isWorkspaceFolder(prefix)}>
-                <span
-                  class="workspace-container-icon"
-                  data-testid="workspace-container-icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    props.setWorkspaceTooltipVisible(!props.workspaceTooltipVisible());
-                  }}
-                >
-                  <Icon path={mdiTrainCarContainer} size={14} />
-                </span>
-                <Show when={props.workspaceTooltipVisible()}>
-                  <span class="workspace-sync-tooltip">
-                    Holds your codebase and other assets. Disabling sync in settings is recommended, clone your repositories fresh every session.
-                  </span>
-                </Show>
-              </Show>
+              {(() => {
+                const special: SpecialFolder | null = getSpecialFolder(prefix);
+                if (!special) return null;
+                return (
+                  <>
+                    <span
+                      class="workspace-container-icon"
+                      data-testid={`special-folder-icon-${special.id}`}
+                      title={`About ${special.label}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        props.setOpenSpecialTooltip(
+                          props.openSpecialTooltip() === prefix ? null : prefix,
+                        );
+                      }}
+                    >
+                      <Icon path={mdiTrainCarContainer} size={14} />
+                    </span>
+                    <Show when={props.openSpecialTooltip() === prefix}>
+                      <span
+                        class="workspace-sync-tooltip"
+                        data-testid={`special-folder-tooltip-${special.id}`}
+                      >
+                        {special.description}
+                        <br />
+                        <span class="workspace-sync-tooltip-path">
+                          Container path: <code>{special.containerPath}</code>
+                        </span>
+                      </span>
+                    </Show>
+                  </>
+                );
+              })()}
             </div>
           );
         }}

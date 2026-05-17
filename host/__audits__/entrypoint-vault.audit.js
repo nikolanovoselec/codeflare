@@ -29,8 +29,8 @@ const dockerfile = readFileSync(resolve(repoRoot, 'Dockerfile'), 'utf8');
 const manifest = JSON.parse(readFileSync(resolve(repoRoot, 'preseed/agents/claude/manifest.json'), 'utf8'));
 
 describe('vault bisync filter (REQ-MEMORY-100)', () => {
-  it('explicitly includes .user_vault/** before the graphify-out exclude', () => {
-    const includeIdx = entrypoint.indexOf('--filter "+ .user_vault/**"');
+  it('explicitly includes Vault/** before the graphify-out exclude', () => {
+    const includeIdx = entrypoint.indexOf('--filter "+ Vault/**"');
     const excludeIdx = entrypoint.indexOf('--filter "- **/graphify-out/**"');
     assert.notEqual(includeIdx, -1, 'vault include filter must be present');
     assert.notEqual(excludeIdx, -1, 'graphify-out exclude filter must still be present');
@@ -40,10 +40,58 @@ describe('vault bisync filter (REQ-MEMORY-100)', () => {
     );
   });
 
+  it('also includes Uploads/** and Temporary/** before the graphify-out exclude', () => {
+    // These two prefixes are the always-on R2-backed user folders the
+    // storage panel exposes alongside Vault. They must sync to R2 with
+    // the same first-match ordering rule so a vault-side graphify-out/
+    // never silently leaks but Uploads/screenshots.png still rides along.
+    const uploadsIdx = entrypoint.indexOf('--filter "+ Uploads/**"');
+    const temporaryIdx = entrypoint.indexOf('--filter "+ Temporary/**"');
+    const excludeIdx = entrypoint.indexOf('--filter "- **/graphify-out/**"');
+    assert.notEqual(uploadsIdx, -1, 'Uploads include filter must be present');
+    assert.notEqual(temporaryIdx, -1, 'Temporary include filter must be present');
+    assert.ok(
+      uploadsIdx < excludeIdx && temporaryIdx < excludeIdx,
+      'Uploads + Temporary includes must come BEFORE the graphify-out exclude'
+    );
+  });
+
+  it('does not still include the legacy hidden-vault path .user_vault/**', () => {
+    // The vault was at ~/.user_vault/ until the rename. Leaving the old
+    // include behind would bisync stale content and surface a confusing
+    // duplicate folder in the storage panel.
+    assert.ok(
+      !entrypoint.includes('--filter "+ .user_vault/**"'),
+      'legacy .user_vault/** include must be removed after the rename'
+    );
+  });
+
   it('excludes .graphify/ (ephemeral global graph) from bisync', () => {
     assert.ok(
       entrypoint.includes('--filter "- .graphify/**"'),
       'entrypoint.sh must exclude ~/.graphify (global-graph workspace) from R2 sync'
+    );
+  });
+});
+
+describe('persistent user folders (REQ-FS-010)', () => {
+  it('init_user_vault mkdir -p creates Uploads + Temporary alongside Vault', () => {
+    // The storage panel always-shows these prefixes, and the tooltip
+    // promises the user the files live at /home/user/{Uploads,Temporary}.
+    // If the entrypoint stops creating them, the promise is a lie.
+    assert.ok(
+      /mkdir -p "\$USER_HOME\/Uploads" "\$USER_HOME\/Temporary"/.test(entrypoint),
+      'init_user_vault must mkdir -p $USER_HOME/Uploads and $USER_HOME/Temporary'
+    );
+  });
+
+  it('start_silverbullet_supervisor points at the non-hidden Vault path', () => {
+    // SilverBullet aborts the disk walk when the vault basename starts
+    // with `.`, returning an empty file listing. Pinning the supervisor
+    // to $HOME/Vault keeps the SB UI populated.
+    assert.ok(
+      /local VAULT_ROOT="\$HOME\/Vault"/.test(entrypoint),
+      'silverbullet supervisor must point at $HOME/Vault (non-hidden basename)'
     );
   });
 });

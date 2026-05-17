@@ -6,7 +6,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### Key Concepts
 
-- **Vault** -- `/home/user/.user_vault/`. Single source of truth for cross-session memory. Holds agent-written session captures (`raw/sessions/`) and user-curated notes (`notes/`, `raw/pasted/`). Rclone-bisynced to R2.
+- **Vault** -- `/home/user/Vault/`. Single source of truth for cross-session memory. Holds agent-written session captures (`raw/sessions/`) and user-curated notes (`notes/`, `raw/pasted/`). Rclone-bisynced to R2.
 - **Unified Graph** -- `~/.graphify/global-graph.json`. Hash-keyed merge of the vault's graph and every active repo's per-repo graph. Queried via `mcp__graphify__*`.
 - **Capture** -- A sonnet agent runs every 15 user messages, extracts decisions/observations/references from the recent transcript, and writes them as a markdown file in `raw/sessions/`, then merges into the unified graph under `flock /tmp/graphify-global.lock`.
 - **Session Mode** -- Advanced (Pro) mode enables R2 sync of the vault and capture hooks. Default (Standard) mode runs the in-session capture flow but the vault is not preserved across container recreations.
@@ -34,7 +34,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 1. The `memory-capture.sh` script runs as a `UserPromptSubmit` hook, injecting a short instruction into the main agent's context via `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0`.
 2. The hook counts real user messages in the JSONL transcript using a two-layer grep filter that excludes tool-result wrappers (content is an array, not a string) and synthetic messages (slash commands, task notifications -- content starts with `<`).
-3. When triggered, the main agent spawns a background sonnet agent that reads the recent transcript and writes a markdown capture file into `/home/user/.user_vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md`.
+3. When triggered, the main agent spawns a background sonnet agent that reads the recent transcript and writes a markdown capture file into `/home/user/Vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md`.
 4. The capture file uses a YAML frontmatter template with `session_id`, `captured_at`, and `captured_from_range` fields followed by Context / Decisions / Observations / References sections.
 5. The capture agent runs `graphify extract --file <file>` and `graphify global add ... --as user_vault` under `flock /tmp/graphify-global.lock` so the new content is queryable on the same turn it is written.
 6. The hook handles tilde expansion in `transcript_path` (Claude Code may send tilde-prefixed paths).
@@ -84,7 +84,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Intent:** Vault content (agent captures + user notes) must persist across container lifecycles by syncing to the user's R2 bucket.
 
 **Acceptance Criteria:**
-1. In advanced mode, `/home/user/.user_vault/` is included in rclone bisync via a `+` filter that precedes the global `**/graphify-out/**` exclude so vault graphify output still rides along.
+1. In advanced mode, `/home/user/Vault/` is included in rclone bisync via a `+` filter that precedes the global `**/graphify-out/**` exclude so vault graphify output still rides along.
 2. On container boot, rclone pulls the vault from R2 before the vault skeleton init runs, so returning sessions inherit their persisted content untouched.
 3. The vault skeleton init (`init_user_vault`) is idempotent and only creates subdirectories / config files when absent.
 4. rclone bisync syncs changes back to R2 every 60s and on shutdown.

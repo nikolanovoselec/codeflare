@@ -25,7 +25,7 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 
 ## Overview (REQ-VAULT-001)
 
-The vault lives at `/home/user/.user_vault/` inside every advanced-mode session container. It is rclone-bisynced to R2 alongside the rest of `/home/user/`, so anything written here is on the next session you start.
+The vault lives at `/home/user/Vault/` inside every advanced-mode session container. It is rclone-bisynced to R2 alongside the rest of `/home/user/`, so anything written here is on the next session you start.
 
 Two parties write to the vault:
 
@@ -37,7 +37,7 @@ A single 60s daemon polls for user edits and signals a background sonnet to inge
 ## Directory Layout
 
 ```
-.user_vault/
+Vault/
 |-- raw/
 |   |-- sessions/      <- AGENT-OWNED: one .md per 15-prompt capture
 |   `-- pasted/        <- USER-OWNED: image/PDF drops from SilverBullet
@@ -55,7 +55,7 @@ The `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writ
 1. Deletes the `.vars` marker (dedup gate so a concurrent prompt cannot spawn a duplicate).
 2. Reads the new transcript range.
 3. Identifies decisions, observations, references, and a short topic phrase.
-4. Writes `/home/user/.user_vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter template (session id, captured-at, captured-from-range, then Context / Decisions / Observations / References sections).
+4. Writes `/home/user/Vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter template (session id, captured-at, captured-from-range, then Context / Decisions / Observations / References sections).
 5. Acts as the LLM extractor: reads the file it just wrote, emits a chunk JSON matching graphify's extraction schema (nodes / edges / hyperedges, with `[[wikilinks]]` as `file_type:concept` nodes carrying `source_file: null` so graphify's `external_labels` dedup in `global_add` unifies them across the vault and per-repo graphs by label), calls `graphify.build.build_from_json` + `graphify.cluster.cluster` + `graphify.export.to_json` from the Python API to produce a `graph.json`, then runs `flock /tmp/graphify-global.lock graphify global add ... --as user_vault` to merge it. No LLM provider key is needed; codeflare deliberately ships none, and the sonnet itself is the extractor (same pattern as the `/graphify` skill's parallel-subagent dispatch).
 
 Compaction is manual: the vault grows append-only and no automated compactor ships. When `raw/sessions/` becomes unwieldy, prune or summarise files directly via SilverBullet.
@@ -106,7 +106,7 @@ All four serialise via `flock -w 5 /tmp/graphify-global.lock`. The locking is ne
 `graphify-active-repo.sh` enforces a single-active-repo invariant for the per-repo side of the global graph: at any time the manifest holds the vault entry plus exactly one per-repo entry (the user's currently active repo). The hook is structured around a sentinel at `~/.cache/codeflare-hooks/graphify-active-cwd`:
 
 1. **Fast-path skip**: if the resolved active-repo path equals the prior sentinel value AND `graphify-out/graph.json`'s mtime is not newer than the sentinel's mtime, the hook returns immediately. This avoids spawning the graphify CLI (hundreds of MB of Python imports) on every Bash/Edit/Write/ctx_execute tool call.
-2. **Vault skip (REQ-VAULT-004 AC4)**: when the walk-up loop resolves to `$HOME/.user_vault`, the hook exits 0 without writing the sentinel or invoking `graphify global add`. Comparison canonicalizes `$HOME` via `cd && pwd` (matching how `REPO` is resolved) and also matches on basename `.user_vault` as a belt-and-suspenders guard against symlink paths into the vault from outside `$HOME`. The vault is registered exclusively by entrypoint init under the tag `user_vault`; this skip prevents a tool call that touches a vault file from re-tagging it as `.user_vault` (basename) and exposing it to the prune-on-switch logic in step 3.
+2. **Vault skip (REQ-VAULT-004 AC4)**: when the walk-up loop resolves to `$HOME/Vault`, the hook exits 0 without writing the sentinel or invoking `graphify global add`. Comparison canonicalizes `$HOME` via `cd && pwd` (matching how `REPO` is resolved) and also matches on basename `Vault` as a belt-and-suspenders guard against symlink paths into the vault from outside `$HOME`. The vault is registered exclusively by entrypoint init under the tag `user_vault`; this skip prevents a tool call that touches a vault file from re-tagging it as `Vault` (basename) and exposing it to the prune-on-switch logic in step 3.
 3. **Repo switch** (OLD path differs from NEW path with a different basename, and OLD is still in the manifest): `flock -w 5 ... graphify global remove <OLD-basename>` prunes the prior repo's nodes. Same-basename transitions (two clones with identical directory names, or branch switches within the same repo) skip the explicit remove because the add below replaces the existing entry via graphify's source_hash dedup.
 4. **Add/refresh**: pre-checks the manifest's recorded `source_hash` against `sha256sum` of the current `graph.json` (truncated to graphify's 16-hex format, with a length sanity-guard so a future format change does not silently degrade to "always re-add"). If the hash differs or the tag is new, `flock -w 5 ... graphify global add --as <basename>` adds or replaces the entry.
 5. **Sentinel mtime bump**: `touch`-bumps the sentinel after every non-fast-path fire so subsequent fires can short-circuit until the next graph rebuild.
@@ -162,7 +162,7 @@ The vault plugin and supporting rule ship as preseed entries that land in every 
 
 - `preseed/agents/claude/plugins/codeflare-vault/` -- plugin descriptor, `vault-monitor-hook.sh` UserPromptSubmit hook, `vault-extract-prompt.md` for the spawned sonnet. Registered in `preseed/agents/claude/manifest.json`.
 - `preseed/agents/claude/rules/vault.md` -- concept rule, advanced-mode only (see `ADVANCED_ONLY_CODEFLARE_RULES` in the ECC rules test).
-- `preseed/silverbullet/` -- baseline `config.yaml` (and optional `atlas.plug.js`) copied into `/opt/silverbullet-preseed/` by the Dockerfile, then materialised into `.user_vault/.silverbullet/` by `init_user_vault()` on first boot.
+- `preseed/silverbullet/` -- baseline `config.yaml` (and optional `atlas.plug.js`) copied into `/opt/silverbullet-preseed/` by the Dockerfile, then materialised into `Vault/.silverbullet/` by `init_user_vault()` on first boot.
 
 `scripts/generate-agent-seed.mjs` reads the manifest and emits `src/lib/agent-seed.generated.ts`, the typed payload that the container fetches and writes during preseed. The vault plugin appears in default mode's manifest only as the rule's exclusion entry; runtime files are advanced-mode gated.
 

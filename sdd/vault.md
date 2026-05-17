@@ -6,7 +6,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### Key Concepts
 
-- **Vault** -- The persistent directory at `/home/user/.user_vault/` holding markdown notes, pasted assets, and derived graphify output. Bisynced to R2 to survive across sessions. Always-on in the unified global graph: tagged `user_vault` from entrypoint init, never pruned by the active-repo prune-on-switch logic.
+- **Vault** -- The persistent directory at `/home/user/Vault/` holding markdown notes, pasted assets, and derived graphify output. Bisynced to R2 to survive across sessions. Always-on in the unified global graph: tagged `user_vault` from entrypoint init, never pruned by the active-repo prune-on-switch logic.
 - **Capture Sonnet** -- The background sonnet agent spawned by the memory-capture UserPromptSubmit hook. Writes one markdown file per 15-prompt batch into `raw/sessions/` and merges it into the unified global graph.
 - **Vault-monitor Daemon** -- A 60s polling loop in entrypoint.sh that watches for user-curated edits (under `notes/`, `raw/pasted/`) and writes a trigger marker (`vault-extract.vars`) when changes are found. Uses the three-marker pattern (tick / high-water / trigger) to avoid the daemon-advances-mtime-before-extraction-reads-it race.
 - **Vault-extract Sonnet** -- The background sonnet spawned by `vault-monitor-hook.sh`. Runs graphify single-file extraction on the changed files, merges the resulting subgraph into the unified global graph, and advances the high-water marker as its final step.
@@ -28,7 +28,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### Domain Dependencies
 
 - **Memory** -- Reuses the `memory-capture.sh` UserPromptSubmit hook and `~/.memory/counter/` state. The capture sonnet writes Step 4's output into the vault (MCP server-memory has been removed from the stack); the dedup gate (`.vars` marker) is unchanged.
-- **Storage** -- Vault persistence is provided by the existing rclone bisync to R2. One new include filter (`+ .user_vault/**`) is added to `RCLONE_FILTERS_COMMON`, ordered BEFORE the existing `**/graphify-out/**` exclude so first-match semantics keep vault content sync'd.
+- **Storage** -- Vault persistence is provided by the existing rclone bisync to R2. One new include filter (`+ Vault/**`) is added to `RCLONE_FILTERS_COMMON`, ordered BEFORE the existing `**/graphify-out/**` exclude so first-match semantics keep vault content sync'd.
 - **Session Lifecycle** -- The bundled shutdown bisync reliability fix raises the DO `destroy()` SIGTERM-to-SIGKILL budget from 25s to 75s, so the entrypoint's 60s final bisync can complete cleanly. Without this, vault edits made in the last seconds before shutdown were silently lost to R2.
 - **Subscription** -- Vault features (preseed entries, SilverBullet supervisor) are gated to advanced session mode via the existing manifest mode filter (`"modes": ["advanced"]` on every new preseed entry).
 
@@ -41,7 +41,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. `/home/user/.user_vault/` is included in `RCLONE_FILTERS_COMMON` with `+ .user_vault/**`, placed BEFORE the existing `- **/graphify-out/**` exclude so the vault's own `graphify-out/` subdirectory rides along.
+1. `/home/user/Vault/` is included in `RCLONE_FILTERS_COMMON` with `+ Vault/**`, placed BEFORE the existing `- **/graphify-out/**` exclude so the vault's own `graphify-out/` subdirectory rides along.
 2. The `.graphify/` directory (ephemeral global-graph workspace) is excluded with `- .graphify/**` so the merged graph is regenerated on boot from the per-source `graphify-out/` files rather than carrying stale state across sessions.
 3. The skeleton (subdirectories + README + empty `graph.json` + SilverBullet config + best-effort Atlas plug) is created by `init_user_vault()` in entrypoint.sh, idempotent so a returning session does not overwrite restored content.
 4. `init_user_vault()` runs AFTER `establish_bisync_baseline()` and BEFORE the daemon launch block, so we never write the empty skeleton over R2-restored content.
@@ -52,7 +52,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-STOR-002 (file persistence across sessions), REQ-STOR-003 (60s bisync), REQ-STOR-004 (initial sync restores files on container start)
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: filter order, init function presence); E2E (fresh session, `ls /home/user/.user_vault/`)
+**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: filter order, init function presence); E2E (fresh session, `ls /home/user/Vault/`)
 **Status:** Implemented
 
 ---
@@ -64,7 +64,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. `memory-agent-prompt.md` Step 4 writes the capture file at `/home/user/.user_vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter + Context/Decisions/Observations/References template.
+1. `memory-agent-prompt.md` Step 4 writes the capture file at `/home/user/Vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter + Context/Decisions/Observations/References template.
 2. Concept references use `[[wikilinks]]`; file paths, code symbols, and PR/issue references stay as prose.
 3. Step 5 runs `flock /tmp/graphify-global.lock graphify extract --file ... && flock /tmp/graphify-global.lock graphify global add ... --as user_vault` so the new capture is merged into the unified graph atomically.
 4. If extraction fails, the markdown file stays on disk and the next vault-monitor tick will re-discover it via the high-water marker comparison.
@@ -115,7 +115,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 1. `graphify-mcp-lazy.py:_resolve_active()` prefers `~/.graphify/global-graph.json` when present, falling back to the sentinel-pinned per-repo graph and then to the freshest workspace-mtime graph.
 2. `graphify-active-repo.sh` runs `flock -w 5 /tmp/graphify-global.lock graphify global add <repo>/graphify-out/graph.json --as <basename>` whenever the resolved active repo has a graph and either (a) the manifest does not yet record this `<basename>` or (b) the manifest's recorded `source_hash` for this `<basename>` does not match the current graph.json hash. Pre-spawn hash check uses `sha256sum` truncated to graphify's 16-hex format with a length sanity-guard. The `flock -w 5` timeout bounds tool-call latency against a stuck lock holder.
 3. `graphify-active-repo.sh` enforces a single-active-repo invariant: when the resolved active repo's basename differs from the previously-recorded active repo's basename AND the previous basename is still present in `~/.graphify/global-manifest.json`, the hook runs `flock -w 5 /tmp/graphify-global.lock graphify global remove <previous-basename>` before performing the add in AC2. End state: the global graph contains the vault entry plus exactly one per-repo entry (the user's currently active repo). Same-basename transitions (two clones with identical directory names, or branch switches within the same repo) skip the explicit remove because `graphify global add --as <tag>` replaces the existing entry via graphify's source_hash dedup.
-4. The vault directory at `$HOME/.user_vault` is explicitly excluded from active-repo candidate resolution in `graphify-active-repo.sh`: when the walk-up loop reaches that path, the hook exits 0 without rewriting the sentinel or invoking `graphify global add`. The vault is registered exclusively by entrypoint init under the tag `user_vault`, so it is never re-tagged as `.user_vault` (basename) by a tool call that happens to touch a vault file, and the prune-on-switch logic in AC3 cannot remove it.
+4. The vault directory at `$HOME/Vault` is explicitly excluded from active-repo candidate resolution in `graphify-active-repo.sh`: when the walk-up loop reaches that path, the hook exits 0 without rewriting the sentinel or invoking `graphify global add`. The vault is registered exclusively by entrypoint init under the tag `user_vault`, so it is never re-tagged as `Vault` (basename) by a tool call that happens to touch a vault file, and the prune-on-switch logic in AC3 cannot remove it.
 5. A cheap fast-path skip avoids spawning graphify on every Bash/Edit/Write/ctx_execute call: when the resolved active-repo path equals the prior sentinel value AND `graphify-out/graph.json`'s mtime is not newer than the sentinel's mtime, the hook returns immediately. The sentinel is `touch`-bumped at the end of every non-fast-path fire so subsequent fires can short-circuit until the next graph rebuild.
 6. The `/graphify` skill's commit step includes a `flock graphify global add` call so a fresh `graphify build` lands in the global graph.
 7. All write sites (capture sonnet, vault-extract sonnet, active-repo hook, /graphify skill) serialise via `flock /tmp/graphify-global.lock` to prevent corrupted writes when multiple workflows race.
