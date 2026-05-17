@@ -43,6 +43,39 @@ const Layout: Component<LayoutProps> = (props) => {
   const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
 
+  // Vault readiness: ground-truth probe against the proxy. We can't trust
+  // session status flags here — the SilverBullet supervisor starts late in
+  // entrypoint.sh (well after ptyActive flips), so a session-level "ready"
+  // signal would lie. Probing `HEAD /api/vault/:sid/` returns 200 only when
+  // SB has bound 3030 and is serving the SPA shell (cheap, ~1.5KB Content-
+  // Length, no body transferred with HEAD); any other response (502, 503,
+  // network error) means "not yet". The `.fs/*` API path returns 405 on
+  // HEAD so we probe root instead. Keyed per session so a switch resets it.
+  const [vaultReadyBySession, setVaultReadyBySession] = createSignal<Record<string, boolean>>({});
+  createEffect(() => {
+    const sid = sessionStore.activeSessionId;
+    if (!sid) return;
+    const s = sessionStore.sessions.find((x) => x.id === sid);
+    if (!s || s.status !== 'running') return;
+    if (vaultReadyBySession()[sid]) return; // already proven ready
+
+    let cancelled = false;
+    const probe = async () => {
+      try {
+        const res = await fetch(`/api/vault/${sid}/`, { method: 'HEAD', cache: 'no-store' });
+        if (!cancelled && res.ok) {
+          setVaultReadyBySession((prev) => ({ ...prev, [sid]: true }));
+          return;
+        }
+      } catch {
+        // network / proxy error - try again
+      }
+      if (!cancelled) setTimeout(probe, 3000);
+    };
+    probe();
+    onCleanup(() => { cancelled = true; });
+  });
+
   // Load sessions and preferences on mount
   onMount(() => {
     sessionStore.loadSessions();
@@ -315,11 +348,7 @@ const Layout: Component<LayoutProps> = (props) => {
           vaultReady={(() => {
             const sid = sessionStore.activeSessionId;
             if (!sid) return false;
-            const s = sessionStore.sessions.find((x) => x.id === sid);
-            // SilverBullet supervisor starts after the entrypoint reaches the
-            // ready stage; before that the vault proxy will return
-            // VAULT_UPSTREAM_UNREACHABLE. Gate the button until then.
-            return s?.status === 'running' && s?.ptyActive === true && s?.startupStage === 'ready';
+            return vaultReadyBySession()[sid] === true;
           })()}
           onLogoClick={showDashboard() ? undefined : handleOpenDashboard}
           sessions={sessionStore.sessions}
