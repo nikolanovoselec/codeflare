@@ -5,7 +5,7 @@ import { formatRelativeTime, formatSize } from '../../lib/format';
 import { isTouchDevice } from '../../lib/mobile';
 import Icon from '../Icon';
 import { mdiTrainCarContainer } from '@mdi/js';
-import { SPECIAL_FOLDERS, SpecialFolder, getSpecialFolder } from '../../lib/special-folders';
+import { SpecialFolder, getSpecialFolder } from '../../lib/special-folders';
 
 interface FileListProps {
   displayedItems: Accessor<{ objects: Array<{ key: string; size: number; lastModified: string }>; prefixes: string[] }>;
@@ -77,10 +77,8 @@ const FileList: Component<FileListProps> = (props) => {
               </Show>
               <span class="storage-item-icon-dot" style={{ "background-color": icon.color }} />
               <span class="storage-item-name">{getFolderName(prefix)}</span>
-              {(() => {
-                const special: SpecialFolder | null = getSpecialFolder(prefix);
-                if (!special) return null;
-                return (
+              <Show when={getSpecialFolder(prefix)} keyed>
+                {(special: SpecialFolder) => (
                   <>
                     <span
                       class="workspace-container-icon"
@@ -101,15 +99,14 @@ const FileList: Component<FileListProps> = (props) => {
                         data-testid={`special-folder-tooltip-${special.id}`}
                       >
                         {special.description}
-                        <br />
                         <span class="workspace-sync-tooltip-path">
                           Container path: <code>{special.containerPath}</code>
                         </span>
                       </span>
                     </Show>
                   </>
-                );
-              })()}
+                )}
+              </Show>
             </div>
           );
         }}
