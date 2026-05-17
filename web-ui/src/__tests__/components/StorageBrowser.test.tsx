@@ -645,14 +645,37 @@ describe('StorageBrowser', () => {
   });
 
   describe('Empty State', () => {
-    it('shows empty message when no folders or files', () => {
+    it('shows empty message when no folders or files inside a sub-prefix', () => {
+      // At the storage root the always-on special folders
+      // (Vault/Uploads/Temporary) are injected into the listing even
+      // when R2 has nothing under them, so the panel is intentionally
+      // never empty at root after this change. The empty-state
+      // placeholder still has to fire one level down — pick a deep
+      // prefix that the special-folders injection ignores.
       mockPrefixes = [];
       mockObjects = [];
       mockWorkspaceSyncEnabled = false;
+      mockCurrentPrefix = 'some-folder/';
       render(() => <StorageBrowser />);
 
       expect(screen.getByTestId('storage-empty')).toBeInTheDocument();
       expect(screen.getByText(/No files found/)).toBeInTheDocument();
+    });
+
+    it('does NOT show the empty placeholder at root because special folders inject', () => {
+      // Reverse of the above: confirm the root contract. If a future
+      // change reintroduces an empty root, this test will catch it.
+      mockPrefixes = [];
+      mockObjects = [];
+      mockWorkspaceSyncEnabled = false;
+      mockCurrentPrefix = '';
+      render(() => <StorageBrowser />);
+
+      expect(screen.queryByTestId('storage-empty')).not.toBeInTheDocument();
+      // The three always-on prefixes are visible.
+      expect(screen.getByTestId('folder-Vault')).toBeInTheDocument();
+      expect(screen.getByTestId('folder-Uploads')).toBeInTheDocument();
+      expect(screen.getByTestId('folder-Temporary')).toBeInTheDocument();
     });
   });
 
