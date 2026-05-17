@@ -136,7 +136,7 @@ PUSH_LINE=$(awk '
     if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
-    if ($0 ~ /[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
+    if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
   }
@@ -149,7 +149,7 @@ PUSH_LINE=$(awk '
     if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
-    if ($0 ~ /[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
+    if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
   }
@@ -163,7 +163,7 @@ PUSH_LINE=$(awk '
     if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
-    if ($0 ~ /[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
+    if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
   }
