@@ -19,26 +19,45 @@ Codeflare isn't tied to any single AI provider. Each session lets you choose whi
 | Agent | Description |
 |-------|-------------|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Anthropic's agentic coding tool running directly in the terminal |
-| Codex | OpenAI's Codex CLI agent |
-| Gemini | Google's Gemini CLI agent |
+| [Codex](https://github.com/openai/codex) | OpenAI's coding CLI agent |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google's terminal agent |
 | [GitHub Copilot](https://docs.github.com/en/copilot) | GitHub's AI coding agent |
 | [OpenCode](https://github.com/opencode-ai/opencode) | Open-source multi-model AI coding CLI supporting 75+ model providers |
 | Bash | No AI agent - a plain terminal for the purists |
 
 All six are first-class citizens. Pick the one that fits your task, or use Bash if you prefer working without an AI assistant.
 
+Pro-mode features (knowledge graph, curated skills, advanced workflows, automatic review agents) are primarily designed for Claude Code. The other agents receive the same rules and agent definitions, but the slash-command workflow and graph integration are tuned for Claude.
+
 ## What You Get
 
 - **Browser-native terminal with 6 tabs per session.** Full Linux containers with root access, available in seconds from any browser. No local installation required.
 - **One isolated container per session.** No shared state between sessions. Agents can't escape their sandbox (I checked).
 - **Pre-warmed terminals.** The agent starts loading during container startup. By the time you click Open, it's ready - not staring at a blank screen wondering if something broke.
-- **Persistent R2 storage with bisync every 60s.** Files, shell config, and credentials survive container teardown.
+- **Persistent R2 storage with bisync every 60s.** Files, shell config, credentials, vault notes, and uploads survive container teardown.
 - **Terminal tiling.** View 2-4 terminals side by side. Once you tile, you don't go back.
-- **R2 file browser.** Browse, upload, download, and manage files directly from the dashboard - without starting a container.
+- **Voice input.** A mic button on every terminal. Web Speech API, no extension. Brief your agent without thumb-typing a paragraph on mobile.
+- **R2 file browser.** Browse, upload, download, and manage files directly from the dashboard - without starting a container. Vault, Uploads, and Temporary are surfaced as special folders.
+- **Persistent vault (SilverBullet).** An Obsidian-compatible markdown editor running inside the container at `~/Vault/`, accessible from the header. Notes, journal entries, pasted screenshots, and an automatic 15-prompt session capture so a future agent can look up what a prior conversation decided.
 - **User management.** Email-based allowlists and role-based permissions (admin and user). Invite users or revoke them when they get too creative.
 - **Setup wizard.** First-time deployment walks you through DNS, auth, and storage config. Takes a few minutes, only happens once.
-- **Auto-idle teardown.** Containers shut down after inactivity. You pay for what you use. Nothing when you don't.
-- **Dashboard with live metrics.** CPU, memory, disk, uptime, and sync status at a glance.
+- **Configurable auto-sleep.** 5m / 15m / 30m / 1h / 2h. Input-aware: typing keeps the session alive, background polls do not. Free tier is locked to 15m.
+- **Usage dashboard.** Daily and monthly compute hours with quota tracking. Per-user Timekeeper Durable Object flushes to KV every 5 minutes.
+- **Dashboard with live metrics.** CPU, memory, disk, uptime, and sync status at a glance. Three-color session status: green (active), yellow (idle but alive), gray (stopped).
+
+## Pro Mode (Advanced Sessions)
+
+Advanced session mode adds a layer of agent tooling on top of the base IDE. Designed for Claude Code, but the rules and agent definitions ship for every agent.
+
+- **Spec-driven development (`/sdd`).** Bootstrap a `sdd/` folder with REQ-tracked requirements (`/sdd init`), clean it up periodically (`/sdd clean`), and let the agent work against the spec instead of vibes.
+- **Multi-perspective review (`/review`).** Spawn code-reviewer, spec-reviewer, and doc-updater on the current branch in one shot.
+- **Other slash commands.** `/debug` for systematic root-cause analysis, `/deploy` for driving a release through CI, `/brainstorm` for structured ideation.
+- **Knowledge graph (graphify).** Every repo you clone gets indexed into a per-repo graph; your vault is indexed too; both merge into a unified global graph at `~/.graphify/global-graph.json`. The agent queries the graph via `mcp__graphify__*` tools instead of grepping blindly. "What calls function X?" / "What depends on Z?" / "Where did we decide Y?" all get sharper answers.
+- **Automatic review agents.** When you open a PR from `develop` to `main`, code-reviewer + spec-reviewer + doc-updater fire on the diff. They report findings; they do not auto-merge.
+- **Curated skill family.** Pre-loaded skills for CI monitoring, deploy credentials, doc enforcement, spec enforcement, TDD enforcement, the SDD workflow, the PR workflow, and more.
+- **Hook plugins.** Session-memory capture (every 15 prompts), graph-first nudges when the agent tries to grep, destructive-action gates, vault-edit detection.
+
+None of this needs configuration. Pick Claude Code + advanced mode on the session form and it's all preseeded.
 
 ## Architecture
 
@@ -52,18 +71,23 @@ flowchart LR
     isolated per session, pre-warmed PTY"]
     D --> E["R2
     per-user storage, bisync every 60s"]
+    D --> F["SilverBullet supervisor
+    localhost vault editor"]
+    D --> G["graphify CLI + MCP
+    unified knowledge graph"]
 ```
 
-Each session maps to a single container. The Worker handles routing and auth. Durable Objects manage session lifecycle. Containers provide the compute. R2 provides storage that outlives every container you'll ever start.
+Each session maps to a single container. The Worker handles routing and auth. Durable Objects manage session lifecycle. Containers provide the compute. R2 provides storage that outlives every container you'll ever start. SilverBullet runs supervised inside the container on a localhost port and is reached from the browser through a Worker proxy (`/api/vault/:sid/`). Graphify runs as a long-lived process inside the container and exposes its tools over MCP to the agent.
 
-Containers scale to zero when idle (no sessions = no bill). Auth is handled automatically — via Cloudflare Access or GitHub OIDC depending on deployment mode.
+Containers scale to zero when idle (no sessions = no bill). Auth is handled automatically - via Cloudflare Access or GitHub OIDC depending on deployment mode.
 
 ## Security
 
 - Every session runs in its own container. No shared shells, no cross-session access. Your agent can `rm -rf /` and the only victim is itself.
 - AI agents run with full terminal access *inside* the container - and can't get out. I gave them root and a sandbox. They got root in a sandbox.
-- All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by JWT verification.
-- API tokens never enter the container. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
+- All authenticated surfaces (`/app`, `/api`, `/setup`, `/api/vault/*`) are protected by JWT verification.
+- API tokens never enter the container at rest. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
+- The vault editor inside the container is bound to localhost only. The Worker proxy is the auth boundary - port 3030 is never exposed externally.
 - Optional Turnstile bot protection for public-facing onboarding flows.
 
 ## Resource Tiers

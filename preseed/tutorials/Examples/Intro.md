@@ -38,3 +38,5 @@ These examples are meant to be a starting point. For your own projects, use your
 A specification defines what the system does, what technology it uses, how components interact, what the data looks like, what edge cases exist, what the tests verify, and what acceptance looks like. It's specific enough that the agent can execute without asking you a single question. If the agent has to guess, the spec isn't done.
 
 If your agent supports planning modes (e.g., Claude Code's plan mode via /plan), use those to develop a detailed specification. The more precise the spec, the less the agent improvises - and improvisation is where things go sideways.
+
+For longer-running projects, advanced Claude Code sessions ship with `/sdd init` - a slash command that bootstraps a `sdd/` folder of REQ-tracked requirements, then keeps the spec, code, and docs in sync as you push commits. It's heavier than `/plan` and worth it once a project outgrows a single working session.
