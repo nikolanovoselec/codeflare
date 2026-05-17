@@ -1,7 +1,7 @@
 # Memory
 
 Cross-session memory in codeflare lives entirely in the **vault** at
-`/home/user/.obsidian_vault/`. Graphify ingests every vault file into
+`/home/user/.user_vault/`. Graphify ingests every vault file into
 the unified global graph; agents query it via `mcp__graphify__*`. The
 former MCP `@modelcontextprotocol/server-memory` subsystem has been
 removed.
@@ -23,7 +23,7 @@ removed.
 
 ## Memory Persistence
 
-The vault (`/home/user/.obsidian_vault/`) is rclone-bisynced to R2 as
+The vault (`/home/user/.user_vault/`) is rclone-bisynced to R2 as
 part of `/home/user/`. Both agent-written session captures
 (`raw/sessions/`) and user-curated notes (`notes/`, `raw/pasted/`)
 survive container recycles. Memory persistence runs in advanced mode
@@ -46,7 +46,7 @@ automatically captured into the vault every 15 user messages. Implements
 The capture sonnet writes a markdown file to
 `raw/sessions/{ISO_TS}-{SID_SHORT}.md` (YAML frontmatter + Context /
 Decisions / Observations / References sections), then runs graphify
-extraction + `graphify global add --as vault` under the global lock so
+extraction + `graphify global add --as user_vault` under the global lock so
 the new content is queryable on the same turn it is written.
 
 There is no automated compactor; `raw/sessions/` is append-only

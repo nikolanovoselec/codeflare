@@ -2,6 +2,11 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-17
+- Vault directory renamed `.obsidian_vault` -> `.user_vault` everywhere (entrypoint init function `init_obsidian_vault` -> `init_user_vault`, bisync filter `+ .obsidian_vault/**` -> `+ .user_vault/**`, paths in capture+extract prompts, plugin scripts, preseed rules, Worker route, docs). Global-graph tag for the vault renamed `vault` -> `user_vault`. No R2 migration code: the rename is a clean cutover for the single existing user (Nikola); prior `.obsidian_vault/` content in R2 is abandoned.
+- REQ-VAULT-004 expanded from 6 to 7 ACs: new AC4 added (vault explicitly excluded from active-repo candidate resolution in `graphify-active-repo.sh` so a tool call inside the vault never re-tags it as `.user_vault` (basename) over the entrypoint-set `user_vault` tag); previous AC4-AC6 renumbered to AC5-AC7. The vault is registered exclusively by `init_user_vault()` at boot and is always-on in the global graph: the active-repo hook neither adds nor prunes it.
+- REQ-VAULT-001 Key Concepts updated to record the always-on semantics: `user_vault` tag is set by entrypoint init and never touched by the active-repo prune-on-switch logic.
+
 ## 2026-05-16
 - REQ-VAULT-005 extended with AC8: `handleVaultRequest` short-circuits browser-initiated Service Worker registration GETs at `/api/vault/<sid>/service_worker.js` (selector: `service-worker: script` header set + no `Cookie`) and serves a static no-op SW from the Worker, bypassing the cookie-auth chain. Chrome 76+ omits credentials on `navigator.serviceWorker.register()` script fetches, so the prior auth path returned 401 and registration failed permanently. The static SW JS contains no user data and is identical for every session; the `service-worker: script` header is a Fetch-spec forbidden header (page JS cannot forge it).
 - REQ-VAULT-005 new Constraint: the auth-validated request returned by `maybeSynthesizeCsrfHeader` is the only Request safe to forward to `container.fetch` for body-bearing methods; forwarding the original `request` after the synth has cloned it triggers a Workers `ReadableStream is disturbed` TypeError on PUT/POST/PATCH.

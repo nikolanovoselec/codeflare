@@ -1,6 +1,6 @@
 # Vault
 
-Persistent obsidian-style note vault, automatic conversation capture, unified graphify graph, and SilverBullet editor proxy. The vault is the agent's cross-session memory and the user's own note store, in the same directory.
+Persistent user-note vault, automatic conversation capture, unified graphify graph, and SilverBullet editor proxy. The vault is the agent's cross-session memory and the user's own note store, in the same directory.
 
 **Audience:** Developers
 
@@ -25,7 +25,7 @@ Persistent obsidian-style note vault, automatic conversation capture, unified gr
 
 ## Overview (REQ-VAULT-001)
 
-The vault lives at `/home/user/.obsidian_vault/` inside every advanced-mode session container. It is rclone-bisynced to R2 alongside the rest of `/home/user/`, so anything written here is on the next session you start.
+The vault lives at `/home/user/.user_vault/` inside every advanced-mode session container. It is rclone-bisynced to R2 alongside the rest of `/home/user/`, so anything written here is on the next session you start.
 
 Two parties write to the vault:
 
@@ -37,7 +37,7 @@ A single 60s daemon polls for user edits and signals a background sonnet to inge
 ## Directory Layout
 
 ```
-.obsidian_vault/
+.user_vault/
 |-- raw/
 |   |-- sessions/      <- AGENT-OWNED: one .md per 15-prompt capture
 |   `-- pasted/        <- USER-OWNED: image/PDF drops from SilverBullet
@@ -55,8 +55,8 @@ The `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writ
 1. Deletes the `.vars` marker (dedup gate so a concurrent prompt cannot spawn a duplicate).
 2. Reads the new transcript range.
 3. Identifies decisions, observations, references, and a short topic phrase.
-4. Writes `/home/user/.obsidian_vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter template (session id, captured-at, captured-from-range, then Context / Decisions / Observations / References sections).
-5. Acts as the LLM extractor: reads the file it just wrote, emits a chunk JSON matching graphify's extraction schema (nodes / edges / hyperedges, with `[[wikilinks]]` as `file_type:concept` nodes carrying `source_file: null` so graphify's `external_labels` dedup in `global_add` unifies them across the vault and per-repo graphs by label), calls `graphify.build.build_from_json` + `graphify.cluster.cluster` + `graphify.export.to_json` from the Python API to produce a `graph.json`, then runs `flock /tmp/graphify-global.lock graphify global add ... --as vault` to merge it. No LLM provider key is needed; codeflare deliberately ships none, and the sonnet itself is the extractor (same pattern as the `/graphify` skill's parallel-subagent dispatch).
+4. Writes `/home/user/.user_vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter template (session id, captured-at, captured-from-range, then Context / Decisions / Observations / References sections).
+5. Acts as the LLM extractor: reads the file it just wrote, emits a chunk JSON matching graphify's extraction schema (nodes / edges / hyperedges, with `[[wikilinks]]` as `file_type:concept` nodes carrying `source_file: null` so graphify's `external_labels` dedup in `global_add` unifies them across the vault and per-repo graphs by label), calls `graphify.build.build_from_json` + `graphify.cluster.cluster` + `graphify.export.to_json` from the Python API to produce a `graph.json`, then runs `flock /tmp/graphify-global.lock graphify global add ... --as user_vault` to merge it. No LLM provider key is needed; codeflare deliberately ships none, and the sonnet itself is the extractor (same pattern as the `/graphify` skill's parallel-subagent dispatch).
 
 Compaction is manual: the vault grows append-only and no automated compactor ships. When `raw/sessions/` becomes unwieldy, prune or summarise files directly via SilverBullet.
 
@@ -85,7 +85,7 @@ The vault-extract sonnet's contract:
 1. Delete `vault-extract.vars` (dedup gate).
 2. `find` files newer than `vault-extract.last`, excluding the agent-owned subtrees.
 3. Acts as the LLM extractor for each changed file: reads the file, produces a chunk JSON (nodes / edges / hyperedges matching graphify's schema; `[[wikilinks]]` become concept nodes with `source_file: null` for cross-repo dedup), then calls graphify's Python API to build and cluster a `graph.json`.
-4. Run `flock /tmp/graphify-global.lock graphify global add ... --as vault`.
+4. Run `flock /tmp/graphify-global.lock graphify global add ... --as user_vault`.
 5. Touch `vault-extract.last` -- FINAL step only.
 
 ## Unified Global Graph (REQ-VAULT-004)
@@ -159,15 +159,15 @@ The vault plugin and supporting rule ship as preseed entries that land in every 
 
 - `preseed/agents/claude/plugins/codeflare-vault/` -- plugin descriptor, `vault-monitor-hook.sh` UserPromptSubmit hook, `vault-extract-prompt.md` for the spawned sonnet. Registered in `preseed/agents/claude/manifest.json`.
 - `preseed/agents/claude/rules/vault.md` -- concept rule, advanced-mode only (see `ADVANCED_ONLY_CODEFLARE_RULES` in the ECC rules test).
-- `preseed/silverbullet/` -- baseline `config.yaml` (and optional `atlas.plug.js`) copied into `/opt/silverbullet-preseed/` by the Dockerfile, then materialised into `.obsidian_vault/.silverbullet/` by `init_obsidian_vault()` on first boot.
+- `preseed/silverbullet/` -- baseline `config.yaml` (and optional `atlas.plug.js`) copied into `/opt/silverbullet-preseed/` by the Dockerfile, then materialised into `.user_vault/.silverbullet/` by `init_user_vault()` on first boot.
 
 `scripts/generate-agent-seed.mjs` reads the manifest and emits `src/lib/agent-seed.generated.ts`, the typed payload that the container fetches and writes during preseed. The vault plugin appears in default mode's manifest only as the rule's exclusion entry; runtime files are advanced-mode gated.
 
 ## First-session Expectations
 
-A brand-new session boots with an empty vault. The skeleton (subdirectories, README, empty `graph.json`, SilverBullet config) is created by `init_obsidian_vault()` in entrypoint.sh on every boot, but the function is idempotent -- a returning session inherits the R2-restored content untouched.
+A brand-new session boots with an empty vault. The skeleton (subdirectories, README, empty `graph.json`, SilverBullet config) is created by `init_user_vault()` in entrypoint.sh on every boot, but the function is idempotent -- a returning session inherits the R2-restored content untouched.
 
-`init_obsidian_vault()` runs AFTER `establish_bisync_baseline()` so we never write an empty skeleton over restored data. If the baseline fails for any reason, the init function still runs (`(init_obsidian_vault) || echo ...`) and a fresh skeleton is created locally; the next successful bisync will reconcile it.
+`init_user_vault()` runs AFTER `establish_bisync_baseline()` so we never write an empty skeleton over restored data. If the baseline fails for any reason, the init function still runs (`(init_user_vault) || echo ...`) and a fresh skeleton is created locally; the next successful bisync will reconcile it.
 
 ## Image-pasting Cost Caveat
 
@@ -184,7 +184,7 @@ SilverBullet supports pasting images directly into notes (they land in `raw/past
 | Stale session state on reopen after stop | Shutdown bisync was killed mid-write | Look for `TIMED OUT after 60s` in Durable Object logs (`wrangler tail <SCRIPT_NAME>`); raise the watchdog budget in `shutdown_handler` if frequent. |
 | `/api/vault/:sid/` returns 503 | SilverBullet supervisor not ready | The `/api/vault/:sid/status` endpoint reports `vaultReady`; poll it and re-open when true. |
 | Clicking "Quick Note" shows `You are not authenticated, going to reload...` alert, then reloads to a blank/white page | SilverBullet's client.js writes via PUT/DELETE/PATCH without `X-Requested-With`, which `authenticateRequest`'s CSRF guard required (fixed by the Origin-validated synthesis in `src/routes/vault.ts`) | Redeploy the container image to pick up the fix. As a temporary workaround, open the vault in a fresh browser tab (clears any stale ServiceWorker scope that may compound the loop). |
-| SilverBullet opens with wrong index page or default editor mode | Existing vault round-tripped through R2 bisync before the idempotent config sync landed in `init_obsidian_vault` | Redeploy. The boot-time `cmp`-gated sync propagates the preseed `config.yaml` on the next start. |
+| SilverBullet opens with wrong index page or default editor mode | Existing vault round-tripped through R2 bisync before the idempotent config sync landed in `init_user_vault` | Redeploy. The boot-time `cmp`-gated sync propagates the preseed `config.yaml` on the next start. |
 | `mcp__graphify__query_graph` returns no vault nodes even after several capture cycles | Older image: capture sonnet called `graphify extract --file` (requires an LLM provider key, codeflare ships none), so every run produced 0 nodes | Redeploy. After the fix, sonnets self-extract via their own conversation and emit chunk JSON that `graphify global add` ingests. |
 | Browser console shows `Failed to register a ServiceWorker ... 401 ... fetching the script`; SilverBullet loads but appears unregistered as a PWA / offline mode never activates | Older image: SW registration GET at `/api/vault/<sid>/service_worker.js` ran the cookie-auth chain, but Chrome 76+ omits credentials on SW script fetches (no `Cookie` header sent), so auth returned 401 and registration failed permanently | Redeploy. The Worker now short-circuits SW registration via `VAULT_NOOP_SERVICE_WORKER_JS` (selector: `service-worker: script` header + no `Cookie`) and returns a static no-op SW the browser accepts. Distinct from the CSRF / Quick-Note row above; both can be present on a pre-fix image. |
 | Editing a SilverBullet note shows `Could not save page, retrying again in 10 seconds` repeatedly; saves never succeed | Older image: PUT requests went through `maybeSynthesizeCsrfHeader` which clones the request to add `X-Requested-With`, consuming the original body; the proxy then forwarded the original (now disturbed) request to `container.fetch`, raising `TypeError: This ReadableStream is disturbed` and returning 500 | Redeploy. The proxy now forwards the auth-validated clone (which owns the body) instead of the original; pre-fix images log `Vault request error` with the disturbed-stream stack trace in Worker logs (`wrangler tail` or Cloudflare Observability). |

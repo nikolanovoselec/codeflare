@@ -1,7 +1,7 @@
 # Memory Persistence
 
-Cross-session memory lives in **one place**: the obsidian vault at
-`/home/user/.obsidian_vault/`. Graphify ingests every vault file into
+Cross-session memory lives in **one place**: the user vault at
+`/home/user/.user_vault/`. Graphify ingests every vault file into
 the unified global graph at `~/.graphify/global-graph.json`, merged with
 every active repo's per-repo graphify-out. Queries go through
 `mcp__graphify__*`.
@@ -42,7 +42,7 @@ Execution protocol:
 2. If it EXISTS → spawn a background **sonnet** Task agent with the
    hook's instructions. The agent deletes the `.vars` file first (dedup
    gate), writes a markdown capture into
-   `/home/user/.obsidian_vault/raw/sessions/`, then merges it into the
+   `/home/user/.user_vault/raw/sessions/`, then merges it into the
    unified global graph via `graphify global add`.
 3. If it does NOT exist → do nothing.
 4. Then respond to the user's actual message.

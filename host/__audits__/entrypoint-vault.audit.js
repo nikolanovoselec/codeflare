@@ -29,8 +29,8 @@ const dockerfile = readFileSync(resolve(repoRoot, 'Dockerfile'), 'utf8');
 const manifest = JSON.parse(readFileSync(resolve(repoRoot, 'preseed/agents/claude/manifest.json'), 'utf8'));
 
 describe('vault bisync filter (REQ-MEMORY-100)', () => {
-  it('explicitly includes .obsidian_vault/** before the graphify-out exclude', () => {
-    const includeIdx = entrypoint.indexOf('--filter "+ .obsidian_vault/**"');
+  it('explicitly includes .user_vault/** before the graphify-out exclude', () => {
+    const includeIdx = entrypoint.indexOf('--filter "+ .user_vault/**"');
     const excludeIdx = entrypoint.indexOf('--filter "- **/graphify-out/**"');
     assert.notEqual(includeIdx, -1, 'vault include filter must be present');
     assert.notEqual(excludeIdx, -1, 'graphify-out exclude filter must still be present');
@@ -49,11 +49,11 @@ describe('vault bisync filter (REQ-MEMORY-100)', () => {
 });
 
 describe('vault skeleton + daemons (REQ-MEMORY-101..103)', () => {
-  it('defines init_obsidian_vault and runs it after baseline', () => {
-    assert.ok(/^init_obsidian_vault\(\)/m.test(entrypoint), 'init_obsidian_vault function must exist');
+  it('defines init_user_vault and runs it after baseline', () => {
+    assert.ok(/^init_user_vault\(\)/m.test(entrypoint), 'init_user_vault function must exist');
     assert.ok(
-      entrypoint.includes('(init_obsidian_vault) || echo'),
-      'init_obsidian_vault must be called from the bisync init subshell with non-fatal fallback'
+      entrypoint.includes('(init_user_vault) || echo'),
+      'init_user_vault must be called from the bisync init subshell with non-fatal fallback'
     );
   });
 

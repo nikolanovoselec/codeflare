@@ -1,8 +1,12 @@
-# Vault (persistent obsidian-style notes)
+# Vault (persistent user notes)
 
-`/home/user/.obsidian_vault/` is the persistent, user-curatable note
+`/home/user/.user_vault/` is the persistent, user-curatable note
 store. It survives sessions via rclone bisync to R2 — anything written
-here is available on the next session and on every device.
+here is available on the next session and on every device. The vault is
+always-on: tagged `user_vault` in the unified graph from entrypoint
+init, never pruned by the active-repo prune-on-switch logic, and skipped
+by the active-repo PostToolUse hook so a tool call inside the vault
+never re-tags it.
 
 Pair with [memory.md](./memory.md) for the chat-capture half of the
 cross-session memory story; see `documentation/vault.md` for full
@@ -11,7 +15,7 @@ mechanics.
 ## Layout
 
 ```
-.obsidian_vault/
+.user_vault/
 ├── raw/
 │   ├── sessions/     <- AGENT-OWNED: written by the capture sonnet,
 │   │                    one .md per 15-prompt batch. Append-only.
