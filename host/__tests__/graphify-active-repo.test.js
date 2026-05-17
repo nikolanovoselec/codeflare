@@ -372,24 +372,17 @@ describe('graphify-active-repo.sh', () => {
 
   // Regression: when $HOME is itself a symlink (or otherwise non-canonical),
   // the raw string `$HOME/.user_vault` does NOT match the canonicalized
-  // REPO path that the walk-up loop resolves via `cd ... && pwd`. Two
-  // separate tests below so each guard (canonicalization, basename fallback)
-  // is exercised in isolation — reverting only one of the two guards still
-  // leaves at least one red test, which is the regression-test-discipline
-  // contract.
-  it('vault skip: $HOME canonicalization catches a vault renamed away from basename `.user_vault`', () => {
-    // Force the basename guard OFF by renaming the vault dir, so only the
-    // canonicalized-$HOME equality compare can match. (We use a non-default
-    // vault basename to prove the equality-path guard works on its own.)
-    // Counter-test: if the canonicalization branch is removed, this fails
-    // because raw $HOME/.user_vault != canonical REPO and basename does
-    // not match either.
-    //
-    // Note: production always uses `.user_vault` as the basename; this
-    // test uses a non-default basename only to isolate the canonicalization
-    // branch's coverage. The production path is covered by the second test.
+  // REPO path. The production hook handles this via two guards (canonicalize
+  // $HOME, OR basename match). Because the script hardcodes `.user_vault`
+  // as the literal in BOTH branches, a test that uses the same literal
+  // cannot isolate one branch from the other - both fire on a vault under
+  // a symlinked $HOME. We therefore keep one union test for that case
+  // (asserts the skip happens; doesn't claim to isolate which branch
+  // caught it) AND one outside-$HOME test where only the basename branch
+  // can possibly match (legitimate isolation for that branch).
+  it('vault skip: symlinked $HOME (union of canonicalization + basename guards)', () => {
     const realHome = mkdtempSync(join(baseTmp, 'real-home-'));
-    const symHome = join(baseTmp, `sym-home-eq-${Date.now()}`);
+    const symHome = join(baseTmp, `sym-home-${Date.now()}`);
     symlinkSync(realHome, symHome);
     const vault = join(realHome, '.user_vault');
     mkdirSync(join(vault, 'graphify-out'), { recursive: true });
@@ -405,17 +398,14 @@ describe('graphify-active-repo.sh', () => {
       env: { ...process.env, GRAPHIFY_SENTINEL_DIR: sentinelDir, HOME: symHome },
     });
     assert.equal(result.status, 0);
-    // Sentinel must NOT be written. Both guards would catch this in
-    // production, but if the canonicalization branch alone is removed
-    // (and the basename guard renamed/disabled), this would fail.
     assert.equal(
       sentinel(sentinelDir),
       null,
-      'symlinked HOME with canonical-equals match must still trigger the vault skip',
+      'symlinked HOME must still trigger the vault skip; raw-string compare would miss this',
     );
   });
 
-  it('vault skip: basename fallback catches a vault reached via a symlink outside $HOME', () => {
+  it('vault skip: basename fallback catches a vault reached from outside $HOME', () => {
     // Counter-test: vault lives OUTSIDE $HOME (so the canonicalized-$HOME
     // equality compare does NOT match), but is named `.user_vault`. The
     // basename fallback is the only guard that can fire here. Reverting

@@ -129,7 +129,7 @@ SilverBullet honours `SB_URL_PREFIX` to render the base tag with a prefix, but t
 
 When the body is rewritten, both `Content-Length` (body length changed) and `Content-Encoding` (Workers `Response.text()` auto-decompresses gzip/br upstream, so the body is now plain text) are dropped from the response headers. A `vault base-href rewrite no-op` warning is logged when the rewrite runs but matches nothing -- gated to status 200 on the shell paths (`/`, `/index.html`) so error pages and non-shell HTML do not generate false-positive warnings, so a future SilverBullet template change (single-quoted href, added attribute, etc.) still surfaces as a logged signal on the load-bearing paths.
 
-The rewrite contract (regex, header hygiene, exact selectors) lives in `src/routes/vault.ts`'s `handleVaultRequest` -- this section documents only the operational rationale (why the rewrite exists, what breaks without it). HTTP-level rewrite mechanics are not duplicated in api-reference.md by design: there is no public API surface for the rewrite; it is internal proxy behaviour scoped to the vault route, so the source-of-truth is the code.
+Rewrite contract (regex, header hygiene, selectors): see `handleVaultRequest` in `src/routes/vault.ts`.
 
 ### Service Worker registration noop bypass
 

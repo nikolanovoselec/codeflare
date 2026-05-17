@@ -47,7 +47,7 @@ Environment variables, secrets, CORS configuration, and API token permissions.
 | `WORKSPACE_SYNC_ENABLED` | Whether workspace sync is enabled (`'true'`/`'false'`) | TBD | no | Worker via `setBucketName` | TBD |
 | `TAB_CONFIG` | JSON array of terminal tab configurations | TBD | no | Worker -> DO | TBD |
 | `TERMINAL_ID` | Unique ID for this terminal instance | TBD | no | Host terminal server | TBD |
-| `CONTAINER_AUTH_TOKEN` | Auth token for container API calls. Generated per DO lifecycle, persisted to `ctx.storage` under key `containerAuthToken` (pinned via `ctx.waitUntil`) and restored in `blockConcurrencyWhile` so the DO survives hibernate/wake without token drift. Cleared in `destroy()` so a re-created session under the same DO ID gets a fresh token. See [security.md](./security.md#container-auth-token-req-sec-012). | TBD | no | Worker -> DO | TBD |
+| `CONTAINER_AUTH_TOKEN` | Auth token for container API calls, scoped to one DO lifecycle. See [security.md](./security.md#container-auth-token-req-sec-012). | TBD | no | Worker -> DO | TBD |
 | `MANUAL_TAB` | Set to `1` for user-created tabs to skip autostart | TBD | no | Worker -> DO | TBD |
 | `FAST_CLI_START` | Disables auto-update for all 5 AI tools when `'true'` (default) | TBD | no | Worker -> DO | TBD |
 | `OPENAI_API_KEY` | OpenAI API key for consult-llm-mcp MCP server (optional) | TBD | no | Worker -> DO (from KV `llm-keys:{bucket}`) | TBD |
