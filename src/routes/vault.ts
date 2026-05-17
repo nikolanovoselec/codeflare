@@ -403,13 +403,19 @@ export async function handleVaultRequest(
     // with the session-prefixed equivalent so the browser resolves
     // assets back through `/api/vault/<sid>/.client/...`.
     //
-    // Scope guards (both required to enter the rewrite path):
-    //   1. Path is the shell root (`/` or `/index.html`) - SilverBullet
-    //      serves the SPA shell from those paths only; HTML error pages
-    //      or note renders at other paths pass through unchanged so we
-    //      don't pay an eager `.text()` decode cost on every response.
-    //   2. Content-Type is text/html - JS bundles, PNG icons, manifest
-    //      JSON pass through.
+    // Scope: any text/html response is eligible. SilverBullet 2.8 serves
+    // its SPA shell as a catch-all (every non-API path returns the same
+    // shell HTML), so a `location.reload()` from the SB client lands on
+    // whatever page path the user was viewing (`/Notes/Today`, not `/`),
+    // and the rewrite MUST fire there too. Previously the rewrite was
+    // gated to `/` and `/index.html` only, which meant a reload at any
+    // deeper path returned the shell with the bare `<base href="/" />`,
+    // every relative fetch from client.js then resolved to the Worker
+    // root, and the tab went blank with all subsequent writes 404'ing.
+    // The text/html guard alone is sufficient: SilverBullet's API
+    // endpoints (`.fs/`, `index.json`, `.attachment/`) return
+    // text/markdown / application/json / image-mime / etc., never
+    // text/html, so we never rewrite an API payload.
     //
     // Header hygiene on rewrite: drop both Content-Length (body length
     // changed) and Content-Encoding (response.text() auto-decompresses
@@ -417,13 +423,13 @@ export async function handleVaultRequest(
     // the original encoding header would trigger ERR_CONTENT_DECODING
     // _FAILED in the browser).
     //
-    // Observability: log a warning when the rewrite runs but matches
-    // nothing, so a future SilverBullet template change (single-quoted
+    // Observability: log a warning when the rewrite runs on a body
+    // that did NOT contain `<base href="/" />` (i.e. the replace was a
+    // no-op), so a future SilverBullet template change (single-quoted
     // href, added attribute, etc.) surfaces as a logged signal instead
-    // of a silent white-screen regression in production.
+    // of a silent white-screen regression.
     const contentType = response.headers.get('content-type') ?? '';
-    const isShellPath = remainingPath === '/' || remainingPath.endsWith('/index.html');
-    if (isShellPath && contentType.includes('text/html')) {
+    if (contentType.includes('text/html')) {
       const prefix = `/api/vault/${sessionId}`;
       const body = await response.text();
       const rewritten = body.replace(
