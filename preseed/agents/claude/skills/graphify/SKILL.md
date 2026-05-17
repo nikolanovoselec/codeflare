@@ -17,10 +17,25 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
 3. **Persistence lives in git, not R2.** The graph travels with the repo. After your first `/graphify` build in a repo the user has push permission to:
    - Add to the repo's `.gitignore` (create if absent):
      ```
+     # graphify caches (regenerable, large)
+     graphify-out/cache/
      graphify-out/.cache/
      graphify-out/.chunks/
+     graphify-out/manifest.json
+
+     # graphify working-tree intermediates (created mid-run, cleaned by
+     # Step 9; defensive in case a run is interrupted before cleanup)
+     .graphify_ast.json
+     .graphify_semantic.json
+     .graphify_extract.json
+     .graphify_detect.json
+     .graphify_analysis.json
+     .graphify_cached.json
+     .graphify_uncached.txt
+     .graphify_chunk_*.txt
+     .graphify_old.json
      ```
-     These are local-only caches (FTS5 query index, subagent intermediates) that regenerate themselves. Everything else in `graphify-out/` is committed.
+     These regenerate themselves on every run. Without the cache patterns a single committed `graphify-out/cache/` on a large repo is thousands of FTS5 index files; without the intermediate patterns a `git add -A` after an interrupted run pulls in detect/AST/semantic JSON that can be hundreds of MB on a big corpus. Everything else in `graphify-out/` (graph.json, GRAPH_REPORT.md, graph.html, obsidian/, wiki/) is committed.
    - Add to the repo's `.gitattributes` (create if absent):
      ```
      graphify-out/graph.json merge=graphify
