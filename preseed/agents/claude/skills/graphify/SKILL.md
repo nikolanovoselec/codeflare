@@ -22,6 +22,7 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
      graphify-out/.cache/
      graphify-out/.chunks/
      graphify-out/manifest.json
+     graphify-out/obsidian/
 
      # graphify working-tree intermediates (created mid-run, cleaned by
      # Step 9; defensive in case a run is interrupted before cleanup)
@@ -35,13 +36,13 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
      .graphify_chunk_*.txt
      .graphify_old.json
      ```
-     These regenerate themselves on every run. Without the cache patterns a single committed `graphify-out/cache/` on a large repo is thousands of FTS5 index files; without the intermediate patterns a `git add -A` after an interrupted run pulls in detect/AST/semantic JSON that can be hundreds of MB on a big corpus. Everything else in `graphify-out/` (graph.json, GRAPH_REPORT.md, graph.html, obsidian/, wiki/) is committed.
+     All regenerable on every run. The cache patterns prevent thousands of FTS5 index files leaking into git on a large repo; the intermediate patterns prevent a `git add -A` after an interrupted run pulling in detect/AST/semantic JSON that can be hundreds of MB on a big corpus; `graphify-out/obsidian/` is the auto-generated Obsidian-stub vault (one .md per graph node, 2000+ files on a medium repo) where every `graphify update .` rerun rewrites centrality + community labels in the frontmatter, producing massive diff noise in PRs. The standalone `graph.html` covers the casual-browse use case; anyone who wants the Obsidian-app workflow regenerates the stubs locally. Only `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and optional `wiki/` are committed.
    - Add to the repo's `.gitattributes` (create if absent):
      ```
      graphify-out/graph.json merge=graphify
      ```
      This wires the graphify semantic merge driver for `graph.json`. The driver itself is registered globally in the container image, so this `.gitattributes` line is the only per-repo setup needed. Without it, concurrent edits produce corrupt JSON on merge.
-   - Stage and commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `.graphify_root`, `.graphify_labels.json`, and optionally `graph.html` + `wiki/`. Subsequent contributors clone the repo and inherit the graph for free.
+   - Stage and commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `graph.html`, `.graphify_root`, `.graphify_labels.json`, and optionally `wiki/`. Subsequent contributors clone the repo and inherit the graph for free.
    - For repos the user does NOT have push permission to (cloned open-source projects, read-only forks): graphify-out/ stays in the working tree only, ephemeral, no R2 fallback. Do not try to persist via bisync.
    - **Before the commit step, merge this repo's graph into the unified global graph** so `mcp__graphify__*` tool calls see it alongside the vault and any other active repos: `flock /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as <repo-basename>`. Hash-keyed and idempotent. The `flock` serialises against the capture agent (haiku) and the vault-extract agent (haiku), which also write the global graph.
 
