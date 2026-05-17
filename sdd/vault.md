@@ -7,8 +7,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### Key Concepts
 
 - **Vault** -- The persistent directory at `/home/user/Vault/` holding markdown notes, pasted assets, and derived graphify output. Bisynced to R2 to survive across sessions. Always-on in the unified global graph: tagged `user_vault` from entrypoint init, never pruned by the active-repo prune-on-switch logic.
-- **Capture Sonnet** -- The background sonnet agent spawned by the memory-capture UserPromptSubmit hook. Writes one markdown file per 15-prompt batch into `raw/sessions/` and merges it into the unified global graph.
-- **Vault-monitor Daemon** -- A 60s polling loop in entrypoint.sh that watches for user-curated edits (under `notes/`, `raw/pasted/`) and writes a trigger marker (`vault-extract.vars`) when changes are found. Uses the three-marker pattern (tick / high-water / trigger) to avoid the daemon-advances-mtime-before-extraction-reads-it race.
+- **Capture Sonnet** -- The background sonnet agent spawned by the memory-capture UserPromptSubmit hook. Writes one markdown file per 15-prompt batch into `Raw/Sessions/` and merges it into the unified global graph.
+- **Vault-monitor Daemon** -- A 60s polling loop in entrypoint.sh that watches for user-curated edits (under `Notes/`, `Raw/Pasted/`) and writes a trigger marker (`vault-extract.vars`) when changes are found. Uses the three-marker pattern (tick / high-water / trigger) to avoid the daemon-advances-mtime-before-extraction-reads-it race.
 - **Vault-extract Sonnet** -- The background sonnet spawned by `vault-monitor-hook.sh`. Runs graphify single-file extraction on the changed files, merges the resulting subgraph into the unified global graph, and advances the high-water marker as its final step.
 - **Unified Global Graph** -- `~/.graphify/global-graph.json`. Hash-keyed merge of every per-repo graphify-out plus the vault's own graph, kept in sync by `graphify global add` calls under `flock /tmp/graphify-global.lock`. The graphify MCP wrapper prefers this graph when present so `mcp__graphify__*` tool calls return a unified view.
 - **SilverBullet** -- The Deno-compiled markdown editor (`silverbullet-server-linux-x86_64`) bound to `127.0.0.1:3030` inside the container. Reachable from the codeflare UI through the Worker proxy at `/api/vault/:sid/`. Auth boundary lives at the Worker.
@@ -43,11 +43,11 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 1. `/home/user/Vault/` is included in `RCLONE_FILTERS_COMMON` with `+ Vault/**`, placed BEFORE the existing `- **/graphify-out/**` exclude so the vault's own `graphify-out/` subdirectory rides along.
 2. The `.graphify/` directory (ephemeral global-graph workspace) is excluded with `- .graphify/**` so the merged graph is regenerated on boot from the per-source `graphify-out/` files rather than carrying stale state across sessions.
-3. `init_user_vault()` creates the vault subdirectories (`raw/sessions`, `raw/pasted`, `notes`, `graphify-out`, `.silverbullet/_plug`) via `mkdir -p` on every boot so a user who deletes any of them cannot leave the agent hooks or SilverBullet in a broken state on the next session start.
+3. `init_user_vault()` creates the vault subdirectories (`Raw/Sessions`, `Raw/Pasted`, `Notes`, `graphify-out`, `.silverbullet/_plug`) via `mkdir -p` on every boot so a user who deletes any of them cannot leave the agent hooks or SilverBullet in a broken state on the next session start.
 4. `init_user_vault()` runs AFTER `establish_bisync_baseline()` and BEFORE the daemon launch block, so we never write the empty skeleton over R2-restored content.
 5. `init_user_vault()` also `mkdir -p`s `/home/user/Uploads` and `/home/user/Temporary` alongside the vault. Both folders are persistent (`RCLONE_FILTERS_COMMON` includes `+ Uploads/**` and `+ Temporary/**`, placed BEFORE the global graphify-out exclude) so a file dropped into either survives session restart and is visible in the storage panel and from every device.
 6. The R2 storage panel surfaces Workspace, Vault, Uploads, and Temporary as "special folders" at the bucket root: each appears unconditionally (Workspace gated by the workspace-sync preference), each renders an info icon that toggles a tooltip showing the folder's purpose and the in-container path it materialises at (`/home/user/Workspace`, `/home/user/Vault`, `/home/user/Uploads`, `/home/user/Temporary`).
-7. `init_user_vault()` copies `index.md`, `CONFIG.md`, `README.md`, and `STYLES.md` from `/opt/silverbullet-preseed/` into the vault root on every boot, gated so identical files are not rewritten. These four pages are codeflare-authoritative: user edits to them are intentionally not preserved across boots, because SilverBullet's dashboard widgets, in-page wikilink handlers, codeflare theming, and Library/Std federation directive all depend on their contents being current. User content lives in `notes/`, `Inbox/`, `Journal/`, `raw/pasted/`, and `raw/sessions/` (never touched).
+7. `init_user_vault()` copies `Index.md`, `CONFIG.md`, `README.md`, and `STYLES.md` from `/opt/silverbullet-preseed/` into the vault root on every boot, gated so identical files are not rewritten. These four pages are codeflare-authoritative: user edits to them are intentionally not preserved across boots, because SilverBullet's dashboard widgets, in-page wikilink handlers, codeflare theming, and Library/Std federation directive all depend on their contents being current. User content lives in `Notes/`, `Inbox/`, `Journal/`, `Raw/Pasted/`, and `Raw/Sessions/` (never touched).
 8. `~/Vault/graphify-out/graph.json` is seeded with the empty-graph JSON stub only when absent; the populated graph from a prior session is never overwritten by the entrypoint (the graph is build output regenerated by `graphify extract` / `graphify global add`, not preseed content).
 
 **Constraints:**
@@ -65,12 +65,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ## REQ-VAULT-002: Conversation captures land in the vault as markdown
 
-**Intent:** The capture sonnet writes one markdown file per 15-prompt batch into `raw/sessions/`, replacing the previous MCP-memory write path. Captures appear in `mcp__graphify__*` queries the same turn they are written.
+**Intent:** The capture sonnet writes one markdown file per 15-prompt batch into `Raw/Sessions/`, replacing the previous MCP-memory write path. Captures appear in `mcp__graphify__*` queries the same turn they are written.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. `memory-agent-prompt.md` Step 4 writes the capture file at `/home/user/Vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter + Context/Decisions/Observations/References template.
+1. `memory-agent-prompt.md` Step 4 writes the capture file at `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter + Context/Decisions/Observations/References template.
 2. Concept references use `[[wikilinks]]`; file paths, code symbols, and PR/issue references stay as prose.
 3. Step 5 runs `flock /tmp/graphify-global.lock graphify extract --file ... && flock /tmp/graphify-global.lock graphify global add ... --as user_vault` so the new capture is merged into the unified graph atomically.
 4. If extraction fails, the markdown file stays on disk and the next vault-monitor tick will re-discover it via the high-water marker comparison.
@@ -78,11 +78,11 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Constraints:**
 - The dedup gate (`.vars` marker delete as the agent's first step) is unchanged from the pre-vault flow.
-- Compaction is not automated; the user prunes `raw/sessions/` manually via SilverBullet when the directory becomes unwieldy.
+- Compaction is not automated; the user prunes `Raw/Sessions/` manually via SilverBullet when the directory becomes unwieldy.
 
 **Priority:** P0
 **Dependencies:** REQ-VAULT-001
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: vault-monitor and capture script structure); E2E (drive 15+ prompts and grep `raw/sessions/`)
+**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: vault-monitor and capture script structure); E2E (drive 15+ prompts and grep `Raw/Sessions/`)
 **Status:** Implemented
 
 ---
@@ -94,7 +94,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. `start_vault_monitor_daemon` in entrypoint.sh polls the vault every 60s, excluding `raw/sessions/`, `graphify-out/`, `.silverbullet/`, and the four preseed-managed root pages (`index.md`, `CONFIG.md`, `README.md`, `STYLES.md`) from the find. The four pages are codeflare-authoritative (see REQ-VAULT-001 AC7); agent-side `cp` from preseed must not count as a user edit, otherwise every preseed sync at boot re-triggers extraction.
+1. `start_vault_monitor_daemon` in entrypoint.sh polls the vault every 60s, excluding `Raw/Sessions/`, `graphify-out/`, `.silverbullet/`, and the four preseed-managed root pages (`Index.md`, `CONFIG.md`, `README.md`, `STYLES.md`) from the find. The four pages are codeflare-authoritative (see REQ-VAULT-001 AC7); agent-side `cp` from preseed must not count as a user edit, otherwise every preseed sync at boot re-triggers extraction.
 2. The daemon uses a three-marker pattern: `vault-monitor.tick` (heartbeat), `vault-extract.last` (high-water mark), `vault-extract.vars` (trigger). The find compares against `vault-extract.last`, NOT the tick, so a daemon that advances the wrong marker cannot lose work.
 3. `vault-monitor-hook.sh` (UserPromptSubmit) exits 0 immediately when `vault-extract.vars` is absent (zero-cost on idle prompts) and emits `additionalContext` pointing at `vault-extract-prompt.md` when present.
 4. The vault-extract sonnet deletes `vault-extract.vars` as its first step (dedup gate), runs graphify extraction per changed file, merges via `graphify global add`, and touches `vault-extract.last` as its final step.
@@ -107,7 +107,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-VAULT-001
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: three-marker pattern presence); E2E (edit `notes/foo.md`, wait 60s, send prompt, confirm extraction)
+**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: three-marker pattern presence); E2E (edit `Notes/foo.md`, wait 60s, send prompt, confirm extraction)
 **Status:** Implemented
 
 ---
@@ -154,7 +154,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 6. The Vault button in `Header.tsx` renders only when an active session exists and the parent passes `onVaultOpen` (gated to terminal view, between Bookmarks and Storage).
 7. `handleVaultRequest` rewrites `<base href="/" />` to `<base href="/api/vault/<sid>/" />` on every `text/html` response (not gated to `/` or `/index.html`), so SilverBullet's relative asset references (e.g. `.client/client.js`, `.fs/<page>.md` writes) resolve back through the subpath proxy regardless of which page the user reloaded onto. Non-HTML responses (JS bundles, PNG icons, manifest JSON, `text/markdown` page bodies, `application/json` API replies, binary assets) pass through unchanged. The text/html guard alone is sufficient because SilverBullet's API endpoints (`.fs/`, `index.json`, `.attachment/`) return non-HTML content types — the rewriter never sees an API payload. When the body is rewritten, both `content-length` and `content-encoding` headers are dropped (`response.text()` auto-decompresses gzip/br upstream, so the original encoding header would otherwise trigger a browser decoding failure). A warning is logged when the rewrite runs but the body did not contain the bare `<base href="/" />` (no-op rewrite), so a future SilverBullet template change surfaces as a logged signal instead of a silent white-screen regression.
 8. Browser-initiated Service Worker registration GETs at `/api/vault/<sid>/service_worker.js` short-circuit the auth chain and receive a static no-op SW from the Worker. Selector requires all of: method `GET`, exact path `/service_worker.js`, request header `Service-Worker: script` (a Fetch-spec forbidden header name, not settable from page JavaScript), and no `Cookie` header. Chrome 76+ omits credentials on `navigator.serviceWorker.register()` script fetches even for same-origin same-site URLs, so the normal cookie-auth path returned 401 and registration failed permanently. The static SW JS contains zero user data and is identical across sessions; the cookie-absent gate is defence-in-depth so that any future browser path that carries credentials falls through to the normal auth chain (returning the real upstream SW or 401) instead of the static-noop shortcut.
-9. SilverBullet opens to the `index` page (the codeflare dashboard) on every Vault button click, via `indexPage: index` in `.silverbullet/config.yaml`. The README page is reachable from the dashboard via a link at the top.
+9. SilverBullet opens to the `Index` page (the codeflare dashboard) on every Vault button click, via `indexPage: Index` in `.silverbullet/config.yaml`. The README page is reachable from the dashboard via a link at the top.
 
 **Constraints:**
 - SilverBullet is bound to localhost only -- the Worker proxy is the only externally reachable surface.
