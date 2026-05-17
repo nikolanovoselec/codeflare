@@ -4,11 +4,12 @@
 // mcp__context-mode__ctx_execute / _file / batch). Resolution walks up
 // from the candidate dir to the nearest ancestor containing .git/ or
 // graphify-out/. Sentinel is only rewritten on change.
-import { describe, it, before, beforeEach } from 'node:test';
+import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, utimesSync, statSync, symlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -48,6 +49,14 @@ describe('graphify-active-repo.sh', () => {
 
   before(() => {
     baseTmp = mkdtempSync(join(tmpdir(), 'gf-active-'));
+  });
+
+  after(() => {
+    // Recursive remove with `force: true` so per-test symlinks (which
+    // Node's rm follows as references, not directories) and any leftover
+    // sentinel/workspace subtrees are all cleared. `baseTmp` is the
+    // sole top-level we created; nothing else under /tmp is touched.
+    rmSync(baseTmp, { recursive: true, force: true });
   });
 
   beforeEach(() => {
@@ -382,11 +391,9 @@ describe('graphify-active-repo.sh', () => {
   // can possibly match (legitimate isolation for that branch).
   it('vault skip: symlinked $HOME (union of canonicalization + basename guards)', () => {
     const realHome = mkdtempSync(join(baseTmp, 'real-home-'));
-    // mkdtempSync + rmSync to get a guaranteed-unique path, then symlink
-    // onto it. Using `Date.now()` would collide on a millisecond-level
-    // retry inside the same `baseTmp`.
-    const symHome = mkdtempSync(join(baseTmp, 'sym-home-'));
-    rmSync(symHome, { recursive: true });
+    // randomUUID() under the already-unique `baseTmp`: no syscalls, no
+    // TOCTOU window between rm and symlink, no millisecond-collision risk.
+    const symHome = join(baseTmp, `sym-home-${randomUUID()}`);
     symlinkSync(realHome, symHome);
     const vault = join(realHome, '.user_vault');
     mkdirSync(join(vault, 'graphify-out'), { recursive: true });
