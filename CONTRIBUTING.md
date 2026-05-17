@@ -32,7 +32,7 @@ Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitti
 | `host/` | Container terminal server | Node.js, node-pty |
 | `e2e/` | End-to-end tests | Vitest, Puppeteer |
 | `e2e/stress/` | k6 load test suites | JavaScript, k6 |
-| `preseed/tutorials/` | Tutorial content seeded into new workspaces | Markdown, assets |
+| `preseed/tutorials/` | Tutorial content seeded into new workspaces | Markdown |
 | `scripts/` | Build and maintenance utilities | Node.js |
 | `.github/workflows/` | CI/CD pipelines | GitHub Actions |
 
