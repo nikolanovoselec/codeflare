@@ -118,7 +118,9 @@ If extraction fails mid-flight, `vault-extract.last` is NOT advanced, the next t
 
 A complementary guard in `vault-monitor-hook.sh` covers the daemon-vs-sonnet overlap case: the daemon ticks every 60s and a sonnet run takes around 90s, so the daemon may re-write `vault-extract.vars` after the sonnet's step-1 delete. When the sonnet finishes and advances `vault-extract.last`, that re-written `.vars` is left behind, older than `.last`. The hook detects this on the next prompt (`! "$VARS_FILE" -nt "$LAST_MARKER"`), silently deletes the stale marker, and exits 0 instead of triggering a redundant sonnet spawn.
 
-The daemon excludes `raw/sessions/`, `graphify-out/`, and `.silverbullet/` from the find. Those are agent-owned, derived, or editor-config respectively.
+The daemon excludes `raw/sessions/`, `graphify-out/`, and `.silverbullet/` from the find (agent-owned, derived, editor-config). It also excludes the four preseed-managed root pages (`index.md`, `CONFIG.md`, `README.md`, `STYLES.md`): `init_user_vault()` overwrites these on every boot when content drifts, so their mtimes reflect a codeflare action rather than a user edit, and including them produced perpetual extract-sonnet spawns after the always-overwrite tier (REQ-VAULT-001 AC7) landed.
+
+On boots where at least one preseed page was rewritten, `init_user_vault()` also touches `vault-extract.last` before the daemon starts. This advances the high-water mark past the preseed-page mtimes so the very first daemon tick finds nothing and no spurious extraction is triggered. The two guards are layered for defence-in-depth: the AC1 exclusion handles the four pages by name, and the AC6 marker-bump covers any future preseed page added without an exclusion-list update.
 
 `vault-monitor-hook.sh` is the UserPromptSubmit hook for the user-edit path. It exits 0 immediately when `vault-extract.vars` is absent (~99% of prompts), keeping token cost at zero on idle. When the marker is present it emits `additionalContext` pointing the main agent at `vault-extract-prompt.md`.
 
@@ -254,6 +256,8 @@ A brand-new session boots with a pre-populated vault: `index.md`, `README.md`, `
 `init_user_vault()` runs AFTER `establish_bisync_baseline()` so we never run the per-boot sync over a half-restored vault. If the baseline fails for any reason, the init function still runs (`(init_user_vault) || echo ...`) and the critical-dir + preseed-page tiers are created locally; the next successful bisync reconciles user content.
 
 On first browser open after a fresh vault, the dashboard widgets ("Quick Note" button, "Journal: Today" button, "Recently modified pages") may appear inert for ~30 seconds while SilverBullet federates `Library/Std` from `silverbullet.md` per `CONFIG.md`'s directive. Refresh once if buttons don't react.
+
+The vault-monitor daemon does not fire a spurious extraction on first boot or after a preseed update: `init_user_vault()` bumps `vault-extract.last` past the preseed-page mtimes whenever it rewrites a page, and the daemon's find excludes the four preseed-managed pages by name. A fresh session sends 5 prompts in a row with no user vault edits and the vault-extract hook fires zero times.
 
 ## Image-pasting Cost Caveat
 
