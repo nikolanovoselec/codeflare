@@ -167,7 +167,13 @@ done
 # duplicates entries in the global manifest and lets the prune-on-switch
 # logic later remove the basename-tag, leaving only the stale entrypoint
 # snapshot. Exit silently when the resolved REPO is the vault root.
-if [ "$REPO" = "$HOME/.user_vault" ]; then
+#
+# Two guards: REPO is already canonicalized via `cd ... && pwd`, so we
+# canonicalize $HOME the same way (symlinks, trailing slashes, mount
+# differences). Basename check is belt-and-suspenders in case a symlink
+# points at the vault from outside $HOME.
+HOME_RESOLVED=$(cd "$HOME" 2>/dev/null && pwd)
+if [ "$REPO" = "$HOME_RESOLVED/.user_vault" ] || [ "$(basename "$REPO")" = ".user_vault" ]; then
     exit 0
 fi
 

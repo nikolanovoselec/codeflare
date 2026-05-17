@@ -436,7 +436,14 @@ export async function handleVaultRequest(
         /<base\s+href="\/"\s*\/?>/gi,
         `<base href="${prefix}/" />`,
       );
-      if (rewritten === body) {
+      // Only warn on the shell paths where the rewrite is load-bearing
+      // (`/` and `/index.html`). On any other text/html path - error
+      // pages, 404 HTML, future plug-served HTML - a no-op rewrite is
+      // expected, not a signal. Logging unconditionally fills prod logs
+      // with false positives on every non-shell error response.
+      const isShellPath =
+        remainingPath === '/' || remainingPath.endsWith('/index.html');
+      if (rewritten === body && response.status === 200 && isShellPath) {
         logger.warn('vault base-href rewrite no-op', {
           pathname: vaultUrl.pathname,
           contentType,

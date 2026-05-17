@@ -6,7 +6,7 @@
 // graphify-out/. Sentinel is only rewritten on change.
 import { describe, it, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, utimesSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, utimesSync, statSync, symlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -368,6 +368,37 @@ describe('graphify-active-repo.sh', () => {
     });
     assert.equal(result.status, 0);
     assert.equal(sentinel(sentinelDir), repoA, 'active repo must remain unchanged by a vault tool call');
+  });
+
+  // Regression: when $HOME is itself a symlink (or otherwise non-canonical),
+  // the raw string `$HOME/.user_vault` does NOT match the canonicalized
+  // REPO path that the walk-up loop resolves via `cd ... && pwd`. The fix
+  // canonicalizes $HOME the same way and adds a basename-match fallback.
+  // Without either guard, the vault gets re-tagged as `.user_vault` on
+  // every vault file touch on systems where $HOME contains a symlink.
+  it('vault skip: works when $HOME is a symlinked path (canonicalization)', () => {
+    const realHome = mkdtempSync(join(baseTmp, 'real-home-'));
+    const symHome = join(baseTmp, `sym-home-${Date.now()}`);
+    symlinkSync(realHome, symHome);
+    const vault = join(realHome, '.user_vault');
+    mkdirSync(join(vault, 'graphify-out'), { recursive: true });
+    mkdirSync(join(vault, 'notes'));
+    writeFileSync(join(vault, 'graphify-out', 'graph.json'), '{"nodes":[]}');
+
+    const result = spawnSync('bash', [HOOK], {
+      input: JSON.stringify({
+        tool_name: 'Read',
+        tool_input: { file_path: join(symHome, '.user_vault', 'notes', 'foo.md') },
+      }),
+      encoding: 'utf-8',
+      env: { ...process.env, GRAPHIFY_SENTINEL_DIR: sentinelDir, HOME: symHome },
+    });
+    assert.equal(result.status, 0);
+    assert.equal(
+      sentinel(sentinelDir),
+      null,
+      'symlinked HOME must still trigger the vault skip; raw-string compare would miss this',
+    );
   });
 });
 

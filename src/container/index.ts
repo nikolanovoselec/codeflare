@@ -204,18 +204,26 @@ export class container extends Container<Env> {
     // a subsequent DO wake restores the same value (the container's env
     // var CONTAINER_AUTH_TOKEN, set when the container started, survives
     // hibernation; the DO's in-memory copy does not, so re-generating here
-    // produces a token mismatch — see the restore in blockConcurrencyWhile).
-    // Storage write is fire-and-forget; the next wake will re-restore from
-    // ctx.storage regardless, so a transient persistence failure does not
-    // change the steady-state.
+    // produces a token mismatch - see the restore in blockConcurrencyWhile).
+    // ctx.waitUntil pins the put to the request lifecycle so the runtime
+    // cannot hibernate the DO before the storage write commits; without
+    // that pin, a wake-then-immediately-hibernate sequence could regenerate
+    // a fresh token on the next wake even after this branch ran.
     if (!this._containerAuthToken) {
       this._containerAuthToken = crypto.randomUUID();
       // Promise.resolve() wrap: in production ctx.storage.put returns a
       // Promise per the Workers Runtime API, but some test mocks return
       // undefined synchronously. Wrapping makes `.catch` safe in both.
-      Promise.resolve(this.ctx.storage.put('containerAuthToken', this._containerAuthToken)).catch((err) => {
+      const putPromise = Promise.resolve(
+        this.ctx.storage.put('containerAuthToken', this._containerAuthToken),
+      ).catch((err) => {
         this.logger.warn('Failed to persist containerAuthToken', { error: toErrorMessage(err) });
       });
+      // waitUntil is unavailable on some test mocks of ctx; guard so unit
+      // tests that don't stub it don't crash. Production always has it.
+      if (typeof this.ctx.waitUntil === 'function') {
+        this.ctx.waitUntil(putPromise);
+      }
     }
 
     this.envVars = buildEnvVars(this.envState, this.env);
