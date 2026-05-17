@@ -173,15 +173,17 @@ describe('container DO class', () => {
       });
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      // Constructor's blockConcurrencyWhile runs synchronously via the mock,
-      // but the inner async body needs a microtask flush before envVars
-      // settles. Awaiting any pending tasks here is enough.
-      await Promise.resolve();
 
-      // The token in envVars (which is what the container reads on next
-      // start) must equal what storage already had — NOT a fresh UUID.
-      expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe(PRIOR_TOKEN);
-      // And storage.put must NOT be called with a new UUID for this key.
+      // Constructor's blockConcurrencyWhile body has multiple sequential
+      // awaits before updateEnvVars() fires; vi.waitFor polls until the
+      // microtask chain finishes (same pattern as the
+      // "constructor loads bucketName and calls updateEnvVars" test).
+      await vi.waitFor(() => {
+        expect(instance.envVars).toBeDefined();
+        expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe(PRIOR_TOKEN);
+      });
+      // Storage.put must NOT be called with a new UUID for this key —
+      // we restored, not regenerated.
       const putKeys = mockStorage.put.mock.calls.map((c) => c[0]);
       expect(putKeys).not.toContain('containerAuthToken');
     });
@@ -195,17 +197,22 @@ describe('container DO class', () => {
       });
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await Promise.resolve();
 
-      // Generator emitted SOMETHING that looks like a UUID.
+      await vi.waitFor(() => {
+        expect(instance.envVars).toBeDefined();
+        expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toMatch(/^[0-9a-f-]{36}$/);
+      });
       const tok = instance.envVars?.CONTAINER_AUTH_TOKEN;
-      expect(tok).toMatch(/^[0-9a-f-]{36}$/);
 
-      // And it landed in storage under the same key the restore reads.
-      const putCalls = mockStorage.put.mock.calls;
-      const tokenPut = putCalls.find((c) => c[0] === 'containerAuthToken');
-      expect(tokenPut).toBeDefined();
-      expect(tokenPut?.[1]).toBe(tok);
+      // And the generated token landed in storage under the same key the
+      // restore branch reads, so a subsequent wake will hit the restore
+      // path instead of regenerating.
+      await vi.waitFor(() => {
+        const putCalls = mockStorage.put.mock.calls;
+        const tokenPut = putCalls.find((c) => c[0] === 'containerAuthToken');
+        expect(tokenPut).toBeDefined();
+        expect(tokenPut?.[1]).toBe(tok);
+      });
     });
 
   });
