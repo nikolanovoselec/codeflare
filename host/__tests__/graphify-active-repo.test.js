@@ -382,7 +382,11 @@ describe('graphify-active-repo.sh', () => {
   // can possibly match (legitimate isolation for that branch).
   it('vault skip: symlinked $HOME (union of canonicalization + basename guards)', () => {
     const realHome = mkdtempSync(join(baseTmp, 'real-home-'));
-    const symHome = join(baseTmp, `sym-home-${Date.now()}`);
+    // mkdtempSync + rmSync to get a guaranteed-unique path, then symlink
+    // onto it. Using `Date.now()` would collide on a millisecond-level
+    // retry inside the same `baseTmp`.
+    const symHome = mkdtempSync(join(baseTmp, 'sym-home-'));
+    rmSync(symHome, { recursive: true });
     symlinkSync(realHome, symHome);
     const vault = join(realHome, '.user_vault');
     mkdirSync(join(vault, 'graphify-out'), { recursive: true });

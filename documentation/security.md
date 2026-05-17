@@ -28,7 +28,7 @@ A random shared secret is generated per DO lifecycle and proxied requests from t
 
 **Threat model -- silent Unauthorized after DO wake (AC5/AC6):** Without lifecycle-scoped persistence, every DO wake from hibernation regenerates a fresh token while the container process retains the original value, breaking every subsequent proxied request with `{"error":"Unauthorized"}` until the user manually recreates the session. The terminal, vault, and every other in-container HTTP surface go silently unreachable.
 
-**Mitigation:** The token is persisted to `ctx.storage` under key `containerAuthToken` on first generation (write pinned via `ctx.waitUntil` so the runtime cannot hibernate before the put commits) and restored in `blockConcurrencyWhile` alongside other operational state, so a rehydrated DO presents the same token the container still holds. On `destroy()` the key is cleared so the next session under the same DO ID starts with a fresh token (no cross-lifecycle reuse). The env-var name (`CONTAINER_AUTH_TOKEN`) and consumption point are catalogued in [configuration.md](./configuration.md#environment-variables).
+**Mitigation:** The token is scoped to one DO lifecycle and survives hibernate/wake within that lifecycle; on `destroy()` it is cleared so the next session under the same DO ID starts fresh. Persistence mechanics (DO storage key, restore site, hibernate-window pinning, cleanup hook) live in [architecture.md](./architecture.md#container-do-container). The env-var name (`CONTAINER_AUTH_TOKEN`) is catalogued in [configuration.md](./configuration.md#environment-variables).
 
 ## Dual R2 Credential Architecture
 
