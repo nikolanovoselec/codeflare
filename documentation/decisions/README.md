@@ -893,7 +893,7 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 
 **Alternative considered:** Mount the dot-prefixed directory into a non-hidden path via bind mount or symlink. Rejected: adds fragile entrypoint complexity and bisync would still see the original dot-prefixed path. A clean rename is simpler and permanent.
 
-**Issue:** REQ-VAULT-001.
+**Related REQ:** REQ-VAULT-001.
 
 ---
 
