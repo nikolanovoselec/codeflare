@@ -1173,62 +1173,43 @@ init_user_vault() {
 
     if [ ! -d "$VAULT" ]; then
         echo "[entrypoint] Initializing vault skeleton at $VAULT"
-        mkdir -p "$VAULT/raw/sessions" "$VAULT/raw/pasted" "$VAULT/notes" \
-                 "$VAULT/graphify-out" "$VAULT/.silverbullet/_plug"
-
-        cat > "$VAULT/README.md" <<'VAULT_README_EOF'
-# Vault
-
-Persistent memory across codeflare sessions. Edit anything here in
-SilverBullet (Vault button in the codeflare header). Two hooks keep the
-unified graphify graph fresh:
-
-- **Transcript capture** fires every 15 chat prompts; the background sonnet
-  writes session observations to `raw/sessions/` and re-extracts them into
-  the vault graph.
-- **Vault monitor** watches everything outside `raw/sessions/` for user
-  edits (60s polling) and re-extracts on the next chat prompt when
-  changes are detected.
-
-## Structure
-
-- `raw/sessions/`  agent-written session captures; do not hand-edit.
-- `raw/pasted/`    drag-zone for PDFs, screenshots, anything.
-- `notes/`         curated, organised prose.
-- `graphify-out/`  the vault project graph (regenerated automatically).
-- `.silverbullet/` SilverBullet config + plugs.
-
-## First-time
-
-The vault starts empty. Captures begin landing after roughly 15 prompts
-in your first session. Cross-session memory becomes useful from session
-two onward.
-VAULT_README_EOF
-
-        printf '{"directed":true,"multigraph":false,"graph":{},"nodes":[],"links":[]}' \
-            > "$VAULT/graphify-out/graph.json"
-
-        # SilverBullet preseed config — always present.
-        if [ -f "$PRESEED_DIR/config.yaml" ]; then
-            cp "$PRESEED_DIR/config.yaml" "$VAULT/.silverbullet/config.yaml"
-        fi
-        # Atlas plug — best-effort. Absence is fine; graph viz falls back
-        # to graphify-out/graph.html.
-        if [ -f "$PRESEED_DIR/atlas.plug.js" ]; then
-            cp "$PRESEED_DIR/atlas.plug.js" "$VAULT/.silverbullet/_plug/atlas.plug.js"
-        else
-            echo "[entrypoint] Atlas plug absent from preseed; vault visualisation will fall back to graphify-out/graph.html"
-        fi
-
-        echo "[entrypoint] Vault skeleton initialized"
+        mkdir -p "$VAULT"
     fi
 
-    # Idempotent preseed-config sync on every boot (skeleton block above is
-    # gated on a missing vault, so existing R2-restored vaults never received
-    # the config otherwise). Overwrites user hand-edits to .silverbullet/;
-    # the vault rule marks .silverbullet/ as editor config that should be
-    # changed via the codeflare preseed, not in place.
-    mkdir -p "$VAULT/.silverbullet/_plug"
+    # Critical directories. Always mkdir -p on every boot so a user who
+    # deletes raw/sessions/, notes/, etc. cannot break the agent hooks
+    # or SilverBullet on the next session start.
+    mkdir -p "$VAULT/raw/sessions" "$VAULT/raw/pasted" "$VAULT/notes" \
+             "$VAULT/graphify-out" "$VAULT/.silverbullet/_plug"
+
+    # Preseed-managed pages. Always overwritten from preseed on every boot
+    # so SilverBullet cannot be permanently broken by file deletion or by
+    # stale content surviving across preseed updates. These four files are
+    # codeflare-authoritative, not user-editable. User content lives in
+    # notes/, Inbox/, Journal/, raw/pasted/ (never touched by this block).
+    local PRESEED_PAGES="index.md CONFIG.md README.md STYLES.md"
+    local PAGE
+    for PAGE in $PRESEED_PAGES; do
+        if [ -f "$PRESEED_DIR/$PAGE" ] \
+           && ! cmp -s "$PRESEED_DIR/$PAGE" "$VAULT/$PAGE" 2>/dev/null; then
+            cp "$PRESEED_DIR/$PAGE" "$VAULT/$PAGE"
+            echo "[entrypoint] Vault $PAGE synced from preseed"
+        fi
+    done
+
+    # Vault knowledge graph. Recreate-if-missing only - never overwrite
+    # the populated graph (graphify-out is build output that survives
+    # across sessions and is rebuilt by graphify, not the entrypoint).
+    if [ ! -f "$VAULT/graphify-out/graph.json" ]; then
+        printf '{"directed":true,"multigraph":false,"graph":{},"nodes":[],"links":[]}' \
+            > "$VAULT/graphify-out/graph.json"
+        echo "[entrypoint] Vault graph.json stub created"
+    fi
+
+    # SilverBullet bootstrap config + Atlas plug. Editor config is preseed-
+    # authoritative; overwrites user hand-edits to .silverbullet/ on every
+    # boot. Atlas plug is best-effort; absence falls back to graphify-out/
+    # graph.html for visualisation.
     if [ -f "$PRESEED_DIR/config.yaml" ] \
        && ! cmp -s "$PRESEED_DIR/config.yaml" "$VAULT/.silverbullet/config.yaml" 2>/dev/null; then
         cp "$PRESEED_DIR/config.yaml" "$VAULT/.silverbullet/config.yaml"

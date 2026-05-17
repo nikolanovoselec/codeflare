@@ -9,8 +9,10 @@
 # No built-in auth; rely on the Worker proxy.
 # (SilverBullet's "no users defined" state is auth-less by design.)
 
-# Index page shown when the user opens the vault.
-indexPage: "README"
+# Index page shown when the user opens the vault. The dashboard
+# (quick notes, journal, tasks, recently modified) lives in index.md;
+# README.md is the vault-contract reference page, linked from index.
+indexPage: "index"
 
 # Default editor mode.
 defaultMode: "edit"
