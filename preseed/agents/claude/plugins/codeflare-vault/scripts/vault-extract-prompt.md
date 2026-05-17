@@ -28,8 +28,8 @@ build steps from graphify's internal Python API.
 
 ## Variables
 
-- `VAULT_ROOT`: `/home/user/.obsidian_vault`
-- `OUT_DIR`: `/home/user/.obsidian_vault/graphify-out`
+- `VAULT_ROOT`: `/home/user/.user_vault`
+- `OUT_DIR`: `/home/user/.user_vault/graphify-out`
 - `VARS_FILE`: `~/.cache/codeflare-hooks/vault-extract.vars` (delete first)
 - `LAST_MARKER`: `~/.cache/codeflare-hooks/vault-extract.last` (high-water mark)
 - `LOCK`: `/tmp/graphify-global.lock` (serialises with capture sonnet + active-repo hook)
@@ -58,10 +58,10 @@ step 6.
 ### 2. List files changed since last successful extraction
 
 ```bash
-find /home/user/.obsidian_vault \
-    \( -path /home/user/.obsidian_vault/raw/sessions -o \
-       -path /home/user/.obsidian_vault/graphify-out -o \
-       -path /home/user/.obsidian_vault/.silverbullet \) -prune -o \
+find /home/user/.user_vault \
+    \( -path /home/user/.user_vault/raw/sessions -o \
+       -path /home/user/.user_vault/graphify-out -o \
+       -path /home/user/.user_vault/.silverbullet \) -prune -o \
     -type f -newer ~/.cache/codeflare-hooks/vault-extract.last -print
 ```
 
@@ -110,7 +110,7 @@ concepts must dedupe by label across files and repos).
 Write the JSON to disk via the Write tool at this absolute path:
 
 ```
-/home/user/.obsidian_vault/graphify-out/.graphify_chunk_01.json
+/home/user/.user_vault/graphify-out/.graphify_chunk_01.json
 ```
 
 Schema (must match exactly - graphify's merge step parses this verbatim):
@@ -154,8 +154,8 @@ from graphify.build import build_from_json
 from graphify.cluster import cluster
 from graphify.export import to_json
 
-chunk_path = Path('/home/user/.obsidian_vault/graphify-out/.graphify_chunk_01.json')
-out_path = Path('/home/user/.obsidian_vault/graphify-out/graph.json')
+chunk_path = Path('/home/user/.user_vault/graphify-out/.graphify_chunk_01.json')
+out_path = Path('/home/user/.user_vault/graphify-out/graph.json')
 
 extraction = json.loads(chunk_path.read_text(encoding='utf-8'))
 G = build_from_json(extraction)
@@ -176,11 +176,11 @@ no-op via `graphify global add`'s hash dedup. Continue to step 6.
 
 ```bash
 flock /tmp/graphify-global.lock /usr/local/bin/graphify global add \
-    /home/user/.obsidian_vault/graphify-out/graph.json --as vault
+    /home/user/.user_vault/graphify-out/graph.json --as user_vault
 ```
 
 `graphify global add` is hash-keyed and idempotent - re-running it
-with the same `graph.json` content is a no-op. Tagged `--as vault` so
+with the same `graph.json` content is a no-op. Tagged `--as user_vault` so
 the global manifest can distinguish vault nodes from per-repo nodes.
 The internal `external_labels` pass dedupes concept nodes (those with
 `source_file: null`) against existing concept nodes by label, so

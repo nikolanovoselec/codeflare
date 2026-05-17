@@ -306,7 +306,7 @@ RCLONE_FILTERS_COMMON=(
     # This include MUST precede the global graphify-out exclude below: rclone
     # uses first-match, so without this line the vault's own graphify-out/
     # would be caught by the exclude pattern and silently never bisync.
-    --filter "+ .obsidian_vault/**"
+    --filter "+ .user_vault/**"
 
     # Global graphify graph is rebuilt at boot from per-project graphs and
     # the vault. Keep it ephemeral; it has no R2 round-trip value.
@@ -673,7 +673,7 @@ start_sync_daemon() {
 # ============================================================================
 # Vault-monitor daemon (REQ-MEMORY-102)
 #
-# Polls .obsidian_vault/ every 60s for user edits (curated notes, pasted
+# Polls .user_vault/ every 60s for user edits (curated notes, pasted
 # files) and signals the UserPromptSubmit hook by writing a marker file.
 # The hook spawns a background sonnet that runs graphify extraction on
 # the changed files and merges them into the global graph.
@@ -695,7 +695,7 @@ start_sync_daemon() {
 # + cache, no semantic content).
 # ============================================================================
 start_vault_monitor_daemon() {
-    local VAULT_ROOT="$HOME/.obsidian_vault"
+    local VAULT_ROOT="$HOME/.user_vault"
     local HOOK_CACHE="$HOME/.cache/codeflare-hooks"
     local TICK_MARKER="$HOOK_CACHE/vault-monitor.tick"
     local LAST_MARKER="$HOOK_CACHE/vault-extract.last"
@@ -711,7 +711,7 @@ start_vault_monitor_daemon() {
         # Heartbeat first so a hung find/loop is visible from outside.
         touch "$TICK_MARKER" 2>/dev/null || true
 
-        # Vault may not exist yet (init_obsidian_vault still racing on
+        # Vault may not exist yet (init_user_vault still racing on
         # cold boot). Skip silently — next tick will find it.
         [ -d "$VAULT_ROOT" ] || continue
 
@@ -722,7 +722,7 @@ start_vault_monitor_daemon() {
         fi
 
         # find -newer requires the reference file to exist. Seeded by
-        # init_obsidian_vault on boot but guard anyway.
+        # init_user_vault on boot but guard anyway.
         [ -f "$LAST_MARKER" ] || touch "$LAST_MARKER"
 
         # Look for any user-touched markdown/asset under the vault that
@@ -766,7 +766,7 @@ start_vault_monitor_daemon() {
 # 5s backoff matches the existing terminal-server crash-restart pattern.
 # ============================================================================
 start_silverbullet_supervisor() {
-    local VAULT_ROOT="$HOME/.obsidian_vault"
+    local VAULT_ROOT="$HOME/.user_vault"
     local SB_BIN="${SILVERBULLET_BIN:-/usr/local/bin/silverbullet}"
     local SB_PORT="${SILVERBULLET_PORT:-3030}"
     local SB_HOST="${SILVERBULLET_HOST:-127.0.0.1}"
@@ -1128,7 +1128,7 @@ BASHRC_FOOTER
 # ============================================================================
 # Vault skeleton init (REQ-MEMORY-100, REQ-MEMORY-105)
 # ============================================================================
-# Idempotent on every boot. Creates the .obsidian_vault/ skeleton if absent,
+# Idempotent on every boot. Creates the .user_vault/ skeleton if absent,
 # copies preseeded SilverBullet config + (best-effort) Atlas plug from
 # /opt/silverbullet-preseed/, seeds the global graphify graph with the vault,
 # and initializes the vault-monitor two-marker filesystem state so the daemon
@@ -1137,8 +1137,8 @@ BASHRC_FOOTER
 # Called after establish_bisync_baseline so we never overwrite R2-restored
 # content with an empty skeleton on returning sessions.
 # ============================================================================
-init_obsidian_vault() {
-    local VAULT="$USER_HOME/.obsidian_vault"
+init_user_vault() {
+    local VAULT="$USER_HOME/.user_vault"
     local PRESEED_DIR=/opt/silverbullet-preseed
     local HOOK_CACHE="$USER_HOME/.cache/codeflare-hooks"
 
@@ -1232,7 +1232,7 @@ VAULT_README_EOF
     # (e.g. graphify plugin disabled), continue.
     if command -v graphify >/dev/null 2>&1; then
         flock /tmp/graphify-global.lock graphify global add \
-            "$VAULT/graphify-out/graph.json" --as vault 2>/dev/null \
+            "$VAULT/graphify-out/graph.json" --as user_vault 2>/dev/null \
             || echo "[entrypoint] vault global-add deferred (graphify not ready)"
     fi
 
@@ -1766,7 +1766,7 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
         # with an empty skeleton on returning sessions.
         # Idempotent: skip if vault directory already present.
         # ----------------------------------------------------------------------
-        (init_obsidian_vault) || echo "[entrypoint] WARNING: vault init failed; continuing"
+        (init_user_vault) || echo "[entrypoint] WARNING: vault init failed; continuing"
         # Always start daemons — even if baseline failed.
         # Each daemon has its own retry + recovery; a dead daemon means
         # zero sync (or zero vault ingestion) for the entire session.

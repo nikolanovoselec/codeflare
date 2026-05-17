@@ -317,6 +317,58 @@ describe('graphify-active-repo.sh', () => {
     assert.equal(status, 0);
     assert.equal(sentinel(sentinelDir), repoB);
   });
+
+  // REQ-VAULT-004 AC4: vault skip. Entrypoint init seeds the vault under
+  // tag `user_vault`; a tool call inside the vault must NOT re-tag it
+  // with the directory basename (`.user_vault`) and the prune-on-switch
+  // logic must never get a chance to remove the entrypoint snapshot.
+  it('vault skip: candidate at $HOME/.user_vault exits without sentinel write', () => {
+    const fakeHome = mkdtempSync(join(baseTmp, 'home-'));
+    const vault = join(fakeHome, '.user_vault');
+    mkdirSync(join(vault, 'graphify-out'), { recursive: true });
+    mkdirSync(join(vault, 'notes'));
+    writeFileSync(join(vault, 'graphify-out', 'graph.json'), '{"nodes":[]}');
+
+    const result = spawnSync('bash', [HOOK], {
+      input: JSON.stringify({
+        tool_name: 'Read',
+        tool_input: { file_path: join(vault, 'notes', 'foo.md') },
+      }),
+      encoding: 'utf-8',
+      env: { ...process.env, GRAPHIFY_SENTINEL_DIR: sentinelDir, HOME: fakeHome },
+    });
+    assert.equal(result.status, 0);
+    assert.equal(sentinel(sentinelDir), null, 'vault must not be written to the active-repo sentinel');
+  });
+
+  it('vault skip: a tool call inside the vault does NOT clobber the active repo sentinel', () => {
+    const fakeHome = mkdtempSync(join(baseTmp, 'home-'));
+    const vault = join(fakeHome, '.user_vault');
+    mkdirSync(join(vault, 'graphify-out'), { recursive: true });
+    mkdirSync(join(vault, 'notes'));
+    writeFileSync(join(vault, 'graphify-out', 'graph.json'), '{"nodes":[]}');
+
+    const repoA = makeRepo(workspace, 'repo-a');
+    // Prime the sentinel with repoA via a normal call
+    runHook(
+      { tool_name: 'Bash', cwd: repoA, tool_input: { command: 'ls' } },
+      sentinelDir
+    );
+    assert.equal(sentinel(sentinelDir), repoA);
+
+    // Now simulate a tool call inside the vault (capture sonnet etc).
+    // The hook must NOT rewrite the sentinel away from repoA.
+    const result = spawnSync('bash', [HOOK], {
+      input: JSON.stringify({
+        tool_name: 'Read',
+        tool_input: { file_path: join(vault, 'raw', 'sessions', 'x.md') },
+      }),
+      encoding: 'utf-8',
+      env: { ...process.env, GRAPHIFY_SENTINEL_DIR: sentinelDir, HOME: fakeHome },
+    });
+    assert.equal(result.status, 0);
+    assert.equal(sentinel(sentinelDir), repoA, 'active repo must remain unchanged by a vault tool call');
+  });
 });
 
 // Tests for the single-active-repo global-graph maintenance logic

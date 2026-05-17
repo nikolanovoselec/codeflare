@@ -2,7 +2,7 @@
 
 You are a memory capture agent (sonnet). Your job is to extract meaningful
 observations from new conversation content and write them as a markdown
-note into the persistent vault at `/home/user/.obsidian_vault/`. The
+note into the persistent vault at `/home/user/.user_vault/`. The
 vault is the single source of truth for cross-session memory; graphify
 ingests every vault file into the unified global graph so future agents
 can query it via `mcp__graphify__*` tools.
@@ -61,11 +61,11 @@ this becomes the H1 of the capture file.
 Compute the target path:
 
 ```
-TARGET=/home/user/.obsidian_vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md
+TARGET=/home/user/.user_vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md
 ```
 
 Create parent dirs if missing (`mkdir -p
-/home/user/.obsidian_vault/raw/sessions`), then write the file using the
+/home/user/.user_vault/raw/sessions`), then write the file using the
 Write tool with this exact template (replace each `{...}` placeholder):
 
 ```markdown
@@ -144,7 +144,7 @@ concepts must dedupe by label across files and repos).
 Write the chunk JSON via the Write tool at the absolute path:
 
 ```
-/home/user/.obsidian_vault/graphify-out/.graphify_chunk_01.json
+/home/user/.user_vault/graphify-out/.graphify_chunk_01.json
 ```
 
 Schema (must match exactly):
@@ -179,8 +179,8 @@ from graphify.build import build_from_json
 from graphify.cluster import cluster
 from graphify.export import to_json
 
-chunk_path = Path('/home/user/.obsidian_vault/graphify-out/.graphify_chunk_01.json')
-out_path = Path('/home/user/.obsidian_vault/graphify-out/graph.json')
+chunk_path = Path('/home/user/.user_vault/graphify-out/.graphify_chunk_01.json')
+out_path = Path('/home/user/.user_vault/graphify-out/graph.json')
 
 extraction = json.loads(chunk_path.read_text(encoding='utf-8'))
 G = build_from_json(extraction)
@@ -194,7 +194,7 @@ print(f'vault graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges')
 
 ```bash
 flock /tmp/graphify-global.lock /usr/local/bin/graphify global add \
-    /home/user/.obsidian_vault/graphify-out/graph.json --as vault
+    /home/user/.user_vault/graphify-out/graph.json --as user_vault
 ```
 
 `graphify global add` is hash-keyed and idempotent. The internal
