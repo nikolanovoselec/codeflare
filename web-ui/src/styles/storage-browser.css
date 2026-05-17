@@ -365,6 +365,24 @@
   flex-shrink: 0;
 }
 
+/* Secondary line inside the tooltip body that surfaces the in-container
+   path for the special folder (Workspace, Vault, Uploads, Temporary).
+   Rendered slightly dimmer so the description above it keeps primary
+   attention while the path is still scan-friendly. `display: block`
+   pushes it onto its own line under the description prose. */
+.workspace-sync-tooltip-path {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-2xs, var(--text-xs));
+  color: var(--color-text-tertiary, var(--color-text-secondary));
+}
+
+.workspace-sync-tooltip-path code {
+  font-family: var(--font-mono);
+  background: transparent;
+  padding: 0;
+}
+
 /* ======================================
    Mobile: hide date column, enlarge touch targets
    ====================================== */

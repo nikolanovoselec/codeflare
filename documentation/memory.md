@@ -1,7 +1,7 @@
 # Memory
 
 Cross-session memory in codeflare lives entirely in the **vault** at
-`/home/user/.user_vault/`. Graphify ingests every vault file into
+`/home/user/Vault/`. Graphify ingests every vault file into
 the unified global graph; agents query it via `mcp__graphify__*`. The
 former MCP `@modelcontextprotocol/server-memory` subsystem has been
 removed.
@@ -23,7 +23,7 @@ removed.
 
 ## Memory Persistence
 
-The vault (`/home/user/.user_vault/`) is rclone-bisynced to R2 as
+The vault (`/home/user/Vault/`) is rclone-bisynced to R2 as
 part of `/home/user/`. Both agent-written session captures
 (`raw/sessions/`) and user-curated notes (`notes/`, `raw/pasted/`)
 survive container recycles. Memory persistence runs in advanced mode

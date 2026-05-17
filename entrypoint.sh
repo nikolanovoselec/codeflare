@@ -302,11 +302,14 @@ RCLONE_FILTERS_COMMON=(
     # at $HOME root (.claude.json, .claude/, .codex/, .gemini/, .copilot/).
     --filter "- .config/**"
 
-    # vault (REQ-MEMORY-100) - persistent Obsidian-style vault must sync to R2.
-    # This include MUST precede the global graphify-out exclude below: rclone
+    # Persistent user folders (REQ-MEMORY-100, REQ-FS-010) - the vault and
+    # the user-facing Uploads/Temporary trays must sync to R2. The Vault
+    # include MUST precede the global graphify-out exclude below: rclone
     # uses first-match, so without this line the vault's own graphify-out/
     # would be caught by the exclude pattern and silently never bisync.
-    --filter "+ .user_vault/**"
+    --filter "+ Vault/**"
+    --filter "+ Uploads/**"
+    --filter "+ Temporary/**"
 
     # Global graphify graph is rebuilt at boot from per-project graphs and
     # the vault. Keep it ephemeral; it has no R2 round-trip value.
@@ -673,7 +676,7 @@ start_sync_daemon() {
 # ============================================================================
 # Vault-monitor daemon (REQ-MEMORY-102)
 #
-# Polls .user_vault/ every 60s for user edits (curated notes, pasted
+# Polls Vault/ every 60s for user edits (curated notes, pasted
 # files) and signals the UserPromptSubmit hook by writing a marker file.
 # The hook spawns a background sonnet that runs graphify extraction on
 # the changed files and merges them into the global graph.
@@ -692,10 +695,13 @@ start_sync_daemon() {
 #
 # Excluded paths: raw/sessions/ (agent-owned, written by capture hook
 # which already merges), graphify-out/ (derived), .silverbullet/ (config
-# + cache, no semantic content).
+# + cache, no semantic content), index.md at vault root (SilverBullet
+# rewrites it on every supervisor boot when its "empty space" heuristic
+# fires, so every container restart / SB crash + restart would otherwise
+# bump the marker and spawn an extract sonnet for boilerplate content).
 # ============================================================================
 start_vault_monitor_daemon() {
-    local VAULT_ROOT="$HOME/.user_vault"
+    local VAULT_ROOT="$HOME/Vault"
     local HOOK_CACHE="$HOME/.cache/codeflare-hooks"
     local TICK_MARKER="$HOOK_CACHE/vault-monitor.tick"
     local LAST_MARKER="$HOOK_CACHE/vault-extract.last"
@@ -733,7 +739,9 @@ start_vault_monitor_daemon() {
             \( -path "$VAULT_ROOT/raw/sessions" -o \
                -path "$VAULT_ROOT/graphify-out" -o \
                -path "$VAULT_ROOT/.silverbullet" \) -prune -o \
-            -type f -newer "$LAST_MARKER" -print 2>/dev/null | head -n 50)
+            -type f \
+            -not -path "$VAULT_ROOT/index.md" \
+            -newer "$LAST_MARKER" -print 2>/dev/null | head -n 50)
 
         if [ -n "$CHANGED" ]; then
             # Write the trigger atomically (mv from tmp avoids the hook
@@ -766,7 +774,15 @@ start_vault_monitor_daemon() {
 # 5s backoff matches the existing terminal-server crash-restart pattern.
 # ============================================================================
 start_silverbullet_supervisor() {
-    local VAULT_ROOT="$HOME/.user_vault"
+    # The vault MUST live at a non-hidden path. SilverBullet's disk walker
+    # (server/disk_space_primitives.go FetchFileList) aborts on the walk
+    # root when its basename starts with `.` (the `SkipDir` guard fires on
+    # the root entry itself), so any vault under a dotfile-prefixed path
+    # (e.g. `~/.user_vault/`, the previous location) returns an empty file
+    # listing and the SB UI shows no notes even though files exist on
+    # disk. Keeping the canonical name `Vault` keeps that guard satisfied
+    # without a symlink shim.
+    local VAULT_ROOT="$HOME/Vault"
     local SB_BIN="${SILVERBULLET_BIN:-/usr/local/bin/silverbullet}"
     local SB_PORT="${SILVERBULLET_PORT:-3030}"
     local SB_HOST="${SILVERBULLET_HOST:-127.0.0.1}"
@@ -1128,22 +1144,32 @@ BASHRC_FOOTER
 # ============================================================================
 # Vault skeleton init (REQ-MEMORY-100, REQ-MEMORY-105)
 # ============================================================================
-# Idempotent on every boot. Creates the .user_vault/ skeleton if absent,
-# copies preseeded SilverBullet config + (best-effort) Atlas plug from
+# Idempotent on every boot. Creates the Vault/ skeleton if absent, copies
+# preseeded SilverBullet config + (best-effort) Atlas plug from
 # /opt/silverbullet-preseed/, seeds the global graphify graph with the vault,
 # and initializes the vault-monitor two-marker filesystem state so the daemon
 # (started later in this entrypoint) has sensible baselines.
+#
+# Also creates the persistent user folders Uploads/ and Temporary/ alongside
+# the vault. All three folders bisync to R2 (see RCLONE_FILTERS_COMMON).
 #
 # Called after establish_bisync_baseline so we never overwrite R2-restored
 # content with an empty skeleton on returning sessions.
 # ============================================================================
 init_user_vault() {
-    local VAULT="$USER_HOME/.user_vault"
+    local VAULT="$USER_HOME/Vault"
     local PRESEED_DIR=/opt/silverbullet-preseed
     local HOOK_CACHE="$USER_HOME/.cache/codeflare-hooks"
 
     # Always ensure hook cache dir exists (used by daemons + hooks below).
     mkdir -p "$HOOK_CACHE"
+
+    # Persistent user folders. The Vault block below handles skeleton+preseed
+    # for ~/Vault; these two are plain mkdir-p (no skeleton, no preseed) so
+    # the user sees empty Uploads/ and Temporary/ folders ready to drop into.
+    # Bisync filters in RCLONE_FILTERS_COMMON include both prefixes, so any
+    # file dropped here round-trips to R2 and is visible in the storage panel.
+    mkdir -p "$USER_HOME/Uploads" "$USER_HOME/Temporary"
 
     if [ ! -d "$VAULT" ]; then
         echo "[entrypoint] Initializing vault skeleton at $VAULT"
@@ -1225,6 +1251,25 @@ VAULT_README_EOF
     if [ -f "$PRESEED_DIR/atlas.plug.js" ] \
        && ! cmp -s "$PRESEED_DIR/atlas.plug.js" "$VAULT/.silverbullet/_plug/atlas.plug.js" 2>/dev/null; then
         cp "$PRESEED_DIR/atlas.plug.js" "$VAULT/.silverbullet/_plug/atlas.plug.js"
+    fi
+
+    # Preseeded plugs. Shipped as "rogue plugs" under Library/Codeflare/ so
+    # they auto-load via space.listPlugs() discovery without requiring a
+    # Library Manager manifest (which fails on this build, see #ToFix). The
+    # Library/Codeflare/ namespace is reserved for codeflare-managed plugs;
+    # user-installed plugs land under other Library/ subdirs and survive
+    # bisync independently. Always overwrite so a codeflare-side plug bump
+    # propagates on next boot. Best-effort: missing source dir is fine.
+    if [ -d "$PRESEED_DIR/plugs" ]; then
+        mkdir -p "$VAULT/Library/Codeflare"
+        local PLUG_FILE
+        for PLUG_FILE in "$PRESEED_DIR/plugs"/*/*.plug.js; do
+            [ -f "$PLUG_FILE" ] || continue
+            if ! cmp -s "$PLUG_FILE" "$VAULT/Library/Codeflare/$(basename "$PLUG_FILE")" 2>/dev/null; then
+                cp "$PLUG_FILE" "$VAULT/Library/Codeflare/"
+                echo "[entrypoint] Preseeded plug synced: $(basename "$PLUG_FILE")"
+            fi
+        done
     fi
 
     # Seed the global graph with the vault. Hash-keyed idempotent — safe to

@@ -115,7 +115,7 @@ RUN LAZYGIT_VERSION="0.60.0" && \
 
 # Install SilverBullet server (Deno-compiled single binary). Used by the
 # codeflare-vault plugin as the in-browser markdown editor for the persistent
-# vault at /home/user/.user_vault. Bound to localhost:3030 by the
+# vault at /home/user/Vault. Bound to localhost:3030 by the
 # supervisor loop in entrypoint.sh; reached from the codeflare UI through the
 # Worker proxy at /api/vault/:sid/.
 #
@@ -137,7 +137,7 @@ RUN SILVERBULLET_VERSION="2.8.0" && \
 COPY .cache-bust /tmp/.cache-bust
 
 # Preseed SilverBullet config + (best-effort) Atlas plug. entrypoint.sh copies
-# these into /home/user/.user_vault/.silverbullet/ on first session boot.
+# these into /home/user/Vault/.silverbullet/ on first session boot.
 # Atlas plug is optional; vault visualisation falls back to graphify-out/graph.html
 # if atlas.plug.js is not present.
 COPY preseed/silverbullet/ /opt/silverbullet-preseed/

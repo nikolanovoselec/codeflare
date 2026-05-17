@@ -330,11 +330,11 @@ describe('graphify-active-repo.sh', () => {
 
   // REQ-VAULT-004 AC4: vault skip. Entrypoint init seeds the vault under
   // tag `user_vault`; a tool call inside the vault must NOT re-tag it
-  // with the directory basename (`.user_vault`) and the prune-on-switch
+  // with the directory basename (`Vault`) and the prune-on-switch
   // logic must never get a chance to remove the entrypoint snapshot.
-  it('vault skip: candidate at $HOME/.user_vault exits without sentinel write', () => {
+  it('vault skip: candidate at $HOME/Vault exits without sentinel write', () => {
     const fakeHome = mkdtempSync(join(baseTmp, 'home-'));
-    const vault = join(fakeHome, '.user_vault');
+    const vault = join(fakeHome, 'Vault');
     mkdirSync(join(vault, 'graphify-out'), { recursive: true });
     mkdirSync(join(vault, 'notes'));
     writeFileSync(join(vault, 'graphify-out', 'graph.json'), '{"nodes":[]}');
@@ -353,7 +353,7 @@ describe('graphify-active-repo.sh', () => {
 
   it('vault skip: a tool call inside the vault does NOT clobber the active repo sentinel', () => {
     const fakeHome = mkdtempSync(join(baseTmp, 'home-'));
-    const vault = join(fakeHome, '.user_vault');
+    const vault = join(fakeHome, 'Vault');
     mkdirSync(join(vault, 'graphify-out'), { recursive: true });
     mkdirSync(join(vault, 'notes'));
     writeFileSync(join(vault, 'graphify-out', 'graph.json'), '{"nodes":[]}');
@@ -381,9 +381,9 @@ describe('graphify-active-repo.sh', () => {
   });
 
   // Regression: when $HOME is itself a symlink (or otherwise non-canonical),
-  // the raw string `$HOME/.user_vault` does NOT match the canonicalized
+  // the raw string `$HOME/Vault` does NOT match the canonicalized
   // REPO path. The production hook handles this via two guards (canonicalize
-  // $HOME, OR basename match). Because the script hardcodes `.user_vault`
+  // $HOME, OR basename match). Because the script hardcodes `Vault`
   // as the literal in BOTH branches, a test that uses the same literal
   // cannot isolate one branch from the other - both fire on a vault under
   // a symlinked $HOME. We therefore keep one union test for that case
@@ -396,7 +396,7 @@ describe('graphify-active-repo.sh', () => {
     // TOCTOU window between rm and symlink, no millisecond-collision risk.
     const symHome = join(baseTmp, `sym-home-${randomUUID()}`);
     symlinkSync(realHome, symHome);
-    const vault = join(realHome, '.user_vault');
+    const vault = join(realHome, 'Vault');
     mkdirSync(join(vault, 'graphify-out'), { recursive: true });
     mkdirSync(join(vault, 'notes'));
     writeFileSync(join(vault, 'graphify-out', 'graph.json'), '{"nodes":[]}');
@@ -404,7 +404,7 @@ describe('graphify-active-repo.sh', () => {
     const result = spawnSync('bash', [HOOK], {
       input: JSON.stringify({
         tool_name: 'Read',
-        tool_input: { file_path: join(symHome, '.user_vault', 'notes', 'foo.md') },
+        tool_input: { file_path: join(symHome, 'Vault', 'notes', 'foo.md') },
       }),
       encoding: 'utf-8',
       env: { ...process.env, GRAPHIFY_SENTINEL_DIR: sentinelDir, HOME: symHome },
@@ -419,12 +419,12 @@ describe('graphify-active-repo.sh', () => {
 
   it('vault skip: basename fallback catches a vault reached from outside $HOME', () => {
     // Counter-test: vault lives OUTSIDE $HOME (so the canonicalized-$HOME
-    // equality compare does NOT match), but is named `.user_vault`. The
+    // equality compare does NOT match), but is named `Vault`. The
     // basename fallback is the only guard that can fire here. Reverting
     // only the basename branch would leave this test red.
     const realHome = mkdtempSync(join(baseTmp, 'real-home-bn-'));
     const outsideVaultParent = mkdtempSync(join(baseTmp, 'outside-'));
-    const vault = join(outsideVaultParent, '.user_vault');
+    const vault = join(outsideVaultParent, 'Vault');
     mkdirSync(join(vault, 'graphify-out'), { recursive: true });
     mkdirSync(join(vault, 'notes'));
     writeFileSync(join(vault, 'graphify-out', 'graph.json'), '{"nodes":[]}');
@@ -441,7 +441,7 @@ describe('graphify-active-repo.sh', () => {
     assert.equal(
       sentinel(sentinelDir),
       null,
-      'a vault directory outside $HOME but named `.user_vault` must trigger the basename-fallback skip',
+      'a vault directory outside $HOME but named `Vault` must trigger the basename-fallback skip',
     );
   });
 });
