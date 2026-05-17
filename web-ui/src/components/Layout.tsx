@@ -60,20 +60,29 @@ const Layout: Component<LayoutProps> = (props) => {
     if (vaultReadyBySession()[sid]) return; // already proven ready
 
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const probe = async () => {
       try {
-        const res = await fetch(`/api/vault/${sid}/`, { method: 'HEAD', cache: 'no-store' });
+        // 5s timeout so a stuck proxy doesn't pin the probe chain forever.
+        const res = await fetch(`/api/vault/${sid}/`, {
+          method: 'HEAD',
+          cache: 'no-store',
+          signal: AbortSignal.timeout(5000),
+        });
         if (!cancelled && res.ok) {
           setVaultReadyBySession((prev) => ({ ...prev, [sid]: true }));
           return;
         }
       } catch {
-        // network / proxy error - try again
+        // network / proxy error / timeout - try again
       }
-      if (!cancelled) setTimeout(probe, 3000);
+      if (!cancelled) timer = setTimeout(probe, 3000);
     };
     probe();
-    onCleanup(() => { cancelled = true; });
+    onCleanup(() => {
+      cancelled = true;
+      if (timer !== null) clearTimeout(timer);
+    });
   });
 
   // Load sessions and preferences on mount
