@@ -733,7 +733,10 @@ start_vault_monitor_daemon() {
 
         # Look for any user-touched markdown/asset under the vault that
         # is newer than the high-water mark. Excludes agent-owned and
-        # derived subtrees.
+        # derived subtrees, and the four preseed-managed root pages
+        # (codeflare-authoritative per REQ-VAULT-001 AC7: agent-side
+        # cp from preseed counts as a system action, not user content,
+        # and would otherwise re-trigger extraction on every boot).
         local CHANGED
         CHANGED=$(find "$VAULT_ROOT" \
             \( -path "$VAULT_ROOT/raw/sessions" -o \
@@ -741,6 +744,9 @@ start_vault_monitor_daemon() {
                -path "$VAULT_ROOT/.silverbullet" \) -prune -o \
             -type f \
             -not -path "$VAULT_ROOT/index.md" \
+            -not -path "$VAULT_ROOT/CONFIG.md" \
+            -not -path "$VAULT_ROOT/README.md" \
+            -not -path "$VAULT_ROOT/STYLES.md" \
             -newer "$LAST_MARKER" -print 2>/dev/null | head -n 50)
 
         if [ -n "$CHANGED" ]; then
@@ -1189,13 +1195,23 @@ init_user_vault() {
     # notes/, Inbox/, Journal/, raw/pasted/ (never touched by this block).
     local PRESEED_PAGES=(index.md CONFIG.md README.md STYLES.md)
     local PAGE
+    local PRESEED_PAGE_WRITTEN=0
     for PAGE in "${PRESEED_PAGES[@]}"; do
         if [ -f "$PRESEED_DIR/$PAGE" ] \
            && ! cmp -s "$PRESEED_DIR/$PAGE" "$VAULT/$PAGE" 2>/dev/null; then
             cp "$PRESEED_DIR/$PAGE" "$VAULT/$PAGE"
             echo "[entrypoint] Vault $PAGE synced from preseed"
+            PRESEED_PAGE_WRITTEN=1
         fi
     done
+    # If any preseed page was rewritten, bump vault-extract.last so the
+    # next vault-monitor tick does NOT treat the agent cp as a user edit.
+    # The four pages are also explicitly excluded from the daemon find
+    # (see start_vault_monitor_daemon), but this belt-and-braces marker
+    # bump also covers any other preseed-managed root file added later.
+    if [ "$PRESEED_PAGE_WRITTEN" = "1" ]; then
+        touch "$HOOK_CACHE/vault-extract.last" 2>/dev/null || true
+    fi
 
     # Vault knowledge graph. Recreate-if-missing only - never overwrite
     # the populated graph (graphify-out is build output that survives

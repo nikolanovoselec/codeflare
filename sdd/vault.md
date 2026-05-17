@@ -94,7 +94,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. `start_vault_monitor_daemon` in entrypoint.sh polls the vault every 60s, excluding `raw/sessions/`, `graphify-out/`, and `.silverbullet/` from the find.
+1. `start_vault_monitor_daemon` in entrypoint.sh polls the vault every 60s, excluding `raw/sessions/`, `graphify-out/`, `.silverbullet/`, and the four preseed-managed root pages (`index.md`, `CONFIG.md`, `README.md`, `STYLES.md`) from the find. The four pages are codeflare-authoritative (see REQ-VAULT-001 AC7) and agent-side `cp` from preseed must not count as a user edit; without the exclusion, every preseed sync at boot re-triggered extraction perpetually until the file mtimes aged past `vault-extract.last`. `init_user_vault()` also bumps `vault-extract.last` immediately after any preseed page is rewritten, so the very first post-boot daemon tick does not pick up the cp as a change.
 2. The daemon uses a three-marker pattern: `vault-monitor.tick` (heartbeat), `vault-extract.last` (high-water mark), `vault-extract.vars` (trigger). The find compares against `vault-extract.last`, NOT the tick, so a daemon that advances the wrong marker cannot lose work.
 3. `vault-monitor-hook.sh` (UserPromptSubmit) exits 0 immediately when `vault-extract.vars` is absent (zero-cost on idle prompts) and emits `additionalContext` pointing at `vault-extract-prompt.md` when present.
 4. The vault-extract sonnet deletes `vault-extract.vars` as its first step (dedup gate), runs graphify extraction per changed file, merges via `graphify global add`, and touches `vault-extract.last` as its final step.
