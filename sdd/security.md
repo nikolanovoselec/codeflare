@@ -318,7 +318,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 2. All proxied HTTP requests from the DO to the container include the token in the `Authorization: Bearer` header.
 3. The terminal server validates this token on all non-exempt paths.
 4. Auth-exempt paths (`/health`, `/activity`) are whitelisted at the terminal server because `collectMetrics()` calls them directly via `ctx.container.getTcpPort(TERMINAL_SERVER_PORT).fetch(...)`. That path enters the container over the SDK's private TCP plumbing and never runs through the DO's public `fetch()` override, so the `Authorization: Bearer` header injection does not happen. Whitelisting these two internal-health paths is safe because they expose no user data and no mutable container state.
-5. The token survives DO hibernate/wake cycles for the duration of one DO lifecycle: after the DO is evicted from memory and rehydrated on a later request, the next proxied request still authenticates successfully against the container's running env var, with no user-visible `Unauthorized` response and no need to recreate the session. On DO destruction the persisted token is cleared so the next session under the same DO ID starts with a fresh token (no cross-lifecycle reuse).
+5. The token survives DO hibernate/wake cycles for the duration of one DO lifecycle: after the DO is evicted from memory and rehydrated on a later request, the next proxied request still authenticates successfully against the container's running env var, with no user-visible `Unauthorized` response and no need to recreate the session.
+6. On DO destruction the persisted token is cleared, so the next session under the same DO ID starts with a fresh token (no cross-lifecycle reuse).
 
 **Constraints:**
 - The token is unique per DO lifecycle, persisted across hibernate/wake cycles within that lifecycle.

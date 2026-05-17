@@ -173,7 +173,10 @@ done
 # differences). Basename check is belt-and-suspenders in case a symlink
 # points at the vault from outside $HOME.
 HOME_RESOLVED=$(cd "$HOME" 2>/dev/null && pwd)
-if [ "$REPO" = "$HOME_RESOLVED/.user_vault" ] || [ "$(basename "$REPO")" = ".user_vault" ]; then
+# `[ -n "$HOME_RESOLVED" ] &&` guard: if $HOME is unset or unreadable, the
+# canonicalized compare would degrade to `[ "$REPO" = "/.user_vault" ]`
+# (silently inert). The basename fallback still catches the common case.
+if { [ -n "$HOME_RESOLVED" ] && [ "$REPO" = "$HOME_RESOLVED/.user_vault" ]; } || [ "$(basename "$REPO")" = ".user_vault" ]; then
     exit 0
 fi
 

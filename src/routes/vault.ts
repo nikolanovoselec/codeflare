@@ -442,7 +442,7 @@ export async function handleVaultRequest(
       // expected, not a signal. Logging unconditionally fills prod logs
       // with false positives on every non-shell error response.
       const isShellPath =
-        remainingPath === '/' || remainingPath.endsWith('/index.html');
+        remainingPath === '/' || remainingPath === '/index.html';
       if (rewritten === body && response.status === 200 && isShellPath) {
         logger.warn('vault base-href rewrite no-op', {
           pathname: vaultUrl.pathname,

@@ -129,6 +129,8 @@ SilverBullet honours `SB_URL_PREFIX` to render the base tag with a prefix, but t
 
 When the body is rewritten, both `Content-Length` (body length changed) and `Content-Encoding` (Workers `Response.text()` auto-decompresses gzip/br upstream, so the body is now plain text) are dropped from the response headers. A `vault base-href rewrite no-op` warning is logged when the rewrite runs but matches nothing -- gated to status 200 on the shell paths (`/`, `/index.html`) so error pages and non-shell HTML do not generate false-positive warnings, so a future SilverBullet template change (single-quoted href, added attribute, etc.) still surfaces as a logged signal on the load-bearing paths.
 
+The rewrite contract (regex, header hygiene, exact selectors) lives in `src/routes/vault.ts`'s `handleVaultRequest` -- this section documents only the operational rationale (why the rewrite exists, what breaks without it). HTTP-level rewrite mechanics are not duplicated in api-reference.md by design: there is no public API surface for the rewrite; it is internal proxy behaviour scoped to the vault route, so the source-of-truth is the code.
+
 ### Service Worker registration noop bypass
 
 SilverBullet's client registers a Service Worker for offline caching. Chrome 76+ omits credentials on `navigator.serviceWorker.register()` script fetches even for same-origin same-site URLs, so the cookie-auth chain at `/api/vault/<sid>/service_worker.js` always returned 401 and registration failed permanently with `Failed to register a ServiceWorker for scope (...) ... A bad HTTP response code (401) was received when fetching the script`.
