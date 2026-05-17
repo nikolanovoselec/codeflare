@@ -46,7 +46,7 @@ Two persistent sibling directories are created alongside the vault on every boot
 
 ### Storage panel special folders (REQ-VAULT-001)
 
-The R2 storage browser surfaces four directories as "special folders" at the bucket root, each shown unconditionally with an info icon that reveals a tooltip:
+The R2 storage browser surfaces four directories as "special folders" at the bucket root. Vault, Uploads, and Temporary appear unconditionally; Workspace appears only when the workspace-sync preference is enabled. Each entry shows an info icon that reveals a tooltip:
 
 | Folder | Container path | Gated? |
 |---|---|---|
