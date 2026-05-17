@@ -26,18 +26,19 @@ interface FileListProps {
 }
 
 const getFileName = (key: string): string => {
-  // Walk the path segments back-to-front so a trailing slash (folder-shaped
-  // key) returns the directory name rather than an empty string. Falls
-  // back to the raw key for pathological inputs (empty, just slashes).
+  // Strip empty path segments (handles leading/trailing/double slashes)
+  // and return the last surviving segment. Falls back to the raw key for
+  // pathological inputs like '' or '/'.
   const parts = key.split('/').filter(Boolean);
   return parts[parts.length - 1] || key;
 };
 
-// Render obj.lastModified as a human-relative string, guarding against the
-// empty/invalid case (synthetic injection produces no objects[] entry, but
-// a future R2 response with a stat error could leave the field empty;
-// new Date('') -> Invalid Date -> formatter returns 'NaN' which leaks into
-// the UI). Returns '' for unrenderable timestamps.
+// Render obj.lastModified as a human-relative string. The Storage panel
+// types lastModified as `string` but does not guarantee a parseable value
+// at the type boundary; a corrupted R2 response or a synthetic row added
+// elsewhere in the future could feed an empty value. `new Date('')`
+// returns Invalid Date, which would otherwise render as 'NaN' in the UI.
+// Returns '' for unrenderable timestamps.
 const formatLastModified = (raw: string): string => {
   if (!raw) return '';
   const d = new Date(raw);

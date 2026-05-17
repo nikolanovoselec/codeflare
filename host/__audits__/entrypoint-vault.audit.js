@@ -74,7 +74,7 @@ describe('vault bisync filter (REQ-MEMORY-100)', () => {
   });
 });
 
-describe('persistent user folders (REQ-FS-010)', () => {
+describe('persistent user folders (REQ-VAULT-001 AC5)', () => {
   it('init_user_vault mkdir -p creates Uploads + Temporary alongside Vault', () => {
     // The storage panel always-shows these prefixes, and the tooltip
     // promises the user the files live at /home/user/{Uploads,Temporary}.
