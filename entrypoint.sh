@@ -796,7 +796,29 @@ start_silverbullet_supervisor() {
                 sleep 5
                 continue
             fi
-            "$SB_BIN" --hostname "$SB_HOST" --port "$SB_PORT" "$VAULT_ROOT" \
+            # SB_DISABLE_SERVICE_WORKER=1: the SilverBullet service worker
+            # runs its own HttpSpacePrimitives + IndexedDB and acts as the
+            # offline-first sync layer (see SB's client/service_worker.ts).
+            # That architecture is incompatible with our per-session subpath
+            # proxy: Chrome 76+ omits credentials on
+            # navigator.serviceWorker.register() script fetches, so the
+            # cookie-auth chain on /api/vault/<sid>/service_worker.js
+            # returns 401 and registration fails permanently. The Worker
+            # already serves a static no-op SW on that selector to make the
+            # registration handshake succeed, but a no-op SW WITHOUT the
+            # real sync engine leaves SB's index in a half-broken state
+            # (writes succeed on disk via the main thread, but the SW-side
+            # post-write index/sync syscalls return undefined, producing
+            # the GET /api/vault/<sid>/undefined and .fs/undefined.md
+            # symptoms and the "files appear lost in the page list / plug
+            # install half-fails" UX). Disabling SW registration entirely
+            # is the documented escape hatch in SB's own boot.ts:
+            # bootConfig.disableServiceWorker -> SB calls
+            # flushCachesAndUnregisterServiceWorker() and skips
+            # registration. We lose offline support (acceptable: the
+            # container is the always-online source of truth here) and gain
+            # a working index + working plug install.
+            SB_DISABLE_SERVICE_WORKER=1 "$SB_BIN" --hostname "$SB_HOST" --port "$SB_PORT" "$VAULT_ROOT" \
                 >> /tmp/silverbullet.log 2>&1
             echo "[silverbullet] $(date '"'"'+%Y-%m-%d %H:%M:%S'"'"') exited (code $?), restarting in 5s..." | tee -a /tmp/silverbullet.log
             sleep 5
