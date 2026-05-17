@@ -325,7 +325,7 @@ If you're in an advanced Claude Code session, the manual pipeline above has shor
 
 - **`/sdd init`** - bootstrap a `sdd/` folder with REQ-tracked requirements before writing code. The agent will then work against the spec instead of vibes.
 - **`/deploy`** - drive the GitHub Actions deploy workflow and watch CI until green, without having to ask "is it deployed yet" five times.
-- **`/review`** - spawn code-reviewer, spec-reviewer, and doc-updater on the current branch. They report findings; they do not auto-merge.
+- **`/review`** - static-analysis review across six perspectives (security, architect, code, refactor, TDD, docs) with cross-reference, ADR filtering, and interactive triage. Use `--diff` while iterating or `--all` for a whole-codebase pass; add `--deep` to behaviorally verify SDD requirements or `--verify-high` to send HIGH/CRITICAL findings to external LLMs for cross-check. Distinct from the auto review agents that fire on PR-boundary.
 - **`/debug`** - systematic root-cause workflow when CI fails or the deployed Worker misbehaves.
 
 These are wrappers over the same tools described above. The manual path always still works.

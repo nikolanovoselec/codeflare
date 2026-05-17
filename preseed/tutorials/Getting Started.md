@@ -70,7 +70,7 @@ There's a built-in dashboard at the vault root (`Index`) that surfaces recent qu
 If you picked the **Claude Code** agent and enabled advanced mode on the session, you get a bigger toolbelt:
 
 - **`/sdd`** - spec-driven development. `/sdd init` bootstraps a `sdd/` folder with REQ-tracked requirements for the project you're in. The agent works against the spec, not vibes.
-- **`/review`** - multi-perspective codebase review. Spawns reviewers (code, spec, docs) on the current branch.
+- **`/review`** - multi-perspective static-analysis review. Spawns six parallel agents (security, architect, code-reviewer, refactor-cleaner, tdd-guide, doc-updater), cross-references findings, filters against your ADRs, then runs them through a Reality Filter before triaging interactively with you. Use `/review --diff` during active work or `/review --all` for a whole-codebase pass. Add `--deep` to verify SDD requirements against their implementation, or `--verify-high` to cross-check HIGH/CRITICAL findings with external LLMs (GPT + Gemini). Distinct from the auto review agents that fire on PR-boundary; `/review` is on-demand and heavier.
 - **`/debug`** - systematic debugging workflow when something is broken and you can't tell why.
 - **`/deploy`** - drive a release through CI to Cloudflare.
 - **`/brainstorm`** - structured brainstorming with the agent.
