@@ -56,6 +56,7 @@ Environment variables, secrets, CORS configuration, and API token permissions.
 | `SESSION_MODE` | Session mode (`'default'` or `'advanced'`) — controls memory persistence and rclone filters | TBD | no | Worker -> DO via `setBucketName` | TBD |
 | `NODE_COMPILE_CACHE` | V8 compile cache dir for faster Node.js CLI startup | TBD | no | Dockerfile ENV (`/root/.cache/node-compile-cache`) | TBD |
 | `BROWSER` | Points to `open-url` shim that exits 1 | TBD | no | Dockerfile ENV (`/usr/local/bin/open-url`) | TBD |
+| `SB_INDEX_PAGE` | Landing page when SilverBullet opens (case-sensitive page name, no `.md`). SB Go server defaults to `"index"` (lowercase); set to `Index` so the Codeflare dashboard loads on Vault button click. See [vault.md](./vault.md#silverbullet-editor-req-vault-005) (REQ-VAULT-005 AC9). | `Index` | no | `entrypoint.sh` `start_silverbullet_supervisor` | REQ-VAULT-005 |
 
 ---
 
