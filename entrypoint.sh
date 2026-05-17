@@ -692,7 +692,10 @@ start_sync_daemon() {
 #
 # Excluded paths: raw/sessions/ (agent-owned, written by capture hook
 # which already merges), graphify-out/ (derived), .silverbullet/ (config
-# + cache, no semantic content).
+# + cache, no semantic content), index.md at vault root (SilverBullet
+# rewrites it on every supervisor boot when its "empty space" heuristic
+# fires, so every container restart / SB crash + restart would otherwise
+# bump the marker and spawn an extract sonnet for boilerplate content).
 # ============================================================================
 start_vault_monitor_daemon() {
     local VAULT_ROOT="$HOME/.user_vault"
@@ -733,7 +736,9 @@ start_vault_monitor_daemon() {
             \( -path "$VAULT_ROOT/raw/sessions" -o \
                -path "$VAULT_ROOT/graphify-out" -o \
                -path "$VAULT_ROOT/.silverbullet" \) -prune -o \
-            -type f -newer "$LAST_MARKER" -print 2>/dev/null | head -n 50)
+            -type f \
+            -not -path "$VAULT_ROOT/index.md" \
+            -newer "$LAST_MARKER" -print 2>/dev/null | head -n 50)
 
         if [ -n "$CHANGED" ]; then
             # Write the trigger atomically (mv from tmp avoids the hook
