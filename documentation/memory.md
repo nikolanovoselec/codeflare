@@ -25,7 +25,7 @@ removed.
 
 The vault (`/home/user/Vault/`) is rclone-bisynced to R2 as
 part of `/home/user/`. Both agent-written session captures
-(`raw/sessions/`) and user-curated notes (`notes/`, `raw/pasted/`)
+(`Raw/Sessions/`) and user-curated notes (`Notes/`, `Raw/Pasted/`)
 survive container recycles. Memory persistence runs in advanced mode
 only; default-mode sessions still execute the capture hook for in-session
 context but the vault subtree never reaches R2.
@@ -44,12 +44,12 @@ automatically captured into the vault every 15 user messages. Implements
 [REQ-MEM-002](../sdd/memory.md#req-mem-002-capture-triggers-every-15-user-messages).
 
 The capture sonnet writes a markdown file to
-`raw/sessions/{ISO_TS}-{SID_SHORT}.md` (YAML frontmatter + Context /
+`Raw/Sessions/{ISO_TS}-{SID_SHORT}.md` (YAML frontmatter + Context /
 Decisions / Observations / References sections), then runs graphify
 extraction + `graphify global add --as user_vault` under the global lock so
 the new content is queryable on the same turn it is written.
 
-There is no automated compactor; `raw/sessions/` is append-only
+There is no automated compactor; `Raw/Sessions/` is append-only
 and the user prunes it via SilverBullet when needed.
 
 ## Hook Mechanics

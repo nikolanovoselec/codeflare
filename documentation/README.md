@@ -20,7 +20,7 @@ Technical reference documentation for Codeflare.
 | [Development & Deployment](deployment.md) | Dev setup, file structure, cost analysis | Developers |
 | [Troubleshooting](troubleshooting.md) | Diagnostic commands, common failures, resolutions | Operators |
 | [Mobile Terminal](mobile.md) | Keyboard handling, scroll stability, touch input | Developers |
-| [Memory](memory.md) | Vault-based cross-session memory, automatic capture to raw/sessions/, hook mechanics | Developers |
+| [Memory](memory.md) | Vault-based cross-session memory, automatic capture to Raw/Sessions/, hook mechanics | Developers |
 | [Vault](vault.md) | Persistent user note vault, unified graphify graph, SilverBullet editor | Developers |
 | [Preseed System](preseed.md) | Session modes, manifest pipeline, multi-agent adaptation, hooks | Developers |
 | [Preseed Troubleshooting](preseed-troubleshooting.md) | Hook debugging, attribution blocking, checkpoint reset | Developers |
