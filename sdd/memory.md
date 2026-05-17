@@ -6,15 +6,15 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### Key Concepts
 
-- **Vault** -- `/home/user/Vault/`. Single source of truth for cross-session memory. Holds agent-written session captures (`raw/sessions/`) and user-curated notes (`notes/`, `raw/pasted/`). Rclone-bisynced to R2.
+- **Vault** -- `/home/user/Vault/`. Single source of truth for cross-session memory. Holds agent-written session captures (`Raw/Sessions/`) and user-curated notes (`Notes/`, `Raw/Pasted/`). Rclone-bisynced to R2.
 - **Unified Graph** -- `~/.graphify/global-graph.json`. Hash-keyed merge of the vault's graph and every active repo's per-repo graph. Queried via `mcp__graphify__*`.
-- **Capture** -- A sonnet agent runs every 15 user messages, extracts decisions/observations/references from the recent transcript, and writes them as a markdown file in `raw/sessions/`, then merges into the unified graph under `flock /tmp/graphify-global.lock`.
+- **Capture** -- A sonnet agent runs every 15 user messages, extracts decisions/observations/references from the recent transcript, and writes them as a markdown file in `Raw/Sessions/`, then merges into the unified graph under `flock /tmp/graphify-global.lock`.
 - **Session Mode** -- Advanced (Pro) mode enables R2 sync of the vault and capture hooks. Default (Standard) mode runs the in-session capture flow but the vault is not preserved across container recreations.
 
 ### Out of Scope
 
 - Cross-user memory sharing (each user's vault is isolated to their R2 bucket).
-- Automated graph compaction (the user prunes `raw/sessions/` manually via SilverBullet when needed).
+- Automated graph compaction (the user prunes `Raw/Sessions/` manually via SilverBullet when needed).
 - Legacy MCP `@modelcontextprotocol/server-memory` migration (removed; no historical JSONL graph is read or written).
 - Bulk memory export (vault files are plain markdown and can be copied with rclone or git).
 
@@ -34,7 +34,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 1. The `memory-capture.sh` script runs as a `UserPromptSubmit` hook, injecting a short instruction into the main agent's context via `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0`.
 2. The hook counts real user messages in the JSONL transcript using a two-layer grep filter that excludes tool-result wrappers (content is an array, not a string) and synthetic messages (slash commands, task notifications -- content starts with `<`).
-3. When triggered, the main agent spawns a background sonnet agent that reads the recent transcript and writes a markdown capture file into `/home/user/Vault/raw/sessions/{ISO_TS}-{SID_SHORT}.md`.
+3. When triggered, the main agent spawns a background sonnet agent that reads the recent transcript and writes a markdown capture file into `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md`.
 4. The capture file uses a YAML frontmatter template with `session_id`, `captured_at`, and `captured_from_range` fields followed by Context / Decisions / Observations / References sections.
 5. The capture agent runs `graphify extract --file <file>` and `graphify global add ... --as user_vault` under `flock /tmp/graphify-global.lock` so the new content is queryable on the same turn it is written.
 6. The hook handles tilde expansion in `transcript_path` (Claude Code may send tilde-prefixed paths).
@@ -48,7 +48,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-MEM-006, REQ-VAULT-002
-**Verification:** Integration test (E2E verifies a capture file appears under `raw/sessions/` after 15 messages and its nodes show up in `mcp__graphify__query_graph`).
+**Verification:** Integration test (E2E verifies a capture file appears under `Raw/Sessions/` after 15 messages and its nodes show up in `mcp__graphify__query_graph`).
 
 **Status:** Implemented
 
