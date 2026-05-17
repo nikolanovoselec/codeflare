@@ -53,7 +53,7 @@ describe('graphify-active-repo.sh', () => {
 
   after(() => {
     // rmSync removes symlinks as links (does NOT follow them), so the
-    // per-test symHome is unlinked without recursing into realHome —
+    // per-test symHome is unlinked without recursing into realHome.
     // realHome is itself a subtree under baseTmp and gets removed
     // independently on the same pass. `force: true` swallows ENOENT
     // for anything an individual test already cleaned up.
