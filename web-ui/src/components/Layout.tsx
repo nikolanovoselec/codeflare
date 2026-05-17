@@ -156,6 +156,10 @@ const Layout: Component<LayoutProps> = (props) => {
       if (timer !== null) clearTimeout(timer);
     });
   });
+  const vaultReady = createMemo(() => {
+    const sid = sessionStore.activeSessionId;
+    return sid ? vaultReadyBySession()[sid] === true : false;
+  });
 
   // Load sessions and preferences on mount
   onMount(() => {
@@ -426,11 +430,7 @@ const Layout: Component<LayoutProps> = (props) => {
           onVaultOpen={sessionStore.activeSessionId
             ? () => window.open(`/api/vault/${sessionStore.activeSessionId}/`, '_blank', 'noopener')
             : undefined}
-          vaultReady={(() => {
-            const sid = sessionStore.activeSessionId;
-            if (!sid) return false;
-            return vaultReadyBySession()[sid] === true;
-          })()}
+          vaultReady={vaultReady()}
           onLogoClick={showDashboard() ? undefined : handleOpenDashboard}
           sessions={sessionStore.sessions}
           activeSessionId={sessionStore.activeSessionId}
