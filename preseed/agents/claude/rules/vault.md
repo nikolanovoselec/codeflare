@@ -18,7 +18,7 @@ mechanics.
 Vault/
 ├── Index.md          <- PRESEED: codeflare dashboard (overwrite each boot).
 ├── README.md         <- PRESEED: vault user guide (overwrite each boot).
-├── CONFIG.md         <- PRESEED: Library/Std federation (overwrite each boot).
+├── CONFIG.md         <- PRESEED: SilverBullet `#meta` config page (overwrite each boot).
 ├── STYLES.md         <- PRESEED: codeflare editor theme (overwrite each boot).
 ├── Raw/
 │   ├── Sessions/     <- AGENT-OWNED: written by the capture sonnet,

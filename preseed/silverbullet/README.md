@@ -79,7 +79,7 @@ Anything you write in the vault gets extracted into the knowledge graph within ~
 |------|-------|---------|
 | `Index.md` | preseed (overwritten each boot) | Dashboard - quick notes, journal, tasks, recently modified |
 | `README.md` | preseed (overwritten each boot) | This file |
-| `CONFIG.md` | preseed (overwritten each boot) | SilverBullet runtime config (Library/Std federation) |
+| `CONFIG.md` | preseed (overwritten each boot) | SilverBullet `#meta` config page (space-lua block) |
 | `STYLES.md` | preseed (overwritten each boot) | Codeflare theme |
 | `Notes/` | you | Curated prose. Write freely. |
 | `Journal/` | you (via SB button) | Daily entries. |
@@ -87,9 +87,9 @@ Anything you write in the vault gets extracted into the knowledge graph within ~
 | `Raw/Sessions/` | agent | Transcript captures, ~one per 15 prompts. Don't hand-edit. |
 | `Raw/Pasted/` | you | Drag-drop zone for PDFs, images, anything. |
 | `Library/Codeflare/` | preseed (overwritten each boot) | Bundled SB plugs (PDF, treeview, github, graph). |
-| `Library/Std/` | federated from silverbullet.md on first browser open | SB's standard widget/template library. Required for the dashboard. |
+| `Library/Std/` | served by the SilverBullet binary's built-in `base_fs` overlay (not on disk) | SB's standard widget/template library. Required for the dashboard. |
 | `graphify-out/` | graphify CLI | Vault knowledge graph (build output - never edit). |
-| `.silverbullet/` | editor (config.yaml overwritten each boot) | SB internals. |
+| `.silverbullet/` | editor (managed by SilverBullet itself) | SB internals. |
 
 ## Hooks (cross-session memory)
 
