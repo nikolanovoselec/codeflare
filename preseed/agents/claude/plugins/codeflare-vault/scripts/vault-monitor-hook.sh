@@ -28,14 +28,15 @@ cat >/dev/null 2>&1 || true
 # Fast path: no marker, nothing to do.
 [ -f "$VARS_FILE" ] || exit 0
 
-# Stale-marker guard. The daemon ticks every 60s; a typical haiku run
-# takes ~90s. During that window the daemon's `[ -f VARS_FILE ]` check
-# sees the file deleted (haiku step 1) and `find -newer LAST_MARKER`
-# still returns the original files (haiku hasn't touched LAST_MARKER
-# yet), so the daemon writes a fresh VARS_FILE. When the haiku
-# eventually finishes and touches LAST_MARKER, that VARS_FILE is left
-# behind - older than LAST_MARKER - and would trigger a spurious
-# additional haiku on the next user prompt with nothing new to extract.
+# Stale-marker guard. The daemon ticks every 60s; an extraction run
+# typically takes 30-60s on haiku. The overlap window can still occur:
+# during a run the daemon's `[ -f VARS_FILE ]` check sees the file
+# deleted (haiku step 1) and `find -newer LAST_MARKER` still returns
+# the original files (haiku hasn't touched LAST_MARKER yet), so the
+# daemon writes a fresh VARS_FILE. When the haiku eventually finishes
+# and touches LAST_MARKER, that VARS_FILE is left behind - older than
+# LAST_MARKER - and would trigger a spurious additional haiku on the
+# next user prompt with nothing new to extract.
 #
 # Invariant: VARS_FILE is only valid if it is newer than LAST_MARKER.
 # When it is not, the work is already done; delete the stale marker and

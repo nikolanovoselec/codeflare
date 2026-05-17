@@ -35,10 +35,10 @@ The vault lives at `/home/user/Vault/` inside every advanced-mode session contai
 
 Two parties write to the vault:
 
-- The **capture sonnet** appends a markdown file to `Raw/Sessions/` every 15 user prompts (replaces the old MCP-memory write path).
+- The **capture agent** (haiku) appends a markdown file to `Raw/Sessions/` every 15 user prompts (replaces the old MCP-memory write path).
 - **The user** edits notes via SilverBullet (or any other tool that touches files under `Notes/`, `Inbox/`, `Journal/`, or `Raw/Pasted/`).
 
-A single 60s daemon polls for user edits and signals a background sonnet to ingest them into the unified graphify graph. Future agents query that graph via `mcp__graphify__*` and see captures + user notes + every active repo's code, merged.
+A single 60s daemon polls for user edits and signals a background haiku to ingest them into the unified graphify graph. Future agents query that graph via `mcp__graphify__*` and see captures + user notes + every active repo's code, merged.
 
 ### Uploads and Temporary folders
 
@@ -86,7 +86,7 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 `-- Temporary/         <- persistent scratch space (always bisynced)
 ```
 
-`Raw/`, `Notes/`, and `graphify-out/` are where content lives. `graphify-out/` is updated by the vault-extract sonnet via a chunk-JSON merge on every user-edit tick (not a full re-extract). `.silverbullet/` is owned by the editor. `Library/Codeflare/` holds the plug files managed by Codeflare (pdf, treeview, github, graph) -- see [Preseed Integration](#preseed-integration-req-vault-007).
+`Raw/`, `Notes/`, and `graphify-out/` are where content lives. `graphify-out/` is updated by the vault-extract agent via a chunk-JSON merge on every user-edit tick (not a full re-extract). `.silverbullet/` is owned by the editor. `Library/Codeflare/` holds the plug files managed by Codeflare (pdf, treeview, github, graph) -- see [Preseed Integration](#preseed-integration-req-vault-007).
 
 **Codeflare-authoritative vs user-editable.** The four root pages (`Index.md`, `README.md`, `CONFIG.md`, `STYLES.md`) are codeflare-authoritative: `init_user_vault()` overwrites them on every boot from `/opt/silverbullet-preseed/`, gated so identical files are not rewritten. Hand-editing them inside SilverBullet is futile - changes are silently reverted on the next session start. User content lives in `Notes/`, `Inbox/`, `Journal/`, `Raw/Pasted/`, and `Raw/Sessions/`, which the boot-time sync never touches.
 
@@ -94,13 +94,13 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 
 ## Capture Path (REQ-VAULT-002)
 
-The `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to spawn a background sonnet. The sonnet runs `memory-agent-prompt.md` end to end:
+The `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to spawn a background haiku. The haiku runs `memory-agent-prompt.md` end to end:
 
 1. Deletes the `.vars` marker (dedup gate so a concurrent prompt cannot spawn a duplicate).
 2. Reads the new transcript range.
 3. Identifies decisions, observations, references, and a short topic phrase.
 4. Writes `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter template (session id, captured-at, captured-from-range, then Context / Decisions / Observations / References sections).
-5. Acts as the LLM extractor: reads the file it just wrote, emits a chunk JSON matching graphify's extraction schema (nodes / edges / hyperedges, with `[[wikilinks]]` as `file_type:concept` nodes carrying `source_file: null` so graphify's `external_labels` dedup in `global_add` unifies them across the vault and per-repo graphs by label), calls `graphify.build.build_from_json` + `graphify.cluster.cluster` + `graphify.export.to_json` from the Python API to produce a `graph.json`, then runs `flock /tmp/graphify-global.lock graphify global add ... --as user_vault` to merge it. No LLM provider key is needed; codeflare deliberately ships none, and the sonnet itself is the extractor (same pattern as the `/graphify` skill's parallel-subagent dispatch).
+5. Acts as the LLM extractor: reads the file it just wrote, emits a chunk JSON matching graphify's extraction schema (nodes / edges / hyperedges, with `[[wikilinks]]` as `file_type:concept` nodes carrying `source_file: null` so graphify's `external_labels` dedup in `global_add` unifies them across the vault and per-repo graphs by label), calls `graphify.build.build_from_json` + `graphify.cluster.cluster` + `graphify.export.to_json` from the Python API to produce a `graph.json`, then runs `flock /tmp/graphify-global.lock graphify global add ... --as user_vault` to merge it. No LLM provider key is needed; codeflare deliberately ships none, and the agent itself is the extractor (same pattern as the `/graphify` skill's parallel-subagent dispatch).
 
 Compaction is manual: the vault grows append-only and no automated compactor ships. When `Raw/Sessions/` becomes unwieldy, prune or summarise files directly via SilverBullet.
 
@@ -113,20 +113,20 @@ A second daemon, `start_vault_monitor_daemon` in entrypoint.sh, polls the vault 
 | Marker | Touched by | Used by |
 |---|---|---|
 | `vault-monitor.tick` | Daemon, every tick | Diagnostics (heartbeat) |
-| `vault-extract.last` | Vault-extract sonnet, ONLY on success | Daemon's `find -newer` reference |
+| `vault-extract.last` | Vault-extract agent, ONLY on success | Daemon's `find -newer` reference |
 | `vault-extract.vars` | Daemon, when find returns non-empty | Trigger for `vault-monitor-hook.sh` |
 
 If extraction fails mid-flight, `vault-extract.last` is NOT advanced, the next tick re-discovers the same files, and the system converges. Eventual consistency, no work lost.
 
-A complementary guard in `vault-monitor-hook.sh` covers the daemon-vs-sonnet overlap case: the daemon ticks every 60s and a sonnet run takes around 90s, so the daemon may re-write `vault-extract.vars` after the sonnet's step-1 delete. When the sonnet finishes and advances `vault-extract.last`, that re-written `.vars` is left behind, older than `.last`. The hook detects this on the next prompt (`! "$VARS_FILE" -nt "$LAST_MARKER"`), silently deletes the stale marker, and exits 0 instead of triggering a redundant sonnet spawn.
+A complementary guard in `vault-monitor-hook.sh` covers the daemon-vs-extract overlap case: the daemon ticks every 60s and an extraction run typically takes 30-60s on haiku (was ~90s on sonnet), so the daemon may re-write `vault-extract.vars` after the agent's step-1 delete. When the agent finishes and advances `vault-extract.last`, that re-written `.vars` is left behind, older than `.last`. The hook detects this on the next prompt (`! "$VARS_FILE" -nt "$LAST_MARKER"`), silently deletes the stale marker, and exits 0 instead of triggering a redundant agent spawn.
 
-The daemon excludes `Raw/Sessions/`, `graphify-out/`, and `.silverbullet/` from the find (agent-owned, derived, editor-config). It also excludes the four preseed-managed root pages (`Index.md`, `CONFIG.md`, `README.md`, `STYLES.md`): `init_user_vault()` overwrites these on every boot when content drifts, so their mtimes reflect a codeflare action rather than a user edit, and including them produced perpetual extract-sonnet spawns after the always-overwrite tier (REQ-VAULT-001 AC7) landed.
+The daemon excludes `Raw/Sessions/`, `graphify-out/`, and `.silverbullet/` from the find (agent-owned, derived, editor-config). It also excludes the four preseed-managed root pages (`Index.md`, `CONFIG.md`, `README.md`, `STYLES.md`): `init_user_vault()` overwrites these on every boot when content drifts, so their mtimes reflect a codeflare action rather than a user edit, and including them produced perpetual extract-agent spawns after the always-overwrite tier (REQ-VAULT-001 AC7) landed.
 
 On boots where at least one preseed page was rewritten, `init_user_vault()` also touches `vault-extract.last` before the daemon starts. This advances the high-water mark past the preseed-page mtimes so the very first daemon tick finds nothing and no spurious extraction is triggered. The two guards are layered for defence-in-depth: the AC1 exclusion handles the four pages by name, and the AC6 marker-bump covers any future preseed page added without an exclusion-list update.
 
 `vault-monitor-hook.sh` is the UserPromptSubmit hook for the user-edit path. It exits 0 immediately when `vault-extract.vars` is absent (~99% of prompts), keeping token cost at zero on idle. When the marker is present it emits `additionalContext` pointing the main agent at `vault-extract-prompt.md`.
 
-The vault-extract sonnet's contract:
+The vault-extract agent's contract:
 
 1. Delete `vault-extract.vars` (dedup gate).
 2. `find` files newer than `vault-extract.last`, excluding the agent-owned subtrees.
@@ -140,8 +140,8 @@ The vault-extract sonnet's contract:
 
 Write sites that touch the global graph:
 
-- The capture sonnet, after writing a vault file (REQ-VAULT-002).
-- The vault-extract sonnet, after user-edit extraction (REQ-VAULT-003).
+- The capture agent, after writing a vault file (REQ-VAULT-002).
+- The vault-extract agent, after user-edit extraction (REQ-VAULT-003).
 - `graphify-active-repo.sh`, on every active-repo transition where a per-repo graph exists or its `source_hash` differs from the manifest (single-active-repo invariant; see below).
 - The `/graphify` skill, on commit, after building a repo's graph.
 
@@ -208,7 +208,7 @@ If the bisync exceeds 60s, the log records `TIMED OUT after 60s` -- a recognisab
 
 The vault plugin and supporting rule ship as preseed entries that land in every advanced-mode session at container boot:
 
-- `preseed/agents/claude/plugins/codeflare-vault/` -- plugin descriptor, `vault-monitor-hook.sh` UserPromptSubmit hook, `vault-extract-prompt.md` for the spawned sonnet. Registered in `preseed/agents/claude/manifest.json`.
+- `preseed/agents/claude/plugins/codeflare-vault/` -- plugin descriptor, `vault-monitor-hook.sh` UserPromptSubmit hook, `vault-extract-prompt.md` for the spawned haiku. Registered in `preseed/agents/claude/manifest.json`.
 - `preseed/agents/claude/rules/vault.md` -- concept rule, advanced-mode only (see `ADVANCED_ONLY_CODEFLARE_RULES` in the ECC rules test).
 - `preseed/agents/claude/rules/vault-note-capture.md` + `preseed/agents/claude/skills/vault-note-capture/SKILL.md` -- minimal trigger rule + on-demand skill that captures "take a note" / "note this down" requests into `Notes/<Category>/`. Advanced-mode only. The rule stays small to keep always-in-context bloat minimal; the skill loads on demand with category inference, filename format, body template, and wikilink convention.
 - `preseed/silverbullet/` -- optional `atlas.plug.js`, the four preseeded plug files (`pdf`, `treeview`, `github`, `graph` -- see `preseed/silverbullet/plugs/MANIFEST.md`), and the four preseed-managed pages (`Index.md`, `README.md`, `CONFIG.md`, `STYLES.md`). The Dockerfile copies this directory to `/opt/silverbullet-preseed/`; `init_user_vault()` syncs from there on every boot. (`config.yaml` was removed -- SilverBullet 2.x ignores `.silverbullet/config.yaml` entirely; runtime config goes through `CONFIG.md` and env vars only.)
@@ -269,7 +269,7 @@ The vault-monitor daemon does not fire a spurious extraction on first boot or af
 
 ## Image-pasting Cost Caveat
 
-SilverBullet supports pasting images directly into notes (they land in `Raw/Pasted/`). The vault-extract sonnet processes them through graphify, which sees them as binary nodes and skips semantic extraction. Future agents that retrieve those nodes via `mcp__graphify__get_node` will see a path reference, not the image -- viewing the image still costs vision tokens. Be aware when pasting screenshots into notes you expect to query frequently.
+SilverBullet supports pasting images directly into notes (they land in `Raw/Pasted/`). The vault-extract agent processes them through graphify, which sees them as binary nodes and skips semantic extraction. Future agents that retrieve those nodes via `mcp__graphify__get_node` will see a path reference, not the image -- viewing the image still costs vision tokens. Be aware when pasting screenshots into notes you expect to query frequently.
 
 ## Troubleshooting
 
@@ -285,7 +285,7 @@ SilverBullet supports pasting images directly into notes (they land in `Raw/Past
 | SilverBullet opens lowercase "index" (empty editor) instead of the Codeflare dashboard | Supervisor not exporting `SB_INDEX_PAGE=Index` before launching the binary | Confirm the env var is set in `entrypoint.sh start_silverbullet_supervisor`. SB's Go server hardcodes the default to `"index"` (`server/cmd/server.go:29`); the env var is the only override. |
 | Vault button clickable during boot returns `VAULT_UPSTREAM_UNREACHABLE` | UI is not gating on vault readiness | The button should be disabled until `Layout.tsx` receives a 200 from `HEAD /api/vault/:sid/`. If you see it clickable too early, the `vaultReady` probe loop in `Layout.tsx` has regressed -- check that the `HEAD` fetch is running and the 3s retry is wired correctly. |
 | Dashboard widgets render as raw `${query[[...]]}` text or nothing | Someone copied a partial `Library/Std/` onto disk, shadowing the binary's `base_fs` overlay | `rm -rf ~/Vault/Library/Std` and restart SB. Library/Std is shipped inside the SilverBullet binary; **never** seed it from disk. |
-| `mcp__graphify__query_graph` returns no vault nodes even after several capture cycles | Older image: capture sonnet called `graphify extract --file` (requires an LLM provider key, codeflare ships none), so every run produced 0 nodes | Redeploy. After the fix, sonnets self-extract via their own conversation and emit chunk JSON that `graphify global add` ingests. |
+| `mcp__graphify__query_graph` returns no vault nodes even after several capture cycles | Older image: capture agent called `graphify extract --file` (requires an LLM provider key, codeflare ships none), so every run produced 0 nodes | Redeploy. After the fix, agents self-extract via their own conversation and emit chunk JSON that `graphify global add` ingests. |
 | Browser console shows `Failed to register a ServiceWorker ... 401 ... fetching the script`; SilverBullet loads but appears unregistered as a PWA / offline mode never activates | Older image: SW registration GET at `/api/vault/<sid>/service_worker.js` ran the cookie-auth chain, but Chrome 76+ omits credentials on SW script fetches (no `Cookie` header sent), so auth returned 401 and registration failed permanently | Redeploy. The Worker now short-circuits SW registration via `VAULT_NOOP_SERVICE_WORKER_JS` (selector: `service-worker: script` header + no `Cookie`) and returns a static no-op SW the browser accepts. Distinct from the CSRF / Quick-Note row above; both can be present on a pre-fix image. |
 | Editing a SilverBullet note shows `Could not save page, retrying again in 10 seconds` repeatedly; saves never succeed | Older image: PUT requests went through `maybeSynthesizeCsrfHeader` which clones the request to add `X-Requested-With`, consuming the original body; the proxy then forwarded the original (now disturbed) request to `container.fetch`, raising `TypeError: This ReadableStream is disturbed` and returning 500 | Redeploy. The proxy now forwards the auth-validated clone (which owns the body) instead of the original; pre-fix images log `Vault request error` with the disturbed-stream stack trace in Worker logs (`wrangler tail` or Cloudflare Observability). |
 
