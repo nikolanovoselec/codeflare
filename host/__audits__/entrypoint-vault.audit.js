@@ -123,6 +123,22 @@ describe('vault skeleton + daemons (REQ-MEMORY-101..103)', () => {
     assert.ok(entrypoint.includes('vault-extract.vars'), 'must reference vault-extract.vars (trigger)');
   });
 
+  it('excludes all four preseed-managed root pages from the daemon find (REQ-VAULT-003 AC1)', () => {
+    for (const page of ['index.md', 'CONFIG.md', 'README.md', 'STYLES.md']) {
+      assert.ok(
+        entrypoint.includes(`-not -path "$VAULT_ROOT/${page}"`),
+        `vault-monitor daemon must exclude ${page} from -newer find (codeflare-authoritative; agent cp must not trigger extraction)`
+      );
+    }
+  });
+
+  it('bumps vault-extract.last after init_user_vault writes a preseed page (REQ-VAULT-003 AC1)', () => {
+    assert.ok(
+      /PRESEED_PAGE_WRITTEN[\s\S]{0,400}touch\s+"\$HOOK_CACHE\/vault-extract\.last"/.test(entrypoint),
+      'init_user_vault must touch vault-extract.last when any preseed page is rewritten, so the next daemon tick does not treat the cp as a user edit'
+    );
+  });
+
   it('defines start_silverbullet_supervisor with a restart loop', () => {
     assert.ok(/^start_silverbullet_supervisor\(\)/m.test(entrypoint), 'silverbullet supervisor function must exist');
     assert.ok(
