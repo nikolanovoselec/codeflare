@@ -9,6 +9,8 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 ## Contents
 
 - [Overview](#overview-req-vault-001)
+  - [Uploads and Temporary folders](#uploads-and-temporary-folders)
+  - [Storage panel special folders](#storage-panel-special-folders-req-vault-001)
 - [Directory Layout](#directory-layout)
 - [Capture Path](#capture-path-req-vault-002)
 - [User-edit Path](#user-edit-path-req-vault-003)
@@ -16,6 +18,7 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 - [SilverBullet Editor](#silverbullet-editor-req-vault-005)
 - [Shutdown Bisync Reliability](#shutdown-bisync-reliability-req-vault-006)
 - [Preseed Integration](#preseed-integration-req-vault-007)
+  - [SilverBullet plug preinstall](#silverbullet-plug-preinstall-req-vault-007)
 - [First-session Expectations](#first-session-expectations)
 - [Image-pasting Cost Caveat](#image-pasting-cost-caveat)
 - [Troubleshooting](#troubleshooting)
@@ -34,19 +37,49 @@ Two parties write to the vault:
 
 A single 60s daemon polls for user edits and signals a background sonnet to ingest them into the unified graphify graph. Future agents query that graph via `mcp__graphify__*` and see captures + user notes + every active repo's code, merged.
 
+### Uploads and Temporary folders
+
+Two persistent sibling directories are created alongside the vault on every boot by `init_user_vault()`:
+
+- **`/home/user/Uploads/`** -- drop zone for files that need to survive session restart and be visible from every device. Files placed here are included in `RCLONE_FILTERS_COMMON` (`+ Uploads/**`, ordered before the global `graphify-out` exclude) and appear in the R2 storage panel.
+- **`/home/user/Temporary/`** -- persistent scratch space with the same bisync and panel treatment.
+
+### Storage panel special folders (REQ-VAULT-001)
+
+The R2 storage browser surfaces four directories as "special folders" at the bucket root, each shown unconditionally with an info icon that reveals a tooltip:
+
+| Folder | Container path | Gated? |
+|---|---|---|
+| Workspace | `/home/user/Workspace` | Only when workspace-sync preference is enabled |
+| Vault | `/home/user/Vault` | Always shown |
+| Uploads | `/home/user/Uploads` | Always shown |
+| Temporary | `/home/user/Temporary` | Always shown |
+
+The tooltip shows the folder's purpose and its in-container path so users know where to look inside a session.
+
 ## Directory Layout
 
+Inside the container, three sibling directories live under `/home/user/` alongside the workspace:
+
 ```
-Vault/
-|-- raw/
-|   |-- sessions/      <- AGENT-OWNED: one .md per 15-prompt capture
-|   `-- pasted/        <- USER-OWNED: image/PDF drops from SilverBullet
-|-- notes/             <- USER-OWNED: curated prose, concept notes
-|-- graphify-out/      <- DERIVED: graphify extract output (do not edit)
-`-- .silverbullet/     <- EDITOR CONFIG: SilverBullet's config + plug cache
+/home/user/
+|-- Workspace/         <- active project (workspace-sync gated)
+|-- Vault/             <- vault (always bisynced in advanced mode)
+|   |-- raw/
+|   |   |-- sessions/      <- AGENT-OWNED: one .md per 15-prompt capture
+|   |   `-- pasted/        <- USER-OWNED: image/PDF drops from SilverBullet
+|   |-- notes/             <- USER-OWNED: curated prose, concept notes
+|   |-- graphify-out/      <- DERIVED: graphify extract output (do not edit)
+|   |-- Library/
+|   |   `-- Codeflare/     <- CODEFLARE-MANAGED: preseeded SilverBullet plugs
+|   `-- .silverbullet/     <- EDITOR CONFIG: SilverBullet config + plug cache
+|-- Uploads/           <- persistent drop zone for files (always bisynced)
+`-- Temporary/         <- persistent scratch space (always bisynced)
 ```
 
-The first three are where content lives. `graphify-out/` is updated by the vault-extract sonnet via a chunk-JSON merge on every user-edit tick (not a full re-extract). `.silverbullet/` is owned by the editor.
+`raw/`, `notes/`, and `graphify-out/` are where content lives. `graphify-out/` is updated by the vault-extract sonnet via a chunk-JSON merge on every user-edit tick (not a full re-extract). `.silverbullet/` is owned by the editor. `Library/Codeflare/` holds the plug files managed by codeflare (pdf, treeview, github, graph) -- see [Preseed Integration](#preseed-integration-req-vault-007).
+
+**Hidden-root constraint (see [AD54](#ad54-vault-directory-must-use-a-non-hidden-basename)):** The vault directory must use a non-hidden basename. SilverBullet's disk walker (`server/disk_space_primitives.go` `FetchFileList`) aborts the directory walk when the root basename begins with `.`, returning an empty file listing even when notes are present on disk. This is why the path is `/home/user/Vault/`, not `/home/user/.user_vault/`.
 
 ## Capture Path (REQ-VAULT-002)
 
@@ -162,9 +195,22 @@ The vault plugin and supporting rule ship as preseed entries that land in every 
 
 - `preseed/agents/claude/plugins/codeflare-vault/` -- plugin descriptor, `vault-monitor-hook.sh` UserPromptSubmit hook, `vault-extract-prompt.md` for the spawned sonnet. Registered in `preseed/agents/claude/manifest.json`.
 - `preseed/agents/claude/rules/vault.md` -- concept rule, advanced-mode only (see `ADVANCED_ONLY_CODEFLARE_RULES` in the ECC rules test).
-- `preseed/silverbullet/` -- baseline `config.yaml` (and optional `atlas.plug.js`) copied into `/opt/silverbullet-preseed/` by the Dockerfile, then materialised into `Vault/.silverbullet/` by `init_user_vault()` on first boot.
+- `preseed/silverbullet/` -- baseline `config.yaml`, optional `atlas.plug.js`, and the four preseeded plug files (`pdf`, `treeview`, `github`, `graph` -- see `preseed/silverbullet/plugs/MANIFEST.md`). The Dockerfile copies this directory to `/opt/silverbullet-preseed/`, then `init_user_vault()` materialises it on first boot.
 
 `scripts/generate-agent-seed.mjs` reads the manifest and emits `src/lib/agent-seed.generated.ts`, the typed payload that the container fetches and writes during preseed. The vault plugin appears in default mode's manifest only as the rule's exclusion entry; runtime files are advanced-mode gated.
+
+### SilverBullet plug preinstall (REQ-VAULT-007)
+
+On every boot, `init_user_vault()` copies the plug files from `/opt/silverbullet-preseed/plugs/` into `~/Vault/Library/Codeflare/`. The copy is idempotent: each file is only overwritten when its content differs from the installed copy (using `cmp`), so a pin bump in the Dockerfile propagates on the next boot without touching user-written notes.
+
+| Plug | Provides |
+|---|---|
+| `pdf` | Inline PDF rendering inside notes |
+| `treeview` | File tree sidebar |
+| `github` | GitHub issue/PR embedding |
+| `graph` | Local graph visualisation of `[[wikilinks]]` |
+
+`Library/Codeflare/` is reserved for codeflare-managed plugs. User-installed plugs go under other `Library/` subdirectories (e.g. `Library/Personal/`); the boot-time overwrite never touches those paths.
 
 ## First-session Expectations
 

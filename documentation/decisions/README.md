@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD53 throughout the codebase and documentation. 39 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD54 throughout the codebase and documentation. 40 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -64,6 +64,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | Rip out six overengineered SDD framework features | Architecture |
 | [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) | Graphify MCP available everywhere, discipline advanced-only | Architecture |
 | [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking) | Graphify hot-reload wrapper with multi-repo sentinel tracking | Architecture |
+| [AD54](#ad54-vault-directory-must-use-a-non-hidden-basename) | Vault directory must use a non-hidden basename | Storage |
 
 ---
 
@@ -871,6 +872,31 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 
 ---
 
+### AD54: Vault directory must use a non-hidden basename
+
+**Category:** Storage
+
+**Status:** Active
+
+**Context:** The original vault path was `/home/user/.user_vault/`. SilverBullet's disk walker (`server/disk_space_primitives.go` `FetchFileList`) aborts the directory walk immediately when the root directory's basename begins with `.`, returning an empty file listing even when notes are present on disk. This is not a configurable behaviour in SilverBullet 2.8 -- it is hardcoded in the Go source. The result was that opening the vault in the editor showed no files at all despite a populated directory on disk.
+
+**Decision:** The vault directory is renamed to `/home/user/Vault/` (non-hidden basename). All references in entrypoint.sh, bisync filters, preseed scripts, agent rules, Worker route, audits, and tests are updated in the same commit. The internal identifier `init_user_vault()` and the `--as user_vault` global-graph tag are preserved (no manifest migration needed). R2 is a clean cutover for the single existing user; prior `.user_vault/` content in R2 is abandoned rather than migrated.
+
+**Constraint (permanent):** The vault directory must never be renamed to a dot-prefixed basename. Any future relocation of the vault must preserve a non-hidden basename or the SilverBullet disk walker will silently return an empty file list. This constraint is documented in `documentation/vault.md#directory-layout` and enforced by the `host/__audits__/entrypoint-vault.audit.js` structural audit (checks that the supervisor command references `$HOME/Vault`, not `$HOME/.user_vault` or any other hidden path).
+
+**Consequences:**
+- SilverBullet correctly walks and indexes all vault files after rename.
+- The path `/home/user/Vault/` is visible in `ls /home/user/` output (non-hidden), which is the desired UX: users can see the vault directory without `ls -a`.
+- The bisync filter gains `+ Vault/**` (replacing `+ .user_vault/**`). Filter order is preserved: vault include comes before the global `- **/graphify-out/**` exclude so the vault's own `graphify-out/` subdirectory is included in sync.
+
+**Alternative considered:** Configure SilverBullet via `SB_SPACE_FOLDER` or a command-line flag to skip the hidden-basename check. Rejected: the check is not configurable in SilverBullet 2.8's Go source; patching the binary was out of scope.
+
+**Alternative considered:** Mount the dot-prefixed directory into a non-hidden path via bind mount or symlink. Rejected: adds fragile entrypoint complexity and bisync would still see the original dot-prefixed path. A clean rename is simpler and permanent.
+
+**Issue:** REQ-VAULT-001.
+
+---
+
 ## Related Documentation
 
 - [Architecture — System Components](../architecture.md#system-components) - Component overview
@@ -878,3 +904,4 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 - [Security — Authentication Gate](../security.md#authentication-gate) - Security model
 - [Authentication — Auth Modes](../authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
 - [Mobile — Scroll Stability](../mobile.md#scroll-stability) - Mobile terminal design decisions
+- [Vault — Directory Layout](../vault.md#directory-layout) - Vault path, hidden-root constraint, special folders
