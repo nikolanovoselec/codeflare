@@ -17,8 +17,9 @@
  * Adding a new special folder is a three-place change:
  *   1. Add an entry here (with id, prefix, label, description, containerPath).
  *   2. Ensure entrypoint.sh auto-creates the directory in init_user_vault().
- *   3. Add the corresponding `+ <prefix>/**` filter to RCLONE_FILTERS_COMMON
- *      (placed before the `**/graphify-out/**` exclude).
+ *   3. Add the corresponding rclone include filter to RCLONE_FILTERS_COMMON
+ *      (placed before the global graphify-out exclude) so the new prefix
+ *      rides along on the next bisync.
  */
 export interface SpecialFolder {
   /** Stable id used in test selectors and tooltip data-testids. */
