@@ -240,7 +240,7 @@ The contract closes failure modes that surfaced in earlier releases:
 
 ### STYLES.md and codeflare theming
 
-`STYLES.md` applies the codeflare visual theme inside SilverBullet via the `#meta/styles` tag (SilverBullet's convention for theme pages). The CSS variables mirror codeflare's design tokens (zinc dark base, Inter / JetBrains Mono fonts, blue accent matching `web-ui/src/styles/design-tokens.css`). See [AD55](#ad55-codeflare-brands-the-vault-editor-via-preseed-managed-stylesmd). It is always-overwritten on boot and cannot be customised in-place; theme changes must go through `preseed/silverbullet/STYLES.md` in the repo.
+`STYLES.md` applies the codeflare visual theme inside SilverBullet via the `#meta/styles` tag (SilverBullet's convention for theme pages). It targets SilverBullet 2.x's CSS variable namespace under `html[data-theme="dark"]` (`--root-*`, `--ui-accent-*`, `--top-*`, `--button-*`, `--editor-*`, `--modal-*`, `--panel-*`, `--editor-wiki-link-*`), verified against `client/styles/theme.scss` in the 2.8.0 source. The codeflare palette tokens (`--cf-*`, zinc dark base + blue accent matching `web-ui/src/styles/design-tokens.css`) are defined locally in `:root` and consumed by the SB variables. Earlier versions of this file only defined `--cf-*` variables, which SilverBullet does not read, so the theme had no visual effect until the variable mapping was corrected. See [AD55](#ad55-codeflare-brands-the-vault-editor-via-preseed-managed-stylesmd). It is always-overwritten on boot and cannot be customised in-place; theme changes must go through `preseed/silverbullet/STYLES.md` in the repo.
 
 ### SilverBullet plug preinstall (REQ-VAULT-007)
 
@@ -262,6 +262,8 @@ A brand-new session boots with a pre-populated vault: `Index.md`, `README.md`, `
 `init_user_vault()` runs AFTER `establish_bisync_baseline()` so we never run the per-boot sync over a half-restored vault. If the baseline fails for any reason, the init function still runs (`(init_user_vault) || echo ...`) and the critical-dir + preseed-page tiers are created locally; the next successful bisync reconciles user content.
 
 On first browser open after a fresh vault, the dashboard widgets ("Quick Note" button, "Journal: Today" button, "Recently modified pages") take ~30 seconds to populate while the SilverBullet client builds its IndexedDB index of `Library/Std` (served from the binary's base_fs overlay). The Vault button in the header is rendered `disabled` with a "Vault initializing…" tooltip until `Layout.tsx` receives a 200 from `HEAD /api/vault/:sid/` (the `vaultReady` probe; REQ-VAULT-005 AC10), so the user cannot hit the proxy before SilverBullet has bound 3030. Subsequent loads in the same browser are instant from cache.
+
+Visual confirmation that the preseed theme is wired correctly: the editor renders on a zinc-950 base (`#09090b`), wikilinks and modal selection use a blue-500 accent (`hsl(217, 91%, 60%)`), body type is Inter and code spans are JetBrains Mono. If the editor shows SilverBullet's default white/cream palette, `STYLES.md` is missing or targeting variables SB does not consume (the previous `--cf-*`-only regression).
 
 The vault-monitor daemon does not fire a spurious extraction on first boot or after a preseed update: `init_user_vault()` bumps `vault-extract.last` past the preseed-page mtimes whenever it rewrites a page, and the daemon's find excludes the four preseed-managed pages by name. A fresh session sends 5 prompts in a row with no user vault edits and the vault-extract hook fires zero times.
 

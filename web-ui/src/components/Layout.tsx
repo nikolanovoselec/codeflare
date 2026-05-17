@@ -44,22 +44,31 @@ const Layout: Component<LayoutProps> = (props) => {
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
 
   // Vault readiness: ground-truth probe against the proxy. We can't trust
-  // session status flags here — the SilverBullet supervisor starts late in
+  // session status flags here. The SilverBullet supervisor starts late in
   // entrypoint.sh (well after ptyActive flips), so a session-level "ready"
   // signal would lie. Probing `HEAD /api/vault/:sid/` returns 200 only when
   // SB has bound 3030 and is serving the SPA shell (cheap, ~1.5KB Content-
   // Length, no body transferred with HEAD); any other response (502, 503,
   // network error) means "not yet". The `.fs/*` API path returns 405 on
   // HEAD so we probe root instead. Keyed per session so a switch resets it.
+  //
+  // Lifecycle: warm-up phase probes every 3s up to WARMUP_MAX_ATTEMPTS
+  // (~3 min total) to catch the cold-boot race; after first success we
+  // switch to a 60s slow-cadence re-probe to catch SB crashing mid-session
+  // (container still "running", but proxy now returns 502). A failed
+  // re-probe clears the latch so the button disables itself.
+  const WARMUP_INTERVAL_MS = 3000;
+  const WARMUP_MAX_ATTEMPTS = 60; // 3 min ceiling, then user must restart
+  const STEADY_INTERVAL_MS = 60000; // post-ready slow re-probe cadence
   const [vaultReadyBySession, setVaultReadyBySession] = createSignal<Record<string, boolean>>({});
   createEffect(() => {
     const sid = sessionStore.activeSessionId;
     if (!sid) return;
     const s = sessionStore.sessions.find((x) => x.id === sid);
     if (!s || s.status !== 'running') {
-      // Session stopped/missing — invalidate any cached ready flag so a
+      // Session stopped or missing: invalidate any cached ready flag so a
       // restart under the same id re-probes. Without this the button would
-      // lie about readiness across stop → start cycles.
+      // lie about readiness across stop / start cycles.
       if (vaultReadyBySession()[sid]) {
         setVaultReadyBySession((prev) => {
           const next = { ...prev };
@@ -69,28 +78,60 @@ const Layout: Component<LayoutProps> = (props) => {
       }
       return;
     }
-    if (vaultReadyBySession()[sid]) return; // already proven ready
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const probe = async () => {
+    let attempts = 0;
+    const probeOnce = async (): Promise<boolean> => {
       try {
-        // 5s timeout so a stuck proxy doesn't pin the probe chain forever.
         const res = await fetch(`/api/vault/${sid}/`, {
           method: 'HEAD',
           cache: 'no-store',
           signal: AbortSignal.timeout(5000),
         });
-        if (!cancelled && res.ok) {
-          setVaultReadyBySession((prev) => ({ ...prev, [sid]: true }));
-          return;
-        }
+        return res.ok;
       } catch {
-        // network / proxy error / timeout - try again
+        return false;
       }
-      if (!cancelled) timer = setTimeout(probe, 3000);
     };
-    probe();
+    const warmup = async () => {
+      if (cancelled) return;
+      attempts += 1;
+      const ok = await probeOnce();
+      if (cancelled) return;
+      if (ok) {
+        setVaultReadyBySession((prev) => ({ ...prev, [sid]: true }));
+        timer = setTimeout(steady, STEADY_INTERVAL_MS);
+        return;
+      }
+      if (attempts >= WARMUP_MAX_ATTEMPTS) return; // give up; user must restart
+      timer = setTimeout(warmup, WARMUP_INTERVAL_MS);
+    };
+    const steady = async () => {
+      if (cancelled) return;
+      const ok = await probeOnce();
+      if (cancelled) return;
+      if (!ok) {
+        // SB likely crashed mid-session. Clear the latch and fall back into
+        // warmup so the button disables itself until SB recovers.
+        setVaultReadyBySession((prev) => {
+          const next = { ...prev };
+          delete next[sid];
+          return next;
+        });
+        attempts = 0;
+        timer = setTimeout(warmup, WARMUP_INTERVAL_MS);
+        return;
+      }
+      timer = setTimeout(steady, STEADY_INTERVAL_MS);
+    };
+    if (vaultReadyBySession()[sid]) {
+      // Prior effect run already latched ready; skip warmup and go straight
+      // to steady-state re-probe.
+      timer = setTimeout(steady, STEADY_INTERVAL_MS);
+    } else {
+      warmup();
+    }
     onCleanup(() => {
       cancelled = true;
       if (timer !== null) clearTimeout(timer);
