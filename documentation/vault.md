@@ -165,7 +165,7 @@ The Dockerfile installs the `silverbullet-server-linux-x86_64` binary at `/usr/l
 
 The editor is reached from the codeflare UI through the Worker proxy at `/api/vault/:sid/`. Auth, tier check, and rate-limiting are enforced at the Worker -- see [security.md](./security.md). The in-container HTTP server (`host/src/server.ts`) has a `/vault/*` HTTP branch and a WS upgrade passthrough that proxies to `127.0.0.1:3030`.
 
-The Vault button in `Header.tsx` (`mdiGraphOutline` graph icon, between Bookmarks and Storage) opens the editor in a new tab via `window.open`. It only renders when an active session exists and the layout passes `onVaultOpen` -- terminal view only.
+The Vault button in `Header.tsx` (`mdiChartGantt` icon, between Bookmarks and Storage) opens the editor in a new tab via `window.open`. It only renders when an active session exists and the layout passes `onVaultOpen` -- terminal view only.
 
 The landing page on every Vault button click is `Index.md` (the Codeflare dashboard), set via `indexPage: Index` in `.silverbullet/config.yaml` (REQ-VAULT-005 AC9). The README is one click away via a link at the top of the dashboard.
 

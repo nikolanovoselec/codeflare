@@ -14,7 +14,7 @@ The vault solves that. It is the one place where:
 
 ## What is SilverBullet?
 
-[SilverBullet](https://silverbullet.md) is a self-hosted, markdown-first note editor. It runs as a small server inside your Codeflare container on `127.0.0.1:3030`, fronted by the Codeflare auth proxy so only you can reach it. Click the **Vault** button (graph icon) in the Codeflare header to open it.
+[SilverBullet](https://silverbullet.md) is a self-hosted, markdown-first note editor. It runs as a small server inside your Codeflare container on `127.0.0.1:3030`, fronted by the Codeflare auth proxy so only you can reach it. Click the **Vault** button in the Codeflare header to open it.
 
 Reasons to use it (instead of just dropping .md files in a folder):
 
