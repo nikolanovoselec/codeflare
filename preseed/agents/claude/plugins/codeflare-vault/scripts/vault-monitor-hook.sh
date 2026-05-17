@@ -3,15 +3,15 @@
 #
 # Picks up the marker file written by the vault-monitor daemon
 # (entrypoint.sh:start_vault_monitor_daemon) and signals the main agent
-# to spawn a background sonnet that runs vault-extract-prompt.md.
+# to spawn a background haiku that runs vault-extract-prompt.md.
 #
 # Zero-cost on idle prompts: if the marker is missing (the common case,
 # >99% of prompts) we exit 0 immediately with no output, so nothing is
 # injected into the agent's context.
 #
-# Concurrency: the spawned sonnet deletes the marker as its first step
+# Concurrency: the spawned haiku deletes the marker as its first step
 # (vault-extract-prompt.md Step 1) so a subsequent prompt arriving while
-# extraction is in flight does not re-trigger. If the sonnet crashes
+# extraction is in flight does not re-trigger. If the haiku crashes
 # before deleting, the next daemon tick (60s) will re-detect the same
 # changes and rewrite the marker - eventual consistency, no work lost.
 set -e
@@ -28,14 +28,14 @@ cat >/dev/null 2>&1 || true
 # Fast path: no marker, nothing to do.
 [ -f "$VARS_FILE" ] || exit 0
 
-# Stale-marker guard. The daemon ticks every 60s; a typical sonnet run
+# Stale-marker guard. The daemon ticks every 60s; a typical haiku run
 # takes ~90s. During that window the daemon's `[ -f VARS_FILE ]` check
-# sees the file deleted (sonnet step 1) and `find -newer LAST_MARKER`
-# still returns the original files (sonnet hasn't touched LAST_MARKER
-# yet), so the daemon writes a fresh VARS_FILE. When the sonnet
+# sees the file deleted (haiku step 1) and `find -newer LAST_MARKER`
+# still returns the original files (haiku hasn't touched LAST_MARKER
+# yet), so the daemon writes a fresh VARS_FILE. When the haiku
 # eventually finishes and touches LAST_MARKER, that VARS_FILE is left
 # behind - older than LAST_MARKER - and would trigger a spurious
-# additional sonnet on the next user prompt with nothing new to extract.
+# additional haiku on the next user prompt with nothing new to extract.
 #
 # Invariant: VARS_FILE is only valid if it is newer than LAST_MARKER.
 # When it is not, the work is already done; delete the stale marker and
@@ -58,7 +58,7 @@ if [ -f "$LAST_MARKER" ] && [ ! "$VARS_FILE" -nt "$LAST_MARKER" ]; then
     exit 0
 fi
 
-CONTEXT="Vault changes detected. Spawn a background sonnet agent to read ${PROMPT_FILE} and ${VARS_FILE}, then execute the 5-step contract. The sonnet deletes ${VARS_FILE} as its first step. If you have already spawned this agent in the current turn, do nothing."
+CONTEXT="Vault changes detected. Spawn a background haiku agent to read ${PROMPT_FILE} and ${VARS_FILE}, then execute the 5-step contract. The haiku deletes ${VARS_FILE} as its first step. If you have already spawned this agent in the current turn, do nothing."
 
 jq -n --arg ctx "$CONTEXT" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
 exit 0

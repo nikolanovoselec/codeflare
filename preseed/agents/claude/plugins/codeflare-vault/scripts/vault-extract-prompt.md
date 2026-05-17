@@ -1,6 +1,6 @@
 # Vault Extraction Agent Prompt
 
-You are a vault extraction agent (sonnet). Your job is to read the files
+You are a vault extraction agent (haiku). Your job is to read the files
 the user has created or modified in the persistent vault since the last
 successful run, extract a knowledge-graph fragment from them **using your
 own conversation as the LLM**, build the resulting graph, and merge it
@@ -32,7 +32,7 @@ build steps from graphify's internal Python API.
 - `OUT_DIR`: `/home/user/Vault/graphify-out`
 - `VARS_FILE`: `~/.cache/codeflare-hooks/vault-extract.vars` (delete first)
 - `LAST_MARKER`: `~/.cache/codeflare-hooks/vault-extract.last` (high-water mark)
-- `LOCK`: `/tmp/graphify-global.lock` (serialises with capture sonnet + active-repo hook)
+- `LOCK`: `/tmp/graphify-global.lock` (serialises with capture haiku + active-repo hook)
 - `GRAPHIFY_PY`: `/root/.local/share/uv/tools/graphifyy/bin/python`
 - `GRAPHIFY_BIN`: `/usr/local/bin/graphify` (or absolute uv path as fallback)
 
@@ -72,7 +72,7 @@ find /home/user/Vault \
 
 Exclusions:
 
-- `Raw/Sessions/` - agent-owned, already merged by the capture sonnet.
+- `Raw/Sessions/` - agent-owned, already merged by the capture haiku.
 - `graphify-out/` - derived output, would create a feedback loop.
 - `.silverbullet/` - editor config + plug cache, no semantic content.
 - `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` - codeflare-authoritative preseed pages (REQ-VAULT-001 AC7); never user-edits.

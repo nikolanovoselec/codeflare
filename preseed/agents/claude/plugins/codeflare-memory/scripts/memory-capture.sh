@@ -96,7 +96,7 @@ jq -n \
 printf '%s\n%s\n' "$CURRENT_COUNT" "$TOTAL_LINES" > "$COUNTER_FILE"
 
 # UserPromptSubmit: exit 0 with additionalContext (no blocking)
-CONTEXT="Check if ${VARS_FILE} exists. If it does, spawn a background sonnet agent to read ${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and ${VARS_FILE}, then execute. If the file does not exist, do nothing — capture was already completed."
+CONTEXT="Check if ${VARS_FILE} exists. If it does, spawn a background haiku agent to read ${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and ${VARS_FILE}, then execute. If the file does not exist, do nothing - capture was already completed."
 
 # Append memory scan directive if set (first message)
 if [[ -n "$MEMORY_SCAN" ]]; then
