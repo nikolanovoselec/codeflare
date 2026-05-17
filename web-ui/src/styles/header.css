@@ -532,12 +532,17 @@
           transition: background var(--transition-fast), color var(--transition-fast);
         }
 
-        .header-vault-button:hover,
+        .header-vault-button:hover:not(:disabled),
         .header-storage-button:hover,
         .header-settings-button:hover,
         .header-logout-button:hover {
           background: var(--color-bg-muted);
           color: var(--color-text-primary);
+        }
+
+        .header-vault-button:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
         }
 
         .header-vault-button:focus-visible,

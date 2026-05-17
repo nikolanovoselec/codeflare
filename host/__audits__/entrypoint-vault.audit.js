@@ -148,6 +148,17 @@ describe('vault skeleton + daemons (REQ-MEMORY-101..103)', () => {
     assert.ok(entrypoint.includes('127.0.0.1') || entrypoint.includes('SILVERBULLET_HOST'),
       'silverbullet must bind to localhost (Worker proxy is the auth boundary)');
   });
+
+  it('exports SB_INDEX_PAGE=Index in the supervisor (TitleCase index page)', () => {
+    // SilverBullet 2.x hardcodes IndexPage to lowercase "index" in
+    // server/cmd/server.go:29; the only override is the SB_INDEX_PAGE
+    // env var. Without this the TitleCase Index.md preseed page is
+    // unreachable from "/" and the user lands in an empty editor.
+    assert.ok(
+      /export\s+SB_INDEX_PAGE=["']Index["']/.test(entrypoint),
+      'supervisor must export SB_INDEX_PAGE="Index" before launching silverbullet'
+    );
+  });
 });
 
 describe('SilverBullet binary install (REQ-MEMORY-103)', () => {
@@ -235,7 +246,6 @@ describe('vault preseed files exist on disk', () => {
     'preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh',
     'preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md',
     'preseed/agents/claude/rules/vault.md',
-    'preseed/silverbullet/config.yaml',
     'preseed/silverbullet/Index.md',
     'preseed/silverbullet/CONFIG.md',
     'preseed/silverbullet/README.md',

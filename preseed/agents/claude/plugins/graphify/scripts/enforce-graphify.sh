@@ -36,9 +36,15 @@
 #     -> emit hookSpecificOutput.permissionDecision = "deny" with reason
 #   else -> exit 0
 #
-# Bypass (USER-ONLY - agent must never invoke):
-#   1. /tmp/graphify-bypass         (one-shot sentinel, auto-deleted)
-#   2. "skip graph" in latest user message (case-insensitive)
+# Bypass methods (USER-ONLY - the assistant must NEVER create the
+# sentinel or write the magic phrase in its own output. An assistant
+# that bypasses its own gate defeats the entire enforcement layer.
+# When blocked, the correct response is to ASK the user to invoke a
+# bypass, not to invoke one yourself.):
+#   1. Sentinel file: /tmp/graphify-bypass (one-shot, auto-deleted)
+#   2. Magic phrase: USER MESSAGE contains "skip graph" (case-insensitive,
+#      word-bounded). Agent-output occurrences are ignored - the hook
+#      scans the transcript for the last "role":"user","content" line.
 #
 # Gating:
 #   - graphify-out/graph.json absent in active repo -> exit 0
@@ -376,7 +382,7 @@ GRAPHIFY_COUNT=$((GRAPHIFY_COUNT + MCP_GRAPHIFY))
 # Block decision
 # ---------------------------------------------------------------------------
 if [ "$SEARCH_COUNT" -ge 3 ] && [ "$GRAPHIFY_COUNT" -eq 0 ]; then
-  REASON="BLOCKED: ${SEARCH_COUNT} structural searches since last user prompt, 0 graphify queries. Use mcp__graphify__query_graph or mcp__graphify__get_node first. Bypass: say 'skip graph' in your next user message, or USER touches /tmp/graphify-bypass (do not create yourself)."
+  REASON="BLOCKED: ${SEARCH_COUNT} structural searches, 0 graphify queries. Use mcp__graphify__query_graph first. USER bypass: ASK user to say 'skip graph' or 'touch /tmp/graphify-bypass'. Agent MUST NOT bypass itself."
   jq -n --arg reason "$REASON" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",

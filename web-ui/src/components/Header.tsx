@@ -35,6 +35,7 @@ interface HeaderProps {
   onSettingsClick?: () => void;
   onStoragePanelToggle?: () => void;
   onVaultOpen?: () => void;
+  vaultReady?: boolean;
   onLogoClick?: () => void;
   sessions: SessionWithStatus[];
   activeSessionId: string | null;
@@ -517,13 +518,16 @@ const Header: Component<HeaderProps> = (props) => {
         {/* Vault button — opens the persistent Obsidian-style vault
             (SilverBullet) in a new tab. Rendered only when the parent
             passes onVaultOpen (terminal-view + active session present);
-            otherwise the button does not appear. */}
+            disabled while the container is still booting so the user
+            cannot hit the proxy before SilverBullet has bound 3030
+            (would otherwise surface VAULT_UPSTREAM_UNREACHABLE). */}
         <Show when={props.onVaultOpen}>
           <button
             class="header-vault-button"
             data-testid="header-vault-button"
-            title="Open vault"
+            title={props.vaultReady ? 'Open vault' : 'Vault initializing…'}
             type="button"
+            disabled={!props.vaultReady}
             onClick={() => props.onVaultOpen?.()}
           >
             <Icon path={mdiChartGantt} size={20} />

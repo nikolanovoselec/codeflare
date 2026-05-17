@@ -312,6 +312,15 @@ const Layout: Component<LayoutProps> = (props) => {
           onVaultOpen={sessionStore.activeSessionId
             ? () => window.open(`/api/vault/${sessionStore.activeSessionId}/`, '_blank', 'noopener')
             : undefined}
+          vaultReady={(() => {
+            const sid = sessionStore.activeSessionId;
+            if (!sid) return false;
+            const s = sessionStore.sessions.find((x) => x.id === sid);
+            // SilverBullet supervisor starts after the entrypoint reaches the
+            // ready stage; before that the vault proxy will return
+            // VAULT_UPSTREAM_UNREACHABLE. Gate the button until then.
+            return s?.status === 'running' && s?.ptyActive === true && s?.startupStage === 'ready';
+          })()}
           onLogoClick={showDashboard() ? undefined : handleOpenDashboard}
           sessions={sessionStore.sessions}
           activeSessionId={sessionStore.activeSessionId}

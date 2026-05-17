@@ -19,7 +19,7 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 - [Shutdown Bisync Reliability](#shutdown-bisync-reliability-req-vault-006)
 - [Preseed Integration](#preseed-integration-req-vault-007)
   - [Three-tier durability contract](#three-tier-durability-contract-req-vault-001-ac3ac7ac8)
-  - [CONFIG.md and Library/Std federation](#configmd-and-librarystd-federation)
+  - [CONFIG.md and Library/Std (base_fs)](#configmd-and-librarystd-base_fs)
   - [STYLES.md and codeflare theming](#stylesmd-and-codeflare-theming)
   - [SilverBullet plug preinstall](#silverbullet-plug-preinstall-req-vault-007)
 - [First-session Expectations](#first-session-expectations)
@@ -70,7 +70,7 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 |-- Vault/             <- vault (always bisynced in advanced mode)
 |   |-- Index.md           <- PRESEED-MANAGED: Codeflare dashboard (overwritten each boot)
 |   |-- README.md          <- PRESEED-MANAGED: vault user guide (overwritten each boot)
-|   |-- CONFIG.md          <- PRESEED-MANAGED: Library/Std federation directive (overwritten each boot)
+|   |-- CONFIG.md          <- PRESEED-MANAGED: SilverBullet #meta config page (overwritten each boot)
 |   |-- STYLES.md          <- PRESEED-MANAGED: Codeflare editor theme (overwritten each boot)
 |   |-- Raw/
 |   |   |-- Sessions/      <- AGENT-OWNED: one .md per 15-prompt capture
@@ -165,9 +165,9 @@ The Dockerfile installs the `silverbullet-server-linux-x86_64` binary at `/usr/l
 
 The editor is reached from the codeflare UI through the Worker proxy at `/api/vault/:sid/`. Auth, tier check, and rate-limiting are enforced at the Worker -- see [security.md](./security.md). The in-container HTTP server (`host/src/server.ts`) has a `/vault/*` HTTP branch and a WS upgrade passthrough that proxies to `127.0.0.1:3030`.
 
-The Vault button in `Header.tsx` (`mdiChartGantt` icon, between Bookmarks and Storage) opens the editor in a new tab via `window.open`. It only renders when an active session exists and the layout passes `onVaultOpen` -- terminal view only.
+The Vault button in `Header.tsx` (`mdiChartGantt` icon, between Bookmarks and Storage) opens the editor in a new tab via `window.open`. It only renders when an active session exists and the layout passes `onVaultOpen` -- terminal view only. While the container is still booting (any `startupStage` other than `ready`) the button is rendered `disabled` with a "Vault initializing…" tooltip; this prevents the user from hitting the proxy before SilverBullet has bound 3030 (which would surface `VAULT_UPSTREAM_UNREACHABLE`).
 
-The landing page on every Vault button click is `Index.md` (the Codeflare dashboard), set via `indexPage: Index` in `.silverbullet/config.yaml` (REQ-VAULT-005 AC9). The README is one click away via a link at the top of the dashboard.
+The landing page on every Vault button click is `Index.md` (the Codeflare dashboard), set by exporting `SB_INDEX_PAGE=Index` in the supervisor before launching the binary (REQ-VAULT-005 AC9). The SilverBullet Go server hardcodes the default to lowercase `"index"` (`server/cmd/server.go:29`) and ignores any `indexPage` key in `.silverbullet/config.yaml` -- the env var is the only override. The README is one click away via a link at the top of the dashboard.
 
 ### Per-session `<base href>` rewrite (REQ-VAULT-005 AC7)
 
@@ -211,7 +211,7 @@ The vault plugin and supporting rule ship as preseed entries that land in every 
 - `preseed/agents/claude/plugins/codeflare-vault/` -- plugin descriptor, `vault-monitor-hook.sh` UserPromptSubmit hook, `vault-extract-prompt.md` for the spawned sonnet. Registered in `preseed/agents/claude/manifest.json`.
 - `preseed/agents/claude/rules/vault.md` -- concept rule, advanced-mode only (see `ADVANCED_ONLY_CODEFLARE_RULES` in the ECC rules test).
 - `preseed/agents/claude/rules/vault-note-capture.md` + `preseed/agents/claude/skills/vault-note-capture/SKILL.md` -- minimal trigger rule + on-demand skill that captures "take a note" / "note this down" requests into `Notes/<Category>/`. Advanced-mode only. The rule stays small to keep always-in-context bloat minimal; the skill loads on demand with category inference, filename format, body template, and wikilink convention.
-- `preseed/silverbullet/` -- baseline `config.yaml`, optional `atlas.plug.js`, the four preseeded plug files (`pdf`, `treeview`, `github`, `graph` -- see `preseed/silverbullet/plugs/MANIFEST.md`), and the four preseed-managed pages (`Index.md`, `README.md`, `CONFIG.md`, `STYLES.md`). The Dockerfile copies this directory to `/opt/silverbullet-preseed/`; `init_user_vault()` syncs from there on every boot.
+- `preseed/silverbullet/` -- optional `atlas.plug.js`, the four preseeded plug files (`pdf`, `treeview`, `github`, `graph` -- see `preseed/silverbullet/plugs/MANIFEST.md`), and the four preseed-managed pages (`Index.md`, `README.md`, `CONFIG.md`, `STYLES.md`). The Dockerfile copies this directory to `/opt/silverbullet-preseed/`; `init_user_vault()` syncs from there on every boot. (`config.yaml` was removed -- SilverBullet 2.x ignores `.silverbullet/config.yaml` entirely; runtime config goes through `CONFIG.md` and env vars only.)
 
 `scripts/generate-agent-seed.mjs` reads the manifest and emits `src/lib/agent-seed.generated.ts`, the typed payload that the container fetches and writes during preseed. The vault plugin appears in default mode's manifest only as the rule's exclusion entry; runtime files are advanced-mode gated.
 
@@ -222,18 +222,21 @@ The vault plugin and supporting rule ship as preseed entries that land in every 
 | Tier | Path | Behaviour on every boot |
 |------|------|------------------------|
 | Always-mkdir (critical dirs) | `Raw/Sessions/`, `Raw/Pasted/`, `Notes/`, `graphify-out/`, `.silverbullet/_plug/` | `mkdir -p`; existing contents untouched. User-deleted directories are recreated empty so agent hooks and SilverBullet cannot land in a broken state. |
-| Always-overwrite (Codeflare-authoritative pages) | `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` | Copied from `/opt/silverbullet-preseed/`, gated so identical files are not rewritten. User edits are silently reverted on next boot; these files are Codeflare-owned because they encode dashboard contract, federation directive, theme, and user guide. |
+| Always-overwrite (Codeflare-authoritative pages) | `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` | Copied from `/opt/silverbullet-preseed/`, gated so identical files are not rewritten. User edits are silently reverted on next boot; these files are Codeflare-owned because they encode dashboard contract, SB `#meta` config, theme, and user guide. |
 | Recreate-if-missing (build-output stub) | `graphify-out/graph.json` | Seeded with the empty-graph JSON only when absent; the populated graph from a prior session is never overwritten. The graph is build output regenerated by `graphify extract` / `graphify global add`. |
-| cmp-gated sync (editor config) | `.silverbullet/config.yaml` | Overwritten from preseed when content differs. Editor config is preseed-authoritative; user changes must go through the repo. |
-| Idempotent plug sync | `Library/Codeflare/*.plug.js` | Each file copied from `/opt/silverbullet-preseed/plugs/` only when content differs. User plugs in other `Library/` subdirectories are untouched. |
+| Cleanup of dead config | `.silverbullet/config.yaml` | Removed on every boot. SilverBullet 2.x does not read this file; leaving it on disk only misleads future readers. |
+| Idempotent plug sync | `Library/Codeflare/*.plug.js` | Each file copied from `/opt/silverbullet-preseed/plugs/` only when content differs. User plugs in other `Library/` subdirectories are untouched. **Never** copy a partial `Library/Std/` onto disk -- SilverBullet's binary ships compiled `Library/Std/Plugs/*.plug.js` via `client_bundle/base_fs` overlay; a disk shadow with only source markdown breaks widget rendering. |
 
-The contract closes two failure modes that surfaced before this design landed:
-- Deleting any preseed page (`CONFIG.md` in particular) silently broke the SilverBullet dashboard's `${query[[...]]}` widgets and in-page wikilink handlers, with no recovery short of wiping the whole vault.
-- An R2-restored vault that pre-dated a preseed update would carry stale `config.yaml` / pages forever, because the prior `init_user_vault()` only ran content sync inside the first-init gate.
+The contract closes failure modes that surfaced in earlier releases:
+- Deleting any preseed page silently broke the SilverBullet dashboard or theme.
+- An R2-restored vault that pre-dated a preseed update would carry stale pages forever, because the prior `init_user_vault()` only ran content sync inside the first-init gate.
+- A `.silverbullet/config.yaml` file from older releases gave a false sense that SB was reading bootstrap settings from it; in SB 2.x the file is dead and only env vars + `CONFIG.md` actually configure the server.
 
-### CONFIG.md and Library/Std federation
+### CONFIG.md and Library/Std (base_fs)
 
-`CONFIG.md` carries the directive `libraries: - import: "[[!silverbullet.md/Library/Std/*]]"`. On first browser open, SilverBullet pulls the `Library/Std` template/widget library from `silverbullet.md` and caches it under `Library/Std/` inside the vault. The `Index.md` dashboard's `widgets.commandButton`, `templates.fullPageItem`, `templates.pageItem`, `templates.taskItem`, `index.contentPages()`, and `tags.page` references all resolve through Library/Std; absence renders queries silently as empty fallbacks and breaks in-page link click handlers. This is why `CONFIG.md` is in the always-overwrite tier and not user-editable.
+`CONFIG.md` is a SilverBullet 2.x `#meta` page with an optional `space-lua` config block (built-in keys defined in `Library/Std/Config.md`; see [SilverBullet docs](https://silverbullet.md/Configuration)). Earlier releases used a yaml block with `libraries:` and `pageBlackList:` -- both keys are unrecognized by SB 2.x and were always no-ops.
+
+`Library/Std` (and its compiled `Plugs/*.plug.js`) is served by the SilverBullet binary from its built-in `client_bundle/base_fs` overlay. There is nothing to federate at runtime and nothing to preseed onto disk. The dashboard's `widgets.commandButton`, `templates.fullPageItem`, `templates.pageItem`, `templates.taskItem`, `index.contentPages()`, and `tags.page` all resolve through that overlay automatically. The first-load delay (~30 s on a fresh browser) is the SilverBullet client building its IndexedDB index of Library/Std files; subsequent loads are instant from cache.
 
 ### STYLES.md and codeflare theming
 
@@ -258,7 +261,7 @@ A brand-new session boots with a pre-populated vault: `Index.md`, `README.md`, `
 
 `init_user_vault()` runs AFTER `establish_bisync_baseline()` so we never run the per-boot sync over a half-restored vault. If the baseline fails for any reason, the init function still runs (`(init_user_vault) || echo ...`) and the critical-dir + preseed-page tiers are created locally; the next successful bisync reconciles user content.
 
-On first browser open after a fresh vault, the dashboard widgets ("Quick Note" button, "Journal: Today" button, "Recently modified pages") may appear inert for ~30 seconds while SilverBullet federates `Library/Std` from `silverbullet.md` per `CONFIG.md`'s directive. Refresh once if buttons don't react.
+On first browser open after a fresh vault, the dashboard widgets ("Quick Note" button, "Journal: Today" button, "Recently modified pages") take ~30 seconds to populate while the SilverBullet client builds its IndexedDB index of `Library/Std` (served from the binary's base_fs overlay). The Vault button in the header is rendered `disabled` with a "Vault initializing…" tooltip until the container reaches `startupStage === 'ready'`, so the user cannot hit the proxy before SilverBullet has bound 3030. Subsequent loads in the same browser are instant from cache.
 
 The vault-monitor daemon does not fire a spurious extraction on first boot or after a preseed update: `init_user_vault()` bumps `vault-extract.last` past the preseed-page mtimes whenever it rewrites a page, and the daemon's find excludes the four preseed-managed pages by name. A fresh session sends 5 prompts in a row with no user vault edits and the vault-extract hook fires zero times.
 
@@ -277,7 +280,9 @@ SilverBullet supports pasting images directly into notes (they land in `Raw/Past
 | Stale session state on reopen after stop | Shutdown bisync was killed mid-write | Look for `TIMED OUT after 60s` in Durable Object logs (`wrangler tail <SCRIPT_NAME>`); raise the watchdog budget in `shutdown_handler` if frequent. |
 | `/api/vault/:sid/` returns 503 | SilverBullet supervisor not ready | The `/api/vault/:sid/status` endpoint reports `vaultReady`; poll it and re-open when true. |
 | Clicking "Quick Note" shows `You are not authenticated, going to reload...` alert, then reloads to a blank/white page | SilverBullet's client.js writes via PUT/DELETE/PATCH without `X-Requested-With`, which `authenticateRequest`'s CSRF guard required (fixed by the Origin-validated synthesis in `src/routes/vault.ts`) | Redeploy the container image to pick up the fix. As a temporary workaround, open the vault in a fresh browser tab (clears any stale ServiceWorker scope that may compound the loop). |
-| SilverBullet opens with wrong index page or default editor mode | Existing vault round-tripped through R2 bisync before the idempotent config sync landed in `init_user_vault` | Redeploy. The boot-time `cmp`-gated sync propagates the preseed `config.yaml` on the next start. |
+| SilverBullet opens lowercase "index" (empty editor) instead of the Codeflare dashboard | Supervisor not exporting `SB_INDEX_PAGE=Index` before launching the binary | Confirm the env var is set in `entrypoint.sh start_silverbullet_supervisor`. SB's Go server hardcodes the default to `"index"` (`server/cmd/server.go:29`); the env var is the only override. |
+| Vault button clickable during boot returns `VAULT_UPSTREAM_UNREACHABLE` | UI is not gating on session readiness | The button should be disabled until `startupStage === 'ready'`. If you see it clickable too early, regression in `Layout.tsx` `vaultReady` wiring. |
+| Dashboard widgets render as raw `${query[[...]]}` text or nothing | Someone copied a partial `Library/Std/` onto disk, shadowing the binary's `base_fs` overlay | `rm -rf ~/Vault/Library/Std` and restart SB. Library/Std is shipped inside the SilverBullet binary; **never** seed it from disk. |
 | `mcp__graphify__query_graph` returns no vault nodes even after several capture cycles | Older image: capture sonnet called `graphify extract --file` (requires an LLM provider key, codeflare ships none), so every run produced 0 nodes | Redeploy. After the fix, sonnets self-extract via their own conversation and emit chunk JSON that `graphify global add` ingests. |
 | Browser console shows `Failed to register a ServiceWorker ... 401 ... fetching the script`; SilverBullet loads but appears unregistered as a PWA / offline mode never activates | Older image: SW registration GET at `/api/vault/<sid>/service_worker.js` ran the cookie-auth chain, but Chrome 76+ omits credentials on SW script fetches (no `Cookie` header sent), so auth returned 401 and registration failed permanently | Redeploy. The Worker now short-circuits SW registration via `VAULT_NOOP_SERVICE_WORKER_JS` (selector: `service-worker: script` header + no `Cookie`) and returns a static no-op SW the browser accepts. Distinct from the CSRF / Quick-Note row above; both can be present on a pre-fix image. |
 | Editing a SilverBullet note shows `Could not save page, retrying again in 10 seconds` repeatedly; saves never succeed | Older image: PUT requests went through `maybeSynthesizeCsrfHeader` which clones the request to add `X-Requested-With`, consuming the original body; the proxy then forwarded the original (now disturbed) request to `container.fetch`, raising `TypeError: This ReadableStream is disturbed` and returning 500 | Redeploy. The proxy now forwards the auth-validated clone (which owns the body) instead of the original; pre-fix images log `Vault request error` with the disturbed-stream stack trace in Worker logs (`wrangler tail` or Cloudflare Observability). |

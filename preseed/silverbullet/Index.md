@@ -2,7 +2,7 @@ This is your Codeflare vault. Notes here persist across sessions and feed the cr
 
 New to this? Read [[README]] for what the vault is, why it exists, and how to use SilverBullet.
 
-> _First-load tip: on a fresh session the widget buttons and query lists below appear empty for ~30 seconds while SilverBullet federates its standard library from `silverbullet.md`. Refresh once if buttons don't react._
+> _First-load tip: on a fresh browser the dashboard takes ~30 seconds to populate while SilverBullet indexes its standard library into IndexedDB. Subsequent loads are instant from cache._
 
 # Recent quick notes
 ${widgets.commandButton "Quick Note"}

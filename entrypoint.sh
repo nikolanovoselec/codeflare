@@ -806,11 +806,18 @@ start_silverbullet_supervisor() {
     # in one `kill -- -PID` call. Was `set -m` previously, but bash
     # silently ignores job control in non-interactive subshells, leaving
     # silverbullet orphaned and binding port 3030 against the next session.
+    # SB_INDEX_PAGE: the SilverBullet 2.x Go server hardcodes IndexPage
+    # to "index" (lowercase) and ignores any indexPage key in
+    # .silverbullet/config.yaml. The only override is the env var
+    # (server/cmd/server.go:56). Without this, the TitleCase Index.md
+    # preseed page is unreachable from "/" and the user lands on a 404
+    # that looks like an empty editor.
     setsid bash -c '
         VAULT_ROOT="$1"
         SB_BIN="$2"
         SB_HOST="$3"
         SB_PORT="$4"
+        export SB_INDEX_PAGE="Index"
         while true; do
             # Vault may not exist on first boot if baseline+init are still
             # racing. Wait it out instead of crash-looping; the daemon
@@ -1227,11 +1234,10 @@ init_user_vault() {
     # authoritative; overwrites user hand-edits to .silverbullet/ on every
     # boot. Atlas plug is best-effort; absence falls back to graphify-out/
     # graph.html for visualisation.
-    if [ -f "$PRESEED_DIR/config.yaml" ] \
-       && ! cmp -s "$PRESEED_DIR/config.yaml" "$VAULT/.silverbullet/config.yaml" 2>/dev/null; then
-        cp "$PRESEED_DIR/config.yaml" "$VAULT/.silverbullet/config.yaml"
-        echo "[entrypoint] Vault config.yaml synced from preseed"
-    fi
+    # .silverbullet/config.yaml is unread by SB 2.x (only env vars and the
+    # space-lua block in CONFIG.md are honored). Remove any leftover from
+    # earlier releases so it doesn't mislead future readers. Idempotent.
+    rm -f "$VAULT/.silverbullet/config.yaml" 2>/dev/null
     if [ -f "$PRESEED_DIR/atlas.plug.js" ] \
        && ! cmp -s "$PRESEED_DIR/atlas.plug.js" "$VAULT/.silverbullet/_plug/atlas.plug.js" 2>/dev/null; then
         cp "$PRESEED_DIR/atlas.plug.js" "$VAULT/.silverbullet/_plug/atlas.plug.js"
