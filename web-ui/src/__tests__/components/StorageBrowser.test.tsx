@@ -326,38 +326,19 @@ describe('StorageBrowser', () => {
     });
   });
 
-  describe('Search', () => {
-    it('shows search input when search toggle is clicked', () => {
+  // SEARCH UI DISABLED 2026-05-18 (REQ-STOR-015 D1): the storage-search-toggle
+  // button was removed to free the toolbar slot for the Sync-now button.
+  // storageStore.searchFiles() and the filter chain remain intact. If the
+  // toggle is restored, re-add toggle-click / input-focus / searchFiles
+  // tests here, matching the original three test bodies.
+  describe('Search (toolbar toggle removed)', () => {
+    it('search toggle button is not in the toolbar', () => {
       render(() => <StorageBrowser />);
-
-      const searchToggle = screen.getByTestId('storage-search-toggle');
-      fireEvent.click(searchToggle);
-
-      expect(screen.getByTestId('storage-search-input')).toBeInTheDocument();
+      expect(screen.queryByTestId('storage-search-toggle')).toBeNull();
     });
 
-    it('focuses search input automatically when opened', async () => {
-      render(() => <StorageBrowser />);
-
-      const searchToggle = screen.getByTestId('storage-search-toggle');
-      fireEvent.click(searchToggle);
-
-      const searchInput = screen.getByTestId('storage-search-input');
-      await waitFor(() => expect(searchInput).toHaveFocus());
-    });
-
-    it('calls searchFiles with query as user types', () => {
-      mockObjects = [
-        { key: 'workspace/readme.md', size: 100, lastModified: '2024-01-15T10:00:00Z' },
-      ];
-      render(() => <StorageBrowser />);
-
-      const searchToggle = screen.getByTestId('storage-search-toggle');
-      fireEvent.click(searchToggle);
-
-      const searchInput = screen.getByTestId('storage-search-input');
-      fireEvent.input(searchInput, { target: { value: 'readme' } });
-
+    it('searchFiles store helper remains callable even with toggle removed', () => {
+      mockSearchFiles('readme');
       expect(mockSearchFiles).toHaveBeenCalledWith('readme');
     });
   });
