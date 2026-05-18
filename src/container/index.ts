@@ -238,6 +238,16 @@ export class container extends Container<Env> {
     const handler = this.internalRoutes.get(routeKey);
     if (handler) return handler(request);
 
+    // Note on POST /internal/bisync-trigger (REQ-STOR-015): the Worker
+    // fan-out at /api/sessions/sync calls this DO with that path. It is
+    // intentionally NOT in the internalRoutes map (no leading underscore)
+    // so it falls through to the standard forward path below: the DO
+    // injects the container auth token and super.fetch() routes it to
+    // the host server's matching handler. The 503 short-circuit on a
+    // hibernated container is the hibernation-safety guarantee for the
+    // Sync-now feature - no DO-side state, no daemon-PID cache, all
+    // decisions made at call time against ctx.container?.running.
+
     // Reject non-internal requests when the container is not running.
     // This prevents WebSocket reconnect attempts from waking a hibernated
     // container via super.fetch() (which triggers the SDK's startIfNotRunning).
