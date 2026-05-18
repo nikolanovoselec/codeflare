@@ -16,6 +16,9 @@ let mockStats: any = null;
 let mockPreviewFile: any = null;
 let mockWorkspaceSyncEnabled = true;
 let mockActiveSessionId: string | null = 'test-session';
+// REQ-STOR-015 AC6: Sync-now button disabled while a fan-out is in flight.
+// Default false; flip per test to assert disabled-state coupling.
+let mockSyncing = false;
 
 const mockBrowse = vi.fn();
 const mockNavigateTo = vi.fn();
@@ -44,6 +47,7 @@ const mockSearchFiles = vi.fn((q: string) => {
 const mockFetchStats = vi.fn();
 const mockOpenPreview = vi.fn();
 const mockClosePreview = vi.fn();
+const mockSyncNow = vi.fn();
 // MOCK-DRIFT RISK: The storageStore mock below replicates the public API surface
 // of stores/storage.ts. If the real store adds/removes/renames methods or changes
 // getter signatures, these tests will silently pass with stale behavior. When
@@ -61,7 +65,9 @@ vi.mock('../../stores/storage', () => ({
     get breadcrumbs() { return mockBreadcrumbs; },
     get stats() { return mockStats; },
     get previewFile() { return mockPreviewFile; },
+    get syncing() { return mockSyncing; },
     browse: (...args: any[]) => mockBrowse(...args),
+    syncNow: (...args: any[]) => mockSyncNow(...args),
     navigateTo: (...args: any[]) => mockNavigateTo(...args),
     navigateUp: (...args: any[]) => mockNavigateUp(...args),
     refresh: (...args: any[]) => mockRefresh(...args),
@@ -857,6 +863,56 @@ describe('StorageBrowser', () => {
       render(() => <StorageBrowser />);
 
       expect(screen.queryByTestId('storage-upload-queue')).not.toBeInTheDocument();
+    });
+  });
+
+  // REQ-STOR-015 AC6 backfill: the Sync-now (fan-out) button is disabled
+  // while any of the user's sessions reports sync.status === 'syncing'.
+  // The toolbar binds `disabled={storageStore.syncing}` and `class={... ?
+  // 'storage-sync-breathing' : ''}` to the same flag, so we drive
+  // mockSyncing to verify both behaviors plus the click-suppression
+  // contract.
+  describe('Sync-now fan-out button (REQ-STOR-015 AC6)', () => {
+    beforeEach(() => {
+      mockSyncing = false;
+      mockSyncNow.mockReset();
+    });
+
+    it('renders the fan-out button with the storage-sync-now-btn testid', () => {
+      render(() => <StorageBrowser />);
+      expect(screen.getByTestId('storage-sync-now-btn')).toBeInTheDocument();
+    });
+
+    it('is enabled and clickable when no fan-out is in flight', () => {
+      mockSyncing = false;
+      render(() => <StorageBrowser />);
+      const btn = screen.getByTestId('storage-sync-now-btn');
+      expect(btn).not.toBeDisabled();
+      fireEvent.click(btn);
+      expect(mockSyncNow).toHaveBeenCalledTimes(1);
+    });
+
+    it('is disabled while storageStore.syncing is true', () => {
+      mockSyncing = true;
+      render(() => <StorageBrowser />);
+      const btn = screen.getByTestId('storage-sync-now-btn');
+      expect(btn).toBeDisabled();
+    });
+
+    it('shows the breathing animation class while syncing', () => {
+      mockSyncing = true;
+      render(() => <StorageBrowser />);
+      const btn = screen.getByTestId('storage-sync-now-btn');
+      // Class is bound to the icon element, not the button container.
+      // Look for any descendant with the breathing class.
+      expect(btn.querySelector('.storage-sync-breathing')).toBeInTheDocument();
+    });
+
+    it('does NOT show the breathing animation class when idle', () => {
+      mockSyncing = false;
+      render(() => <StorageBrowser />);
+      const btn = screen.getByTestId('storage-sync-now-btn');
+      expect(btn.querySelector('.storage-sync-breathing')).not.toBeInTheDocument();
     });
   });
 });
