@@ -39,11 +39,16 @@ The memory-capture hook fires every 15 user messages. It writes a
 Execution protocol:
 
 1. Check whether the `.vars` file referenced in the directive exists.
-2. If it EXISTS → spawn a background **haiku** Task agent with the
+2. If it EXISTS → spawn a background **sonnet** Task agent with the
    hook's instructions. The agent deletes the `.vars` file first (dedup
-   gate), writes a markdown capture into
-   `/home/user/Vault/Raw/Sessions/`, then merges it into the
-   unified global graph via `graphify global add`.
+   gate), runs `prefilter-transcript.sh` to strip tool I/O and chunk
+   the conversation, accumulates per-chunk observations into a
+   scratchpad, synthesises the final markdown capture into
+   `/home/user/Vault/Raw/Sessions/`, then merges it into the unified
+   global graph via `graphify global add`. Sonnet (not haiku) because
+   the capture agent must cite REQ IDs / ADRs / commit SHAs verbatim,
+   and haiku confabulated adjacent IDs in benchmarking. See AD58 in
+   `documentation/decisions/README.md` for the cost-vs-fidelity rationale.
 3. If it does NOT exist → do nothing.
 4. Then respond to the user's actual message.
 
