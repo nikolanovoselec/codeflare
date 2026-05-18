@@ -29,6 +29,7 @@ import {
   type SessionListMetadata,
 } from './kv-keys';
 import { getContainerId } from './container-helpers';
+import { SESSION_ID_PATTERN } from './constants';
 
 /**
  * Maximum concurrent per-session sync triggers in one fan-out call
@@ -66,7 +67,15 @@ export async function fanOutBisyncTrigger(
     if (meta && meta.s) {
       const expanded = expandSessionMetadata(meta);
       if (expanded.status === 'running') {
-        runningSessionIds.push(key.name.split(':').pop()!);
+        // Parse sid as the final colon-delimited segment of the KV key.
+        // Validate against SESSION_ID_PATTERN to fail-closed on
+        // unexpected key shapes — a malformed key should not crash
+        // fan-out (code-reviewer 2nd report H2: replaces unsafe `!`).
+        const lastColon = key.name.lastIndexOf(':');
+        const sid = lastColon >= 0 ? key.name.slice(lastColon + 1) : '';
+        if (sid && SESSION_ID_PATTERN.test(sid)) {
+          runningSessionIds.push(sid);
+        }
       }
     } else {
       fallbackKeys.push(key);

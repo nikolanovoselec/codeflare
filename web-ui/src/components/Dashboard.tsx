@@ -57,7 +57,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
     // sid is not in the user's current session list. Catches the case
     // where a session was deleted via API in another tab or after a
     // browser crash before cleanupSessionVaultCache could run.
-    const activeIds = props.sessions.map((s) => s.id);
+    const activeIds = (props.sessions ?? []).map((s) => s.id);
     void sweepOrphanVaultCaches(activeIds).catch(() => {
       // Best-effort; never block dashboard mount on cache sweep.
     });

@@ -25,7 +25,11 @@ export async function syncBrowserTimezone(input: SyncBrowserTimezoneInput): Prom
   if (input.currentTimezone === input.browserTimezone) return;
   try {
     await input.updatePreferences({ userTimezone: input.browserTimezone });
-  } catch {
+  } catch (err) {
     // Best-effort sync; never block the caller (e.g. dashboard mount).
+    // Log at warn so a persistent failure (auth, schema rejection) is
+    // visible in devtools rather than silent (code-reviewer M1).
+    // eslint-disable-next-line no-console
+    console.warn('[timezone-sync] updatePreferences failed', err);
   }
 }

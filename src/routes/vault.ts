@@ -172,6 +172,9 @@ export function injectVaultEncryptionConfig(bootConfigJson: string, vaultEncrypt
     throw new Error('injectVaultEncryptionConfig: vaultEncryptionKey must be non-empty');
   }
   const parsed = JSON.parse(bootConfigJson);
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('injectVaultEncryptionConfig: BootConfig must be a JSON object');
+  }
   const merged = {
     ...parsed,
     vaultEncryptionKey,
@@ -235,8 +238,15 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
   if (!html.includes('</head>')) {
     return html;
   }
-  // Escape </ to <\/ to defang any literal </script> inside the payload.
-  const serialised = JSON.stringify(config).replace(/<\//g, '<\\/');
+  // Defence-in-depth escapes for JSON-in-script-tag boundary:
+  //   </ -> <\/   (defang literal </script> break-out)
+  //   <!-- -> <\!--  (HTML5 script-data-double-escape-start)
+  //   U+2028 / U+2029 -> \u2028 / \u2029 (legal in JSON, illegal as
+  //     bare JS string literals in older runtimes)
+  const serialised = JSON.stringify(config)
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
   const tag = `<script>${VAULT_BOOT_MARKER} = ${serialised};</script>`;
   return html.replace('</head>', `${tag}</head>`);
 }
@@ -269,6 +279,10 @@ export function filterVaultFsListing(body: string): string {
       if (typeof name !== 'string') return true;
       return !name.startsWith('graphify-out/');
     });
+    // Pass through the original body byte-for-byte when nothing was
+    // filtered so any upstream ETag / cache-validation key the SB
+    // binary may rely on stays intact (no-op safety).
+    if (filtered.length === parsed.length) return body;
     return JSON.stringify(filtered);
   } catch {
     return body;
@@ -289,6 +303,14 @@ export function filterVaultFsListing(body: string): string {
  */
 export function inferOriginValidated(request: Request): boolean {
   if (request.headers.get('Origin')) return false;
+  // Defence-in-depth note (code-reviewer 1st report H4): per Fetch spec,
+  // modern browsers always set Origin on state-changing requests, so an
+  // attacker browser cannot forge "no Origin" to bypass CSRF. If a
+  // future hardening pass wants belt-and-braces, also require
+  // `Sec-Fetch-Site: same-origin` here (Chromium/Firefox/Safari all set
+  // it). We do NOT require it today because some embedded WebViews
+  // omit Sec-Fetch-Site, and SilverBullet's PUT path needs to remain
+  // reachable from those.
   const method = request.method.toUpperCase();
   return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
 }

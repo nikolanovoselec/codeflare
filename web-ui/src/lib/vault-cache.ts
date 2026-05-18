@@ -60,12 +60,41 @@ async function listDatabaseNames(idb: IDBFactory): Promise<string[]> {
   }
 }
 
-function deleteIDB(idb: IDBFactory, name: string): void {
-  try {
-    idb.deleteDatabase(name);
-  } catch {
-    // Best-effort; a blocked-delete event will trigger on next open.
-  }
+/**
+ * Anchored sid match. SB IDBs are named `sb_files_<sid>_<hash>` and
+ * `sb_data_<sid>_<hash>`. A naive `name.includes(sid)` would over-match
+ * when one sid is a substring of another, or when the sid happens to
+ * appear inside the trailing hash. Require the sid to occupy a full
+ * underscore-delimited segment.
+ */
+function dbNameContainsSid(name: string, sid: string): boolean {
+  if (!name.startsWith('sb_files_') && !name.startsWith('sb_data_')) return false;
+  const parts = name.split('_');
+  // sb_(files|data)_<sid>_<hash> -> parts[2] is the sid segment.
+  return parts.length >= 3 && parts[2] === sid;
+}
+
+function deleteIDB(idb: IDBFactory, name: string): Promise<void> {
+  return new Promise<void>((resolve) => {
+    try {
+      const req = (idb as unknown as { deleteDatabase: (n: string) => IDBOpenDBRequest }).deleteDatabase(name);
+      // Awaiting completion catches the case where another tab held the
+      // DB open: a blocked event surfaces here instead of orphaning the
+      // delete silently (REQ-VAULT-008 AC8 cleanup correctness).
+      if (req && typeof req === 'object') {
+        const r = req as unknown as { onsuccess: ((e?: unknown) => void) | null; onerror: ((e?: unknown) => void) | null; onblocked: ((e?: unknown) => void) | null };
+        r.onsuccess = () => resolve();
+        r.onerror = () => resolve();
+        r.onblocked = () => resolve();
+        // Defensive timer so callers never hang forever on a stuck request.
+        setTimeout(() => resolve(), 5000);
+      } else {
+        resolve();
+      }
+    } catch {
+      resolve();
+    }
+  });
 }
 
 async function unregisterSwForSession(sw: ServiceWorkerContainer, sid: string): Promise<void> {
@@ -103,11 +132,11 @@ export async function cleanupSessionVaultCache(sid: string): Promise<void> {
 
   if (idb) {
     const names = await listDatabaseNames(idb);
-    for (const name of names) {
-      if (name.includes(sid)) {
-        deleteIDB(idb, name);
-      }
-    }
+    await Promise.all(
+      names
+        .filter((name) => dbNameContainsSid(name, sid))
+        .map((name) => deleteIDB(idb, name)),
+    );
   }
 
   if (ls) {
@@ -137,24 +166,21 @@ export async function sweepOrphanVaultCaches(activeSessionIds: string[]): Promis
 
   if (idb) {
     const names = await listDatabaseNames(idb);
+    const deletes: Promise<void>[] = [];
     for (const name of names) {
       // Only consider SB cache DBs.
       if (!name.startsWith('sb_files_') && !name.startsWith('sb_data_')) continue;
-      // Any sid that is not in the active set is orphan.
-      let isOrphan = true;
-      for (const activeSid of active) {
-        if (name.includes(activeSid)) {
-          isOrphan = false;
-          break;
-        }
-      }
-      if (isOrphan) {
-        deleteIDB(idb, name);
-        // Try to infer the sid from the DB name to also drop the marker.
-        const match = name.match(/^sb_(?:files|data)_([^_]+)/);
-        if (match) orphanSids.add(match[1]);
+      // Extract sid as full underscore-delimited segment (anchored match
+      // prevents the substring false-positives the include() check had).
+      const parts = name.split('_');
+      if (parts.length < 3) continue;
+      const sid = parts[2];
+      if (!active.has(sid)) {
+        deletes.push(deleteIDB(idb, name));
+        orphanSids.add(sid);
       }
     }
+    await Promise.all(deletes);
   }
 
   if (ls) {

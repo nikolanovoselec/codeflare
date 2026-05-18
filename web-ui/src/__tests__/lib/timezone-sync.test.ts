@@ -14,7 +14,9 @@ describe('getBrowserTimezone (REQ-MEM-001 AC3)', () => {
     // resolves to the host's timezone (typically UTC in CI, local in dev).
     const tz = getBrowserTimezone();
     expect(typeof tz).toBe('string');
-    expect((tz ?? '').length).toBeGreaterThan(0);
+    // Must match canonical IANA form (Region/City) or the literal UTC.
+    // Tightened from "any non-empty string" per code-reviewer M-tdd-1.
+    expect(tz ?? '').toMatch(/^([A-Za-z_]+\/[A-Za-z_+-]+(?:\/[A-Za-z_]+)?|UTC|GMT)$/);
   });
 
   it('returns null if Intl.DateTimeFormat throws (defensive)', () => {

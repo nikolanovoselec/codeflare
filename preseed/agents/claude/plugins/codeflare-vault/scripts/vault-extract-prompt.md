@@ -214,8 +214,14 @@ print(f'vault graph: {G_merged.number_of_nodes()} nodes ({G_new.number_of_nodes(
 
 The `flock` lock matches the one used by `graphify global add` in step 5
 and `graphify-active-repo.sh`, so concurrent writers do not stomp the
-manifest. REQ-MEM-009 AC5: this lock covers the load+merge+persist
-sequence above plus the global-add in step 5.
+manifest. REQ-MEM-009 AC5 scoping: each `flock` invocation here covers
+only its own command (the Python load+merge+persist above is one
+critical section; the `graphify global add` in step 5 is a second
+critical section). Both serialise against the same lock file, so a
+concurrent capture-pipeline or active-repo writer cannot interleave
+with either step; the two steps may interleave with each other in the
+brief window between them, but that is safe because step 5 reads a
+file step 4 has already fsynced.
 
 If the build prints `0 nodes, 0 edges`, that is fine - step 5 will
 no-op via `graphify global add`'s hash dedup. Continue to step 6.

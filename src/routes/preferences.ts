@@ -28,8 +28,13 @@ const logger = createLogger('preferences');
 function isValidIanaTz(tz: string): boolean {
   if (!tz) return false;
   try {
-    new Intl.DateTimeFormat('en-US', { timeZone: tz });
-    return true;
+    // V8's Intl is case-insensitive (`europe/zurich` resolves), but the
+    // container's downstream `TZ="$USER_TIMEZONE" date` on musl is case-
+    // sensitive and silently falls back to UTC for non-canonical casing.
+    // Round-trip via resolvedOptions().timeZone to require the canonical
+    // IANA form so the validator and the consumer agree (code-reviewer M3).
+    const resolved = new Intl.DateTimeFormat('en-US', { timeZone: tz }).resolvedOptions().timeZone;
+    return resolved === tz;
   } catch {
     return false;
   }

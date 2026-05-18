@@ -45,6 +45,27 @@ END="${3:?end line required}"
 OUT="${4:?out dir required}"
 CHUNK_SIZE="${5:-20}"
 
+# Fail-loud integer validation of START/END/CHUNK_SIZE. Empty captures
+# (START=END=0) or non-numeric args previously silently slid through
+# sed's ",p" handling and emitted a zero-byte slice, which the capture
+# agent then "summarised" with hallucinated content from training data
+# (code-reviewer 2nd report H3).
+for var in START END CHUNK_SIZE; do
+  val="${!var}"
+  if ! [[ "$val" =~ ^[0-9]+$ ]]; then
+    echo "$var must be a non-negative integer, got: $val" >&2
+    exit 1
+  fi
+done
+if [ "$START" -lt 1 ] || [ "$END" -lt "$START" ]; then
+  echo "invalid line range: START=$START END=$END (need START>=1 and END>=START)" >&2
+  exit 1
+fi
+if [ "$CHUNK_SIZE" -lt 1 ]; then
+  echo "CHUNK_SIZE must be >= 1, got: $CHUNK_SIZE" >&2
+  exit 1
+fi
+
 [ -f "$TRANSCRIPT" ] || { echo "transcript not found: $TRANSCRIPT" >&2; exit 1; }
 mkdir -p "$OUT"
 
