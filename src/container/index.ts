@@ -273,62 +273,57 @@ export class container extends Container<Env> {
   async ensureVaultKey(): Promise<string> {
     if (this._vaultKey) return this._vaultKey;
 
-    // Race guard: two concurrent first-callers must NOT both mint
-    // distinct keys. blockConcurrencyWhile serialises around the
-    // storage.get + mint + storage.put sequence so the second caller
-    // sees the first caller's persisted key. Without this the browser
-    // could be handed key A while storage retains key B, permanently
-    // breaking IDB decryption on the next DO wake (REQ-VAULT-008 AC1).
-    const blocker = this.ctx.blockConcurrencyWhile;
-    if (typeof blocker === 'function') {
-      await blocker.call(this.ctx, async () => {
-        if (this._vaultKey) return;
-        const existing = await this.ctx.storage.get<string>('vaultKey');
-        if (existing) {
-          this._vaultKey = existing;
-        }
-      });
+    // Critical-section body: re-check cache, restore from storage,
+    // mint on first miss, and PERSIST INLINE before returning. Must
+    // run inside blockConcurrencyWhile so a concurrent second caller
+    // queued behind the first sees the persisted key on its own
+    // storage.get (REQ-VAULT-008 AC1). The put MUST be awaited inside
+    // the critical section — using waitUntil would let the block exit
+    // before the write commits, defeating the guard.
+    const mintAndPersist = async (): Promise<string> => {
       if (this._vaultKey) return this._vaultKey;
-    } else {
-      // Test mocks without blockConcurrencyWhile: best-effort recheck.
       const existing = await this.ctx.storage.get<string>('vaultKey');
       if (existing) {
         this._vaultKey = existing;
-        return this._vaultKey;
+        return existing;
       }
-    }
+      // No cached key -- mint one. crypto.getRandomValues is the
+      // WebCrypto entry point available on the Workers runtime.
+      const bytes = new Uint8Array(32);
+      crypto.getRandomValues(bytes);
+      // Convert to base64 without Buffer (not available on Workers).
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const key = btoa(binary);
+      this._vaultKey = key;
+      // Promise.resolve wrap matches the containerAuthToken pattern:
+      // production returns a real Promise but some test mocks return
+      // undefined synchronously, so `.catch` on the bare call would
+      // NPE without the wrap.
+      await Promise.resolve(this.ctx.storage.put('vaultKey', key)).catch((err) => {
+        this.logger.warn('Failed to persist vaultKey', { error: toErrorMessage(err) });
+      });
+      return key;
+    };
 
-    // No cached key -- mint one. crypto.getRandomValues is the
-    // WebCrypto entry point available on the Workers runtime.
-    const bytes = new Uint8Array(32);
-    crypto.getRandomValues(bytes);
-    // Convert to base64 without Buffer (not available on Workers).
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    // Race guard: two concurrent first-callers must NOT both mint
+    // distinct keys. blockConcurrencyWhile serialises the full
+    // get + mint + put sequence so the second caller's storage.get
+    // sees the first caller's persisted key. Without this the browser
+    // could be handed key A while storage retains key B, permanently
+    // breaking IDB decryption on the next DO wake.
+    const blocker = this.ctx.blockConcurrencyWhile;
+    if (typeof blocker === 'function') {
+      let result = '';
+      await blocker.call(this.ctx, async () => {
+        result = await mintAndPersist();
+      });
+      return result;
     }
-    const key = btoa(binary);
-    this._vaultKey = key;
-
-    // Persist so the next DO wake's restore branch finds the same
-    // value. Promise.resolve wrap matches the containerAuthToken
-    // pattern: production returns a real Promise but some test mocks
-    // return undefined synchronously, so `.catch` on the bare call
-    // would NPE without the wrap.
-    const putPromise = Promise.resolve(
-      this.ctx.storage.put('vaultKey', key),
-    ).catch((err) => {
-      this.logger.warn('Failed to persist vaultKey', { error: toErrorMessage(err) });
-    });
-    if (typeof this.ctx.waitUntil === 'function') {
-      this.ctx.waitUntil(putPromise);
-    } else {
-      // Test mocks without waitUntil: await the put inline so the
-      // assertion against mockStorage.put can observe the call before
-      // the test moves on.
-      await putPromise;
-    }
-    return key;
+    // Test mocks without blockConcurrencyWhile: best-effort, no guard.
+    return mintAndPersist();
   }
 
   /** Override fetch to handle internal routes via map-based dispatch. */
