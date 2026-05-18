@@ -8,7 +8,7 @@ System architecture, components, data flow, and design rationale for Codeflare.
 
 ## Architecture Overview
 
-Codeflare runs AI coding agents in isolated containers, one per browser session (tab). All sessions for a user share a single R2 bucket for persistent storage, with periodic bidirectional sync (every 60 seconds).
+Codeflare runs AI coding agents in isolated containers, one per browser session (tab). All sessions for a user share a single R2 bucket for persistent storage, with periodic bidirectional sync every 15 minutes plus manual triggers from the storage panel and a final sync at shutdown (see AD56).
 
 ```mermaid
 graph TD
@@ -18,8 +18,8 @@ graph TD
     W -->|"containerId=bucket-session2"| C2["Container 2"]
     C1 --- P1["PTY + Agent"]
     C2 --- P2["PTY + Agent"]
-    P1 -->|"rclone bisync (every 60s)"| R2["R2 bucket (shared per user)"]
-    P2 -->|"rclone bisync (every 60s)"| R2
+    P1 -->|"rclone bisync (15min + manual triggers)"| R2["R2 bucket (shared per user)"]
+    P2 -->|"rclone bisync (15min + manual triggers)"| R2
 ```
 
 **Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, all traffic should go through the custom domain (protected by the configured auth mechanism — CF Access or GitHub OIDC). In CF Access mode, the workers.dev URL should be gated behind one-click Access in the Cloudflare dashboard.
@@ -85,7 +85,7 @@ flowchart TD
     TK -->|No| ReArm
 ```
 
-**`destroy()` Override:** Clears session identifiers and in-memory credentials from DO storage before calling `super.destroy()`. Sends `SIGTERM` and polls `ctx.container.running` for up to 25 s so the entrypoint trap can run the final `rclone bisync` before SIGKILL. Clearing identifiers first prevents `onStop()` (async) from resurrecting deleted sessions in KV. The `containerAuthToken` storage key is also cleared here so the next session under the same DO ID starts with a fresh token (no cross-lifecycle reuse).
+**`destroy()` Override:** Clears session identifiers and in-memory credentials from DO storage before calling `super.destroy()`. Sends `SIGTERM` and polls `ctx.container.running` for up to **135 seconds** so the entrypoint trap can run the final `rclone bisync` (120s budget) before SIGKILL, with a 15s clean-exit buffer. A `logger.warn` fires inside the poll loop at 110 seconds elapsed so sessions approaching the budget surface in logs. Clearing identifiers first prevents `onStop()` (async) from resurrecting deleted sessions in KV. The `containerAuthToken` storage key is also cleared here so the next session under the same DO ID starts with a fresh token (no cross-lifecycle reuse). See AD57 for the budget rationale.
 
 **Container auth token persistence (REQ-SEC-012 AC5/AC6):** The token referenced in [Request proxying](#container-do-container) above is generated lazily in `updateEnvVars()`, persisted to `ctx.storage` under key `containerAuthToken`, and restored in `blockConcurrencyWhile` alongside `bucketName` / `sessionId` / other operational state. The storage put is pinned to the request lifecycle via `ctx.waitUntil(...)` so the runtime cannot hibernate the DO before the write commits, closing the wake-then-immediately-hibernate window where the new token would otherwise be lost and re-generated on the next wake. See [security.md](./security.md#container-auth-token-req-sec-012) for the threat model and failure consequence.
 
@@ -97,7 +97,7 @@ flowchart TD
 
 **File:** `host/src/server.ts` - Node.js/TypeScript server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
 
-Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (WebSocket connection state + user input timestamps: `hasActiveConnections`, `connectedClients`, `activeSessions`, `disconnectedForMs`, `lastInputAt`) for hibernation decisions via `GET /activity`. Unknown JSON `type` strings are silently ignored (guard against future message types leaking to PTY).
+Sync handled entirely by `entrypoint.sh` (15-minute daemon, SIGUSR1-interruptible for manual triggers). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. The manual trigger surface is the host endpoint `POST /internal/bisync-trigger`, which reads `/tmp/sync-daemon.pid` and sends SIGUSR1 to the daemon. See AD56 and REQ-STOR-015. Activity tracking (WebSocket connection state + user input timestamps: `hasActiveConnections`, `connectedClients`, `activeSessions`, `disconnectedForMs`, `lastInputAt`) for hibernation decisions via `GET /activity`. Unknown JSON `type` strings are silently ignored (guard against future message types leaking to PTY).
 
 **Auth-Exempt Paths:** The terminal server validates `Authorization: Bearer <token>` on all HTTP requests. `/health` and `/activity` are in the `authExemptPaths` Set at `host/src/server.ts` because `collectMetrics()` calls them directly via `ctx.container.getTcpPort(TERMINAL_SERVER_PORT).fetch(...)` from inside the DO class — that path enters the container over the SDK's private TCP plumbing and never runs through the public `fetch()` override, so no `Authorization` header is injected. The whitelist is safe because these two paths expose no user data and no mutable container state. The `/activity` endpoint is also exempted from auth in the DO-level `fetch()` override so internal health checks don't require token injection.
 

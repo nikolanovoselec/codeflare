@@ -11,9 +11,30 @@ import { createR2Client, getR2Url, parseInitiateMultipartUploadXml } from '../..
 import { getR2Config } from '../../lib/r2-config';
 import { ValidationError, ContainerError } from '../../lib/error-types';
 import { escapeXml } from '../../lib/xml-utils';
+import type { Context } from 'hono';
 import { validateKey, MAX_KEY_LENGTH } from './validation';
 import { parseJsonBody, firstZodError } from '../../lib/request-helpers';
 import { getSseHeaders } from '../../lib/r2-sse';
+import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
+
+/**
+ * Fire-and-forget the upload-side bisync fan-out trigger (REQ-STOR-015
+ * AC4). Wrapped in defensive try/catch + .catch so a synchronous throw
+ * from the trigger entry (e.g., env.KV / env.CONTAINER missing in test
+ * harnesses) or an asynchronous rejection cannot turn a successful R2
+ * PUT into a 500. The upload itself already succeeded; the trigger is
+ * best-effort and the 15-minute periodic cadence catches anything that
+ * the fire-and-forget missed.
+ */
+function fireBisyncTrigger(c: Context<{ Bindings: Env; Variables: AuthVariables }>, bucketName: string): void {
+  try {
+    const triggerPromise = fanOutBisyncTrigger(c.env, bucketName).catch(() => undefined);
+    c.executionCtx?.waitUntil(triggerPromise);
+  } catch {
+    // Synchronous throw from the trigger entry - swallow. The R2 PUT
+    // already succeeded; the periodic 15-min cadence will catch up.
+  }
+}
 
 const storageUploadRateLimiter = createRateLimiter({
   windowMs: 60_000,
@@ -91,6 +112,20 @@ app.post('/', async (c) => {
 
   // Invalidate storage-stats cache so next poll/fetch gets fresh data
   await c.env.KV.delete(`storage-stats:${bucketName}`);
+
+  // Fire-and-forget fan-out to running sessions (REQ-STOR-015 AC4).
+  // The user uploaded directly to R2; running containers pick up the
+  // file on their next bisync. Without this trigger, the wait could
+  // be up to 15 minutes (the cadence ceiling). We do not block the
+  // upload response on fan-out completion - the file is already in
+  // R2, the trigger is best-effort.
+  //
+  // sync-set filtering: we do NOT pre-filter by SYNC_MODE here. Each
+  // container's entrypoint.sh applies its own SYNC_MODE filters, and
+  // the trigger is cheap (~one extra bisync cycle on sessions where
+  // the file is filtered out). Pre-filtering would require reading
+  // per-session SYNC_MODE config, which is not worth the complexity.
+  fireBisyncTrigger(c, bucketName);
 
   return c.json({ key: sanitizedKey, size: binaryContent.length });
 });
@@ -201,6 +236,10 @@ app.post('/complete', async (c) => {
 
   // Invalidate storage-stats cache so next poll/fetch gets fresh data
   await c.env.KV.delete(`storage-stats:${bucketName}`);
+
+  // Fire-and-forget fan-out to running sessions (REQ-STOR-015 AC4).
+  // See the matching block in the simple-upload route for rationale.
+  fireBisyncTrigger(c, bucketName);
 
   return c.json({ key: sanitizedKey });
 });

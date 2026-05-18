@@ -283,6 +283,46 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     return;
   }
 
+  // Manual bisync trigger (REQ-STOR-015 AC1). Sends SIGUSR1 to the
+  // bisync daemon, which interrupts its sleep and runs an immediate
+  // bisync cycle. Idempotent: signals during a running bisync coalesce
+  // to exactly one rerun (see entrypoint.sh trap).
+  //
+  // Hibernation note: the daemon PID is read from /tmp/sync-daemon.pid
+  // at every call, never cached. If the container is sleeping or the
+  // daemon has not yet written its PID file, the call returns 503; the
+  // Worker fan-out treats 503 as "session not active, skip" rather
+  // than propagating a user-visible error.
+  if (pathname === '/internal/bisync-trigger' && method === 'POST') {
+    try {
+      const pidStr = fs.readFileSync('/tmp/sync-daemon.pid', 'utf8').trim();
+      const pid = Number(pidStr);
+      if (!Number.isFinite(pid) || pid <= 0) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'not-running', error: 'invalid daemon PID' }));
+        return;
+      }
+      try {
+        process.kill(pid, 'SIGUSR1');
+      } catch {
+        // ESRCH: process gone (daemon crashed or container restarting).
+        // Treat as not-running; the next container wake forces a
+        // baseline bisync per REQ-STOR-004 AC4, absorbing this trigger.
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'not-running', error: 'daemon process not found' }));
+        return;
+      }
+      res.writeHead(202, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'triggered' }));
+    } catch {
+      // PID file missing: daemon has not started yet (container still
+      // running initial sync) or has been torn down (shutdown trap).
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'not-running', error: 'sync daemon not started' }));
+    }
+    return;
+  }
+
   // Sync log endpoint
   if (pathname === '/sync-log' && method === 'GET') {
     try {

@@ -14,7 +14,12 @@ import '../styles/storage-browser.css';
 
 const StorageBrowser: Component = () => {
   const [isDragOver, setIsDragOver] = createSignal(false);
-  const [showSearch, setShowSearch] = createSignal(false);
+  // SEARCH UI DISABLED 2026-05-18 (sync-v2): the setter is unused at
+  // runtime because the toolbar button that flipped it was removed.
+  // Underscore prefix matches the project's oxlint convention for
+  // intentionally-unused identifiers. To restore: rename back to
+  // `setShowSearch` and re-add the toggle button in StorageToolbar.
+  const [showSearch, _setShowSearch] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal('');
   const [selectionModeEnabled, setSelectionModeEnabled] = createSignal(false);
   const [showHiddenItems, setShowHiddenItems] = createSignal(false);
@@ -277,8 +282,16 @@ const StorageBrowser: Component = () => {
       <div class="storage-browser-header">
         <StorageBreadcrumbs currentPrefix={storageStore.currentPrefix} />
         <StorageToolbar
-          showSearch={showSearch}
-          setShowSearch={setShowSearch}
+          // SEARCH UI DISABLED 2026-05-18 (REQ-STOR-015 + sync-v2 PR):
+          // the search-toggle button was removed from StorageToolbar.
+          // showSearch / setShowSearch / searchQuery / setSearchQuery /
+          // handleSearchInput remain declared above, and the
+          // <Show when={showSearch()}> render block below stays in
+          // place. They are now latent (nothing flips showSearch to
+          // true), and storageStore.searchFiles() is still callable
+          // by anything that wants the filter chain. To restore: add
+          // a button in StorageToolbar that calls setShowSearch and
+          // re-add showSearch + setShowSearch to its props.
           showHiddenItems={showHiddenItems}
           setShowHiddenItems={setShowHiddenItems}
           selectionModeEnabled={selectionModeEnabled}

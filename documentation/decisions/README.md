@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD55 throughout the codebase and documentation. 41 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD57 throughout the codebase and documentation. 43 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -66,6 +66,8 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking) | Graphify hot-reload wrapper with multi-repo sentinel tracking | Architecture |
 | [AD54](#ad54-vault-directory-must-use-a-non-hidden-basename) | Vault directory must use a non-hidden basename | Storage |
 | [AD55](#ad55-codeflare-brands-the-vault-editor-via-preseed-managed-stylesmd) | Codeflare brands the vault editor via preseed-managed STYLES.md | Architecture |
+| [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) | 15-minute bisync cadence with manual triggers (fan-out safe under newer-mtime-wins) | Storage |
+| [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) | 135-second shutdown budget for final bisync | Storage |
 
 ---
 
@@ -923,6 +925,77 @@ The initial implementation defined only `--cf-*`-namespaced custom properties on
 **Alternative considered:** Use SilverBullet's `theme:` setting in `.silverbullet/config.yaml` instead of a separate `STYLES.md` page. Rejected: the bootstrap `config.yaml` carries only the runtime essentials (indexPage, defaultMode); a 200-line CSS payload belongs in a markdown page where the `#meta/styles` tag is SilverBullet's canonical extension point.
 
 **Related REQ:** REQ-VAULT-001 (AC7 lists the four preseed-authoritative pages including STYLES.md).
+
+---
+
+### AD56: 15-minute bisync cadence with manual triggers
+
+**Category:** Storage
+
+**Status:** Active (2026-05-18)
+
+**Context:** The periodic rclone bisync daemon ran every 60 seconds, producing ~1440 invocations per session per day even on idle sessions. Each invocation does at minimum one LIST on each side plus N HEADs across both encrypted and unencrypted configs; for users with multiple active sessions the R2 operation count scaled into terabytes/month of metadata traffic and Class A operations. The dominant cost was not transferred bytes but listing overhead on idle sessions.
+
+Three options were considered: (a) keep 60s, (b) inotify-driven local-flush plus a 15-minute ceiling, (c) pure 15-minute cadence with explicit user-driven triggers. Option (b) was initially recommended for its sub-minute convergence on active sessions, but the Claude-projects directory writes session transcripts continuously and would trigger the inotify wake on every keystroke; restricting inotify to specific folders added complexity without clearly winning over option (c). Option (c) was chosen for simplicity.
+
+**Decision:** The periodic bisync runs every 15 minutes. Three trigger points cover the gap:
+
+1. **15-minute wall clock** -- the daemon's `sleep` is interruptible by SIGUSR1, otherwise wakes after 900 seconds.
+2. **Manual UI trigger** -- the storage panel's Sync-now button posts to `POST /api/sessions/sync`, which fans out per-session triggers across all the authenticated user's running sessions.
+3. **Upload-side auto-trigger** -- after a successful R2 PUT via the storage panel to a prefix in the active `SYNC_MODE` synced set, the Worker fires a fire-and-forget per-session trigger so the new file appears in the container without waiting for the next cycle.
+
+The daemon's SIGUSR1 trap is coalescing: signals received during a running bisync set a rerun-requested flag rather than queueing, so N signals during one cycle produce exactly one rerun after the current cycle completes.
+
+**Why fan-out across sessions is safe (and serial would not be better):**
+
+- bisync uses `--conflict-resolve newer`. Newest-mtime-wins is commutative and associative on absolute mtime: for any file with versions across N sessions, the final R2 state is always `max(mtime_1, ..., mtime_N)` regardless of order.
+- The system already runs in this concurrent mode every 60 seconds today for any user with multiple active sessions -- the existing `--check-sync=false / --resilient / --recover / --ignore-checksum / --max-delete 100` flag set was added precisely to harden bisync against listing divergence from concurrent writers. Manual fan-out introduces no new concurrency model.
+- R2 (S3-compatible) guarantees atomic per-object writes. Concurrent LISTs from different sessions see slightly different snapshots, but each individual file is either fully old or fully new -- never partial.
+- Serial fan-out would be ~Nx slower with no different outcome. Worse, the "winner" under serial would depend on which session the Worker happened to schedule first, replacing a mathematically deterministic max-mtime outcome with an arbitrary one.
+
+**Consequences:**
+- Estimated ~14x reduction in R2 ops on idle sessions (96 cycles/day vs 1440).
+- Ungraceful exit (OOM, container eviction, kernel panic) can lose up to 15 minutes of work. Graceful exit (idle stop, explicit delete, SIGTERM) remains safe via the final-bisync trap (AD57).
+- Multi-tab convergence latency widens from <=60s to <=15min unless the user clicks Sync-now.
+- Storage-panel-after-terminal-write freshness widens to <=15min unless the user clicks Sync-now.
+- Tier-uniform: free, standard, advanced, max, and custom paid tiers all run on the same cadence.
+
+**Alternative considered:** inotify-driven local-flush with a 15-minute ceiling. Rejected: requires either watching the whole filesystem (Claude-projects flooding) or per-folder include lists (complexity that pure 15-min plus Sync-now avoids). The simplicity win outweighed the sub-minute convergence loss for active sessions.
+
+**Alternative considered:** Activity-gated 60s plus 15-min idle fallback. Rejected: same complexity floor as inotify without the upside; misses out-of-band writes (vault editor on host).
+
+**Related REQ:** REQ-STOR-003 (rewritten in this change), REQ-STOR-015 (manual trigger surface).
+
+---
+
+### AD57: 135-second shutdown budget for final bisync
+
+**Category:** Storage
+
+**Status:** Active (2026-05-18)
+
+**Context:** The pre-existing Container DO `destroy()` budget was 75 seconds (vault rollout had already raised it from 25s -> 75s when vault edits in the last seconds before shutdown were silently truncated by the SDK's SIGKILL mid-bisync). The entrypoint shutdown handler's watchdog was 60 seconds (50s SIGTERM + 10s SIGKILL), nested cleanly inside the 75s DO budget with 15s buffer for clean process exit.
+
+Under the new 15-minute cadence (AD56), any single bisync run can accumulate more changes than under the old 60s cadence -- in the worst case, up to ~15 minutes of writes since the last sync. The 60s shutdown watchdog is therefore too tight: large vault edits or workspace deletes accumulated over a long idle window can routinely exceed 60s on the final bisync, triggering the watchdog's SIGKILL mid-write and leaving R2 in a partial state.
+
+**Decision:** Raise the shutdown chain by 60 seconds at both layers:
+
+- **entrypoint shutdown_handler watchdog**: 50s SIGTERM + 10s SIGKILL -> 108s SIGTERM + 12s SIGKILL (120 seconds total).
+- **Container DO `destroy()` timeout**: 75_000ms -> 135_000ms (120s bisync + 15s clean-exit buffer, preserving the existing 15s margin between the entrypoint giving up and the SDK SIGKILL).
+
+The DO's `_shutdownStartedAt` telemetry already logs `shutdownElapsedMs` on `onStop()`. Augment with a `logger.warn` at 110 seconds elapsed so any session approaching the new budget surfaces in logs and we can bump again if real-world bisyncs routinely exceed 110s.
+
+**Consequences:**
+- Final bisync has headroom for the worst-case 15-minute accumulation.
+- Session-delete UX shows a "Saving final changes to storage..." spinner up to ~130 seconds before reporting success. The session-delete handler at `src/routes/session/crud.ts:194-220` already awaits `container.destroy()` end-to-end, so no fire-and-forget fix is required.
+- The 2-minute SIGKILL is the user-accepted floor: anything still running at 120 seconds is hard-killed and the last writes accepted as potentially lost.
+- If telemetry shows shutdownElapsedMs P95 exceeds 110 seconds in production, the budget can be raised again to 150s/165s without architectural change -- the warn threshold gives early signal.
+
+**Alternative considered:** Telemetry-first canary -- ship the 15-min cadence behind an env var, gather shutdownElapsedMs P95/P99 for one week, then commit to the budget. Rejected by the user: the 2-minute budget plus SIGKILL is the explicit floor; if it is not enough, the warn threshold and post-merge telemetry will tell us within 24 hours.
+
+**Alternative considered:** Block container destruction on an explicit "prepare-shutdown" RPC that runs the final bisync synchronously and only returns on completion. Rejected: the existing trap-driven shutdown already runs the final bisync; adding a separate RPC adds a second code path with the same semantics. The simpler change is to extend the existing budget.
+
+**Related REQ:** REQ-STOR-005 (AC4 + AC5 codify the new budget).
 
 ---
 

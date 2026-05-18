@@ -110,8 +110,10 @@ export class container extends Container<Env> {
   private _userEmail: string | null = null;
   /**
    * Timestamp captured at the start of destroy(); read by onStop() to
-   * log shutdown elapsed-ms. Helps telemetry decide whether the 75s
-   * SIGTERM budget is right or needs another bump.
+   * log shutdown elapsed-ms. Helps telemetry decide whether the 135s
+   * SIGTERM budget is right or needs another bump. A warn fires inside
+   * destroy() at 110s elapsed so sessions approaching the ceiling
+   * surface in logs before the 15-min cadence makes them routine.
    */
   private _shutdownStartedAt = 0;
   /** Monotonic usage counter (seconds) — sent to Timekeeper for delta computation */
@@ -235,6 +237,16 @@ export class container extends Container<Env> {
     const routeKey = `${request.method}:${url.pathname}`;
     const handler = this.internalRoutes.get(routeKey);
     if (handler) return handler(request);
+
+    // Note on POST /internal/bisync-trigger (REQ-STOR-015): the Worker
+    // fan-out at /api/sessions/sync calls this DO with that path. It is
+    // intentionally NOT in the internalRoutes map (no leading underscore)
+    // so it falls through to the standard forward path below: the DO
+    // injects the container auth token and super.fetch() routes it to
+    // the host server's matching handler. The 503 short-circuit on a
+    // hibernated container is the hibernation-safety guarantee for the
+    // Sync-now feature - no DO-side state, no daemon-PID cache, all
+    // decisions made at call time against ctx.container?.running.
 
     // Reject non-internal requests when the container is not running.
     // This prevents WebSocket reconnect attempts from waking a hibernated
@@ -474,21 +486,34 @@ export class container extends Container<Env> {
     }
 
     if (this.ctx.container?.running) {
-      // 75s = 60s budget for the entrypoint's final bisync (set in
+      // 135s = 120s budget for the entrypoint's final bisync (set in
       // entrypoint.sh:shutdown_handler) plus a 15s buffer for clean
-      // process exit. Was 25_000 originally; raised to 75_000 alongside
-      // the vault rollout because vault edits in the last seconds
-      // before shutdown were silently truncated when the SDK SIGKILLed
-      // mid-bisync, leaving R2 in a partial state that the next
-      // session loaded as stale.
+      // process exit. Budget history: 25_000 (original) -> 75_000
+      // (vault rollout: vault edits in the last seconds were silently
+      // truncated when the SDK SIGKILLed mid-bisync) -> 135_000 (this
+      // change, alongside the 15-min cadence). Under the 15-min
+      // cadence (AD56) a single final bisync can accumulate more
+      // changes than under the old 60s cadence, so the watchdog at
+      // the entrypoint layer needed 120s; the DO budget tracks that
+      // plus the same 15s clean-exit buffer. See AD57.
       this._shutdownStartedAt = Date.now();
-      const timeoutMs = 75_000;
+      const timeoutMs = 135_000;
+      const warnThresholdMs = 110_000;
       const pollMs = 250;
       const start = this._shutdownStartedAt;
+      let warned = false;
       try {
         await this.stop('SIGTERM');
         while (this.ctx.container?.running && Date.now() - start < timeoutMs) {
           await new Promise((resolve) => setTimeout(resolve, pollMs));
+          if (!warned && Date.now() - start >= warnThresholdMs) {
+            warned = true;
+            this.logger.warn('Shutdown approaching budget ceiling', {
+              elapsedMs: Date.now() - start,
+              budgetMs: timeoutMs,
+              warnThresholdMs,
+            });
+          }
         }
         const elapsed = Date.now() - start;
         if (this.ctx.container?.running) {

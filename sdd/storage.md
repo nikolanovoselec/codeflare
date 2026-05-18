@@ -7,7 +7,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 | Concept | Definition |
 |---------|-----------|
 | R2 Bucket | Per-user Cloudflare R2 storage bucket, named deterministically from user email, providing isolated durable file storage |
-| Bisync | Bidirectional rclone sync that reconciles local filesystem and R2 every 60 seconds, using newest-file-wins conflict resolution |
+| Bisync | Bidirectional rclone sync that reconciles local filesystem and R2 every 15 minutes (plus on user-initiated triggers and at shutdown), using newest-file-wins conflict resolution |
 | Sync Mode | User-configurable scope of what gets synced: `none` (configs only), `full` (entire workspace), or `metadata` (agent configs per repo) |
 | Storage Quota | Per-tier limit on total R2 usage (`maxStorageBytes`), enforced at session start, cached in KV with 60-second TTL |
 
@@ -15,7 +15,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 - **Version history** -- R2 stores current file state only. No file versioning, rollback to previous revisions, or change tracking within storage.
 - **File collaboration** -- Storage is single-user. No shared buckets, shared folders, or multi-user access to the same R2 prefix.
-- **Real-time file sync** -- Bisync runs on a 60-second interval. Sub-second or event-driven sync between browser and container is not supported.
+- **Real-time file sync** -- Bisync runs on a 15-minute cadence with explicit user-driven manual triggers (Sync-now button, upload-side auto-trigger) and a final sync at container shutdown. R2-side changes and multi-tab convergence wait up to the 15-minute ceiling unless the user clicks Sync-now. Sub-second or event-driven sync between browser and container is not supported.
 
 ### Domain Dependencies
 
@@ -71,16 +71,17 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-## REQ-STOR-003: Bidirectional Sync Every 60 Seconds
+## REQ-STOR-003: Bidirectional Sync Every 15 Minutes (with Manual Triggers)
 
-**Intent:** Changes made locally (by the agent or user) and changes in R2 (from the file browser or another session's sync) must converge within a bounded interval.
+**Intent:** Changes made locally (by the agent or user) and changes in R2 (from the file browser or another session's sync) must converge within a bounded interval, balanced against R2 operation cost. The 15-minute cadence is supplemented by explicit user-driven triggers (REQ-STOR-015) so the user is never blocked waiting for a cycle when they want fresh state.
 
 **Acceptance Criteria:**
-1. After bisync baseline is established, a periodic rclone bisync runs every 60 seconds.
-2. Conflict resolution uses newest-file-wins (`--conflict-resolve newer`).
-3. The daemon retries on transient failure and continues the 60-second cycle.
-4. On bisync failure, the daemon attempts vanishing-file recovery (parse error output, exclude transient files, clear locks, retry) before counting the failure.
-5. After 3 consecutive unrecoverable failures (each with 3 internal retries), the daemon falls back to a `--resync` baseline to re-establish clean state.
+1. After bisync baseline is established, a periodic rclone bisync runs every 15 minutes (`sleep 900` in the daemon loop).
+2. The daemon's sleep is SIGUSR1-interruptible: a signal wakes the daemon and skips the sleep, producing an immediate bisync. Signals delivered while a bisync is mid-flight queue exactly one rerun via a coalescing flag (see REQ-STOR-015 AC5).
+3. Conflict resolution uses newest-file-wins (`--conflict-resolve newer`).
+4. The daemon retries on transient failure and continues the 15-minute cycle.
+5. On bisync failure, the daemon attempts vanishing-file recovery (parse error output, exclude transient files, clear locks, retry) before counting the failure.
+6. After 3 consecutive unrecoverable failures (each with 3 internal retries), the daemon falls back to a `--resync` baseline to re-establish clean state.
 
 **Constraints:**
 - All bisync commands must use `--ignore-checksum` to prevent false hash-mismatch aborts from files changing mid-transfer.
@@ -134,9 +135,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. A SIGINT/SIGTERM handler triggers a final bisync before exit.
 2. The final bisync only runs if the bisync-initialized flag is set.
 3. Files created during the session are available in R2 after shutdown completes.
+4. The final bisync has a 120-second watchdog (108s SIGTERM phase, 12s SIGKILL phase). Anything still running at 120 seconds is hard-killed and the user accepts that the last writes may not have synced.
+5. The Container DO `destroy()` budget is 135 seconds (120s for the final bisync plus 15s for clean process exit) before SDK teardown SIGKILLs the container.
 
 **Constraints:**
-- The shutdown handler must complete within the container runtime's grace period.
+- The shutdown handler must complete within 120 seconds; the DO destroy() budget is 135 seconds.
 - Final bisync uses the same flags as periodic bisync (`--ignore-checksum`, `--max-delete 100`, `--check-sync=false`).
 
 **Applies To:** User
@@ -364,3 +367,29 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Verification:** Automated test
 
 **Status:** Implemented
+
+---
+
+## REQ-STOR-015: Explicit Sync Trigger from UI
+
+**Intent:** Because the periodic bisync cadence is 15 minutes (REQ-STOR-003), users must have explicit ways to force convergence between the container filesystem and R2 without waiting for the next cycle.
+
+**Acceptance Criteria:**
+1. `POST /api/sessions/sync` fans out a sync trigger to every running session belonging to the authenticated user. Stopped sessions are skipped client-side using `batch-status` output before fan-out.
+2. Fan-out runs in parallel with a concurrency cap of 8; remaining sessions are queued.
+3. Per-session failures are isolated -- one session's bisync failure does not prevent other sessions from completing. The response shape returns the per-session sync status.
+4. After a successful R2 PUT via `POST /api/storage/upload` (or multipart-complete) to a prefix in the active `SYNC_MODE` synced set, the Worker fires a fire-and-forget `POST /api/container/sync` to the session's container. The upload response does not block on the sync.
+5. The trigger is idempotent: a SIGUSR1 sent to the bisync daemon while a bisync is already in flight sets a rerun-requested flag, which causes exactly one rerun after the current cycle completes (N signals during one bisync coalesce to one rerun, not N).
+6. The frontend Sync-now button is disabled while any of the user's sessions reports `sync.status === 'syncing'` and re-enables once all sessions transition out.
+7. `POST /api/sessions/sync` is rate-limited at 6 requests per minute per user (matches the destructive-action rate-limiter pattern).
+
+**Constraints:**
+- Multi-session fan-out is safe under the existing `--conflict-resolve newer` bisync semantics: the merge operation is commutative and associative under absolute mtime, so parallel and serial fan-out produce the same final R2 state per file. The same concurrent mode already runs every 15 minutes when a user has multiple sessions (per REQ-STOR-003); manual triggers introduce no new failure mode.
+- Upload triggers only fire when `isInSyncSet(prefix, syncMode)` is true. Uploads to a path the active SYNC_MODE excludes do not trigger (the file would sit in R2 invisible to the container until SYNC_MODE changes).
+
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-STOR-003, REQ-STOR-007, REQ-STOR-011
+**Verification:** Automated test
+
+**Status:** Planned

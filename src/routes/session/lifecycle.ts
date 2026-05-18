@@ -16,6 +16,7 @@ import { toApiSession } from '../../lib/session-helpers';
 import { ValidationError } from '../../lib/error-types';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { getTierConfig, getUserTier } from '../../lib/subscription';
+import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import type { UsageRecord } from '../../types';
 
 /**
@@ -64,6 +65,19 @@ const sessionStopRateLimiter = createRateLimiter({
   windowMs: 60_000,
   maxRequests: 10,
   keyPrefix: 'session-stop',
+});
+
+/**
+ * Rate limiter for manual fan-out sync trigger (REQ-STOR-015 AC7).
+ * 6/min matches the destructive-action pattern of session-stop / session-
+ * delete. The Sync-now button is a user-driven action that should be
+ * rare in normal use; 6/min covers reasonable usage without enabling
+ * trigger spam against multiple containers.
+ */
+const sessionsSyncRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 6,
+  keyPrefix: 'sessions-sync',
 });
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -156,6 +170,20 @@ app.get('/batch-status', async (c) => {
   }
 
   return c.json({ statuses, maxSessions, storageStats, usage });
+});
+
+/**
+ * POST /api/sessions/sync
+ *
+ * User-driven Sync-now button (REQ-STOR-015 AC1). Thin wrapper over
+ * `fanOutBisyncTrigger`; the helper holds the enumeration + fan-out
+ * logic so the upload-side auto-trigger (REQ-STOR-015 AC4) can share
+ * it without duplication.
+ */
+app.post('/sync', sessionsSyncRateLimiter, async (c) => {
+  const bucketName = c.get('bucketName');
+  const results = await fanOutBisyncTrigger(c.env, bucketName);
+  return c.json({ sessions: results, count: results.length });
 });
 
 /**

@@ -542,7 +542,7 @@ describe('container DO class', () => {
       expect(mockStorage.delete).toHaveBeenCalledWith('bucketName');
     });
 
-    it('graceful shutdown: falls back to SIGKILL when the container is still running after the 75 s timeout', async () => {
+    it('graceful shutdown: falls back to SIGKILL when the container is still running after the 135 s timeout', async () => {
       vi.useFakeTimers();
       try {
         mockStorage.get.mockImplementation(async (key: string) => {
@@ -557,10 +557,11 @@ describe('container DO class', () => {
         const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
 
         const destroyPromise = instance.destroy();
-        // Advance just past the 75s timeout so the polling loop exits via the
-        // wall-clock branch, not the running=false branch. 75s pairs with the
-        // entrypoint.sh shutdown bisync 60s budget plus a 15s buffer.
-        await vi.advanceTimersByTimeAsync(76_000);
+        // Advance just past the 135s timeout so the polling loop exits via
+        // the wall-clock branch, not the running=false branch. 135s pairs
+        // with the entrypoint.sh shutdown bisync 120s budget plus a 15s
+        // clean-exit buffer. See AD57.
+        await vi.advanceTimersByTimeAsync(136_000);
         await destroyPromise;
 
         expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
@@ -909,9 +910,10 @@ describe('container DO class', () => {
         return null;
       });
       // Ensure destroy()'s SIGTERM polling exits immediately rather than
-      // running the full 75s budget (which exceeds vitest's 30s test
+      // running the full 135s budget (which exceeds vitest's 30s test
       // timeout). The graceful-shutdown behaviour itself is covered by
-      // the dedicated tests above.
+      // the dedicated tests above. Budget raised from 75s -> 135s alongside
+      // the 15-min cadence change (AD57).
       mockContainerRuntime.running = false;
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
