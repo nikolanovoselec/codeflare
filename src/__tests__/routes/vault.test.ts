@@ -5,6 +5,7 @@ import {
   isServiceWorkerRegistration,
   VAULT_NOOP_SERVICE_WORKER_JS,
   injectVaultEncryptionConfig,
+  injectVaultBootScript,
 } from '../../routes/vault';
 
 /**
@@ -288,6 +289,68 @@ describe('validateVaultRoute', () => {
 
     it('throws if key is empty (vaultEncryptionKey must be a non-empty string)', () => {
       expect(() => injectVaultEncryptionConfig('{}', '')).toThrow();
+    });
+  });
+
+  describe('injectVaultBootScript (REQ-VAULT-008 AC3+4+5)', () => {
+    it('injects a <script> with vaultEncryptionKey, syncConcurrency, and lazyPathPrefixes before </head>', () => {
+      const html = '<!DOCTYPE html><html><head><title>SB</title></head><body></body></html>';
+      const out = injectVaultBootScript(html, {
+        vaultEncryptionKey: 'k1',
+        syncConcurrency: 15,
+        lazyPathPrefixes: ['Raw/Pasted/'],
+      });
+      expect(out).toContain('window.__codeflareVaultBoot');
+      expect(out).toContain('"k1"');
+      expect(out).toContain('"syncConcurrency":15');
+      expect(out).toContain('"Raw/Pasted/"');
+      expect(out.indexOf('window.__codeflareVaultBoot')).toBeLessThan(out.indexOf('</head>'));
+    });
+
+    it('escapes </script> in injected payload to prevent HTML break-out (XSS guard)', () => {
+      const html = '<html><head></head><body></body></html>';
+      const out = injectVaultBootScript(html, {
+        vaultEncryptionKey: 'safe-key',
+        syncConcurrency: 15,
+        lazyPathPrefixes: ['</script><script>alert(1)</script>'],
+      });
+      expect(out).not.toContain('</script><script>alert(1)');
+      expect(out).toContain('<\\/script>');
+    });
+
+    it('is idempotent — re-injecting on already-patched HTML produces single block', () => {
+      const html = '<html><head></head><body></body></html>';
+      const once = injectVaultBootScript(html, {
+        vaultEncryptionKey: 'k',
+        syncConcurrency: 15,
+        lazyPathPrefixes: [],
+      });
+      const twice = injectVaultBootScript(once, {
+        vaultEncryptionKey: 'k',
+        syncConcurrency: 15,
+        lazyPathPrefixes: [],
+      });
+      const occurrences = (twice.match(/window\.__codeflareVaultBoot/g) || []).length;
+      expect(occurrences).toBe(1);
+    });
+
+    it('returns input unchanged when no </head> tag exists (fail-safe, not error)', () => {
+      const html = '<html><body>no head</body></html>';
+      const out = injectVaultBootScript(html, {
+        vaultEncryptionKey: 'k',
+        syncConcurrency: 15,
+        lazyPathPrefixes: [],
+      });
+      expect(out).toBe(html);
+    });
+
+    it('throws if vaultEncryptionKey is empty', () => {
+      const html = '<html><head></head><body></body></html>';
+      expect(() => injectVaultBootScript(html, {
+        vaultEncryptionKey: '',
+        syncConcurrency: 15,
+        lazyPathPrefixes: [],
+      })).toThrow();
     });
   });
 
