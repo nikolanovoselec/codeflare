@@ -241,6 +241,40 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
   return html.replace('</head>', `${tag}</head>`);
 }
 
+/**
+ * Filter a SilverBullet `/.fs` JSON listing response, removing entries
+ * whose `name` starts with `graphify-out/`. The vault contains agent-
+ * derived graph artifacts (sometimes multi-MB graph.html) that must
+ * not appear in the SB UI's space listing — they would clutter the
+ * tree, slow initial sync, and confuse the user.
+ *
+ * Server-side filter (here) is the canonical enforcement point because
+ * the SB binary embeds its own listing logic and we cannot reach in
+ * to add an exclude pattern. Treeview UI exclusion (AC7) is a parallel
+ * surface guard for the editor's tree pane.
+ *
+ * Fail-safe: returns the input string unchanged on any parse error or
+ * if the body is not a JSON array — never breaks a 200 response just
+ * because the upstream shape drifted.
+ *
+ * Implements REQ-VAULT-008 AC6.
+ */
+export function filterVaultFsListing(body: string): string {
+  try {
+    const parsed = JSON.parse(body);
+    if (!Array.isArray(parsed)) return body;
+    const filtered = parsed.filter((entry) => {
+      if (entry == null || typeof entry !== 'object') return true;
+      const name = (entry as { name?: unknown }).name;
+      if (typeof name !== 'string') return true;
+      return !name.startsWith('graphify-out/');
+    });
+    return JSON.stringify(filtered);
+  } catch {
+    return body;
+  }
+}
+
 export function validateVaultRoute(request: Request): VaultRouteResult {
   const url = new URL(request.url);
   const match = url.pathname.match(/^\/api\/vault\/([^/]+)(\/.*)$/);
@@ -550,6 +584,26 @@ export async function handleVaultRequest(
           code: 'VAULT_CONFIG_INJECT_FAILED',
         }), { status: 500, headers: jsonHeaders });
       }
+    }
+
+    // REQ-VAULT-008 AC6: strip graphify-out/** entries from SB's space
+    // listing. SB 2.x serves the listing as `index.json` (legacy) and
+    // `/.fs/` (newer); both endpoints return a JSON array of file
+    // metadata. The filter is a no-op for any other JSON shape.
+    if (
+      response.ok &&
+      (remainingPath === '/index.json' || remainingPath === '/.fs' || remainingPath === '/.fs/')
+    ) {
+      const body = await response.text();
+      const filtered = filterVaultFsListing(body);
+      const headers = new Headers(response.headers);
+      headers.delete('content-length');
+      headers.delete('content-encoding');
+      return new Response(filtered, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
     }
 
     if (contentType.includes('text/html')) {
