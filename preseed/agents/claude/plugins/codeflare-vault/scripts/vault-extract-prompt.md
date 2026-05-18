@@ -147,14 +147,24 @@ still write an empty chunk JSON (`{"nodes":[],"edges":[],"hyperedges":[],...}`)
 and continue - step 6 needs to advance the marker so we do not loop
 on the same broken files.
 
-### 4. Build a vault graph.json from the chunk
+### 4. Build a vault graph.json from the chunk, merging into the persistent vault-graph
 
 `graphify global add` needs a fully-built `graph.json` (with clustering
-metadata), not the raw chunk. Run the build via graphify's Python API:
+metadata), not the raw chunk. REQ-MEM-009: we must also accumulate the
+cumulative vault subgraph across extractions -- the previous design
+called `graphify global add --as user_vault` with only the latest
+chunk, and `--as <tag>` replaces the entire repo-tag contribution, so
+every vault edit wiped all prior vault knowledge from the global graph.
+The fix is to maintain a persistent `vault-graph.json` that grows
+monotonically: load it (or start fresh if missing), nx.compose the
+new chunk's nodes/edges into it via hash-keyed union, re-cluster, and
+write it back. The persistent graph is then what `graphify global add`
+consumes in step 5.
 
 ```bash
 flock /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python -c "
 import json
+import networkx as nx
 from pathlib import Path
 from graphify.build import build_from_json
 from graphify.cluster import cluster
@@ -162,31 +172,68 @@ from graphify.export import to_json
 
 chunk_path = Path('/home/user/Vault/graphify-out/.graphify_chunk_01.json')
 out_path = Path('/home/user/Vault/graphify-out/graph.json')
+vault_graph_path = Path('/home/user/Vault/graphify-out/vault-graph.json')
 
+# REQ-MEM-009 AC4: missing/unreadable persistent vault-graph.json is
+# recoverable -- start fresh. Any JSON parse error or KeyError on the
+# expected node_link shape means the file is corrupt; treat as missing.
+G_prior = nx.DiGraph()
+try:
+    if vault_graph_path.exists():
+        prior_blob = json.loads(vault_graph_path.read_text(encoding='utf-8'))
+        # node_link_graph default in nx 3.x reads 'edges'; vault-graph.json
+        # historically wrote 'links'. Try both so older files still load.
+        try:
+            G_prior = nx.node_link_graph(prior_blob, edges='links')
+        except (KeyError, TypeError):
+            G_prior = nx.node_link_graph(prior_blob)
+except (json.JSONDecodeError, KeyError, TypeError, OSError) as e:
+    print(f'vault-graph.json unreadable ({e}); starting fresh')
+    G_prior = nx.DiGraph()
+
+# Build the new chunk into a graph.
 extraction = json.loads(chunk_path.read_text(encoding='utf-8'))
-G = build_from_json(extraction)
-communities = cluster(G) if G.number_of_nodes() else {}
-to_json(G, communities, str(out_path))
-print(f'vault graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges')
+G_new = build_from_json(extraction)
+
+# REQ-MEM-009 AC2: hash-keyed union -- nx.compose dedupes nodes by ID
+# (existing IDs keep their attributes; new IDs append). Edges are
+# unioned by (source, target) tuple.
+G_merged = nx.compose(G_prior, G_new)
+
+# REQ-MEM-009 AC1: persist the cumulative vault graph for the next
+# extraction to load.
+to_json(G_merged, cluster(G_merged) if G_merged.number_of_nodes() else {}, str(vault_graph_path))
+
+# Also write the per-extraction graph.json (kept for backwards-compat
+# with any caller that still reads the chunk-shaped artifact).
+to_json(G_merged, cluster(G_merged) if G_merged.number_of_nodes() else {}, str(out_path))
+
+print(f'vault graph: {G_merged.number_of_nodes()} nodes ({G_new.number_of_nodes()} new, {G_prior.number_of_nodes()} prior), {G_merged.number_of_edges()} edges')
 "
 ```
 
 The `flock` lock matches the one used by `graphify global add` in step 5
 and `graphify-active-repo.sh`, so concurrent writers do not stomp the
-manifest.
+manifest. REQ-MEM-009 AC5: this lock covers the load+merge+persist
+sequence above plus the global-add in step 5.
 
 If the build prints `0 nodes, 0 edges`, that is fine - step 5 will
 no-op via `graphify global add`'s hash dedup. Continue to step 6.
 
-### 5. Merge the vault graph into the unified global graph
+### 5. Merge the cumulative vault graph into the unified global graph
+
+REQ-MEM-009 AC3: feed the persistent `vault-graph.json` (cumulative)
+to `graphify global add`, NOT the per-extraction chunk graph. The
+`--as user_vault` replace-semantics now publishes the cumulative
+vault state on every run instead of clobbering it.
 
 ```bash
 flock /tmp/graphify-global.lock /usr/local/bin/graphify global add \
-    /home/user/Vault/graphify-out/graph.json --as user_vault
+    /home/user/Vault/graphify-out/vault-graph.json --as user_vault
 ```
 
 `graphify global add` is hash-keyed and idempotent - re-running it
-with the same `graph.json` content is a no-op. Tagged `--as user_vault` so
+with the same `vault-graph.json` content is a no-op. Tagged `--as user_vault` so
 the global manifest can distinguish vault nodes from per-repo nodes.
 The internal `external_labels` pass dedupes concept nodes (those with
 `source_file: null`) against existing concept nodes by label, so
