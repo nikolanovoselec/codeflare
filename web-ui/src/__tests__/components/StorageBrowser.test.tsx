@@ -328,18 +328,15 @@ describe('StorageBrowser', () => {
 
   // SEARCH UI DISABLED 2026-05-18 (REQ-STOR-015 D1): the storage-search-toggle
   // button was removed to free the toolbar slot for the Sync-now button.
-  // storageStore.searchFiles() and the filter chain remain intact. If the
-  // toggle is restored, re-add toggle-click / input-focus / searchFiles
-  // tests here, matching the original three test bodies.
+  // storageStore.searchFiles() and the filter chain remain intact in the
+  // real store; coverage for that helper belongs in a stores/storage unit
+  // test, not in this component test where the store is fully mocked.
+  // If the toggle is restored, re-add toggle-click / input-focus / typed-
+  // input tests here that exercise the real component path.
   describe('Search (toolbar toggle removed)', () => {
     it('search toggle button is not in the toolbar', () => {
       render(() => <StorageBrowser />);
       expect(screen.queryByTestId('storage-search-toggle')).toBeNull();
-    });
-
-    it('searchFiles store helper remains callable even with toggle removed', () => {
-      mockSearchFiles('readme');
-      expect(mockSearchFiles).toHaveBeenCalledWith('readme');
     });
   });
 
