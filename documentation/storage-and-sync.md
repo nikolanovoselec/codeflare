@@ -75,10 +75,10 @@ All modes always exclude: `.bashrc`, `.bash_profile`, `.npm/**`, `.bun/**`, `.ca
 
 ## Manual Sync Triggers (REQ-STOR-015)
 
-Because the periodic cadence is 15 minutes, two explicit triggers complement the cadence for users who need fresh state sooner:
+Because the periodic cadence is 15 minutes, one user-driven trigger lets users pull fresh state immediately; a second trigger provides a durability guarantee at shutdown:
 
 1. **Sync-now button** (storage panel toolbar, cloud-download icon). Calls `POST /api/sessions/sync`, which enumerates the authenticated user's running sessions and fans out a per-session bisync trigger with a concurrency cap of 8. Per-session failures are isolated; the response carries `{ sessions: [{ sessionId, status: 'triggered' | 'not-running' | 'failed', error? }], count }` so the UI can show honest aggregate feedback ("Synced N sessions" / "Sync errors" / "No running sessions to sync"). Rate-limited to 6 requests per minute per user. See REQ-STOR-015.
-2. **Final sync at shutdown**. The entrypoint's SIGTERM trap runs `bisync_with_r2` inside a 120-second watchdog (108s SIGTERM + 12s SIGKILL) before exiting. The Container DO's `destroy()` budget is 135 seconds (120 + 15s clean-exit buffer). See AD57 and REQ-STOR-005.
+2. **Final sync at shutdown** (durability, not user-driven). The entrypoint's SIGTERM trap runs `bisync_with_r2` inside a 120-second watchdog (108s SIGTERM + 12s SIGKILL) before exiting. The Container DO's `destroy()` budget is 135 seconds (120 + 15s clean-exit buffer). See AD57 and REQ-STOR-005.
 
 R2 uploads do not auto-fan-out to running containers. The user clicks Sync-now to propagate a freshly uploaded file immediately, or waits for the next 15-minute cycle. The upload-side fire-and-forget trigger was removed: bursting many files at once (e.g., 20-file drag-drop) otherwise enumerated KV and fan-out RPC per file, blowing Worker subrequest budget for a feature that the manual button + cadence already cover.
 

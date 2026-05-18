@@ -101,9 +101,12 @@ Isolation boundary: each user's files live in their own bucket. Simplifies delet
 
 ### AD4: Periodic rclone bisync
 
+**Category:** Architecture
+**Status:** Superseded by AD56 (cadence rationale) and AD57 (shutdown budget).
+
 **Decision:** Background daemon every 15 minutes (SIGUSR1-interruptible) + final sync on shutdown. Superseded cadence rationale: see AD56.
 
-Local disk for all file operations (fast I/O). Bisync daemon runs in background, syncing changes bidirectionally every 15 minutes; manual triggers via SIGUSR1 (storage panel Sync-now button and post-upload fan-out). SIGINT/SIGTERM trap runs final bisync before exit within a 120s watchdog (see AD57). Alternative (s3fs FUSE) was fragile and slow -- see Lessons Learned #1.
+Local disk for all file operations (fast I/O). Bisync daemon runs in background, syncing changes bidirectionally every 15 minutes; manual triggers via SIGUSR1 (storage panel Sync-now button). SIGINT/SIGTERM trap runs final bisync before exit within a 120s watchdog (see AD57). Alternative (s3fs FUSE) was fragile and slow -- see Lessons Learned #1.
 
 ---
 
