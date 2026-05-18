@@ -1,7 +1,7 @@
 // REQ-VAULT-008 AC8+AC9: dashboard-side bookkeeping cleanup for the
 // per-session SilverBullet vault.
 //
-// IDB deletion is intentionally OUT of scope here — see the long block
+// IDB deletion is intentionally OUT of scope here - see the long block
 // comment above `cleanupSessionVaultCache` below for the why. This file
 // only manages two artifacts that the dashboard itself writes:
 //
@@ -13,7 +13,7 @@
 //     if the sid is not in activeSessionIds, drop the marker. Handles
 //     sessions deleted from another tab or after a browser crash.
 //
-// All operations are fail-safe — a missing global (SSR, fresh tab) or
+// All operations are fail-safe - a missing global (SSR, fresh tab) or
 // rejected lookup is swallowed silently because cleanup is best-effort
 // and must never block the delete UI or dashboard mount.
 
@@ -44,7 +44,7 @@ async function unregisterSwForSession(sw: ServiceWorkerContainer, sid: string): 
         try {
           await reg.unregister();
         } catch {
-          // Swallow — registration may already be gone.
+          // Swallow - registration may already be gone.
         }
       }
     }
@@ -94,7 +94,7 @@ function listSessionMarkers(ls: Storage): string[] {
  * REQ-VAULT-008 AC8: remove dashboard-side bookkeeping for a deleted
  * session. Drops the `vault-session-<sid>` localStorage marker and
  * unregisters the per-session service worker. IDB deletion is
- * deliberately omitted — see file header.
+ * deliberately omitted - see file header.
  */
 export async function cleanupSessionVaultCache(sid: string): Promise<void> {
   const ls = getLS();
@@ -117,7 +117,7 @@ export async function cleanupSessionVaultCache(sid: string): Promise<void> {
  * REQ-VAULT-008 AC9: remove `vault-session-<sid>` localStorage markers
  * for sessions that are no longer in `activeSessionIds`. Called on
  * Dashboard mount; catches sessions deleted from another tab or after
- * a browser crash. IDB deletion is deliberately omitted — see file
+ * a browser crash. IDB deletion is deliberately omitted - see file
  * header.
  *
  * `listSessionMarkers` snapshots keys before iteration so the
