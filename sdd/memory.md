@@ -138,7 +138,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Intent:** Memory capture prompt files must be deployed alongside the rest of the preseed content through the standard manifest pipeline.
 
 **Acceptance Criteria:**
-1. The capture prompt lives in `~/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md` (sonnet capture).
+1. The capture prompt lives in `~/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md`.
 2. The codeflare-memory plugin includes four files in the manifest: `plugin.json`, `memory-capture.sh`, `memory-agent-prompt.md`, `prefilter-transcript.sh`.
 3. All plugin files are marked as advanced-only in the manifest (`"modes": ["advanced"]`).
 4. The hook script (`memory-capture.sh`) is delivered via the plugin but registered via `settings.json` merge (not the plugin system).
