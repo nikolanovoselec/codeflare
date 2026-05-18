@@ -156,3 +156,24 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Verification:** Automated test (`generate-agent-seed.mjs` output includes memory plugin files).
 
 **Status:** Implemented
+
+---
+
+## REQ-MEM-009: Vault graph accumulates monotonically across extractions
+
+**Intent:** Each vault-monitor extraction must add new nodes to the `user_vault` subgraph in the unified global graph without destroying nodes from prior extractions. Previously the haiku called `graphify global add ... --as user_vault` after building a chunk graph from only the newly-changed files; `--as <tag>` replaces the entire repo-tag contribution, so every vault edit wiped all prior vault knowledge from the global graph (observed: 17 nodes -> 2 nodes after the haiku ran on 2 newly-created stub `.md` files).
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. The vault-extract haiku maintains a persistent vault graph at `/home/user/Vault/graphify-out/vault-graph.json`, loaded at the start of each pass and re-written at the end.
+2. Each extraction merges the new chunk's nodes/edges into the persistent graph using a hash-keyed union (existing IDs dedupe, new IDs append).
+3. The persistent vault graph is what `graphify global add ... --as user_vault` consumes, so the global graph's `user_vault` repo tag always reflects the cumulative vault content rather than only the most recent extraction.
+4. If the persistent vault graph file is missing or unreadable, the pass starts a fresh one (rather than crashing) and writes it at the end of the run.
+5. The merge step runs under `flock /tmp/graphify-global.lock` so it serialises with capture-pipeline writes and active-repo hooks.
+
+**Applies To:** User
+**Priority:** P0
+**Dependencies:** REQ-MEM-001 (capture pipeline contract), REQ-VAULT-002 (vault is always-on in the global graph)
+**Verification:** Automated test (`host/__tests__/vault-extract-merge.test.js` patterns the prompt for load + merge + persist + flock; integration smoke via running the haiku twice in a row and confirming the global graph's user_vault node count grows monotonically).
+**Status:** Implemented

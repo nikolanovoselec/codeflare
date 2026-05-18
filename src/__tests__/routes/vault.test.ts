@@ -7,6 +7,7 @@ import {
   injectVaultEncryptionConfig,
   injectVaultBootScript,
   filterVaultFsListing,
+  inferOriginValidated,
 } from '../../routes/vault';
 
 /**
@@ -398,6 +399,52 @@ describe('validateVaultRoute', () => {
         'Notes/graphify-out-notes.md',
         'Notes/sub/file.md',
       ]);
+    });
+  });
+
+  describe('inferOriginValidated (REQ-VAULT-009 AC1+2)', () => {
+    function req(method: string, headers: Record<string, string> = {}): Request {
+      return new Request('https://codeflare.ch/api/vault/abcdef12/Inbox/file.pdf', {
+        method,
+        headers: new Headers(headers),
+      });
+    }
+
+    it('AC2: returns false on PUT with Origin set (caller still allowlist-checks)', () => {
+      expect(inferOriginValidated(req('PUT', { Origin: 'https://codeflare.ch' }))).toBe(false);
+    });
+
+    it('AC1: returns true on PUT with no Origin (same-origin fallback)', () => {
+      expect(inferOriginValidated(req('PUT'))).toBe(true);
+    });
+
+    it('AC1: returns true on POST with no Origin', () => {
+      expect(inferOriginValidated(req('POST'))).toBe(true);
+    });
+
+    it('AC1: returns true on PATCH with no Origin', () => {
+      expect(inferOriginValidated(req('PATCH'))).toBe(true);
+    });
+
+    it('AC1: returns true on DELETE with no Origin', () => {
+      expect(inferOriginValidated(req('DELETE'))).toBe(true);
+    });
+
+    it('AC4: returns false on GET with no Origin (safe methods do not enter fallback)', () => {
+      expect(inferOriginValidated(req('GET'))).toBe(false);
+    });
+
+    it('AC4: returns false on HEAD with no Origin', () => {
+      expect(inferOriginValidated(req('HEAD'))).toBe(false);
+    });
+
+    it('AC4: returns false on OPTIONS with no Origin', () => {
+      expect(inferOriginValidated(req('OPTIONS'))).toBe(false);
+    });
+
+    it('AC1: case-insensitive method comparison', () => {
+      expect(inferOriginValidated(req('put'))).toBe(true);
+      expect(inferOriginValidated(req('Post'))).toBe(true);
     });
   });
 
