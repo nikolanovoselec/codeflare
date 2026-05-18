@@ -168,4 +168,3 @@ export async function sweepOrphanVaultCaches(activeSessionIds: string[]): Promis
   }
 }
 
-export const VAULT_SESSION_MARKER_PREFIX = VAULT_MARKER_PREFIX;
