@@ -587,14 +587,55 @@ cleanup_old_transcripts() {
 }
 
 # ============================================================================
-# Background sync daemon - bisync every 60 seconds
+# Background sync daemon - bisync every 60 seconds, SIGUSR1-interruptible
+#
+# Manual triggers (storage-panel Sync-now, upload-side auto-trigger)
+# arrive as SIGUSR1 sent by host /internal/bisync-trigger to the daemon
+# PID at /tmp/sync-daemon.pid. The trap toggles BISYNC_REQUESTED
+# (interrupts the idle sleep) or BISYNC_RERUN_REQUESTED (queues exactly
+# one rerun after the current cycle), depending on whether a bisync is
+# mid-flight. N signals during one cycle coalesce to exactly one rerun
+# (REQ-STOR-015 AC5).
+#
+# Hibernation note: BISYNC_REQUESTED / BISYNC_RERUN_REQUESTED /
+# BISYNC_IN_FLIGHT live in this daemon process's bash memory. If the
+# container sleeps, the daemon is killed and the flags are lost. This
+# is acceptable: the container's next wake runs a forced baseline
+# bisync per REQ-STOR-004 AC4, absorbing any pending trigger. Do NOT
+# promote these flags to DO storage or KV - they are intentionally
+# ephemeral so wake-time baseline is authoritative. See AD56.
 # ============================================================================
 start_sync_daemon() {
-    echo "[entrypoint] Starting background bisync daemon (every 60s)..."
-    local CONSECUTIVE_FAILURES=0
+    echo "[entrypoint] Starting background bisync daemon (every 60s, SIGUSR1-interruptible)..."
 
     while true; do
-        sleep 60
+        # First-iteration init: install the SIGUSR1 trap inside the
+        # subshell (traps are reset to default in subshells, so the
+        # parent shell's trap would not apply here) and zero the
+        # coalescing flags. Subsequent iterations skip this block.
+        if [ -z "${TRAP_INSTALLED:-}" ]; then
+            BISYNC_REQUESTED=0
+            BISYNC_RERUN_REQUESTED=0
+            BISYNC_IN_FLIGHT=
+            # shellcheck disable=SC2064
+            trap 'if [ -n "$BISYNC_IN_FLIGHT" ]; then BISYNC_RERUN_REQUESTED=1; else BISYNC_REQUESTED=1; fi' USR1
+            CONSECUTIVE_FAILURES=0
+            TRAP_INSTALLED=1
+        fi
+
+        # Interruptible sleep: bash's `sleep` returns non-zero
+        # immediately when SIGUSR1 fires (the trap runs first); `|| true`
+        # keeps the loop alive across that non-zero exit. Skip the
+        # sleep entirely if a trigger was queued while finishing the
+        # prior cycle (RERUN_REQUESTED) or while we were idle
+        # (REQUESTED).
+        if [ "$BISYNC_REQUESTED" = "0" ] && [ "$BISYNC_RERUN_REQUESTED" = "0" ]; then
+            sleep 60 || true
+        fi
+        BISYNC_REQUESTED=0
+        BISYNC_RERUN_REQUESTED=0
+
+        BISYNC_IN_FLIGHT=1
 
         # Rotate sync log if too large (keep last 256KB when exceeding 512KB)
         if [ -f /tmp/sync.log ] && [ "$(stat -c%s /tmp/sync.log 2>/dev/null || echo 0)" -gt 524288 ]; then
@@ -628,6 +669,10 @@ start_sync_daemon() {
                     CONSECUTIVE_FAILURES=0
                     echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Recovery bisync succeeded" | tee -a /tmp/sync.log
                     update_sync_status "success" "null"
+                    # Clear in-flight before continue so the next
+                    # iteration's trap classifies signals correctly
+                    # (idle -> REQUESTED, not mid-flight -> RERUN).
+                    BISYNC_IN_FLIGHT=
                     continue
                 fi
             fi
@@ -666,6 +711,13 @@ start_sync_daemon() {
                 fi
             fi
         fi
+
+        # End of cycle: clear in-flight so the trap on a subsequent
+        # signal during the next sleep classifies it as REQUESTED
+        # (interrupt-sleep) rather than RERUN_REQUESTED (queue-after-
+        # current). The trap and these flags coalesce N signals during
+        # one cycle into exactly one rerun.
+        BISYNC_IN_FLIGHT=
     done &
 
     SYNC_DAEMON_PID=$!
