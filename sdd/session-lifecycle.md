@@ -27,9 +27,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-001: Session creation with name and agent type
 
-**Applies To:** User
-
 **Intent:** A user can create a named session associated with a specific AI agent, producing a unique session record stored in KV.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. `POST /api/sessions` accepts a `name` (string, trimmed, sanitized) and optional `agentType` (one of: claude-code, codex, gemini, opencode, copilot, bash).
@@ -51,9 +51,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-002: One container per session (isolation)
 
-**Applies To:** User
-
 **Intent:** Each session maps to exactly one Durable Object container instance, providing full process-level isolation between sessions.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. `POST /api/container/start?sessionId=xxx` derives a deterministic container ID from the user's bucket name and the session ID.
@@ -74,9 +74,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-003: R2 bucket mounted and synced on start
 
-**Applies To:** User
-
 **Intent:** When a container starts, the user's persistent R2 storage is mounted and bidirectionally synced so the workspace contains all previously persisted files.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. `POST /api/container/start` creates the user's R2 bucket if it does not exist (`createBucketIfNotExists`).
@@ -98,9 +98,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-004: Idle containers sleep after configurable timeout
 
-**Applies To:** User
-
 **Intent:** Containers that receive no user input for a configurable duration are automatically stopped to conserve resources and reduce cost.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. The `sleepAfter` value is user-configurable with allowed values: 5m, 15m, 30m, 1h, 2h.
@@ -125,9 +125,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-005: Input-based idle detection
 
-**Applies To:** User
-
 **Intent:** Idle detection is based on actual user input (keystrokes, control keys, mouse clicks), not on WebSocket connection activity or heartbeat pings.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. The terminal server tracks `lastInputAt` (Unix timestamp ms) representing the last real user input.
@@ -150,9 +150,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-006: User can stop, restart, and delete sessions
 
-**Applies To:** User
-
 **Intent:** Users have explicit control over session lifecycle: stop a running session, restart a stopped session, or permanently delete a session.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. **Stop (user-initiated):** `POST /api/sessions/:id/stop` sets KV status to `'stopped'` and calls `container.destroy()`. The `destroy()` override first clears `SESSION_ID_KEY`, `bucketName` and other identifiers from DO storage (preventing session resurrection via the asynchronous `onStop()` writeback), then performs a graceful shutdown: sends `SIGTERM` to the container, polls `ctx.container.running` for up to 25 s while the entrypoint trap runs the final `rclone bisync` (the trap reads R2 credentials from process env vars baked in at container start, so clearing DO storage first does not affect bisync), and only then calls `super.destroy()` to teardown. If the trap does not exit within the timeout the DO falls back to SIGKILL via `super.destroy()` so the route always returns.
@@ -173,9 +173,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-007: Running session count limited per tier
 
-**Applies To:** User
-
 **Intent:** The number of concurrently running sessions is capped per subscription tier to enforce fair usage and plan differentiation.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. Before starting a container, `validateSessionAndCheckLimits` counts running sessions from KV list metadata (zero individual `kv.get()` calls).
@@ -197,9 +197,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-008: Container restart preserves R2 bucket
 
-**Applies To:** User
-
 **Intent:** Restarting a session reconnects to the same R2 bucket, preserving all user files without data loss.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. Same-bucket restart: `setBucketName` returns 409 (bucket already set) but the 409 handler stores the new `sessionId`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled`, and `userEmail` in DO storage.
@@ -220,9 +220,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-009: Container destroy wipes session state
 
-**Applies To:** User
-
 **Intent:** Destroying a container clears all transient session state from the Durable Object, leaving only the persistent KV record and R2 bucket.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. `destroy()` override clears from DO storage: `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled`.
@@ -244,9 +244,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-010: Session status observable from dashboard
 
-**Applies To:** User
-
 **Intent:** The dashboard displays the current status of each session (running, stopped, initializing, stopping, error) with near-real-time updates.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. `GET /api/sessions/batch-status` returns status for all user sessions from KV list metadata in a single `kv.list()` call (no DO contact, no container wake).
@@ -271,9 +271,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-011: Graceful shutdown with final sync
 
-**Applies To:** User
-
 **Intent:** When a container stops (idle timeout or user-initiated), a final bidirectional sync to R2 runs before process termination, ensuring no data loss.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. `entrypoint.sh` traps SIGINT and SIGTERM signals.
@@ -296,9 +296,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-012: Wake-loop prevention
 
-**Applies To:** User
-
 **Intent:** A browser's automatic WebSocket reconnect must not wake a hibernated container in an infinite stop/start cycle.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. **DO fetch gate:** The `fetch()` override returns 503 when `!this.ctx.container?.running` for all non-internal routes, preventing `super.fetch()` from triggering `startIfNotRunning`.
@@ -319,9 +319,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-013: Sleep timer countdown UI
 
-**Applies To:** User
-
 **Intent:** Users see how much idle time remains before their session hibernates.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. Clock icon on session cards and header toolbar shows countdown.
@@ -341,9 +341,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-014: User-configurable auto-sleep timeout in Settings
 
-**Applies To:** User
-
 **Intent:** Users choose how long their sessions stay alive when idle.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. Settings dropdown with 5 options (5m, 15m, 30m, 1h, 2h).
@@ -363,9 +363,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-015: Container Port-Readiness Gating with Pre-Warm Pre-Condition
 
-**Applies To:** User
-
 **Intent:** A new container must bind its serving port quickly so Cloudflare's port-wait check succeeds, yet must refuse real terminal traffic until initial state restore and pre-warm are complete; the readiness gate sits between the port bind and the first accepted WebSocket upgrade.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
 1. The terminal server's tab-1 PTY pre-warm is gated on an init-complete flag file (`/tmp/codeflare-init-complete`) written by the entrypoint after initial sync, file modifications, and tab autostart configuration complete; this preserves the readiness contract while letting the serving port bind before Cloudflare's container port-wait timeout.
