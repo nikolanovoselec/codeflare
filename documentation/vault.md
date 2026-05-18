@@ -16,6 +16,7 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 - [User-edit Path](#user-edit-path-req-vault-003)
 - [Unified Global Graph](#unified-global-graph-req-vault-004)
 - [SilverBullet Editor](#silverbullet-editor-req-vault-005)
+- [Per-session IDB Lifecycle](#per-session-idb-lifecycle-req-vault-008)
 - [Shutdown Bisync Reliability](#shutdown-bisync-reliability-req-vault-006)
 - [Preseed Integration](#preseed-integration-req-vault-007)
   - [Three-tier durability contract](#three-tier-durability-contract-req-vault-001-ac3ac7ac8)
@@ -35,10 +36,10 @@ The vault lives at `/home/user/Vault/` inside every advanced-mode session contai
 
 Two parties write to the vault:
 
-- The **capture agent** (haiku) appends a markdown file to `Raw/Sessions/` every 15 user prompts (replaces the old MCP-memory write path).
+- The **capture agent** (sonnet) appends a markdown file to `Raw/Sessions/` every 15 user prompts (replaces the old MCP-memory write path).
 - **The user** edits notes via SilverBullet (or any other tool that touches files under `Notes/`, `Inbox/`, `Journal/`, or `Raw/Pasted/`).
 
-A single 60s daemon polls for user edits and signals a background haiku to ingest them into the unified graphify graph. Future agents query that graph via `mcp__graphify__*` and see captures + user notes + every active repo's code, merged.
+A single 60s daemon polls for user edits and signals a background sonnet agent to ingest them into the unified graphify graph. Future agents query that graph via `mcp__graphify__*` and see captures + user notes + every active repo's code, merged.
 
 ### Uploads and Temporary folders
 
@@ -94,7 +95,7 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 
 ## Capture Path (REQ-VAULT-002)
 
-The `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to spawn a background haiku. The haiku runs `memory-agent-prompt.md` end to end:
+The `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to spawn a background sonnet agent. The haiku runs `memory-agent-prompt.md` end to end:
 
 1. Deletes the `.vars` marker (dedup gate so a concurrent prompt cannot spawn a duplicate).
 2. Reads the new transcript range.
@@ -118,7 +119,7 @@ A second daemon, `start_vault_monitor_daemon` in entrypoint.sh, polls the vault 
 
 If extraction fails mid-flight, `vault-extract.last` is NOT advanced, the next tick re-discovers the same files, and the system converges. Eventual consistency, no work lost.
 
-A complementary guard in `vault-monitor-hook.sh` covers the daemon-vs-extract overlap case: the daemon ticks every 60s and an extraction run typically takes 30-60s on haiku (was ~90s on sonnet), so the daemon may re-write `vault-extract.vars` after the agent's step-1 delete. When the agent finishes and advances `vault-extract.last`, that re-written `.vars` is left behind, older than `.last`. The hook detects this on the next prompt (`! "$VARS_FILE" -nt "$LAST_MARKER"`), silently deletes the stale marker, and exits 0 instead of triggering a redundant agent spawn.
+A complementary guard in `vault-monitor-hook.sh` covers the daemon-vs-extract overlap case: the daemon ticks every 60s and an extraction run typically takes ~90s on sonnet (was 30-60s on haiku before AD58), so the daemon may re-write `vault-extract.vars` after the agent's step-1 delete. When the agent finishes and advances `vault-extract.last`, that re-written `.vars` is left behind, older than `.last`. The hook detects this on the next prompt (`! "$VARS_FILE" -nt "$LAST_MARKER"`), silently deletes the stale marker, and exits 0 instead of triggering a redundant agent spawn.
 
 The daemon excludes `Raw/Sessions/`, `graphify-out/`, and `.silverbullet/` from the find (agent-owned, derived, editor-config). It also excludes the four preseed-managed root pages (`Index.md`, `CONFIG.md`, `README.md`, `STYLES.md`): `init_user_vault()` overwrites these on every boot when content drifts, so their mtimes reflect a codeflare action rather than a user edit, and including them produced perpetual extract-agent spawns after the always-overwrite tier (REQ-VAULT-001 AC7) landed.
 
@@ -192,6 +193,19 @@ If a real SW ever becomes load-bearing in a future SilverBullet version, the mit
 ### PUT body forwarding contract
 
 For body-bearing methods (PUT/POST/PATCH), `container.fetch` must be called with the Request returned by `maybeSynthesizeCsrfHeader`, not the original incoming `request`. The helper consumes the input body when it constructs the header-rewritten clone (Workers Fetch semantics for `new Request(input, { headers })`); forwarding the original raises `TypeError: This ReadableStream is disturbed (has already been read from)`. `handleVaultRequest` hoists `requestForAuth` to outer scope for exactly this reason, and `authenticateRequest` must read only headers (cookies, JWT assertion) -- a future body read inside the auth chain would re-introduce the same bug.
+
+## Per-session IDB Lifecycle (REQ-VAULT-008)
+
+SilverBullet maintains two IndexedDB databases per (spaceFolderPath, baseURI, encryptionKeyPart) tuple: `sb_files_<hash>` and `sb_data_<hash>`. The hash is derived from those three inputs (see `plug-api/lib/crypto.ts:deriveDbName` in the upstream silverbullet repo); the session id is one hash input, not a literal segment in the IDB name. A destroyed session leaves orphan IDBs that are never reused, and without cleanup IndexedDB usage grows monotonically until the per-origin quota is hit.
+
+Cleanup runs at two surfaces (`web-ui/src/lib/vault-cache.ts`):
+
+- `cleanupSessionVaultCache(sid)` -- called from `deleteSession()`. Drops the `vault-session-<sid>` localStorage marker and unregisters the Service Worker scoped to `/api/vault/<sid>/`. IDB deletion is currently a no-op: because the sid is only one hash input among three, the dashboard cannot reconstruct the IDB name without the encryption key and the spaceFolderPath, which it does not hold. IDB deletion is blocked on a SilverBullet upstream change tracked in `sdd/pending.md`.
+- `sweepOrphanVaultCaches(activeSessionIds)` -- called on Dashboard mount. For every `vault-session-<sid>` marker in localStorage, if the sid is absent from `activeSessionIds`, it is treated as an orphan and the same cleanup runs. This catches sessions deleted via API in another tab or after a browser crash.
+
+All operations are fail-safe: a missing global (SSR, fresh tab) or rejected IDB query is swallowed silently because cleanup is best-effort and must never block the delete UI or dashboard mount.
+
+**Note:** An earlier version of `vault-cache.ts` assumed IDB names followed the pattern `sb_<type>_<sid>_<hash>` and deleted every matching SB IDB on every Dashboard mount, forcing SilverBullet to rebuild its cache from scratch on every reopen. That bug was corrected in commit 980d494 by removing the IDB-name-based deletion entirely until the upstream formula is exposable.
 
 ## Shutdown Bisync Reliability (REQ-VAULT-006)
 
