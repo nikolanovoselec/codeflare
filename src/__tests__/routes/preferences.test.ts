@@ -436,5 +436,49 @@ describe('Preferences Routes', () => {
       expect(body.sessionMode).toBe('advanced');
     });
   });
+
+  describe('userTimezone (REQ-MEM-001 AC3)', () => {
+    it('accepts a valid IANA timezone and persists it', async () => {
+      const app = createTestApp();
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userTimezone: 'Europe/Zurich' }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { userTimezone?: string };
+      expect(body.userTimezone).toBe('Europe/Zurich');
+    });
+
+    it('accepts UTC as a special-case valid timezone', async () => {
+      const app = createTestApp();
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userTimezone: 'UTC' }),
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it('rejects a syntactically valid but non-existent IANA tz', async () => {
+      const app = createTestApp();
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userTimezone: 'Mars/Olympus' }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects an empty string timezone', async () => {
+      const app = createTestApp();
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userTimezone: '' }),
+      });
+      expect(res.status).toBe(400);
+    });
+  });
 });
 
