@@ -14,6 +14,7 @@ import { escapeXml } from '../../lib/xml-utils';
 import { validateKey, MAX_KEY_LENGTH } from './validation';
 import { parseJsonBody, firstZodError } from '../../lib/request-helpers';
 import { getSseHeaders } from '../../lib/r2-sse';
+import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 
 const storageUploadRateLimiter = createRateLimiter({
   windowMs: 60_000,
@@ -91,6 +92,20 @@ app.post('/', async (c) => {
 
   // Invalidate storage-stats cache so next poll/fetch gets fresh data
   await c.env.KV.delete(`storage-stats:${bucketName}`);
+
+  // Fire-and-forget fan-out to running sessions (REQ-STOR-015 AC4).
+  // The user uploaded directly to R2; running containers pick up the
+  // file on their next bisync. Without this trigger, the wait could
+  // be up to 15 minutes (the cadence ceiling). We do not block the
+  // upload response on fan-out completion - the file is already in
+  // R2, the trigger is best-effort.
+  //
+  // sync-set filtering: we do NOT pre-filter by SYNC_MODE here. Each
+  // container's entrypoint.sh applies its own SYNC_MODE filters, and
+  // the trigger is cheap (~one extra bisync cycle on sessions where
+  // the file is filtered out). Pre-filtering would require reading
+  // per-session SYNC_MODE config, which is not worth the complexity.
+  c.executionCtx.waitUntil(fanOutBisyncTrigger(c.env, bucketName));
 
   return c.json({ key: sanitizedKey, size: binaryContent.length });
 });
@@ -201,6 +216,10 @@ app.post('/complete', async (c) => {
 
   // Invalidate storage-stats cache so next poll/fetch gets fresh data
   await c.env.KV.delete(`storage-stats:${bucketName}`);
+
+  // Fire-and-forget fan-out to running sessions (REQ-STOR-015 AC4).
+  // See the matching block in the simple-upload route for rationale.
+  c.executionCtx.waitUntil(fanOutBisyncTrigger(c.env, bucketName));
 
   return c.json({ key: sanitizedKey });
 });
