@@ -7,7 +7,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 | Concept | Definition |
 |---------|-----------|
 | R2 Bucket | Per-user Cloudflare R2 storage bucket, named deterministically from user email, providing isolated durable file storage |
-| Bisync | Bidirectional rclone sync that reconciles local filesystem and R2 every 60 seconds, using newest-file-wins conflict resolution |
+| Bisync | Bidirectional rclone sync that reconciles local filesystem and R2 every 15 minutes (plus on user-initiated triggers and at shutdown), using newest-file-wins conflict resolution |
 | Sync Mode | User-configurable scope of what gets synced: `none` (configs only), `full` (entire workspace), or `metadata` (agent configs per repo) |
 | Storage Quota | Per-tier limit on total R2 usage (`maxStorageBytes`), enforced at session start, cached in KV with 60-second TTL |
 
@@ -15,7 +15,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 - **Version history** -- R2 stores current file state only. No file versioning, rollback to previous revisions, or change tracking within storage.
 - **File collaboration** -- Storage is single-user. No shared buckets, shared folders, or multi-user access to the same R2 prefix.
-- **Real-time file sync** -- Bisync runs on a 60-second interval. Sub-second or event-driven sync between browser and container is not supported.
+- **Real-time file sync** -- Bisync runs on a 15-minute cadence with explicit user-driven manual triggers (Sync-now button, upload-side auto-trigger) and a final sync at container shutdown. R2-side changes and multi-tab convergence wait up to the 15-minute ceiling unless the user clicks Sync-now. Sub-second or event-driven sync between browser and container is not supported.
 
 ### Domain Dependencies
 
@@ -71,16 +71,17 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-## REQ-STOR-003: Bidirectional Sync Every 60 Seconds
+## REQ-STOR-003: Bidirectional Sync Every 15 Minutes (with Manual Triggers)
 
-**Intent:** Changes made locally (by the agent or user) and changes in R2 (from the file browser or another session's sync) must converge within a bounded interval.
+**Intent:** Changes made locally (by the agent or user) and changes in R2 (from the file browser or another session's sync) must converge within a bounded interval, balanced against R2 operation cost. The 15-minute cadence is supplemented by explicit user-driven triggers (REQ-STOR-015) so the user is never blocked waiting for a cycle when they want fresh state.
 
 **Acceptance Criteria:**
-1. After bisync baseline is established, a periodic rclone bisync runs every 60 seconds.
-2. Conflict resolution uses newest-file-wins (`--conflict-resolve newer`).
-3. The daemon retries on transient failure and continues the 60-second cycle.
-4. On bisync failure, the daemon attempts vanishing-file recovery (parse error output, exclude transient files, clear locks, retry) before counting the failure.
-5. After 3 consecutive unrecoverable failures (each with 3 internal retries), the daemon falls back to a `--resync` baseline to re-establish clean state.
+1. After bisync baseline is established, a periodic rclone bisync runs every 15 minutes (`sleep 900` in the daemon loop).
+2. The daemon's sleep is SIGUSR1-interruptible: a signal wakes the daemon and skips the sleep, producing an immediate bisync. Signals delivered while a bisync is mid-flight queue exactly one rerun via a coalescing flag (see REQ-STOR-015 AC5).
+3. Conflict resolution uses newest-file-wins (`--conflict-resolve newer`).
+4. The daemon retries on transient failure and continues the 15-minute cycle.
+5. On bisync failure, the daemon attempts vanishing-file recovery (parse error output, exclude transient files, clear locks, retry) before counting the failure.
+6. After 3 consecutive unrecoverable failures (each with 3 internal retries), the daemon falls back to a `--resync` baseline to re-establish clean state.
 
 **Constraints:**
 - All bisync commands must use `--ignore-checksum` to prevent false hash-mismatch aborts from files changing mid-transfer.
