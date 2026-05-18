@@ -642,8 +642,6 @@ export async function handleVaultRequest(
       // pages, 404 HTML, future plug-served HTML - a no-op rewrite is
       // expected, not a signal. Logging unconditionally fills prod logs
       // with false positives on every non-shell error response.
-      const isShellPath =
-        remainingPath === '/' || remainingPath === '/index.html';
       if (rewritten === body && response.status === 200 && isShellPath) {
         logger.warn('vault base-href rewrite no-op', {
           pathname: vaultUrl.pathname,
