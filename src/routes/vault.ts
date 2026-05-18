@@ -230,14 +230,29 @@ const VAULT_BOOT_MARKER = 'window.__codeflareVaultBoot';
 
 // Defence-in-depth cap on the serialised payload size. Today the only
 // caller hardcodes config.lazyPathPrefixes to ['Raw/Pasted/'], so the
-// payload is always tiny. If a future change ever wires user-influenced
-// strings into lazyPathPrefixes, this cap prevents a pathological input
-// from blowing up JSON.stringify and the response body.
+// payload is always tiny. Two-layer check: a cheap structural pre-check
+// (total chars across lazyPathPrefixes) runs BEFORE JSON.stringify so a
+// pathological input cannot exhaust v8's stringify before we notice;
+// and the final byte count is checked AFTER stringify as a body-size
+// guard against escape-expansion blow-up.
 const VAULT_BOOT_CONFIG_MAX_BYTES = 4096;
+const VAULT_BOOT_LAZY_PREFIX_MAX_CHARS = 1024;
 
 export function injectVaultBootScript(html: string, config: VaultBootConfig): string {
   if (!config.vaultEncryptionKey) {
     throw new Error('injectVaultBootScript: vaultEncryptionKey must be non-empty');
+  }
+  // Structural pre-check: total chars across lazyPathPrefixes. Runs
+  // BEFORE JSON.stringify so a pathological input can't burn v8's
+  // stringify cost / GC pressure before the throw.
+  const prefixesChars = (config.lazyPathPrefixes ?? []).reduce(
+    (acc, p) => acc + (typeof p === 'string' ? p.length : 0),
+    0,
+  );
+  if (prefixesChars > VAULT_BOOT_LAZY_PREFIX_MAX_CHARS) {
+    throw new Error(
+      `injectVaultBootScript: lazyPathPrefixes total chars (${prefixesChars}) exceeds ${VAULT_BOOT_LAZY_PREFIX_MAX_CHARS}`
+    );
   }
   if (html.includes(VAULT_BOOT_MARKER)) {
     return html;
@@ -628,8 +643,16 @@ export async function handleVaultRequest(
         const body = await response.text();
         const rewritten = injectVaultEncryptionConfig(body, vaultEncryptionKey);
         const headers = new Headers(response.headers);
+        // Drop body-shape headers (we rewrote the body so length/encoding
+        // no longer apply) AND cache-validators (etag, last-modified)
+        // because they describe the upstream un-rewritten body. A
+        // browser SW with a stored copy would otherwise serve the WRONG
+        // body on a 304 hit (the un-injected variant, missing the
+        // encryption key).
         headers.delete('content-length');
         headers.delete('content-encoding');
+        headers.delete('etag');
+        headers.delete('last-modified');
         headers.set('content-type', 'application/json');
         return new Response(rewritten, {
           status: response.status,

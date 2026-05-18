@@ -362,6 +362,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-STOR-003, REQ-STOR-007, REQ-STOR-011
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/sync-fanout.test.ts` for AC1-AC4 fan-out + concurrency + isolation + rate-limit). AC5 (SIGUSR1 coalesce/rerun) and AC6 (Sync-now button disabled-while-syncing) are pending — see `sdd/pending.md`.
 
 **Status:** Partial

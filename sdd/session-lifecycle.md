@@ -378,5 +378,28 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Priority:** P0
 **Dependencies:** REQ-STOR-004
-**Verification:** Integration test
+**Verification:** Automated test (`host/__tests__/prewarm-readiness.test.js` for the 1013 reject + init-flag gate; `src/__tests__/container/index.test.ts` for the DO-side prewarm contract).
+**Status:** Implemented
+
+---
+
+## REQ-SESSION-016: User timezone propagated from preferences to container env
+
+**Intent:** The capture pipeline and any other consumer of `$USER_TIMEZONE` inside the container must receive the user's IANA timezone choice without manual env-var configuration; the preference is set via the preferences API and persists across restarts.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. `PATCH /api/preferences` accepts an optional `userTimezone` field (valid IANA timezone string, max 64 characters); invalid zones return a `ValidationError`.
+2. The Container DO persists the value to `ctx.storage` under the `userTimezone` key.
+3. Subsequent container starts inject `USER_TIMEZONE=<value>` into the container environment via the standard env-var pipeline; if the field is unset, the entrypoint falls back to `$TZ`, then `/etc/timezone`, then UTC.
+4. A timezone change takes effect on the next session start (no live re-injection into a running container).
+
+**Constraints:**
+- Validation uses `Intl.DateTimeFormat([], { timeZone: tz })` round-trip so the validator does not ship a 400-entry static zone list.
+- The field is optional; absence is silently treated as "use the entrypoint fallback chain", not an error.
+
+**Priority:** P1
+**Dependencies:** REQ-SESSION-014 (preferences flow), REQ-MEM-001 AC9 (the capture pipeline consumes the resulting env var)
+**Verification:** Automated test (`src/__tests__/routes/preferences.test.ts` for endpoint + validation; `src/__tests__/container/container-env.test.ts` for env-var injection on restart; `web-ui/src/__tests__/lib/timezone-sync.test.ts` for the browser-side resolution).
 **Status:** Implemented

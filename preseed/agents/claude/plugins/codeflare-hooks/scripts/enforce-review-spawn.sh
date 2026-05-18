@@ -397,9 +397,10 @@ fi
 # pipeline. Feature → develop defers until the develop → main PR.
 #
 # Empty BASE_REF (transient gh / jq failure between successful state
-# parse and base parse — rare but possible) is treated as fail-open:
-# enforcement still runs. Better to over-block when truth is uncertain
-# than to silently let an unreviewed PR-to-main slip through.
+# parse and base parse — rare but possible) is treated as fail-CLOSED:
+# enforcement still runs (the safe direction). Better to over-block
+# when truth is uncertain than to silently let an unreviewed PR-to-main
+# slip through.
 case "$BASE_REF" in
   main|master|"") ;;
   *) exit 0 ;;
@@ -539,8 +540,12 @@ compute_required_lanes() {
   # as docs-only and skipping code-reviewer + spec-reviewer entirely.
   # --no-renames forces both old and new paths into the list, so the
   # source path triggers the behavioral fall-through.
+  #
+  # -z + read -d '' uses NUL terminators so filenames containing literal
+  # newlines (legal in POSIX) are not split across iterations and
+  # mis-classified.
   local changed
-  changed=$(git diff --name-only --no-renames "$last_ack" "$current" 2>/dev/null)
+  changed=$(git diff -z --name-only --no-renames "$last_ack" "$current" 2>/dev/null)
   if [ -z "$changed" ]; then
     echo "code-reviewer spec-reviewer doc-updater"
     return
@@ -549,7 +554,7 @@ compute_required_lanes() {
   # Classification. Note: bash `case` pattern globs match `/` (unlike
   # filesystem globs), so `sdd/*` matches `sdd/foo` AND `sdd/a/b/c`.
   local has_behavioral=0 touches_sdd=0 touches_docs=0
-  while IFS= read -r file; do
+  while IFS= read -r -d '' file; do
     [ -z "$file" ] && continue
     case "$file" in
       sdd/*)

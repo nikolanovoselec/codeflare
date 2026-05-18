@@ -92,6 +92,14 @@ const initialState: StorageState = {
 // short enough that stale state does not linger.
 const SYNC_RESULT_DISPLAY_MS = 4000;
 
+// Module-scoped timer for the auto-clear of syncResult after a sync
+// completes. Tracked so a rapid-fire second syncNow() can cancel the
+// first pending clear before it wipes the new result mid-display.
+// Declared before its consumer (syncNow.finally) so lint rules
+// `no-use-before-define` are satisfied and any future synchronous-init
+// caller cannot trip TDZ.
+let syncResultClearTimer: number | null = null;
+
 // REQ-STOR-015 AC6: after fan-out triggers SIGUSR1 on each daemon, poll
 // /api/container/startup-status until every triggered session has left
 // the 'syncing' state, so the breathing animation reflects the actual
@@ -475,8 +483,6 @@ export const storageStore = {
     }
   },
 };
-
-let syncResultClearTimer: number | null = null;
 
 /** Update stats from batch-status polling. Preserves maxStorageBytes and bucketName
  *  from the last fetchStats() call — batch-status doesn't include quota info. */

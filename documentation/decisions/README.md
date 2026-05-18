@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD59 throughout the codebase and documentation. 45 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD59 throughout the codebase and documentation. 44 ADRs carry active content (AD4 superseded by AD56 + AD57; AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -14,7 +14,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD1](#ad1-one-container-per-session) | One container per session | Architecture |
 | [AD2](#ad2-container-id-format) | Container ID format | Architecture |
 | [AD3](#ad3-per-user-r2-buckets) | Per-user R2 buckets | Architecture |
-| [AD4](#ad4-periodic-rclone-bisync) | Periodic rclone bisync | Architecture |
+| [AD4](#ad4-periodic-rclone-bisync) | _superseded by AD56 (cadence) + AD57 (shutdown budget)_ | (superseded) |
 | [AD5](#ad5-login-shell-autostart) | Login shell autostart | Architecture |
 | [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) | KV read-modify-write races and `collectMetrics` atomicity | Architecture |
 | [AD7](#ad7-merged-into-ad10) | _merged into AD10 — pre-setup public endpoints_ | Security |

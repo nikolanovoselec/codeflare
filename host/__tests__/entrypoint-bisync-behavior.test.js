@@ -64,7 +64,12 @@ function buildHarness({
 }) {
   // Patch the daemon body: shrink cadence so tests finish in <2s.
   const patched = daemonBody
-    .replace(/sleep 900/g, 'sleep 1')
+    // Match any `sleep <N>` (where N is a positive integer) in case a
+    // future cadence change replaces the literal 900. If no match is
+    // found the harness will time out via the waitFor budgets below,
+    // surfacing the regression rather than silently running the real
+    // 15-minute sleep.
+    .replace(/sleep [0-9]+(?!\d)/g, 'sleep 1')
     // Also remove the log-rotation block (depends on /tmp/sync.log
     // size that we control separately) — it touches /tmp paths we
     // don't want to mutate from the harness.
@@ -211,7 +216,7 @@ describe('entrypoint.sh bisync daemon behavior (real)', () => {
     // Use sleep 10 in the patched daemon to make the test deterministic:
     // without SIGUSR1, bisync would not fire for 10s; with SIGUSR1, the
     // `wait $SYNC_SLEEP_PID` returns >128 within ~50ms.
-    const slowerBody = daemonBody.replace(/sleep 900/g, 'sleep 10');
+    const slowerBody = daemonBody.replace(/sleep [0-9]+(?!\d)/g, 'sleep 10');
     const h = spawnHarness({ daemonBody: slowerBody, bisyncBehavior: 'success' });
     const pid = await readDaemonPid(h.child);
     try {

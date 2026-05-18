@@ -42,7 +42,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 6. The hook handles tilde expansion in `transcript_path` (Claude Code may send tilde-prefixed paths).
 7. All variables (transcript path, line offset, date, counts, counter file path) are written to a `.vars` JSON file to keep the context string short.
 8. On the first message of a session (no counter file exists), the hook injects a `mcp__graphify__query_graph` directive into `additionalContext` instructing the agent to query the unified graph before responding.
-9. `PATCH /api/preferences` accepts an optional `userTimezone` field (valid IANA timezone string, max 64 characters). The DO persists it to storage; subsequent container starts receive a `USER_TIMEZONE` environment variable set to the stored value. When absent, the entrypoint falls back to `$TZ`, then `/etc/timezone`, then UTC.
+9. The hook resolves the capture timestamp from `$USER_TIMEZONE`, falling back to `$TZ`, then `/etc/timezone`, then UTC. The endpoint and persistence contract that puts a value into `$USER_TIMEZONE` are specified by REQ-SESSION-016.
 
 **Constraints:**
 - The hook runs in approximately 150ms (lightweight shell script, no heavy processing).
@@ -163,19 +163,18 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ## REQ-MEM-009: Vault graph accumulates monotonically across extractions
 
-**Intent:** Each vault-monitor extraction must add new nodes to the `user_vault` subgraph in the unified global graph without destroying nodes from prior extractions. Previously the haiku called `graphify global add ... --as user_vault` after building a chunk graph from only the newly-changed files; `--as <tag>` replaces the entire repo-tag contribution, so every vault edit wiped all prior vault knowledge from the global graph (observed: 17 nodes -> 2 nodes after the haiku ran on 2 newly-created stub `.md` files).
+**Intent:** Each vault-monitor extraction must add new nodes to the `user_vault` subgraph in the unified global graph without destroying nodes from prior extractions. Previously the agent called `graphify global add ... --as user_vault` after building a chunk graph from only the newly-changed files; `--as <tag>` replaces the entire repo-tag contribution, so every vault edit wiped all prior vault knowledge from the global graph (observed: 17 nodes -> 2 nodes after the agent ran on 2 newly-created stub `.md` files).
 
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. The vault-extract haiku maintains a persistent vault graph at `/home/user/Vault/graphify-out/vault-graph.json`, loaded at the start of each pass and re-written at the end.
+1. The vault-extract agent maintains a persistent vault graph at `/home/user/Vault/graphify-out/vault-graph.json`, loaded at the start of each pass and re-written at the end.
 2. Each extraction merges the new chunk's nodes/edges into the persistent graph using a hash-keyed union (existing IDs dedupe, new IDs append).
 3. The persistent vault graph is what `graphify global add ... --as user_vault` consumes, so the global graph's `user_vault` repo tag always reflects the cumulative vault content rather than only the most recent extraction.
 4. If the persistent vault graph file is missing or unreadable, the pass starts a fresh one (rather than crashing) and writes it at the end of the run.
 5. The merge step runs under `flock /tmp/graphify-global.lock` so it serialises with capture-pipeline writes and active-repo hooks.
 
-**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-MEM-001 (capture pipeline contract), REQ-VAULT-002 (vault is always-on in the global graph)
-**Verification:** Automated test (`host/__tests__/vault-extract-merge.test.js` patterns the prompt for load + merge + persist + flock; integration smoke via running the haiku twice in a row and confirming the global graph's user_vault node count grows monotonically).
+**Verification:** Automated test (`host/__tests__/vault-extract-merge.test.js` patterns the prompt for load + merge + persist + flock; integration smoke via running the vault-extract agent twice in a row and confirming the global graph's user_vault node count grows monotonically).
 **Status:** Implemented
