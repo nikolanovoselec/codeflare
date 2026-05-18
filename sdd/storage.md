@@ -16,6 +16,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - **Version history** -- R2 stores current file state only. No file versioning, rollback to previous revisions, or change tracking within storage.
 - **File collaboration** -- Storage is single-user. No shared buckets, shared folders, or multi-user access to the same R2 prefix.
 - **Real-time file sync** -- Bisync runs on a 15-minute cadence with explicit user-driven manual triggers (Sync-now button, upload-side auto-trigger) and a final sync at container shutdown. R2-side changes and multi-tab convergence wait up to the 15-minute ceiling unless the user clicks Sync-now. Sub-second or event-driven sync between browser and container is not supported.
+- **Corrupted R2 self-healing via nuke** -- Automatic detection and deletion of corrupted or encryption-mismatched R2 objects via a full-bucket scan was considered but not implemented. Transient file errors are handled by the vanishing-file recovery mechanism; encryption mismatches are handled by `--resilient`/`--recover` flags and the resync fallback in the bisync daemon.
 
 ### Domain Dependencies
 
@@ -76,8 +77,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Intent:** Changes made locally (by the agent or user) and changes in R2 (from the file browser or another session's sync) must converge within a bounded interval, balanced against R2 operation cost. The 15-minute cadence is supplemented by explicit user-driven triggers (REQ-STOR-015) so the user is never blocked waiting for a cycle when they want fresh state.
 
 **Acceptance Criteria:**
-1. After bisync baseline is established, a periodic rclone bisync runs every 15 minutes (`sleep 900` in the daemon loop).
-2. The daemon's sleep is SIGUSR1-interruptible: a signal wakes the daemon and skips the sleep, producing an immediate bisync. Signals delivered while a bisync is mid-flight queue exactly one rerun via a coalescing flag (see REQ-STOR-015 AC5).
+1. After bisync baseline is established, a periodic rclone bisync runs every 15 minutes.
+2. The daemon's periodic sleep is interruptible by an external signal: a signal wakes the daemon and skips the remaining sleep, producing an immediate bisync. Signals delivered while a bisync is mid-flight coalesce into exactly one rerun after the current cycle completes (see REQ-STOR-015 AC5).
 3. Conflict resolution uses newest-file-wins (`--conflict-resolve newer`).
 4. The daemon retries on transient failure and continues the 15-minute cycle.
 5. On bisync failure, the daemon attempts vanishing-file recovery (parse error output, exclude transient files, clear locks, retry) before counting the failure.
@@ -135,8 +136,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. A SIGINT/SIGTERM handler triggers a final bisync before exit.
 2. The final bisync only runs if the bisync-initialized flag is set.
 3. Files created during the session are available in R2 after shutdown completes.
-4. The final bisync has a 120-second watchdog (108s SIGTERM phase, 12s SIGKILL phase). Anything still running at 120 seconds is hard-killed and the user accepts that the last writes may not have synced.
-5. The Container DO `destroy()` budget is 135 seconds (120s for the final bisync plus 15s for clean process exit) before SDK teardown SIGKILLs the container.
+4. The final bisync runs under a 120-second hard watchdog. If it has not completed within 120 seconds, the process is force-killed and the user accepts that the last writes may not have synced.
+5. The container orchestrator's destroy budget is 135 seconds (120s for the final bisync plus 15s for clean process exit) before the SDK tears down the container.
 
 **Constraints:**
 - The shutdown handler must complete within 120 seconds; the DO destroy() budget is 135 seconds.
@@ -323,30 +324,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-## REQ-STOR-013: Self-Healing Corrupted R2 Files
-
-**Intent:** When bisync is blocked by corrupted or incompatible R2 objects, the system must automatically detect and remove the problematic files to restore sync functionality.
-
-**Acceptance Criteria:**
-1. When resync fails after 3 daemon retries, `nuke_corrupted_r2_files` runs automatically.
-2. Strategy 1: parse sync.log for any file path causing a bisync error (encryption mismatch, size mismatch, corrupted transfer, copy failure, hash mismatch, listing conflicts) and delete from both R2 and local.
-3. Strategy 2: if no error files found in logs, perform full R2 scan -- list all objects with unencrypted config, HEAD each with encrypted config, delete any returning 400 (unencrypted orphans).
-4. After nuking, bisync state is cleared and resync retried immediately.
-5. Self-healing runs both at startup (if initial baseline fails) and in the daemon (if resync fallback fails).
-
-**Constraints:**
-- Losing one problematic file is acceptable; losing all sync is not.
-- Files are deleted from R2 using both encrypted and unencrypted configs.
-
-**Applies To:** User
-**Priority:** P1
-**Dependencies:** REQ-STOR-003, REQ-STOR-004
-**Verification:** Integration test
-
-**Status:** Deprecated -- The `nuke_corrupted_r2_files` function was never implemented. Self-healing for transient file errors is now handled by the vanishing-file recovery mechanism (REQ-STOR-004 AC5, REQ-STOR-003 AC4). Corruption from encryption mismatches is handled by `--resilient` + `--recover` flags and the resync fallback in the daemon.
-
----
-
 ## REQ-STOR-014: R2 Storage Stats Caching
 
 **Intent:** Storage statistics must be available quickly without paginating all R2 objects on every request.
@@ -392,4 +369,4 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** REQ-STOR-003, REQ-STOR-007, REQ-STOR-011
 **Verification:** Automated test
 
-**Status:** Planned
+**Status:** Partial
