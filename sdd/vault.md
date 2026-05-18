@@ -29,7 +29,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 - **Memory** -- Reuses the `memory-capture.sh` UserPromptSubmit hook and `~/.memory/counter/` state. The capture agent writes Step 4's output into the vault (MCP server-memory has been removed from the stack); the dedup gate (`.vars` marker) is unchanged.
 - **Storage** -- Vault persistence is provided by the existing rclone bisync to R2. One new include filter (`+ Vault/**`) is added to `RCLONE_FILTERS_COMMON`, ordered BEFORE the existing `**/graphify-out/**` exclude so first-match semantics keep vault content sync'd.
-- **Session Lifecycle** -- The bundled shutdown bisync reliability fix raises the DO `destroy()` SIGTERM-to-SIGKILL budget from 25s to 75s, so the entrypoint's 60s final bisync can complete cleanly. Without this, vault edits made in the last seconds before shutdown were silently lost to R2.
+- **Session Lifecycle** -- The bundled shutdown bisync reliability fix raises the DO `destroy()` SIGTERM-to-SIGKILL budget to 135s, so the entrypoint's final bisync (120s watchdog) can complete cleanly. Without this, vault edits made in the last seconds before shutdown were silently lost to R2.
 - **Subscription** -- Vault features (preseed entries, SilverBullet supervisor) are gated to advanced session mode via the existing manifest mode filter (`"modes": ["advanced"]` on every new preseed entry).
 
 ---
@@ -58,7 +58,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - The SilverBullet Go server hardcodes `IndexPage` to lowercase `"index"` (`server/cmd/server.go:29`). The supervisor MUST export `SB_INDEX_PAGE=Index` before launching the binary so the TitleCase `Index.md` preseed page is what loads at `/`. `.silverbullet/config.yaml` is NOT read for this setting — it was a dead file in prior releases and is removed from preseed.
 
 **Priority:** P0
-**Dependencies:** REQ-STOR-002 (file persistence across sessions), REQ-STOR-003 (60s bisync), REQ-STOR-004 (initial sync restores files on container start)
+**Dependencies:** REQ-STOR-002 (file persistence across sessions), REQ-STOR-003 (15-min bisync), REQ-STOR-004 (initial sync restores files on container start)
 **Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: filter order, init function presence, Uploads/Temporary mkdir, supervisor uses `$HOME/Vault`, per-boot preseed-page sync loop, graph.json recreate-if-missing guard, preseed-page existence on disk); special-folder registry unit test (`web-ui/src/__tests__/lib/special-folders.test.ts`); E2E (fresh session, `ls /home/user/{Vault,Uploads,Temporary}`, storage panel shows the four special folders with tooltips containing their container paths, delete each preseed page individually and confirm recreation on next session boot, populate `graphify-out/graph.json` and confirm not overwritten)
 **Status:** Implemented
 
@@ -188,7 +188,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Constraints:**
 - Bundled with the vault PR because vault edits in the last 60s before shutdown are silently lost in the same way session state is today -- the vault depends on bisync reliability.
-- A 60s bisync timeout vs. a 75s DO destroy budget gives a 15s buffer; this is the minimum that allows graceful process termination after bisync completes.
+- A 120s bisync watchdog vs. a 135s DO destroy budget gives a 15s buffer; this is the minimum that allows graceful process termination after bisync completes.
 
 **Priority:** P0
 **Dependencies:** REQ-SESSION-009 (container destroy wipes session state), REQ-SESSION-011 (graceful shutdown with final sync), REQ-STOR-005 (graceful shutdown performs final sync)

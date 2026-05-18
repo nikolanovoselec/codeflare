@@ -79,6 +79,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/block-local-builds.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-hooks/scripts/enforce-review-spawn.sh": {
     "modes": [
       "advanced"

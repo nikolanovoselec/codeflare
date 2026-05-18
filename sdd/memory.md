@@ -47,6 +47,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Constraints:**
 - The hook runs in approximately 150ms (lightweight shell script, no heavy processing).
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
+
 **Priority:** P0
 **Dependencies:** REQ-MEM-006, REQ-VAULT-002
 **Verification:** Integration test (E2E verifies a capture file appears under `Raw/Sessions/` after 15 messages and its nodes show up in `mcp__graphify__query_graph`).

@@ -463,12 +463,20 @@ export const storageStore = {
     } finally {
       setState('syncing', false);
       // Auto-clear the result message after a brief display window.
-      setTimeout(() => {
+      // Track the timer so a rapid-fire second syncNow() cancels the
+      // first pending clear (otherwise the previous result wipes the
+      // new one mid-display). Module-scoped — there is only ever one
+      // sync result visible at a time.
+      if (syncResultClearTimer !== null) clearTimeout(syncResultClearTimer);
+      syncResultClearTimer = setTimeout(() => {
+        syncResultClearTimer = null;
         setState((s) => (s.syncing ? s : { ...s, syncResult: null }));
-      }, SYNC_RESULT_DISPLAY_MS);
+      }, SYNC_RESULT_DISPLAY_MS) as unknown as number;
     }
   },
 };
+
+let syncResultClearTimer: number | null = null;
 
 /** Update stats from batch-status polling. Preserves maxStorageBytes and bucketName
  *  from the last fetchStats() call — batch-status doesn't include quota info. */

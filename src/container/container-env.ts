@@ -314,7 +314,14 @@ export async function applyPrefsOnRestart(
     changed = true;
   }
 
-  // Always update LLM keys, deploy keys, and session mode on restart (read fresh each start)
+  // Always update LLM keys, deploy keys, and session mode on restart
+  // (read fresh each start). The `|| null` collapses an empty string
+  // to null — this is defence-in-depth. The upstream caller
+  // (buildSetBucketNameBody in src/routes/container/lifecycle.ts) uses
+  // a truthy `&& { key: value }` spread that omits the field entirely
+  // when the source value is empty, so an empty string never reaches
+  // this branch in practice; the `undefined` guard skips the block and
+  // state is preserved.
   if (input.openaiApiKey !== undefined) {
     state._openaiApiKey = input.openaiApiKey || null;
     changed = true;

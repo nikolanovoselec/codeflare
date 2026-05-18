@@ -86,7 +86,14 @@ export async function fanOutBisyncTrigger(
       fallbackKeys.map((key) => env.KV.get<Session>(key.name, 'json'))
     );
     for (const session of fallbackSessions) {
-      if (session && session.status === 'running') {
+      // Apply the same SESSION_ID_PATTERN guard the fast path uses.
+      // A corrupt KV entry whose `id` field contains arbitrary
+      // characters would otherwise flow into getContainerId() unchecked.
+      if (
+        session &&
+        session.status === 'running' &&
+        SESSION_ID_PATTERN.test(session.id)
+      ) {
         runningSessionIds.push(session.id);
       }
     }
