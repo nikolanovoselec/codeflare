@@ -238,7 +238,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 9. On dashboard mount and on every session-list refresh, the frontend sweeps `localStorage["vault-session-<sid>"]` markers and nukes the IDB + marker for any session NOT present in the user's active sessions list (covers the case where the session was deleted from another device).
 
 **Constraints:**
-- Encryption protects against offline attacks ONLY. Anyone with an authenticated browser tab (or who can run JavaScript in the codeflare origin) can fetch the key from `/.config` and decrypt. The threat-model trade-off is documented in `documentation/decisions/README.md` AD-NN (TBD on land).
+- Encryption protects against offline attacks ONLY. Anyone with an authenticated browser tab (or who can run JavaScript in the codeflare origin) can fetch the key from `/.config` and decrypt. The threat-model trade-off is documented in `documentation/decisions/README.md` AD59.
 - The vault key MUST NOT be rotated mid-session. Rotation would orphan all existing IDB ciphertext on the browser and force a fresh re-sync on every container restart, defeating the cold-start optimisation.
 - The vault key MUST be wiped on `container.destroy()`. Persistence of the key after deletion would let a recovered browser profile decrypt the orphaned IDB.
 - Per-session `:sid` MUST remain in the proxy URL to preserve the parallel-session isolation property (each session has its own IDB; cross-session reads/writes never collide).
