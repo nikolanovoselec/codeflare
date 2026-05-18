@@ -105,7 +105,7 @@ Read each changed file with the Read tool. For each file, identify:
 
 Vault PDFs typically arrive via SilverBullet drag-drop into Inbox or
 Notes. The `.md` note that wikilinks to the PDF is the only trace the
-prompt's text-only path captures — the PDF itself never reaches the
+prompt's text-only path captures - the PDF itself never reaches the
 graph. Both shapes need ingestion: the wikilink concept node (already
 covered above), AND a document node sourced from the PDF's actual
 contents.
@@ -113,7 +113,7 @@ contents.
 For each `*.pdf` in the changed-files list:
 
 1. **Read the PDF directly with the Read tool.** Claude's Read tool
-   handles PDFs natively — it renders pages as images and includes
+   handles PDFs natively - it renders pages as images and includes
    them in your context, so you can "see" both text-layer and
    scanned/image-only PDFs uniformly. For PDFs larger than 10 pages,
    pass the `pages` parameter to limit to the first 20 pages (the
@@ -133,7 +133,7 @@ For each `*.pdf` in the changed-files list:
    pages. Each as a `concept` node with `source_file: null` so it
    dedupes by label against other graphs. Add `references` edges from
    the document node to each concept. Visual-only content (a single
-   photo with no caption) may yield only the document node itself —
+   photo with no caption) may yield only the document node itself -
    that is still strictly better than the previous "skip silently"
    behaviour.
 

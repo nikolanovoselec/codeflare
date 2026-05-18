@@ -101,6 +101,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 4. The vault-extract agent deletes `vault-extract.vars` as its first step (dedup gate), runs graphify extraction per changed file, merges via `graphify global add`, and touches `vault-extract.last` as its final step.
 5. If steps 2-4 fail, the high-water marker is NOT advanced; the next daemon tick (within 60s) re-discovers the same files.
 6. `init_user_vault()` bumps `vault-extract.last` after rewriting any preseed page, so the first post-boot daemon tick does not pick up the `cp` as a user change. Belt-and-braces for any future preseed page that misses the AC1 daemon-exclusion list.
+7. PDF files in the changed-files list are ingested, not skipped as binary. The vault-extract agent reads each `*.pdf` with the Read tool (which renders pages as images), capped at 20 pages for files exceeding the Read tool's 10-page threshold, and emits a `document` node for the PDF (label: filename stem, `source_file:` vault-relative path) plus `concept` nodes for any visible title text, headings, named entities, or diagrams. When a sibling `.md` note wikilinks the same PDF, a `cites` edge connects the document node to the wikilink concept (same ID-normalisation rule) so `graphify global add`'s external-label dedup unifies them. Read-tool failures (corrupt, password-protected, unsupported encoding) emit just the bare document node so the high-water marker can still advance.
 
 **Constraints:**
 - The 60s poll is intentional -- inotify was rejected as overkill for the expected edit rate.
