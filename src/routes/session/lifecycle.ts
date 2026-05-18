@@ -66,6 +66,34 @@ const sessionStopRateLimiter = createRateLimiter({
   keyPrefix: 'session-stop',
 });
 
+/**
+ * Rate limiter for manual fan-out sync trigger (REQ-STOR-015 AC7).
+ * 6/min matches the destructive-action pattern of session-stop / session-
+ * delete. The Sync-now button is a user-driven action that should be
+ * rare in normal use; 6/min covers reasonable usage without enabling
+ * trigger spam against multiple containers.
+ */
+const sessionsSyncRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 6,
+  keyPrefix: 'sessions-sync',
+});
+
+/**
+ * Maximum concurrent per-session sync triggers in one fan-out call
+ * (REQ-STOR-015 AC2). Keeps Worker subrequest / CPU budget bounded if
+ * a user has many running sessions. Triggers beyond the cap are
+ * queued (processed in the next chunk) - they still complete in this
+ * one request, just sequentially.
+ */
+const FANOUT_CONCURRENCY_CAP = 8;
+
+interface SyncSessionResult {
+  sessionId: string;
+  status: 'triggered' | 'not-running' | 'failed';
+  error?: string;
+}
+
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 /**
@@ -156,6 +184,101 @@ app.get('/batch-status', async (c) => {
   }
 
   return c.json({ statuses, maxSessions, storageStats, usage });
+});
+
+/**
+ * POST /api/sessions/sync
+ *
+ * Fan-out a manual bisync trigger to all the user's running sessions
+ * (REQ-STOR-015 AC1). KV is authoritative for session status (per
+ * REQ-STOR-014 and the batch-status comment block above) so we never
+ * wake hibernated containers just to learn whether they're running.
+ *
+ * Concurrency: chunks of FANOUT_CONCURRENCY_CAP per Promise.all wave.
+ * Per-session failures are isolated - one container's 500 or network
+ * error does not block the other sessions (REQ-STOR-015 AC3).
+ *
+ * Fan-out correctness: under the existing `--conflict-resolve newer`
+ * semantics in entrypoint.sh, the merge is commutative and associative
+ * on absolute mtime. Parallel and serial fan-out produce the same
+ * final R2 state per file. See AD56 for the math.
+ *
+ * Hibernation safety: stateless. No Worker-side cache, no DO-side
+ * cache. Each call freshly enumerates KV and freshly forwards to each
+ * Container DO. The DO returns 503 when its container is not running,
+ * which we translate to 'not-running' in the per-session result.
+ */
+app.post('/sync', sessionsSyncRateLimiter, async (c) => {
+  const bucketName = c.get('bucketName');
+  const prefix = getSessionPrefix(bucketName);
+  const keys = await listAllKvKeys(c.env.KV, prefix);
+
+  // Collect running sessions only. Use list-metadata fast path; fall
+  // back to KV.get for pre-migration keys (same pattern as batch-status).
+  const runningSessionIds: string[] = [];
+  const fallbackKeys: Array<{ name: string }> = [];
+  for (const key of keys) {
+    const meta = key.metadata as SessionListMetadata | null;
+    if (meta && meta.s) {
+      const expanded = expandSessionMetadata(meta);
+      if (expanded.status === 'running') {
+        runningSessionIds.push(key.name.split(':').pop()!);
+      }
+    } else {
+      fallbackKeys.push(key);
+    }
+  }
+  if (fallbackKeys.length > 0) {
+    const fallbackSessions = await Promise.all(
+      fallbackKeys.map((key) => c.env.KV.get<Session>(key.name, 'json'))
+    );
+    for (const session of fallbackSessions) {
+      if (session && session.status === 'running') {
+        runningSessionIds.push(session.id);
+      }
+    }
+  }
+
+  // Fan out with concurrency cap. Each chunk's failures are isolated.
+  const results: SyncSessionResult[] = [];
+  for (let i = 0; i < runningSessionIds.length; i += FANOUT_CONCURRENCY_CAP) {
+    const chunk = runningSessionIds.slice(i, i + FANOUT_CONCURRENCY_CAP);
+    const chunkResults = await Promise.all(
+      chunk.map(async (sessionId): Promise<SyncSessionResult> => {
+        try {
+          const containerId = getContainerId(bucketName, sessionId);
+          const container = getContainer(c.env.CONTAINER, containerId);
+          // Path is intentionally NOT in the DO's internalRoutes map
+          // (no leading underscore) so the DO's fetch() override
+          // forwards it through super.fetch() to the host server's
+          // /internal/bisync-trigger handler with container auth
+          // injected. See container/index.ts note in fetch() override.
+          const res = await container.fetch(
+            new Request('http://container/internal/bisync-trigger', { method: 'POST' })
+          );
+          if (res.status === 202) {
+            return { sessionId, status: 'triggered' };
+          }
+          if (res.status === 503) {
+            // Container not running (DO 503) or daemon not started
+            // (host 503). Either way, the session is not actively
+            // syncing so a manual trigger is a no-op.
+            return { sessionId, status: 'not-running' };
+          }
+          return { sessionId, status: 'failed', error: `unexpected status ${res.status}` };
+        } catch (err) {
+          return {
+            sessionId,
+            status: 'failed',
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      })
+    );
+    results.push(...chunkResults);
+  }
+
+  return c.json({ sessions: results, count: results.length });
 });
 
 /**
