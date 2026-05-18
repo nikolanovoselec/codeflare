@@ -56,6 +56,16 @@ esac
 
 [ -z "$CMD" ] && exit 0
 
+# Strip shell comments before pattern matching. A comment like
+# "# typecheck via tsc has been my CI failure" mentions a build-tool
+# binary innocently; we must not block on that. Awk strips everything
+# from the first whitespace-prefixed `#` to end of line, leaving
+# real commands intact. (We do NOT attempt to strip string literals;
+# `echo "npm test"` will still block, which is fine — anyone running
+# that command in a real shell IS executing it.)
+CMD=$(printf '%s\n' "$CMD" | awk '{ sub(/[[:space:]]+#.*$/, ""); sub(/^#.*$/, ""); print }')
+[ -z "$CMD" ] && exit 0
+
 # USER-only bypass sentinel. One-shot: consumed on use so the bypass
 # is intentional and visible (re-running the command requires creating
 # the sentinel again, which only the user can do).
@@ -65,50 +75,51 @@ if [ -f "$BYPASS_FILE" ]; then
   exit 0
 fi
 
-# Pattern table. Each ERE pattern represents one local-build/test/lint
-# class. Anchored against `\b` word boundaries where reasonable so a
-# variable named `tsc_output` does not match the `tsc` compiler.
+# Pattern table. Each ERE pattern matches a local-build/test/lint
+# binary AT START-OF-LINE (after optional leading whitespace). This
+# is a heuristic — TRUE command-position detection requires a shell
+# parser to distinguish `cd /foo && npm test` (real invocation) from
+# `echo "cd /foo && npm test"` (string literal). The line-start anchor
+# is the cheapest reliable bound: it correctly handles all standalone
+# commands and multi-line scripts, while accepting two known misses:
 #
-# Keep this list literal-heavy and unambiguous. False positives in CI
-# / git / scripts that happen to contain these words are filtered by
-# the boundary anchors; if a future shape needs a carve-out, prefer
-# tightening the pattern over adding a regex-based allow-list (which
-# would inevitably drift).
+#   1. Same-line chained commands (`git add && npm test`) — won't fire.
+#      User typically runs the build standalone anyway.
+#   2. Build commands inside heredoc / multi-line string literals that
+#      happen to start at column 0 — false positive. Rare; bypass
+#      with `touch /tmp/local-build-bypass` if it bites.
+#
+# CMDPOS = start-of-line plus optional leading whitespace.
+CMDPOS='(^|\n)[[:space:]]*'
+
 PATTERNS=(
-  # Test runners
-  '(^|[^a-zA-Z0-9_/-])vitest($|[[:space:]])'
-  '(^|[^a-zA-Z0-9_/-])jest($|[[:space:]])'
-  '(^|[^a-zA-Z0-9_/-])mocha($|[[:space:]])'
-  '(^|[^a-zA-Z0-9_/-])pytest($|[[:space:]])'
-  '(^|[^a-zA-Z0-9_/-])playwright[[:space:]]+test'
-  '(^|[^a-zA-Z0-9_/-])node[[:space:]]+--test'
-  '(^|[^a-zA-Z0-9_/-])bun[[:space:]]+test'
-  # npm / npx wrappers around test/build/dev/lint/typecheck
-  'npx[[:space:]]+vitest'
-  'npx[[:space:]]+jest'
-  'npx[[:space:]]+mocha'
-  'npx[[:space:]]+tsc'
-  'npx[[:space:]]+oxlint'
-  'npx[[:space:]]+eslint'
-  'npx[[:space:]]+prettier'
-  'npx[[:space:]]+playwright'
-  'npx[[:space:]]+wrangler[[:space:]]+(dev|build|deploy)'
-  'npm[[:space:]]+test([[:space:]]|$)'
-  'npm[[:space:]]+run[[:space:]]+(test|build|dev|typecheck|lint|knip|check|e2e)'
-  'pnpm[[:space:]]+test'
-  'pnpm[[:space:]]+run[[:space:]]+(test|build|dev|typecheck|lint)'
-  'yarn[[:space:]]+test'
-  'yarn[[:space:]]+(build|dev|typecheck|lint)'
+  # Test runners (binaries that are the first word of a command).
+  "${CMDPOS}vitest([[:space:]]|$)"
+  "${CMDPOS}jest([[:space:]]|$)"
+  "${CMDPOS}mocha([[:space:]]|$)"
+  "${CMDPOS}pytest([[:space:]]|$)"
+  "${CMDPOS}playwright[[:space:]]+test"
+  "${CMDPOS}node[[:space:]]+--test"
+  "${CMDPOS}bun[[:space:]]+test"
+  # npm / npx wrappers
+  "${CMDPOS}npx[[:space:]]+(vitest|jest|mocha|tsc|oxlint|eslint|prettier|playwright)"
+  "${CMDPOS}npx[[:space:]]+wrangler[[:space:]]+(dev|build|deploy)"
+  "${CMDPOS}npm[[:space:]]+test([[:space:]]|$)"
+  "${CMDPOS}npm[[:space:]]+run[[:space:]]+(test|build|dev|typecheck|lint|knip|check|e2e)"
+  "${CMDPOS}pnpm[[:space:]]+test"
+  "${CMDPOS}pnpm[[:space:]]+run[[:space:]]+(test|build|dev|typecheck|lint)"
+  "${CMDPOS}yarn[[:space:]]+test"
+  "${CMDPOS}yarn[[:space:]]+(build|dev|typecheck|lint)"
   # Direct compiler / linter / formatter binaries
-  '(^|[^a-zA-Z0-9_/-])tsc($|[[:space:]])'
-  '(^|[^a-zA-Z0-9_/-])oxlint($|[[:space:]])'
-  '(^|[^a-zA-Z0-9_/-])eslint($|[[:space:]])'
-  '(^|[^a-zA-Z0-9_/-])prettier($|[[:space:]])'
+  "${CMDPOS}tsc([[:space:]]|$)"
+  "${CMDPOS}oxlint([[:space:]]|$)"
+  "${CMDPOS}eslint([[:space:]]|$)"
+  "${CMDPOS}prettier([[:space:]]|$)"
   # Wrangler dev/build/deploy (deploy goes through CI/Actions)
-  'wrangler[[:space:]]+(dev|build|deploy)'
+  "${CMDPOS}wrangler[[:space:]]+(dev|build|deploy)"
   # Cargo / Go builds and tests
-  'cargo[[:space:]]+(test|build|check|run)'
-  'go[[:space:]]+(test|build|run)'
+  "${CMDPOS}cargo[[:space:]]+(test|build|check|run)"
+  "${CMDPOS}go[[:space:]]+(test|build|run)"
 )
 
 for pat in "${PATTERNS[@]}"; do

@@ -197,7 +197,7 @@ SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
 # escaped quotes within their own quote class (`cd "/a\"b/c"`) are NOT
 # supported - graphify-verified that no codeflare path has this shape.
 # ---------------------------------------------------------------------------
-PUSH_RECORD=$(sed -n "${PUSH_LINE}p" "$TRANSCRIPT" 2>/dev/null)
+PUSH_RECORD=$(awk -v L="$PUSH_LINE" 'NR==L { print; exit }' "$TRANSCRIPT" 2>/dev/null)
 ENVELOPE_CWD=$(echo "$PUSH_RECORD" | jq -r '.cwd // empty' 2>/dev/null)
 # jq -r decodes the JSON-encoded command/code string back to its raw
 # shell form (handles `&&`, `\"`, etc.). The `..` recursive
@@ -654,7 +654,7 @@ if [ "$DOC_REQUIRED" = "1" ] && [ "$SPEC_REQUIRED" = "1" ]; then
   ' "$TRANSCRIPT" | tail -1)
 
   if [ -n "$SPEC_SPAWN_LINE" ]; then
-    SPEC_LINE_CONTENT=$(sed -n "${SPEC_SPAWN_LINE}p" "$TRANSCRIPT")
+    SPEC_LINE_CONTENT=$(awk -v L="$SPEC_SPAWN_LINE" 'NR==L { print; exit }' "$TRANSCRIPT")
     SPEC_TOOL_USE_ID=$(echo "$SPEC_LINE_CONTENT" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
 
     if [ -n "$SPEC_TOOL_USE_ID" ]; then
@@ -691,7 +691,7 @@ elif [ "$SPEC_REQUIRED" = "1" ]; then
     NR > p && /"subagent_type":"spec-reviewer"/ { print NR }
   ' "$TRANSCRIPT" | tail -1)
   if [ -n "$SPEC_SPAWN_LINE" ]; then
-    SPEC_LINE_CONTENT=$(sed -n "${SPEC_SPAWN_LINE}p" "$TRANSCRIPT")
+    SPEC_LINE_CONTENT=$(awk -v L="$SPEC_SPAWN_LINE" 'NR==L { print; exit }' "$TRANSCRIPT")
     SPEC_TOOL_USE_ID=$(echo "$SPEC_LINE_CONTENT" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
     if [ -n "$SPEC_TOOL_USE_ID" ]; then
       SINCE_SPEC=$(tail -n +"$SPEC_SPAWN_LINE" "$TRANSCRIPT" 2>/dev/null)
@@ -707,7 +707,7 @@ else
     NR > p && /"subagent_type":"code-reviewer"/ { print NR }
   ' "$TRANSCRIPT" | tail -1)
   if [ -n "$CODE_SPAWN_LINE" ]; then
-    CODE_LINE_CONTENT=$(sed -n "${CODE_SPAWN_LINE}p" "$TRANSCRIPT")
+    CODE_LINE_CONTENT=$(awk -v L="$CODE_SPAWN_LINE" 'NR==L { print; exit }' "$TRANSCRIPT")
     CODE_TOOL_USE_ID=$(echo "$CODE_LINE_CONTENT" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
     if [ -n "$CODE_TOOL_USE_ID" ]; then
       SINCE_CODE=$(tail -n +"$CODE_SPAWN_LINE" "$TRANSCRIPT" 2>/dev/null)

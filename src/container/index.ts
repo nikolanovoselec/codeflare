@@ -314,7 +314,8 @@ export class container extends Container<Env> {
         // Clear the in-memory mint so the next call retries instead
         // of returning a key we know was never persisted.
         this._vaultKey = null;
-        this.logger.error('Failed to persist vaultKey', { error: toErrorMessage(err) });
+        const wrapped = err instanceof Error ? err : new Error(toErrorMessage(err));
+        this.logger.error('Failed to persist vaultKey', wrapped);
         throw new Error(`ensureVaultKey: storage.put failed: ${toErrorMessage(err)}`);
       }
       this._vaultKey = key;

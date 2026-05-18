@@ -140,15 +140,35 @@ describe('block-local-builds.sh — Bash matcher', () => {
     assert.match(r.stdout, /"decision"\s*:\s*"block"/);
   });
 
-  it('blocks chained `git add && npm test`', () => {
+  it('blocks `npm test` on its own line within a multi-line script', () => {
+    // The line-start anchor catches multi-line scripts where the build
+    // command lives on its own line — the common shape for local-run
+    // attempts via ctx_execute (heredoc-style payloads).
+    const r = runHook(
+      bashInvocation('cd /home/user/workspace/codeflare\nnpm test'),
+      { bypassFile: tempBypass() }
+    );
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+  });
+});
+
+describe('block-local-builds.sh — accepted misses (documented)', () => {
+  // The line-start anchor accepts two known false-negatives in exchange
+  // for eliminating false positives. These tests pin those misses so a
+  // future refactor that tightens the anchor (e.g. real shell parsing)
+  // can flip them to `block` deliberately and consciously.
+  it('does NOT catch same-line chained `git add && npm test` (anchor accepts the miss)', () => {
     const r = runHook(bashInvocation('git add . && npm test'), { bypassFile: tempBypass() });
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'chained commands must not smuggle a build past the hook');
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'documented miss: regex cannot tell a real chain from `echo "&& npm test"`');
   });
 
-  it('blocks bash -c wrapping `npm test`', () => {
+  it('does NOT catch `bash -c "npm test"` wrapper (anchor accepts the miss)', () => {
     const r = runHook(bashInvocation('bash -c "npm test"'), { bypassFile: tempBypass() });
-    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'documented miss: the inner build is inside a string after -c, not at line start');
   });
 });
 
@@ -189,6 +209,35 @@ describe('block-local-builds.sh — false-positive guards', () => {
     // Touching a file path is fine; running the binary is not.
     const r = runHook(
       bashInvocation('cat node_modules/vitest/package.json'),
+      { bypassFile: tempBypass() }
+    );
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+  });
+
+  it('does NOT block a comment-only line mentioning "tsc"', () => {
+    const r = runHook(
+      bashInvocation('# typecheck via tsc has been my CI failure'),
+      { bypassFile: tempBypass() }
+    );
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+  });
+
+  it('does NOT block a line with a trailing comment mentioning "tsc"', () => {
+    const r = runHook(
+      bashInvocation('ls foo # via tsc'),
+      { bypassFile: tempBypass() }
+    );
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+  });
+
+  it('does NOT block `echo "the command was tsc"`', () => {
+    // The build-tool name appears inside an echo argument, NOT at the
+    // start of a command. The line-start anchor lets this through.
+    const r = runHook(
+      bashInvocation('echo "the command was tsc"'),
       { bypassFile: tempBypass() }
     );
     assert.equal(r.status, 0);

@@ -53,6 +53,12 @@ async function unregisterSwForSession(sw: ServiceWorkerContainer, sid: string): 
   }
 }
 
+// LOAD-BEARING: this function MUST return a freshly-allocated array
+// (not a live iterator or a view over a mutable structure). The caller
+// sweepOrphanVaultCaches() calls removeItem() while iterating the
+// result; if a future refactor changes this return type to anything
+// backed by the live localStorage key index, the removals will race
+// the iteration and silently skip entries.
 function listSessionMarkers(ls: Storage): string[] {
   const sids: string[] = [];
   for (let i = 0; i < ls.length; i++) {
