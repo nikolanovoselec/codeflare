@@ -104,9 +104,9 @@ Isolation boundary: each user's files live in their own bucket. Simplifies delet
 **Category:** Architecture
 **Status:** Superseded by AD56 (cadence rationale) and AD57 (shutdown budget).
 
-**Decision:** Background daemon every 15 minutes (SIGUSR1-interruptible) + final sync on shutdown. Superseded cadence rationale: see AD56.
+**Decision:** Background daemon every 60s + final sync on shutdown. Superseded cadence rationale: see AD56 (now 15min). Superseded shutdown budget rationale: see AD57 (now 120s watchdog within a 135s DO destroy budget).
 
-Local disk for all file operations (fast I/O). Bisync daemon runs in background, syncing changes bidirectionally every 15 minutes; manual triggers via SIGUSR1 (storage panel Sync-now button). SIGINT/SIGTERM trap runs final bisync before exit within a 120s watchdog (see AD57). Alternative (s3fs FUSE) was fragile and slow -- see Lessons Learned #1.
+Local disk for all file operations (fast I/O). Bisync daemon runs in background, syncing changes bidirectionally; manual triggers via SIGUSR1 (storage panel Sync-now button). SIGINT/SIGTERM trap runs final bisync before exit. Alternative (s3fs FUSE) was fragile and slow -- see Lessons Learned #1.
 
 ---
 
@@ -1047,7 +1047,8 @@ Three smaller decisions bundled in:
 
 ### AD59: Zero-UI vault encryption with per-session DO-storage key
 
-**Status:** Accepted
+**Category:** Security
+**Status:** Active (2026-05-18)
 
 **Context:** SilverBullet's IndexedDB cache stores every vault file as plaintext on the user's browser profile. Three concerns are coupled: (1) SB cold-start is ~30s on every new session because the per-`:sid` URL produces a new IDB hash every time; (2) plaintext IDB exposes vault content to anyone with read access to the user's browser profile (backup leak, profile theft, ransomware scan); (3) deleted sessions leave orphan IDBs that grow monotonically against the per-origin quota. The team wanted encryption-at-rest without adding a passphrase UI (it would create a "forgotten passphrase" support load and the vault is already coupled to the codeflare login).
 

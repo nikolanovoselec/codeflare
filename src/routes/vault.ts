@@ -228,6 +228,13 @@ export interface VaultBootConfig {
 
 const VAULT_BOOT_MARKER = 'window.__codeflareVaultBoot';
 
+// Defence-in-depth cap on the serialised payload size. Today the only
+// caller hardcodes config.lazyPathPrefixes to ['Raw/Pasted/'], so the
+// payload is always tiny. If a future change ever wires user-influenced
+// strings into lazyPathPrefixes, this cap prevents a pathological input
+// from blowing up JSON.stringify and the response body.
+const VAULT_BOOT_CONFIG_MAX_BYTES = 4096;
+
 export function injectVaultBootScript(html: string, config: VaultBootConfig): string {
   if (!config.vaultEncryptionKey) {
     throw new Error('injectVaultBootScript: vaultEncryptionKey must be non-empty');
@@ -247,6 +254,11 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  if (serialised.length > VAULT_BOOT_CONFIG_MAX_BYTES) {
+    throw new Error(
+      `injectVaultBootScript: serialised config exceeds ${VAULT_BOOT_CONFIG_MAX_BYTES}-byte safety cap`
+    );
+  }
   const tag = `<script>${VAULT_BOOT_MARKER} = ${serialised};</script>`;
   return html.replace('</head>', `${tag}</head>`);
 }

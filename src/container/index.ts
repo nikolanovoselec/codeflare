@@ -297,14 +297,27 @@ export class container extends Container<Env> {
         binary += String.fromCharCode(bytes[i]);
       }
       const key = btoa(binary);
-      this._vaultKey = key;
       // Promise.resolve wrap matches the containerAuthToken pattern:
       // production returns a real Promise but some test mocks return
-      // undefined synchronously, so `.catch` on the bare call would
-      // NPE without the wrap.
-      await Promise.resolve(this.ctx.storage.put('vaultKey', key)).catch((err) => {
-        this.logger.warn('Failed to persist vaultKey', { error: toErrorMessage(err) });
-      });
+      // undefined synchronously, so awaiting the bare call would NPE
+      // without the wrap.
+      //
+      // CRITICAL: do NOT swallow persistence errors. If storage.put
+      // silently fails, we would return `key` to the caller (the
+      // Worker injects it into BootConfig, browser encrypts IDB with
+      // it), then on the next DO wake the storage.get(key) returns
+      // null and we mint a fresh key — permanently breaking IDB
+      // decryption. Better to throw and force the caller to retry.
+      try {
+        await Promise.resolve(this.ctx.storage.put('vaultKey', key));
+      } catch (err) {
+        // Clear the in-memory mint so the next call retries instead
+        // of returning a key we know was never persisted.
+        this._vaultKey = null;
+        this.logger.error('Failed to persist vaultKey', { error: toErrorMessage(err) });
+        throw new Error(`ensureVaultKey: storage.put failed: ${toErrorMessage(err)}`);
+      }
+      this._vaultKey = key;
       return key;
     };
 
