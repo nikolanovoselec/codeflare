@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-05-18
 
+- REQ-VAULT-003 AC7 added: vault-extract agent now ingests PDF files via the Read tool instead of skipping them as binary; emits document and concept nodes, and a `cites` edge when a sibling note wikilinks the PDF. AC8 added: Read failures on individual PDFs emit a bare document node and do not block the high-water marker from advancing.
+
 - REQ-STOR-003 rewritten: bisync cadence changed from 60 seconds to 15 minutes; Intent updated to reflect cost-balancing rationale.
 - REQ-STOR-005 updated: final-bisync watchdog budget is 120 seconds; container orchestrator destroy budget is 135 seconds.
 - REQ-STOR-015 added: explicit Sync-now trigger from UI and multi-session fan-out; Status Partial pending test coverage of AC5 (SIGUSR1 coalesce/rerun) and AC6 (button disabled state).
