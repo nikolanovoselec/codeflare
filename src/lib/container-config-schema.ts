@@ -27,4 +27,6 @@ export const SetBucketNameBodySchema = z.object({
   encryptionKey: z.string().optional(),
   sessionMode: z.string(),
   sleepAfter: z.string(),
+  /** REQ-MEM-001 AC3: forward the user's IANA timezone to the container. */
+  userTimezone: z.string().optional(),
 }).passthrough();
