@@ -37,7 +37,7 @@ The vault lives at `/home/user/Vault/` inside every advanced-mode session contai
 Two parties write to the vault:
 
 - The **capture agent** (sonnet) appends a markdown file to `Raw/Sessions/` every 15 user prompts (replaces the old MCP-memory write path).
-- **The user** edits notes via SilverBullet (or any other tool that touches files under `Notes/`, `Inbox/`, `Journal/`, or `Raw/Pasted/`).
+- **The user** edits notes via SilverBullet (or any other tool that touches files under `Notes/`, `Inbox/`, or `Journal/`). Attachments dropped onto a note are written by SilverBullet next to the referencing note (so a Quick Note in `Inbox/2026-05-18/` collects PDFs and images in the same date folder); `Raw/Pasted/` remains as an optional hand-organised archive but SilverBullet never auto-routes there.
 
 A single 60s daemon polls for user edits and signals a background sonnet agent to ingest them into the unified graphify graph. Future agents query that graph via `mcp__graphify__*` and see captures + user notes + every active repo's code, merged.
 
@@ -283,9 +283,9 @@ Visual confirmation that the preseed theme is wired correctly: the editor render
 
 The vault-monitor daemon does not fire a spurious extraction on first boot or after a preseed update: `init_user_vault()` bumps `vault-extract.last` past the preseed-page mtimes whenever it rewrites a page, and the daemon's find excludes the four preseed-managed pages by name. A fresh session sends 5 prompts in a row with no user vault edits and the vault-extract hook fires zero times.
 
-## Image-pasting Cost Caveat
+## Attachment Cost Caveat (REQ-VAULT-003 AC7)
 
-SilverBullet supports pasting images directly into notes (they land in `Raw/Pasted/`). The vault-extract agent processes them through graphify, which sees them as binary nodes and skips semantic extraction. Future agents that retrieve those nodes via `mcp__graphify__get_node` will see a path reference, not the image -- viewing the image still costs vision tokens. Be aware when pasting screenshots into notes you expect to query frequently.
+SilverBullet writes pasted / drag-dropped attachments next to the note that referenced them (a Quick Note at `Inbox/2026-05-18/16-59-59.md` produces attachments at `Inbox/2026-05-18/*.pdf`, `.png`, etc.). The vault-extract agent reads PDFs via the Read tool (rendering pages as images, capped at 20 pages per PDF) and emits a `document` node plus `concept` nodes for whatever titles / headings / entities are visible. Image-only PDFs and screenshots cost vision tokens per page on every ingestion pass; be aware when pasting many images into notes you expect to query frequently. Move attachments to `Raw/Pasted/` manually if you want them grouped outside the date-folder rhythm.
 
 ## Troubleshooting
 

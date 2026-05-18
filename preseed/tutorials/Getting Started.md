@@ -61,7 +61,7 @@ What it's for:
 
 Bisync mirrors the vault to R2 every 15 minutes - same plumbing as the rest of `~`. If you want an edit you just made in SilverBullet pushed to R2 right now (or want a freshly-pasted note picked up from another device), hit the Sync-now button on the R2 panel and it fans out to every running session. Vault contents on a fresh container appear as soon as the first bisync round completes.
 
-There's a built-in dashboard at the vault root (`Index`) that surfaces recent quick notes, recent journal entries, open tasks, and recently modified pages. Wikilinks (`[[Concept Name]]`) cross-reference notes inside the vault. Image pasting works (`Ctrl+V` into a note); files land in `Raw/Pasted/`.
+There's a built-in dashboard at the vault root (`Index`) that surfaces recent quick notes, recent journal entries, open tasks, and recently modified pages. Wikilinks (`[[Concept Name]]`) cross-reference notes inside the vault. Image and PDF pasting works (`Ctrl+V` or drag-drop into a note); the file is written next to the note you are editing (a Quick Note in `Inbox/2026-05-18/` puts attachments in the same folder).
 
 ---
 

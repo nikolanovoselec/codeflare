@@ -25,10 +25,11 @@ removed.
 
 The vault (`/home/user/Vault/`) is rclone-bisynced to R2 as
 part of `/home/user/`. Both agent-written session captures
-(`Raw/Sessions/`) and user-curated notes (`Notes/`, `Raw/Pasted/`)
-survive container recycles. Memory persistence runs in advanced mode
-only; default-mode sessions still execute the capture hook for in-session
-context but the vault subtree never reaches R2.
+(`Raw/Sessions/`) and user-curated content under `Notes/`, `Inbox/`,
+`Journal/` (plus any attachments SilverBullet writes next to those
+notes) survive container recycles. Memory persistence runs in advanced
+mode only; default-mode sessions still execute the capture hook for
+in-session context but the vault subtree never reaches R2.
 
 The unified graph at `~/.graphify/global-graph.json` is the index layer:
 the capture agent, the vault-monitor agent, and `graphify-active-repo.sh`

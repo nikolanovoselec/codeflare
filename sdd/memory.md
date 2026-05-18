@@ -6,7 +6,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### Key Concepts
 
-- **Vault** -- `/home/user/Vault/`. Single source of truth for cross-session memory. Holds agent-written session captures (`Raw/Sessions/`) and user-curated notes (`Notes/`, `Raw/Pasted/`). Rclone-bisynced to R2.
+- **Vault** -- `/home/user/Vault/`. Single source of truth for cross-session memory. Holds agent-written session captures (`Raw/Sessions/`) and user-curated content under `Notes/`, `Inbox/`, `Journal/`. SilverBullet writes attachments next to the note that referenced them. Rclone-bisynced to R2.
 - **Unified Graph** -- `~/.graphify/global-graph.json`. Hash-keyed merge of the vault's graph and every active repo's per-repo graph. Queried via `mcp__graphify__*`.
 - **Capture** -- A background agent (sonnet) runs every 15 real user messages, prefilters the transcript to strip tool I/O, chunks the remainder, accumulates per-chunk observations into a scratchpad, synthesises a markdown capture file in `Raw/Sessions/`, and merges it into the unified graph under `flock /tmp/graphify-global.lock`.
 - **Session Mode** -- Advanced (Pro) mode enables R2 sync of the vault and capture hooks. Default (Standard) mode runs the in-session capture flow but the vault is not preserved across container recreations.

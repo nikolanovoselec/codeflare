@@ -38,9 +38,9 @@ Press `Ctrl/Cmd-K` (or click anywhere in the page title bar) to open the page sw
 Suggested folder layout:
 
 - `Notes/` - durable, organized prose. Concept notes, runbooks, references.
-- `Inbox/` - quick captures you'll process later.
+- `Inbox/` - quick captures you'll process later. SilverBullet's "Quick Note" lands here under a date subfolder (`Inbox/2026-05-18/`); attachments dropped on a Quick Note land in the same date folder, next to the note.
 - `Journal/` - daily entries (SB has a "Journal: Today" button).
-- `Raw/Pasted/` - drop screenshots, PDFs, anything binary here.
+- `Raw/Pasted/` - optional hand-organised archive for old screenshots/PDFs you want grouped. SB does NOT auto-route here; move files in manually if you want.
 
 ### Ask your coding agent to capture for you
 
@@ -56,7 +56,7 @@ The agent writes the file under the right `Notes/<Category>/` subfolder (`Remind
 
 ### Drop a PDF or screenshot
 
-Drag the file into the SilverBullet window. SB writes it to `Raw/Pasted/` and inserts an embed. The PDF plug renders it inline; images render as previews.
+Drag the file into the SilverBullet window. SB writes it next to the note you are editing (e.g. dragging into a Quick Note at `Inbox/2026-05-18/16-59-59.md` produces `Inbox/2026-05-18/<filename>`) and inserts an embed. The PDF plug renders it inline; images render as previews. The vault-extract agent ingests the PDF on its next pass (REQ-VAULT-003 AC7).
 
 ### Use the agent's memory
 
@@ -70,7 +70,7 @@ Anything you write in the vault gets extracted into the knowledge graph within ~
 
 - **Decision log**: write `Notes/Decisions/2026-05-17-deno-vs-bun.md`. Use `[[Deno]]` and `[[Bun]]` as wikilinks. Later ask the agent "remind me why we picked X" - it surfaces the note.
 - **API reference dump**: paste a third-party API doc into `Notes/References/Stripe-Webhooks.md`. Agent can pull from it when writing code.
-- **Reading notes**: drop a PDF in `Raw/Pasted/`, write a summary in `Notes/Reading/Title.md` linking to it. Graph connects the summary to whatever concepts you wikilinked.
+- **Reading notes**: create `Notes/Reading/Title.md` and drag the PDF into it. SB writes the PDF next to the note (`Notes/Reading/<filename>.pdf`) and inserts the embed. Graph connects the summary to whatever concepts you wikilinked plus the PDF's own contents.
 - **Project journal**: daily entries under `Journal/`. Use the "Journal: Today" button on [[Index]] to create one.
 
 ## Vault structure
@@ -85,7 +85,7 @@ Anything you write in the vault gets extracted into the knowledge graph within ~
 | `Journal/` | you (via SB button) | Daily entries. |
 | `Inbox/` | you (via SB button) | Quick captures. |
 | `Raw/Sessions/` | agent | Transcript captures, ~one per 15 prompts. Don't hand-edit. |
-| `Raw/Pasted/` | you | Drag-drop zone for PDFs, images, anything. |
+| `Raw/Pasted/` | you (optional) | Optional manual archive. NOT the SB drag-drop target -- SB writes attachments next to the referencing note. Move files here yourself if you want them grouped. |
 | `Library/Codeflare/` | preseed (overwritten each boot) | Bundled SB plugs (PDF, treeview, github, graph). |
 | `Library/Std/` | served by the SilverBullet binary's built-in `base_fs` overlay (not on disk) | SB's standard widget/template library. Required for the dashboard. |
 | `graphify-out/` | graphify CLI | Vault knowledge graph (build output - never edit). |
