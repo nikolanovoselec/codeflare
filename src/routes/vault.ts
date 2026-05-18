@@ -153,6 +153,146 @@ export function isServiceWorkerRegistration(request: Request, remainingPath: str
   return true;
 }
 
+/**
+ * Inject the per-session vault encryption key into a SilverBullet
+ * BootConfig JSON body. The Worker is the canonical source of the key
+ * (it lives in the container DO's ctx.storage and is RPC-fetched at
+ * request time); any value the container might emit for this field is
+ * stale or empty and is overridden here.
+ *
+ * Fail-loud contract: throws if `bootConfigJson` is not parseable JSON
+ * or if `vaultEncryptionKey` is empty. A silently-broken /.config
+ * response would still render the SB shell but client-side encryption
+ * would fall back to plaintext IDB - a silent data-at-rest regression.
+ *
+ * Implements REQ-VAULT-008 AC2.
+ */
+export function injectVaultEncryptionConfig(bootConfigJson: string, vaultEncryptionKey: string): string {
+  if (!vaultEncryptionKey) {
+    throw new Error('injectVaultEncryptionConfig: vaultEncryptionKey must be non-empty');
+  }
+  const parsed = JSON.parse(bootConfigJson);
+  const merged = {
+    ...parsed,
+    vaultEncryptionKey,
+    enableClientEncryption: true,
+  };
+  return JSON.stringify(merged);
+}
+
+/**
+ * Inject a SilverBullet bootstrap configuration script into the shell
+ * HTML. The script lands BEFORE `</head>` and exposes a global
+ * `window.__codeflareVaultBoot` object that the SilverBullet client
+ * patch reads on startup to:
+ *
+ *   - skip the encryption passphrase prompt and use `vaultEncryptionKey`
+ *     directly as the IDB encryption key (AC3),
+ *   - raise initial-sync concurrency from the default 3 to a higher
+ *     value (`syncConcurrency`, AC4),
+ *   - exclude `lazyPathPrefixes` from the bulk-sync set; SB lazy-fetches
+ *     these via the standard readFile path on open (AC5).
+ *
+ * Why this lives in the Worker and not in the SB binary:
+ *   SilverBullet 2.8 ships as a Deno-compiled single binary (see
+ *   Dockerfile L116-131); patching its bundled client.js at build time
+ *   would require either a source rebuild (Deno toolchain in the image,
+ *   ~400MB) or post-link binary surgery. Runtime injection through the
+ *   already-text-rewriting Worker proxy (see the `<base href>` rewrite
+ *   below) is the lowest-overhead option and keeps the SB binary
+ *   immutable.
+ *
+ * Security:
+ *   - Throws on empty `vaultEncryptionKey` so a misconfigured DO key
+ *     never silently degrades to plaintext IDB.
+ *   - Escapes `</script>` sequences in any string field to prevent HTML
+ *     break-out via crafted lazyPathPrefixes.
+ *   - Idempotent: re-injection over already-patched HTML is a no-op,
+ *     so a reload that lands on a Worker-cached shell does not stack
+ *     boot scripts.
+ *
+ * Returns the original HTML unchanged if `</head>` is not present
+ * (defensive fail-safe, not an error: the SB error pages and 404 HTML
+ * do not have a `<head>` and must not be mutilated).
+ *
+ * Implements REQ-VAULT-008 AC3+4+5.
+ */
+export interface VaultBootConfig {
+  vaultEncryptionKey: string;
+  syncConcurrency: number;
+  lazyPathPrefixes: string[];
+}
+
+const VAULT_BOOT_MARKER = 'window.__codeflareVaultBoot';
+
+export function injectVaultBootScript(html: string, config: VaultBootConfig): string {
+  if (!config.vaultEncryptionKey) {
+    throw new Error('injectVaultBootScript: vaultEncryptionKey must be non-empty');
+  }
+  if (html.includes(VAULT_BOOT_MARKER)) {
+    return html;
+  }
+  if (!html.includes('</head>')) {
+    return html;
+  }
+  // Escape </ to <\/ to defang any literal </script> inside the payload.
+  const serialised = JSON.stringify(config).replace(/<\//g, '<\\/');
+  const tag = `<script>${VAULT_BOOT_MARKER} = ${serialised};</script>`;
+  return html.replace('</head>', `${tag}</head>`);
+}
+
+/**
+ * Filter a SilverBullet `/.fs` JSON listing response, removing entries
+ * whose `name` starts with `graphify-out/`. The vault contains agent-
+ * derived graph artifacts (sometimes multi-MB graph.html) that must
+ * not appear in the SB UI's space listing — they would clutter the
+ * tree, slow initial sync, and confuse the user.
+ *
+ * Server-side filter (here) is the canonical enforcement point because
+ * the SB binary embeds its own listing logic and we cannot reach in
+ * to add an exclude pattern. Treeview UI exclusion (AC7) is a parallel
+ * surface guard for the editor's tree pane.
+ *
+ * Fail-safe: returns the input string unchanged on any parse error or
+ * if the body is not a JSON array — never breaks a 200 response just
+ * because the upstream shape drifted.
+ *
+ * Implements REQ-VAULT-008 AC6.
+ */
+export function filterVaultFsListing(body: string): string {
+  try {
+    const parsed = JSON.parse(body);
+    if (!Array.isArray(parsed)) return body;
+    const filtered = parsed.filter((entry) => {
+      if (entry == null || typeof entry !== 'object') return true;
+      const name = (entry as { name?: unknown }).name;
+      if (typeof name !== 'string') return true;
+      return !name.startsWith('graphify-out/');
+    });
+    return JSON.stringify(filtered);
+  } catch {
+    return body;
+  }
+}
+
+/**
+ * Same-origin fallback for the CSRF synthesis gate. Returns true when
+ * the request is a state-changing method (POST/PUT/PATCH/DELETE) AND
+ * the Origin header is absent. SilverBullet's attachment upload path
+ * (PUT `/api/vault/<sid>/Inbox/<file>`) lands at the Worker without an
+ * Origin header in some browser configurations; treating it as
+ * same-origin closes the 401 gap. Returns false on safe methods and on
+ * any state-changing method that supplied an Origin (the caller still
+ * runs the allowlist check on the Origin).
+ *
+ * Implements REQ-VAULT-009 AC1+AC4.
+ */
+export function inferOriginValidated(request: Request): boolean {
+  if (request.headers.get('Origin')) return false;
+  const method = request.method.toUpperCase();
+  return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+}
+
 export function validateVaultRoute(request: Request): VaultRouteResult {
   const url = new URL(request.url);
   const match = url.pathname.match(/^\/api\/vault\/([^/]+)(\/.*)$/);
@@ -259,6 +399,13 @@ export async function handleVaultRequest(
         { status: 403, headers: jsonHeaders },
       );
     }
+    originValidated = true;
+  } else if (inferOriginValidated(request)) {
+    // REQ-VAULT-009 AC1: state-changing request with no Origin header
+    // is same-origin by Fetch-spec semantics; treat as validated so the
+    // downstream CSRF synthesiser attaches X-Requested-With and the
+    // authenticateRequest CSRF guard does not reject the SB attachment
+    // upload (PUT /api/vault/<sid>/Inbox/<file>).
     originValidated = true;
   }
 
@@ -429,20 +576,97 @@ export async function handleVaultRequest(
     // href, added attribute, etc.) surfaces as a logged signal instead
     // of a silent white-screen regression.
     const contentType = response.headers.get('content-type') ?? '';
+
+    // REQ-VAULT-008 AC2: inject the per-session vault encryption key into
+    // SilverBullet's BootConfig response. The DO is the canonical key
+    // source - SB sees the key through this same authenticated channel
+    // and uses it as the IDB encryption key without ever showing the
+    // user a passphrase prompt. We treat any 2xx /.config response as
+    // injection-eligible regardless of upstream content-type because
+    // SB's Go server has shipped both application/json and text/plain
+    // for this endpoint across versions; the JSON.parse inside
+    // injectVaultEncryptionConfig fails loud if the body is not JSON.
+    if (remainingPath === '/.config' && response.ok) {
+      try {
+        const vaultEncryptionKey = await (container as unknown as {
+          ensureVaultKey: () => Promise<string>;
+        }).ensureVaultKey();
+        const body = await response.text();
+        const rewritten = injectVaultEncryptionConfig(body, vaultEncryptionKey);
+        const headers = new Headers(response.headers);
+        headers.delete('content-length');
+        headers.delete('content-encoding');
+        headers.set('content-type', 'application/json');
+        return new Response(rewritten, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        });
+      } catch (err) {
+        logger.error('vault /.config injection failed', toError(err));
+        return new Response(JSON.stringify({
+          error: 'Vault config injection failed',
+          code: 'VAULT_CONFIG_INJECT_FAILED',
+        }), { status: 500, headers: jsonHeaders });
+      }
+    }
+
+    // REQ-VAULT-008 AC6: strip graphify-out/** entries from SB's space
+    // listing. SB 2.x serves the listing as `index.json` (legacy) and
+    // `/.fs/` (newer); both endpoints return a JSON array of file
+    // metadata. The filter is a no-op for any other JSON shape.
+    if (
+      response.ok &&
+      (remainingPath === '/index.json' || remainingPath === '/.fs' || remainingPath === '/.fs/')
+    ) {
+      const body = await response.text();
+      const filtered = filterVaultFsListing(body);
+      const headers = new Headers(response.headers);
+      headers.delete('content-length');
+      headers.delete('content-encoding');
+      return new Response(filtered, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }
+
     if (contentType.includes('text/html')) {
       const prefix = `/api/vault/${sessionId}`;
       const body = await response.text();
-      const rewritten = body.replace(
+      let rewritten = body.replace(
         /<base\s+href="\/"\s*\/?>/gi,
         `<base href="${prefix}/" />`,
       );
+
+      // REQ-VAULT-008 AC3+4+5: inject the per-session vault boot config
+      // into the shell HTML so the SB client patch can pick up the
+      // encryption key, raised sync concurrency, and lazy path filters
+      // without a passphrase prompt. Only fires on the 200 shell paths
+      // where SB will actually bootstrap a client; error pages and
+      // non-shell text/html responses are left untouched by the
+      // VAULT_BOOT_MARKER idempotency guard inside the helper.
+      const isShellPath =
+        remainingPath === '/' || remainingPath === '/index.html';
+      if (response.status === 200 && isShellPath) {
+        try {
+          const vaultEncryptionKey = await (container as unknown as {
+            ensureVaultKey: () => Promise<string>;
+          }).ensureVaultKey();
+          rewritten = injectVaultBootScript(rewritten, {
+            vaultEncryptionKey,
+            syncConcurrency: 15,
+            lazyPathPrefixes: ['Raw/Pasted/'],
+          });
+        } catch (err) {
+          logger.warn('vault boot-script injection skipped', { error: toErrorMessage(err) });
+        }
+      }
       // Only warn on the shell paths where the rewrite is load-bearing
       // (`/` and `/index.html`). On any other text/html path - error
       // pages, 404 HTML, future plug-served HTML - a no-op rewrite is
       // expected, not a signal. Logging unconditionally fills prod logs
       // with false positives on every non-shell error response.
-      const isShellPath =
-        remainingPath === '/' || remainingPath === '/index.html';
       if (rewritten === body && response.status === 200 && isShellPath) {
         logger.warn('vault base-href rewrite no-op', {
           pathname: vaultUrl.pathname,

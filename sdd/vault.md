@@ -219,3 +219,55 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Status:** Implemented
 
 ---
+
+## REQ-VAULT-008: Zero-UI vault encryption + cold-start payload reduction + per-session IDB lifecycle
+
+**Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. Three coupled improvements ship as one requirement: (a) the IDB cache is encrypted at rest with a per-session key generated and stored by the Container DO (no user passphrase prompt), (b) the cold-start payload is reduced (concurrency bumped, lazy attachments, server-side filter for derived output, treeview nav filtered), and (c) deleted sessions have their IDB cleaned up rather than lingering across browser sessions. The threat model is BitLocker-grade: defeats offline disk attacks (profile theft, backup leak, ransomware scan), does NOT defeat anyone with an authenticated browser tab. The key dies with `container.destroy()` so deletion is forward-secret.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. Container DO generates a 32-byte random `vaultKey` on first start, persists in `ctx.storage` under key `vaultKey`, and returns the same key on every subsequent read. The key is never rotated; it is wiped only when `container.destroy()` runs (session DELETE).
+2. The Worker `/api/vault/:sid/.config` proxy fetches the vault key via DO RPC and merges `{ vaultEncryptionKey: "<base64>", enableClientEncryption: true }` into the BootConfig JSON returned to SilverBullet.
+3. SilverBullet consumes `bootConfig.vaultEncryptionKey` and uses it as both the `encryptionKeyPart` in `deriveDbName` AND the encryption key for IndexedDB contents. No passphrase prompt is shown.
+4. The vendored SilverBullet bundle sets `syncConcurrency = 15` (default was 3) to accelerate the unavoidable first-sync.
+5. Files matching `Raw/Pasted/**` are not eagerly synced into IndexedDB on the bulk-sync path; SilverBullet falls through to the standard `readFile` path on user open, fetching attachments on demand.
+6. The vendored SilverBullet Go server filters `/.fs` listings to exclude `graphify-out/**` so derived output never reaches the browser.
+7. The preseed `CONFIG.md` declares a `treeview.exclude` block hiding `Library/**`, `Repositories/**`, the four top-level preseed pages (`CONFIG.md`, `Index.md`, `README.md`, `STYLES.md`), `.silverbullet/**`, and `graphify-out/**` from the navigation tree.
+8. The frontend invokes `cleanupSessionVaultCache(sessionId)` on session DELETE (not stop) -- deletes both `sb_files_<hash>` and `sb_data_<hash>` databases, unregisters the SilverBullet service worker registered at `/api/vault/<sid>/`, and removes the `localStorage["vault-session-<sid>"]` marker.
+9. On dashboard mount and on every session-list refresh, the frontend sweeps `localStorage["vault-session-<sid>"]` markers and nukes the IDB + marker for any session NOT present in the user's active sessions list (covers the case where the session was deleted from another device).
+
+**Constraints:**
+- Encryption protects against offline attacks ONLY. Anyone with an authenticated browser tab (or who can run JavaScript in the codeflare origin) can fetch the key from `/.config` and decrypt. The threat-model trade-off is documented in `documentation/decisions/README.md` AD-NN (TBD on land).
+- The vault key MUST NOT be rotated mid-session. Rotation would orphan all existing IDB ciphertext on the browser and force a fresh re-sync on every container restart, defeating the cold-start optimisation.
+- The vault key MUST be wiped on `container.destroy()`. Persistence of the key after deletion would let a recovered browser profile decrypt the orphaned IDB.
+- Per-session `:sid` MUST remain in the proxy URL to preserve the parallel-session isolation property (each session has its own IDB; cross-session reads/writes never collide).
+
+**Priority:** P0
+**Dependencies:** REQ-VAULT-005 (Worker proxy exposes vault editor), REQ-VAULT-001 (vault directory survives sessions), REQ-MEM-006 (Pro mode gating)
+**Verification:** Unit tests (DO `ensureVaultKey()` persistence + idempotency in `src/__tests__/container/index.test.ts`; Worker `/.config` merge + boot-script injection + `/.fs` filter in `src/__tests__/routes/vault.test.ts`; `cleanupSessionVaultCache` + `sweepOrphanVaultCaches` in `web-ui/src/__tests__/lib/vault-cache.test.ts`; CONFIG.md treeview exclude in `host/__tests__/preseed-config-treeview.test.js`); manual smoke (cold-start time under 5s on second session; IDB bytes are AES ciphertext; deleted-session IDB is gone).
+**Status:** Partial
+
+---
+
+## REQ-VAULT-009: Vault writes succeed end-to-end for SilverBullet attachment uploads
+
+**Intent:** SilverBullet's drag-drop attachment upload (PUT `/api/vault/<sid>/Inbox/<file>`) must succeed when the user is authenticated, regardless of whether the browser's fetch implementation set the Origin header. The previous code path required Origin to be present and allowlisted before synthesising the CSRF guard header, so a service-worker-controlled fetch or a same-origin fetch that omitted Origin landed at the auth chain without X-Requested-With and was rejected. PDF uploads from the SB Inbox plug repeatedly surfaced this as a 401 to the user.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. A state-changing PUT/POST/PATCH/DELETE request to `/api/vault/<sid>/...` with no Origin header is treated as same-origin and proceeds through CSRF synthesis. The synthesis adds `X-Requested-With: XMLHttpRequest` so the downstream `authenticateRequest` CSRF guard does not reject the write.
+2. A state-changing request with an Origin header that fails the allowlist still returns 403; the missing-Origin fallback does NOT widen the allowlist.
+3. The forward chain preserves the request body bytes end-to-end (no double-read, no disturbed stream) on both the with-Origin and the no-Origin paths.
+4. Existing GET / HEAD / OPTIONS requests behave unchanged; only state-changing methods enter the fallback path.
+
+**Constraints:**
+- Browsers since 2020 always set Origin on state-changing cross-origin requests; the fallback is for SB's same-origin path (where Origin is "null" or omitted) and CLI-style clients. It does NOT bypass the allowlist when an Origin IS present and disallowed.
+
+**Priority:** P1
+**Dependencies:** REQ-VAULT-005 (Worker proxy exposes vault editor)
+**Verification:** Unit (`src/__tests__/routes/vault.test.ts` regression for missing-Origin PUT path).
+**Status:** Implemented
+
+---

@@ -14,7 +14,7 @@ describe('getBrowserTimezone (REQ-MEM-001 AC3)', () => {
     // resolves to the host's timezone (typically UTC in CI, local in dev).
     const tz = getBrowserTimezone();
     expect(typeof tz).toBe('string');
-    expect(tz.length).toBeGreaterThan(0);
+    expect((tz ?? '').length).toBeGreaterThan(0);
   });
 
   it('returns null if Intl.DateTimeFormat throws (defensive)', () => {

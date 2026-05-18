@@ -4,6 +4,10 @@ import {
   maybeSynthesizeCsrfHeader,
   isServiceWorkerRegistration,
   VAULT_NOOP_SERVICE_WORKER_JS,
+  injectVaultEncryptionConfig,
+  injectVaultBootScript,
+  filterVaultFsListing,
+  inferOriginValidated,
 } from '../../routes/vault';
 
 /**
@@ -253,6 +257,194 @@ describe('validateVaultRoute', () => {
       expect(VAULT_NOOP_SERVICE_WORKER_JS).toContain('clients.claim');
       expect(VAULT_NOOP_SERVICE_WORKER_JS).toContain('install');
       expect(VAULT_NOOP_SERVICE_WORKER_JS).toContain('activate');
+    });
+  });
+
+  describe('injectVaultEncryptionConfig (REQ-VAULT-008 AC2)', () => {
+    it('adds vaultEncryptionKey and enableClientEncryption=true to a JSON BootConfig body', () => {
+      const original = JSON.stringify({ spaceFolderPath: '/Vault', readOnly: false });
+      const result = injectVaultEncryptionConfig(original, 'AAAA-base64-key-AAAA');
+      const parsed = JSON.parse(result);
+      expect(parsed.vaultEncryptionKey).toBe('AAAA-base64-key-AAAA');
+      expect(parsed.enableClientEncryption).toBe(true);
+      expect(parsed.spaceFolderPath).toBe('/Vault');
+      expect(parsed.readOnly).toBe(false);
+    });
+
+    it('does not mutate the input string and returns valid JSON', () => {
+      const original = '{"a":1}';
+      const out = injectVaultEncryptionConfig(original, 'k');
+      expect(original).toBe('{"a":1}');
+      expect(() => JSON.parse(out)).not.toThrow();
+    });
+
+    it('overrides any pre-existing vaultEncryptionKey from upstream (Worker is canonical)', () => {
+      const original = JSON.stringify({ vaultEncryptionKey: 'stale-or-empty', enableClientEncryption: false });
+      const parsed = JSON.parse(injectVaultEncryptionConfig(original, 'fresh-key'));
+      expect(parsed.vaultEncryptionKey).toBe('fresh-key');
+      expect(parsed.enableClientEncryption).toBe(true);
+    });
+
+    it('throws if input body is not valid JSON (fail loud, do not silently break SB boot)', () => {
+      expect(() => injectVaultEncryptionConfig('not json', 'k')).toThrow();
+    });
+
+    it('throws if key is empty (vaultEncryptionKey must be a non-empty string)', () => {
+      expect(() => injectVaultEncryptionConfig('{}', '')).toThrow();
+    });
+  });
+
+  describe('injectVaultBootScript (REQ-VAULT-008 AC3+4+5)', () => {
+    it('injects a <script> with vaultEncryptionKey, syncConcurrency, and lazyPathPrefixes before </head>', () => {
+      const html = '<!DOCTYPE html><html><head><title>SB</title></head><body></body></html>';
+      const out = injectVaultBootScript(html, {
+        vaultEncryptionKey: 'k1',
+        syncConcurrency: 15,
+        lazyPathPrefixes: ['Raw/Pasted/'],
+      });
+      expect(out).toContain('window.__codeflareVaultBoot');
+      expect(out).toContain('"k1"');
+      expect(out).toContain('"syncConcurrency":15');
+      expect(out).toContain('"Raw/Pasted/"');
+      expect(out.indexOf('window.__codeflareVaultBoot')).toBeLessThan(out.indexOf('</head>'));
+    });
+
+    it('escapes </script> in injected payload to prevent HTML break-out (XSS guard)', () => {
+      const html = '<html><head></head><body></body></html>';
+      const out = injectVaultBootScript(html, {
+        vaultEncryptionKey: 'safe-key',
+        syncConcurrency: 15,
+        lazyPathPrefixes: ['</script><script>alert(1)</script>'],
+      });
+      expect(out).not.toContain('</script><script>alert(1)');
+      expect(out).toContain('<\\/script>');
+    });
+
+    it('is idempotent — re-injecting on already-patched HTML produces single block', () => {
+      const html = '<html><head></head><body></body></html>';
+      const once = injectVaultBootScript(html, {
+        vaultEncryptionKey: 'k',
+        syncConcurrency: 15,
+        lazyPathPrefixes: [],
+      });
+      const twice = injectVaultBootScript(once, {
+        vaultEncryptionKey: 'k',
+        syncConcurrency: 15,
+        lazyPathPrefixes: [],
+      });
+      const occurrences = (twice.match(/window\.__codeflareVaultBoot/g) || []).length;
+      expect(occurrences).toBe(1);
+    });
+
+    it('returns input unchanged when no </head> tag exists (fail-safe, not error)', () => {
+      const html = '<html><body>no head</body></html>';
+      const out = injectVaultBootScript(html, {
+        vaultEncryptionKey: 'k',
+        syncConcurrency: 15,
+        lazyPathPrefixes: [],
+      });
+      expect(out).toBe(html);
+    });
+
+    it('throws if vaultEncryptionKey is empty', () => {
+      const html = '<html><head></head><body></body></html>';
+      expect(() => injectVaultBootScript(html, {
+        vaultEncryptionKey: '',
+        syncConcurrency: 15,
+        lazyPathPrefixes: [],
+      })).toThrow();
+    });
+  });
+
+  describe('filterVaultFsListing (REQ-VAULT-008 AC6)', () => {
+    it('removes entries with names starting with graphify-out/', () => {
+      const body = JSON.stringify([
+        { name: 'Notes/foo.md', size: 10 },
+        { name: 'graphify-out/graph.json', size: 5000 },
+        { name: 'graphify-out/vault-graph.html', size: 200000 },
+        { name: 'Raw/Sessions/x.md', size: 100 },
+      ]);
+      const filtered = JSON.parse(filterVaultFsListing(body));
+      expect(filtered).toHaveLength(2);
+      expect(filtered.map((e: { name: string }) => e.name)).toEqual([
+        'Notes/foo.md',
+        'Raw/Sessions/x.md',
+      ]);
+    });
+
+    it('returns input unchanged if body is not a JSON array', () => {
+      const invalid = '{"not":"array"}';
+      expect(filterVaultFsListing(invalid)).toBe(invalid);
+    });
+
+    it('returns input unchanged on parse error', () => {
+      const garbage = 'not json at all';
+      expect(filterVaultFsListing(garbage)).toBe(garbage);
+    });
+
+    it('handles entries with no graphify-out prefix as no-op', () => {
+      const body = JSON.stringify([{ name: 'a.md' }, { name: 'b.md' }]);
+      const out = JSON.parse(filterVaultFsListing(body));
+      expect(out).toHaveLength(2);
+    });
+
+    it('also filters nested graphify-out paths (e.g. Raw/graphify-out should NOT match — only top-level)', () => {
+      const body = JSON.stringify([
+        { name: 'graphify-out/x.json' },
+        { name: 'Notes/graphify-out-notes.md' },
+        { name: 'Notes/sub/file.md' },
+      ]);
+      const out = JSON.parse(filterVaultFsListing(body));
+      expect(out.map((e: { name: string }) => e.name)).toEqual([
+        'Notes/graphify-out-notes.md',
+        'Notes/sub/file.md',
+      ]);
+    });
+  });
+
+  describe('inferOriginValidated (REQ-VAULT-009 AC1+2)', () => {
+    function req(method: string, headers: Record<string, string> = {}): Request {
+      return new Request('https://codeflare.ch/api/vault/abcdef12/Inbox/file.pdf', {
+        method,
+        headers: new Headers(headers),
+      });
+    }
+
+    it('AC2: returns false on PUT with Origin set (caller still allowlist-checks)', () => {
+      expect(inferOriginValidated(req('PUT', { Origin: 'https://codeflare.ch' }))).toBe(false);
+    });
+
+    it('AC1: returns true on PUT with no Origin (same-origin fallback)', () => {
+      expect(inferOriginValidated(req('PUT'))).toBe(true);
+    });
+
+    it('AC1: returns true on POST with no Origin', () => {
+      expect(inferOriginValidated(req('POST'))).toBe(true);
+    });
+
+    it('AC1: returns true on PATCH with no Origin', () => {
+      expect(inferOriginValidated(req('PATCH'))).toBe(true);
+    });
+
+    it('AC1: returns true on DELETE with no Origin', () => {
+      expect(inferOriginValidated(req('DELETE'))).toBe(true);
+    });
+
+    it('AC4: returns false on GET with no Origin (safe methods do not enter fallback)', () => {
+      expect(inferOriginValidated(req('GET'))).toBe(false);
+    });
+
+    it('AC4: returns false on HEAD with no Origin', () => {
+      expect(inferOriginValidated(req('HEAD'))).toBe(false);
+    });
+
+    it('AC4: returns false on OPTIONS with no Origin', () => {
+      expect(inferOriginValidated(req('OPTIONS'))).toBe(false);
+    });
+
+    it('AC1: case-insensitive method comparison', () => {
+      expect(inferOriginValidated(req('put'))).toBe(true);
+      expect(inferOriginValidated(req('Post'))).toBe(true);
     });
   });
 
