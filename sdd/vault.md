@@ -229,8 +229,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 1. Container DO generates a 32-byte random `vaultKey` on first start, persists in `ctx.storage` under key `vaultKey`, and returns the same key on every subsequent read. The key is never rotated; it is wiped only when `container.destroy()` runs (session DELETE).
 2. The Worker `/api/vault/:sid/.config` proxy fetches the vault key via DO RPC and merges `{ vaultEncryptionKey: "<base64>", enableClientEncryption: true }` into the BootConfig JSON returned to SilverBullet.
-3. SilverBullet consumes `bootConfig.vaultEncryptionKey` and uses it as both the `encryptionKeyPart` in `deriveDbName` AND the encryption key for IndexedDB contents. No passphrase prompt is shown.
-4. The vendored SilverBullet bundle sets `syncConcurrency = 15` (default was 3) to accelerate the unavoidable first-sync.
+3. SilverBullet consumes the vault key delivered via boot config, uses it to derive the IndexedDB database name and as the encryption key for IndexedDB contents. No passphrase prompt is shown to the user.
+4. The vendored SilverBullet bundle is configured with an elevated sync concurrency (well above the default) to accelerate the unavoidable first-sync.
 5. Files matching `Raw/Pasted/**` are not eagerly synced into IndexedDB on the bulk-sync path; SilverBullet falls through to the standard `readFile` path on user open, fetching attachments on demand.
 6. The vendored SilverBullet Go server filters `/.fs` listings to exclude `graphify-out/**` so derived output never reaches the browser.
 7. The preseed `CONFIG.md` declares a `treeview.exclusions` block (upstream v2 schema) hiding `Library/`, `graphify-out/`, and the four top-level preseed pages (`CONFIG`, `Index`, `README`, `STYLES`) from the navigation tree. `.silverbullet/` is dot-prefixed and hidden by SilverBullet's default behaviour; it requires no explicit rule.
