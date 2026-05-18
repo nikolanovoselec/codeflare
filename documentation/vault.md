@@ -95,7 +95,7 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 
 ## Capture Path (REQ-VAULT-002)
 
-The `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to spawn a background sonnet agent. The haiku runs `memory-agent-prompt.md` end to end:
+The `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to spawn a background sonnet agent. The sonnet agent runs `memory-agent-prompt.md` end to end:
 
 1. Deletes the `.vars` marker (dedup gate so a concurrent prompt cannot spawn a duplicate).
 2. Reads the new transcript range.
