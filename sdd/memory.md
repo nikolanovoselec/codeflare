@@ -31,22 +31,22 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Intent:** Important conversation context (decisions, debugging insights, observations) must be extracted from the transcript and persisted to the vault without manual intervention.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
 1. The `memory-capture.sh` script runs as a `UserPromptSubmit` hook, injecting a short instruction into the main agent's context via `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0`.
 2. The hook counts real user messages in the JSONL transcript using a two-layer grep filter that excludes tool-result wrappers (content is an array, not a string) and synthetic messages (slash commands, task notifications -- content starts with `<`).
 3. When triggered, the main agent spawns a background sonnet agent that prefilters the recent transcript (drops tool_use/tool_result/synthetic-wrapper noise and chunks the remainder), accumulates per-chunk observations into a scratchpad before synthesising the final note, and writes the capture file into `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md`. Timestamps reflect the user's local timezone, resolved at capture time from `$USER_TIMEZONE` env var, then `$TZ`, then `/etc/timezone`, falling back to UTC (no hardcoded zone -- codeflare is forkable).
-9. `PATCH /api/preferences` accepts an optional `userTimezone` field (valid IANA timezone string, max 64 characters). The DO persists it to storage; subsequent container starts receive a `USER_TIMEZONE` environment variable set to the stored value. When absent, the entrypoint falls back to `$TZ`, then `/etc/timezone`, then UTC.
 4. The capture file uses a YAML frontmatter template with `session_id`, `captured_at`, and `captured_from_range` fields followed by Context / Decisions / Observations / References sections.
 5. The capture agent runs `graphify extract --file <file>` and `graphify global add ... --as user_vault` under `flock /tmp/graphify-global.lock` so the new content is queryable on the same turn it is written.
 6. The hook handles tilde expansion in `transcript_path` (Claude Code may send tilde-prefixed paths).
 7. All variables (transcript path, line offset, date, counts, counter file path) are written to a `.vars` JSON file to keep the context string short.
 8. On the first message of a session (no counter file exists), the hook injects a `mcp__graphify__query_graph` directive into `additionalContext` instructing the agent to query the unified graph before responding.
+9. `PATCH /api/preferences` accepts an optional `userTimezone` field (valid IANA timezone string, max 64 characters). The DO persists it to storage; subsequent container starts receive a `USER_TIMEZONE` environment variable set to the stored value. When absent, the entrypoint falls back to `$TZ`, then `/etc/timezone`, then UTC.
 
 **Constraints:**
 - The hook runs in approximately 150ms (lightweight shell script, no heavy processing).
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
-
-**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-MEM-006, REQ-VAULT-002
 **Verification:** Integration test (E2E verifies a capture file appears under `Raw/Sessions/` after 15 messages and its nodes show up in `mcp__graphify__query_graph`).
