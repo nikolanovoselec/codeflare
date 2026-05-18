@@ -606,7 +606,7 @@ cleanup_old_transcripts() {
 # ephemeral so wake-time baseline is authoritative. See AD56.
 # ============================================================================
 start_sync_daemon() {
-    echo "[entrypoint] Starting background bisync daemon (every 60s, SIGUSR1-interruptible)..."
+    echo "[entrypoint] Starting background bisync daemon (every 15min, SIGUSR1-interruptible)..."
 
     while true; do
         # First-iteration init: install the SIGUSR1 trap inside the
@@ -628,9 +628,10 @@ start_sync_daemon() {
         # keeps the loop alive across that non-zero exit. Skip the
         # sleep entirely if a trigger was queued while finishing the
         # prior cycle (RERUN_REQUESTED) or while we were idle
-        # (REQUESTED).
+        # (REQUESTED). Cadence is 15 min (AD56); manual triggers from
+        # the storage panel provide the sub-15-min escape hatch.
         if [ "$BISYNC_REQUESTED" = "0" ] && [ "$BISYNC_RERUN_REQUESTED" = "0" ]; then
-            sleep 60 || true
+            sleep 900 || true
         fi
         BISYNC_REQUESTED=0
         BISYNC_RERUN_REQUESTED=0
