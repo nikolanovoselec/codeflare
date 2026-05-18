@@ -623,15 +623,28 @@ start_sync_daemon() {
             TRAP_INSTALLED=1
         fi
 
-        # Interruptible sleep: bash's `sleep` returns non-zero
-        # immediately when SIGUSR1 fires (the trap runs first); `|| true`
-        # keeps the loop alive across that non-zero exit. Skip the
-        # sleep entirely if a trigger was queued while finishing the
-        # prior cycle (RERUN_REQUESTED) or while we were idle
-        # (REQUESTED). Cadence is 15 min (AD56); manual triggers from
-        # the storage panel provide the sub-15-min escape hatch.
+        # Interruptible sleep. CRITICAL: a foreground `sleep 900` does
+        # NOT wake on SIGUSR1 -- bash queues the trap until the
+        # external sleep child returns naturally, so the manual
+        # trigger from the storage panel would effectively wait for
+        # the full 15-min cadence boundary. The fix is the standard
+        # bash pattern: background the sleep, then `wait` on its PID
+        # (the `wait` builtin IS interruptible by traps, unlike
+        # foreground waits on external commands). When SIGUSR1
+        # arrives, `wait` returns >128, the trap runs, we kill the
+        # still-running sleep, and the next iteration runs the
+        # bisync. Skip the sleep entirely if a trigger was queued
+        # while finishing the prior cycle (RERUN_REQUESTED) or while
+        # we were idle (REQUESTED). Cadence is 15 min (AD56).
         if [ "$BISYNC_REQUESTED" = "0" ] && [ "$BISYNC_RERUN_REQUESTED" = "0" ]; then
-            sleep 900 || true
+            sleep 900 &
+            SYNC_SLEEP_PID=$!
+            wait "$SYNC_SLEEP_PID" 2>/dev/null || true
+            # If the trap fired, sleep may still be alive in the
+            # background. Kill it so it does not linger across cycles
+            # (would leak one bash + one sleep process per trigger).
+            kill "$SYNC_SLEEP_PID" 2>/dev/null || true
+            unset SYNC_SLEEP_PID
         fi
         BISYNC_REQUESTED=0
         BISYNC_RERUN_REQUESTED=0

@@ -22,12 +22,21 @@ You will also derive:
 - `SESSION_ID`: the segment of `COUNTER_FILE` after the last `/`
   (the file is `~/.memory/counter/{SESSION_ID}`)
 - `SID_SHORT`: first 8 characters of `SESSION_ID`
-- `ISO_TS`: current time in `Europe/Zurich` formatted as
-  `YYYY-MM-DDTHH-MM-SS%z` (colons replaced with hyphens so the
-  filename is safe on all filesystems). Get it with:
-  `TZ='Europe/Zurich' date '+%Y-%m-%dT%H-%M-%S%z'`. The host clock
-  is UTC, but capture files use the user's wall-clock time so SilverBullet
-  timestamps match what the user expects to see in the editor.
+- `ISO_TS`: current local time formatted as `YYYY-MM-DDTHH-MM-SS%z`
+  (colons replaced with hyphens so the filename is safe on all
+  filesystems). Resolve the timezone in this order, picking the first
+  non-empty value:
+  1. `$USER_TIMEZONE` if exported on the container (Worker is expected
+     to forward the browser's `Intl.DateTimeFormat().resolvedOptions().timeZone`
+     at session start once that wiring lands).
+  2. `$TZ` if already set on the process (standard POSIX).
+  3. `/etc/timezone` if present (Debian/Ubuntu convention).
+  4. Fallback to `UTC`.
+  Then run: `TZ="$RESOLVED" date '+%Y-%m-%dT%H-%M-%S%z'`.
+  The host clock is typically UTC; capture files should record wall-
+  clock time the user actually experienced so SilverBullet timestamps
+  match. Never hardcode a specific zone -- codeflare is forkable and
+  users live everywhere.
 - `WORK_DIR`: a temp dir at `/tmp/memory-capture-{SID_SHORT}`
 
 ## Steps

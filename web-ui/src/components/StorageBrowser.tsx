@@ -309,6 +309,37 @@ const StorageBrowser: Component = () => {
         />
       </div>
 
+      {/* REQ-STOR-015: ephemeral notice for sync results that the user
+          should see beyond a tooltip-on-hover. Only renders for the
+          two non-trivial outcomes: no running sessions (the trigger
+          was a no-op), and failures. Successful syncs stay silent
+          because the listing refresh is the visible confirmation. The
+          store auto-clears syncResult after SYNC_RESULT_DISPLAY_MS so
+          the notice disappears on its own. */}
+      <Show
+        when={
+          !storageStore.syncing &&
+          storageStore.syncResult &&
+          (storageStore.syncResult.total === 0 || storageStore.syncResult.failed > 0)
+        }
+      >
+        <div
+          class="storage-sync-notice"
+          classList={{
+            'storage-sync-notice--info': storageStore.syncResult?.total === 0,
+            'storage-sync-notice--error': (storageStore.syncResult?.failed ?? 0) > 0,
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          {storageStore.syncResult?.total === 0
+            ? 'No running sessions to sync. Start a session to push files to the container.'
+            : `Sync failed on ${storageStore.syncResult?.failed} session${storageStore.syncResult?.failed === 1 ? '' : 's'}${
+                storageStore.syncResult?.lastError ? `: ${storageStore.syncResult.lastError}` : '.'
+              }`}
+        </div>
+      </Show>
+
       <input
         ref={fileInputRef}
         type="file"

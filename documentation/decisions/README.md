@@ -1019,7 +1019,7 @@ The DO's `_shutdownStartedAt` telemetry already logs `shutdownElapsedMs` on `onS
 
 Three smaller decisions bundled in:
 
-- **Timezone for capture filenames** uses `Europe/Zurich` (the user's local time) instead of UTC. The container clock is UTC; the user's mental model is CEST/CET. Filenames like `2026-05-18T14-22-15+0200-...md` are unambiguous and match what the user sees in SilverBullet.
+- **Timezone for capture filenames** is resolved at capture time from `$USER_TIMEZONE` env var, then `$TZ`, then `/etc/timezone`, falling back to UTC. No hardcoded zone -- codeflare is forkable and users live everywhere. The container clock is typically UTC; once the Worker forwards `Intl.DateTimeFormat().resolvedOptions().timeZone` from the browser at session start, captures will record the user's actual wall-clock time (filenames like `2026-05-18T14-22-15+0200-...md`). Until that wiring lands, captures use UTC and a follow-up REQ can add the browser-TZ forwarding.
 - **Prefilter script joins the manifest.** Adding `plugins/codeflare-memory/scripts/prefilter-transcript.sh` to `preseed/agents/claude/manifest.json` so it ships through the standard agent-seed pipeline. Otherwise the capture agent would call a script that does not exist in production.
 - **Marker filter** explicitly excludes string content beginning with `<` (slash-command + task-notification wrappers), `Stop hook` (stop-hook feedback synthetic injection), `This session is being continued` (resume header), and `[Request interrupted` (interrupt notice). These were all leaking into the haiku's view of "real user prompts" before this pass.
 

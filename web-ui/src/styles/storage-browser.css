@@ -137,6 +137,42 @@
   animation: spin 1s linear infinite;
 }
 
+/* REQ-STOR-015: Sync-now button breathes in accent color while
+   any of the user's sessions reports sync.status === 'syncing'.
+   Mirrors the dashboard-icon-glow keyframe in header.css so the
+   two glanceable "this is working" affordances match visually. */
+.storage-sync-breathing {
+  color: var(--color-accent);
+  animation: storage-sync-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes storage-sync-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* Ephemeral sync-result notice (no running sessions / failures).
+   Renders below the toolbar, auto-clears via store timer. */
+.storage-sync-notice {
+  margin: var(--space-2) var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.storage-sync-notice--info {
+  background: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.08);
+  color: var(--color-text-primary);
+  border: 1px solid hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.25);
+}
+
+.storage-sync-notice--error {
+  background: hsla(0, 70%, 50%, 0.08);
+  color: var(--color-text-primary);
+  border: 1px solid hsla(0, 70%, 50%, 0.35);
+}
+
 .storage-toolbar-separator {
   width: 1px;
   height: 16px;

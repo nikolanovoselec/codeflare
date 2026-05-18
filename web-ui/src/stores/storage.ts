@@ -1,5 +1,6 @@
 import { createStore, produce } from 'solid-js/store';
 import * as storageApi from '../api/storage';
+import { getStartupStatus } from '../api/client';
 import { shouldUseMultipart, splitIntoParts, fileToBase64 } from '../lib/file-upload';
 import { STORAGE_BROWSE_RETRY_DELAY_MS, UPLOAD_DISMISS_DELAY_MS } from '../lib/constants';
 import type { FileWithPath } from '../lib/file-upload';
@@ -90,6 +91,56 @@ const initialState: StorageState = {
 // fan-out request returns. Long enough for the user to read the toast,
 // short enough that stale state does not linger.
 const SYNC_RESULT_DISPLAY_MS = 4000;
+
+// REQ-STOR-015 AC6: after fan-out triggers SIGUSR1 on each daemon, poll
+// /api/container/startup-status until every triggered session has left
+// the 'syncing' state, so the breathing animation reflects the actual
+// underlying bisync rather than just the brief fan-out HTTP call.
+const SYNC_POLL_INTERVAL_MS = 2000;
+// Cap polling at the DO destroy budget (REQ-STOR-005). A bisync that
+// runs longer than that would be killed by the SDK anyway.
+const SYNC_POLL_TIMEOUT_MS = 135_000;
+// If we never observed any session transition into 'syncing', give up
+// after this grace window -- the bisync may have completed faster than
+// our 2s poll could catch, or the trigger was lost.
+const SYNC_POLL_SETTLE_MS = 4000;
+
+async function pollSessionSyncCompletion(sessionIds: string[]): Promise<void> {
+  if (sessionIds.length === 0) return;
+  const start = Date.now();
+  const sawSyncing = new Set<string>();
+  while (Date.now() - start < SYNC_POLL_TIMEOUT_MS) {
+    const results = await Promise.all(
+      sessionIds.map(async (id) => {
+        try {
+          const status = await getStartupStatus(id);
+          return { id, syncStatus: status.details?.syncStatus };
+        } catch {
+          // Treat per-session probe failures as "we cannot tell". Bail
+          // by counting it as completed to avoid the user staring at a
+          // forever-breathing icon on a transient network error.
+          return { id, syncStatus: 'success' as const };
+        }
+      })
+    );
+    for (const r of results) {
+      if (r.syncStatus === 'syncing') sawSyncing.add(r.id);
+    }
+    const stillSyncing = results.some((r) => r.syncStatus === 'syncing');
+    if (stillSyncing) {
+      await new Promise((res) => setTimeout(res, SYNC_POLL_INTERVAL_MS));
+      continue;
+    }
+    // No session is currently syncing. We're done if we already saw
+    // every triggered session transition through 'syncing' OR if the
+    // grace window has elapsed (bisync may have finished too fast to
+    // catch, or the daemon never received the signal).
+    if (sawSyncing.size === sessionIds.length || Date.now() - start > SYNC_POLL_SETTLE_MS) {
+      return;
+    }
+    await new Promise((res) => setTimeout(res, SYNC_POLL_INTERVAL_MS));
+  }
+}
 
 const [state, setState] = createStore<StorageState>({ ...initialState });
 
@@ -388,8 +439,18 @@ export const storageStore = {
         lastError: result.sessions.find((s) => s.status === 'failed')?.error,
       };
       setState('syncResult', aggregate);
-      // Re-list R2 so the user sees the freshest state. Silent to avoid
-      // a loading spinner on top of the sync spinner.
+
+      // Poll each triggered session's bisync state until none report
+      // 'syncing'. Without this the breathing animation only lasts the
+      // ~1s of the fan-out HTTP call -- the user would not see a
+      // visual cue while the actual bisync (10-90s) runs.
+      const triggeredIds = result.sessions
+        .filter((s) => s.status === 'triggered')
+        .map((s) => s.sessionId);
+      await pollSessionSyncCompletion(triggeredIds);
+
+      // Re-list R2 so the user sees the freshest state. Silent to
+      // avoid a loading spinner on top of the breathing icon.
       await storageStore.refresh({ silent: true });
     } catch (err) {
       setState('syncResult', {

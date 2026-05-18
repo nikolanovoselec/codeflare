@@ -4,12 +4,13 @@ import Icon from '../Icon';
 import {
   // SEARCH UI DISABLED 2026-05-18 (REQ-STOR-015 + sync-v2 PR):
   // the search-toggle button gave its toolbar slot to the Sync-now
-  // (mdiCloudSync) action. The store's searchFiles() helper and the
-  // <Show when={showSearch()}> render block in StorageBrowser.tsx are
-  // intentionally preserved so search can be re-enabled by re-adding
-  // the toggle button below and re-importing mdiMagnify.
+  // (mdiCloudUploadOutline) action. The store's searchFiles() helper
+  // and the <Show when={showSearch()}> render block in
+  // StorageBrowser.tsx are intentionally preserved so search can be
+  // re-enabled by re-adding the toggle button below and re-importing
+  // mdiMagnify.
   // mdiMagnify,
-  mdiCloudSync,
+  mdiCloudUploadOutline,
   mdiEyeOff,
   mdiSelect,
   mdiFolderPlus,
@@ -35,7 +36,7 @@ const StorageToolbar: Component<StorageToolbarProps> = (props) => {
     if (storageStore.syncing) {
       const r = storageStore.syncResult;
       return r && r.total > 0
-        ? `Syncing ${r.triggered + r.notRunning + r.failed} of ${r.total} sessions...`
+        ? `Syncing ${r.triggered} of ${r.total} session${r.total === 1 ? '' : 's'}...`
         : 'Syncing all running sessions...';
     }
     const r = storageStore.syncResult;
@@ -66,9 +67,9 @@ const StorageToolbar: Component<StorageToolbarProps> = (props) => {
         }}
       >
         <Icon
-          path={mdiCloudSync}
+          path={mdiCloudUploadOutline}
           size={16}
-          class={storageStore.syncing ? 'storage-sync-spinning' : ''}
+          class={storageStore.syncing ? 'storage-sync-breathing' : ''}
         />
       </button>
       <div class="storage-toolbar-separator" />
