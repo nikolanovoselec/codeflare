@@ -6,7 +6,7 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 
 ---
 
-## Storage Quota
+## Storage Quota (REQ-STOR-006, REQ-STOR-014)
 
 Per-user R2 storage is capped by `maxStorageBytes` in `SubscriptionTierConfig`. R2 has no native per-bucket quota — enforcement is in application code.
 
