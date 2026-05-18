@@ -1039,6 +1039,35 @@ Three smaller decisions bundled in:
 
 ---
 
+### AD59: Zero-UI vault encryption with per-session DO-storage key
+
+**Status:** Accepted
+
+**Context:** SilverBullet's IndexedDB cache stores every vault file as plaintext on the user's browser profile. Three concerns are coupled: (1) SB cold-start is ~30s on every new session because the per-`:sid` URL produces a new IDB hash every time; (2) plaintext IDB exposes vault content to anyone with read access to the user's browser profile (backup leak, profile theft, ransomware scan); (3) deleted sessions leave orphan IDBs that grow monotonically against the per-origin quota. The team wanted encryption-at-rest without adding a passphrase UI (it would create a "forgotten passphrase" support load and the vault is already coupled to the codeflare login).
+
+**Decision:** Each session's Container DO mints a 32-byte random key on first boot, persists in `ctx.storage`, and exposes it via an RPC method `ensureVaultKey()`. The Worker `/.config` proxy fetches the key via RPC and injects it into SilverBullet's BootConfig. A Worker-side `<script>` injection into the shell HTML exposes `window.__codeflareVaultBoot` carrying the key, raised sync concurrency, and lazy-path prefixes for the SB client to consume. The frontend nukes the per-session IDB on session DELETE and runs an orphan-sweep on Dashboard mount.
+
+**Threat model (BitLocker-grade, not Bitwarden-grade):**
+- DEFEATS: offline disk attacks - recovered/stolen browser profile, leaked filesystem backup, ransomware filesystem scan, forensic IDB extraction from a powered-off machine.
+- DOES NOT DEFEAT: anyone with an authenticated browser tab on the codeflare origin (they can read `window.__codeflareVaultBoot` directly from page JS); the codeflare Worker operator (the key crosses the Worker on every request); a compromised Cloudflare edge.
+
+**Consequences:**
+- Vault contents in IndexedDB become AES ciphertext rather than plaintext markdown - a recovered profile no longer leaks notes.
+- The encryption is forward-secret: `container.destroy()` (session DELETE) wipes both the DO key and the browser IDB, so deletion is unrecoverable even by the user.
+- The key MUST NOT rotate mid-session - rotation would orphan all existing IDB ciphertext and force re-sync on every container restart, defeating the cold-start optimisation.
+- The key is per-session, so cross-session reads remain isolated (each `:sid` has its own IDB hash).
+- Worker-side script injection is fragile: a future SB upstream change to the shell HTML template could break the `</head>` insertion point. The fail-safe is "return HTML unchanged" so a missed injection degrades to a passphrase prompt rather than a white screen.
+
+**Alternative considered:** Per-user passphrase derived via PBKDF2 from the codeflare password. Rejected - adds a "forgotten passphrase" recovery flow that requires the user to re-enter their vault password on every fresh device, defeating the always-on coupling to the codeflare session.
+
+**Alternative considered:** Build SilverBullet from source with native encryption support baked in. Rejected - Deno toolchain in the image adds ~400MB and locks codeflare to a fork rather than tracking SB upstream. Runtime injection through the already-text-rewriting Worker proxy is the lowest-overhead option.
+
+**Alternative considered:** Server-side encryption only (rclone bisync to R2 SSE-C, leave IDB plaintext). Rejected - R2 SSE-C already covers at-rest on R2; the gap is the browser cache, which is where the new requirement lives.
+
+**Related REQ:** REQ-VAULT-008 (zero-UI vault encryption + cold-start payload + IDB lifecycle), REQ-VAULT-005 (Worker proxy exposes vault editor).
+
+---
+
 ## Related Documentation
 
 - [Architecture — System Components](../architecture.md#system-components) - Component overview

@@ -245,7 +245,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-VAULT-005 (Worker proxy exposes vault editor), REQ-VAULT-001 (vault directory survives sessions), REQ-MEM-006 (Pro mode gating)
-**Verification:** Unit tests (DO `ensureVaultKey()` persistence + idempotency in `src/__tests__/container/index.test.ts`; Worker `/.config` merge in `src/__tests__/routes/vault.test.ts`; `cleanupSessionVaultCache` + `sweepOrphanVaultCaches` in `web-ui/src/__tests__/lib/vault-cache.test.ts`); structural tests (CONFIG.md treeview exclude in `host/__tests__/preseed-config-treeview.test.js`; SB bundle patches in `host/__tests__/silverbullet-bundle-patches.test.js`; Dockerfile fs-filter for graphify-out in `host/__tests__/silverbullet-fs-filter.test.js`); manual smoke (cold-start time under 5s on second session; IDB bytes are AES ciphertext; deleted-session IDB is gone).
-**Status:** Planned
+**Verification:** Unit tests (DO `ensureVaultKey()` persistence + idempotency in `src/__tests__/container/index.test.ts`; Worker `/.config` merge + boot-script injection + `/.fs` filter in `src/__tests__/routes/vault.test.ts`; `cleanupSessionVaultCache` + `sweepOrphanVaultCaches` in `web-ui/src/__tests__/lib/vault-cache.test.ts`; CONFIG.md treeview exclude in `host/__tests__/preseed-config-treeview.test.js`); manual smoke (cold-start time under 5s on second session; IDB bytes are AES ciphertext; deleted-session IDB is gone).
+**Status:** Partial
 
 ---
