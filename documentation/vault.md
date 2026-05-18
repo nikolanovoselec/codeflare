@@ -199,10 +199,10 @@ The vault's persistence guarantee depends on the final bisync running to complet
 
 Two paired fixes bundled with the vault PR:
 
-- `shutdown_handler` in entrypoint.sh wraps the final `bisync_with_r2` call in a background subshell with a watchdog that hard-kills at 60s. Vault-monitor and SilverBullet supervisor PIDs are also terminated.
-- `Container.destroy()` in `src/container/index.ts` uses `timeoutMs = 75_000` (60s for bisync + 15s buffer). `onStop()` logs `shutdownElapsedMs` so the budget can be tuned over time.
+- `shutdown_handler` in entrypoint.sh wraps the final `bisync_with_r2` call in a background subshell with a watchdog that hard-kills at 120s (raised from 60s in AD57 because the 15-minute cadence from AD56 lets a single bisync accumulate up to 15 minutes of writes). Vault-monitor and SilverBullet supervisor PIDs are also terminated.
+- `Container.destroy()` in `src/container/index.ts` uses `timeoutMs = 135_000` (120s for bisync + 15s buffer). `onStop()` logs `shutdownElapsedMs` and a `logger.warn` fires at 110 s elapsed so any session approaching the budget surfaces in logs and the budget can be tuned again if needed.
 
-If the bisync exceeds 60s, the log records `TIMED OUT after 60s` -- a recognisable string for operators triaging stale-session reports.
+If the bisync exceeds 120s, the log records `TIMED OUT after 120s` -- a recognisable string for operators triaging stale-session reports.
 
 ## Preseed Integration (REQ-VAULT-007)
 
@@ -279,7 +279,7 @@ SilverBullet supports pasting images directly into notes (they land in `Raw/Past
 | `curl http://127.0.0.1:3030/` returns nothing inside the container | SilverBullet supervisor not yet up | Wait 5s and retry; check `/tmp/silverbullet.log` for the restart-loop output. |
 | `mcp__graphify__query_graph` returns no vault nodes | Global graph not built yet, or wrapper still pointing at per-repo graph | Check `~/.graphify/global-graph.json` exists; if it does, restart the MCP wrapper (it polls on a 2s loop). |
 | Edits don't appear in graph queries within 60s | Vault-extract marker stale | Look at `~/.cache/codeflare-hooks/vault-extract.last` mtime; force a new tick by touching a file under `Notes/`. |
-| Stale session state on reopen after stop | Shutdown bisync was killed mid-write | Look for `TIMED OUT after 60s` in Durable Object logs (`wrangler tail <SCRIPT_NAME>`); raise the watchdog budget in `shutdown_handler` if frequent. |
+| Stale session state on reopen after stop | Shutdown bisync was killed mid-write | Look for `TIMED OUT after 120s` (or the `logger.warn` at 110 s elapsed) in Durable Object logs (`wrangler tail <SCRIPT_NAME>`); raise the watchdog budget in `shutdown_handler` if it fires routinely. |
 | `/api/vault/:sid/` returns 503 | SilverBullet supervisor not ready | The Vault button is disabled until `Layout.tsx` receives a 200 from `HEAD /api/vault/:sid/` (the `vaultReady` probe). Wait 3-5 s and retry; the probe re-enables the button automatically once SilverBullet binds port 3030. |
 | Clicking "Quick Note" shows `You are not authenticated, going to reload...` alert, then reloads to a blank/white page | SilverBullet's client.js writes via PUT/DELETE/PATCH without `X-Requested-With`, which `authenticateRequest`'s CSRF guard required (fixed by the Origin-validated synthesis in `src/routes/vault.ts`) | Redeploy the container image to pick up the fix. As a temporary workaround, open the vault in a fresh browser tab (clears any stale ServiceWorker scope that may compound the loop). |
 | SilverBullet opens lowercase "index" (empty editor) instead of the Codeflare dashboard | Supervisor not exporting `SB_INDEX_PAGE=Index` before launching the binary | Confirm the env var is set in `entrypoint.sh start_silverbullet_supervisor`. SB's Go server hardcodes the default to `"index"` (`server/cmd/server.go:29`); the env var is the only override. |

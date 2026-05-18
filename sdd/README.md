@@ -6,7 +6,7 @@ Codeflare is an ephemeral cloud IDE that runs AI coding agents in isolated conta
 
 1. **Isolation per session** -- Every session runs in its own container. No shared shells, no cross-session access. An agent can `rm -rf /` and the only victim is itself.
 
-2. **Files persist, bad decisions don't** -- R2 storage survives container teardown. Containers are ephemeral and disposable. Bisync every 60 seconds ensures work is never lost, even if a session dies before `git push`.
+2. **Files persist, bad decisions don't** -- R2 storage survives container teardown. Containers are ephemeral and disposable. Bisync runs every 15 minutes with a manual Sync-now trigger and a final sync on stop, so work is never lost even if a session dies before `git push`.
 
 3. **Zero setup** -- Four steps from fork to live deployment (fork, set two secrets, deploy, run wizard). No Kubernetes, no Terraform, no local installs. Users connect GitHub and Cloudflare once; every subsequent session is pre-authenticated.
 

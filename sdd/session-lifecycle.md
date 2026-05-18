@@ -82,7 +82,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. `POST /api/container/start` creates the user's R2 bucket if it does not exist (`createBucketIfNotExists`).
 2. A scoped R2 API token (bucket-specific Object Read + Write) is obtained or created for the user and injected as container environment variables.
 3. `entrypoint.sh` runs an initial `rclone sync` from R2 to the local workspace (blocking, with a 120-second safety timeout).
-4. After initial sync, a background daemon performs `rclone bisync` every 60 seconds for the container's lifetime.
+4. After initial sync, a background daemon performs `rclone bisync` every 15 minutes for the container's lifetime, with SIGUSR1-driven manual triggers and a final sync on shutdown (see REQ-STOR-003).
 5. New buckets are seeded with getting-started docs and agent configs matching the user's session mode.
 
 **Constraints:**

@@ -1,6 +1,6 @@
 # Getting Started
 
-You have a full Linux container in your browser. An AI agent is loaded and waiting in Tab 1. Five more terminals behind it. Your files sync every 60 seconds to cloud storage that outlives every container you'll ever start. Your notes sync too. Your agent remembers prior sessions. Your hands are free if you want them to be. Here's what to do with all of that.
+You have a full Linux container in your browser. An AI agent is loaded and waiting in Tab 1. Five more terminals behind it. Your files sync to cloud storage that outlives every container you'll ever start (every 15 minutes plus a final sync on stop, with a Sync-now button when you want it sooner). Your notes sync too. Your agent remembers prior sessions. Your hands are free if you want them to be. Here's what to do with all of that.
 
 ---
 
@@ -39,9 +39,9 @@ Browser support: Chrome, Edge, Safari (recent). Firefox does not implement the W
 
 ## Your Files Persist (You Don't Have to Think About It)
 
-A daemon syncs your home directory to Cloudflare R2 every 60 seconds. When you stop a session, a final sync runs before the container self-destructs. When you start a new one, everything is restored. Even if a session dies before you remember to `git push`, R2 sync has got your back. Sync conflicts will happen - Codeflare cleans them up automatically on the next cycle. Don't worry about it.
+A daemon syncs your home directory to Cloudflare R2 every 15 minutes. When you stop a session, a final sync runs before the container self-destructs. When you start a new one, everything is restored. If you want a sync to happen sooner - say, you uploaded a file in the R2 panel and want a running container to see it now - hit the **Sync now** button (cloud icon) at the top of the R2 panel. It fans out to every running session you own; if you have none, you'll see a "no running sessions to sync" notice. Even if a session dies before you remember to `git push`, R2 sync has got your back. Sync conflicts will happen - Codeflare cleans them up automatically on the next cycle. Don't worry about it.
 
-What carries over: `.gitconfig`, agent settings and memory (e.g. `~/.claude/`, `~/.gemini/`, `~/.opencode/`), your vault, your uploads, and anything else in your home directory.
+What carries over: `.gitconfig`, agent settings and memory (e.g. `~/.claude/`, `~/.gemini/`, `~/.opencode/`), your vault, your uploads, and anything else in your home directory. Your **workspace** (`~/workspace/`) is excluded from sync by default - clone fresh in each session. You can opt-in to workspace sync in Settings, but it is not recommended: bigger repos slow every sync cycle, and a fresh clone is more reliable than restoring a half-built node_modules tree from R2.
 
 The **R2 File Browser** on the Dashboard lets you browse, upload, download, and delete synced files between sessions - without starting a container. Vault, Uploads, and Temporary are surfaced as special folders alongside your Workspace.
 
@@ -59,7 +59,7 @@ What it's for:
 - Quick capture (`Quick Note` button - the timestamped note lands in `Inbox/`)
 - An automatic 15-prompt session capture so a future agent can look up what was decided in a prior conversation
 
-Bisync mirrors the vault to R2 every 60s - same plumbing as the rest of `~`. Edits you make in SilverBullet land in R2 the same minute. Vault contents on a fresh container appear as soon as the first bisync round completes.
+Bisync mirrors the vault to R2 every 15 minutes - same plumbing as the rest of `~`. If you want an edit you just made in SilverBullet pushed to R2 right now (or want a freshly-pasted note picked up from another device), hit the Sync-now button on the R2 panel and it fans out to every running session. Vault contents on a fresh container appear as soon as the first bisync round completes.
 
 There's a built-in dashboard at the vault root (`Index`) that surfaces recent quick notes, recent journal entries, open tasks, and recently modified pages. Wikilinks (`[[Concept Name]]`) cross-reference notes inside the vault. Image pasting works (`Ctrl+V` into a note); files land in `Raw/Pasted/`.
 

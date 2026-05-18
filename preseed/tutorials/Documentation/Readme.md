@@ -34,7 +34,7 @@ Pro-mode features (knowledge graph, curated skills, advanced workflows, automati
 - **Browser-native terminal with 6 tabs per session.** Full Linux containers with root access, available in seconds from any browser. No local installation required.
 - **One isolated container per session.** No shared state between sessions. Agents can't escape their sandbox (I checked).
 - **Pre-warmed terminals.** The agent starts loading during container startup. By the time you click Open, it's ready - not staring at a blank screen wondering if something broke.
-- **Persistent R2 storage with bisync every 60s.** Files, shell config, credentials, vault notes, and uploads survive container teardown.
+- **Persistent R2 storage with bisync every 15 minutes** plus a Sync-now button when you need it sooner and a final sync on stop. Files, shell config, credentials, vault notes, and uploads survive container teardown. Workspace is excluded from sync by default; fresh clones are recommended.
 - **Terminal tiling.** View 2-4 terminals side by side. Once you tile, you don't go back.
 - **Voice input.** A mic button on every terminal. Web Speech API, no extension. Brief your agent without thumb-typing a paragraph on mobile.
 - **R2 file browser.** Browse, upload, download, and manage files directly from the dashboard - without starting a container. Vault, Uploads, and Temporary are surfaced as special folders.
@@ -70,7 +70,7 @@ flowchart LR
     C --> D["Cloudflare Container
     isolated per session, pre-warmed PTY"]
     D --> E["R2
-    per-user storage, bisync every 60s"]
+    per-user storage, bisync every 15min + manual triggers"]
     D --> F["SilverBullet supervisor
     localhost vault editor"]
     D --> G["graphify CLI + MCP

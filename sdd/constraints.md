@@ -14,7 +14,7 @@ Architectural and technology decisions that apply across all domains.
 | Storage | Cloudflare R2 | S3-compatible object storage, per-user buckets, SSE-C encryption |
 | Containers | Cloudflare Containers | Isolated compute per session, SDK-managed lifecycle |
 | State | Durable Objects | Per-session (`container`) and per-user (`timekeeper`) stateful coordination |
-| Sync | rclone bisync v1.73.2 | Bidirectional file sync between container and R2 every 60s |
+| Sync | rclone bisync v1.73.2 | Bidirectional file sync between container and R2 every 15 minutes, plus SIGUSR1-driven manual triggers and a final sync on shutdown |
 | Billing | Stripe | Payment processing, subscription management, webhook-driven tier changes |
 | Email | Resend | Transactional notifications (waitlist, access requests, tier changes) |
 | Build | Vite | Frontend bundler, SPA output served as static assets |
@@ -68,8 +68,8 @@ HSTS, CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions
 Frontend polls session list every 5s (`SESSION_LIST_POLL_INTERVAL_MS`). Backend metrics push every 60s via Container DO alarm loop.
 **Applies To:** User (dashboard), System (metrics)
 
-### CON-PERF-002: Bisync interval 60 seconds
-R2 bisync runs every 60s via daemon plus a final sync on shutdown. Initial sync timeout 120s (`SYNC_TIMEOUT`). Baseline establishment timeout 600s (10 min).
+### CON-PERF-002: Bisync interval 15 minutes (with manual triggers)
+R2 bisync runs every 15 minutes (`sleep 900`) via the daemon, plus manual triggers (UI Sync-now button, upload-side auto-trigger) that wake the daemon via SIGUSR1, plus a final sync on shutdown under the 120 s watchdog. Initial sync timeout 120 s (`SYNC_TIMEOUT`). Baseline establishment timeout 600 s (10 min). See AD56 for the cost-vs-staleness rationale.
 **Applies To:** System (sync daemon)
 
 ### CON-PERF-003: Tier config cache TTL 60 seconds

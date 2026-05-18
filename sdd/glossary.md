@@ -41,7 +41,7 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | CSP | Content-Security-Policy header restricting resource loading origins |
 | Trivy | Container image vulnerability scanner run during CI deploy pipeline |
 | Service Token | Secret-based auth for E2E tests and automation via X-Service-Auth header |
-| Sync Daemon | Background process in entrypoint.sh running rclone bisync every 60 seconds |
+| Sync Daemon | Background process in entrypoint.sh running rclone bisync every 15 minutes, SIGUSR1-interruptible for manual triggers |
 | Entrypoint | entrypoint.sh — container initialization script handling sync, config, and terminal server startup |
 | Recovery Filter | Session-scoped rclone filter file (`/tmp/rclone-recovery-filters.txt`) that dynamically excludes transient files which vanish between listing and copy, preventing bisync fatal errors |
 | Scoped R2 Token | Per-user R2 API token restricted to that user's bucket only |

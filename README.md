@@ -59,7 +59,7 @@ Codeflare is built for Cloudflare. Not adapted, not ported - built on it, for it
 
 - Browser-native terminal with 6 tabs per session and tiling mode - view 2-4 terminals side by side. Once you tile, you don't go back.
 - One isolated container per session - agents can't escape their sandbox (I checked)
-- Persistent R2 storage with bisync every 60s - even if a session dies before you `git push`, R2 has got your back. Sync conflicts? Cleaned up automatically next cycle.
+- Persistent R2 storage with bisync every 15 minutes + a manual Sync-now button when you want it sooner + a final sync on stop. Even if a session dies before you `git push`, R2 has got your back. Sync conflicts? Cleaned up automatically next cycle.
 - Pre-warmed terminals - the agent is already loaded when you open the tab, not staring at a blank screen wondering if something broke
 - Fast Start - auto-updates disabled by default across all 6 tools for instant agent startup. Toggle it in Settings if you prefer bleeding edge over fast boot.
 - Set your API key once. It syncs across sessions forever. (It's rclone, but magic sounds better.)
@@ -83,7 +83,7 @@ flowchart LR
     C --> D["Cloudflare Container
     isolated per session, pre-warmed PTY"]
     D --> E["R2
-    per-user storage, bisync every 60s"]
+    per-user storage, bisync every 15min + manual triggers"]
     C -. "ping every 60s" .-> G["Timekeeper DO
     per-user usage + quota"]
     G --> H["KV
