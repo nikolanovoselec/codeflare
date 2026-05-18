@@ -94,10 +94,63 @@ Read each changed file with the Read tool. For each file, identify:
   graphs aggregates to a single node by label). Use the wikilink target
   as both `id` (normalised: lowercase, `[a-z0-9_]` only) and `label`
   (verbatim).
+- **PDFs** (`*.pdf` in the changed-files list): see the PDF sub-step
+  below. Do NOT fall through to the binary skip path.
 - **Edges** between nodes you create: file `contains` heading; heading
   `references` concept (for each `[[wikilink]]` under it); concept
   `conceptually_related_to` concept when they co-occur in a single
   bullet or paragraph.
+
+#### 3a. PDF handling (do NOT skip PDFs as binary)
+
+Vault PDFs typically arrive via SilverBullet drag-drop into Inbox or
+Notes. The `.md` note that wikilinks to the PDF is the only trace the
+prompt's text-only path captures — the PDF itself never reaches the
+graph. Both shapes need ingestion: the wikilink concept node (already
+covered above), AND a document node sourced from the PDF's actual
+contents.
+
+For each `*.pdf` in the changed-files list:
+
+1. **Read the PDF directly with the Read tool.** Claude's Read tool
+   handles PDFs natively — it renders pages as images and includes
+   them in your context, so you can "see" both text-layer and
+   scanned/image-only PDFs uniformly. For PDFs larger than 10 pages,
+   pass the `pages` parameter to limit to the first 20 pages (the
+   Read tool requires this for files > 10 pages and rejects the call
+   otherwise; without the cap the extraction would fail silently and
+   the high-water mark would still advance, leaving the PDF
+   permanently un-ingested).
+
+2. **Emit a document node for the PDF itself.** Label: the filename
+   without extension (e.g. `2026-05-18_21-44-36`). `file_type:
+   "document"`, `source_file:` the path relative to `/home/user/Vault/`
+   (e.g. `Inbox/2026-05-18/2026-05-18_21-44-36.pdf`).
+
+3. **Emit concept nodes for what you see.** Title text, prominent
+   headings, named entities (people, products, technologies),
+   identifiable diagrams, or named subjects visible on the rendered
+   pages. Each as a `concept` node with `source_file: null` so it
+   dedupes by label against other graphs. Add `references` edges from
+   the document node to each concept. Visual-only content (a single
+   photo with no caption) may yield only the document node itself —
+   that is still strictly better than the previous "skip silently"
+   behaviour.
+
+4. **Wikilink unification.** If the `.md` note that referenced the
+   PDF used a wikilink like `[[Inbox/2026-05-18/2026-05-18_21-44-36.pdf]]`,
+   it produced a concept node with that label. Emit an edge
+   `document<pdf_node> --cites--> concept<wikilink_label>` so the two
+   shapes line up in `global_add`'s external-label dedup. ID-normalise
+   the wikilink label the same way as the bullet list above
+   (lowercase + `[a-z0-9_]` only) so the edge target matches the
+   concept node ID you would have minted from the wikilink.
+
+5. **Failures are non-fatal.** If the Read tool errors on a specific
+   PDF (corrupt file, password-protected, unsupported encoding),
+   emit just the bare document node with `source_file:` set and move
+   on. The high-water marker advance still happens, so the next
+   extraction does not retry the same broken file forever.
 
 Edge confidence rubric (from graphify's schema):
 
@@ -141,11 +194,13 @@ Schema (must match exactly - graphify's merge step parses this verbatim):
 }
 ```
 
-If you cannot extract anything from a file (binary, unreadable, empty)
-log the path and skip; continue with the others. If ALL files fail,
-still write an empty chunk JSON (`{"nodes":[],"edges":[],"hyperedges":[],...}`)
-and continue - step 6 needs to advance the marker so we do not loop
-on the same broken files.
+If you cannot extract anything from a file (truly unreadable binary
+that is not a PDF, empty, permission-denied) log the path and skip;
+continue with the others. PDFs are NOT covered by this skip path -
+they go through sub-step 3a above. If ALL files fail, still write an
+empty chunk JSON (`{"nodes":[],"edges":[],"hyperedges":[],...}`) and
+continue - step 6 needs to advance the marker so we do not loop on
+the same broken files.
 
 ### 4. Build a vault graph.json from the chunk, merging into the persistent vault-graph
 
