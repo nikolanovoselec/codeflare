@@ -168,46 +168,9 @@ describe('fanOutBisyncTrigger (REQ-STOR-015 backfill)', () => {
   });
 });
 
-describe('REQ-STOR-015 AC4: upload-side fire-and-forget trigger', () => {
-  it('AC4 contract: upload.ts wires fanOutBisyncTrigger through executionCtx.waitUntil', async () => {
-    // Static check: the upload route module imports fanOutBisyncTrigger
-    // AND its source contains the waitUntil wiring + .catch() defensive
-    // wrapper that prevents a trigger failure from poisoning the upload
-    // 200 response (lessons from prior incident around upload-side
-    // sync surfacing as 500s).
-    const fs = await import('node:fs');
-    const path = await import('node:path');
-    const url = await import('node:url');
-    const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
-    const upload = fs.readFileSync(
-      path.resolve(__dirname, '../../routes/storage/upload.ts'),
-      'utf8'
-    );
-    expect(upload).toContain("from '../../lib/sync-fanout'");
-    expect(upload).toContain('fanOutBisyncTrigger');
-    expect(upload).toMatch(/c\.executionCtx\?\.waitUntil\(/);
-    // .catch(() => undefined) is the defensive wrapper that swallows
-    // trigger failures so the R2 PUT can return 200 cleanly.
-    expect(upload).toMatch(/\.catch\(\(\) => undefined\)/);
-  });
-});
-
-describe('REQ-STOR-015 AC7: sessions-sync rate limit is 6/min', () => {
-  it('uses windowMs=60_000 + maxRequests=6 + keyPrefix=sessions-sync', async () => {
-    const fs = await import('node:fs');
-    const path = await import('node:path');
-    const url = await import('node:url');
-    const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
-    const lifecycle = fs.readFileSync(
-      path.resolve(__dirname, '../../routes/session/lifecycle.ts'),
-      'utf8'
-    );
-    // The block must contain all three required fields. Use a multi-
-    // line regex so we tolerate field ordering and whitespace.
-    expect(lifecycle).toMatch(/sessionsSyncRateLimiter\s*=\s*createRateLimiter\(\s*\{[\s\S]*?windowMs:\s*60_?000[\s\S]*?\}\s*\)/);
-    expect(lifecycle).toMatch(/sessionsSyncRateLimiter\s*=\s*createRateLimiter\(\s*\{[\s\S]*?maxRequests:\s*6[\s\S]*?\}\s*\)/);
-    expect(lifecycle).toMatch(/sessionsSyncRateLimiter\s*=\s*createRateLimiter\(\s*\{[\s\S]*?keyPrefix:\s*['"]sessions-sync['"][\s\S]*?\}\s*\)/);
-    // The limiter must actually be attached to POST /sync.
-    expect(lifecycle).toMatch(/app\.post\(\s*['"]\/sync['"]\s*,\s*sessionsSyncRateLimiter/);
-  });
-});
+// AC4 (upload.ts wires fanOutBisyncTrigger through waitUntil) and AC7
+// (sessions-sync rate limiter shape) require reading source files at
+// runtime, which the Workers vitest pool does not allow. Those static
+// structural assertions live in host/__tests__/sync-fanout-static.test.js
+// (Node test runner with full fs access). See that file for the matching
+// fixture-free assertions.

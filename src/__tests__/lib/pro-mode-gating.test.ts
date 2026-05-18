@@ -6,20 +6,16 @@
 // cannot host; they remain in the integration suite per the spec's
 // Verification field.
 //
-// AC3 (memory + vault rules + plugins are advanced-only) -- this file.
+// AC3 (memory + vault rules + plugins are advanced-only) -- THIS FILE.
 // AC4 (Pro is a strict superset of Standard) -- already covered in
 // agent-seed-manifest.test.ts (`"advanced" is a superset of "default"`).
-// AC5 (entrypoint.sh merges hook registrations only in advanced) -- this file.
+// AC5 (entrypoint.sh hook-merge mode gating) -- host/__tests__/pro-mode-gating-static.test.js
+//      (Workers vitest pool cannot readFileSync entrypoint.sh).
 // AC6 (resolveSessionMode default) -- covered in session-mode.test.ts.
 // AC7 (mode changes only via recreate or new bucket) -- behavioral; integration.
-// AC8 (reconcileAgentConfigs never touches user files) -- this file.
+// AC8 (reconcileAgentConfigs never touches user files) -- host/__tests__/pro-mode-gating-static.test.js.
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('REQ-MEM-006 AC3: memory + vault rules and plugins are advanced-only', () => {
   const advancedOnly = (key: string) =>
@@ -78,71 +74,3 @@ describe('REQ-MEM-006 AC3: memory + vault rules and plugins are advanced-only', 
     }
   });
 });
-
-describe('REQ-MEM-006 AC5: entrypoint.sh merges hook registrations only in advanced mode', () => {
-  const entrypoint = readFileSync(resolve(__dirname, '../../../entrypoint.sh'), 'utf8');
-
-  it('default-mode SETTINGS_CONFIG contains only skipDangerousModePermissionPrompt', () => {
-    // The default-mode branch in entrypoint.sh writes a minimal config.
-    // Any drift (e.g. accidentally including a hooks block) would
-    // silently turn on capture/memory hooks for Standard users.
-    assert_contains(
-      entrypoint,
-      `SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'`,
-      'default-mode SETTINGS_CONFIG block must be exactly {"skipDangerousModePermissionPrompt":true}'
-    );
-  });
-
-  it('advanced-mode SETTINGS_CONFIG includes UserPromptSubmit hook for memory-capture.sh', () => {
-    // The advanced-mode branch builds a larger hooks block. memory-capture.sh
-    // and vault-monitor-hook.sh must both register on UserPromptSubmit.
-    expect(entrypoint).toMatch(/codeflare-memory\/scripts\/memory-capture\.sh/);
-    expect(entrypoint).toMatch(/codeflare-vault\/scripts\/vault-monitor-hook\.sh/);
-  });
-
-  it('advanced-mode hook block is gated on the session mode branch', () => {
-    // The two SETTINGS_CONFIG assignments must be in separate
-    // branches: one in the advanced path, one in the default fallback.
-    // Find the `Advanced mode: configuring` and `Default mode: configuring`
-    // log lines as sentinels.
-    expect(entrypoint).toMatch(/Advanced mode: configuring settings\.json with hooks/);
-    expect(entrypoint).toMatch(/Default mode: configuring settings\.json without hooks/);
-    // Default mode log must come AFTER advanced (else branch).
-    const advIdx = entrypoint.indexOf('Advanced mode: configuring settings.json with hooks');
-    const defIdx = entrypoint.indexOf('Default mode: configuring settings.json without hooks');
-    expect(advIdx).toBeGreaterThan(0);
-    expect(defIdx).toBeGreaterThan(advIdx);
-  });
-});
-
-describe('REQ-MEM-006 AC8: reconcileAgentConfigs never touches user-created files', () => {
-  // Static structural check on the reconcile function: it must only
-  // act on keys whose source is a preseed-managed entry, never on
-  // user-written files. The function lives in src/lib/r2-seed.ts.
-  const r2seed = readFileSync(resolve(__dirname, '../../lib/r2-seed.ts'), 'utf8');
-
-  it('reconcileAgentConfigs is defined in r2-seed.ts', () => {
-    expect(r2seed).toMatch(/export\s+(async\s+)?function\s+reconcileAgentConfigs/);
-  });
-
-  it('reconcile only deletes keys that match an AGENTS_SEEDED_CONFIGS entry', () => {
-    // The function must NOT call deleteObjects with arbitrary key
-    // patterns; deletes are filtered through the manifest. Look for
-    // the manifest-driven key set used by the delete pass.
-    expect(r2seed).toMatch(/AGENTS_SEEDED_CONFIGS|AGENT_SEEDED_KEYS|agentSeedKeys/);
-  });
-
-  it('reconcile guards delete with a managed-keys allowlist (no bulk wildcard delete)', () => {
-    // A wildcard delete of '.claude/**' would obliterate user files.
-    // The function must iterate explicit keys from the manifest.
-    expect(r2seed).not.toMatch(/deleteAll\s*\(/);
-    expect(r2seed).not.toMatch(/deleteObjects\s*\(\s*['"]\.claude\/\*\*['"]/);
-  });
-});
-
-// Local helper -- supports the AC5 SETTINGS_CONFIG assertion that
-// would otherwise need a substring escape gymnastics for the JSON
-// literal containing single quotes and curlies.
-function assert_contains(haystack: string, needle: string, msg: string): void {
-  expect(haystack.includes(needle), msg).toBe(true);
-}
