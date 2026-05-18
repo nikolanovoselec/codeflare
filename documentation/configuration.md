@@ -57,6 +57,7 @@ Environment variables, secrets, CORS configuration, and API token permissions.
 | `NODE_COMPILE_CACHE` | V8 compile cache dir for faster Node.js CLI startup | TBD | no | Dockerfile ENV (`/root/.cache/node-compile-cache`) | TBD |
 | `BROWSER` | Points to `open-url` shim that exits 1 | TBD | no | Dockerfile ENV (`/usr/local/bin/open-url`) | TBD |
 | `SB_INDEX_PAGE` | Landing page when SilverBullet opens (case-sensitive page name, no `.md`). SB Go server defaults to `"index"` (lowercase); set to `Index` so the Codeflare dashboard loads on Vault button click. See [vault.md](./vault.md#silverbullet-editor-req-vault-005) (REQ-VAULT-005 AC9). | `Index` | no | `entrypoint.sh` `start_silverbullet_supervisor` | REQ-VAULT-005 |
+| `USER_TIMEZONE` | IANA timezone string (e.g. `Europe/Zurich`) forwarded from the `userTimezone` preference. Controls timestamps in memory-capture filenames (`Raw/Sessions/{ISO_TS}-{SID_SHORT}.md`). Falls back to `$TZ`, then `/etc/timezone`, then UTC when absent. | (absent = UTC fallback) | no | Worker -> DO via `setBucketName`; read by `entrypoint.sh` memory-capture pipeline | REQ-MEM-001 AC9 |
 
 ---
 

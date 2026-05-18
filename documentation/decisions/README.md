@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD58 throughout the codebase and documentation. 44 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD59 throughout the codebase and documentation. 45 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -69,6 +69,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) | 15-minute bisync cadence with manual triggers (fan-out safe under newer-mtime-wins) | Storage |
 | [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) | 135-second shutdown budget for final bisync | Storage |
 | [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) | Sonnet (not haiku) for memory capture, plus jq-prefilter and chunked-scratchpad pipeline | Memory |
+| [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key) | Zero-UI vault encryption with per-session DO-storage key | Security |
 
 ---
 
@@ -100,9 +101,9 @@ Isolation boundary: each user's files live in their own bucket. Simplifies delet
 
 ### AD4: Periodic rclone bisync
 
-**Decision:** Background daemon every 60s + final sync on shutdown.
+**Decision:** Background daemon every 15 minutes (SIGUSR1-interruptible) + final sync on shutdown. Superseded cadence rationale: see AD56.
 
-Local disk for all file operations (fast I/O). Bisync daemon runs in background, syncing changes bidirectionally. SIGINT/SIGTERM trap runs final bisync before exit. Alternative (s3fs FUSE) was fragile and slow -- see Lessons Learned #1.
+Local disk for all file operations (fast I/O). Bisync daemon runs in background, syncing changes bidirectionally every 15 minutes; manual triggers via SIGUSR1 (storage panel Sync-now button and post-upload fan-out). SIGINT/SIGTERM trap runs final bisync before exit within a 120s watchdog (see AD57). Alternative (s3fs FUSE) was fragile and slow -- see Lessons Learned #1.
 
 ---
 
