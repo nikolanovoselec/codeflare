@@ -219,3 +219,25 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Status:** Implemented
 
 ---
+
+## REQ-VAULT-009: Vault writes succeed end-to-end for SilverBullet attachment uploads
+
+**Intent:** SilverBullet's drag-drop attachment upload (PUT `/api/vault/<sid>/Inbox/<file>`) must succeed when the user is authenticated, regardless of whether the browser's fetch implementation set the Origin header. The previous code path required Origin to be present and allowlisted before synthesising the CSRF guard header, so a service-worker-controlled fetch or a same-origin fetch that omitted Origin landed at the auth chain without X-Requested-With and was rejected. PDF uploads from the SB Inbox plug repeatedly surfaced this as a 401 to the user.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. A state-changing PUT/POST/PATCH/DELETE request to `/api/vault/<sid>/...` with no Origin header is treated as same-origin and proceeds through CSRF synthesis. The synthesis adds `X-Requested-With: XMLHttpRequest` so the downstream `authenticateRequest` CSRF guard does not reject the write.
+2. A state-changing request with an Origin header that fails the allowlist still returns 403; the missing-Origin fallback does NOT widen the allowlist.
+3. The forward chain preserves the request body bytes end-to-end (no double-read, no disturbed stream) on both the with-Origin and the no-Origin paths.
+4. Existing GET / HEAD / OPTIONS requests behave unchanged; only state-changing methods enter the fallback path.
+
+**Constraints:**
+- Browsers since 2020 always set Origin on state-changing cross-origin requests; the fallback is for SB's same-origin path (where Origin is "null" or omitted) and CLI-style clients. It does NOT bypass the allowlist when an Origin IS present and disallowed.
+
+**Priority:** P1
+**Dependencies:** REQ-VAULT-005 (Worker proxy exposes vault editor)
+**Verification:** Unit (`src/__tests__/routes/vault.test.ts` regression for missing-Origin PUT path).
+**Status:** Implemented
+
+---
