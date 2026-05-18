@@ -235,7 +235,12 @@ describe('container DO class', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       // Constructor blockConcurrencyWhile may have run by now; wait
       // for envVars to be settled so we know init finished.
-      await vi.waitFor(() => expect(instance.envVars).toBeDefined());
+      // Wait for the constructor's blockConcurrencyWhile body to reach
+      // the vaultKey restore -- once the storage.get('vaultKey') call
+      // lands in the mock, init is past the relevant restore branch.
+      await vi.waitFor(() =>
+        expect(mockStorage.get.mock.calls.some((c) => c[0] === 'vaultKey')).toBe(true),
+      );
 
       const key = await (instance as any).ensureVaultKey();
       expect(typeof key).toBe('string');
@@ -256,7 +261,12 @@ describe('container DO class', () => {
       });
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => expect(instance.envVars).toBeDefined());
+      // Wait for the constructor's blockConcurrencyWhile body to reach
+      // the vaultKey restore -- once the storage.get('vaultKey') call
+      // lands in the mock, init is past the relevant restore branch.
+      await vi.waitFor(() =>
+        expect(mockStorage.get.mock.calls.some((c) => c[0] === 'vaultKey')).toBe(true),
+      );
 
       const first = await (instance as any).ensureVaultKey();
       const second = await (instance as any).ensureVaultKey();
@@ -283,7 +293,12 @@ describe('container DO class', () => {
       });
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => expect(instance.envVars).toBeDefined());
+      // Wait for the constructor's blockConcurrencyWhile body to reach
+      // the vaultKey restore -- once the storage.get('vaultKey') call
+      // lands in the mock, init is past the relevant restore branch.
+      await vi.waitFor(() =>
+        expect(mockStorage.get.mock.calls.some((c) => c[0] === 'vaultKey')).toBe(true),
+      );
 
       const key = await (instance as any).ensureVaultKey();
       expect(key).toBe(PRIOR_KEY);
