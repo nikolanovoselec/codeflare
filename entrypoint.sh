@@ -54,6 +54,31 @@ USER_CLAUDE_JSON="$USER_HOME/.claude.json"
 mkdir -p "$USER_HOME" "$USER_WORKSPACE" "$USER_CLAUDE_DIR"
 export HOME="$USER_HOME"
 
+# REQ-MEM-001 AC3 + AC9: propagate the user's IANA timezone (set by the
+# Worker from the browser via /api/preferences) into the container's
+# clock surface. Without this, every `date` inside the container
+# reports UTC even though the env var arrives - capture filenames
+# silently fall back to UTC and terminal `date` confuses users in
+# non-UTC zones. Three artifacts that all need to agree:
+#
+#   $TZ              - process-level (POSIX); inherited by every child
+#   /etc/timezone    - Debian/Ubuntu canonical file (some tools read this)
+#   /etc/localtime   - zoneinfo binary the libc loads for localtime(3)
+#
+# We only act if USER_TIMEZONE is set AND points to a real zoneinfo
+# file - typo'd or unknown zones (e.g. "Mars/Olympus") fall through
+# to UTC silently rather than crashing the boot. The Worker-side
+# isValidIanaTz validator catches typos at write time; this is the
+# belt-and-braces.
+if [ -n "${USER_TIMEZONE:-}" ] && [ -f "/usr/share/zoneinfo/$USER_TIMEZONE" ]; then
+    export TZ="$USER_TIMEZONE"
+    echo "$USER_TIMEZONE" > /etc/timezone 2>/dev/null || true
+    ln -sf "/usr/share/zoneinfo/$USER_TIMEZONE" /etc/localtime 2>/dev/null || true
+    echo "[entrypoint] Timezone set: $USER_TIMEZONE ($(date '+%Z %z'))"
+else
+    echo "[entrypoint] Timezone defaulting to UTC (USER_TIMEZONE='${USER_TIMEZONE:-unset}')"
+fi
+
 # Force HTML visualization generation regardless of graph size.
 # Default graphify limit is 5000 nodes; codeflare repos routinely exceed this.
 # Codeflare policy: graph.html is never skipped (user directive).

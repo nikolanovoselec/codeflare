@@ -233,7 +233,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 4. The vendored SilverBullet bundle sets `syncConcurrency = 15` (default was 3) to accelerate the unavoidable first-sync.
 5. Files matching `Raw/Pasted/**` are not eagerly synced into IndexedDB on the bulk-sync path; SilverBullet falls through to the standard `readFile` path on user open, fetching attachments on demand.
 6. The vendored SilverBullet Go server filters `/.fs` listings to exclude `graphify-out/**` so derived output never reaches the browser.
-7. The preseed `CONFIG.md` declares a `treeview.exclude` block hiding `Library/**`, `Repositories/**`, the four top-level preseed pages (`CONFIG.md`, `Index.md`, `README.md`, `STYLES.md`), `.silverbullet/**`, and `graphify-out/**` from the navigation tree.
+7. The preseed `CONFIG.md` declares a `treeview.exclusions` block (upstream v2 schema) hiding `Library/`, `graphify-out/`, and the four top-level preseed pages (`CONFIG`, `Index`, `README`, `STYLES`) from the navigation tree. `.silverbullet/` is dot-prefixed and hidden by SilverBullet's default behaviour; it requires no explicit rule.
 8. The frontend invokes `cleanupSessionVaultCache(sessionId)` on session DELETE (not stop) -- deletes both `sb_files_<hash>` and `sb_data_<hash>` databases, unregisters the SilverBullet service worker registered at `/api/vault/<sid>/`, and removes the `localStorage["vault-session-<sid>"]` marker.
 9. On dashboard mount and on every session-list refresh, the frontend sweeps `localStorage["vault-session-<sid>"]` markers and nukes the IDB + marker for any session NOT present in the user's active sessions list (covers the case where the session was deleted from another device).
 
