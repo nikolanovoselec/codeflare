@@ -340,7 +340,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Applies To:** User
 **Priority:** P1
-**Dependencies:** REQ-STOR-001, REQ-STOR-006
+**Dependencies:** REQ-STOR-001
 **Verification:** Automated test
 
 **Status:** Implemented
