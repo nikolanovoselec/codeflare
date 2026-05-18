@@ -105,7 +105,7 @@ app.post('/', async (c) => {
   // the trigger is cheap (~one extra bisync cycle on sessions where
   // the file is filtered out). Pre-filtering would require reading
   // per-session SYNC_MODE config, which is not worth the complexity.
-  c.executionCtx.waitUntil(fanOutBisyncTrigger(c.env, bucketName));
+  c.executionCtx?.waitUntil(fanOutBisyncTrigger(c.env, bucketName));
 
   return c.json({ key: sanitizedKey, size: binaryContent.length });
 });
@@ -219,7 +219,7 @@ app.post('/complete', async (c) => {
 
   // Fire-and-forget fan-out to running sessions (REQ-STOR-015 AC4).
   // See the matching block in the simple-upload route for rationale.
-  c.executionCtx.waitUntil(fanOutBisyncTrigger(c.env, bucketName));
+  c.executionCtx?.waitUntil(fanOutBisyncTrigger(c.env, bucketName));
 
   return c.json({ key: sanitizedKey });
 });
