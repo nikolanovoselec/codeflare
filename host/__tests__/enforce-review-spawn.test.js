@@ -1037,3 +1037,213 @@ describe('enforce-review-spawn.sh - round-3 ordering and parser fixes', () => {
       'double-quoted cd path with spaces must parse correctly and enforce');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Lane gating (task #58): only require lanes whose surface the push actually
+// touched. Each test builds a real git history so `git diff LAST_ACK CURRENT`
+// returns a known file list, then asserts which lanes the hook demands.
+// ---------------------------------------------------------------------------
+
+function makeLaneFixture() {
+  // Two real commits in a git repo so the diff between them is non-empty
+  // and classification can act on real paths. Returns { cwd, baseSha }.
+  const cwd = mkdtempSync(join(tmpdir(), 'enforce-spawn-lanes-'));
+  spawnSync('git', ['init', '-q'], { cwd });
+  spawnSync('git', ['config', 'user.email', 'test@test'], { cwd });
+  spawnSync('git', ['config', 'user.name', 'Test'], { cwd });
+  mkdirSync(join(cwd, 'sdd'), { recursive: true });
+  mkdirSync(join(cwd, 'documentation'), { recursive: true });
+  mkdirSync(join(cwd, 'src'), { recursive: true });
+  writeFileSync(join(cwd, 'sdd/README.md'), '# fixture\n');
+  writeFileSync(join(cwd, 'sdd/storage.md'), 'base\n');
+  writeFileSync(join(cwd, 'documentation/architecture.md'), 'base\n');
+  writeFileSync(join(cwd, 'src/foo.ts'), 'base\n');
+  writeFileSync(join(cwd, 'README.md'), 'base\n');
+  writeFileSync(join(cwd, 'CHANGELOG.md'), 'base\n');
+  writeFileSync(join(cwd, 'CONTRIBUTING.md'), 'base\n');
+  spawnSync('git', ['add', '-A'], { cwd });
+  spawnSync('git', ['commit', '-q', '-m', 'base'], { cwd });
+  const baseSha = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd, encoding: 'utf-8',
+  }).stdout.trim();
+  return { cwd, baseSha };
+}
+
+function ackBase(cwd, sha) {
+  const gcd = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+    cwd, encoding: 'utf-8',
+  }).stdout.trim();
+  writeFileSync(join(cwd, gcd, 'sdd-last-ack-pr-head'), sha);
+}
+
+function advanceWith(cwd, mutate) {
+  // mutate is a function that performs filesystem changes; we then commit
+  // and return the resulting HEAD SHA.
+  mutate();
+  spawnSync('git', ['add', '-A'], { cwd });
+  spawnSync('git', ['commit', '-q', '-m', 'advance'], { cwd });
+  return spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd, encoding: 'utf-8',
+  }).stdout.trim();
+}
+
+describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
+  it('docs-only push: requires ONLY doc-updater (no code, no spec)', () => {
+    const { cwd, baseSha } = makeLaneFixture();
+    ackBase(cwd, baseSha);
+    const tip = advanceWith(cwd, () => {
+      writeFileSync(join(cwd, 'documentation/architecture.md'), 'changed\n');
+    });
+    const binDir = fakeGh(cwd, ghReturning('OPEN', tip, 'main'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.match(r.stdout, /doc-updater/);
+    assert.doesNotMatch(r.stdout, /code-reviewer/,
+      'docs-only push must NOT demand code-reviewer');
+    assert.doesNotMatch(r.stdout, /spec-reviewer/,
+      'docs-only push must NOT demand spec-reviewer');
+  });
+
+  it('sdd-only push: requires spec-reviewer + doc-updater (no code-reviewer)', () => {
+    const { cwd, baseSha } = makeLaneFixture();
+    ackBase(cwd, baseSha);
+    const tip = advanceWith(cwd, () => {
+      writeFileSync(join(cwd, 'sdd/storage.md'), 'changed\n');
+    });
+    const binDir = fakeGh(cwd, ghReturning('OPEN', tip, 'main'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /spec-reviewer/);
+    assert.doesNotMatch(r.stdout, /code-reviewer/,
+      'sdd-only push must NOT demand code-reviewer');
+  });
+
+  it('behavioral push (src/): requires all three lanes', () => {
+    const { cwd, baseSha } = makeLaneFixture();
+    ackBase(cwd, baseSha);
+    const tip = advanceWith(cwd, () => {
+      writeFileSync(join(cwd, 'src/foo.ts'), 'changed\n');
+    });
+    const binDir = fakeGh(cwd, ghReturning('OPEN', tip, 'main'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /code-reviewer/);
+    assert.match(r.stdout, /spec-reviewer/);
+  });
+
+  it('rename bypass attempt (src -> documentation) is REJECTED — still all three', () => {
+    // Adversarial: a user might rename src/foo.ts -> documentation/poison.md
+    // to make the diff look like a pure docs change and skip code-reviewer.
+    // The hook MUST use --no-renames so both old and new paths appear, and
+    // the source path triggers behavioral classification.
+    const { cwd, baseSha } = makeLaneFixture();
+    ackBase(cwd, baseSha);
+    const tip = advanceWith(cwd, () => {
+      spawnSync('git', ['mv', 'src/foo.ts', 'documentation/poison.md'], { cwd });
+    });
+    const binDir = fakeGh(cwd, ghReturning('OPEN', tip, 'main'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /code-reviewer/,
+      'cross-category rename must trigger code-reviewer (--no-renames defense)');
+    assert.match(r.stdout, /spec-reviewer/);
+  });
+
+  it('force-push / unrelated lineage: merge-base guard falls through to all three', () => {
+    // If LAST_ACK is no longer an ancestor of CURRENT (force-push, rebase,
+    // branch swap), the diff classification cannot be trusted. The hook
+    // must fall through to demanding all three lanes.
+    const { cwd, baseSha } = makeLaneFixture();
+    ackBase(cwd, baseSha);
+    // Build an unrelated orphan branch and use its tip as the PR HEAD
+    spawnSync('git', ['checkout', '-q', '--orphan', 'orphan'], { cwd });
+    spawnSync('git', ['rm', '-rfq', '.'], { cwd });
+    mkdirSync(join(cwd, 'sdd'), { recursive: true });
+    writeFileSync(join(cwd, 'sdd/README.md'), '# orphan\n');
+    writeFileSync(join(cwd, 'random.txt'), 'orphan\n');
+    spawnSync('git', ['add', '-A'], { cwd });
+    spawnSync('git', ['commit', '-q', '-m', 'orphan'], { cwd });
+    const orphanSha = spawnSync('git', ['rev-parse', 'HEAD'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const binDir = fakeGh(cwd, ghReturning('OPEN', orphanSha, 'main'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /code-reviewer/);
+    assert.match(r.stdout, /spec-reviewer/);
+  });
+
+  it('root-doc files (CONTRIBUTING.md, SECURITY.md, LICENSE) classify as docs-only', () => {
+    const { cwd, baseSha } = makeLaneFixture();
+    ackBase(cwd, baseSha);
+    const tip = advanceWith(cwd, () => {
+      writeFileSync(join(cwd, 'CONTRIBUTING.md'), 'changed\n');
+    });
+    const binDir = fakeGh(cwd, ghReturning('OPEN', tip, 'main'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /doc-updater/);
+    assert.doesNotMatch(r.stdout, /code-reviewer/);
+  });
+
+  it('mixed sdd + behavioral push: still requires all three', () => {
+    const { cwd, baseSha } = makeLaneFixture();
+    ackBase(cwd, baseSha);
+    const tip = advanceWith(cwd, () => {
+      writeFileSync(join(cwd, 'sdd/storage.md'), 'changed\n');
+      writeFileSync(join(cwd, 'src/foo.ts'), 'changed\n');
+    });
+    const binDir = fakeGh(cwd, ghReturning('OPEN', tip, 'main'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /code-reviewer/);
+    assert.match(r.stdout, /spec-reviewer/);
+  });
+
+  it('tricky prefix "sddx.md" does NOT match sdd/* — classifies as behavioral', () => {
+    // Defense against naive prefix-based bypasses: a file at repo root
+    // whose name starts with "sdd" must not be mistaken for spec content.
+    const { cwd, baseSha } = makeLaneFixture();
+    ackBase(cwd, baseSha);
+    const tip = advanceWith(cwd, () => {
+      writeFileSync(join(cwd, 'sddx.md'), 'tricky\n');
+    });
+    const binDir = fakeGh(cwd, ghReturning('OPEN', tip, 'main'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /code-reviewer/,
+      'sddx.md must be behavioral, not spec — sdd/* requires literal slash');
+  });
+
+  it('docs-only push: completing doc-updater advances the checkpoint', () => {
+    const { cwd, baseSha } = makeLaneFixture();
+    ackBase(cwd, baseSha);
+    const tip = advanceWith(cwd, () => {
+      writeFileSync(join(cwd, 'documentation/architecture.md'), 'changed\n');
+    });
+    const binDir = fakeGh(cwd, ghReturning('OPEN', tip, 'main'));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-18T12:00:00.000Z'),
+      AGENT_LINE('doc-updater', '2026-05-18T12:00:05.000Z', 'toolu_du1'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'docs-only push with doc-updater spawned must NOT block (no code/spec demanded)');
+    const gcd = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const ack = readFileSync(join(cwd, gcd, 'sdd-last-ack-pr-head'), 'utf-8').trim();
+    assert.equal(ack, tip,
+      'checkpoint must advance to current PR HEAD on docs-only pipeline completion');
+  });
+});
