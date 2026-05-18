@@ -71,6 +71,8 @@ All modes always exclude: `.bashrc`, `.bash_profile`, `.npm/**`, `.bun/**`, `.ca
 
 **Note:** The `metadata` mode is defined in `entrypoint.sh` but the Container DO currently only maps `workspaceSyncEnabled` to `full` or `none`. The `metadata` mode can be used by setting `SYNC_MODE` directly in the container environment.
 
+**Why `none` is the default.** Workspace directories can be large (gigabytes for compiled projects). Bisyncing the full workspace on every session start adds significant latency and R2 egress cost for content that git already tracks. The recommended pattern for workspace persistence is `git push` before stopping a session and `git clone` on the next. Enable `full` mode only for files that are genuinely hard to reproduce from source: local build artifacts, large datasets, or binary assets not committed to git. See AD56 for the cost-vs-staleness rationale behind the 15-minute cadence.
+
 ## Manual Sync Triggers (REQ-STOR-015)
 
 Because the periodic cadence is 15 minutes, three explicit triggers exist for users who need fresh state sooner:
