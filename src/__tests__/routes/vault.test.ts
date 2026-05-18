@@ -6,6 +6,7 @@ import {
   VAULT_NOOP_SERVICE_WORKER_JS,
   injectVaultEncryptionConfig,
   injectVaultBootScript,
+  filterVaultFsListing,
 } from '../../routes/vault';
 
 /**
@@ -351,6 +352,52 @@ describe('validateVaultRoute', () => {
         syncConcurrency: 15,
         lazyPathPrefixes: [],
       })).toThrow();
+    });
+  });
+
+  describe('filterVaultFsListing (REQ-VAULT-008 AC6)', () => {
+    it('removes entries with names starting with graphify-out/', () => {
+      const body = JSON.stringify([
+        { name: 'Notes/foo.md', size: 10 },
+        { name: 'graphify-out/graph.json', size: 5000 },
+        { name: 'graphify-out/vault-graph.html', size: 200000 },
+        { name: 'Raw/Sessions/x.md', size: 100 },
+      ]);
+      const filtered = JSON.parse(filterVaultFsListing(body));
+      expect(filtered).toHaveLength(2);
+      expect(filtered.map((e: { name: string }) => e.name)).toEqual([
+        'Notes/foo.md',
+        'Raw/Sessions/x.md',
+      ]);
+    });
+
+    it('returns input unchanged if body is not a JSON array', () => {
+      const invalid = '{"not":"array"}';
+      expect(filterVaultFsListing(invalid)).toBe(invalid);
+    });
+
+    it('returns input unchanged on parse error', () => {
+      const garbage = 'not json at all';
+      expect(filterVaultFsListing(garbage)).toBe(garbage);
+    });
+
+    it('handles entries with no graphify-out prefix as no-op', () => {
+      const body = JSON.stringify([{ name: 'a.md' }, { name: 'b.md' }]);
+      const out = JSON.parse(filterVaultFsListing(body));
+      expect(out).toHaveLength(2);
+    });
+
+    it('also filters nested graphify-out paths (e.g. Raw/graphify-out should NOT match — only top-level)', () => {
+      const body = JSON.stringify([
+        { name: 'graphify-out/x.json' },
+        { name: 'Notes/graphify-out-notes.md' },
+        { name: 'Notes/sub/file.md' },
+      ]);
+      const out = JSON.parse(filterVaultFsListing(body));
+      expect(out.map((e: { name: string }) => e.name)).toEqual([
+        'Notes/graphify-out-notes.md',
+        'Notes/sub/file.md',
+      ]);
     });
   });
 
