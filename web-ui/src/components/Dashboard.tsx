@@ -56,7 +56,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
     // to the user's preferences so the next session start propagates
     // USER_TIMEZONE into the container env. Best-effort; never blocks.
     void syncBrowserTimezone({
-      currentTimezone: sessionStore.state.preferences.userTimezone,
+      currentTimezone: sessionStore.preferences.userTimezone,
       browserTimezone: getBrowserTimezone(),
       updatePreferences: sessionStore.updatePreferences,
     });
