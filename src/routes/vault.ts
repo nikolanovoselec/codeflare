@@ -153,6 +153,33 @@ export function isServiceWorkerRegistration(request: Request, remainingPath: str
   return true;
 }
 
+/**
+ * Inject the per-session vault encryption key into a SilverBullet
+ * BootConfig JSON body. The Worker is the canonical source of the key
+ * (it lives in the container DO's ctx.storage and is RPC-fetched at
+ * request time); any value the container might emit for this field is
+ * stale or empty and is overridden here.
+ *
+ * Fail-loud contract: throws if `bootConfigJson` is not parseable JSON
+ * or if `vaultEncryptionKey` is empty. A silently-broken /.config
+ * response would still render the SB shell but client-side encryption
+ * would fall back to plaintext IDB - a silent data-at-rest regression.
+ *
+ * Implements REQ-VAULT-008 AC2.
+ */
+export function injectVaultEncryptionConfig(bootConfigJson: string, vaultEncryptionKey: string): string {
+  if (!vaultEncryptionKey) {
+    throw new Error('injectVaultEncryptionConfig: vaultEncryptionKey must be non-empty');
+  }
+  const parsed = JSON.parse(bootConfigJson);
+  const merged = {
+    ...parsed,
+    vaultEncryptionKey,
+    enableClientEncryption: true,
+  };
+  return JSON.stringify(merged);
+}
+
 export function validateVaultRoute(request: Request): VaultRouteResult {
   const url = new URL(request.url);
   const match = url.pathname.match(/^\/api\/vault\/([^/]+)(\/.*)$/);
@@ -429,6 +456,41 @@ export async function handleVaultRequest(
     // href, added attribute, etc.) surfaces as a logged signal instead
     // of a silent white-screen regression.
     const contentType = response.headers.get('content-type') ?? '';
+
+    // REQ-VAULT-008 AC2: inject the per-session vault encryption key into
+    // SilverBullet's BootConfig response. The DO is the canonical key
+    // source - SB sees the key through this same authenticated channel
+    // and uses it as the IDB encryption key without ever showing the
+    // user a passphrase prompt. We treat any 2xx /.config response as
+    // injection-eligible regardless of upstream content-type because
+    // SB's Go server has shipped both application/json and text/plain
+    // for this endpoint across versions; the JSON.parse inside
+    // injectVaultEncryptionConfig fails loud if the body is not JSON.
+    if (remainingPath === '/.config' && response.ok) {
+      try {
+        const vaultEncryptionKey = await (container as unknown as {
+          ensureVaultKey: () => Promise<string>;
+        }).ensureVaultKey();
+        const body = await response.text();
+        const rewritten = injectVaultEncryptionConfig(body, vaultEncryptionKey);
+        const headers = new Headers(response.headers);
+        headers.delete('content-length');
+        headers.delete('content-encoding');
+        headers.set('content-type', 'application/json');
+        return new Response(rewritten, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        });
+      } catch (err) {
+        logger.error('vault /.config injection failed', toError(err));
+        return new Response(JSON.stringify({
+          error: 'Vault config injection failed',
+          code: 'VAULT_CONFIG_INJECT_FAILED',
+        }), { status: 500, headers: jsonHeaders });
+      }
+    }
+
     if (contentType.includes('text/html')) {
       const prefix = `/api/vault/${sessionId}`;
       const body = await response.text();
