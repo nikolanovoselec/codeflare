@@ -36,6 +36,8 @@ export interface ContainerEnvState {
   _containerAuthToken: string | null;
   _sessionId: string | null;
   _userEmail: string | null;
+  /** REQ-MEM-001 AC3: user's IANA timezone (e.g. "Europe/Zurich"). */
+  _userTimezone: string | null;
 }
 
 /** Fields sent in the setBucketName body that may need updating on restart. */
@@ -183,6 +185,11 @@ export function buildEnvVars(
     ...(state._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: state._cloudflareAccountId }),
     // Session mode (controls memory persistence in entrypoint.sh)
     SESSION_MODE: state._sessionMode,
+    // REQ-MEM-001 AC3: user's IANA timezone. The capture haiku resolves
+    // wall-clock time as TZ="$USER_TIMEZONE" date '+%Y-%m-%dT...'; only
+    // emit when set so the entrypoint's existing fallback chain ($TZ ->
+    // /etc/timezone -> UTC) handles the unset case.
+    ...(state._userTimezone && { USER_TIMEZONE: state._userTimezone }),
   };
 }
 

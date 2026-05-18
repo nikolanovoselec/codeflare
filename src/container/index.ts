@@ -108,6 +108,8 @@ export class container extends Container<Env> {
   private _containerAuthToken: string | null = null;
   private _sessionId: string | null = null;
   private _userEmail: string | null = null;
+  /** REQ-MEM-001 AC3: user's IANA timezone (e.g. "Europe/Zurich"). */
+  private _userTimezone: string | null = null;
   /**
    * Timestamp captured at the start of destroy(); read by onStop() to
    * log shutdown elapsed-ms. Helps telemetry decide whether the 135s
@@ -149,6 +151,10 @@ export class container extends Container<Env> {
       this._sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY) || null;
       this._usageSeconds = await this.ctx.storage.get<number>('usageSeconds') || 0;
       this._userEmail = await this.ctx.storage.get<string>('userEmail') || null;
+      // REQ-MEM-001 AC3: restore the user's IANA timezone so the capture
+      // pipeline's TZ resolution produces wall-clock filenames after a
+      // DO wake (matches the pattern for sessionId / userEmail above).
+      this._userTimezone = await this.ctx.storage.get<string>('userTimezone') || null;
       // Restore the container auth token from storage. Without this,
       // every DO wake regenerates a fresh UUID via updateEnvVars() while the
       // container process (which may have been hibernated, not restarted)
