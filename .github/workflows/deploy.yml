@@ -248,27 +248,7 @@ jobs:
           echo "local_ref=${IMAGE_NAME}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Free disk space for Trivy scan
-        # Trivy exports the entire container image to /tmp before
-        # scanning. Default GH-hosted runners ship ~14 GB free, but
-        # the codeflare container plus the dockerd build cache plus
-        # the trivy DB plus pre-installed Android/dotnet/Haskell
-        # tooling eats most of that. Without aggressive cleanup the
-        # trivy image-export step fails with "no space left on
-        # device" before any vulnerability table is produced.
-        run: |
-          set -x
-          # Pre-installed SDKs the codeflare deploy never uses.
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          # docker / trivy caches.
-          docker builder prune -af || true
-          docker image prune -af || true
-          rm -rf /tmp/trivy-* || true
-          # Report what we recovered.
-          df -h / | tail -1
+        run: docker builder prune -af && rm -rf /tmp/trivy-* || true
 
       - name: Scan container image for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
