@@ -916,9 +916,9 @@ shutdown_handler() {
                 kill_subtree "$sig" "$child"
             done
         }
-        ( sleep 50
+        ( sleep 108
           kill_subtree TERM "$BISYNC_PID"
-          sleep 10
+          sleep 12
           kill_subtree KILL "$BISYNC_PID"
         ) &
         WATCHDOG_PID=$!
