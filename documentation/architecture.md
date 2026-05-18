@@ -206,7 +206,7 @@ sequenceDiagram
     Note over C: .bashrc auto-starts agent
 ```
 
-### Startup Status Stages
+### Startup Status Stages (REQ-SESSION-015)
 
 | Stage | Progress | Condition |
 |-------|----------|-----------|

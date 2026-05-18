@@ -38,7 +38,7 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 
 `--max-delete 100` allows bisync to propagate bulk deletions (e.g., deleting entire workspace folders). The rclone default of 50% aborts bisync when more than half the files are deleted in one cycle — in a config-heavy sync with few files, even a single folder deletion can exceed this threshold.
 
-## What's Synced vs Excluded
+## What's Synced vs Excluded (REQ-STOR-011)
 
 | Path | Synced | Reason |
 |------|--------|--------|
