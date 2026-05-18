@@ -217,6 +217,84 @@ describe('container DO class', () => {
 
   });
 
+  // REQ-VAULT-008 AC1: Container DO mints a per-session vault encryption
+  // key, persists it in ctx.storage, and returns the same value on
+  // every read until container.destroy() wipes storage. The key is
+  // injected by the Worker into SilverBullet's /.config response so
+  // SB encrypts IndexedDB without prompting the user.
+  describe('ensureVaultKey (REQ-VAULT-008 AC1)', () => {
+    it('generates a 32-byte vault key on first call and persists it', async () => {
+      // Fresh DO -- no key in storage. ensureVaultKey() must generate
+      // 32 random bytes, base64-encode them, persist under the
+      // `vaultKey` storage key, and return the encoded string.
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'vaultKey') return null;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      // Constructor blockConcurrencyWhile may have run by now; wait
+      // for envVars to be settled so we know init finished.
+      await vi.waitFor(() => expect(instance.envVars).toBeDefined());
+
+      const key = await (instance as any).ensureVaultKey();
+      expect(typeof key).toBe('string');
+      // base64 of 32 bytes = 44 chars (including trailing '=' padding).
+      expect(key).toMatch(/^[A-Za-z0-9+/]{43}=$/);
+
+      // Persistence: the storage layer must have been called with
+      // ('vaultKey', <key>). Find the last put call for this key.
+      const putCall = mockStorage.put.mock.calls.find((c) => c[0] === 'vaultKey');
+      expect(putCall).toBeDefined();
+      expect(putCall?.[1]).toBe(key);
+    });
+
+    it('returns the same key on every subsequent call without re-generating', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'vaultKey') return null;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars).toBeDefined());
+
+      const first = await (instance as any).ensureVaultKey();
+      const second = await (instance as any).ensureVaultKey();
+      const third = await (instance as any).ensureVaultKey();
+
+      expect(first).toBe(second);
+      expect(second).toBe(third);
+
+      // Only ONE write to storage; subsequent calls must hit the
+      // in-memory cache.
+      const puts = mockStorage.put.mock.calls.filter((c) => c[0] === 'vaultKey');
+      expect(puts.length).toBe(1);
+    });
+
+    it('restores an existing key from storage instead of generating a new one (DO wake)', async () => {
+      // Simulates a DO that previously generated a key, hibernated,
+      // and is now waking up. Storage returns the previously persisted
+      // value; ensureVaultKey() must return it untouched and MUST NOT
+      // write a new value to storage.
+      const PRIOR_KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'vaultKey') return PRIOR_KEY;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(instance.envVars).toBeDefined());
+
+      const key = await (instance as any).ensureVaultKey();
+      expect(key).toBe(PRIOR_KEY);
+
+      // No new put for vaultKey on this run -- the restore branch must
+      // not regenerate.
+      const newPuts = mockStorage.put.mock.calls.filter((c) => c[0] === 'vaultKey');
+      expect(newPuts.length).toBe(0);
+    });
+  });
+
   describe('internal route dispatch', () => {
     it('dispatches POST /_internal/setBucketName to handler', async () => {
       // No existing bucket - storage returns null for all keys
