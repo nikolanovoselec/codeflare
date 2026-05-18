@@ -18,6 +18,23 @@ import { createLogger } from '../lib/logger';
 
 const logger = createLogger('preferences');
 
+/**
+ * REQ-MEM-001 AC3: validate an IANA timezone string by attempting to
+ * construct an Intl.DateTimeFormat with it. Browsers throw RangeError
+ * on unsupported zones; valid zones round-trip cleanly. This avoids
+ * shipping a 400+ entry static zone list while still catching
+ * typos and non-existent zones like "Mars/Olympus".
+ */
+function isValidIanaTz(tz: string): boolean {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const UpdatePreferencesBody = z.object({
   lastAgentType: AgentTypeSchema.optional(),
   lastPresetId: z.string().max(100).optional(),
@@ -25,6 +42,9 @@ const UpdatePreferencesBody = z.object({
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
   sleepAfter: z.enum(SleepAfterOptions as unknown as [string, ...string[]]).optional(),
+  userTimezone: z.string().min(1).max(64).refine(isValidIanaTz, {
+    message: 'Invalid IANA timezone',
+  }).optional(),
 }).strict();
 
 const preferencesPatchRateLimiter = createRateLimiter({
