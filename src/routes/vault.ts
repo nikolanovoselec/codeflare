@@ -153,6 +153,37 @@ export function isServiceWorkerRegistration(request: Request, remainingPath: str
   return true;
 }
 
+/**
+ * Same-origin fallback for the CSRF synthesis gate. Returns true when
+ * the request is a state-changing method (POST/PUT/PATCH/DELETE) AND
+ * the Origin header is absent. Such a request is by Fetch-spec
+ * definition either same-origin (browsers since 2020 always set Origin
+ * on cross-origin state-changing requests) or originates from a CLI /
+ * non-browser caller for which CSRF is not a defence (those callers
+ * cannot be tricked by an attacker page into making the request).
+ *
+ * SilverBullet's attachment upload path (PUT `/api/vault/<sid>/Inbox/
+ * <file>`) is the production path this closes: SB's drag-drop fetch
+ * lands at the Worker without an Origin header in some browser
+ * configurations, the previous code path left `originValidated=false`,
+ * `maybeSynthesizeCsrfHeader` skipped synthesis, and the downstream
+ * `authenticateRequest` rejected the write for a missing
+ * `X-Requested-With` header (presented to the user as 401 via the SB
+ * retry-on-stale-cookie path).
+ *
+ * Returns false on safe methods and on any state-changing method that
+ * DID supply an Origin — the caller MUST still run the allowlist
+ * check on the Origin in that case; this helper does not widen the
+ * allowlist.
+ *
+ * Implements REQ-VAULT-009 AC1+AC4.
+ */
+export function inferOriginValidated(request: Request): boolean {
+  if (request.headers.get('Origin')) return false;
+  const method = request.method.toUpperCase();
+  return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+}
+
 export function validateVaultRoute(request: Request): VaultRouteResult {
   const url = new URL(request.url);
   const match = url.pathname.match(/^\/api\/vault\/([^/]+)(\/.*)$/);
@@ -259,6 +290,13 @@ export async function handleVaultRequest(
         { status: 403, headers: jsonHeaders },
       );
     }
+    originValidated = true;
+  } else if (inferOriginValidated(request)) {
+    // REQ-VAULT-009 AC1: state-changing request with no Origin header
+    // is same-origin by Fetch-spec semantics; treat as validated so the
+    // downstream CSRF synthesiser attaches X-Requested-With and the
+    // authenticateRequest CSRF guard does not reject the SB attachment
+    // upload (PUT /api/vault/<sid>/Inbox/<file>).
     originValidated = true;
   }
 
