@@ -315,3 +315,16 @@ export const OnboardingConfigResponseSchema = z.object({
   active: z.boolean(),
   turnstileSiteKey: z.string().nullable(),
 });
+
+// Sessions sync fan-out (REQ-STOR-015 AC1).
+// Mirrors SyncSessionResult from src/lib/sync-fanout.ts.
+export const SessionsSyncResponseSchema = z.object({
+  sessions: z.array(
+    z.object({
+      sessionId: z.string(),
+      status: z.union([z.literal('triggered'), z.literal('not-running'), z.literal('failed')]),
+      error: z.string().optional(),
+    })
+  ),
+  count: z.number(),
+});

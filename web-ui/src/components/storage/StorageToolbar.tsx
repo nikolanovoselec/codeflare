@@ -2,7 +2,14 @@ import { Component, Show, Accessor } from 'solid-js';
 import { storageStore } from '../../stores/storage';
 import Icon from '../Icon';
 import {
-  mdiMagnify,
+  // SEARCH UI DISABLED 2026-05-18 (REQ-STOR-015 + sync-v2 PR):
+  // the search-toggle button gave its toolbar slot to the Sync-now
+  // (mdiCloudSync) action. The store's searchFiles() helper and the
+  // <Show when={showSearch()}> render block in StorageBrowser.tsx are
+  // intentionally preserved so search can be re-enabled by re-adding
+  // the toggle button below and re-importing mdiMagnify.
+  // mdiMagnify,
+  mdiCloudSync,
   mdiEyeOff,
   mdiSelect,
   mdiFolderPlus,
@@ -13,8 +20,6 @@ import {
 } from '@mdi/js';
 
 interface StorageToolbarProps {
-  showSearch: Accessor<boolean>;
-  setShowSearch: (v: boolean) => void;
   showHiddenItems: Accessor<boolean>;
   setShowHiddenItems: (v: boolean) => void;
   selectionModeEnabled: Accessor<boolean>;
@@ -26,16 +31,45 @@ interface StorageToolbarProps {
 }
 
 const StorageToolbar: Component<StorageToolbarProps> = (props) => {
+  const syncTooltip = () => {
+    if (storageStore.syncing) {
+      const r = storageStore.syncResult;
+      return r && r.total > 0
+        ? `Syncing ${r.triggered + r.notRunning + r.failed} of ${r.total} sessions...`
+        : 'Syncing all running sessions...';
+    }
+    const r = storageStore.syncResult;
+    if (r) {
+      if (r.failed > 0) return `Sync errors: ${r.lastError ?? `${r.failed} failed`}`;
+      if (r.total === 0) return 'No running sessions to sync';
+      return `Synced ${r.triggered} session${r.triggered === 1 ? '' : 's'}`;
+    }
+    return 'Sync all running sessions to R2 and refresh listing';
+  };
+
   return (
     <div class="storage-actions">
+      {/* REQ-STOR-015 AC1+AC6: Sync-now button replaces the search
+          toggle in this slot. Click fans out a bisync trigger to all
+          the user's running sessions, then silently re-lists R2.
+          Disabled while a fan-out is in flight (storageStore.syncing). */}
       <button
         type="button"
         class="storage-icon-btn"
-        data-testid="storage-search-toggle"
-        title="Search"
-        onClick={() => props.setShowSearch(!props.showSearch())}
+        data-testid="storage-sync-now-btn"
+        title={syncTooltip()}
+        disabled={storageStore.syncing}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void storageStore.syncNow();
+        }}
       >
-        <Icon path={mdiMagnify} size={16} />
+        <Icon
+          path={mdiCloudSync}
+          size={16}
+          class={storageStore.syncing ? 'storage-sync-spinning' : ''}
+        />
       </button>
       <div class="storage-toolbar-separator" />
       <button

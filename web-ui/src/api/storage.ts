@@ -12,6 +12,7 @@ import {
   StoragePreviewTextResponseSchema,
   StoragePreviewImageResponseSchema,
   StoragePreviewBinaryResponseSchema,
+  SessionsSyncResponseSchema,
 } from '../lib/schemas';
 import { ApiError, baseFetch } from './fetch-helper';
 
@@ -150,4 +151,13 @@ export function getDownloadUrl(key: string): string {
   const params = new URLSearchParams();
   params.set('key', key);
   return `${BASE_URL}/storage/download?${params.toString()}`;
+}
+
+// Sync-now fan-out (REQ-STOR-015 AC1). Calls POST /api/sessions/sync
+// which enumerates the user's running sessions and triggers a bisync
+// on each. Returns per-session result; the UI uses these to show
+// "Triggered N sessions" feedback and re-list R2 after a brief delay.
+export type SessionsSyncResponse = z.infer<typeof SessionsSyncResponseSchema>;
+export async function syncAllSessions(): Promise<SessionsSyncResponse> {
+  return storageFetch('/sessions/sync', { method: 'POST' }, SessionsSyncResponseSchema);
 }

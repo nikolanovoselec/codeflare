@@ -37,6 +37,14 @@ interface PreviewFile {
   lastModified: string;
 }
 
+interface SyncNowResult {
+  triggered: number;
+  notRunning: number;
+  failed: number;
+  total: number;
+  lastError?: string;
+}
+
 interface StorageState {
   currentPrefix: string;
   objects: StorageObject[];
@@ -52,6 +60,11 @@ interface StorageState {
   previewFile: PreviewFile | null;
   backgroundRefreshing: boolean;
   workerName: string;
+  // REQ-STOR-015: sync-now flag drives the toolbar button's disabled
+  // state and spinner overlay. The last result is held briefly so the
+  // toolbar can surface "Triggered N sessions" feedback.
+  syncing: boolean;
+  syncResult: SyncNowResult | null;
 }
 
 const initialState: StorageState = {
@@ -69,7 +82,14 @@ const initialState: StorageState = {
   previewFile: null,
   backgroundRefreshing: false,
   workerName: 'codeflare',
+  syncing: false,
+  syncResult: null,
 };
+
+// REQ-STOR-015 AC6: how long to keep the syncResult visible after the
+// fan-out request returns. Long enough for the user to read the toast,
+// short enough that stale state does not linger.
+const SYNC_RESULT_DISPLAY_MS = 4000;
 
 const [state, setState] = createStore<StorageState>({ ...initialState });
 
@@ -89,6 +109,8 @@ export const storageStore = {
   get backgroundRefreshing() { return state.backgroundRefreshing; },
   get workerName() { return state.workerName; },
   setWorkerName(name: string) { setState('workerName', name); },
+  get syncing() { return state.syncing; },
+  get syncResult() { return state.syncResult; },
   get breadcrumbs() {
     const parts = state.currentPrefix.split('/').filter(Boolean);
     return parts.map((_, i) => parts.slice(0, i + 1).join('/') + '/');
@@ -336,6 +358,54 @@ export const storageStore = {
 
   async refresh(options?: { silent?: boolean }) {
     await storageStore.browse(undefined, options);
+  },
+
+  /**
+   * REQ-STOR-015: fan-out a bisync trigger to all the user's running
+   * sessions, then re-list R2 once the trigger completes.
+   *
+   * The fan-out call itself is fast (it triggers SIGUSR1 per session
+   * and returns). The actual bisync runs in each container's daemon
+   * AFTER the trigger returns, so we re-list R2 after a short delay
+   * to give the bisyncs a chance to propagate fresh content before
+   * the user sees the new listing.
+   *
+   * Hibernation-resilient: the response shape includes `not-running`
+   * for sleeping containers. The aggregate counters distinguish
+   * triggered / not-running / failed so the user gets honest feedback.
+   */
+  async syncNow() {
+    if (state.syncing) return;  // idempotent click guard
+    setState('syncing', true);
+    setState('syncResult', null);
+    try {
+      const result = await storageApi.syncAllSessions();
+      const aggregate: SyncNowResult = {
+        triggered: result.sessions.filter((s) => s.status === 'triggered').length,
+        notRunning: result.sessions.filter((s) => s.status === 'not-running').length,
+        failed: result.sessions.filter((s) => s.status === 'failed').length,
+        total: result.count,
+        lastError: result.sessions.find((s) => s.status === 'failed')?.error,
+      };
+      setState('syncResult', aggregate);
+      // Re-list R2 so the user sees the freshest state. Silent to avoid
+      // a loading spinner on top of the sync spinner.
+      await storageStore.refresh({ silent: true });
+    } catch (err) {
+      setState('syncResult', {
+        triggered: 0,
+        notRunning: 0,
+        failed: 0,
+        total: 0,
+        lastError: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setState('syncing', false);
+      // Auto-clear the result message after a brief display window.
+      setTimeout(() => {
+        setState((s) => (s.syncing ? s : { ...s, syncResult: null }));
+      }, SYNC_RESULT_DISPLAY_MS);
+    }
   },
 };
 

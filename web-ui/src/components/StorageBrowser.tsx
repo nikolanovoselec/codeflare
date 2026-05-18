@@ -277,8 +277,16 @@ const StorageBrowser: Component = () => {
       <div class="storage-browser-header">
         <StorageBreadcrumbs currentPrefix={storageStore.currentPrefix} />
         <StorageToolbar
-          showSearch={showSearch}
-          setShowSearch={setShowSearch}
+          // SEARCH UI DISABLED 2026-05-18 (REQ-STOR-015 + sync-v2 PR):
+          // the search-toggle button was removed from StorageToolbar.
+          // showSearch / setShowSearch / searchQuery / setSearchQuery /
+          // handleSearchInput remain declared above, and the
+          // <Show when={showSearch()}> render block below stays in
+          // place. They are now latent (nothing flips showSearch to
+          // true), and storageStore.searchFiles() is still callable
+          // by anything that wants the filter chain. To restore: add
+          // a button in StorageToolbar that calls setShowSearch and
+          // re-add showSearch + setShowSearch to its props.
           showHiddenItems={showHiddenItems}
           setShowHiddenItems={setShowHiddenItems}
           selectionModeEnabled={selectionModeEnabled}
