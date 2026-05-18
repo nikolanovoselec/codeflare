@@ -12,6 +12,8 @@ The Worker-side infrastructure (DO key persistence, /.config injection, boot-scr
 
 ---
 
-## REQ-STOR-015 -- ACs 2, 3, 6, 7 lack automated test coverage
+## REQ-STOR-015 -- AC5, AC6 lack automated test coverage
 
-AC2 (signal-triggered sync from UI), AC3 (upload auto-trigger), AC6 (multi-session fan-out), AC7 (coalesced-rerun after mid-flight signal) are not yet covered by automated tests. Status: Partial until covered. AC1, AC4, AC5 have unit + static-file coverage from the PR-E backfill.
+After the upload-side auto-trigger was removed (originally AC4, see AD56 note), the remaining ACs renumber to: AC1 fan-out endpoint, AC2 concurrency cap, AC3 per-session isolation, AC4 rate-limit shape, AC5 SIGUSR1 coalesce/rerun, AC6 button-disabled-while-syncing.
+
+AC1-AC4 have unit + static-file coverage from the PR-E backfill plus the inverse "upload.ts has no fan-out wiring" guard. AC5 (coalesced-rerun after mid-flight signal) and AC6 (frontend button disabled state) are not yet covered by automated tests. Status: Partial until covered.

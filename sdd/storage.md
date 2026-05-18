@@ -15,7 +15,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 - **Version history** -- R2 stores current file state only. No file versioning, rollback to previous revisions, or change tracking within storage.
 - **File collaboration** -- Storage is single-user. No shared buckets, shared folders, or multi-user access to the same R2 prefix.
-- **Real-time file sync** -- Bisync runs on a 15-minute cadence with explicit user-driven manual triggers (Sync-now button, upload-side auto-trigger) and a final sync at container shutdown. R2-side changes and multi-tab convergence wait up to the 15-minute ceiling unless the user clicks Sync-now. Sub-second or event-driven sync between browser and container is not supported.
+- **Real-time file sync** -- Bisync runs on a 15-minute cadence with one user-driven trigger (Sync-now button) and a final sync at container shutdown. R2-side changes and multi-tab convergence wait up to the 15-minute ceiling unless the user clicks Sync-now. R2 uploads do not auto-fan-out to running containers. Sub-second or event-driven sync between browser and container is not supported.
 - **Corrupted R2 self-healing via nuke** -- Automatic detection and deletion of corrupted or encryption-mismatched R2 objects via a full-bucket scan was considered but not implemented. Transient file errors are handled by the vanishing-file recovery mechanism; encryption mismatches are handled by `--resilient`/`--recover` flags and the resync fallback in the bisync daemon.
 
 ### Domain Dependencies
@@ -351,14 +351,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. `POST /api/sessions/sync` fans out a sync trigger to every running session belonging to the authenticated user. Stopped sessions are skipped client-side using `batch-status` output before fan-out.
 2. Fan-out runs in parallel with a concurrency cap of 8; remaining sessions are queued.
 3. Per-session failures are isolated -- one session's bisync failure does not prevent other sessions from completing. The response shape returns the per-session sync status.
-4. After a successful R2 PUT via `POST /api/storage/upload` (or multipart-complete) to a prefix in the active `SYNC_MODE` synced set, the Worker fires a fire-and-forget `POST /api/container/sync` to the session's container. The upload response does not block on the sync.
+4. `POST /api/sessions/sync` is rate-limited at 6 requests per minute per user (matches the destructive-action rate-limiter pattern).
 5. The trigger is idempotent: a SIGUSR1 sent to the bisync daemon while a bisync is already in flight sets a rerun-requested flag, which causes exactly one rerun after the current cycle completes (N signals during one bisync coalesce to one rerun, not N).
 6. The frontend Sync-now button is disabled while any of the user's sessions reports `sync.status === 'syncing'` and re-enables once all sessions transition out.
-7. `POST /api/sessions/sync` is rate-limited at 6 requests per minute per user (matches the destructive-action rate-limiter pattern).
 
 **Constraints:**
+- Three triggers only: 15-minute cadence (REQ-STOR-003), Sync-now button (this REQ), and the final shutdown bisync (REQ-STOR-005). R2 uploads do not auto-fan-out to running containers — users click Sync-now to propagate freshly uploaded files immediately, or wait for the next 15-minute cycle. Removing the upload-side auto-trigger avoids bursting Worker subrequest budget on multi-file uploads (each file otherwise enumerates KV and fan-outs to every running session).
 - Multi-session fan-out is safe under the existing `--conflict-resolve newer` bisync semantics: the merge operation is commutative and associative under absolute mtime, so parallel and serial fan-out produce the same final R2 state per file. The same concurrent mode already runs every 15 minutes when a user has multiple sessions (per REQ-STOR-003); manual triggers introduce no new failure mode.
-- Upload triggers only fire when `isInSyncSet(prefix, syncMode)` is true. Uploads to a path the active SYNC_MODE excludes do not trigger (the file would sit in R2 invisible to the container until SYNC_MODE changes).
 
 **Applies To:** User
 **Priority:** P1

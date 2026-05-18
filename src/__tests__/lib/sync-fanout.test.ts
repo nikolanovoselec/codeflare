@@ -168,9 +168,9 @@ describe('fanOutBisyncTrigger (REQ-STOR-015 backfill)', () => {
   });
 });
 
-// AC4 (upload.ts wires fanOutBisyncTrigger through waitUntil) and AC7
-// (sessions-sync rate limiter shape) require reading source files at
-// runtime, which the Workers vitest pool does not allow. Those static
-// structural assertions live in host/__tests__/sync-fanout-static.test.js
-// (Node test runner with full fs access). See that file for the matching
+// Static structural assertions (sessions-sync rate-limiter shape, and
+// the inverse "upload.ts has no fan-out wiring" guard) require reading
+// source files at runtime, which the Workers vitest pool does not allow.
+// They live in host/__tests__/sync-fanout-static.test.js (Node test
+// runner with full fs access). See that file for the matching
 // fixture-free assertions.

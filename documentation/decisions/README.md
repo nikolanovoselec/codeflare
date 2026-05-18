@@ -944,7 +944,9 @@ Three options were considered: (a) keep 60s, (b) inotify-driven local-flush plus
 
 1. **15-minute wall clock** -- the daemon's `sleep` is interruptible by SIGUSR1, otherwise wakes after 900 seconds.
 2. **Manual UI trigger** -- the storage panel's Sync-now button posts to `POST /api/sessions/sync`, which fans out per-session triggers across all the authenticated user's running sessions.
-3. **Upload-side auto-trigger** -- after a successful R2 PUT via the storage panel to a prefix in the active `SYNC_MODE` synced set, the Worker fires a fire-and-forget per-session trigger so the new file appears in the container without waiting for the next cycle.
+3. **Final sync at shutdown** -- the entrypoint's SIGTERM trap runs `bisync_with_r2` inside the 120-second watchdog before the Container DO destroys (REQ-STOR-005, AD57).
+
+An earlier draft of this ADR included a fourth trigger ("upload-side auto-trigger" -- fire-and-forget fan-out on every R2 PUT through the storage panel). It was removed: a single 20-file drag-drop produced 20 separate KV-enumeration + fan-out RPCs, blowing Worker subrequest budget for a feature the Sync-now button + 15-minute cadence already cover at lower cost. The container-side SIGUSR1 trap coalesces to at most one in-flight + one queued bisync regardless, so the only thing the upload-side trigger ever gave us was Worker-layer waste.
 
 The daemon's SIGUSR1 trap is coalescing: signals received during a running bisync set a rerun-requested flag rather than queueing, so N signals during one cycle produce exactly one rerun after the current cycle completes.
 

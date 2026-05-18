@@ -4,13 +4,13 @@ import Icon from '../Icon';
 import {
   // SEARCH UI DISABLED 2026-05-18 (REQ-STOR-015 + sync-v2 PR):
   // the search-toggle button gave its toolbar slot to the Sync-now
-  // (mdiCloudUploadOutline) action. The store's searchFiles() helper
+  // (mdiCloudDownload) action. The store's searchFiles() helper
   // and the <Show when={showSearch()}> render block in
   // StorageBrowser.tsx are intentionally preserved so search can be
   // re-enabled by re-adding the toggle button below and re-importing
   // mdiMagnify.
   // mdiMagnify,
-  mdiCloudUploadOutline,
+  mdiCloudDownload,
   mdiEyeOff,
   mdiSelect,
   mdiFolderPlus,
@@ -67,7 +67,7 @@ const StorageToolbar: Component<StorageToolbarProps> = (props) => {
         }}
       >
         <Icon
-          path={mdiCloudUploadOutline}
+          path={mdiCloudDownload}
           size={16}
           class={storageStore.syncing ? 'storage-sync-breathing' : ''}
         />
