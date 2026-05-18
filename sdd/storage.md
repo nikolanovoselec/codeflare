@@ -134,9 +134,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. A SIGINT/SIGTERM handler triggers a final bisync before exit.
 2. The final bisync only runs if the bisync-initialized flag is set.
 3. Files created during the session are available in R2 after shutdown completes.
+4. The final bisync has a 120-second watchdog (108s SIGTERM phase, 12s SIGKILL phase). Anything still running at 120 seconds is hard-killed and the user accepts that the last writes may not have synced.
+5. The Container DO `destroy()` budget is 135 seconds (120s for the final bisync plus 15s for clean process exit) before SDK teardown SIGKILLs the container.
 
 **Constraints:**
-- The shutdown handler must complete within the container runtime's grace period.
+- The shutdown handler must complete within 120 seconds; the DO destroy() budget is 135 seconds.
 - Final bisync uses the same flags as periodic bisync (`--ignore-checksum`, `--max-delete 100`, `--check-sync=false`).
 
 **Applies To:** User
