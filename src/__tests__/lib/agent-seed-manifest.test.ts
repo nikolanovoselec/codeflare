@@ -164,7 +164,12 @@ describe('multi-agent documents', () => {
   it('codeflare-memory plugin files are advanced-only', () => {
     const pluginDocs = claudeDocs().filter((d) => d.key.includes('codeflare-memory'));
     const fileNames = pluginDocs.map((d) => d.key.split('/').pop()).sort();
-    expect(fileNames).toEqual(['memory-agent-prompt.md', 'memory-capture.sh', 'plugin.json']);
+    expect(fileNames).toEqual([
+      'memory-agent-prompt.md',
+      'memory-capture.sh',
+      'plugin.json',
+      'prefilter-transcript.sh',
+    ]);
     for (const doc of pluginDocs) {
       expect(doc.modes).toEqual(['advanced']);
     }
