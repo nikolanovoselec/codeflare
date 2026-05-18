@@ -366,3 +366,29 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Verification:** Automated test
 
 **Status:** Implemented
+
+---
+
+## REQ-STOR-015: Explicit Sync Trigger from UI
+
+**Intent:** Because the periodic bisync cadence is 15 minutes (REQ-STOR-003), users must have explicit ways to force convergence between the container filesystem and R2 without waiting for the next cycle.
+
+**Acceptance Criteria:**
+1. `POST /api/sessions/sync` fans out a sync trigger to every running session belonging to the authenticated user. Stopped sessions are skipped client-side using `batch-status` output before fan-out.
+2. Fan-out runs in parallel with a concurrency cap of 8; remaining sessions are queued.
+3. Per-session failures are isolated -- one session's bisync failure does not prevent other sessions from completing. The response shape returns the per-session sync status.
+4. After a successful R2 PUT via `POST /api/storage/upload` (or multipart-complete) to a prefix in the active `SYNC_MODE` synced set, the Worker fires a fire-and-forget `POST /api/container/sync` to the session's container. The upload response does not block on the sync.
+5. The trigger is idempotent: a SIGUSR1 sent to the bisync daemon while a bisync is already in flight sets a rerun-requested flag, which causes exactly one rerun after the current cycle completes (N signals during one bisync coalesce to one rerun, not N).
+6. The frontend Sync-now button is disabled while any of the user's sessions reports `sync.status === 'syncing'` and re-enables once all sessions transition out.
+7. `POST /api/sessions/sync` is rate-limited at 6 requests per minute per user (matches the destructive-action rate-limiter pattern).
+
+**Constraints:**
+- Multi-session fan-out is safe under the existing `--conflict-resolve newer` bisync semantics: the merge operation is commutative and associative under absolute mtime, so parallel and serial fan-out produce the same final R2 state per file. The same concurrent mode already runs every 15 minutes when a user has multiple sessions (per REQ-STOR-003); manual triggers introduce no new failure mode.
+- Upload triggers only fire when `isInSyncSet(prefix, syncMode)` is true. Uploads to a path the active SYNC_MODE excludes do not trigger (the file would sit in R2 invisible to the container until SYNC_MODE changes).
+
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-STOR-003, REQ-STOR-007, REQ-STOR-011
+**Verification:** Automated test
+
+**Status:** Planned
