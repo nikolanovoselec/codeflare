@@ -1,27 +1,21 @@
-// REQ-VAULT-008 AC8+AC9: per-session SilverBullet IDB lifecycle.
+// REQ-VAULT-008 AC8+AC9: dashboard-side bookkeeping cleanup for the
+// per-session SilverBullet vault.
 //
-// SilverBullet maintains two IDBs per (spaceFolderPath, baseURI,
-// encryptionKeyPart) tuple: `sb_files_<hash>` and `sb_data_<hash>`.
-// The hash is keyed on the per-session vault key (REQ-VAULT-008 AC1),
-// so a destroyed session leaves orphan IDBs that never get reused.
-// Without cleanup, IndexedDB usage grows monotonically across the
-// session lifecycle and the user eventually hits the per-origin quota.
-//
-// Cleanup happens at two surfaces:
+// IDB deletion is intentionally OUT of scope here — see the long block
+// comment above `cleanupSessionVaultCache` below for the why. This file
+// only manages two artifacts that the dashboard itself writes:
 //
 //   - cleanupSessionVaultCache(sid): called from deleteSession() to
-//     nuke any sb_files_* / sb_data_* DB whose name contains the
-//     session id, drop the vault-session-<sid> marker, and unregister
-//     the SW scoped to /api/vault/<sid>/.
+//     drop the `vault-session-<sid>` localStorage marker and unregister
+//     the service worker scoped to `/api/vault/<sid>/`.
 //   - sweepOrphanVaultCaches(activeSessionIds): called on Dashboard
-//     mount. For every vault-session-<sid> marker in localStorage,
-//     if the sid is not in activeSessionIds, treat it as orphan and
-//     run the same cleanup. Handles the case where the user deleted
-//     a session via API in another tab or after a browser crash.
+//     mount. For every `vault-session-<sid>` marker in localStorage,
+//     if the sid is not in activeSessionIds, drop the marker. Handles
+//     sessions deleted from another tab or after a browser crash.
 //
-// All operations are fail-safe — a missing global (SSR, fresh tab)
-// or rejected IDB query is swallowed silently because cleanup is
-// best-effort and must never block the delete UI or dashboard mount.
+// All operations are fail-safe — a missing global (SSR, fresh tab) or
+// rejected lookup is swallowed silently because cleanup is best-effort
+// and must never block the delete UI or dashboard mount.
 
 const VAULT_MARKER_PREFIX = 'vault-session-';
 
@@ -95,11 +89,13 @@ function listSessionMarkers(ls: Storage): string[] {
 //     dashboard's own bookkeeping does not grow forever).
 //   - The service-worker registration scoped to /api/vault/<sid>/ is
 //     unregistered (no longer relevant once the session is gone).
-//
-// dbNameContainsSid is intentionally retained as a private helper for
-// future reactivation once we wire up the sid->IDB mapping, but is not
-// called from the live paths.
 
+/**
+ * REQ-VAULT-008 AC8: remove dashboard-side bookkeeping for a deleted
+ * session. Drops the `vault-session-<sid>` localStorage marker and
+ * unregisters the per-session service worker. IDB deletion is
+ * deliberately omitted — see file header.
+ */
 export async function cleanupSessionVaultCache(sid: string): Promise<void> {
   const ls = getLS();
   const sw = getSW();
@@ -117,6 +113,17 @@ export async function cleanupSessionVaultCache(sid: string): Promise<void> {
   }
 }
 
+/**
+ * REQ-VAULT-008 AC9: remove `vault-session-<sid>` localStorage markers
+ * for sessions that are no longer in `activeSessionIds`. Called on
+ * Dashboard mount; catches sessions deleted from another tab or after
+ * a browser crash. IDB deletion is deliberately omitted — see file
+ * header.
+ *
+ * `listSessionMarkers` snapshots keys before iteration so the
+ * `removeItem` call below cannot race the underlying live `localStorage`
+ * key index.
+ */
 export async function sweepOrphanVaultCaches(activeSessionIds: string[]): Promise<void> {
   const ls = getLS();
   if (!ls) return;

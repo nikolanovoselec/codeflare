@@ -49,6 +49,10 @@ describe('cleanupSessionVaultCache (REQ-VAULT-008 AC8)', () => {
   afterEach(() => {
     delete (globalThis as { localStorage?: unknown }).localStorage;
     delete (globalThis as { navigator?: unknown }).navigator;
+    // Survive mid-test assertion failure: clear the IDB stub the
+    // regression-guard tests install (otherwise a failed assertion
+    // would leak the stub into subsequent suites).
+    delete (globalThis as { indexedDB?: unknown }).indexedDB;
   });
 
   it('removes the localStorage vault-session-<sid> marker for the deleted session', async () => {
@@ -105,6 +109,10 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-008 AC9)', () => {
   afterEach(() => {
     delete (globalThis as { localStorage?: unknown }).localStorage;
     delete (globalThis as { navigator?: unknown }).navigator;
+    // Survive mid-test assertion failure: clear the IDB stub the
+    // regression-guard tests install (otherwise a failed assertion
+    // would leak the stub into subsequent suites).
+    delete (globalThis as { indexedDB?: unknown }).indexedDB;
   });
 
   it('removes vault-session-<sid> markers for sessions that are no longer active', async () => {
