@@ -15,7 +15,19 @@ function installFakeIndexedDB(initialDbs: DbInfo[]) {
     databases: vi.fn(async () => initialDbs.slice()),
     deleteDatabase: vi.fn((name: string) => {
       deleted.push(name);
-      return { onsuccess: null, onerror: null, onblocked: null };
+      // Mimic real IDB: deleteDatabase returns an IDBOpenDBRequest whose
+      // onsuccess fires once the deletion commits. The production code
+      // (deleteIDB in vault-cache.ts) now awaits this callback so the
+      // blocked-event path no longer orphans deletes; tests must fire
+      // onsuccess on the next microtask or the 5s safety timer trips
+      // and the test exceeds vitest's 5s timeout.
+      const req: { onsuccess: ((e?: unknown) => void) | null; onerror: ((e?: unknown) => void) | null; onblocked: ((e?: unknown) => void) | null } = {
+        onsuccess: null,
+        onerror: null,
+        onblocked: null,
+      };
+      queueMicrotask(() => req.onsuccess?.());
+      return req;
     }),
   };
   (globalThis as unknown as { indexedDB: typeof fake }).indexedDB = fake;
