@@ -4,6 +4,7 @@ import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, 
 import * as api from '../api/client';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
+import { cleanupSessionVaultCache } from '../lib/vault-cache';
 import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
   setTilingLayout,
@@ -349,6 +350,12 @@ async function deleteSession(id: string): Promise<void> {
     await api.deleteSession(id);
     sessionMissCounters.delete(id);
     cleanupTerminalsForSession(id);
+    // REQ-VAULT-008 AC8: drop the per-session SilverBullet IDB cache,
+    // localStorage marker, and SW registration. Best-effort and async
+    // — we do not block the UI on it.
+    void cleanupSessionVaultCache(id).catch((err) =>
+      logger.warn('vault cache cleanup failed', { id, error: err instanceof Error ? err.message : String(err) }),
+    );
     setState(
       produce((s) => {
         s.sessions = s.sessions.filter((session) => session.id !== id);
