@@ -89,7 +89,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 3. The vault skeleton init (`init_user_vault`) is idempotent and only creates subdirectories / config files when absent.
 4. rclone bisync syncs changes back to R2 every 15 minutes, on manual trigger (SIGUSR1 from the Sync-now button or upload-side auto-trigger), and on shutdown.
 5. The ephemeral global-graph layer (`~/.graphify/`) is explicitly excluded from sync (rebuilt locally on every container boot from per-source graphs).
-6. The shutdown handler watchdog allows the final bisync up to 120s to drain pending writes before SIGKILL (raised from 60s in AD57).
+6. The shutdown handler watchdog allows the final bisync up to 120s to drain pending writes before SIGKILL.
 
 **Constraints:**
 - Rclone config uses `disable_checksum = true` to skip `X-Amz-Meta-Md5chksum` metadata on multipart uploads.
