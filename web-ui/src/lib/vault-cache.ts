@@ -25,14 +25,6 @@
 
 const VAULT_MARKER_PREFIX = 'vault-session-';
 
-function getIDB(): IDBFactory | null {
-  try {
-    return (globalThis as unknown as { indexedDB?: IDBFactory }).indexedDB ?? null;
-  } catch {
-    return null;
-  }
-}
-
 function getLS(): Storage | null {
   try {
     return (globalThis as unknown as { localStorage?: Storage }).localStorage ?? null;
@@ -48,53 +40,6 @@ function getSW(): ServiceWorkerContainer | null {
   } catch {
     return null;
   }
-}
-
-async function listDatabaseNames(idb: IDBFactory): Promise<string[]> {
-  try {
-    const dbs = await (idb as unknown as { databases?: () => Promise<{ name?: string }[]> }).databases?.();
-    if (!Array.isArray(dbs)) return [];
-    return dbs.map((d) => d.name).filter((n): n is string => typeof n === 'string');
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Anchored sid match. SB IDBs are named `sb_files_<sid>_<hash>` and
- * `sb_data_<sid>_<hash>`. A naive `name.includes(sid)` would over-match
- * when one sid is a substring of another, or when the sid happens to
- * appear inside the trailing hash. Require the sid to occupy a full
- * underscore-delimited segment.
- */
-function dbNameContainsSid(name: string, sid: string): boolean {
-  if (!name.startsWith('sb_files_') && !name.startsWith('sb_data_')) return false;
-  const parts = name.split('_');
-  // sb_(files|data)_<sid>_<hash> -> parts[2] is the sid segment.
-  return parts.length >= 3 && parts[2] === sid;
-}
-
-function deleteIDB(idb: IDBFactory, name: string): Promise<void> {
-  return new Promise<void>((resolve) => {
-    try {
-      const req = (idb as unknown as { deleteDatabase: (n: string) => IDBOpenDBRequest }).deleteDatabase(name);
-      // Awaiting completion catches the case where another tab held the
-      // DB open: a blocked event surfaces here instead of orphaning the
-      // delete silently (REQ-VAULT-008 AC8 cleanup correctness).
-      if (req && typeof req === 'object') {
-        const r = req as unknown as { onsuccess: ((e?: unknown) => void) | null; onerror: ((e?: unknown) => void) | null; onblocked: ((e?: unknown) => void) | null };
-        r.onsuccess = () => resolve();
-        r.onerror = () => resolve();
-        r.onblocked = () => resolve();
-        // Defensive timer so callers never hang forever on a stuck request.
-        setTimeout(() => resolve(), 5000);
-      } else {
-        resolve();
-      }
-    } catch {
-      resolve();
-    }
-  });
 }
 
 async function unregisterSwForSession(sw: ServiceWorkerContainer, sid: string): Promise<void> {
@@ -125,19 +70,39 @@ function listSessionMarkers(ls: Storage): string[] {
   return sids;
 }
 
+// IMPORTANT: SilverBullet's actual IDB name is `sb_<type>_<sha256-hex>`
+// where the hash is over (spaceFolderPath + ':' + baseURI + ':' + key).
+// The session id is one of several hash *inputs*, not a literal segment.
+// Earlier versions of this module assumed `sb_<type>_<sid>_<hash>` and
+// parsed `parts[2]` as the sid -- with the real format that field is the
+// sha256 hex, which never matches a real sid, so the sweep deleted every
+// SB IDB on every Dashboard mount and forced SilverBullet to rebuild from
+// scratch on every reopen. See `plug-api/lib/crypto.ts:deriveDbName` in
+// the upstream silverbullet repo for the canonical formula.
+//
+// We cannot recover the sid from an IDB name without the encryption key,
+// the spaceFolderPath, and the baseURI -- inputs the dashboard does not
+// have. So we DO NOT attempt to delete IDBs by name from the sweep path.
+// `cleanupSessionVaultCache` is also a no-op for IDB deletion: the
+// matching of sid -> hash is blocked on a SilverBullet upstream change
+// (see sdd/pending.md REQ-VAULT-008 AC3). Until that lands we accept the
+// trade-off: stale IDBs leak until the per-origin storage quota evicts
+// them, which is dramatically better UX than nuking the live session's
+// IDB and forcing a 30-second resync on every SB reopen.
+//
+// What IS still cleaned up:
+//   - The localStorage `vault-session-<sid>` marker is removed (so the
+//     dashboard's own bookkeeping does not grow forever).
+//   - The service-worker registration scoped to /api/vault/<sid>/ is
+//     unregistered (no longer relevant once the session is gone).
+//
+// dbNameContainsSid is intentionally retained as a private helper for
+// future reactivation once we wire up the sid->IDB mapping, but is not
+// called from the live paths.
+
 export async function cleanupSessionVaultCache(sid: string): Promise<void> {
-  const idb = getIDB();
   const ls = getLS();
   const sw = getSW();
-
-  if (idb) {
-    const names = await listDatabaseNames(idb);
-    await Promise.all(
-      names
-        .filter((name) => dbNameContainsSid(name, sid))
-        .map((name) => deleteIDB(idb, name)),
-    );
-  }
 
   if (ls) {
     try {
@@ -154,42 +119,14 @@ export async function cleanupSessionVaultCache(sid: string): Promise<void> {
 
 export async function sweepOrphanVaultCaches(activeSessionIds: string[]): Promise<void> {
   const ls = getLS();
-  const idb = getIDB();
+  if (!ls) return;
   const active = new Set(activeSessionIds);
-
-  const orphanSids = new Set<string>();
-  if (ls) {
-    for (const sid of listSessionMarkers(ls)) {
-      if (!active.has(sid)) orphanSids.add(sid);
-    }
-  }
-
-  if (idb) {
-    const names = await listDatabaseNames(idb);
-    const deletes: Promise<void>[] = [];
-    for (const name of names) {
-      // Only consider SB cache DBs.
-      if (!name.startsWith('sb_files_') && !name.startsWith('sb_data_')) continue;
-      // Extract sid as full underscore-delimited segment (anchored match
-      // prevents the substring false-positives the include() check had).
-      const parts = name.split('_');
-      if (parts.length < 3) continue;
-      const sid = parts[2];
-      if (!active.has(sid)) {
-        deletes.push(deleteIDB(idb, name));
-        orphanSids.add(sid);
-      }
-    }
-    await Promise.all(deletes);
-  }
-
-  if (ls) {
-    for (const sid of orphanSids) {
-      try {
-        ls.removeItem(`${VAULT_MARKER_PREFIX}${sid}`);
-      } catch {
-        // Ignore.
-      }
+  for (const sid of listSessionMarkers(ls)) {
+    if (active.has(sid)) continue;
+    try {
+      ls.removeItem(`${VAULT_MARKER_PREFIX}${sid}`);
+    } catch {
+      // Ignore.
     }
   }
 }
