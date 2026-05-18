@@ -4,6 +4,7 @@ import {
   maybeSynthesizeCsrfHeader,
   isServiceWorkerRegistration,
   VAULT_NOOP_SERVICE_WORKER_JS,
+  injectVaultEncryptionConfig,
 } from '../../routes/vault';
 
 /**
@@ -253,6 +254,40 @@ describe('validateVaultRoute', () => {
       expect(VAULT_NOOP_SERVICE_WORKER_JS).toContain('clients.claim');
       expect(VAULT_NOOP_SERVICE_WORKER_JS).toContain('install');
       expect(VAULT_NOOP_SERVICE_WORKER_JS).toContain('activate');
+    });
+  });
+
+  describe('injectVaultEncryptionConfig (REQ-VAULT-008 AC2)', () => {
+    it('adds vaultEncryptionKey and enableClientEncryption=true to a JSON BootConfig body', () => {
+      const original = JSON.stringify({ spaceFolderPath: '/Vault', readOnly: false });
+      const result = injectVaultEncryptionConfig(original, 'AAAA-base64-key-AAAA');
+      const parsed = JSON.parse(result);
+      expect(parsed.vaultEncryptionKey).toBe('AAAA-base64-key-AAAA');
+      expect(parsed.enableClientEncryption).toBe(true);
+      expect(parsed.spaceFolderPath).toBe('/Vault');
+      expect(parsed.readOnly).toBe(false);
+    });
+
+    it('does not mutate the input string and returns valid JSON', () => {
+      const original = '{"a":1}';
+      const out = injectVaultEncryptionConfig(original, 'k');
+      expect(original).toBe('{"a":1}');
+      expect(() => JSON.parse(out)).not.toThrow();
+    });
+
+    it('overrides any pre-existing vaultEncryptionKey from upstream (Worker is canonical)', () => {
+      const original = JSON.stringify({ vaultEncryptionKey: 'stale-or-empty', enableClientEncryption: false });
+      const parsed = JSON.parse(injectVaultEncryptionConfig(original, 'fresh-key'));
+      expect(parsed.vaultEncryptionKey).toBe('fresh-key');
+      expect(parsed.enableClientEncryption).toBe(true);
+    });
+
+    it('throws if input body is not valid JSON (fail loud, do not silently break SB boot)', () => {
+      expect(() => injectVaultEncryptionConfig('not json', 'k')).toThrow();
+    });
+
+    it('throws if key is empty (vaultEncryptionKey must be a non-empty string)', () => {
+      expect(() => injectVaultEncryptionConfig('{}', '')).toThrow();
     });
   });
 
