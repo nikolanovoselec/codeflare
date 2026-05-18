@@ -872,16 +872,17 @@ shutdown_handler() {
     kill_pidfile_subtree /tmp/silverbullet.pid
 
     # Perform final bisync to R2 (only if baseline was established).
-    # Wrap in `timeout 60` so the DO's destroy() SIGKILL budget (75s,
+    # Wrap in a 120s watchdog so the DO's destroy() SIGKILL budget (135s,
     # set in src/container/index.ts) always lands AFTER we either
-    # finished or gave up cleanly — never mid-write to R2.
+    # finished or gave up cleanly - never mid-write to R2.
     #
-    # Pre-vault history: shutdown bisync had no timeout, the DO killed
-    # after 25s, and a long bisync of last-minute edits left R2 in a
-    # partial state. The next session loaded that partial state and
-    # looked stale, forcing the user to delete the session manually.
-    # See bundled fix in vault PR.
-    echo "[entrypoint] Final bisync to R2 (60s budget)..."
+    # History: shutdown bisync had no timeout originally; the DO killed
+    # after 25s and a long bisync of last-minute edits left R2 in a
+    # partial state. The vault PR raised the chain to 60s/75s; the
+    # 15-minute cadence change (AD56) raised it again to 120s/135s to
+    # cover the worst-case 15-minute accumulation on the final bisync.
+    # See AD57 for the budget rationale.
+    echo "[entrypoint] Final bisync to R2 (120s budget)..."
     if [ -f /tmp/.bisync-initialized ]; then
         # Background bisync + watchdog that hard-kills at 60s. Cannot use
         # `timeout(1)` directly because bisync_with_r2 is a shell function;
@@ -901,11 +902,14 @@ shutdown_handler() {
         # rclone's typical depth (subshell -> bash -> rclone -> child).
         ( bisync_with_r2 ) &
         BISYNC_PID=$!
-        # SIGTERM-then-SIGKILL grace pattern. 50s budget for normal bisync,
-        # 10s additional after SIGTERM for rclone to flush + abort pending
-        # multipart uploads cleanly (2s was previously too tight - rclone
-        # needs more headroom to avoid leaving partial uploads in R2).
-        # Total 60s, matching the budget the DO destroy() leaves us.
+        # SIGTERM-then-SIGKILL grace pattern. 108s budget for normal bisync,
+        # 12s additional after SIGTERM for rclone to flush + abort pending
+        # multipart uploads cleanly (2s/10s was previously too tight - rclone
+        # needs more headroom to avoid leaving partial uploads in R2, and the
+        # 15-min cadence means a single final bisync can accumulate more
+        # changes than under the old 60s cadence).
+        # Total 120s, matching the budget the DO destroy() leaves us (135s
+        # minus 15s clean-exit buffer). See AD57.
         kill_subtree() {
             local sig="$1" root="$2"
             [ -z "$root" ] && return 0
@@ -931,7 +935,7 @@ shutdown_handler() {
         if [ "$BISYNC_RC" -eq 0 ]; then
             echo "[entrypoint] Final bisync completed successfully"
         elif [ "$BISYNC_RC" -eq 143 ] || [ "$BISYNC_RC" -eq 137 ]; then
-            echo "[entrypoint] Final bisync TIMED OUT after 60s - last writes may not have synced. Increase budget if this is frequent."
+            echo "[entrypoint] Final bisync TIMED OUT after 120s - last writes may not have synced. Increase budget if this is frequent."
         else
             echo "[entrypoint] Final bisync failed with rc=$BISYNC_RC"
         fi
