@@ -106,6 +106,18 @@ export class container extends Container<Env> {
   private _encryptionKey: string | null = null;
   private _sessionMode: string = 'default';
   private _containerAuthToken: string | null = null;
+  /**
+   * Per-session vault encryption key (REQ-VAULT-008 AC1). 32 random
+   * bytes, base64-encoded. Generated on first ensureVaultKey() call,
+   * persisted in ctx.storage under 'vaultKey', restored on DO wake.
+   * Wiped by destroy() so deletion is forward-secret: a recovered
+   * browser profile after session DELETE cannot decrypt the orphaned
+   * IndexedDB ciphertext because the only key that ever existed lived
+   * in this DO's storage. The Worker /.config proxy reads this via
+   * RPC and injects it into SilverBullet's BootConfig so the browser
+   * encrypts IDB without prompting the user for a passphrase.
+   */
+  private _vaultKey: string | null = null;
   private _sessionId: string | null = null;
   private _userEmail: string | null = null;
   /**
@@ -157,6 +169,11 @@ export class container extends Container<Env> {
       // `{"error":"Unauthorized"}` on every proxied request until the user
       // recreates the session manually.
       this._containerAuthToken = await this.ctx.storage.get<string>('containerAuthToken') || null;
+      // REQ-VAULT-008 AC1: restore the per-session vault key on wake.
+      // Generation is lazy (ensureVaultKey()); restore is eager so the
+      // Worker /.config proxy can hand it out without ever waiting for
+      // a write on the request path.
+      this._vaultKey = await this.ctx.storage.get<string>('vaultKey') || null;
 
       // Restore user-configured idle timeout (survives DO resets).
       // Storage key remains 'sleepAfter' for backwards compat with existing sessions.
@@ -229,6 +246,58 @@ export class container extends Container<Env> {
     }
 
     this.envVars = buildEnvVars(this.envState, this.env);
+  }
+
+  /**
+   * REQ-VAULT-008 AC1: Return the per-session vault encryption key,
+   * generating + persisting on the first call. The key is 32 random
+   * bytes, base64-encoded so SilverBullet can use it as a string token
+   * in BootConfig. Repeated calls return the cached value -- no extra
+   * storage writes.
+   *
+   * The key is wiped only on container.destroy(); a DO hibernation +
+   * wake cycle restores the same key from ctx.storage (see the
+   * blockConcurrencyWhile restore branch). This is the guarantee that
+   * deletion is forward-secret: once destroy() runs, the key is gone
+   * everywhere and the browser's IDB ciphertext is unrecoverable.
+   *
+   * Worker callers reach this method via a DO RPC from the /.config
+   * proxy handler (REQ-VAULT-008 AC2).
+   */
+  async ensureVaultKey(): Promise<string> {
+    if (this._vaultKey) return this._vaultKey;
+
+    // No cached key -- mint one. crypto.getRandomValues is the
+    // WebCrypto entry point available on the Workers runtime.
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    // Convert to base64 without Buffer (not available on Workers).
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const key = btoa(binary);
+    this._vaultKey = key;
+
+    // Persist so the next DO wake's restore branch finds the same
+    // value. Promise.resolve wrap matches the containerAuthToken
+    // pattern: production returns a real Promise but some test mocks
+    // return undefined synchronously, so `.catch` on the bare call
+    // would NPE without the wrap.
+    const putPromise = Promise.resolve(
+      this.ctx.storage.put('vaultKey', key),
+    ).catch((err) => {
+      this.logger.warn('Failed to persist vaultKey', { error: toErrorMessage(err) });
+    });
+    if (typeof this.ctx.waitUntil === 'function') {
+      this.ctx.waitUntil(putPromise);
+    } else {
+      // Test mocks without waitUntil: await the put inline so the
+      // assertion against mockStorage.put can observe the call before
+      // the test moves on.
+      await putPromise;
+    }
+    return key;
   }
 
   /** Override fetch to handle internal routes via map-based dispatch. */
@@ -468,11 +537,17 @@ export class container extends Container<Env> {
       // old one would let an unrelated request out of a previous lifecycle
       // authenticate against the new container.
       await this.ctx.storage.delete('containerAuthToken');
+      // REQ-VAULT-008 AC1: wipe the vault key so deletion is
+      // forward-secret. The browser's IDB ciphertext (if not yet
+      // cleaned by the frontend lifecycle hook) becomes permanently
+      // unrecoverable once this delete commits.
+      await this.ctx.storage.delete('vaultKey');
       this._bucketName = null;
       this._sessionId = null;
       this._r2AccessKeyId = null;
       this._r2SecretAccessKey = null;
       this._containerAuthToken = null;
+      this._vaultKey = null;
       this._openaiApiKey = null;
       this._geminiApiKey = null;
       this._githubToken = null;
