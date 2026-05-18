@@ -111,12 +111,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 5. If the initial baseline fails due to a vanishing file (file listed but deleted before copy), the system parses the error output, adds the file to a session-scoped recovery filter (`/tmp/rclone-recovery-filters.txt`), and retries (max 3 attempts). Only non-workspace files are auto-excluded; workspace files trigger a plain retry.
 6. Known ephemeral files (`.claude/mcp-*.json`) are statically excluded from all sync operations.
 7. The bisync daemon starts unconditionally after baseline — even if all baseline attempts fail. A dead daemon means zero sync for the entire session; the daemon has its own recovery (vanishing-file recovery + consecutive failure → resync fallback).
-8. The terminal server's tab-1 PTY pre-warm is gated on an init-complete flag file (`/tmp/codeflare-init-complete`) written by the entrypoint after initial sync, file modifications, and tab autostart configuration complete; this preserves the readiness contract while letting port 8080 bind before Cloudflare's container port-wait timeout.
-9. The host terminal server rejects `/terminal` WebSocket upgrades with close code 1013 (reason `container-warming-up`) until both the init-complete flag is observed AND the pre-warm session is registered in the session map; this is the host-side guard against reconnects landing before `.bashrc` autostart is in place.
 
 **Constraints:**
-- The terminal server must bind port 8080 within Cloudflare's container port-wait window; slow initialization (R2 sync, MCP config merges) must not block the port bind.
-- Container must not signal readiness (PTY pre-warm complete) until the initial sync either succeeds or times out.
 - The bisync-initialized flag (`/tmp/.bisync-initialized`) must be set even on the timeout path to prevent the shutdown trap from skipping the final sync.
 
 **Applies To:** User
@@ -286,7 +282,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. `SYNC_MODE=none` (default): only settings and config directories are synced; `~/workspace/` is excluded entirely.
 2. `SYNC_MODE=full`: entire `~/workspace/` is synced (minus `node_modules/`).
 3. `SYNC_MODE=metadata`: only agent config files (`.claude/` and `CLAUDE.md`) per repo are synced.
-4. All modes exclude: package manager caches, rclone caches, agent session logs, ephemeral agent data, and build artifacts.
+4. All modes exclude these categories (per-path inventory lives in `entrypoint.sh` and `documentation/storage-and-sync.md`; the spec governs the categories so future filter changes have something to be verified against): package-manager caches, rclone caches, agent session logs, ephemeral agent data, build artifacts, regenerable XDG tool state (e.g. wrangler state, generic `.config/` user-app caches), and vendor credential caches that the agent regenerates on demand.
 
 **Constraints:**
 - All rclone commands must use `--filter` flags (not `--include`/`--exclude`).

@@ -358,3 +358,24 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Dependencies:** REQ-SESSION-004
 **Verification:** Integration test
 **Status:** Implemented
+
+---
+
+## REQ-SESSION-015: Container Port-Readiness Gating with Pre-Warm Pre-Condition
+
+**Applies To:** User
+
+**Intent:** A new container must bind its serving port quickly so Cloudflare's port-wait check succeeds, yet must refuse real terminal traffic until initial state restore and pre-warm are complete; the readiness gate sits between the port bind and the first accepted WebSocket upgrade.
+
+**Acceptance Criteria:**
+1. The terminal server's tab-1 PTY pre-warm is gated on an init-complete flag file (`/tmp/codeflare-init-complete`) written by the entrypoint after initial sync, file modifications, and tab autostart configuration complete; this preserves the readiness contract while letting the serving port bind before Cloudflare's container port-wait timeout.
+2. The host terminal server rejects `/terminal` WebSocket upgrades with close code 1013 (reason `container-warming-up`) until both the init-complete flag is observed AND the pre-warm session is registered in the session map; this is the host-side guard against reconnects landing before shell autostart is in place.
+
+**Constraints:**
+- The terminal server must bind its serving port within Cloudflare's container port-wait window; slow initialization (R2 sync, MCP config merges) must not block the port bind.
+- The container must not signal readiness (PTY pre-warm complete) until the initial sync either succeeds or times out.
+
+**Priority:** P0
+**Dependencies:** REQ-STOR-004
+**Verification:** Integration test
+**Status:** Implemented
