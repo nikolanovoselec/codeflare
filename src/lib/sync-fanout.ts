@@ -34,9 +34,10 @@ import { getContainerId } from './container-helpers';
  * Maximum concurrent per-session sync triggers in one fan-out call
  * (REQ-STOR-015 AC2). Keeps Worker subrequest / CPU budget bounded
  * if a user has many running sessions. Triggers beyond the cap are
- * processed sequentially in subsequent chunks.
+ * processed sequentially in subsequent chunks. Internal-only - no
+ * external consumer needs to read it.
  */
-export const FANOUT_CONCURRENCY_CAP = 8;
+const FANOUT_CONCURRENCY_CAP = 8;
 
 export interface SyncSessionResult {
   sessionId: string;
