@@ -55,11 +55,16 @@ const Dashboard: Component<DashboardProps> = (props) => {
     // REQ-MEM-001 AC3: capture the browser's IANA timezone and sync it
     // to the user's preferences so the next session start propagates
     // USER_TIMEZONE into the container env. Best-effort; never blocks.
-    void syncBrowserTimezone({
-      currentTimezone: sessionStore.preferences.userTimezone,
-      browserTimezone: getBrowserTimezone(),
-      updatePreferences: sessionStore.updatePreferences,
-    });
+    // Tests use a vi.mock that may stub sessionStore with a partial shape;
+    // guard against undefined preferences / updatePreferences so unit
+    // tests that don't care about TZ sync still render the component.
+    if (typeof sessionStore.updatePreferences === 'function') {
+      void syncBrowserTimezone({
+        currentTimezone: sessionStore.preferences?.userTimezone,
+        browserTimezone: getBrowserTimezone(),
+        updatePreferences: sessionStore.updatePreferences,
+      });
+    }
 
     // User menu close is handled by the Portal overlay onClick — no document
     // mousedown listener needed. Document mousedown fires before click on mobile,
