@@ -352,7 +352,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. Fan-out runs in parallel with a concurrency cap of 8; remaining sessions are queued.
 3. Per-session failures are isolated -- one session's bisync failure does not prevent other sessions from completing. The response shape returns the per-session sync status.
 4. `POST /api/sessions/sync` is rate-limited at 6 requests per minute per user (matches the destructive-action rate-limiter pattern).
-5. The trigger is idempotent: a SIGUSR1 sent to the bisync daemon while a bisync is already in flight sets a rerun-requested flag, which causes exactly one rerun after the current cycle completes (N signals during one bisync coalesce to one rerun, not N).
+5. The trigger is idempotent: a SIGUSR1 sent to the bisync daemon while a bisync is already in flight causes exactly one rerun after the current cycle completes (N concurrent signals coalesce to one rerun, not N).
 6. The frontend Sync-now button is disabled while any of the user's sessions reports `sync.status === 'syncing'` and re-enables once all sessions transition out.
 
 **Constraints:**
