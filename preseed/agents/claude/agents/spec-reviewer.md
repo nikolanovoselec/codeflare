@@ -26,6 +26,18 @@ Skipping invocation = HIGH `enforcement-skill-not-invoked`. The skill writes its
 
 On **follow-up turns** (responding to a question about a prior finding, applying a user-confirmed fix from an earlier-found issue), skill invocation is OPTIONAL. The core rule carries enough context for follow-up reasoning.
 
+## Graph-first for sync (Phase 1) and citation truth-check
+
+When `graphify-out/graph.json` exists, the graph is your fastest path to "what the code actually does" — which is the input to deciding whether a REQ needs adding, updating, or deleting.
+
+- `mcp__graphify__god_nodes()` — every entry point and orchestrator. Cross-check each against `sdd/{domain}.md`: any shipped entry point with no REQ is HIGH `missing-req-for-shipped-feature`.
+- `mcp__graphify__query_graph("<feature>")` / `query_graph("HTTP handler")` / `query_graph("scheduled job")` — surface shipped surfaces that should be REQ-covered.
+- `mcp__graphify__get_node(<cited_file_or_symbol>)` — every spec citation must resolve to a real node. Citation pointing at a removed node = HIGH spec-vs-shipped drift (the REQ describes code that no longer exists).
+- `mcp__graphify__get_neighbors(<REQ-cited symbol>)` — validates REQ `Dependencies:` lists by reachability. Listed dependency that's unreachable in the graph is suspect.
+- `mcp__graphify__shortest_path(<REQ-cited entry>, <REQ-cited terminal>)` — validates the REQ's described path actually exists in code; missing path = `mismatch` worth investigating.
+
+Fall back to Grep when the graph is absent. The `spec-enforce-truth` CQ-1 and CQ-2 checks still run literal-text matching; the graphify check above is additive structural evidence, not a replacement.
+
 ## Operating principle — authorial, not compliance-officer
 
 If the spec says X and the code does Y, one of them is wrong. Figure out which, and fix the spec; never the code. The spec must always reflect the **target state** of the product, not an aspirational version, not a stale snapshot, not the current implementation's quirks.

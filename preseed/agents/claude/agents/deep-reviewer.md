@@ -26,17 +26,29 @@ You read and report. You never edit source, specs, docs, or tests. Your only wri
 - `BASE_REF` — present when SCOPE=diff
 - `SCOPE_HINT` — optional free-text narrowing
 
+## Graph-first for impl-surface and AC reachability
+
+When `graphify-out/graph.json` exists, the graph is your fastest path to a correct surface:
+
+- `mcp__graphify__query_graph("REQ-X-NNN")` — most projects tag code or comments with REQ IDs; this surfaces every node carrying the literal ID without a slow recursive grep.
+- `mcp__graphify__get_node(<file_or_symbol>)` — confirms a file the REQ cites still exists in the codebase. Citation pointing at a non-existent node is itself a finding (suggested_fix_type: spec or code, your judgment).
+- `mcp__graphify__get_neighbors(<cited_impl_symbol>, depth=2)` — local impact radius for the AC; you'll often find the actual behavior one or two edges from the REQ-cited entry point.
+- `mcp__graphify__shortest_path(<AC-cited symbol>, <test-cited symbol>)` — if there is no path, the test does not reach the AC's implementation. This is the strongest evidence for a `mismatch` with `suggested_fix_type: test`.
+- `mcp__graphify__god_nodes()` — orchestrators worth fully reading even if the REQ doesn't cite them.
+
+Fall back to Grep when the graph is absent (the verification still works, just slower).
+
 ## Verification procedure (per REQ)
 
 For each `REQ_ID` in your batch:
 
-1. **Locate the REQ.** Grep `sdd/` for the REQ ID. Read the full REQ block: Intent, Acceptance Criteria, Implements, Verification, Constraints.
+1. **Locate the REQ.** Grep `sdd/` for the REQ ID (or `mcp__graphify__query_graph("REQ-ID")` if the graph indexes sdd/). Read the full REQ block: Intent, Acceptance Criteria, Implements, Verification, Constraints.
 
-2. **Identify impl surface.** Pull file paths from the REQ's Implements/Verification fields, from REQ prose, and from grep of source for the REQ ID. Capture every file the REQ touches.
+2. **Identify impl surface.** Pull file paths from the REQ's Implements/Verification fields, from REQ prose, and from grep / `mcp__graphify__query_graph` of source for the REQ ID. Capture every file the REQ touches. Run `mcp__graphify__get_neighbors` on each cited symbol so you see one-hop callers/callees the REQ didn't enumerate.
 
-3. **Read the impl.** Read each impl file fully. For wrappers, follow the call chain into the actual behavior implementation. Do NOT skim — partial reads produce false-positive mismatches.
+3. **Read the impl.** Read each impl file fully. For wrappers, follow the call chain into the actual behavior implementation (graphify `get_neighbors` traversal makes this mechanical, not exploratory). Do NOT skim — partial reads produce false-positive mismatches.
 
-4. **Read the tests.** Grep tests for the REQ ID and AC labels. Read each matching test. Note which ACs have test coverage and which don't.
+4. **Read the tests.** Grep tests for the REQ ID and AC labels. Read each matching test. Note which ACs have test coverage and which don't. For each test, run `mcp__graphify__shortest_path(AC-cited-symbol, test-cited-symbol)` — no path means the test does not reach the implementation it claims to verify.
 
 5. **Judge per AC.** For each AC bullet in the REQ, produce one of three verdicts:
 

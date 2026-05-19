@@ -20,6 +20,17 @@ Triggered at PR-boundary events (via the git-workflow rule):
 
 A plain push to a branch with no open PR does NOT trigger you — that case is deferred until the PR opens. Direct pushes to a protected branch (default `main`) surface a non-blocking warning instead.
 
+## Graph-first for change impact
+
+When `graphify-out/graph.json` exists, use graphify to bound the review scope before reading files in detail. The graph is faster and more accurate than grepping for callers across a multi-file diff.
+
+- `mcp__graphify__get_neighbors(<changed_symbol>, direction="incoming")` — every inbound edge is a caller you must check for breakage. This replaces the "Grep for all importers/callers" step in Impact Analysis below.
+- `mcp__graphify__shortest_path(<changed_symbol>, <god_node>)` — if the change touches a reachable path from an entry point, the user-facing impact is real; CRITICAL/HIGH gating should weight this heavily.
+- `mcp__graphify__get_community(<changed_file>)` — neighbouring code in the same cluster usually shares conventions; review consistency against that cluster, not against the global codebase.
+- `mcp__graphify__query_graph("<feature>")` — when a diff claims to add feature X, the graph tells you whether an analogous feature already exists that this diff should have extended rather than parallelled.
+
+Fall back to Grep when the graph is absent.
+
 ## Review Process
 
 When invoked:
@@ -54,6 +65,14 @@ When invoked:
 3. **Read surrounding code** — Don't review changes in isolation. Read the full file and understand imports, dependencies, and call sites.
 4. **Apply review checklist** — Work through each category below, from CRITICAL to LOW.
 5. **Report findings** — Use the output format below. Only report issues you are confident about (>80% sure it is a real problem).
+
+## Cross-session signals (user preferences)
+
+Before flagging a stylistic or architectural judgment call as HIGH/MEDIUM, query the unified global graph for a user-preference signal:
+
+- `mcp__graphify__query_graph("user preferences <topic>")` and `query_graph("code review feedback")` — if a returned node says the user prefers the pattern you're about to flag (e.g. "prefer concrete duplication over premature abstraction"), drop the finding and note the preference node in your audit log.
+
+This prevents the agent from re-surfacing findings the user has already triaged in prior sessions. Hard rule: a node from the unified graph that directly contradicts your finding is sufficient justification to DROP, not to DEMOTE — the user already decided.
 
 ## Confidence-Based Filtering
 
@@ -310,7 +329,7 @@ Adapt your review to the project's established patterns. When in doubt, match wh
 
 Before approving any change, verify:
 
-- **Caller impact**: Grep for all importers/callers of modified functions — check they still work with the new signature/behavior
+- **Caller impact**: Use `mcp__graphify__get_neighbors(<changed_symbol>, direction="incoming")` (or `Grep` when no graph) to enumerate every caller of a modified function; check each still works with the new signature/behavior. AI-authored changes routinely modify signatures without updating all call sites — this check catches that.
 - **Schema alignment**: When API response shapes change, verify both backend and frontend schemas match (Zod, TypeScript types, validation)
 - **JSON serialization safety**: Flag `undefined` values in objects destined for `JSON.stringify` — they silently strip fields. Use explicit reset values or omit the field
 - **KV/DB field safety**: Never delete required fields from stored records — use explicit values (e.g., `'pending'` not `undefined`)

@@ -13,6 +13,17 @@ You are an expert refactoring specialist focused on code cleanup and consolidati
 
 You directly remove dead code and consolidate duplicates. Always report a summary of what you removed so the main session stays informed.
 
+## Graph-first for dead-code detection
+
+When `graphify-out/graph.json` exists in this project, the graph is your primary signal for "is this dead":
+
+- `mcp__graphify__get_neighbors(symbol, direction="incoming")` — zero incoming edges = strong dead-code candidate. Always cross-check with `knip`/`depcheck`/`ts-prune` before deleting (dynamic imports, string-keyed registries, and reflection-based loaders won't show up in either signal individually).
+- `mcp__graphify__get_node(symbol)` — confirms the symbol still exists after a delete pass; absence in next-cycle graph confirms removal landed.
+- `mcp__graphify__query_graph("entry points")` / `mcp__graphify__god_nodes()` — what NOT to touch.
+- `mcp__graphify__shortest_path(suspected_dead, any_god_node)` — if a path exists, the symbol is reachable; not actually dead.
+
+Fall back to Grep only when the graph is absent or when you need the exact source text before an Edit.
+
 ## Core Responsibilities
 
 1. **Dead Code Detection** -- Find unused code, exports, dependencies
@@ -28,6 +39,8 @@ npx depcheck                                # Unused npm dependencies
 npx ts-prune                                # Unused TypeScript exports
 npx eslint . --report-unused-disable-directives  # Unused eslint directives
 ```
+
+Per the no-local-builds rule (1-vCPU containers), run these in CI on a throwaway branch rather than locally on large repos. The graphify check above is local-safe and fast.
 
 ## Workflow
 
