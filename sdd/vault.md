@@ -180,10 +180,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. `shutdown_handler()` in entrypoint.sh wraps the final `bisync_with_r2` call in a background subshell with a watchdog that hard-kills at 60s, so the DO's destroy() budget always lands AFTER bisync finishes or gives up cleanly.
+1. `shutdown_handler()` in entrypoint.sh wraps the final `bisync_with_r2` call in a background subshell with a watchdog that hard-kills at 120s, so the DO's destroy() budget always lands AFTER bisync finishes or gives up cleanly.
 2. The shutdown handler also terminates the vault-monitor daemon and SilverBullet supervisor PIDs (`/tmp/vault-monitor.pid`, `/tmp/silverbullet.pid`).
 3. The shutdown elapsed time is logged so operators can tune the 60s budget over time if user edits get large enough to need more headroom.
-4. `Container.destroy()` in `src/container/index.ts` uses `timeoutMs = 75_000` (was 25_000): 60s for the entrypoint bisync plus 15s for clean process exit.
+4. `Container.destroy()` in `src/container/index.ts` uses `timeoutMs = 135_000` (was 25_000): 120s for the entrypoint bisync plus 15s for clean process exit.
 5. `Container.onStop()` logs `shutdownElapsedMs` (delta from `_shutdownStartedAt`), giving us telemetry on whether the budget is right.
 
 **Constraints:**
@@ -192,7 +192,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-SESSION-009 (container destroy wipes session state), REQ-SESSION-011 (graceful shutdown with final sync), REQ-STOR-005 (graceful shutdown performs final sync)
-**Verification:** Automated test (`src/__tests__/container/index.test.ts` AC: 75s SIGKILL fallback + shutdownElapsedMs telemetry); structural audit (`host/__audits__/entrypoint-vault.audit.js`); E2E (edit vault, click Stop, close tab, reopen, confirm edit persisted)
+**Verification:** Automated test (`src/__tests__/container/index.test.ts` AC: 135s SIGKILL fallback + shutdownElapsedMs telemetry); structural audit (`host/__audits__/entrypoint-vault.audit.js`); E2E (edit vault, click Stop, close tab, reopen, confirm edit persisted)
 **Status:** Implemented
 
 ---

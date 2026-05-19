@@ -49,7 +49,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
 
 **Priority:** P0
-**Dependencies:** REQ-MEM-006, REQ-VAULT-002
+**Dependencies:** REQ-MEM-006, REQ-VAULT-002, REQ-SESSION-016
 **Verification:** Integration test (E2E verifies a capture file appears under `Raw/Sessions/` after 15 messages and its nodes show up in `mcp__graphify__query_graph`).
 
 **Status:** Implemented
@@ -173,6 +173,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 3. The persistent vault graph is what `graphify global add ... --as user_vault` consumes, so the global graph's `user_vault` repo tag always reflects the cumulative vault content rather than only the most recent extraction.
 4. If the persistent vault graph file is missing or unreadable, the pass starts a fresh one (rather than crashing) and writes it at the end of the run.
 5. The merge step runs under `flock /tmp/graphify-global.lock` so it serialises with capture-pipeline writes and active-repo hooks.
+
+**Constraints:** None.
 
 **Priority:** P0
 **Dependencies:** REQ-MEM-001 (capture pipeline contract), REQ-VAULT-002 (vault is always-on in the global graph)

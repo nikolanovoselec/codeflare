@@ -282,7 +282,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. `SYNC_MODE=none` (default): only settings and config directories are synced; `~/workspace/` is excluded entirely.
 2. `SYNC_MODE=full`: entire `~/workspace/` is synced (minus `node_modules/`).
 3. `SYNC_MODE=metadata`: only agent config files (`.claude/` and `CLAUDE.md`) per repo are synced.
-4. All modes exclude these categories (per-path inventory lives in `entrypoint.sh` and `documentation/storage-and-sync.md`; the spec governs the categories so future filter changes have something to be verified against): package-manager caches, rclone caches, agent session logs, ephemeral agent data, build artifacts, regenerable XDG tool state (e.g. wrangler state, generic `.config/` user-app caches), and vendor credential caches that the agent regenerates on demand.
+4. All modes exclude these categories (per-path inventory is delegated to the sync daemon and storage-and-sync documentation; the spec governs the categories so future filter changes have something to be verified against): package-manager caches, rclone caches, agent session logs, ephemeral agent data, build artifacts, regenerable XDG tool state (e.g. wrangler state, generic dotfile user-app caches), and vendor credential caches that the agent regenerates on demand.
 
 **Constraints:**
 - All rclone commands must use `--filter` flags (not `--include`/`--exclude`).
