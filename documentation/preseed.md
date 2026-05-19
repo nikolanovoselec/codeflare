@@ -29,7 +29,7 @@ deployed on Recreate or new bucket creation.
 | `documentation-discipline` rule + doc-enforce skill family (4 skills: spine, lanes, shape, truth) | No | Yes | Yes |
 | `tdd-discipline` rule + tdd-enforce skill | No | Yes | Yes |
 | git-review-pipeline skill (SDD PR-boundary review pipeline) | No | Yes | Yes |
-| SDD template scaffolding (13 files for `/sdd init`) | No | Yes | Yes |
+| SDD template scaffolding (12 files for `/sdd init`) | No | Yes | Yes |
 | Known marketplaces plugin config | Yes | Yes | Yes |
 | context-mode MCP server (`ctx_*` helper tools, always-on) | Yes | Yes | Yes |
 | context-mode plugin folder (auto-routing hooks for context-window reduction) | No | No | Yes |

@@ -217,7 +217,7 @@ write it back. The persistent graph is then what `graphify global add`
 consumes in step 5.
 
 ```bash
-flock -w 5 /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python -c "
+( flock -w 5 /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python -c "
 import json
 import networkx as nx
 from pathlib import Path
@@ -264,7 +264,7 @@ to_json(G_merged, cluster(G_merged) if G_merged.number_of_nodes() else {}, str(v
 to_json(G_merged, cluster(G_merged) if G_merged.number_of_nodes() else {}, str(out_path))
 
 print(f'vault graph: {G_merged.number_of_nodes()} nodes ({G_new.number_of_nodes()} new, {G_prior.number_of_nodes()} prior), {G_merged.number_of_edges()} edges')
-"
+" ) || true
 ```
 
 The `flock` lock matches the one used by `graphify global add` in step 5
@@ -289,8 +289,8 @@ to `graphify global add`, NOT the per-extraction chunk graph. The
 vault state on every run instead of clobbering it.
 
 ```bash
-flock -w 5 /tmp/graphify-global.lock /usr/local/bin/graphify global add \
-    /home/user/Vault/graphify-out/vault-graph.json --as user_vault
+( flock -w 5 /tmp/graphify-global.lock /usr/local/bin/graphify global add \
+    /home/user/Vault/graphify-out/vault-graph.json --as user_vault ) || true
 ```
 
 `graphify global add` is hash-keyed and idempotent - re-running it

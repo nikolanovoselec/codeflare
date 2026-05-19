@@ -41,12 +41,13 @@ You will also derive:
 
 ## Steps
 
-### 1. Read vars, delete vars, write counter
+### 1. Read vars, delete vars
 
 Read the vars file with the Read tool to get all variable values.
 Then IMMEDIATELY delete it -- this is the deduplication gate. The main
 agent checks this file before spawning; deleting it prevents a second
-spawn. Then write the counter as a safety reset.
+spawn. The hook owns the counter; the agent must NOT rewrite it (see
+note below `rm` for the race rationale).
 
 ```bash
 rm -f {VARS_FILE}
@@ -256,7 +257,7 @@ Schema (must match exactly):
 ### 6. Build the vault graph.json from the chunk
 
 ```bash
-flock -w 5 /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python -c "
+( flock -w 5 /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python -c "
 import json
 from pathlib import Path
 from graphify.build import build_from_json
@@ -271,14 +272,16 @@ G = build_from_json(extraction)
 communities = cluster(G) if G.number_of_nodes() else {}
 to_json(G, communities, str(out_path))
 print(f'vault graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges')
-"
+" ) || true
 ```
+
+The `( ... ) || true` wrapper matches the precedent in `graphify-active-repo.sh` -- if the 5s lock-acquire times out (because another writer holds the lock), the step exits cleanly and the markdown file remains on disk. The next 15-message batch retries the merge.
 
 ### 7. Merge into the unified global graph
 
 ```bash
-flock -w 5 /tmp/graphify-global.lock /usr/local/bin/graphify global add \
-    /home/user/Vault/graphify-out/graph.json --as user_vault
+( flock -w 5 /tmp/graphify-global.lock /usr/local/bin/graphify global add \
+    /home/user/Vault/graphify-out/graph.json --as user_vault ) || true
 ```
 
 `graphify global add` is hash-keyed and idempotent. The internal

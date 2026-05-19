@@ -1374,9 +1374,9 @@ init_user_vault() {
     # re-run on every boot. Best-effort: if graphify global isn't available
     # (e.g. graphify plugin disabled), continue.
     if command -v graphify >/dev/null 2>&1; then
-        flock /tmp/graphify-global.lock graphify global add \
+        flock -w 5 /tmp/graphify-global.lock graphify global add \
             "$VAULT/graphify-out/graph.json" --as user_vault 2>/dev/null \
-            || echo "[entrypoint] vault global-add deferred (graphify not ready)"
+            || echo "[entrypoint] vault global-add deferred (graphify not ready or lock timeout)"
     fi
 
     # Initialize vault-monitor two-marker state (see daemon section). Only
