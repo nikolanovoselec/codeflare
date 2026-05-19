@@ -6,7 +6,7 @@
 // user actually is.
 
 import { describe, it, expect } from 'vitest';
-import { buildEnvVars, type ContainerEnvState } from '../../container/container-env';
+import { buildEnvVars, applyBucketName, applyPrefsOnRestart, type ContainerEnvState } from '../../container/container-env';
 import type { Env } from '../../types';
 
 function baseState(): ContainerEnvState {
@@ -64,5 +64,67 @@ describe('buildEnvVars (REQ-MEM-001 AC3)', () => {
     expect(vars.R2_BUCKET_NAME).toBe('codeflare-test');
     expect(vars.CONTAINER_AUTH_TOKEN).toBe('tok');
     expect(vars.SESSION_ID).toBe('sid-abcdef12');
+  });
+});
+
+// Regression test for the entry-point destructure: handleSetBucketName at
+// container/index.ts forwards r2Creds (including userTimezone) to
+// applyBucketName, which must persist + write the state field. The
+// original PR #390 wired everything except this destructure, so the field
+// was silently dropped and USER_TIMEZONE always emitted empty in
+// production. Both code paths (first-time setBucketName via applyBucketName,
+// and subsequent wakes via applyPrefsOnRestart) are exercised here.
+describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-MEM-001 AC3 wiring regression)', () => {
+  function makeStorage() {
+    const writes: Record<string, unknown> = {};
+    return {
+      writes,
+      storage: {
+        put: async (key: string, value: unknown) => {
+          writes[key] = value;
+        },
+      },
+    };
+  }
+
+  it('applyBucketName persists userTimezone into both state and storage', async () => {
+    const state = baseState();
+    const { writes, storage } = makeStorage();
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, {
+      userTimezone: 'Europe/Zurich',
+    });
+    expect((state as unknown as { _userTimezone: string | null })._userTimezone).toBe('Europe/Zurich');
+    expect(writes.userTimezone).toBe('Europe/Zurich');
+  });
+
+  it('applyBucketName leaves userTimezone untouched when omitted', async () => {
+    const state = baseState();
+    const { writes, storage } = makeStorage();
+    await applyBucketName(state, 'codeflare-test', baseEnv, storage, {});
+    expect((state as unknown as { _userTimezone: string | null })._userTimezone).toBeNull();
+    expect(writes.userTimezone).toBeUndefined();
+  });
+
+  it('applyPrefsOnRestart updates userTimezone on wake when value changes', async () => {
+    const state = baseState();
+    (state as unknown as { _userTimezone: string | null })._userTimezone = 'UTC';
+    const { writes, storage } = makeStorage();
+    const changed = await applyPrefsOnRestart(state, storage, {
+      userTimezone: 'America/New_York',
+    });
+    expect(changed).toBe(true);
+    expect((state as unknown as { _userTimezone: string | null })._userTimezone).toBe('America/New_York');
+    expect(writes.userTimezone).toBe('America/New_York');
+  });
+
+  it('applyPrefsOnRestart is a no-op when userTimezone unchanged', async () => {
+    const state = baseState();
+    (state as unknown as { _userTimezone: string | null })._userTimezone = 'Europe/Zurich';
+    const { writes, storage } = makeStorage();
+    const changed = await applyPrefsOnRestart(state, storage, {
+      userTimezone: 'Europe/Zurich',
+    });
+    expect(changed).toBe(false);
+    expect(writes.userTimezone).toBeUndefined();
   });
 });

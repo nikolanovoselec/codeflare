@@ -393,7 +393,7 @@ export class container extends Container<Env> {
   /** Handle POST /_internal/setBucketName. */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
-      const { bucketName, sessionId, userEmail, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, sleepAfter: sleepAfterPref } =
+      const { bucketName, sessionId, userEmail, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, userTimezone, sleepAfter: sleepAfterPref } =
         await request.json() as {
           bucketName: string;
           sessionId?: string;
@@ -412,6 +412,12 @@ export class container extends Container<Env> {
           cloudflareAccountId?: string;
           encryptionKey?: string;
           sessionMode?: string;
+          // REQ-MEM-001 AC3: user's IANA timezone forwarded by the Worker
+          // from preferences.userTimezone. applyBucketName persists it and
+          // buildEnvVars surfaces it to the container as USER_TIMEZONE;
+          // entrypoint.sh applies the three-artifact contract (export TZ,
+          // /etc/timezone, /etc/localtime symlink).
+          userTimezone?: string;
           sleepAfter?: string;
         };
 
@@ -424,7 +430,7 @@ export class container extends Container<Env> {
         const prefsChanged = await applyPrefsOnRestart(this.envState, this.ctx.storage, {
           sessionId, userEmail, workspaceSyncEnabled, fastStartEnabled, tabConfig,
           openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
-          encryptionKey, sessionMode,
+          encryptionKey, sessionMode, userTimezone,
         });
 
         // Update idle timeout on restart. Storage key is 'sleepAfter' for
@@ -484,6 +490,7 @@ export class container extends Container<Env> {
         cloudflareAccountId,
         encryptionKey,
         sessionMode,
+        userTimezone,
       });
 
       // Apply user-configurable idle timeout (validated values: 5m, 15m, 30m, 1h, 2h).
