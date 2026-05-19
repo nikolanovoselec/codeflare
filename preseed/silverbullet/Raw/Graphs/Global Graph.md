@@ -9,7 +9,7 @@ Source data: `~/.graphify/global-graph.json` (lives under your home directory, n
 ## What you'll see
 
 - Vault pages and per-repo code symbols side by side, connected by shared concept nodes.
-- A wikilink `[[VaultMonitorDaemon]]` mentioned in a vault note unifies with a `vault_monitor_daemon` function node from a per-repo graph **only** when the labels match exactly — case-sensitive, no normalisation (see `~/.claude/rules/vault.md` for the dedup contract).
+- A wikilink `[[VaultMonitorDaemon]]` mentioned in a vault note unifies with a `vault_monitor_daemon` function node from a per-repo graph **only** when the labels match exactly - case-sensitive, no normalisation (see `~/.claude/skills/vault-operations/SKILL.md` for the dedup contract).
 - Active repos contribute via the `graphify-active-repo` PostToolUse hook; the vault contributes via the vault-monitor 60s daemon.
 
 ## Notes

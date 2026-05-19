@@ -199,7 +199,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ## REQ-VAULT-007: Vault rules and plugin are preseeded into every advanced session
 
-**Intent:** A fresh advanced-mode session ships with the codeflare-vault plugin (hook + extraction prompt + plugin descriptor), the new vault rule, and the updated memory rule already in place -- no per-session install step.
+**Intent:** A fresh advanced-mode session ships with the codeflare-vault plugin (hook + extraction prompt + plugin descriptor) and the memory rule (which carries the folded vault trigger/route content) already in place -- no per-session install step.
 
 **Applies To:** Agent
 
