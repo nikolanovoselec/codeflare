@@ -103,6 +103,13 @@ function listSessionMarkers(ls: Storage): string[] {
  * deliberately omitted - see file header.
  */
 export async function cleanupSessionVaultCache(sid: string): Promise<void> {
+  // Fail-closed input validation: an empty `sid` would compute
+  // `removeItem('vault-session-')` (harmless no-op) AND
+  // `reg.scope.includes('/api/vault//')`, which could match any registration
+  // whose scope contains that exact double-slash substring. Bail out before
+  // either side effect when the caller passes a falsy id.
+  if (!sid) return;
+
   const ls = getLS();
   const sw = getSW();
 

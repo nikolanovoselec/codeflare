@@ -117,17 +117,24 @@ async function pollSessionSyncCompletion(sessionIds: string[]): Promise<void> {
   if (sessionIds.length === 0) return;
   const start = Date.now();
   const sawSyncing = new Set<string>();
+  // Track consecutive probe failures per session so a transient network
+  // outage doesn't silently mask every session as "complete". After
+  // PROBE_ERROR_THRESHOLD consecutive errors for a given session the
+  // poll surfaces the network failure in syncResult.lastError instead
+  // of pretending everything finished cleanly.
+  const PROBE_ERROR_THRESHOLD = 3;
+  const consecutiveProbeErrors = new Map<string, number>();
   while (Date.now() - start < SYNC_POLL_TIMEOUT_MS) {
     const results = await Promise.all(
       sessionIds.map(async (id) => {
         try {
           const status = await getStartupStatus(id);
-          return { id, syncStatus: status.details?.syncStatus };
+          consecutiveProbeErrors.set(id, 0);
+          return { id, syncStatus: status.details?.syncStatus, probeError: false };
         } catch {
-          // Treat per-session probe failures as "we cannot tell". Bail
-          // by counting it as completed to avoid the user staring at a
-          // forever-breathing icon on a transient network error.
-          return { id, syncStatus: 'success' as const };
+          const n = (consecutiveProbeErrors.get(id) ?? 0) + 1;
+          consecutiveProbeErrors.set(id, n);
+          return { id, syncStatus: 'success' as const, probeError: true };
         }
       })
     );
@@ -135,6 +142,18 @@ async function pollSessionSyncCompletion(sessionIds: string[]): Promise<void> {
       if (r.syncStatus === 'syncing') sawSyncing.add(r.id);
     }
     const stillSyncing = results.some((r) => r.syncStatus === 'syncing');
+    // If every session has hit the probe-error threshold the network is
+    // genuinely down -- surface it so the user knows the spinner stopped
+    // due to inability to verify, not actual completion.
+    const allProbeFailing = sessionIds.every(
+      (id) => (consecutiveProbeErrors.get(id) ?? 0) >= PROBE_ERROR_THRESHOLD
+    );
+    if (allProbeFailing) {
+      setState('syncResult', (prev) =>
+        prev ? { ...prev, lastError: 'Unable to verify sync completion (network error).' } : prev
+      );
+      return;
+    }
     if (stillSyncing) {
       await new Promise((res) => setTimeout(res, SYNC_POLL_INTERVAL_MS));
       continue;

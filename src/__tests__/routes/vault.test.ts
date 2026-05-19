@@ -388,16 +388,18 @@ describe('validateVaultRoute', () => {
       expect(out).toHaveLength(2);
     });
 
-    it('also filters nested graphify-out paths (e.g. Raw/graphify-out should NOT match — only top-level)', () => {
+    it('only filters top-level graphify-out/ entries; substring or nested matches are kept', () => {
       const body = JSON.stringify([
-        { name: 'graphify-out/x.json' },
-        { name: 'Notes/graphify-out-notes.md' },
-        { name: 'Notes/sub/file.md' },
+        { name: 'graphify-out/x.json' },               // top-level: filtered
+        { name: 'Notes/graphify-out-notes.md' },       // substring: kept
+        { name: 'Notes/sub/file.md' },                 // unrelated: kept
+        { name: 'Raw/graphify-out/derived.json' },     // nested: kept (filter is top-level only)
       ]);
       const out = JSON.parse(filterVaultFsListing(body));
       expect(out.map((e: { name: string }) => e.name)).toEqual([
         'Notes/graphify-out-notes.md',
         'Notes/sub/file.md',
+        'Raw/graphify-out/derived.json',
       ]);
     });
   });

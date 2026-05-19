@@ -975,7 +975,7 @@ shutdown_handler() {
     # See AD57 for the budget rationale.
     echo "[entrypoint] Final bisync to R2 (120s budget)..."
     if [ -f /tmp/.bisync-initialized ]; then
-        # Background bisync + watchdog that hard-kills at 60s. Cannot use
+        # Background bisync + watchdog that hard-kills at 120s. Cannot use
         # `timeout(1)` directly because bisync_with_r2 is a shell function;
         # timeout's bash -c child would not see it without `export -f` +
         # propagating every env var it reads.

@@ -155,53 +155,14 @@ describe('prefilter-transcript.sh (REQ-MEM-001 AC3)', () => {
   });
 });
 
-describe('memory-agent-prompt.md frontmatter + flock (REQ-MEM-001 AC4 + AC5)', () => {
-  const prompt = readFileSync(PROMPT, 'utf8');
-
-  it('AC4: declares the YAML frontmatter template with session_id, captured_at, captured_from_range', () => {
-    // The template is a fenced code block in the prompt. The fields
-    // must be present together so the produced capture files are
-    // queryable by graphify and round-trippable.
-    assert.ok(/session_id:\s*\{SESSION_ID\}/.test(prompt),
-      'memory-agent-prompt.md must declare session_id: {SESSION_ID} in the frontmatter template');
-    assert.ok(/captured_at:\s*\{ISO_TS\}/.test(prompt),
-      'memory-agent-prompt.md must declare captured_at: {ISO_TS} in the frontmatter template');
-    assert.ok(/captured_from_range:\s*\[\{LAST_LINE\},\s*\{TOTAL_LINES\}\]/.test(prompt),
-      'memory-agent-prompt.md must declare captured_from_range: [{LAST_LINE}, {TOTAL_LINES}] in the frontmatter template');
-  });
-
-  it('AC4: frontmatter is delimited by triple-dash lines', () => {
-    // YAML frontmatter requires `---` open/close fences. Missing them
-    // and the SilverBullet front-matter parser will silently treat the
-    // block as body text.
-    const openFenceCount = (prompt.match(/^---$/gm) || []).length;
-    assert.ok(
-      openFenceCount >= 2,
-      `memory-agent-prompt.md must include the YAML frontmatter --- open + close fences (found ${openFenceCount})`,
-    );
-  });
-
-  it('AC5: graphify extract and global add run under flock /tmp/graphify-global.lock', () => {
-    // The capture pipeline shares the global graph lock with the
-    // vault-monitor pipeline and the active-repo hook. Without flock,
-    // concurrent writers would corrupt the JSON-on-disk merge.
-    assert.ok(
-      /flock\s+\/tmp\/graphify-global\.lock\s+.*graphify\s+global\s+add/.test(prompt) ||
-        /flock\s+\/tmp\/graphify-global\.lock[\s\S]*?graphify\s+global\s+add/.test(prompt),
-      'memory-agent-prompt.md must call `graphify global add` under flock /tmp/graphify-global.lock',
-    );
-    // The build step (extract -> graph.json) should be lock-protected
-    // too because it writes to the shared vault graphify-out tree.
-    assert.ok(
-      /flock\s+\/tmp\/graphify-global\.lock/.test(prompt),
-      'memory-agent-prompt.md must serialize graphify writes behind flock /tmp/graphify-global.lock',
-    );
-  });
-
-  it('AC5: tags the merged repo as user_vault so subsequent queries can filter by tag', () => {
-    assert.ok(
-      /graphify\s+global\s+add\s+\S+\s+--as\s+user_vault/.test(prompt),
-      'memory-agent-prompt.md must pass --as user_vault to `graphify global add` for repo-tag filtering',
-    );
-  });
-});
+// REQ-MEM-001 AC4 (YAML frontmatter shape) and AC5 (graphify global add
+// under flock) were previously covered by four prompt-text-grep tests.
+// Per tdd-discipline they were text-matching theater: the regexes would
+// still pass if the surrounding prompt prose was replaced with a no-op
+// agent that ignored the directives, AND would fail if the prompt was
+// reworded to an equivalent shell idiom (e.g. `( exec 200>/tmp/lock;
+// flock 200; graphify global add ...)`) while runtime behaviour stayed
+// identical. Deleted rather than papered over. The E2E verification
+// path in REQ-MEM-001 Verification (a real capture lands in
+// /home/user/Vault/Raw/Sessions/ after 15 messages and shows up via
+// mcp__graphify__query_graph) is the honest coverage for both ACs.
