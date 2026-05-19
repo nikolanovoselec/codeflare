@@ -1,49 +1,23 @@
-# Git Workflow (Core)
+# Git Workflow
 
-Identity + obligations for the commit -> push -> CI -> PR chain. Detailed mechanics live in branched skills (`ci-monitoring`, `git-review-pipeline`, `pr-workflow`, `deploy-credentials`).
+**Commit format:** `<type>: <description>` (types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`). AI attribution disabled — no `Co-Authored-By`, no emoji, no "Generated with Claude".
 
-## Commit message format
+## Triggers and routes
 
-```
-<type>: <description>
+| Event | Skill |
+|---|---|
+| After `git push` to a branch with CI | `ci-monitoring` (poll until green; never `gh run watch`) |
+| PR-boundary event with `sdd/` present | `git-review-pipeline` (spec/doc/code review pipeline) |
+| User asks to open a PR | `pr-workflow` (body template + REQ backlinks + test plan) |
+| Need gh/wrangler access, creds unclear | `deploy-credentials` (env-var table + check-then-fallback) |
 
-<optional body>
-```
+## SDD opt-in is binary
 
-Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`.
+- **Vibe-coding** (no `sdd/`): `git push` + `gh pr create` proceed with NO review agents.
+- **SDD mode** (`sdd/` + `sdd/README.md`): review agents fire only on PR-boundary events targeting `main`/`master`. PRs into integration branches (`develop`, `staging`) defer until the integration→main PR opens.
 
-Note: AI attribution disabled globally via `~/.claude/settings.json`. No `Co-Authored-By`, no emoji, no "Generated with Claude" lines.
+## Hard obligations
 
-## SDD opt-in matrix
-
-**SDD opt-in is binary.** Two modes:
-
-- **Vibe-coding mode** (no `sdd/` folder in the project): `git push` and `gh pr create` proceed with **no review agents**. Nothing fires. No code-reviewer, no spec-reviewer, no doc-updater, no auto-generated documentation. Pure friction-free workflow. Intentional: projects that haven't run `/sdd init` are telling you they don't want the workflow.
-- **SDD mode** (`sdd/` + `sdd/README.md` exist): review agents fire on PR-boundary events only, not on every push. PRs targeting `main`/`master` are the trigger; PRs into integration branches (`develop`, `staging`) are deferred until the integration branch's own PR-to-main opens.
-
-Full PR-boundary trigger table + execution order + branch-protection setup live in the `git-review-pipeline` skill (invoked at PR-boundary events when SDD is bootstrapped).
-
-## Post-push obligation: monitor CI
-
-After every `git push` that targets a branch with CI workflows, monitor CI until every run on the pushed commit completes successfully. Invoke the `ci-monitoring` skill as a first action; it carries the single-bounded-iteration polling pattern, per-iteration decision matrix, stale-run cancellation, and tool-surface selection (ctx_execute for context-mode, Bash for vibe-coding).
-
-Never report CI as passing without confirming every row is `completed` + `success` in the same iteration. Never deploy to integration until every run is green. Never use `gh run watch` (hangs).
-
-## PR creation
-
-When the user asks the agent to open a PR, invoke the `pr-workflow` skill. It carries the body template, REQ backlink rule, test-plan checklist, and the user-only `gh pr merge` boundary.
-
-## Credentials
-
-GitHub and Cloudflare credentials (`GH_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`) are optional environment variables. When you need gh/wrangler access, check `echo "${GH_TOKEN:+set}"` first; if unset, offer the user the Settings/CLI-auth/export options. The `deploy-credentials` skill carries the full env-var table, what each token enables, the check-then-fallback protocol, and secret-handling rules.
-
-## Skill family
-
-| Skill | Mode | When invoked |
-|---|---|---|
-| `ci-monitoring` | default + advanced | After every `git push` to a branch with CI workflows |
-| `git-review-pipeline` | advanced | At PR-boundary events when `sdd/` is bootstrapped; when configuring branch protection |
-| `pr-workflow` | default + advanced | When the user asks the agent to open a PR |
-| `deploy-credentials` | default + advanced | When a turn needs gh/wrangler access and the env-var state is unclear, or for the full operations reference |
-
-Skipping `ci-monitoring` invocation after a push that triggered CI is itself a HIGH lapse caught by the next agent that depends on CI state (deploy gate, PR-merge gate, etc.).
+- After every push that triggers CI: invoke `ci-monitoring` and confirm every row `completed` + `success` before reporting green.
+- Never deploy to integration until every CI run is green.
+- Skipping `ci-monitoring` is HIGH `ci-monitoring-skill-not-invoked` (caught by the next downstream agent).

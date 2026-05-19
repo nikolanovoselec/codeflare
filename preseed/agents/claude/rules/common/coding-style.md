@@ -1,65 +1,21 @@
 # Coding Style
 
-## Immutability (CRITICAL)
+The hard-won concretes. Karpathy principles in [`karpathy.md`](../karpathy.md) cover the rest.
 
-ALWAYS create new objects, NEVER mutate existing ones:
+## Immutability
 
-```
-// Pseudocode
-WRONG:  modify(original, field, value) → changes original in-place
-CORRECT: update(original, field, value) → returns new copy with change
-```
+Create new objects; never mutate existing ones. Mutation creates hidden side-effects, makes debugging harder, breaks concurrency safety.
 
-Rationale: Immutable data prevents hidden side effects, makes debugging easier, and enables safe concurrency.
+**`undefined` trap:** never set object fields to `undefined` in patches meant for JSON storage. `JSON.stringify` strips `undefined`, silently deleting the field. Use explicit reset values or omit the field from the patch.
 
-NEVER set object fields to `undefined` in patches meant for JSON storage.
-`JSON.stringify` strips `undefined` values, silently deleting fields.
-Use explicit reset values or omit the field from the patch.
+## Validate at boundaries, trust inside
 
-## File Organization
+User input, external APIs, file content, queue messages: validate with a schema (Zod, Pydantic, equivalent). Internal function calls between modules of the same codebase: trust the types. Validating everywhere is noise.
 
-MANY SMALL FILES > FEW LARGE FILES:
-- High cohesion, low coupling
-- 200-400 lines typical, 800 max
-- Extract utilities from large modules
-- Organize by feature/domain, not by type
+## Documentation integrity
 
-## Error Handling
+When you change a public API, route signature, env var, CI workflow, or architectural shape: update `documentation/` in the same commit. ADRs live in `documentation/decisions/README.md`.
 
-ALWAYS handle errors comprehensively:
-- Handle errors explicitly at every level
-- Provide user-friendly error messages in UI-facing code
-- Log detailed error context on the server side
-- Never silently swallow errors
+## Security
 
-## Input Validation
-
-ALWAYS validate at system boundaries:
-- Validate all user input before processing
-- Use schema-based validation where available
-- Fail fast with clear error messages
-- Never trust external data (API responses, user input, file content)
-
-## Documentation Integrity
-
-When you change any of the following, update the relevant project documentation in the same commit:
-- Public APIs or route signatures
-- Environment variables or configuration
-- CI/CD workflows
-- Architecture or data flow
-
-Look for `documentation/` folder and `documentation/decisions/README.md` for ADRs. If the project has no docs, suggest creating them for significant changes.
-
-## Code Quality Checklist
-
-Before marking work complete:
-- [ ] Code is readable and well-named
-- [ ] Functions are small (<50 lines)
-- [ ] Files are focused (<800 lines)
-- [ ] No deep nesting (>4 levels)
-- [ ] Proper error handling
-- [ ] No hardcoded values (use constants or config)
-- [ ] No mutation (immutable patterns used)
-- [ ] No `undefined` in objects destined for JSON serialization
-- [ ] All callers of modified functions checked for compatibility
-- [ ] Documentation updated for public API/config/architecture changes (if project has docs)
+For any change touching auth, user input, secrets, file uploads, or external API integrations: invoke the `security-reviewer` agent before the commit lands. Never hardcode secrets — use env vars.

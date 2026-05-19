@@ -1,58 +1,24 @@
-# Memory Persistence
+# Memory
 
-Cross-session memory lives in **one place**: the user vault at
-`/home/user/Vault/`. Graphify ingests every vault file into
-the unified global graph at `~/.graphify/global-graph.json`, merged with
-every active repo's per-repo graphify-out. Queries go through
-`mcp__graphify__*`.
+Cross-session memory lives in `/home/user/Vault/` (see [vault.md](./vault.md)). Graphify ingests every vault file into the unified global graph at `~/.graphify/global-graph.json`, merged with every active repo's per-repo graphify-out.
 
-See [vault.md](./vault.md) for the full vault contract.
+## Session start
 
-## Session start (mandatory)
+Before any work, call `mcp__graphify__query_graph` (or `god_nodes` for orientation without a specific question) with a broad query — project name or subsystem you'll be touching. Loads prior decisions, concepts, and code structure.
 
-Before doing any work, call `mcp__graphify__query_graph` (or
-`god_nodes` for orientation without a specific question) with a broad
-query — project name, "codeflare", or the subsystem you'll be touching.
-This loads prior decisions, concepts, and code structure.
+## When user asks about memory
 
-## When to query the unified graph
-
-- Starting a session, after `/resume`, or when the user references prior work.
-- Before implementing any feature or making an architectural decision.
-- When encountering a bug — check if it was seen before.
-- When starting work on an unfamiliar subsystem.
-
-## "Memory" commands
-
-When the user says "check memory", "search memory", "load memory", etc.:
-use `mcp__graphify__*`. The file-based memory at
-`~/.claude/projects/*/memory/` is the per-user assistant memory layer
-(unrelated).
+User says "check memory", "search memory", "load memory", "what do you remember about X" → use `mcp__graphify__*` against the unified graph. The file-based `~/.claude/projects/*/memory/` is the per-user assistant memory layer (unrelated).
 
 ## Hook-triggered capture
 
-The memory-capture hook fires every 15 user messages. It writes a
-`.vars` file at `~/.memory/counter/{session_id}.vars` and emits
-`additionalContext` pointing at the capture-agent prompt.
+The memory-capture hook fires every 15 user messages and emits a directive pointing at a `.vars` file.
 
-Execution protocol:
+- If the `.vars` file exists → spawn a background **sonnet** Task agent with the hook's instructions. Agent's first step deletes the `.vars` file (dedup gate).
+- If it does not exist → do nothing.
 
-1. Check whether the `.vars` file referenced in the directive exists.
-2. If it EXISTS → spawn a background **sonnet** Task agent with the
-   hook's instructions. The agent deletes the `.vars` file first (dedup
-   gate), runs `prefilter-transcript.sh` to strip tool I/O and chunk
-   the conversation, accumulates per-chunk observations into a
-   scratchpad, synthesises the final markdown capture into
-   `/home/user/Vault/Raw/Sessions/`, then merges it into the unified
-   global graph via `graphify global add`. Sonnet (not haiku) because
-   the capture agent must cite REQ IDs / ADRs / commit SHAs verbatim,
-   and haiku confabulated adjacent IDs in benchmarking. See AD58 in
-   `documentation/decisions/README.md` for the cost-vs-fidelity rationale.
-3. If it does NOT exist → do nothing.
-4. Then respond to the user's actual message.
+Sonnet (not haiku) because capture must cite REQ IDs / ADRs / commit SHAs verbatim; haiku confabulated adjacent IDs in benchmarking. See AD58 for rationale.
 
 ## Vault edit hook (companion)
 
-A separate UserPromptSubmit hook fires from `vault-monitor-hook.sh`
-when the user has edited vault files directly via SilverBullet. See
-[vault.md](./vault.md) for the symmetric agent-side contract.
+`vault-monitor-hook.sh` fires on direct user vault edits. Same protocol; see [vault.md](./vault.md).
