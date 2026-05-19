@@ -65,7 +65,7 @@ Parse `$ARGUMENTS`. Match the first token and dispatch:
 | `add <domain>` | `spec-driven-development` skill (§ /sdd add) |
 | `mode [name]` | `spec-driven-development` skill (§ /sdd mode) |
 
-For `init` and `clean`, the sub-command skills automatically load `spec-driven-development` as a dependency for REQ format, Status semantics, and templates.
+For `init` and `clean`, the sub-command skills reference `spec-driven-development` in their descriptions so REQ format, Status semantics, and templates surface alongside.
 
 Unknown sub-command: print the help screen, exit.
 

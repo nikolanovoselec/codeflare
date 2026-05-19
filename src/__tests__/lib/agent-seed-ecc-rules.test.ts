@@ -15,7 +15,7 @@ const ECC_SUBDIRS = ['common', 'typescript', 'python', 'golang', 'swift'] as con
 
 // Expected file count per subdirectory
 const ECC_FILES_PER_SUBDIR: Record<string, number> = {
-  common: 2, // coding-style, security (git-workflow moved to top-level rules/ with default+advanced modes)
+  common: 1, // coding-style only (security.md removed; per-language security rules stand alone)
   typescript: 4, // coding-style, patterns, security, testing
   python: 4,
   golang: 4,
@@ -175,7 +175,7 @@ describe('ECC rules in agent-seed', () => {
     expect(graphFirstRule!.modes).toEqual(['advanced']);
   });
 
-  it('total ECC rules count is 18', () => {
-    expect(eccRules().length).toBe(18);
+  it('total ECC rules count is 17', () => {
+    expect(eccRules().length).toBe(17);
   });
 });

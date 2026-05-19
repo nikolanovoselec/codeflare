@@ -458,6 +458,16 @@
       "advanced"
     ]
   },
+  "skills/sdd-clean/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/sdd-init/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/search-first/SKILL.md": {
     "modes": [
       "advanced"
@@ -554,6 +564,11 @@
     ]
   },
   "skills/vault-note-capture/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/vault-operations/SKILL.md": {
     "modes": [
       "advanced"
     ]

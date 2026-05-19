@@ -532,7 +532,7 @@ Multi-agent support, preseed system, and session modes.
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. Pro mode preseeds the `spec-driven-development` skill, the `/sdd` command, the `spec-discipline` rule (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
+1. Pro mode preseeds the `spec-driven-development` skill, the `sdd-init` and `sdd-clean` sub-command skills, the `vault-operations` skill, the `/sdd` command, the `spec-discipline` rule (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
 2. `/sdd init` scaffolds a new `sdd/` from templates for greenfield projects.
 3. In import mode, `/sdd init` derives a spec from existing source code rather than scaffolding from templates.
 4. When `/sdd init` generates a package manifest, top-level dependency versions are resolved at scaffold time via the ecosystem's registry (npm, Cargo, pip, Go) rather than emitted from memory. The Cloudflare Workers stack pins `wrangler`, `@cloudflare/workers-types`, `@cloudflare/vitest-pool-workers`, and `vitest` as a single co-resolved cohort.
