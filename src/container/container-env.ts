@@ -54,6 +54,9 @@ interface RestartPrefsInput {
   cloudflareAccountId?: string;
   encryptionKey?: string;
   sessionMode?: string;
+  /** REQ-MEM-001 AC3: user's IANA timezone. Updated on subsequent DO wakes
+   * when preferences.userTimezone changes between sessions. */
+  userTimezone?: string;
 }
 
 export interface SetBucketNameCreds {
@@ -312,6 +315,17 @@ export async function applyPrefsOnRestart(
     state._tabConfig = input.tabConfig;
     await storage.put('tabConfig', input.tabConfig);
     changed = true;
+  }
+
+  // REQ-MEM-001 AC3: userTimezone may change between sessions if the
+  // user travels or fixes a wrong value via the Dashboard auto-sync.
+  // Update state + storage when the new value differs from the cached
+  // one so the next container start emits the correct USER_TIMEZONE.
+  if (typeof input.userTimezone === 'string' && input.userTimezone && input.userTimezone !== state._userTimezone) {
+    state._userTimezone = input.userTimezone;
+    await storage.put('userTimezone', input.userTimezone);
+    changed = true;
+    logger.info('Updated userTimezone on restart', { userTimezone: input.userTimezone });
   }
 
   // Always update LLM keys, deploy keys, and session mode on restart
