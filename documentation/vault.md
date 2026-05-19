@@ -128,13 +128,14 @@ On boots where at least one preseed page was rewritten, `init_user_vault()` also
 
 `vault-monitor-hook.sh` is the UserPromptSubmit hook for the user-edit path. It exits 0 immediately when `vault-extract.vars` is absent (~99% of prompts), keeping token cost at zero on idle. When the marker is present it emits `additionalContext` instructing the main agent to dispatch the **vault-extract** named subagent (Task tool with `subagent_type="vault-extract"`). The subagent's frontmatter (`preseed/agents/claude/agents/vault-extract.md`) pins `model: sonnet` per AD58; the hook directive instructs the main agent not to pass a model override.
 
-The vault-extract agent's contract:
+The vault-extract agent's contract (REQ-MEM-009):
 
 1. Delete `vault-extract.vars` (dedup gate).
 2. `find` files newer than `vault-extract.last`, excluding the agent-owned subtrees.
-3. Acts as the LLM extractor for each changed file: reads the file, produces a chunk JSON (nodes / edges / hyperedges matching graphify's schema; `[[wikilinks]]` become concept nodes with `source_file: null` for cross-repo dedup), then calls graphify's Python API to build and cluster a `graph.json`.
-4. Run `flock /tmp/graphify-global.lock graphify global add ... --as user_vault`.
-5. Touch `vault-extract.last` -- FINAL step only.
+3. Acts as the LLM extractor for each changed file: reads the file, produces a chunk JSON (nodes / edges / hyperedges matching graphify's schema; `[[wikilinks]]` become concept nodes with `source_file: null` for cross-repo dedup).
+4. Loads the persistent vault graph at `/home/user/Vault/graphify-out/vault-graph.json` (starting from an empty graph if absent), merges the new chunk's nodes/edges using a hash-keyed union (existing IDs dedupe, new IDs append), and writes the updated cumulative graph back to `vault-graph.json`. This is what `graphify global add ... --as user_vault` consumes, so the global graph's `user_vault` tag always reflects cumulative vault content rather than only the most recent extraction. Prior to REQ-MEM-009, each pass replaced the entire `user_vault` entry with the chunk graph, causing vault knowledge to shrink on every extraction (observed: 17 nodes -> 2 nodes after two stub files were extracted).
+5. Run `flock /tmp/graphify-global.lock graphify global add ... --as user_vault`.
+6. Touch `vault-extract.last` -- FINAL step only.
 
 ## Unified Global Graph (REQ-VAULT-004)
 
@@ -191,9 +192,11 @@ The static SW JS is identical across sessions and contains zero user data, so by
 
 If a real SW ever becomes load-bearing in a future SilverBullet version, the mitigation is to inline its source into `VAULT_NOOP_SERVICE_WORKER_JS` -- the cookie-absence constraint blocks any path that would otherwise reach the container.
 
-### PUT body forwarding contract
+### PUT body forwarding contract (REQ-VAULT-009)
 
-For body-bearing methods (PUT/POST/PATCH), `container.fetch` must be called with the Request returned by `maybeSynthesizeCsrfHeader`, not the original incoming `request`. The helper consumes the input body when it constructs the header-rewritten clone (Workers Fetch semantics for `new Request(input, { headers })`); forwarding the original raises `TypeError: This ReadableStream is disturbed (has already been read from)`. `handleVaultRequest` hoists `requestForAuth` to outer scope for exactly this reason, and `authenticateRequest` must read only headers (cookies, JWT assertion) -- a future body read inside the auth chain would re-introduce the same bug.
+`maybeSynthesizeCsrfHeader` adds `X-Requested-With: XMLHttpRequest` to state-changing requests (PUT/POST/PATCH/DELETE) so `authenticateRequest`'s CSRF guard does not reject vault writes. When a request carries no `Origin` header (SilverBullet's same-origin fetch path, service-worker-controlled fetches, and CLI-style clients), the synthesis now treats the request as same-origin and proceeds rather than skipping it. A request with an Origin header that fails the allowlist still returns 403; the no-Origin fallback does not widen the allowlist. SilverBullet drag-drop attachment uploads (`PUT /api/vault/<sid>/Inbox/<file>`) were the primary trigger: the SB Inbox plug's fetch path omitted Origin, causing the prior code to skip synthesis, reach `authenticateRequest` without `X-Requested-With`, and return 401 to the user.
+
+`container.fetch` must be called with the Request returned by `maybeSynthesizeCsrfHeader`, not the original incoming `request`. The helper consumes the input body when it constructs the header-rewritten clone (Workers Fetch semantics for `new Request(input, { headers })`); forwarding the original raises `TypeError: This ReadableStream is disturbed (has already been read from)`. `handleVaultRequest` hoists `requestForAuth` to outer scope for exactly this reason, and `authenticateRequest` must read only headers (cookies, JWT assertion) -- a future body read inside the auth chain would re-introduce the same bug.
 
 ## Per-session IDB Lifecycle (REQ-VAULT-008)
 
@@ -301,6 +304,7 @@ SilverBullet writes pasted / drag-dropped attachments next to the note that refe
 | Stale session state on reopen after stop | Shutdown bisync was killed mid-write | Look for `TIMED OUT after 120s` (or the `logger.warn` at 110 s elapsed) in Durable Object logs (`wrangler tail <SCRIPT_NAME>`); raise the watchdog budget in `shutdown_handler` if it fires routinely. |
 | `/api/vault/:sid/` returns 503 | SilverBullet supervisor not ready | The Vault button is disabled until `Layout.tsx` receives a 200 from `HEAD /api/vault/:sid/` (the `vaultReady` probe). Wait 3-5 s and retry; the probe re-enables the button automatically once SilverBullet binds port 3030. |
 | Clicking "Quick Note" shows `You are not authenticated, going to reload...` alert, then reloads to a blank/white page | SilverBullet's client.js writes via PUT/DELETE/PATCH without `X-Requested-With`, which `authenticateRequest`'s CSRF guard required (fixed by the Origin-validated synthesis in `src/routes/vault.ts`) | Redeploy the container image to pick up the fix. As a temporary workaround, open the vault in a fresh browser tab (clears any stale ServiceWorker scope that may compound the loop). |
+| Drag-dropping a PDF or image into SilverBullet returns 401; attachment never saves | Older image: `maybeSynthesizeCsrfHeader` skipped synthesis when `Origin` was absent (SilverBullet's same-origin fetch and SW-controlled paths omit it), so the PUT landed at `authenticateRequest` without `X-Requested-With` (REQ-VAULT-009). | Redeploy. After the fix, a missing `Origin` header is treated as same-origin and synthesis proceeds. A present-but-disallowed `Origin` still returns 403. |
 | SilverBullet opens lowercase "index" (empty editor) instead of the Codeflare dashboard | Supervisor not exporting `SB_INDEX_PAGE=Index` before launching the binary | Confirm the env var is set in `entrypoint.sh start_silverbullet_supervisor`. SB's Go server hardcodes the default to `"index"` (`server/cmd/server.go:29`); the env var is the only override. |
 | Vault button clickable during boot returns `VAULT_UPSTREAM_UNREACHABLE` | UI is not gating on vault readiness | The button should be disabled until `Layout.tsx` receives a 200 from `HEAD /api/vault/:sid/`. If you see it clickable too early, the `vaultReady` probe loop in `Layout.tsx` has regressed -- check that the `HEAD` fetch is running and the 3s retry is wired correctly. |
 | Dashboard widgets render as raw `${query[[...]]}` text or nothing | Someone copied a partial `Library/Std/` onto disk, shadowing the binary's `base_fs` overlay | `rm -rf ~/Vault/Library/Std` and restart SB. Library/Std is shipped inside the SilverBullet binary; **never** seed it from disk. |

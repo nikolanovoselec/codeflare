@@ -259,6 +259,7 @@ jobs:
           format: table
           scanners: vuln
           trivyignores: .trivyignore
+          timeout: 15m
 
       - name: Push image to Cloudflare registry
         id: push-image
