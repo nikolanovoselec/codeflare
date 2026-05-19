@@ -110,7 +110,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-VAULT-001
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: three-marker pattern presence); E2E (edit `Notes/foo.md`, wait 60s, send prompt, confirm extraction)
+**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: three-marker pattern presence); E2E (edit `Notes/foo.md`, wait 60s, send prompt, confirm extraction); PDF-ingestion E2E (drop a `.pdf` into `Raw/Pasted/`, wait for the next daemon tick, confirm a `document` node for the PDF appears in the global graph and a corrupt PDF emits a bare document node without blocking the high-water marker)
 **Status:** Implemented
 
 ---
@@ -187,7 +187,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 5. `Container.onStop()` logs `shutdownElapsedMs` (delta from `_shutdownStartedAt`), giving us telemetry on whether the budget is right.
 
 **Constraints:**
-- Bundled with the vault PR because vault edits in the last 60s before shutdown are silently lost in the same way session state is today -- the vault depends on bisync reliability.
+- Bundled with the vault PR because vault edits not yet synced when the final bisync watchdog expires are silently lost in the same way session state is today -- the vault depends on bisync reliability.
 - A 120s bisync watchdog vs. a 135s DO destroy budget gives a 15s buffer; this is the minimum that allows graceful process termination after bisync completes.
 
 **Priority:** P0
