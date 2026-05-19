@@ -239,7 +239,7 @@ Re-triage runs BEFORE other CQ checks this cycle so newly-fixable backlog items 
 **Affected:** REQ-X-NNN | documentation/path | tests/path
 ```
 
-Older entries lacking this header re-classify as "still-escalated" and emit LOW `backlog-entry-missing-header`.
+Older entries lacking this header re-classify as "still-escalated" and emit LOW `backlog-entry-missing-header`. The `/sdd init` scaffold placeholder `_Awaiting first run._` (entire file body) is recognised as the empty-slot marker and does NOT trigger the finding; only entries that look like real findings but lack the header do.
 
 **No re-triage during SDD transition.** When `transition: true`, the pass is `inert (transition active)`.
 

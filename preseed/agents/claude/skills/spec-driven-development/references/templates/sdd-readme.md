@@ -10,7 +10,6 @@
 |-------|-------------|
 | **{ACTOR_1}** | {Description of who they are and what they want} |
 | **{ACTOR_2}** | {Description} |
-| **System** | {The platform itself when it acts automatically — not a human actor} |
 
 ## Design Principles
 

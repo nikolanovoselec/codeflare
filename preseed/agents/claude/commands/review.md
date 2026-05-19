@@ -540,7 +540,7 @@ Task agent prompt:
 ```
 You are the REALITY FILTER stage of a multi-cycle codebase review. Your job is to take
 the AD-filtered list of N active findings and produce the SHORT list of REAL findings
-worth surfacing to the user, plus an audit log of every drop. Filter ruthfully against
+worth surfacing to the user, plus an audit log of every drop. Filter ruthlessly against
 questions Q1-Q6 below. Do NOT filter to hit a target count - if all N findings survive
 the questions, surface all N.
 
@@ -585,7 +585,7 @@ Tech-Debt AND no commit has touched the file since that entry's date:
   -> DROP. Audit reason: "Q1: prior <decision> recorded <date>, no commits since."
 
 If the file has been touched since the prior entry, the prior decision is invalidated
-(the code may now have a real bug). Re-evaluate via Q2-Q5.
+(the code may now have a real bug). Re-evaluate via Q2-Q6.
 
 Use literal file path matching. Renames are rare; if a file was renamed, the prior
 decision will simply not match and the finding gets surfaced fresh - the audit log
@@ -1074,7 +1074,7 @@ create it with this header:
 # Review Decisions
 
 Cumulative per-finding triage history. Each entry records a Defer/Ignore/Tech-Debt
-decision from a `/review` cycle. Used by `/review` Phase 5 Reality Filter Q1
+decision from a `/review` cycle. Used by `/review` Phase 6 Reality Filter Q1
 (repeat-offender check) on subsequent runs.
 
 This file is NOT a substitute for ADRs. ADRs document permanent design choices
