@@ -137,8 +137,8 @@ The vault-extract agent's contract (REQ-MEM-009):
 3. Acts as the LLM extractor for each changed file: reads the file, produces a chunk JSON (nodes / edges / hyperedges matching graphify's schema; `[[wikilinks]]` become concept nodes with `source_file: null` for cross-repo dedup).
 4. Loads the persistent vault graph at `/home/user/Vault/graphify-out/vault-graph.json` (starting from an empty graph if absent), merges the new chunk's nodes/edges using a hash-keyed union (existing IDs dedupe, new IDs append), and writes the updated cumulative graph back to `vault-graph.json`. This is what `graphify global add ... --as user_vault` consumes, so the global graph's `user_vault` tag always reflects cumulative vault content rather than only the most recent extraction. Prior to REQ-MEM-009, each pass replaced the entire `user_vault` entry with the chunk graph, causing vault knowledge to shrink on every extraction (observed: 17 nodes -> 2 nodes after two stub files were extracted).
 5. Run `flock -w 5 /tmp/graphify-global.lock graphify global add ... --as user_vault`.
-5b. Re-render the vault viz HTML: run `graphify cluster-only .` (cwd `/home/user/Vault`) against the per-run `graph.json` and copy `graph.html` into `Raw/Graphs/vault-graph.html` so the `Vault Graph.md` index page link resolves. Non-fatal: failure here does not set `EXTRACT_FAILED` because graph data is already persisted by steps 4-5; the only loss is a stale viz HTML and the next successful extraction re-renders.
-6. Touch `vault-extract.last` -- FINAL step only.
+6. Re-render the vault viz HTML: run `graphify cluster-only .` (cwd `/home/user/Vault`) against the per-run `graph.json` and copy `graph.html` into `Raw/Graphs/vault-graph.html` so the `Vault Graph.md` index page link resolves. Non-fatal: failure here does not set `EXTRACT_FAILED` because graph data is already persisted by steps 4-5; the only loss is a stale viz HTML and the next successful extraction re-renders.
+7. Touch `vault-extract.last` -- FINAL step only.
 
 ## Unified Global Graph (REQ-VAULT-004)
 

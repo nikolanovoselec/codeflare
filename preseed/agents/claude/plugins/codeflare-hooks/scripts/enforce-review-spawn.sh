@@ -479,9 +479,22 @@ retroactive_ack_scan() {
 
     # Destination SHA from THIS push's window. git push abbreviates SHAs
     # to 7 chars; expand to full 40-hex via git rev-parse.
+    #
+    # Regex target-branch is `[A-Za-z0-9_-]+` (NO slash) to exclude
+    # `git fetch` output: fetch writes `<old>..<new>  <ref> -> <remote>/<ref>`
+    # with a slash in the target. Push writes `<old>..<new>  <ref> -> <ref>`
+    # with a plain target. Without this exclusion, a `git fetch` between
+    # pushes in the same turn would land its own SHA pair in the window
+    # and `head -1` would pick the wrong (fetched, not pushed) SHA.
+    #
+    # `gh pr merge` does NOT emit a `xxxxxxx..yyyyyyy` line at all (it
+    # prints "Merged pull request #N"), so this regex extracts nothing
+    # and the window is silently skipped. That is the right behaviour:
+    # the next normal `git push` to develop will absorb the merge diff
+    # into its cumulative review window via the running_ack chain.
     local sha_short
     sha_short=$(awk -v s="$start" -v e="$end" 'NR >= s && NR < e' "$TRANSCRIPT" \
-      | grep -oE '[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}[[:space:]]+[A-Za-z0-9_/-]+[[:space:]]+[A-Za-z0-9_/-]*->[[:space:]]*[A-Za-z0-9_/-]+' \
+      | grep -oE '[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}[[:space:]]+[A-Za-z0-9_/-]+[[:space:]]+->[[:space:]]+[A-Za-z0-9_-]+' \
       | head -1 \
       | sed -E 's/^[0-9a-f]+\.\.([0-9a-f]+).*/\1/')
     [ -n "$sha_short" ] || continue
@@ -493,11 +506,18 @@ retroactive_ack_scan() {
     local required_lanes
     required_lanes=$(compute_required_lanes "$running_ack" "$push_sha" 2>/dev/null)
 
-    # Empty required lanes -> push has no review surface (or no diff at
-    # all) -> trivially acked.
+    # Empty required lanes - the lane classifier returns empty ONLY for
+    # the no-op short-circuit (running_ack == push_sha). For any other
+    # uncertainty branch it returns all-three fail-closed. Treat empty
+    # output as a trivial ack ONLY when the SHAs actually match; any
+    # other empty result is a classifier regression and we fail-closed
+    # by leaving running_ack alone (a later complete window will absorb
+    # this push's diff).
     if [ -z "$required_lanes" ]; then
-      best_sha="$push_sha"
-      running_ack="$push_sha"
+      if [ "$running_ack" = "$push_sha" ]; then
+        best_sha="$push_sha"
+        running_ack="$push_sha"
+      fi
       continue
     fi
 

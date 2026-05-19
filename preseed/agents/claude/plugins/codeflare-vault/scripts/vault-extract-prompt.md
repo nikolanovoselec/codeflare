@@ -38,8 +38,8 @@ build steps from graphify's internal Python API.
 
 ## Steps
 
-Execute IN ORDER. Step 6 is the marker advance and MUST be last - any
-failure between steps 1 and 5 leaves the high-water mark old, and the
+Execute IN ORDER. Step 7 is the marker advance and MUST be last - any
+failure between steps 1 and 6 leaves the high-water mark old, and the
 next vault-monitor daemon tick (60s) re-discovers the same files.
 Eventual consistency, no work lost.
 
@@ -53,7 +53,7 @@ A concurrent UserPromptSubmit firing while this agent runs must not
 re-spawn another instance. Deleting the vars file immediately closes
 that window. The daemon will only rewrite the marker if its next tick
 finds files newer than `vault-extract.last`, which only advances in
-step 6.
+step 7.
 
 ### 2. List files changed since last successful extraction
 
@@ -77,7 +77,7 @@ Exclusions:
 - `.silverbullet/` - editor config + plug cache, no semantic content.
 - `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` - codeflare-authoritative preseed pages (REQ-VAULT-001 AC7); never user-edits.
 
-If the find returns zero files, skip to step 6 (touch the marker so we
+If the find returns zero files, skip to step 7 (touch the marker so we
 do not keep re-running on the same empty result).
 
 ### 3. Read files and emit a chunk JSON
@@ -199,7 +199,7 @@ that is not a PDF, empty, permission-denied) log the path and skip;
 continue with the others. PDFs are NOT covered by this skip path -
 they go through sub-step 3a above. If ALL files fail, still write an
 empty chunk JSON (`{"nodes":[],"edges":[],"hyperedges":[],...}`) and
-continue - step 6 needs to advance the marker so we do not loop on
+continue - step 7 needs to advance the marker so we do not loop on
 the same broken files.
 
 ### 4. Build a vault graph.json from the chunk, merging into the persistent vault-graph
@@ -267,7 +267,7 @@ print(f'vault graph: {G_merged.number_of_nodes()} nodes ({G_new.number_of_nodes(
 " ) || EXTRACT_FAILED=1
 ```
 
-If the Python step or `flock -w 5` failed (lock holder wedged or build error), `EXTRACT_FAILED` is set. Step 6 reads this flag and skips the marker-touch so the next 60s daemon tick re-discovers the same changed files. The wrapper used to be `|| true` (silent swallow); replaced because that allowed a silent failure to advance the high-water mark and lose the change permanently.
+If the Python step or `flock -w 5` failed (lock holder wedged or build error), `EXTRACT_FAILED` is set. Step 7 reads this flag and skips the marker-touch so the next 60s daemon tick re-discovers the same changed files. The wrapper used to be `|| true` (silent swallow); replaced because that allowed a silent failure to advance the high-water mark and lose the change permanently.
 
 The `flock` lock matches the one used by `graphify global add` in step 5
 and `graphify-active-repo.sh`, so concurrent writers do not stomp the
@@ -295,7 +295,7 @@ vault state on every run instead of clobbering it.
     /home/user/Vault/graphify-out/vault-graph.json --as user_vault ) || EXTRACT_FAILED=1
 ```
 
-Same pattern as step 4: any failure here (lock timeout, graphify CLI absent, malformed graph.json) sets `EXTRACT_FAILED=1` and step 6 will leave the high-water marker old so the daemon retries.
+Same pattern as step 4: any failure here (lock timeout, graphify CLI absent, malformed graph.json) sets `EXTRACT_FAILED=1` and step 7 will leave the high-water marker old so the daemon retries.
 
 `graphify global add` is hash-keyed and idempotent - re-running it
 with the same `vault-graph.json` content is a no-op. Tagged `--as user_vault` so
@@ -306,7 +306,7 @@ The internal `external_labels` pass dedupes concept nodes (those with
 `global_add` function node from any per-repo graph that has the same
 label.
 
-### 5b. Re-render the vault viz HTML
+### 6. Re-render the vault viz HTML
 
 The vault `Raw/Graphs/Vault Graph.md` index page links to
 `vault-graph.html`. Without this step, the HTML drifts behind the JSON
@@ -335,7 +335,7 @@ Failure here is intentionally NON-fatal (no `EXTRACT_FAILED=1`): the
 graph data is already persisted by steps 4-5, the only loss is a
 stale viz HTML. The next successful extraction re-renders.
 
-### 6. Advance the high-water mark - FINAL step
+### 7. Advance the high-water mark - FINAL step
 
 ```bash
 if [ -z "${EXTRACT_FAILED:-}" ]; then
