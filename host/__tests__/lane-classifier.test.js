@@ -44,18 +44,29 @@ function commitFile(cwd, run, relpath, body, msg) {
 function classify(cwd, lastAck, current) {
   // Source the lib then invoke. Use bash -c so the function definition is
   // scoped to a single subshell and cannot leak between cases.
+  //
+  // CodeQL js/shell-command-injection-from-environment: pass LIB_PATH and
+  // the SHA arguments as positional argv ($1, $2, $3) rather than
+  // string-interpolating them into the script body. Even though the test
+  // SHAs come from `git rev-parse HEAD` (40-char hex, safe) and LIB_PATH
+  // is fixed by the test layout, defence-in-depth keeps shell metacharacters
+  // out of the script string regardless of fixture future shape.
   const script = `
-    . "${LIB_PATH}"
-    compute_required_lanes "${lastAck}" "${current}"
+    . "$1"
+    compute_required_lanes "$2" "$3"
   `;
-  const r = spawnSync('bash', ['-c', script], { cwd, encoding: 'utf8' });
+  const r = spawnSync(
+    'bash',
+    ['-c', script, 'classify', LIB_PATH, lastAck, current],
+    { cwd, encoding: 'utf8' },
+  );
   if (r.status !== 0) {
     throw new Error(`classify failed: status=${r.status} stderr=${r.stderr}`);
   }
   return r.stdout.trim();
 }
 
-describe('compute_required_lanes — initial state', () => {
+describe('compute_required_lanes - initial state', () => {
   it('empty last_ack returns all three lanes', () => {
     const { cwd, run } = makeRepo();
     const sha = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: foo');
@@ -63,7 +74,7 @@ describe('compute_required_lanes — initial state', () => {
   });
 });
 
-describe('compute_required_lanes — equal SHAs', () => {
+describe('compute_required_lanes - equal SHAs', () => {
   it('last_ack equals current returns empty (no-op advance)', () => {
     const { cwd, run } = makeRepo();
     const sha = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: foo');
@@ -71,7 +82,12 @@ describe('compute_required_lanes — equal SHAs', () => {
   });
 });
 
-describe('compute_required_lanes — force-push / non-ancestor', () => {
+describe('compute_required_lanes - divergent-branch / non-ancestor', () => {
+  // Named "divergent branch" rather than "force-push" because the
+  // fixture commits on a side branch without rewriting history. The
+  // classifier guard fires on the same `merge-base != last_ack`
+  // condition that would catch a real force-push, but a true force-
+  // push test would `git reset --hard` and reflog-orphan the old SHA.
   it('last_ack on a divergent branch falls back to all three lanes', () => {
     const { cwd, run } = makeRepo();
     const baseSha = commitFile(cwd, run, 'src/base.ts', '1\n', 'feat: base');
@@ -91,7 +107,7 @@ describe('compute_required_lanes — force-push / non-ancestor', () => {
   });
 });
 
-describe('compute_required_lanes — file classification', () => {
+describe('compute_required_lanes - file classification', () => {
   it('documentation/ only diff returns doc-updater only', () => {
     const { cwd, run } = makeRepo();
     const base = commitFile(cwd, run, 'src/foo.ts', '1\n', 'feat: base');
@@ -160,7 +176,7 @@ describe('compute_required_lanes — file classification', () => {
   });
 });
 
-describe('compute_required_lanes — rename safety (--no-renames)', () => {
+describe('compute_required_lanes - rename safety (--no-renames)', () => {
   it('src->doc rename still classifies as behavioral (rename attack guard)', () => {
     // Adversarial case: a rename from src/foo.ts to documentation/foo.md
     // would, under default rename detection, emit ONLY the new path and

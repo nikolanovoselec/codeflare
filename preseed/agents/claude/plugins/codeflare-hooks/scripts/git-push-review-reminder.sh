@@ -278,7 +278,7 @@ if [ "$TRIGGER" = "pr-open" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Lane classification — emit a directive naming ONLY the required lanes
+# Lane classification - emit a directive naming ONLY the required lanes
 # instead of always demanding code+spec+doc. The classifier is the same
 # function the Stop hook uses, so the in-turn nudge and the turn-end gate
 # agree on which agents are needed. Without this, a doc-only push made
