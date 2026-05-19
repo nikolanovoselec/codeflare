@@ -379,13 +379,13 @@ The hook surfaces blocks as `hookSpecificOutput.permissionDecision: deny` with a
 
 **Interaction flow.** Both Greenfield and Import Mode run as a lean two-confirm flow: the agent asks one vision question (or accepts inline `$ARGUMENTS`), drafts the entire spec in memory (actors, domains, design principles, REQs in canonical shape, CON-* constraints, founding ADRs, glossary terms), presents the full draft as one review surface, and applies edits in place until the user accepts. The 10-15-turn one-domain-at-a-time confirmation chain is not used.
 
-**Enrichment pass.** After the draft is accepted, before any files are written, three passes run automatically in one in-memory cycle:
+**Enrichment pass.** After the draft is accepted, before any files are written, three passes run automatically in one in-memory cycle. All three query the project's `graphify-out/graph.json` for structural inputs; the post-clone PostToolUse hook (REQ-AGENT-025) prompts the user to build a graph immediately after `git clone`, so the graph is normally already in place by the time `/sdd init` runs:
 
-- **Cross-link pass** - every REQ that references another REQ concept by name also gains it in `Dependencies:` as an anchor link `[REQ-X-NNN](#req-x-nnn-title-slug)`.
-- **ADR-seed pass** - 3-8 founding ADRs covering non-obvious technology choices (stack, framework, deployment target, auth pattern, data store, key middleware) are written to `documentation/decisions/README.md` with an index table at the top and per-ADR sections below.
-- **Glossary-seed pass** - every product noun, vendor name, and protocol mentioned in any REQ Intent or AC body is given a one-line definition in `sdd/glossary.md`.
+- **Cross-link pass** - `mcp__graphify__get_neighbors` returns every node that shares an edge with a referenced REQ / CON / concept; every drafted REQ that names another REQ in its body also gains it in `Dependencies:` as an anchor link `[REQ-X-NNN](#req-x-nnn-title-slug)`.
+- **ADR-seed pass** - `mcp__graphify__god_nodes(top_n=20)` returns the most-connected nodes (architectural pillars). 3-8 surviving candidates (tech stack, framework, deployment target, auth pattern, data store, key middleware) become founding ADRs in `documentation/decisions/README.md` with an index table and per-ADR sections. Candidates that fail the "What is NOT an ADR" test (no real alternative considered) are dropped.
+- **Glossary-seed pass** - `mcp__graphify__query_graph` for concept-tagged nodes (graphify emits these with `source_file: null`); each becomes a one-line glossary entry in `sdd/glossary.md`. Synonym clusters land in `documentation/README.md`'s synonym glossary slot.
 
-No additional user prompts during the enrichment cycle.
+No additional user prompts during the enrichment cycle. When the graphify graph is missing at enrichment time (rare - the post-clone hook offered to build one), `/sdd init` prompts the user once for `/graphify cluster-only` (AST-only, free); on decline, enrichment falls back to an in-memory heuristic (literal-string matching across the draft) with a one-line notice in `sdd/changes.md` recording reduced cross-link density. The `mcp__graphify__*` MCP tools are tool-agnostic and work identically under both Bash and context-mode (`mcp__context-mode__ctx_*`) environments.
 
 **Scaffold slots.** At scaffold time `/sdd init` also touches `sdd/.review-needed.md`, `sdd/.coverage-report.md`, and `sdd/.last-clean-run.md` with a single `_Awaiting first run._` placeholder so the slot structure is visible from day one.
 

@@ -186,7 +186,7 @@ The greenfield flow is a **lean two-confirm** loop: vision in, full draft out, s
 
 5. **Present the full draft as one review surface**: a tree showing the domain index + brief per-domain summary + the seeded ADR list + the glossary preview. Ask one question: `Accept as-is, edit a section (name it), or restart?` Apply edits in place until the user accepts.
 
-6. **Run enrichment** (see SKILL.md § Enrichment pass): cross-link Dependencies anchors across all drafted REQs, finalize ADR-to-REQ backlinks, ensure every term mentioned in any REQ is in the glossary. Single in-memory transform, no further user prompts.
+6. **Run enrichment** (see SKILL.md § Enrichment pass): the three passes query the project's `graphify-out/graph.json` for structural inputs. Per REQ-AGENT-025, the post-clone hook prompts the user to build a graph immediately after `git clone`, so the graph is expected to exist at `/sdd init` time. If it is missing, prompt the user once for `/graphify cluster-only` (AST-only, free), then run cross-link / ADR-seed / glossary-seed via `mcp__graphify__get_neighbors`, `mcp__graphify__god_nodes`, and `mcp__graphify__query_graph`. Fallback to in-memory heuristic when the user declines the graph build. All three passes run in one cycle, no further user prompts. MCP graph tools are tool-agnostic — they work identically under Bash and context-mode environments.
 
 7. **Read scaffolding templates** from `~/.claude/skills/spec-driven-development/references/templates/` and substitute placeholders (`{PROJECT_NAME}`, `{ACTOR_1}`, `{INSTALL_COMMAND}`, etc.) from the user's vision + inferred context.
 
@@ -313,7 +313,7 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
 
 7. **Present the full inferred spec as one review surface** (same lean shape as greenfield step 5): pre-filled vision from README, derived domains with their CLEAR REQ titles, triage queue size, founding ADRs inferred from stack + middleware, glossary preview. Ask one question: `Accept as-is, edit a section (name it), or treat as fresh start?` Apply edits in place until the user accepts. The agent's confidence threshold (single matching domain + unambiguous behavior + clear evidence in code/PRs/tests) is the gate; anything not meeting it became a triage entry in step 4. Triage items are NOT walked through here — Resume Mode handles them later, one at a time, at the user's pace.
 
-8. **Run enrichment** (cross-link Dependencies anchors across REQs, finalize ADR-to-REQ backlinks, ensure glossary covers every product noun mentioned in any REQ — same Phase as greenfield step 6; see `~/.claude/skills/spec-driven-development/SKILL.md` § Enrichment pass). Single in-memory transform, no further user prompts.
+8. **Run enrichment** — same Phase as greenfield step 6; see `~/.claude/skills/spec-driven-development/SKILL.md` § Enrichment pass. Queries the project's `graphify-out/graph.json` (the post-clone graph triage hook ensures it exists by `/sdd init` time per REQ-AGENT-025). Cross-link via `mcp__graphify__get_neighbors`, ADR-seed via `mcp__graphify__god_nodes`, glossary-seed via `mcp__graphify__query_graph`. Fallback to in-memory heuristic if graph is missing and user declines build. Tool-agnostic across Bash and context-mode.
 
 9. **Write the scaffolding**:
    - `sdd/README.md` with derived domain index and Out of Scope section (empty)
