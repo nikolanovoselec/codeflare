@@ -199,7 +199,9 @@ The greenfield flow is a **lean two-confirm** loop: vision in, full draft out, s
    - `documentation/decisions/README.md` (seeded with the founding ADRs from step 4)
    - `tests/` (empty directory)
 
-9. **Print next steps**:
+9. **Commit the scaffold** as a single commit with subject `[sdd-init] initial spec scaffold`. The `[sdd-init]` prefix is excluded from the spec-reviewer round counter per `spec-discipline.md`, so the very first commit after init does not consume a round.
+
+10. **Print next steps**:
    ```
    ✓ Spec created at sdd/
    ✓ Documentation scaffolding at documentation/ (incl. founding ADRs)
@@ -220,7 +222,7 @@ The greenfield flow is a **lean two-confirm** loop: vision in, full draft out, s
      /sdd mode unleashed           → walk-away mode (PR-based review)
    ```
 
-10. **NEXT ACTION — MANDATORY**: enter Plan Mode. No code, tests, or config under `src/`, `lib/`, `app/`, `pkg/`, `tests/` before Plan Mode. Hard gate. "build now" / "go" / "execute" / "ship it" / "just do it" authorize starting, never skipping. See `Plan Mode integration` in the `spec-driven-development` skill.
+11. **NEXT ACTION — MANDATORY**: enter Plan Mode. No code, tests, or config under `src/`, `lib/`, `app/`, `pkg/`, `tests/` before Plan Mode. Hard gate. "build now" / "go" / "execute" / "ship it" / "just do it" authorize starting, never skipping. See `Plan Mode integration` in the `spec-driven-development` skill.
 
 ### Import Mode (existing codebase)
 
@@ -239,7 +241,7 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
 
 1. **Confirm intent with the user**:
    > "Detected existing codebase: {N} source files, {framework} project. I'll derive a spec from the full project history (working tree, git log, pull requests, issues, releases). What I can read clearly becomes official spec. What I can't — magic numbers, retry policies, ambiguous contracts — becomes a triage queue with my best-guess answer attached, for you to confirm or correct at your own pace by re-running `/sdd init`. The project stays in SDD transition until the queue drains, then full autonomous agentic coding is unlocked. Continue, or treat this as a fresh start (ignore existing code)?"
-   - If user picks "fresh start": jump to step 4 in the greenfield flow above
+   - If user picks "fresh start": jump to step 3 in the greenfield flow above (the vision question)
    - If user picks "derive from code" (default): continue
 
 2. **Analyze the project** (evidence vacuum). Discovery is NOT limited to source code — intent often lives outside the working tree (in PRs, issues, release notes, code review comments). Pull every available source and weight them equally:
@@ -303,7 +305,7 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
    - **Acceptance Criteria**: observable behavior at the user-facing level, derived from named test assertions or documented contracts. Numbered (`1.`, `2.`, `3.`), never bulleted.
    - **Status**:
      - `enforce_tdd: true` — `Implemented` if a test references the REQ ID, `Partial` otherwise.
-     - `enforce_tdd: false` (Import Mode default) — `Implemented` unconditionally when source code implements the AC. Demoting every imported REQ to `Partial` because tests don't reference REQ IDs (the imported code predates the convention) would falsely brand the spec 65%+ incomplete. The domain README receives one footnote `_Verification: code-only (no automated coverage)._` at the bottom; per-REQ Notes are not used for this signal.
+     - `enforce_tdd: false` (Import Mode default) — `Implemented` unconditionally when source code implements the AC. Demoting every imported REQ to `Partial` because tests don't reference REQ IDs (the imported code predates the convention) would falsely brand the spec 65%+ incomplete. Each `sdd/{domain}.md` file (per domain, not the top-level `sdd/README.md`) receives one footnote `_Verification: code-only (no automated coverage)._` at the bottom; per-REQ Notes are not used for this signal.
    - **Priority**: P0 for core flows, P1 for supporting features, P2 for polish, P3 for stretch
    - **Constraints**: linked `[CON-X-NNN](constraints.md#anchor)` references, or literal `None.` when empty
    - **Dependencies**: cross-domain links rendered as `[REQ-X-NNN](other-domain.md#anchor)` (or `#anchor` for same-file), or literal `None.` when empty
@@ -327,7 +329,9 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
    - `documentation/` scaffolding from templates, with backlinks to CLEAR REQs where applicable; `documentation/decisions/README.md` seeded with the founding ADRs from the enrichment pass
    - Root `README.md` updated to reference `sdd/` and `documentation/` (preserve existing content — append the SDD section)
 
-10. **Print next steps**:
+10. **Commit the scaffold** as a single commit with subject `[sdd-init] initial spec scaffold (import)`. Same `[sdd-init]` prefix exclusion from the round counter as greenfield init.
+
+11. **Print next steps**:
     ```
     ✓ Spec imported from existing codebase
     ✓ {N} clear requirements across {M} domains
@@ -434,7 +438,7 @@ Triggered when `/sdd init` is invoked on a project where `sdd/` already exists a
      planning. "go" / "execute" / "ship it" / "build now" authorize
      starting the plan, never skipping it.
      ```
-   - Enter Plan Mode (same gate as greenfield `/sdd init` step 10).
+   - Enter Plan Mode (same gate as greenfield `/sdd init` step 11).
 
 To re-open a previously resolved or lost item, the user edits `sdd/init-triage.md` directly: change `**Status:**` back to `open`. The next `/sdd init` Resume Mode run surfaces it again. Note: re-opening does NOT automatically un-fold the prior Resolution from the Target REQ — the user reverts that edit manually (the REQ history is in `git log sdd/{domain}.md`).
 

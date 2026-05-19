@@ -78,7 +78,7 @@ When `enforce_tdd: true`:
 
 When `enforce_tdd: false`:
 
-1. **Status assignment for newly-drafted REQs (Import Mode + `/sdd edit` / `/sdd add` while `enforce_tdd: false`)**: default `Implemented` when source code implements the AC, regardless of test presence. The project has opted out of test-based verification; demoting every REQ to `Partial` because tests don't reference REQ IDs would falsely brand the spec 65%+ incomplete. The domain README receives one footnote `_Verification: code-only (no automated coverage)._` at the bottom; per-REQ `Notes:` are NOT used for this signal.
+1. **Status assignment for newly-drafted REQs (Import Mode + `/sdd edit` / `/sdd add` while `enforce_tdd: false`)**: default `Implemented` when source code implements the AC, regardless of test presence. The project has opted out of test-based verification; demoting every REQ to `Partial` because tests don't reference REQ IDs would falsely brand the spec 65%+ incomplete. Each `sdd/{domain}.md` file (per domain, not the top-level `sdd/README.md`) receives one footnote `_Verification: code-only (no automated coverage)._` at the bottom; per-REQ `Notes:` are NOT used for this signal.
 2. **No auto-demote on existing REQs**: do not move `Implemented` → `Partial` based on test absence alone. Source-vs-spec drift findings still emit, but as informational entries in `sdd/.coverage-report.md`, never as Status mutations.
 3. **CQ-1, CQ-2, CQ-3 still run** and write to `sdd/.coverage-report.md` rather than mutating spec.
 

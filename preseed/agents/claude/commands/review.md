@@ -61,7 +61,7 @@ PHASES
   3   REQ behavioral verification (only when --deep)
   4   Cross-reference + dedup
   5   AD filtering against documentation/decisions/README.md
-  6   Reality Filter (Q1-Q5)
+  6   Reality Filter (Q1-Q6)
   7   LLM verification (only when --verify-high)
   8   Interactive triage (only phase in main session context)
   9   Save triage + append to sdd/.review-decisions.md
@@ -132,8 +132,9 @@ Step 1a — parse `$ARGUMENTS` into four variables:
 - `$VERIFY_HIGH` = `true` (if `--verify-high` present as a standalone token) else `false`.
 - `$SCOPE_HINT` = remaining free text after stripping the four known flags. Empty string if nothing left.
 
-Step 1b — create the run directory:
+Step 1b — resolve the project root and create the run directory:
 ```bash
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 REVIEW_DIR=/home/user/Temporary/Review/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$REVIEW_DIR"
 ln -sfn "$REVIEW_DIR" /home/user/Temporary/Review/latest
@@ -169,14 +170,19 @@ Step 1e — refresh the graphify graph so every downstream phase queries current
 
 ```bash
 if [ -f "$PROJECT_ROOT/graphify-out/graph.json" ]; then
-  # AST-only refresh, free, ~5-15s on medium repos; ensures graph reflects current HEAD
-  (cd "$PROJECT_ROOT" && graphify update . --no-viz 2>>"$REVIEW_DIR/.graphify-update.log") || true
+  # AST-only refresh, free, ~5-15s on medium repos; ensures graph reflects current HEAD.
+  # If the refresh fails, the on-disk graph may be stale relative to HEAD — Q6 graph-orphan
+  # would then false-positive-DROP real findings. Set the no-graph marker on failure so
+  # downstream phases use the safer grep-style fallback instead of trusting stale state.
+  if ! (cd "$PROJECT_ROOT" && timeout 180 graphify update . --no-viz 2>>"$REVIEW_DIR/.graphify-update.log"); then
+    echo "Note: graphify update . failed or timed out at $(date -Iseconds). Graph at $PROJECT_ROOT/graphify-out/graph.json may be stale; treating as no-graph to avoid stale-orphan false positives. See .graphify-update.log for details." > "$REVIEW_DIR/.no-graph.notice"
+  fi
 else
   echo "Note: no graphify graph at $PROJECT_ROOT/graphify-out/graph.json - structural review checks will fall back to grep-style search. Run /graphify once to enable graph-aware review." > "$REVIEW_DIR/.no-graph.notice"
 fi
 ```
 
-The update runs at most once per `/review` invocation. Errors are non-fatal (the review still runs without graph queries); the log captures them for debugging. When the graph is absent, downstream phases that would query graphify silently fall back to grep-equivalent search. Tool-agnostic: in context-mode environments the same step runs via `mcp__context-mode__ctx_execute` for the `graphify update` call; in plain Bash via the snippet above.
+The update runs at most once per `/review` invocation, with a 180s hard timeout to prevent indefinite hang. Failures (non-zero exit, timeout, missing CLI) are non-fatal and write `.no-graph.notice` — downstream phases fall back to grep-equivalent search instead of risking stale-graph false positives. Tool-agnostic: in context-mode environments the same step runs via `mcp__context-mode__ctx_execute` for the `graphify update` call; in plain Bash via the snippet above.
 
 ## Phase 2: Parallel Agent Dispatch (6 Task agents)
 
@@ -360,6 +366,17 @@ Follow your standard verification procedure (read REQ, identify impl, read impl,
 read tests, judge per AC, suggest fix type for mismatches). Write findings to
 your OUTPUT_FILE in the format defined in your agent definition.
 
+For REQ-to-impl mapping and AC-to-symbol chain verification, PREFER the
+`mcp__graphify__*` MCP tools (`get_node`, `get_neighbors`, `shortest_path`,
+`query_graph`) over grep-style search. `shortest_path(REQ-X-NNN, <cited-symbol>)`
+is the structural axis for behavioural-match verification: if the graph returns
+a path, the impl chain exists; no path means the implementation is missing or
+named differently. The graph at [PROJECT_ROOT]/graphify-out/graph.json was
+refreshed in Phase 1 Step 1e. If [REVIEW_DIR]/.no-graph.notice exists, the
+graph is unavailable or stale - fall back to grep / Read for impl identification
+and record "graph unavailable" as evidence for any unclear verdict. Graphify
+MCP tools work identically under both Bash and context-mode environments.
+
 Severity rubric: CRITICAL for security/auth/billing/data-loss AC mismatches,
 HIGH for behavioral mismatches in general, MEDIUM for unclear verdicts, LOW
 reserved for cosmetic drift.
@@ -524,7 +541,7 @@ Task agent prompt:
 You are the REALITY FILTER stage of a multi-cycle codebase review. Your job is to take
 the AD-filtered list of N active findings and produce the SHORT list of REAL findings
 worth surfacing to the user, plus an audit log of every drop. Filter ruthfully against
-questions Q1-Q5 below. Do NOT filter to hit a target count - if all N findings survive
+questions Q1-Q6 below. Do NOT filter to hit a target count - if all N findings survive
 the questions, surface all N.
 
 ## Inputs to read
@@ -551,6 +568,12 @@ the questions, surface all N.
    it ONLY if MCP memory is unreachable.
 7. (Optional) [PROJECT_ROOT]/pending.md if present - explains in-flight work that may
    make a "missing feature" finding actually a known gap.
+8. Graphify code-knowledge graph at [PROJECT_ROOT]/graphify-out/graph.json — queried
+   via mcp__graphify__get_community (Q3 cluster grouping), mcp__graphify__shortest_path
+   (Q5 chain validation), mcp__graphify__get_node (Q6 graph-orphan check). If
+   [REVIEW_DIR]/.no-graph.notice is present, the graph is unavailable or stale: Q3
+   falls back to category-only grouping, Q5 skips the graph step and keeps original
+   severity, Q6 is inert this cycle.
 
 ## The six questions, applied per finding (DROP, KEEP, or DEMOTE-to-Tech-Debt)
 
@@ -643,7 +666,9 @@ If source confirms finding:
   -> KEEP at the original severity (often HIGH or CRITICAL for doc drift on
      security or billing). Add evidence: "Verified at <file:line>: <quote>."
 
-When the finding claims a spec-to-implementation chain ("REQ-X-NNN says the auth endpoint validates X but `routes/auth.ts:42` does not"), additionally call `mcp__graphify__shortest_path(<REQ-or-AC-node>, <cited-symbol>)` to confirm the structural chain exists. If the graph returns no path, the cited mapping may be stale (the symbol was renamed or moved). In that case, downgrade to MEDIUM with audit reason "Q5: graph chain not found; cited symbol may be stale." If the graph returns a path: keep at original severity and record the path as evidence.
+When the finding claims a spec-to-implementation chain ("REQ-X-NNN says the auth endpoint validates X but `routes/auth.ts:42` does not"), additionally call `mcp__graphify__shortest_path(<REQ-or-AC-node>, <cited-symbol>)` to confirm the structural chain exists. If `$REVIEW_DIR/.no-graph.notice` exists, skip this graph-aware step and keep the finding at its original severity (the source-read check above is sufficient). If the graph is present and `shortest_path` returns no path, the cited mapping may be stale (the symbol was renamed or moved). In that case, downgrade to MEDIUM with audit reason "Q5: graph chain not found; cited symbol may be stale." If the graph returns a path: keep at original severity and record the path as evidence.
+
+Q5 downgrades to MEDIUM (from a no-path shortest_path result) appear in the "Real Findings" section at the downgraded severity AND in the audit log under "Q5 downgrades" — they are NOT silent. See output schema below.
 
 ### Q6: Graph-orphan check (graphify-aware)
 
@@ -730,6 +755,9 @@ will treat these as Tech-Debt by default unless the user upgrades them.]
 
 ### Q5: Spec-vs-shipped truth-test failures (X)
 - CF-NNN at <location>: cited <file:line>; actual code <quote>; finding's premise contradicted.
+
+### Q5: Downgrades to MEDIUM (X) [also listed in Real Findings at downgraded severity]
+- CF-NNN at <location>: original severity HIGH/CRITICAL; mcp__graphify__shortest_path found no chain to <cited-symbol>; cited mapping may be stale.
 
 ### Q6: Graph-orphan drops (X)
 - CF-NNN at <location>: cited symbol/file not present in current graphify graph; likely removed or renamed.

@@ -100,7 +100,7 @@ Every Active REQ in `sdd/{domain}.md` MUST render in this exact shape. Deviation
 
 **One word, no prose.** The Status field cannot contain commit SHAs, file paths, or "Partial — missing X, Y, Z" notes. Use the optional `Notes:` field (≤3 sentences) for Partial status only. Use `pending.md` for implementation tracking.
 
-**Default Status when source code exists but no test references the REQ ID:** when `enforce_tdd: true`, default is `Partial`. When `enforce_tdd: false`, default is `Implemented` — the project has opted out of test-based verification, and demoting every REQ to Partial would falsely brand the entire spec as incomplete. The domain README appends a one-line footnote `_Verification: code-only (no automated coverage)._` when this branch fires.
+**Default Status when source code exists but no test references the REQ ID:** when `enforce_tdd: true`, default is `Partial`. When `enforce_tdd: false`, default is `Implemented` — the project has opted out of test-based verification, and demoting every REQ to Partial would falsely brand the entire spec as incomplete. Each `sdd/{domain}.md` file (per domain, not the top-level `sdd/README.md`) appends a one-line footnote `_Verification: code-only (no automated coverage)._` at the bottom when this branch fires.
 
 **Removed and never-built REQs.** When a REQ stops being the contract — feature removed, replaced by another REQ, scope dropped — delete it from `sdd/{domain}.md` entirely. Do not tombstone with `Status: Deprecated`. Never-built ideas (considered and rejected) go to the `## Out of Scope` section in the relevant domain file or `sdd/README.md`. Mechanism in `spec-enforce` § Deprecated REQs are deleted.
 
@@ -197,7 +197,7 @@ Import Mode follows the **same lean two-confirm shape as greenfield**: derive ev
 
 **Status default for imported REQs.** When a CLEAR REQ has source code that implements the AC:
 - `enforce_tdd: true` (greenfield default) — Status defaults `Implemented` if a test file mentions the REQ ID, `Partial` otherwise.
-- `enforce_tdd: false` (Import Mode default) — Status defaults `Implemented` unconditionally when source exists; the project has opted out of test-based verification at import time, and demoting every imported REQ to Partial would falsely brand the entire spec as 65%+ incomplete. The domain README receives a single footnote `_Verification: code-only (no automated coverage)._` at the bottom. Per-REQ `Notes:` are not used for this — the footnote is the canonical signal.
+- `enforce_tdd: false` (Import Mode default) — Status defaults `Implemented` unconditionally when source exists; the project has opted out of test-based verification at import time, and demoting every imported REQ to Partial would falsely brand the entire spec as 65%+ incomplete. Each `sdd/{domain}.md` file (per domain, not the top-level `sdd/README.md`) receives a single footnote `_Verification: code-only (no automated coverage)._` at the bottom. Per-REQ `Notes:` are not used for this — the per-domain footnote is the canonical signal.
 
 This rule applies only during Import Mode and Resume Mode while `transition: true`. After transition closes, the normal `enforce_tdd` interaction in `spec-enforce-truth` governs Status assignment.
 
@@ -221,7 +221,7 @@ Only `accept` and `correct` promote the answer into the official spec REQs. `cor
 - `transition: true` is cleared from `sdd/config.yml`
 - A closure entry is appended to `sdd/changes.md` (e.g., `SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost).`)
 - `enforce_tdd` is NOT changed - the user flips it to `true` manually when ready for TDD enforcement (typically after adding REQ-ID test names)
-- The agent enters Plan Mode (same hard gate as greenfield `/sdd init` step 10) so the first feature work on top of the now-real spec is plan-gated
+- The agent enters Plan Mode (same hard gate as greenfield `/sdd init` step 11) so the first feature work on top of the now-real spec is plan-gated
 
 ### Tool surface compatibility (binding for every `/sdd` sub-command)
 
@@ -246,7 +246,7 @@ In **greenfield mode**, the agent runs a **lean two-confirm flow** — vision in
    - **CON-* constraints** (cross-cutting; technology stack, performance, security, observability)
    - **Founding ADRs** (3-8 seeded from the vision + inferred stack — tech stack choice, framework, deployment target, auth pattern, data store, key middleware)
    - **Glossary terms** (product nouns, vendor names, protocols, domain concepts — every one mentioned in any REQ)
-3. **Present the full draft as a single review surface**: a tree showing the domain index + a brief summary per domain + the seeded ADR list + the glossary. Ask one question: "Accept as-is, edit a section (name it), or restart?" Apply edits in place until the user accepts.
+3. **Present the full draft as a single review surface**: a tree showing the domain index + a brief summary per domain + the seeded ADR list + the glossary. Ask one question: "Accept as-is, edit a section (name it), or restart?" On `edit <section>`: re-draft only the named section in memory, re-present the full review surface, ask the same question again. On `restart`: discard the entire in-memory draft and return to step 1 (vision question). Loop until the user accepts. Phase 5 enrichment runs once, only after final acceptance — never per-edit.
 4. **Run Phase 5 enrichment in memory** (see Enrichment pass below) — cross-link Dependencies anchors across REQs, finalize ADR-to-REQ backlinks, ensure every term mentioned in a REQ exists in glossary.
 5. **Write all files** by instantiating templates from `references/templates/`:
    - `root-readme.md` → `README.md` (project root)
@@ -265,7 +265,8 @@ In **greenfield mode**, the agent runs a **lean two-confirm flow** — vision in
    - Empty `sdd/.review-needed.md`, `sdd/.coverage-report.md`, `sdd/.last-clean-run.md` with one-line `_Awaiting first run._` placeholder so the slot structure is visible from day one
    - Empty `tests/` directory
 6. **Substitute placeholders** like `{PROJECT_NAME}`, `{ACTOR_1}`, `{INSTALL_COMMAND}` with values inferred from the user's vision and the chosen stack
-7. **Report next steps** to the user
+7. **Commit the scaffold** as a single commit with subject `[sdd-init] initial spec scaffold`. The `[sdd-init]` prefix is excluded from the spec-reviewer round counter (per `spec-discipline.md` commit-prefix contract), so the very first commit after init does not consume a round.
+8. **Report next steps** to the user
 
 The agent does not need internet access — all templates are bundled in `references/templates/`.
 
@@ -283,7 +284,12 @@ After the full draft exists in memory (greenfield) or is derived from evidence (
 
 The three passes run in one in-memory cycle. The user already accepted the full draft in step 3; enrichment does not re-prompt.
 
-**Fallback: in-memory heuristic when graphify is unavailable and the user declined to build a graph.** Walk every drafted REQ; for every other REQ whose Intent or AC bullets reference the same concept by literal string match, propose a `Dependencies:` entry. Same for CON-* references. ADR-seed and glossary-seed are derived by the agent re-reading its own draft and extracting nouns / vendors / protocols. Print a one-line notice: `Note: enrichment used in-memory heuristic (graphify graph unavailable, user declined build). Cross-link density may be lower than a graphify-backed run.` Append the same notice to `sdd/changes.md`.
+**Fallback: in-memory heuristic.** Fire the fallback under ANY of these conditions:
+1. `graphify-out/graph.json` is absent AND the user declined to build a graph at the pre-condition prompt.
+2. Phase 5 ran `mcp__graphify__god_nodes(top_n=20)` and got an empty result (zero nodes) — the graph exists but is structurally empty (e.g. fresh repo with no code yet, or graphify build truncated). Same trigger if `mcp__graphify__query_graph` returns no concept nodes during glossary-seed.
+3. Any `mcp__graphify__*` call errors (MCP server down, graph file corrupt, permission denied).
+
+Fallback behaviour: walk every drafted REQ; for every other REQ whose Intent or AC bullets reference the same concept by literal string match, propose a `Dependencies:` entry. Same for CON-* references. ADR-seed and glossary-seed are derived by the agent re-reading its own draft and extracting nouns / vendors / protocols. Print a one-line notice: `Note: enrichment used in-memory heuristic ({reason}). Cross-link density may be lower than a graphify-backed run.` where `{reason}` is one of `graph absent, user declined build`, `graph empty (no nodes)`, or `graphify call failed: <error>`. Append the same notice to `sdd/changes.md`.
 
 **Tool surface compatibility (binding for the enrichment pass).** The `mcp__graphify__*` MCP tools (`get_neighbors`, `god_nodes`, `query_graph`, `shortest_path`, `get_node`, `get_community`, `graph_stats`) are tool-agnostic — they work identically under Bash environments and under context-mode (`mcp__context-mode__ctx_*`). No `ctx_execute` shell wrapping is required for graph queries. Triggering a `/graphify` build (when the graph is missing) is also a slash command, equivalent across both surfaces. The fallback in-memory heuristic uses no shell tool at all (pure agent reasoning over its own draft), so it is trivially compatible. Enrichment therefore conforms to the "every `/sdd` sub-command works under both Bash and context-mode" contract from § Tool surface compatibility.
 
