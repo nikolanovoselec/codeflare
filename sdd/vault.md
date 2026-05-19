@@ -10,7 +10,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - **Capture Agent** -- The background sonnet agent spawned by the memory-capture UserPromptSubmit hook. Writes one markdown file per 15-prompt batch into `Raw/Sessions/` and merges it into the unified global graph. Sonnet (not haiku) per AD58.
 - **Vault-monitor Daemon** -- A 60s polling loop in entrypoint.sh that watches for user-curated edits anywhere under `/home/user/Vault/` except the exclusion list (`Raw/Sessions/`, `graphify-out/`, `.silverbullet/`, and the four codeflare-authoritative root pages). Writes a trigger marker (`vault-extract.vars`) when changes are found. Uses the three-marker pattern (tick / high-water / trigger) to avoid the daemon-advances-mtime-before-extraction-reads-it race.
 - **Vault-extract Agent** -- The background sonnet agent spawned by `vault-monitor-hook.sh`. Runs graphify single-file extraction on the changed files, merges the resulting subgraph into the unified global graph, and advances the high-water marker as its final step. Sonnet (not haiku) per AD58: vault-extract emits citations into the cross-session graph and a confabulated ID is worse than a missing one.
-- **Unified Global Graph** -- `~/.graphify/global-graph.json`. Hash-keyed merge of every per-repo graphify-out plus the vault's own graph, kept in sync by `graphify global add` calls under `flock /tmp/graphify-global.lock`. The graphify MCP wrapper prefers this graph when present so `mcp__graphify__*` tool calls return a unified view.
+- **Unified Global Graph** -- `~/.graphify/global-graph.json`. Hash-keyed merge of every per-repo graphify-out plus the vault's own graph, kept in sync by `graphify global add` calls under `flock -w 5 /tmp/graphify-global.lock`. The graphify MCP wrapper prefers this graph when present so `mcp__graphify__*` tool calls return a unified view.
 - **SilverBullet** -- The Deno-compiled markdown editor (`silverbullet-server-linux-x86_64`) bound to `127.0.0.1:3030` inside the container. Reachable from the codeflare UI through the Worker proxy at `/api/vault/:sid/`. Auth boundary lives at the Worker.
 
 ### Out of Scope
@@ -73,7 +73,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 1. `memory-agent-prompt.md` Step 4 writes the capture file at `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter + Context/Decisions/Observations/References template.
 2. Concept references use `[[wikilinks]]`; file paths, code symbols, and PR/issue references stay as prose.
-3. Step 5 runs `flock /tmp/graphify-global.lock graphify extract --file ... && flock /tmp/graphify-global.lock graphify global add ... --as user_vault` so the new capture is merged into the unified graph atomically.
+3. Step 5 runs `flock -w 5 /tmp/graphify-global.lock graphify extract --file ... && flock -w 5 /tmp/graphify-global.lock graphify global add ... --as user_vault` so the new capture is merged into the unified graph atomically.
 4. If extraction fails, the markdown file stays on disk and the next vault-monitor tick will re-discover it via the high-water marker comparison.
 5. The MCP `server-memory` subsystem (`mcp__memory__*`) has been removed entirely; the capture agent does not invoke it, and no historical JSONL graph is read.
 
@@ -128,7 +128,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 4. The vault directory at `$HOME/Vault` is explicitly excluded from active-repo candidate resolution in `graphify-active-repo.sh`: when the walk-up loop reaches that path, the hook exits 0 without rewriting the sentinel or invoking `graphify global add`. The vault is registered exclusively by entrypoint init under the tag `user_vault`, so it is never re-tagged as `Vault` (basename) by a tool call that happens to touch a vault file, and the prune-on-switch logic in AC3 cannot remove it.
 5. A cheap fast-path skip avoids spawning graphify on every Bash/Edit/Write/ctx_execute call: when the resolved active-repo path equals the prior sentinel value AND `graphify-out/graph.json`'s mtime is not newer than the sentinel's mtime, the hook returns immediately. The sentinel is `touch`-bumped at the end of every non-fast-path fire so subsequent fires can short-circuit until the next graph rebuild.
 6. The `/graphify` skill's commit step includes a `flock graphify global add` call so a fresh `graphify build` lands in the global graph.
-7. All write sites (capture agent, vault-extract agent, active-repo hook, /graphify skill) serialise via `flock /tmp/graphify-global.lock` to prevent corrupted writes when multiple workflows race.
+7. All write sites (capture agent, vault-extract agent, active-repo hook, /graphify skill) serialise via `flock -w 5 /tmp/graphify-global.lock` to prevent corrupted writes when multiple workflows race; the 5s timeout ensures a crashed lock holder cannot wedge the queue indefinitely.
 
 **Constraints:**
 - `graphify global add` is hash-keyed and idempotent; re-running with the same `graph.json` is a no-op.

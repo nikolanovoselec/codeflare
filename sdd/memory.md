@@ -172,7 +172,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. Each extraction merges the new chunk's nodes/edges into the persistent graph using a hash-keyed union (existing IDs dedupe, new IDs append).
 3. The persistent vault graph is what `graphify global add ... --as user_vault` consumes, so the global graph's `user_vault` repo tag always reflects the cumulative vault content rather than only the most recent extraction.
 4. If the persistent vault graph file is missing or unreadable, the pass starts a fresh one (rather than crashing) and writes it at the end of the run.
-5. The merge step runs under `flock /tmp/graphify-global.lock` so it serialises with capture-pipeline writes and active-repo hooks.
+5. The merge step runs under `flock -w 5 /tmp/graphify-global.lock` so it serialises with capture-pipeline writes and active-repo hooks; the 5s timeout prevents indefinite block if the lock holder crashes, matching REQ-MEM-001 AC5.
 
 **Constraints:** None.
 

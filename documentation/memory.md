@@ -110,7 +110,7 @@ anymore.
 | Capture not firing | Counter not yet baselined, or transcript has `<15` new prompts | Check `~/.memory/counter/{session_id}` mtime; send a few more prompts and watch |
 | Capture spawns but no vault file | Capture agent failed mid-write | Check the agent's transcript for errors; the `.vars` file is gone but the counter has advanced -- next 15-prompt window will try again |
 | `mcp__graphify__query_graph` returns nothing | Global graph not built or wrapper still on per-repo | Verify `~/.graphify/global-graph.json` exists; restart MCP wrapper (it polls on a 2s loop) |
-| Same file extracted twice | Concurrent capture + vault-monitor tick | Both serialise via `flock /tmp/graphify-global.lock`; safe, but the last writer wins for that specific file's nodes |
+| Same file extracted twice | Concurrent capture + vault-monitor tick | Both serialise via `flock -w 5 /tmp/graphify-global.lock`; safe, but the last writer wins for that specific file's nodes |
 
 For hook registration, attribution-blocking, review-spawn enforcement,
 or session-mode gating issues, see [preseed.md](preseed.md#troubleshooting).
