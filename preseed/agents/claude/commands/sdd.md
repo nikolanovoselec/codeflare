@@ -585,3 +585,7 @@ When invoked, the agent should:
 2. Read the relevant sections of SKILL.md and the rules file
 3. Execute the sub-command's behavior as documented above
 4. Report results to the user
+
+## Tool surface compatibility
+
+Every `/sdd` sub-command must work under both Bash and the context-mode MCP tool family. Discovery commands that produce >20 lines (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) MUST go through `mcp__context-mode__ctx_batch_execute` or `mcp__context-mode__ctx_execute` in context-mode environments; the same commands run via Bash in plain environments. File writes always use Write/Edit on both surfaces. The behaviour described above is tool-agnostic — the agent picks the right wrapper for its environment. See `~/.claude/skills/spec-driven-development/SKILL.md` § Tool surface compatibility for the full contract.

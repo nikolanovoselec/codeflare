@@ -223,6 +223,18 @@ Only `accept` and `correct` promote the answer into the official spec REQs. `cor
 - `enforce_tdd` is NOT changed - the user flips it to `true` manually when ready for TDD enforcement (typically after adding REQ-ID test names)
 - The agent enters Plan Mode (same hard gate as greenfield `/sdd init` step 10) so the first feature work on top of the now-real spec is plan-gated
 
+### Tool surface compatibility (binding for every `/sdd` sub-command)
+
+The `/sdd` framework runs under two tool surfaces — plain Bash and the context-mode MCP tool family (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_search`, etc.). Every workflow phase below MUST work on both.
+
+- **Behavioural contract is tool-agnostic.** When a phase says "list 200 PRs" or "read git log", the agent picks the right tool for its environment. The skill describes WHAT to do, not WHICH shell wrapper.
+- **In context-mode environments** (codeflare sessions, any project where `enforce-ctx-mode.sh` is active), discovery commands that produce >20 lines of output (`gh pr list --state all --limit 200`, `gh issue list ...`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans) MUST go through `mcp__context-mode__ctx_batch_execute` or `mcp__context-mode__ctx_execute`. Bare Bash for these calls will be denied by the context-mode hook.
+- **In plain Bash environments** (vibe-coding mode, no context-mode plugin), the same commands run via the Bash tool directly.
+- **File writes always use Write/Edit** — both surfaces accept these tools natively. Never construct file contents inside `ctx_execute` shell heredocs.
+- **Scaffold-only lockfile carveout** (`npm install --package-lock-only --ignore-scripts --no-audit --no-fund` and equivalents) runs through `ctx_execute` in context-mode environments — output exceeds 20 lines and Bash will refuse. The `no-local-builds` rule still permits this single resolution-only call at `/sdd init` scaffold time.
+
+This compatibility note applies to greenfield, Import Mode, Resume Mode, `/sdd edit`, `/sdd add`, `/sdd clean`, and `/sdd mode` uniformly.
+
 In **greenfield mode**, the agent runs a **lean two-confirm flow** — vision in, full draft out, single review-and-edit pass, then write. The point is to compress the old 10-15-turn back-and-forth into two decisions so the user can think about the spec as a whole instead of approving one fragment at a time.
 
 1. **Ask for vision** (one free-form question if `$ARGUMENTS` is empty). Confirm what you heard in one sentence.
