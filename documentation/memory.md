@@ -34,8 +34,8 @@ in-session context but the vault subtree never reaches R2.
 The unified graph at `~/.graphify/global-graph.json` is the index layer:
 the capture agent, the vault-monitor agent, and `graphify-active-repo.sh`
 all merge their respective per-source graphs into it under a `flock` on
-`/tmp/graphify-global.lock`. See [vault.md](./vault.md) for the full
-contract.
+`/tmp/graphify-global.lock`. See [vault.md](./vault.md) for vault
+layout, capture paths, and the unified graph contract.
 
 ## Automatic Memory Capture
 

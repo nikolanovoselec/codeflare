@@ -97,7 +97,7 @@ deep-reviewer agents) and `--verify-high` (Phase 7 external-LLM
 second-opinion); invoking it with no arguments prints a CLI help
 screen and exits without running.
 
-**Skills (24 SKILL.md files, 39 manifest entries including
+**Skills (29 SKILL.md files, 44 manifest entries including
 reference files)**: `cloudflare-stack`, `github-cloudflare-ship`
 (+ 2 reference files), `consult-llm`, `api-design`,
 `backend-patterns`, `content-hash-cache-pattern`,
@@ -105,7 +105,12 @@ reference files)**: `cloudflare-stack`, `github-cloudflare-ship`
 `iterative-retrieval`, `search-first`, `spec-driven-development`
 (+ 13 reference templates for `/sdd init` scaffolding; covers the
 three Import/Resume modes for legacy-codebase transition documented
-below). SDD enforcement family (8 skills, advanced-only):
+below), `sdd-init`, `sdd-clean` (sub-command skills the `/sdd`
+dispatch table routes to for `init` and `clean`), `vault-operations`
+(layout, wikilink conventions, NEVER list - surfaced when an agent
+touches `~/Vault/`), `vault-note-capture` (writes "take a note"
+phrases to `~/Vault/Notes/<Category>/`), `graphify`. SDD
+enforcement family (8 skills, advanced-only):
 `spec-enforce` + `spec-enforce-ac` + `spec-enforce-truth`,
 `doc-enforce` + `doc-enforce-lanes` + `doc-enforce-shape` +
 `doc-enforce-truth`, `tdd-enforce`. Git-workflow family (4 skills):
@@ -115,22 +120,28 @@ below). SDD enforcement family (8 skills, advanced-only):
 agents that support skills). `consult-llm` is CC-only (depends on
 MCP tool).
 
-**Rules (25 files, 3 in both modes + 22 advanced-only)**: Core
-environment rules (`cloudflare-environment`, `no-local-builds`,
-`git-workflow`) in both modes - `git-workflow` is the umbrella
-core rule that delegates branched mechanics to the `ci-monitoring`,
-`git-review-pipeline`, `pr-workflow`, and `deploy-credentials`
-skills. The discipline triad - `spec-discipline`,
-`documentation-discipline`, `tdd-discipline` - is advanced-only
-core-minimum rules (Pro-mode SDD workflow opt-in: identity, status
-vocabulary, severity, and skill pointers; detection algorithms and
-content-quality checks live in their respective `*-enforce` skill
-families). `memory` rule is advanced-only (references CC-specific
-mcp__graphify__* tools and the vault hook system). ECC-derived language rules in
-`{common,typescript,python,golang,swift}/` subdirs (2 + 4*4 = 18
-files, advanced only). Common rules cover security and coding
-style. Language-specific rules provide conventions for TypeScript,
-Python, Go, and Swift.
+**Rules (27 files, 3 in both modes + 24 advanced-only)** (REQ-MEM-006,
+REQ-VAULT-007): Core environment rules (`cloudflare-environment`,
+`no-local-builds`, `git-workflow`) in both modes - `git-workflow` is
+the umbrella core rule that delegates branched mechanics to the
+`ci-monitoring`, `git-review-pipeline`, `pr-workflow`, and
+`deploy-credentials` skills. The discipline triad -
+`spec-discipline`, `documentation-discipline`, `tdd-discipline` - is
+advanced-only core-minimum rules (Pro-mode SDD workflow opt-in:
+identity, status vocabulary, severity, and skill pointers; detection
+algorithms and content-quality checks live in their respective
+`*-enforce` skill families). `memory` rule is advanced-only and
+carries the folded vault trigger/route content (references CC-specific
+`mcp__graphify__*` tools and the vault hook system).
+`vault-note-capture` rule is advanced-only and routes "take a note"
+phrases to the `vault-note-capture` skill. `graph-first` rule is
+advanced-only (graphify discipline, REQ-AGENT-023). `karpathy` rule
+is advanced-only (LLM coding-mistakes principles). ECC-derived
+language rules in `{common,typescript,python,golang,swift}/` subdirs
+(1 + 4*4 = 17 files, advanced only). `common/coding-style.md`
+covers shared style; the per-language `security.md` files stand
+alone after the `common/security.md` removal. Language-specific
+rules provide conventions for TypeScript, Python, Go, and Swift.
 
 **Known marketplaces**: `plugins/known_marketplaces.json` preseeds
 the official Anthropic plugin marketplace URL for user discovery.
@@ -161,33 +172,37 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`)
 
-**Manifest structure (103 total entries)**:
+**Manifest structure (112 total entries)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
-  no-local-builds, git-workflow; + 5 advanced-only: memory, vault,
-  spec-discipline, documentation-discipline, tdd-discipline),
-  common (2: coding-style, security), graph-first (1, advanced),
-  typescript (4), python (4), golang (4), swift (4)
-- `agents/` (9): architect, build-error-resolver, code-reviewer,
-  deep-reviewer, doc-updater, refactor-cleaner, security-reviewer,
-  spec-reviewer, tdd-guide (advanced only)
+  no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
+  spec-discipline, documentation-discipline, tdd-discipline,
+  graph-first, karpathy, vault-note-capture), common (1: coding-style;
+  per-language security rules stand alone), typescript (4), python (4),
+  golang (4), swift (4)
+- `agents/` (11): architect, build-error-resolver, code-reviewer,
+  deep-reviewer, doc-updater, memory-capture, refactor-cleaner,
+  security-reviewer, spec-reviewer, tdd-guide, vault-extract
+  (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, review, sdd
   (advanced only)
-- `skills/` (40): cloudflare-stack, github-cloudflare-ship (+2
+- `skills/` (44): cloudflare-stack, github-cloudflare-ship (+2
   refs), ci-monitoring, pr-workflow, deploy-credentials (the five
   default+advanced skills), consult-llm, api-design,
   backend-patterns, content-hash-cache-pattern, database-migrations,
   deployment-patterns, frontend-patterns, iterative-retrieval,
   search-first, spec-driven-development (+13 reference templates
-  for /sdd init scaffolding), spec-enforce, spec-enforce-ac,
-  spec-enforce-truth, doc-enforce, doc-enforce-lanes,
+  for /sdd init scaffolding), sdd-init, sdd-clean (sub-command
+  skills), vault-operations, vault-note-capture, spec-enforce,
+  spec-enforce-ac, spec-enforce-truth, doc-enforce, doc-enforce-lanes,
   doc-enforce-shape, doc-enforce-truth, tdd-enforce,
   git-review-pipeline, graphify
-- `plugins/` (22): known_marketplaces.json (default+advanced),
-  codeflare-memory plugin (3 files, advanced only: plugin.json,
-  memory-capture.sh, memory-agent-prompt.md), codeflare-vault plugin
-  (3 files, advanced only: plugin.json, vault-monitor-hook.sh,
-  vault-extract-prompt.md), codeflare-hooks plugin (5 files,
-  advanced only: plugin.json, block-attributed-commits.sh,
+- `plugins/` (25): known_marketplaces.json (default+advanced),
+  codeflare-memory plugin (4 files, advanced only: plugin.json,
+  memory-capture.sh, memory-agent-prompt.md, prefilter-transcript.sh),
+  codeflare-vault plugin (3 files, advanced only: plugin.json,
+  vault-monitor-hook.sh, vault-extract-prompt.md), codeflare-hooks
+  plugin (6 files, advanced only: plugin.json,
+  block-attributed-commits.sh, block-local-builds.sh,
   git-push-review-reminder.sh, enforce-review-spawn.sh,
   lib/gh-pr-state.sh - shared helper sourced by both PR-aware
   hooks), context-mode plugin (3 files, advanced only: plugin.json,
@@ -301,6 +316,8 @@ Handles three cases:
   text), does not overwrite
 
 ## Plugin Enablement
+
+(Implements [REQ-MEM-006](../sdd/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-007](../sdd/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session).)
 
 `entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json`
 to enable both the `codeflare-memory` and `codeflare-hooks` plugins.
