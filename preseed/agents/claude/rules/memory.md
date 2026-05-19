@@ -27,8 +27,7 @@ This loads prior decisions, concepts, and code structure.
 When the user says "check memory", "search memory", "load memory", etc.:
 use `mcp__graphify__*`. The file-based memory at
 `~/.claude/projects/*/memory/` is the per-user assistant memory layer
-(unrelated). The legacy MCP server-memory subsystem has been removed —
-do not look for `mcp__memory__*` tools.
+(unrelated).
 
 ## Hook-triggered capture
 

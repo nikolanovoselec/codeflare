@@ -540,9 +540,9 @@ After the Task agent completes, read the first ~20 lines of `$REVIEW_DIR/09-acti
 
 ## Phase 6: Reality Filter (Task agent)
 
-The Reality Filter re-evaluates every Phase-5-active finding against six questions, using prior triage history (`sdd/.review-decisions.md`), ADR bodies, MCP memory, recent git log, `sdd/changes.md`, and the graphify code-knowledge graph at `[PROJECT_ROOT]/graphify-out/graph.json`. It produces a SHORT list of real findings the user actually triages, an audit log of every drop, and a Tech-Debt-Surfaced section for findings that don't clear the user-impact bar. Three of the six questions (Q3 clustering, Q5 chain validation, Q6 graph-orphan) use graphify for structural rather than string-based judgments.
+The Reality Filter re-evaluates every Phase-5-active finding against six questions, using prior triage history (`sdd/.review-decisions.md`), ADR bodies, the unified global graph (cross-session feedback + user preferences + project conventions), recent git log, `sdd/changes.md`, and the project-local code-knowledge graph at `[PROJECT_ROOT]/graphify-out/graph.json`. It produces a SHORT list of real findings the user actually triages, an audit log of every drop, and a Tech-Debt-Surfaced section for findings that don't clear the user-impact bar. Q3 clustering, Q5 chain validation, and Q6 graph-orphan use the project-local graph; Q2 memory-says-no uses the unified graph.
 
-Launch a single Task agent (`code-reviewer` type). The agent has access to MCP memory tools (`mcp__memory__search_nodes`, `mcp__memory__open_nodes`) AND the graphify MCP tools (`mcp__graphify__get_node`, `mcp__graphify__get_neighbors`, `mcp__graphify__get_community`, `mcp__graphify__shortest_path`, `mcp__graphify__query_graph`) for the graph-aware questions Q3, Q5, and Q6. The graph at `[PROJECT_ROOT]/graphify-out/graph.json` was refreshed in Phase 1 Step 1e. If the graph is missing (`$REVIEW_DIR/.no-graph.notice` exists), Q3 falls back to category-only grouping and Q6 is inert this cycle.
+Launch a single Task agent (`code-reviewer` type). The agent has access to the graphify MCP tools (`mcp__graphify__query_graph`, `mcp__graphify__get_node`, `mcp__graphify__get_neighbors`, `mcp__graphify__get_community`, `mcp__graphify__shortest_path`, `mcp__graphify__god_nodes`, `mcp__graphify__graph_stats`). If the project-local graph is missing (`$REVIEW_DIR/.no-graph.notice` exists), Q3 falls back to category-only grouping and Q6 is inert this cycle. If the unified graph is unreachable, Q2 produces no drops.
 
 Task agent prompt:
 
@@ -568,15 +568,16 @@ the questions, surface all N.
 4. Recent git activity: cd [PROJECT_ROOT] && git log --since="30 days ago" --oneline --no-merges
 5. Spec changes: [PROJECT_ROOT]/sdd/changes.md and [PROJECT_ROOT]/sdd/README.md
    - If `HAS_SDD=0` or either file is missing, treat as empty.
-6. MCP memory: call mcp__memory__search_nodes with each of these queries and read the
-   relevant entities returned:
+6. Unified global graph (cross-session feedback + project conventions): call
+   `mcp__graphify__query_graph` against the unified graph (vault + active repos,
+   merged at `~/.graphify/global-graph.json`) with each of these queries:
      - "code review feedback"
      - "user preferences"
      - "<project name> conventions" (substitute the project's actual name)
-   For findings whose category triggers a memory hit, read the full entity via
-   mcp__memory__open_nodes. The MCP knowledge graph is the primary memory system;
-   ~/.claude/projects/.../memory/MEMORY.md is a secondary file-based fallback - read
-   it ONLY if MCP memory is unreachable.
+   For findings whose category overlaps a returned node, drill into the node's
+   neighbourhood via `mcp__graphify__get_node` and `mcp__graphify__get_neighbors`.
+   If the unified graph is unreachable, skip this input — Q2 produces no drops
+   this cycle.
 7. (Optional) [PROJECT_ROOT]/pending.md if present - explains in-flight work that may
    make a "missing feature" finding actually a known gap.
 8. Graphify code-knowledge graph at [PROJECT_ROOT]/graphify-out/graph.json — queried
@@ -604,10 +605,12 @@ makes this visible and the user can re-defer if appropriate.
 
 ### Q2: Memory-says-no drop
 
-If the finding contradicts an MCP memory entry (e.g. user feedback says "prefer
-concrete duplication over premature abstraction" and the finding says "extract this
-into a helper"):
-  -> DROP. Audit reason: "Q2: contradicts memory entry <entity name>: <one-line summary>."
+If the finding contradicts a node in the unified global graph returned by Phase
+6 input #6 (e.g. a feedback node says "prefer concrete duplication over premature
+abstraction" and the finding says "extract this into a helper"):
+  -> DROP. Audit reason: "Q2: contradicts graph node '<label>' (source: <src_file>): <one-line summary>."
+
+If input #6 was skipped (unified graph unreachable), Q2 produces no drops.
 
 ### Q3: Cluster aggregation
 
@@ -694,17 +697,16 @@ This catches the class of findings produced by agents who looked at a stale chec
 
 ## Hard rules
 
-- Be ruthful, not aggressive. The point is to drop findings that ARE noise. Erring
+- Be ruthless, not aggressive. The point is to drop findings that ARE noise. Erring
   on the side of dropping is correct because anything mistakenly dropped resurfaces
   next cycle if it's real.
 - Every KEEP must cite at least one piece of concrete evidence: file:line, commit
-  SHA, AD ref, .review-decisions entry, MCP memory entity name, or sdd/changes.md
-  date.
+  SHA, AD ref, `.review-decisions` entry, unified-graph node label, or
+  `sdd/changes.md` date.
 - Every DROP and DEMOTE must have a one-line reason in the audit log keyed by which
   question dropped it.
 - Read actual source for any finding you keep with severity HIGH or CRITICAL.
-- Do not retry MCP memory calls if they fail; fall back to the file-based memory and
-  log "memory: file-based fallback used" in the summary.
+- Do not retry graphify calls if they fail; skip the affected input and continue.
 
 ## Output: ONE file at [REVIEW_DIR]/10-real-findings.md
 
@@ -756,7 +758,7 @@ will treat these as Tech-Debt by default unless the user upgrades them.]
 - CF-NNN at <location> (<category>): prior <Defer|Ignore|Tech-Debt> recorded <date>, no commits since.
 
 ### Q2: Memory-says-no drops (X)
-- CF-NNN at <location> (<category>): contradicts memory entry "<entity>".
+- CF-NNN at <location> (<category>): contradicts graph node "<label>".
 
 ### Q3: Cluster collapses (X absorbed into Y clusters)
 - CF-NNN-cluster covers: CF-A, CF-B, CF-C, ... at <locations>.
@@ -775,12 +777,10 @@ will treat these as Tech-Debt by default unless the user upgrades them.]
 
 ## Memory mode
 
-Used: MCP knowledge graph (primary) | File-based fallback (~/.claude/projects/.../memory/MEMORY.md).
-
 Cost contract: this whole phase MUST be ONE Task agent. Do not spawn additional
-sub-agents. Read files directly via Read; query MCP memory directly via the granted
-tools. The Auto-Filtered audit section is mandatory output - if it is missing or empty
-when DROP/DEMOTE counts are non-zero, the phase failed.
+sub-agents. Read files directly via Read; query the unified graph directly via the
+granted graphify tools. The Auto-Filtered audit section is mandatory output - if it
+is missing or empty when DROP/DEMOTE counts are non-zero, the phase failed.
 ```
 
 After the Task agent completes, read the first ~30 lines of `$REVIEW_DIR/10-real-findings.md` and print them to the user.
