@@ -1,0 +1,181 @@
+// Unit tests for compute_required_lanes (lib/lane-classifier.sh).
+//
+// The classifier is the single source of truth for which review lanes a
+// diff between two SHAs requires. Both enforce-review-spawn.sh (Stop hook
+// gate) and git-push-review-reminder.sh (PostToolUse nudge) source it.
+// Before the function was extracted into a shared lib, integration tests
+// at host/__tests__/enforce-review-spawn.test.js covered the behaviour
+// transitively. After extraction the function is a public API of the lib
+// file, so the branches below are tested directly without booting the
+// full hook.
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const LIB_PATH = join(
+  __dirname,
+  '../../preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh',
+);
+
+function makeRepo() {
+  const cwd = mkdtempSync(join(tmpdir(), 'laneclass-'));
+  const run = (...args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+  run('init', '-q');
+  run('config', 'user.email', 'test@test');
+  run('config', 'user.name', 'Test');
+  return { cwd, run };
+}
+
+function commitFile(cwd, run, relpath, body, msg) {
+  const abs = join(cwd, relpath);
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, body);
+  run('add', relpath);
+  run('commit', '-q', '-m', msg);
+  return run('rev-parse', 'HEAD').stdout.trim();
+}
+
+function classify(cwd, lastAck, current) {
+  // Source the lib then invoke. Use bash -c so the function definition is
+  // scoped to a single subshell and cannot leak between cases.
+  const script = `
+    . "${LIB_PATH}"
+    compute_required_lanes "${lastAck}" "${current}"
+  `;
+  const r = spawnSync('bash', ['-c', script], { cwd, encoding: 'utf8' });
+  if (r.status !== 0) {
+    throw new Error(`classify failed: status=${r.status} stderr=${r.stderr}`);
+  }
+  return r.stdout.trim();
+}
+
+describe('compute_required_lanes — initial state', () => {
+  it('empty last_ack returns all three lanes', () => {
+    const { cwd, run } = makeRepo();
+    const sha = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: foo');
+    assert.equal(classify(cwd, '', sha), 'code-reviewer spec-reviewer doc-updater');
+  });
+});
+
+describe('compute_required_lanes — equal SHAs', () => {
+  it('last_ack equals current returns empty (no-op advance)', () => {
+    const { cwd, run } = makeRepo();
+    const sha = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: foo');
+    assert.equal(classify(cwd, sha, sha), '');
+  });
+});
+
+describe('compute_required_lanes — force-push / non-ancestor', () => {
+  it('last_ack on a divergent branch falls back to all three lanes', () => {
+    const { cwd, run } = makeRepo();
+    const baseSha = commitFile(cwd, run, 'src/base.ts', '1\n', 'feat: base');
+    // Diverge: commit on a new branch so the two SHAs do not share an
+    // ancestor relationship in the linear sense (merge-base equals base,
+    // not last_ack).
+    run('checkout', '-q', '-b', 'alt');
+    const altSha = commitFile(cwd, run, 'src/alt.ts', '2\n', 'feat: alt');
+    run('checkout', '-q', 'main');
+    const mainSha = commitFile(cwd, run, 'src/main.ts', '3\n', 'feat: main');
+    // last_ack = altSha (divergent), current = mainSha. merge-base != altSha
+    // -> classifier returns all 3 conservatively.
+    assert.equal(
+      classify(cwd, altSha, mainSha),
+      'code-reviewer spec-reviewer doc-updater',
+    );
+  });
+});
+
+describe('compute_required_lanes — file classification', () => {
+  it('documentation/ only diff returns doc-updater only', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'src/foo.ts', '1\n', 'feat: base');
+    const next = commitFile(cwd, run, 'documentation/notes.md', '# notes\n', 'docs: notes');
+    assert.equal(classify(cwd, base, next), 'doc-updater');
+  });
+
+  it('README.md / CHANGELOG.md count as documentation surface', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'src/foo.ts', '1\n', 'feat: base');
+    const next = commitFile(cwd, run, 'README.md', '# project\n', 'docs: readme');
+    assert.equal(classify(cwd, base, next), 'doc-updater');
+  });
+
+  it('sdd/ only diff returns spec-reviewer + doc-updater', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'src/foo.ts', '1\n', 'feat: base');
+    const next = commitFile(cwd, run, 'sdd/memory.md', '# REQ-MEM-001\n', 'spec: REQ-MEM-001');
+    assert.equal(classify(cwd, base, next), 'spec-reviewer doc-updater');
+  });
+
+  it('sdd/ + documentation/ diff still returns spec-reviewer + doc-updater (no duplicate)', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'src/foo.ts', '1\n', 'feat: base');
+    commitFile(cwd, run, 'sdd/memory.md', '# REQ\n', 'spec: REQ');
+    const next = commitFile(cwd, run, 'documentation/notes.md', '# notes\n', 'docs: notes');
+    assert.equal(classify(cwd, base, next), 'spec-reviewer doc-updater');
+  });
+
+  it('source file diff returns all three lanes (behavioral catch-all)', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'documentation/notes.md', '1\n', 'docs: base');
+    const next = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: foo');
+    assert.equal(classify(cwd, base, next), 'code-reviewer spec-reviewer doc-updater');
+  });
+
+  it('mixed src + sdd diff returns all three lanes (behavioral wins)', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'documentation/notes.md', '1\n', 'docs: base');
+    commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: foo');
+    const next = commitFile(cwd, run, 'sdd/memory.md', '# REQ\n', 'spec: REQ');
+    assert.equal(
+      classify(cwd, base, next),
+      'code-reviewer spec-reviewer doc-updater',
+    );
+  });
+
+  it('host/ test changes count as behavioral (not in doc-surface allowlist)', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'documentation/notes.md', '1\n', 'docs: base');
+    const next = commitFile(cwd, run, 'host/__tests__/foo.test.js', '// test\n', 'test: foo');
+    assert.equal(
+      classify(cwd, base, next),
+      'code-reviewer spec-reviewer doc-updater',
+    );
+  });
+
+  it('entrypoint.sh / config files count as behavioral', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'documentation/notes.md', '1\n', 'docs: base');
+    const next = commitFile(cwd, run, 'entrypoint.sh', '#!/bin/bash\n', 'chore: entry');
+    assert.equal(
+      classify(cwd, base, next),
+      'code-reviewer spec-reviewer doc-updater',
+    );
+  });
+});
+
+describe('compute_required_lanes — rename safety (--no-renames)', () => {
+  it('src->doc rename still classifies as behavioral (rename attack guard)', () => {
+    // Adversarial case: a rename from src/foo.ts to documentation/foo.md
+    // would, under default rename detection, emit ONLY the new path and
+    // make the change look documentation-only. --no-renames forces both
+    // old and new paths into the diff; the source path triggers the
+    // behavioral fall-through. Without this guard, a malicious rename
+    // could bypass code-reviewer + spec-reviewer entirely.
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: src foo');
+    run('mv', 'src/foo.ts', 'documentation/foo.md');
+    run('commit', '-q', '-m', 'rename: src to docs');
+    const next = run('rev-parse', 'HEAD').stdout.trim();
+    assert.equal(
+      classify(cwd, base, next),
+      'code-reviewer spec-reviewer doc-updater',
+    );
+  });
+});

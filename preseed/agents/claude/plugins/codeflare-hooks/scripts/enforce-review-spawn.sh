@@ -536,12 +536,21 @@ emit_block() {
 # only the required agents - preventing the in-turn nudge from telling
 # the agent to spawn lanes this Stop hook would silently exclude.
 #
-# Initial state (no LAST_ACK) or unresolvable git diff -> conservative
-# fall-through requiring all three lanes, matching the v5 behaviour.
+# Fail-safe direction (FAIL-CLOSED): if the classifier helper is missing
+# or fails to source, default REQUIRED_LANES to the legacy all-three set
+# rather than `exit 0`. Silently bypassing the enforcement gate would be
+# the worst-of-both-worlds outcome: a partially-deployed install with a
+# present Stop hook but a missing lib would silently disable review
+# enforcement. Demanding all-three on the unhappy path matches the
+# PostToolUse nudge's symmetric fall-back and preserves the gate's
+# security shape (over-enforce rather than under-enforce on uncertainty).
+# Initial state (no LAST_ACK) or unresolvable git diff -> same conservative
+# all-three posture inside compute_required_lanes itself.
 # ---------------------------------------------------------------------------
-. "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null || exit 0
-
-REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD")
+REQUIRED_LANES="code-reviewer spec-reviewer doc-updater"
+if . "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null; then
+  REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD")
+fi
 
 # No lanes required -> already-clean PR HEAD for this diff shape. Ack
 # the checkpoint and exit silently so the next Stop event short-circuits

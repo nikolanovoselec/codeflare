@@ -590,3 +590,128 @@ describe('git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)', ()
       'transition: false means review fires regardless of stale triage file');
   });
 });
+
+// Helpers for the lane-aware emission tests below. The default fakeGh
+// emits a synthetic "fakehead" SHA which the classifier cannot diff
+// against a real commit. These helpers wire a real git history so the
+// hook's compute_required_lanes call sees an actual diff.
+function commitAt(cwd, relpath, body, msg) {
+  const abs = join(cwd, relpath);
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, body);
+  spawnSync('git', ['add', relpath], { cwd });
+  spawnSync('git', ['commit', '-q', '-m', msg], { cwd });
+  return spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' })
+    .stdout.trim();
+}
+
+function writeAck(cwd, sha) {
+  // SHA-shape validation in the hook requires a 40-char lowercase hex
+  // string. `git rev-parse HEAD` already returns that shape on Linux.
+  mkdirSync(join(cwd, '.git'), { recursive: true });
+  writeFileSync(join(cwd, '.git/sdd-last-ack-pr-head'), sha);
+}
+
+function fakeGhWithHead(cwd, { state = 'OPEN', base = 'main', headSha }) {
+  // Same exact-match shape as fakeGh() but parameterises headRefOid so
+  // the classifier sees a real reachable SHA. exitCode is implicitly 0.
+  const binDir = join(cwd, 'fake-bin');
+  mkdirSync(binDir, { recursive: true });
+  const body = `#!/usr/bin/env bash
+ARGS="$*"
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid,baseRefName" ]]; then
+  echo '{"state":"${state}","headRefOid":"${headSha}","baseRefName":"${base}"}'
+  exit 0
+fi
+echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
+exit 99
+`;
+  writeFileSync(join(binDir, 'gh'), body);
+  chmodSync(join(binDir, 'gh'), 0o755);
+  return binDir;
+}
+
+describe('git-push-review-reminder.sh - lane-aware emission (compute_required_lanes integration)', () => {
+  // The PostToolUse nudge now classifies the LAST_ACK..CURRENT_PR_HEAD
+  // diff and emits a directive listing ONLY the lanes the Stop hook
+  // would actually require. The pre-existing tests above all run with
+  // an empty ACK file -> classifier short-circuits to "all 3" -> the
+  // lane-aware branches are never exercised. These cases pin the new
+  // emission shapes so a regression that flips them back to "all 3"
+  // would be caught by CI instead of slipping silently into prod.
+
+  it('emits doc-updater-only directive when ACK->HEAD diff is documentation-only', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    const headSha = commitAt(cwd, 'documentation/notes.md', '# notes\n', 'docs: notes');
+    const binDir = fakeGhWithHead(cwd, { headSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/);
+    assert.match(r.stdout, /Spawn: doc-updater \(docs\/ lane\) only/,
+      'doc-only diff must produce the doc-only directive shape');
+    assert.doesNotMatch(r.stdout, /code-reviewer/,
+      'doc-only directive must NOT mention code-reviewer');
+    assert.doesNotMatch(r.stdout, /spec-reviewer/,
+      'doc-only directive must NOT mention spec-reviewer');
+  });
+
+  it('emits spec+doc sequential directive when ACK->HEAD diff is sdd/-only', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: seed');
+    writeAck(cwd, ackSha);
+    const headSha = commitAt(cwd, 'sdd/memory.md', '# REQ-MEM-001\n', 'spec: REQ');
+    const binDir = fakeGhWithHead(cwd, { headSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Sequential: spec-reviewer.*then doc-updater/,
+      'sdd-only diff must produce the sequential spec->doc directive');
+    assert.doesNotMatch(r.stdout, /code-reviewer/,
+      'sdd-only directive must NOT mention code-reviewer (no source touch)');
+    assert.match(r.stdout, /Code lane silently excluded by Stop hook/,
+      'sdd-only directive must explain the code lane exclusion');
+  });
+
+  it('emits legacy all-3 directive when ACK->HEAD diff contains source files', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const ackSha = commitAt(cwd, 'documentation/seed.md', '# seed\n', 'docs: seed');
+    writeAck(cwd, ackSha);
+    const headSha = commitAt(cwd, 'src/foo.ts', 'export {};\n', 'feat: foo');
+    const binDir = fakeGhWithHead(cwd, { headSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Parallel: code-reviewer/);
+    assert.match(r.stdout, /Sequential: spec-reviewer.*then doc-updater/);
+  });
+
+  it('emits no directive when LAST_ACK equals CURRENT_PR_HEAD (already acked)', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const sha = commitAt(cwd, 'src/foo.ts', 'export {};\n', 'feat: foo');
+    writeAck(cwd, sha);
+    const binDir = fakeGhWithHead(cwd, { headSha: sha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'classifier returns empty when last_ack == current; hook must skip emission');
+  });
+
+  it('falls back to legacy all-3 directive when LAST_ACK is empty (initial baseline)', () => {
+    // Regression guard for the empty-ACK case the prior 33 tests
+    // exercised. Confirms the lane-aware refactor preserves the
+    // initial-baseline behaviour: no ACK -> classifier returns all 3
+    // -> directive emits all 3.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = commitAt(cwd, 'src/foo.ts', 'export {};\n', 'feat: foo');
+    const binDir = fakeGhWithHead(cwd, { headSha });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Parallel: code-reviewer/);
+    assert.match(r.stdout, /Sequential: spec-reviewer.*then doc-updater/);
+  });
+});

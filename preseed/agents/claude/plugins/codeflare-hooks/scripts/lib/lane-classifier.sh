@@ -31,7 +31,10 @@
 # Classification details, NUL-byte hazards, and rename safety are
 # documented at each branch below; keep this file and the callers
 # in lock-step. Tests live at host/__tests__/lane-classifier.test.js
-# (extracted from enforce-review-spawn coverage).
+# (direct unit tests of every branch) plus integration coverage of
+# the emission shape in host/__tests__/git-push-review-reminder.test.js
+# (lane-aware directive) and host/__tests__/enforce-review-spawn.test.js
+# (gate-level lane gating).
 
 compute_required_lanes() {
   local last_ack="$1" current="$2"

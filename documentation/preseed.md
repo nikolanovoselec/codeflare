@@ -201,11 +201,14 @@ All preseed content is deployed via the manifest pipeline:
   memory-capture.sh, memory-agent-prompt.md, prefilter-transcript.sh),
   codeflare-vault plugin (3 files, advanced only: plugin.json,
   vault-monitor-hook.sh, vault-extract-prompt.md), codeflare-hooks
-  plugin (6 files, advanced only: plugin.json,
+  plugin (7 files, advanced only: plugin.json,
   block-attributed-commits.sh, block-local-builds.sh,
   git-push-review-reminder.sh, enforce-review-spawn.sh,
-  lib/gh-pr-state.sh - shared helper sourced by both PR-aware
-  hooks), context-mode plugin (3 files, advanced only: plugin.json,
+  lib/gh-pr-state.sh - shared gh CLI invocation sourced by both
+  PR-aware hooks, lib/lane-classifier.sh - shared diff-classification
+  helper sourced by both PR-aware hooks so the in-turn nudge and the
+  turn-end gate agree on which lanes a push requires),
+  context-mode plugin (3 files, advanced only: plugin.json,
   README.md, scripts/enforce-ctx-mode.sh - admin-only Custom-tier
   routing enforcement, see Third-party plugin section below),
   graphify plugin (8 files, default+advanced for plugin.json + README
@@ -332,7 +335,11 @@ is done via `settings.json` (see above).
 - **codeflare-hooks**: Scripts for commit attribution blocking,
   git-push review reminders, and SDD review-agent sequential
   enforcement - `spec-reviewer` runs first, then `doc-updater`
-  sequentially; on non-SDD projects (no `sdd/`) no agents fire and
+  sequentially. The PostToolUse nudge and the Stop hook share
+  `lib/lane-classifier.sh` and emit lane-aware directives so a
+  doc-only push spawns only `doc-updater`, an `sdd/`-only push spawns
+  `spec-reviewer` then `doc-updater` sequentially, and source pushes
+  spawn all three; on non-SDD projects (no `sdd/`) no agents fire and
   the push is friction-free (vibe-coding mode). Each tool-gated hook
   is registered on two matcher entries covering three tool names: the
   `Bash` matcher (with `Bash(git *)` and `Bash(gh *)` predicates) and
