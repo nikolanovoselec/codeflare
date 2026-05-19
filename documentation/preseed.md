@@ -350,7 +350,7 @@ is done via `settings.json` (see above).
   (`git`, `mkdir`, `rm`, `mv`, `cd`, `ls`, `npm install`, `pip
   install`) - all `gh` calls in Bash are denied and agents route them
   through MCP shell tools instead. Implements
-  [REQ-AGENT-021](../sdd/agents.md#req-agent-021) AC4, AC8. Hooks
+  [REQ-AGENT-021](../sdd/agents.md#req-agent-021) AC4, AC7, AC8. Hooks
   registered in settings.json, scripts delivered via plugin.
 
 ## Third-party plugin: context-mode

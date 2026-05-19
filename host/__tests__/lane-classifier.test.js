@@ -89,15 +89,20 @@ describe('compute_required_lanes - divergent-branch / non-ancestor', () => {
   // condition that would catch a real force-push, but a true force-
   // push test would `git reset --hard` and reflog-orphan the old SHA.
   it('last_ack on a divergent branch falls back to all three lanes', () => {
+    // Both branches commit only documentation/ paths. If the merge-base
+    // guard fires, classifier returns all-three conservatively. If the
+    // guard is deleted, the diff loop walks docs-only paths and returns
+    // just `doc-updater` - so this fixture isolates the guard from the
+    // behavioral catch-all (deleting the guard would flip the test red).
     const { cwd, run } = makeRepo();
-    const baseSha = commitFile(cwd, run, 'src/base.ts', '1\n', 'feat: base');
+    const baseSha = commitFile(cwd, run, 'documentation/base.md', '1\n', 'docs: base');
     // Diverge: commit on a new branch so the two SHAs do not share an
     // ancestor relationship in the linear sense (merge-base equals base,
     // not last_ack).
     run('checkout', '-q', '-b', 'alt');
-    const altSha = commitFile(cwd, run, 'src/alt.ts', '2\n', 'feat: alt');
+    const altSha = commitFile(cwd, run, 'documentation/alt.md', '2\n', 'docs: alt');
     run('checkout', '-q', 'main');
-    const mainSha = commitFile(cwd, run, 'src/main.ts', '3\n', 'feat: main');
+    const mainSha = commitFile(cwd, run, 'documentation/main.md', '3\n', 'docs: main');
     // last_ack = altSha (divergent), current = mainSha. merge-base != altSha
     // -> classifier returns all 3 conservatively.
     assert.equal(
