@@ -152,7 +152,9 @@ function processUsers(users) {
 }
 ```
 
-### React/Next.js Patterns (HIGH)
+### React/Next.js Patterns (HIGH) — only if the project uses React/Next.js
+
+Detect by looking for `react`/`next` in `package.json` `dependencies` or `.tsx`/`.jsx` files in the diff. Skip this section entirely on Go, Rust, Python, Vue, Svelte, vanilla-DOM, CLI, library, or embedded projects.
 
 When reviewing React/Next.js code, also check:
 
@@ -185,7 +187,9 @@ useEffect(() => {
 {items.map(item => <ListItem key={item.id} item={item} />)}
 ```
 
-### Node.js/Backend Patterns (HIGH)
+### Node.js/Backend Patterns (HIGH) — only on Node.js backend code
+
+Detect by looking for `express`/`fastify`/`hono`/`koa`/etc. in `package.json`, or `app.ts`/`server.ts`/`api/` route files in the diff. The patterns translate to other backends (Go, Python, Rust) but the specific examples are Node-flavoured; on non-Node backends apply the *concepts* (input validation, N+1, timeouts, error leakage, CORS) without expecting the Node syntax.
 
 When reviewing backend code:
 
@@ -333,6 +337,13 @@ Before approving any change, verify:
 - **Schema alignment**: When API response shapes change, verify both backend and frontend schemas match (Zod, TypeScript types, validation)
 - **JSON serialization safety**: Flag `undefined` values in objects destined for `JSON.stringify` — they silently strip fields. Use explicit reset values or omit the field
 - **KV/DB field safety**: Never delete required fields from stored records — use explicit values (e.g., `'pending'` not `undefined`)
+
+## Known failure modes (watch yourself here)
+
+- **Over-flagging style preferences that the codebase doesn't share.** Before flagging "use early returns" / "prefer composition" / "extract this helper", verify the existing nearby code follows your preferred pattern. If the codebase has a different established style, match it; consistency beats taste.
+- **Missing dynamic-import / reflection / string-keyed call sites.** Grep finds direct imports. Plug registries, route tables keyed by string, and `globalThis['handler']` lookups don't appear. Run `mcp__graphify__get_neighbors(<symbol>)` AND grep for the symbol's *literal name string* before declaring "no callers".
+- **Flagging test stubs as production bugs.** A fixture file's mock that returns `null` is not a missing null-check; it's a contract stub. Read the test before reporting.
+- **CSS / styling overrides not checked across all selectors and media queries.** Before flagging a layout regression, grep ALL files for the affected selector class; a hidden `@media (max-width: ...)` override is the actual cause more often than the obvious one.
 
 ## AI-Generated Code Review
 

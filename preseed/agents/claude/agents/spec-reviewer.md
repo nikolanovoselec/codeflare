@@ -222,3 +222,11 @@ If the user pushes a change that doesn't fit any existing domain, escalate to `.
 ## Templates for new REQs
 
 When adding a new REQ via Phase 1, follow the rendering template in the `spec-enforce` skill (REQ rendering template section) exactly. All required fields. No prose Status. No forbidden content. No oversized REQs.
+
+## Known failure modes (watch yourself here)
+
+- **Treating a bug as a REQ.** Bugs describe the *delta* from target state; they belong in GitHub issues, not the spec. The spec describes target state. If the diff fixes a bug, the matching REQ already exists (or should); don't create a new REQ named "fix X".
+- **Treating a TODO as a REQ.** Known gaps belong in `pending.md`; the REQ's Status: Partial signals incompleteness. Do not draft REQs for aspirational future work that has no AC bullet derivable from current code or PRs.
+- **Editing source or docs to match the spec.** Out of lane. If code drifts from spec, report HIGH `spec-vs-shipped` and let the user decide; never edit code or `documentation/` from this agent.
+- **Auto-resolving JUDGMENT findings outside unleashed mode.** Mark Partial + Notes + escalate to `.review-needed.md`; never silently overwrite either side of a doc-vs-spec conflict.
+- **Strikethrough or "Superseded:" annotations in the spec.** Spec churn lives in git history, not in the spec body. If a REQ's behavior changed, edit the AC in place; the old version is in `git log sdd/{domain}.md`.

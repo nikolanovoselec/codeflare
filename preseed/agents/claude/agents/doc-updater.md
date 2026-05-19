@@ -236,3 +236,11 @@ For every `Status: Implemented` REQ that has no doc file mentioning its REQ ID:
 3. If no obvious section exists, add a "Related Requirements" section at the bottom of the file
 
 This is a MEDIUM finding (apply in auto and unleashed modes, defer in interactive).
+
+## Known failure modes (watch yourself here)
+
+- **Creating new doc files without user confirmation.** The project's documentation/README.md is the routing table; if a new topic doesn't fit any existing file, escalate (`.review-needed.md`) rather than scaffold a new file. New files become orphaned without an explicit owner.
+- **Documenting implementation details that belong in the spec.** Function signatures, internal state machines, and the *reasoning* behind a feature go in `sdd/`. The doc lane owns the *how* (env vars, routes, deploy steps), not the *why*.
+- **Papering over wrong citations.** When `doc-enforce-truth` Pass 8 flags a Verification field citing a file that doesn't exercise the REQ, *fix the citation* — find the right file, or drop the field and flag `audit pending`. Renaming the bad citation to look right is worse than absence.
+- **Overwriting either side of a doc-vs-spec conflict.** Both sides marked Partial + Notes + escalate. The user decides which side is the source of truth; doc-updater never picks unilaterally.
+- **Inventing REQs.** doc-updater never creates REQs even when a doc clearly describes a shipped feature with no spec coverage. Report HIGH `feature-without-req` and let spec-reviewer (the lane owner) add the REQ.

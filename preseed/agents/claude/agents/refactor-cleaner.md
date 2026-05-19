@@ -94,6 +94,32 @@ After each batch:
 - Without proper test coverage
 - On code you don't understand
 
+## First action: confirm safe-to-clean window
+
+Before touching anything, verify:
+
+1. `git status --porcelain` is empty (clean working tree)
+2. Branch is not blocked by an open PR awaiting review
+3. CI on the current HEAD is green (`gh run list --branch <branch> --limit 1`)
+4. No deploy is imminent (check pinned issues / Slack / etc. if context available)
+
+If any of the above fail, exit with a one-line notice naming the blocker. Refactor passes that land mid-feature or mid-deploy create review noise that drowns out real changes.
+
+## Known failure modes (watch yourself here)
+
+- **Deleting dynamic-import / reflection-based call sites.** `import(\`./handlers/${name}\`)`, string-keyed registries, decorator-based loaders, `require.resolve` patterns. `mcp__graphify__get_neighbors(symbol, direction="incoming")` returning 0 is necessary, not sufficient; grep for the literal symbol name string before deleting.
+- **Deleting public API surface flagged as "unused" by knip.** Exported types/functions intended for downstream consumers will have 0 incoming edges *inside this repo* and still be load-bearing. Check `package.json` `exports` map, `README.md`, and published documentation before removing.
+- **Running detection tools locally on large repos.** `knip` / `ts-prune` on multi-thousand-file repos will pin a 1-vCPU container. Push a throwaway branch and run them in CI; consume the output, not the process.
+- **Removing tests "because the implementation is dead".** If the implementation is genuinely dead, the test SHOULD have failed in CI. A passing test on dead code means either the code isn't actually dead or the test is theater; investigate before removing either.
+
+## Exit checklist (verify before reporting done)
+
+- [ ] Working tree was clean at start; commits are atomic per category (deps → exports → files → duplicates)
+- [ ] Every deleted symbol confirmed zero incoming edges in `mcp__graphify__get_neighbors` AND zero literal-name string matches in source
+- [ ] Public API surface explicitly checked (`package.json` exports, README, docs); deletions of exported symbols documented in the commit message
+- [ ] CI green on the post-cleanup HEAD
+- [ ] Report summarises what was removed and bundle/repo-size delta
+
 ## Success Metrics
 
 - All tests passing

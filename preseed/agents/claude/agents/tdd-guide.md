@@ -32,19 +32,13 @@ Code written before its test? **Delete it. Start over.** Don't keep it as "refer
 
 ## Test quality rules
 
-When `sdd/` exists, tests are derived from the REQ's acceptance criteria — one test per AC bullet. Apply the following quality rules to every test you write:
+When `sdd/` exists, tests are derived from the REQ's acceptance criteria — one test per AC bullet. Apply these quality rules to every test you write:
 
 1. **One test per AC bullet.** If the REQ has 5 numbered AC bullets, write 5 test functions. Name each exactly: `REQ-{DOMAIN}-{NNN}: {one-line AC summary}`. The REQ ID MUST appear literally in the test name so spec-reviewer can grep for it.
 2. **Assert observable behavior.** Every test must assert a specific outcome that would fail if the implementation is wrong. "Does not throw" and "is defined" are not acceptable as the only assertion — use them as guards, follow with a real check.
-3. **Banned patterns — never write these** (the full antipattern catalogue lives in `tdd-discipline.md` "Antipatterns", which code-reviewer enforces; the highlights):
-   - Identity assertions: `expect(true).toBe(true)`, `expect(1).toEqual(1)`, `expect(x).toBe(x)`, `assert True`, `assertTrue(true)`
-   - Lone existence checks as the only assertion: `expect(x).toBeDefined()`, `expect(x).not.toThrow()`
-   - Empty bodies: `it(..., () => {})`, `it(..., () => { /* TODO */ })`, `def test_foo(): pass`
-   - Skipped tests: `.skip`, `xit`, `xdescribe`, `test.skip`, `it.skip`, `@pytest.mark.skip`, `#[ignore]`, `t.Skip()` — tests must run
-   - Single-assertion placeholders that don't exercise the AC
-   - **Test name lies about what's asserted** (tdd-discipline antipattern 8): the test name claims behavior X, the assertion checks unrelated Y. Especially dangerous when the test is named after a REQ ID — it satisfies the literal-match rule but verifies nothing. Read your test name back as a one-sentence contract; ask "if the named behavior is broken, does at least one assertion fail?" If no, rewrite.
-4. **RED verification is mandatory.** Before any implementation is written, push the test alone and monitor CI. Observe the test fail in CI and log the failure output to the conversation so the user sees RED was confirmed. Do not run tests locally — always use CI and monitor. If the test passes immediately on CI → the test is wrong, the feature already exists, or you are testing a tautology; fix the test until it genuinely fails for the right reason.
-5. **Edge cases from the REQ.** For each AC bullet, enumerate the null, empty, invalid, boundary, error, and unauthorized cases implied by the contract. Write tests for each. The "Edge Cases You MUST Test" list below is the floor, not the ceiling.
+3. **No theater.** The 8-antipattern catalogue (identity assertions, lone-existence checks, empty bodies, silent skips, trivial assertions, mock-only stubs, bare call-counts, name-lies) lives in `~/.claude/rules/tdd-discipline.md` + the `tdd-enforce` skill. Invoke the skill before writing a new test file; treat its output as binding. Re-listing antipatterns here would drift; trust the skill.
+4. **RED verification is mandatory.** Before any implementation is written, push the test alone and monitor CI. Observe the test fail in CI and log the failure output so the user sees RED was confirmed. Do not run tests locally — always use CI. If the test passes immediately on CI → the test is wrong, the feature already exists, or you are testing a tautology; fix the test until it genuinely fails for the right reason.
+5. **Edge cases derived from the AC.** For each AC bullet, enumerate the null, empty, invalid, boundary, error, and unauthorized cases implied by the contract. Use `mcp__graphify__get_neighbors(<target_symbol>)` to find the actual collaborators that need null-input or error-path coverage — beats a static edge-case checklist that drifts from reality.
 
 ## Spec-Driven Test Derivation
 
@@ -89,24 +83,6 @@ Next failing test for next behavior.
 | **Integration** | API endpoints, database operations | Always |
 | **E2E** | Critical user flows (Playwright) | Critical paths |
 
-## Edge Cases You MUST Test
-
-1. **Null/Undefined** input
-2. **Empty** arrays/strings
-3. **Invalid types** passed
-4. **Boundary values** (min/max)
-5. **Error paths** (network failures, DB errors)
-6. **Race conditions** (concurrent operations)
-7. **Large data** (performance with 10k+ items)
-8. **Special characters** (Unicode, emojis, SQL chars)
-
-## Test Anti-Patterns to Avoid
-
-- Testing implementation details (internal state) instead of behavior
-- Tests depending on each other (shared state)
-- Asserting too little (passing tests that don't verify anything)
-- Not mocking external dependencies (Supabase, Redis, OpenAI, etc.)
-
 ## Quality Checklist
 
 - [ ] All public functions have unit tests
@@ -138,3 +114,17 @@ In constrained environments (1 vCPU, no local builds), tests run via CI only:
 - Write tests locally, push to branch, verify via `gh run view`
 - Use the code-reviewer agent to catch issues before pushing
 - Never run test suites, linters, or type checkers locally unless explicitly asked
+
+## Known failure modes (watch yourself here)
+
+- **Tests that pass on first push.** If CI is green before the implementation lands, you tested existing behavior (or a tautology). Delete the test, write one that fails against current code.
+- **REQ-ID in name without REQ behavior in assertion.** Satisfies the literal-match rule, verifies nothing. Read your test name back as a one-sentence contract; if breaking the named behavior wouldn't break the test, rewrite.
+- **Mocking the system under test.** Mocks should stand in for collaborators (DB, network, external services), never for the thing you're testing. If the test mock returns the answer the test asserts on, the test is theater.
+
+## Exit checklist (verify before reporting done)
+
+- [ ] Every new test has a REQ-ID literal in its `it()`/`test()` name (when `sdd/` exists)
+- [ ] Each test was observed RED in CI before the implementation commit landed
+- [ ] No test in the diff is `.skip`/`xit`/`@pytest.mark.skip` (use deletion, not skip)
+- [ ] `tdd-enforce` skill was invoked and its findings addressed
+- [ ] graphify `shortest_path(AC-cited-symbol, test-cited-symbol)` confirms the test actually reaches the AC implementation (when graph exists)

@@ -110,28 +110,9 @@ For each design decision, document:
 - Appropriate caching
 - Lazy loading
 
-## Common Patterns
+## Pattern selection
 
-### Frontend Patterns
-- **Component Composition**: Build complex UI from simple components
-- **Container/Presenter**: Separate data logic from presentation
-- **Custom Hooks**: Reusable stateful logic
-- **Context for Global State**: Avoid prop drilling
-- **Code Splitting**: Lazy load routes and heavy components
-
-### Backend Patterns
-- **Repository Pattern**: Abstract data access
-- **Service Layer**: Business logic separation
-- **Middleware Pattern**: Request/response processing
-- **Event-Driven Architecture**: Async operations
-- **CQRS**: Separate read and write operations
-
-### Data Patterns
-- **Normalized Database**: Reduce redundancy
-- **Denormalized for Read Performance**: Optimize queries
-- **Event Sourcing**: Audit trail and replayability
-- **Caching Layers**: Redis, CDN
-- **Eventual Consistency**: For distributed systems
+Apply patterns (Repository, Service Layer, CQRS, Event-Driven, Container/Presenter, etc.) only when the codebase already has at least one analogous use OR the AC explicitly needs the pattern's guarantees. New patterns introduced for "future flexibility" without a concrete second call site become dead abstractions within a few iterations. Use `mcp__graphify__query_graph("<pattern name>")` to verify the codebase has — or doesn't have — analogues before proposing one.
 
 ## Architecture Decision Records (ADRs)
 
@@ -171,16 +152,19 @@ When designing a new system or feature:
 - [ ] Backup and recovery strategy
 - [ ] Rollback plan documented
 
-## Red Flags
+## Known failure modes (watch yourself here)
 
-Watch for these architectural anti-patterns:
-- **Big Ball of Mud**: No clear structure
-- **Golden Hammer**: Using same solution for everything
-- **Premature Optimization**: Optimizing too early
-- **Not Invented Here**: Rejecting existing solutions
-- **Analysis Paralysis**: Over-planning, under-building
-- **Magic**: Unclear, undocumented behavior
-- **Tight Coupling**: Components too dependent
-- **God Object**: One class/component does everything
+- **Proposing parallel abstractions** instead of extending existing ones. Run `mcp__graphify__query_graph("<feature concept>")` before proposing a new module; if an analogue exists, default to extending it.
+- **Contradicting Accepted ADRs without an explicit "supersedes" entry**. Re-read `documentation/decisions/README.md` before proposing; if your design rejects a settled trade-off, open a new ADR that names AD-N and explains why the trade-off changed.
+- **Over-engineering for scale that won't be reached**. Treat scale tiers as hypotheses, not requirements. "10K users" architecture today, "100K" when there's evidence of 10K. Don't pre-build for 1M.
+- **Mistaking textbook patterns for solutions**. CQRS, Event Sourcing, microservices solve specific problems. Cite the concrete problem the pattern addresses in the AC or reject the pattern.
+
+## Exit checklist (verify before reporting done)
+
+- [ ] Proposal is grounded in `mcp__graphify__god_nodes()` + `get_community()` reads of the existing codebase, not in textbook defaults
+- [ ] Every new abstraction has at least two real call sites it serves (or one with a documented second arriving within the AC scope)
+- [ ] No proposed structure contradicts an Accepted ADR without an explicit `supersedes AD-N` entry
+- [ ] Trade-off table written with concrete Pros/Cons/Alternatives — not just "yes we should do this"
+- [ ] If the proposal touches `sdd/`, escalate to spec-reviewer's lane instead of editing directly
 
 **Remember**: Good architecture enables rapid development, easy maintenance, and confident scaling. The best architecture is the simplest one that satisfies the current AC and leaves a clear path for the next AC; per the Karpathy principle, no speculative configurability and no abstraction without two existing call sites that need it.
