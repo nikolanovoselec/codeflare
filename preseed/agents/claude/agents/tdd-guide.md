@@ -28,6 +28,8 @@ When `graphify-out/graph.json` exists, query the graph before writing a single l
 
 Fall back to Grep/Read only when the graph is absent or when you need exact source text (e.g. to read a fixture file before extending it).
 
+**No Cross-session signals section by design.** Test authoring is session-local — the test contract derives from the current REQ's ACs, not from prior user preferences. If the user previously rejected an entire testing strategy (e.g. "no integration tests for this domain"), that lives in `sdd/config.yml` (`enforce_tdd`) or in an ADR, both of which are read by the binding `tdd-enforce` skill.
+
 ## The Iron Law
 
 ```

@@ -247,3 +247,14 @@ This is a MEDIUM finding (apply in auto and unleashed modes, defer in interactiv
 - **Papering over wrong citations.** When `doc-enforce-truth` Pass 8 flags a Verification field citing a file that doesn't exercise the REQ, *fix the citation* — find the right file, or drop the field and flag `audit pending`. Renaming the bad citation to look right is worse than absence.
 - **Overwriting either side of a doc-vs-spec conflict.** Both sides marked Partial + Notes + escalate. The user decides which side is the source of truth; doc-updater never picks unilaterally.
 - **Inventing REQs.** doc-updater never creates REQs even when a doc clearly describes a shipped feature with no spec coverage. Report HIGH `feature-without-req` and let spec-reviewer (the lane owner) add the REQ.
+
+## Exit checklist (verify before reporting done)
+
+- [ ] `doc-enforce` skill was invoked as first action (skipping = HIGH `enforcement-skill-not-invoked`)
+- [ ] Conditional sub-skills ran when applicable (`doc-enforce-lanes` per file in diff, `doc-enforce-shape` when canonical lane files touched, `doc-enforce-truth` when Implemented REQ docs touched or scope=all)
+- [ ] Phase 1 sync covered every behavioral change in the diff (new endpoint → `api-reference.md`, new env var → `configuration.md`, etc.)
+- [ ] `documentation/README.md` was consulted for project's actual file structure; no hardcoded filenames assumed
+- [ ] `[doc-updater]` commit prefix used on every commit this agent authored
+- [ ] No edit landed outside `documentation/` + root `README.md` — `sdd/` and source files left untouched
+- [ ] Doc-vs-spec conflicts marked Partial on BOTH sides + escalated; never overwritten
+- [ ] Phase 4 report written with severity counts + skill invocation manifest

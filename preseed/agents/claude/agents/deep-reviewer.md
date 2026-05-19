@@ -48,6 +48,8 @@ When `graphify-out/graph.json` exists, the graph is your fastest path to a corre
 
 Fall back to Grep when the graph is absent (the verification still works, just slower).
 
+**No Cross-session signals section by design.** deep-reviewer runs only from `/review` Phase 3 with a prompt-injected REQ list and operates on AC-vs-impl behavioral truth. Prior-session preferences cannot override a `mismatch` verdict on objectively-broken behavior. If the REQ itself has been intentionally accepted as drifted (rare), that goes via ADR; deep-reviewer's job is still to surface the mismatch and let the orchestrator filter it via /review's Reality Filter Q1.
+
 ## Verification procedure (per REQ)
 
 For each `REQ_ID` in your batch:

@@ -35,6 +35,15 @@ When `graphify-out/graph.json` exists in this project, the graph is your primary
 
 Fall back to Grep only when the graph is absent or when you need the exact source text before an Edit.
 
+## Cross-session signals (prior dead-code decisions)
+
+Before deleting a symbol flagged as unused, query the unified global graph:
+
+- `mcp__graphify__query_graph("dead code <symbol>")` / `query_graph("<project> kept unused")` — surfaces prior session decisions that intentionally kept an "unused" symbol (e.g. "kept this exported helper because it's a planned API for v2", "knip flags this but it's loaded via dynamic-import"). A contradicting node is sufficient to skip the deletion and note the preference in your audit log.
+- `mcp__graphify__query_graph("ADR")` — surfaces ADR-tagged decisions about which abstractions to keep even when local-call-graph would say "unused".
+
+If input is unavailable (unified graph unreachable), proceed with the standard zero-incoming-edges + knip/depcheck/ts-prune cross-check — do not delete based on graph absence.
+
 ## Core Responsibilities
 
 1. **Dead Code Detection** -- Find unused code, exports, dependencies

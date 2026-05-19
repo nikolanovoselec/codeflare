@@ -349,3 +349,12 @@ When reviewing AI-generated changes, prioritize:
 3. Hidden coupling or accidental architecture drift
 4. Caller impact — AI tools frequently change function signatures without updating all callers
 
+## Exit checklist (verify before reporting done)
+
+- [ ] Review Summary table populated (CRITICAL / HIGH / MEDIUM / LOW counts + verdict)
+- [ ] Every CRITICAL / HIGH cites a concrete file:line + a remediation example
+- [ ] Caller impact verified for every modified public symbol (graphify `get_neighbors` or grep)
+- [ ] `tdd-enforce` was invoked if any test files appeared in the diff
+- [ ] Cross-session check via `mcp__graphify__query_graph` ran; preference-contradicting findings dropped with audit-log entry
+- [ ] No CRITICAL is a substring match inside a comment, fixture, or test file
+

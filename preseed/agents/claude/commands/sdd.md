@@ -55,7 +55,17 @@ For full workflow details: invoke the spec-driven-development skill.
 
 ## When the user types `/sdd <subcommand>`
 
-Parse `$ARGUMENTS`. Match the first token to one of: `init`, `edit`, `add`, `clean`, `mode`. Invoke the `spec-driven-development` skill with the sub-command name + remaining args.
+Parse `$ARGUMENTS`. Match the first token and dispatch:
+
+| Sub-command | Skill to invoke |
+|---|---|
+| `init [idea]` | `sdd-init` skill |
+| `clean [--scope=...] [--mode-override]` | `sdd-clean` skill |
+| `edit <domain>` | `spec-driven-development` skill (§ /sdd edit) |
+| `add <domain>` | `spec-driven-development` skill (§ /sdd add) |
+| `mode [name]` | `spec-driven-development` skill (§ /sdd mode) |
+
+For `init` and `clean`, the sub-command skills automatically load `spec-driven-development` as a dependency for REQ format, Status semantics, and templates.
 
 Unknown sub-command: print the help screen, exit.
 

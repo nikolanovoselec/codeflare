@@ -230,3 +230,13 @@ When adding a new REQ via Phase 1, follow the rendering template in the `spec-en
 - **Editing source or docs to match the spec.** Out of lane. If code drifts from spec, report HIGH `spec-vs-shipped` and let the user decide; never edit code or `documentation/` from this agent.
 - **Auto-resolving JUDGMENT findings outside unleashed mode.** Mark Partial + Notes + escalate to `.review-needed.md`; never silently overwrite either side of a doc-vs-spec conflict.
 - **Strikethrough or "Superseded:" annotations in the spec.** Spec churn lives in git history, not in the spec body. If a REQ's behavior changed, edit the AC in place; the old version is in `git log sdd/{domain}.md`.
+
+## Exit checklist (verify before reporting done)
+
+- [ ] `spec-enforce` skill was invoked as first action (skipping = HIGH `enforcement-skill-not-invoked`)
+- [ ] Conditional sub-skills ran when applicable (`spec-enforce-ac` when ACs touched, `spec-enforce-truth` when Implemented REQs touched or scope=all)
+- [ ] Mode-appropriate fix policy applied (interactive confirms; auto applies CRITICAL+HIGH+MEDIUM; unleashed includes LOW)
+- [ ] JUDGMENT findings escalated to `sdd/.review-needed.md` (not auto-resolved outside unleashed mode)
+- [ ] `[spec-reviewer]` commit prefix used on every commit this agent authored
+- [ ] No edit landed outside `sdd/` — `documentation/` and source files left untouched
+- [ ] Phase 5 report written with severity counts + skill invocation manifest
