@@ -240,7 +240,7 @@ At the top of the file, include:
 Focus on: [AGENT-SPECIFIC FOCUS AREA]
 
 Skill invocation override for /review mode (when applicable to your agent type):
-- **doc-updater**: invoke `doc-enforce` skill with `scope=[SCOPE]` as your first action. The skill conditionally invokes doc-enforce-lanes / doc-enforce-shape / doc-enforce-truth as needed.
+- **doc-updater**: invoke `doc-enforce` skill with `scope=[SCOPE]` as your first action. The skill conditionally invokes doc-enforce-lanes / doc-enforce-shape / doc-enforce-truth as needed. If your repo has no `sdd/` or no `documentation/` (vibe-coding mode), write a one-line "no-op (vibe-coding mode: no sdd/ or no documentation/ — doc-enforce has no surface to check)" header to your output file and return — do not leave the file empty.
 - **tdd-guide**: invoke `tdd-enforce` skill with `scope=[SCOPE]` against the [test files in the diff | every test file in the codebase] as your first action.
 - **code-reviewer**: when your scope includes test files, invoke `tdd-enforce` with `scope=[SCOPE]`.
 
