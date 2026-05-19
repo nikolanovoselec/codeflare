@@ -1021,7 +1021,7 @@ The DO's `_shutdownStartedAt` telemetry already logs `shutdownElapsedMs` on `onS
 
 - **Prefilter pipeline.** New `prefilter-transcript.sh` runs a `jq` filter that drops tool_use/tool_result/thinking blocks, slash-command wrappers, task-notifications, hook feedback, resume markers, and meta records. Output is NDJSON of `{role, text, ts}` per kept entry. On the benchmark transcript: 3.8 MB raw → 50 KB clean (76× reduction).
 - **Chunked scratchpad.** The capture agent splits the clean NDJSON into chunks of ~20 entries (`chunk-aa.md`, `chunk-ab.md`, ...), processes each chunk in turn, and appends per-chunk observations to a scratchpad file before synthesising the final note. The scratchpad becomes working memory; recency bias is structurally prevented because each chunk gets equal attention.
-- **Model: sonnet, not haiku.** The capture agent runs at sonnet tier. Same-input bench against haiku: sonnet produced 52 bullets vs 30, cited 15 commit SHAs verbatim (haiku cited 0), and invented zero IDs vs haiku's 2.
+- **Model: sonnet, not haiku.** The capture agent runs at sonnet tier. Same-input bench against haiku: sonnet produced 52 bullets vs 30, cited 15 commit SHAs verbatim (haiku cited 0), and invented zero IDs vs haiku's 2. The model is bound at the agent-file level via frontmatter in `preseed/agents/claude/agents/memory-capture.md` (and `vault-extract.md` for the vault path); hook directives instruct the main agent not to pass a model override to the Task tool, so the pin cannot be silently downgraded by a caller.
 
 Three smaller decisions bundled in:
 
