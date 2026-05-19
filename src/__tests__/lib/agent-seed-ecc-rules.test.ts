@@ -113,15 +113,18 @@ describe('ECC rules in agent-seed', () => {
     '.claude/rules/documentation-discipline.md',
     '.claude/rules/tdd-discipline.md',
     '.claude/rules/graph-first.md',
-    // vault.md teaches the agent the obsidian-vault subsystem
-    // (REQ-VAULT-001..007). The vault is a Pro-mode feature gated by the
-    // graphify MCP server and the memory-capture hook; default-mode
-    // sessions don't ship those, so the rule has no audience there.
-    '.claude/rules/vault.md',
     // vault-note-capture.md is the trigger rule that maps "take a note"
     // phrases to the vault-note-capture skill. The vault itself is
     // Pro-mode-only, so the trigger has no audience in default mode.
+    // Vault layout/conventions live in skills/vault-operations/ and
+    // are routed from rules/memory.md (Pro-mode-only), not from a
+    // separate rules/vault.md (folded into memory.md).
     '.claude/rules/vault-note-capture.md',
+    // karpathy.md is the LLM-coding-mistakes principles file. Pro-mode
+    // only because default-mode users are vibe-coding and didn't opt
+    // into the rigorous coding-discipline checks Karpathy principles
+    // encourage.
+    '.claude/rules/karpathy.md',
   ];
 
   it('non-memory codeflare rules have default+advanced modes', () => {

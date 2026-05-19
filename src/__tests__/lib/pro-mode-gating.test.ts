@@ -31,10 +31,13 @@ describe('REQ-MEM-006 AC3: memory + vault rules and plugins are advanced-only', 
       'rules/memory.md must be tagged advanced-only -- it documents vault capture which is Pro-only').toBe(true);
   });
 
-  it('rules/vault.md is advanced-only', () => {
-    expect(has('.claude/rules/vault.md'), '.claude/rules/vault.md must be present in the seed').toBe(true);
-    expect(advancedOnly('.claude/rules/vault.md'),
-      'rules/vault.md must be tagged advanced-only -- vault is a Pro feature').toBe(true);
+  it('vault subsystem is folded into rules/memory.md (no separate rules/vault.md)', () => {
+    // Architectural choice: vault trigger/route content lives in memory.md
+    // as the 'Vault operations' and 'Vault-edit hook' subsections, rather
+    // than a separate rules/vault.md file. memory.md is advanced-only
+    // (verified above), so vault is still Pro-mode gated.
+    expect(has('.claude/rules/vault.md'),
+      'rules/vault.md was folded into memory.md and should NOT appear in the seed').toBe(false);
   });
 
   it('rules/vault-note-capture.md is advanced-only', () => {

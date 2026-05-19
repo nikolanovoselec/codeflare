@@ -114,7 +114,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 1. In default mode, the vault directory is not preserved across container recreations (sync filters limit cross-session persistence to advanced-mode sessions).
 2. In default mode, the capture hook still runs the in-session counter logic but vault writes are local-only.
-3. The memory plugin, memory rule (`rules/memory.md`), vault plugin, and vault rule (`rules/vault.md`) are preseeded only in advanced mode.
+3. The memory plugin, memory rule (`rules/memory.md`, which carries the folded vault trigger/route content), vault plugin, and `rules/vault-note-capture.md` are preseeded only in advanced mode.
 4. Pro mode seeds a strict superset of Standard's preseed files; the memory and vault plugins/rules are part of the Pro-only delta.
 5. `entrypoint.sh` merges hook registrations (PreToolUse and UserPromptSubmit) into `settings.json` only in advanced mode. Default mode gets only `skipDangerousModePermissionPrompt`.
 6. `sessionMode` is stored as `'default' | 'advanced'` in `UserPreferences` (KV). Undefined defaults to `'default'` via `resolveSessionMode()`.
