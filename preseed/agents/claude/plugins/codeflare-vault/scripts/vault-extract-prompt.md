@@ -306,6 +306,35 @@ The internal `external_labels` pass dedupes concept nodes (those with
 `global_add` function node from any per-repo graph that has the same
 label.
 
+### 5b. Re-render the vault viz HTML
+
+The vault `Raw/Graphs/Vault Graph.md` index page links to
+`vault-graph.html`. Without this step, the HTML drifts behind the JSON
+on every extraction and the linked viz shows stale content. Render
+from the per-run `graph.json` (which step 4 just wrote alongside
+`vault-graph.json`) via `cluster-only`, which re-emits `graph.html`
+and `GRAPH_REPORT.md` without re-extracting files. Copy the rendered
+HTML into `Raw/Graphs/` so the index-page link resolves through the
+SilverBullet `.fs/` route.
+
+Note on path: `cluster-only` takes a PROJECT root and writes output
+to `<root>/graphify-out/`, so pass `.` (with cwd=`/home/user/Vault`)
+to read `./graphify-out/graph.json` and write
+`./graphify-out/graph.html`. Passing `graphify-out` would resolve
+to the nested path `graphify-out/graphify-out/` and FileNotFoundError.
+
+```bash
+(
+    cd /home/user/Vault && \
+    /usr/local/bin/graphify cluster-only . 2>/dev/null && \
+    cp -f graphify-out/graph.html "Raw/Graphs/vault-graph.html"
+) || echo "[vault-extract] viz re-render skipped (cluster-only failed; HTML may be stale)"
+```
+
+Failure here is intentionally NON-fatal (no `EXTRACT_FAILED=1`): the
+graph data is already persisted by steps 4-5, the only loss is a
+stale viz HTML. The next successful extraction re-renders.
+
 ### 6. Advance the high-water mark - FINAL step
 
 ```bash

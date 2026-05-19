@@ -1291,20 +1291,29 @@ init_user_vault() {
     mkdir -p "$VAULT/Raw/Sessions" "$VAULT/Raw/Pasted" "$VAULT/Raw/Graphs" "$VAULT/Notes" \
              "$VAULT/graphify-out" "$VAULT/.silverbullet/_plug"
 
-    # Create-if-missing pages under Raw/Graphs/. These are user-editable
-    # index pages that link to the graphify-rendered viz HTML siblings;
-    # we ship initial content so a fresh vault has a Graphs/ folder
-    # visible in the treeview (treeview is page-driven; an empty
-    # directory does not render). Never overwritten -- if the user
-    # edits or deletes the page they stay deleted/edited.
-    local GRAPH_PAGE
-    for GRAPH_PAGE in "Vault Graph.md" "Global Graph.md"; do
-        if [ -f "$PRESEED_DIR/Raw/Graphs/$GRAPH_PAGE" ] \
-           && [ ! -f "$VAULT/Raw/Graphs/$GRAPH_PAGE" ]; then
-            cp "$PRESEED_DIR/Raw/Graphs/$GRAPH_PAGE" "$VAULT/Raw/Graphs/$GRAPH_PAGE"
-            echo "[entrypoint] Seeded Raw/Graphs/$GRAPH_PAGE"
-        fi
-    done
+    # Create-if-missing page under Raw/Graphs/. User-editable index page
+    # linking to the vault-graph.html sibling rendered by the vault-extract
+    # subagent. Shipped so a fresh vault has a Graphs/ folder visible in
+    # the treeview (treeview is page-driven; an empty directory does not
+    # render). Never overwritten -- if the user edits or deletes the page
+    # it stays deleted/edited. Global-graph HTML viz was dropped: the
+    # unified graph is a 10k+ node corpus that renders as an unusable
+    # hairball; structural queries via mcp__graphify__* are the real
+    # interface, and the vault viz already covers the user-curated slice.
+    if [ -f "$PRESEED_DIR/Raw/Graphs/Vault Graph.md" ] \
+       && [ ! -f "$VAULT/Raw/Graphs/Vault Graph.md" ]; then
+        cp "$PRESEED_DIR/Raw/Graphs/Vault Graph.md" "$VAULT/Raw/Graphs/Vault Graph.md"
+        echo "[entrypoint] Seeded Raw/Graphs/Vault Graph.md"
+    fi
+    # One-time cleanup: legacy "Global Graph.md" pages from earlier installs
+    # link to a non-existent global-graph.html (404). Drop the page and the
+    # never-generated viz file on every boot - idempotent, also catches
+    # vaults restored from R2 snapshots that predate this cleanup.
+    if [ -f "$VAULT/Raw/Graphs/Global Graph.md" ] \
+       && [ ! -f "$PRESEED_DIR/Raw/Graphs/Global Graph.md" ]; then
+        rm -f "$VAULT/Raw/Graphs/Global Graph.md" "$VAULT/Raw/Graphs/global-graph.html" 2>/dev/null
+        echo "[entrypoint] Removed legacy Raw/Graphs/Global Graph.md (viz dropped)"
+    fi
 
     # Preseed-managed pages. Always overwritten from preseed on every boot
     # so SilverBullet cannot be permanently broken by file deletion or by
