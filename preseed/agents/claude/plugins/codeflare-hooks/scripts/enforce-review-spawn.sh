@@ -383,6 +383,184 @@ if [ -f "$ACK_FILE" ]; then
   esac
 fi
 
+# ---------------------------------------------------------------------------
+# Retroactive ack scan (v7) -- handles the fix-push cascade pattern.
+#
+# The classic flow at the bottom of this file advances LAST_ACK only when
+# Stop fires for the CURRENT HEAD AND finds agents spawned-and-completed
+# AFTER the most recent push line. In a cascade where the assistant does
+# "push fix -> spawn agents -> agents complete -> apply more findings ->
+# push again" all inside one turn, Stop fires only at turn-end -- by which
+# time PUSH_LINE has already moved past the spawn lines for the EARLIER
+# push, and the completion markers no longer count for the CURRENT HEAD.
+# Result: LAST_ACK stuck for many rounds even though each round had a
+# fully-observed pipeline of agents reviewing the cumulative diff.
+#
+# Semantics:
+# - Walk push lines from oldest to newest.
+# - For each (push_line, push_sha) pair, check whether the window
+#   (push_line, next_push_line) contains a complete pipeline for the
+#   cumulative diff running_ack..push_sha (running_ack starts at the
+#   persisted LAST_ACK_PR_HEAD and advances as the walk progresses).
+# - "Complete" = each lane in compute_required_lanes(running_ack, push_sha)
+#   has a spawn-AND-completion in the window.
+# - On a complete window: advance running_ack to push_sha.
+# - On an INCOMPLETE window (some required lane spawn or completion is
+#   missing): leave running_ack where it is and continue to the next
+#   push. A later push's reviewers will cover the cumulative diff that
+#   includes this push's changes.
+# - "Skipped" pushes (no spawns at all, e.g. user said `skip review`)
+#   simply don't advance running_ack - the next complete window's
+#   cumulative review will absorb them.
+#
+# Safety: `git merge-base --is-ancestor` at the call site gates the
+# actual file write so a stale or rebased transcript can never make
+# LAST_ACK regress or jump to a SHA that is not an ancestor of (or
+# equal to) HEAD.
+# ---------------------------------------------------------------------------
+retroactive_ack_scan() {
+  [ -f "$TRANSCRIPT" ] || return
+  local total
+  total=$(wc -l < "$TRANSCRIPT" 2>/dev/null || echo 0)
+  [ "$total" -gt 0 ] || return
+
+  # Push line detection - SAME precise regex as the main PUSH_LINE
+  # detector at the top of this file. A loose `index($0, "git push")`
+  # would false-positive on Edit/Read tool_use envelopes whose
+  # old_string/new_string content quotes the phrase (e.g. an edit to
+  # this hook itself).
+  local all_push_lines
+  all_push_lines=$(awk '
+    /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
+      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
+    }
+    /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_batch_execute"/ {
+      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
+    }
+    /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
+      if ($0 !~ /"language"[[:space:]]*:[[:space:]]*"shell"/) next
+      if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
+    }
+  ' "$TRANSCRIPT")
+  [ -n "$all_push_lines" ] || return
+
+  # Source the lane classifier so we can compute per-push required lanes.
+  . "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null || return
+
+  # Convert space-separated push lines to an array for indexed access.
+  local -a push_arr
+  while IFS= read -r line; do
+    [ -n "$line" ] && push_arr+=("$line")
+  done <<< "$all_push_lines"
+  local n=${#push_arr[@]}
+  [ "$n" -gt 0 ] || return
+
+  local running_ack="$LAST_ACK_PR_HEAD"
+  local best_sha=""
+
+  local i
+  for ((i=0; i<n; i++)); do
+    local start=${push_arr[$i]}
+    local end
+    if [ $((i+1)) -lt "$n" ]; then
+      end=${push_arr[$((i+1))]}
+    else
+      end=$total
+    fi
+
+    # Destination SHA from THIS push's window. git push abbreviates SHAs
+    # to 7 chars; expand to full 40-hex via git rev-parse.
+    local sha_short
+    sha_short=$(awk -v s="$start" -v e="$end" 'NR >= s && NR < e' "$TRANSCRIPT" \
+      | grep -oE '[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}[[:space:]]+[A-Za-z0-9_/-]+[[:space:]]+[A-Za-z0-9_/-]*->[[:space:]]*[A-Za-z0-9_/-]+' \
+      | head -1 \
+      | sed -E 's/^[0-9a-f]+\.\.([0-9a-f]+).*/\1/')
+    [ -n "$sha_short" ] || continue
+    local push_sha
+    push_sha=$(git rev-parse "$sha_short" 2>/dev/null)
+    [ -n "$push_sha" ] && [ "${#push_sha}" -eq 40 ] || continue
+
+    # Required lanes for the cumulative diff running_ack..push_sha.
+    local required_lanes
+    required_lanes=$(compute_required_lanes "$running_ack" "$push_sha" 2>/dev/null)
+
+    # Empty required lanes -> push has no review surface (or no diff at
+    # all) -> trivially acked.
+    if [ -z "$required_lanes" ]; then
+      best_sha="$push_sha"
+      running_ack="$push_sha"
+      continue
+    fi
+
+    # Check each required lane in the window. If any is missing or its
+    # spawn lacks a completion marker, leave running_ack unchanged and
+    # continue (a LATER complete window will absorb this push's diff
+    # into its cumulative review).
+    local window_complete=1
+    local lane
+    for lane in $required_lanes; do
+      local spawn_line
+      spawn_line=$(awk -v s="$start" -v e="$end" -v a="$lane" '
+        NR > s && NR < e \
+          && index($0, "\"type\":\"tool_use\"") \
+          && index($0, "\"name\":\"Agent\"") \
+          && index($0, "\"subagent_type\":\"" a "\"") { print NR }
+      ' "$TRANSCRIPT" | tail -1)
+      if [ -z "$spawn_line" ]; then
+        window_complete=0; break
+      fi
+      local line_content tool_use_id
+      line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
+      tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
+      if [ -z "$tool_use_id" ]; then
+        window_complete=0; break
+      fi
+      # Completion can land anywhere after the spawn (notifications may
+      # arrive in a later turn).
+      if ! awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
+          | grep -F "tool-use-id>${tool_use_id}<" \
+          | grep -qF 'completed</status>'; then
+        window_complete=0; break
+      fi
+    done
+
+    if [ "$window_complete" = "1" ]; then
+      best_sha="$push_sha"
+      running_ack="$push_sha"
+    fi
+    # If incomplete: continue walking. Don't break -- a later push's
+    # cumulative review will absorb this push's diff.
+  done
+
+  echo "$best_sha"
+}
+
+RETRO_SHA=$(retroactive_ack_scan 2>/dev/null)
+if [ -n "$RETRO_SHA" ] && [ "$RETRO_SHA" != "$LAST_ACK_PR_HEAD" ]; then
+  # Only advance forward. The merge-base check covers the rebase / force-
+  # push edge case: if RETRO_SHA is not an ancestor of (or equal to) the
+  # current HEAD chain, the transcript is referring to an obsolete tip and
+  # we ignore it.
+  CURRENT_HEAD_LOCAL=$(git rev-parse HEAD 2>/dev/null)
+  if [ -n "$CURRENT_HEAD_LOCAL" ] && git cat-file -e "$RETRO_SHA" 2>/dev/null; then
+    if { [ -z "$LAST_ACK_PR_HEAD" ] || git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$RETRO_SHA" 2>/dev/null; } \
+       && { [ "$RETRO_SHA" = "$CURRENT_HEAD_LOCAL" ] \
+            || git merge-base --is-ancestor "$RETRO_SHA" "$CURRENT_HEAD_LOCAL" 2>/dev/null; }; then
+      LAST_ACK_PR_HEAD="$RETRO_SHA"
+      echo "$LAST_ACK_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
+    fi
+  fi
+fi
+
 if [ -n "$LAST_ACK_PR_HEAD" ]; then
   REMOTE_HEAD=$(git rev-parse "@{u}" 2>/dev/null)
   LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null)
