@@ -374,8 +374,22 @@ The hook surfaces blocks as `hookSpecificOutput.permissionDecision: deny` with a
 `/sdd init` is the single entry point for bootstrapping SDD on a project. It detects one of three scenarios from project state and dispatches automatically:
 
 - **Greenfield** - empty project. Agent drafts vision / actors / domains / requirements from the user's prose and writes scaffolding.
-- **Import** - substantive existing code, no `sdd/` yet. Two-output model: behavior clearly determinable from source / tests / comments / commits / PRs becomes official REQs in `sdd/{domain}.md`; everything unclear (magic numbers, retry policies, ambiguous contracts, orphan code) becomes triage entries in `sdd/init-triage.md` with the agent's `**Context:**` (file:line, git author, commit refs, related tests/PRs) and `**Recommendation:**` (best-guess answer with one-line `**Rationale:**`) populated up front.
+- **Import** - substantive existing code, no `sdd/` yet. Two-output model: behavior clearly determinable from source / tests / comments / commits / PRs becomes official REQs in `sdd/{domain}.md`; everything unclear (magic numbers, retry policies, ambiguous contracts, orphan code) becomes triage entries in `sdd/init-triage.md` with the agent's `**Context:**` (file:line, git author, commit refs, related tests/PRs) and `**Recommendation:**` (best-guess answer with one-line `**Rationale:**`) populated up front. Status default for CLEAR REQs honours `enforce_tdd`. Import Mode defaults `enforce_tdd: false` - CLEAR REQs whose source implements the AC land as `Status: Implemented` unconditionally (imported code predates REQ-ID test conventions; demoting everything to `Partial` would falsely brand the spec as incomplete). When `enforce_tdd: false`, each domain file receives a `_Verification: code-only (no automated coverage)._` footnote at the bottom; per-REQ `Notes:` fields are not used for this signal. Switch to `enforce_tdd: true` manually (in `sdd/config.yml`) once REQ-ID references have been added to test names.
 - **Resume** - `sdd/` exists and `sdd/init-triage.md` has at least one `**Status:** open` item. Agent surfaces one item at a time with refreshed Context. Five decisions: `accept` (use the recommendation as-is, fold into REQ), `correct` (free-form prose describing what the thing is for and how it works; agent folds purpose into Intent and behavior into ACs), `lost` (one-line Reason required, no spec write), `skip` (stays open, no spec write), `quit`. Only `accept` and `correct` promote anything into the official spec.
+
+**Interaction flow.** Both Greenfield and Import Mode run as a lean two-confirm flow: the agent asks one vision question (or accepts inline `$ARGUMENTS`), drafts the entire spec in memory (actors, domains, design principles, REQs in canonical shape, CON-* constraints, founding ADRs, glossary terms), presents the full draft as one review surface, and applies edits in place until the user accepts. The 10-15-turn one-domain-at-a-time confirmation chain is not used.
+
+**Enrichment pass.** After the draft is accepted, before any files are written, three passes run automatically in one in-memory cycle:
+
+- **Cross-link pass** - every REQ that references another REQ concept by name also gains it in `Dependencies:` as an anchor link `[REQ-X-NNN](#req-x-nnn-title-slug)`.
+- **ADR-seed pass** - 3-8 founding ADRs covering non-obvious technology choices (stack, framework, deployment target, auth pattern, data store, key middleware) are written to `documentation/decisions/README.md` with an index table at the top and per-ADR sections below.
+- **Glossary-seed pass** - every product noun, vendor name, and protocol mentioned in any REQ Intent or AC body is given a one-line definition in `sdd/glossary.md`.
+
+No additional user prompts during the enrichment cycle.
+
+**Scaffold slots.** At scaffold time `/sdd init` also touches `sdd/.review-needed.md`, `sdd/.coverage-report.md`, and `sdd/.last-clean-run.md` with a single `_Awaiting first run._` placeholder so the slot structure is visible from day one.
+
+**Tool surface compatibility.** Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works under both Bash and the context-mode MCP tool family (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_search`). Discovery commands that produce more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) route through `ctx_execute` / `ctx_batch_execute` in context-mode environments and through Bash in plain environments.
 
 While `sdd/init-triage.md` contains any open items, `sdd/config.yml` carries `transition: true`. The transition gate condition is the conjunction `transition: true` in config AND `**Status:** open` items in the triage file (case-insensitive on `open`); all enforcement layers test both. During transition the entire review pipeline is suspended:
 
@@ -392,7 +406,7 @@ While `sdd/init-triage.md` contains any open items, `sdd/config.yml` carries `tr
 
 `enforce_tdd` is NOT touched by the closure commit. The user changes it manually when ready for TDD enforcement (typically after adding REQ-ID references to test names in the imported source).
 
-Full SDD discipline applies on the next push; autonomous agentic development is unlocked. `sdd/init-triage.md` is preserved as the audit record. Implements [REQ-AGENT-022](../sdd/agents.md#req-agent-022).
+Full SDD discipline applies on the next push; autonomous agentic development is unlocked. `sdd/init-triage.md` is preserved as the audit record. Implements [REQ-AGENT-021](../sdd/agents.md#req-agent-021) AC17-AC21 and [REQ-AGENT-022](../sdd/agents.md#req-agent-022).
 
 **GitHub corpus degradation.** When Import Mode cannot reach GitHub (non-GitHub remote, `gh auth status` failure, rate-limited, air-gapped), discovery falls back to working-tree + git-log evidence only. A one-line notice naming the reason is appended to the `sdd/changes.md` import entry; triage Context fields reference whatever artifact refs are reachable.
 
