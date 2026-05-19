@@ -109,6 +109,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/lib/lane-classifier.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-memory/.claude-plugin/plugin.json": {
     "modes": [
       "advanced"

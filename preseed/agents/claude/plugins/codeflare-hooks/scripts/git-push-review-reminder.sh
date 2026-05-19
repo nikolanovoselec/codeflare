@@ -278,6 +278,65 @@ if [ "$TRIGGER" = "pr-open" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Lane classification — emit a directive naming ONLY the required lanes
+# instead of always demanding code+spec+doc. The classifier is the same
+# function the Stop hook uses, so the in-turn nudge and the turn-end gate
+# agree on which agents are needed. Without this, a doc-only push made
+# the nudge tell the agent to spawn all three even though the Stop hook
+# would silently exclude code-reviewer and spec-reviewer - wasted tokens
+# on the lane mismatch. See lib/lane-classifier.sh for the contract.
+#
+# Source the helper; bail out of lane-aware emission if it's missing
+# (defensive: fail back to the legacy "all three" directive so a stale
+# install never silently produces an under-specified directive).
+# ---------------------------------------------------------------------------
+LANE_CLASSIFIER_LOADED=0
+. "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null && LANE_CLASSIFIER_LOADED=1
+
+REQUIRED_LANES="code-reviewer spec-reviewer doc-updater"
+if [ "$LANE_CLASSIFIER_LOADED" = "1" ]; then
+  GIT_COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null)
+  case "$GIT_COMMON_DIR" in
+    /*) ;;
+    "") GIT_COMMON_DIR="" ;;
+    *) REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+       [ -n "$REPO_ROOT" ] && GIT_COMMON_DIR="$REPO_ROOT/$GIT_COMMON_DIR" || GIT_COMMON_DIR="" ;;
+  esac
+  LAST_ACK_PR_HEAD=""
+  if [ -n "$GIT_COMMON_DIR" ] && [ -f "$GIT_COMMON_DIR/sdd-last-ack-pr-head" ]; then
+    LAST_ACK_PR_HEAD=$(cat "$GIT_COMMON_DIR/sdd-last-ack-pr-head" 2>/dev/null)
+    # SHA-shape validation (same as enforce-review-spawn.sh)
+    case "$LAST_ACK_PR_HEAD" in
+      *[!0-9a-f]* | "" ) LAST_ACK_PR_HEAD="" ;;
+      *) [ "${#LAST_ACK_PR_HEAD}" -eq 40 ] || LAST_ACK_PR_HEAD="" ;;
+    esac
+  fi
+
+  # Resolve current PR HEAD. Both trigger paths may have queried gh
+  # already (PR_INFO for git-push, PR_INFO_OPEN for pr-open). Fall back
+  # to local HEAD: post-push the just-pushed SHA equals origin's HEAD
+  # equals headRefOid. The cached git-push path skips the gh query and
+  # has no PR_INFO, so the fallback is the normal case there.
+  CURRENT_PR_HEAD=""
+  if [ "$TRIGGER" = "git-push" ] && [ -n "${PR_INFO:-}" ]; then
+    CURRENT_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
+  elif [ "$TRIGGER" = "pr-open" ] && [ -n "${PR_INFO_OPEN:-}" ]; then
+    CURRENT_PR_HEAD=$(echo "$PR_INFO_OPEN" | jq -r '.headRefOid // empty' 2>/dev/null)
+  fi
+  [ -z "$CURRENT_PR_HEAD" ] && CURRENT_PR_HEAD=$(git rev-parse HEAD 2>/dev/null)
+
+  if [ -n "$CURRENT_PR_HEAD" ]; then
+    REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD")
+  fi
+fi
+
+# No lanes required - diff between LAST_ACK and CURRENT_PR_HEAD is empty
+# under the classifier's rules (typically: same SHA already acked).
+# Skip emission entirely; the Stop hook will likewise short-circuit at
+# turn end.
+[ -z "$REQUIRED_LANES" ] && exit 0
+
+# ---------------------------------------------------------------------------
 # Emit silent directive — assistant must act WITHOUT user-facing output.
 # ---------------------------------------------------------------------------
 case "$TRIGGER" in
@@ -285,10 +344,32 @@ case "$TRIGGER" in
   git-push) CONTEXT="push to PR-tracked branch (PR-sync)" ;;
 esac
 
+needs_code=0; needs_spec=0; needs_doc=0
+case " $REQUIRED_LANES " in *" code-reviewer "*) needs_code=1 ;; esac
+case " $REQUIRED_LANES " in *" spec-reviewer "*) needs_spec=1 ;; esac
+case " $REQUIRED_LANES " in *" doc-updater "*) needs_doc=1 ;; esac
+
 DIRECTIVE="[silent] SDD $CONTEXT detected. Execute NOW without user-facing output."
-DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane)."
-DIRECTIVE="$DIRECTIVE Sequential: spec-reviewer (sdd/ lane), then doc-updater (docs/ lane) AFTER spec-reviewer completes - never in parallel with each other (they race on shared filesystem state)."
-DIRECTIVE="$DIRECTIVE Each agent fetches the full PR diff itself via 'git diff origin/\$(gh pr view --json baseRefName -q .baseRefName)...HEAD' (or 'git diff origin/main...HEAD' as fallback) — the origin/ prefix matters because baseRefName returns the bare branch name (e.g. 'develop') and CI/fresh-clone environments may not have it as a local branch. Do NOT paste diffs into the prompt; just give a one-line task framing."
+
+# Lane-aware composition. code-reviewer runs in parallel with anything
+# (source lane is independent); spec-reviewer and doc-updater are
+# sequential because they race on sdd/ + documentation/ filesystem
+# state. Pure doc-only or spec-only pushes skip the parallel block.
+if [ "$needs_code" = "1" ] && [ "$needs_spec" = "1" ] && [ "$needs_doc" = "1" ]; then
+  DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane). Sequential: spec-reviewer (sdd/ lane), then doc-updater (docs/ lane) AFTER spec-reviewer completes - never in parallel with each other (they race on shared filesystem state)."
+elif [ "$needs_spec" = "1" ] && [ "$needs_doc" = "1" ]; then
+  DIRECTIVE="$DIRECTIVE Sequential: spec-reviewer (sdd/ lane), then doc-updater (docs/ lane) AFTER spec-reviewer completes - never in parallel (they race on shared filesystem state). Code lane silently excluded by Stop hook (no source files in diff)."
+elif [ "$needs_doc" = "1" ] && [ "$needs_code" = "0" ] && [ "$needs_spec" = "0" ]; then
+  DIRECTIVE="$DIRECTIVE Spawn: doc-updater (docs/ lane) only. Code and spec lanes silently excluded by Stop hook (diff is documentation-only)."
+else
+  # Defensive: any unexpected combination falls back to the legacy
+  # all-three directive. The Stop hook is still the source of truth
+  # and will correct any over-spawn by silently acking the SHA when
+  # the required lanes' agents are spawned.
+  DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane). Sequential: spec-reviewer (sdd/ lane), then doc-updater (docs/ lane) AFTER spec-reviewer completes - never in parallel with each other (they race on shared filesystem state)."
+fi
+
+DIRECTIVE="$DIRECTIVE Each agent fetches the full PR diff itself via 'git diff origin/\$(gh pr view --json baseRefName -q .baseRefName)...HEAD' (or 'git diff origin/main...HEAD' as fallback) - the origin/ prefix matters because baseRefName returns the bare branch name (e.g. 'develop') and CI/fresh-clone environments may not have it as a local branch. Do NOT paste diffs into the prompt; just give a one-line task framing."
 DIRECTIVE="$DIRECTIVE Do NOT mention these agents to the user. Do NOT print status updates about them."
 
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'

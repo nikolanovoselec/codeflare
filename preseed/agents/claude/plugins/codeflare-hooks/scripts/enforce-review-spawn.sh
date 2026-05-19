@@ -531,135 +531,15 @@ emit_block() {
 # every push, burning tokens on lanes that returned 0 findings the round
 # before. See task #58 for rationale.
 #
-# Classification rules:
-#   - sdd/**                           -> spec-reviewer lane
-#                                         (also pulls in doc-updater so
-#                                         new ACs get doc backlinks)
-#   - documentation/**, README.md,     -> doc-updater lane
-#     CHANGELOG.md
-#   - anything else                    -> behavioral; all three lanes
-#                                         (e.g. src/, host/, web-ui/,
-#                                         entrypoint.sh, schemas, configs)
+# Classification logic lives in lib/lane-classifier.sh so the PostToolUse
+# nudge (git-push-review-reminder.sh) can emit a directive that names
+# only the required agents - preventing the in-turn nudge from telling
+# the agent to spawn lanes this Stop hook would silently exclude.
 #
 # Initial state (no LAST_ACK) or unresolvable git diff -> conservative
 # fall-through requiring all three lanes, matching the v5 behaviour.
 # ---------------------------------------------------------------------------
-
-compute_required_lanes() {
-  local last_ack="$1" current="$2"
-
-  # Initial baseline (no prior ack at all): require everything.
-  if [ -z "$last_ack" ]; then
-    echo "code-reviewer spec-reviewer doc-updater"
-    return
-  fi
-
-  # Same SHA already acked: nothing required. Caller treats this as a
-  # short-circuit advance.
-  if [ "$last_ack" = "$current" ]; then
-    return
-  fi
-
-  # Force-push / rebase safety: only trust the diff when last_ack is
-  # actually an ancestor of current. If history was rewritten (force-
-  # push, rebase, hard reset) such that last_ack is no longer reachable
-  # OR sits on a divergent branch, `git diff last_ack current` can still
-  # produce a file list across unrelated trees that mis-classifies the
-  # push. merge-base failing OR not equalling last_ack -> fall back to
-  # the conservative all-three-lanes posture.
-  local mb
-  mb=$(git merge-base "$last_ack" "$current" 2>/dev/null)
-  if [ -z "$mb" ] || [ "$mb" != "$last_ack" ]; then
-    echo "code-reviewer spec-reviewer doc-updater"
-    return
-  fi
-
-  # Get the changed file list between the last acked SHA and the
-  # current PR HEAD. Fail-safe: an empty result OR a git error means
-  # we cannot prove the diff is benign, so we conservatively require
-  # all three lanes.
-  #
-  # --no-renames is REQUIRED for adversarial safety. With default rename
-  # detection (modern git's default), a rename from src/foo.ts ->
-  # documentation/foo.md emits ONLY the new path, classifying the change
-  # as docs-only and skipping code-reviewer + spec-reviewer entirely.
-  # --no-renames forces both old and new paths into the list, so the
-  # source path triggers the behavioral fall-through.
-  #
-  # -z emits NUL-terminated filenames so paths containing literal
-  # newlines (legal in POSIX) are not split across iterations and
-  # mis-classified.
-  #
-  # CRITICAL: feed the git output to the read loop via process
-  # substitution (`< <(...)`), NOT via command substitution
-  # (`changed=$(git diff -z ...)` + `<<< "$changed"`). Bash strips NUL
-  # bytes from `$(...)` captures (emitting the warning "ignored null
-  # byte in input") -- which destroys the delimiter the read loop
-  # waits for, so `read -d ''` blocks until EOF, returns failure, and
-  # the loop body NEVER executes. has_behavioral / touches_sdd /
-  # touches_docs all stay 0 -> compute_required_lanes returns empty
-  # string -> the caller's "no lanes required" branch silently acks
-  # the checkpoint for an unreviewed behavioral push. Process
-  # substitution streams the bytes through a pipe with NULs intact.
-  #
-  # Defense in depth: if the diff was non-empty (we saw files) but
-  # classification produced no signal, force all three lanes. This
-  # guards against any future NUL-handling regression or unexpected
-  # git output.
-  local has_behavioral=0 touches_sdd=0 touches_docs=0 file_count=0
-  while IFS= read -r -d '' file; do
-    [ -z "$file" ] && continue
-    file_count=$((file_count + 1))
-    case "$file" in
-      sdd/*)
-        touches_sdd=1
-        ;;
-      documentation/*|README.md|CHANGELOG.md|CONTRIBUTING.md|SECURITY.md|LICENSE)
-        touches_docs=1
-        ;;
-      *)
-        # Any file outside sdd/ and the doc-surface set counts as
-        # behavioural and forces all three lanes. This catches source
-        # code, tests (which can shift code semantics via fixture
-        # changes), scripts, configs, schemas, sub-package READMEs,
-        # CI workflows, and the preseed tree.
-        has_behavioral=1
-        ;;
-    esac
-  done < <(git diff -z --name-only --no-renames "$last_ack" "$current" 2>/dev/null)
-
-  # Empty diff -> caller saw no file changes between ACK and HEAD.
-  # Conservative: require all three lanes rather than silently ack.
-  if [ "$file_count" = "0" ]; then
-    echo "code-reviewer spec-reviewer doc-updater"
-    return
-  fi
-
-  if [ "$has_behavioral" = "1" ]; then
-    echo "code-reviewer spec-reviewer doc-updater"
-    return
-  fi
-
-  # Non-behavioural path: only the lanes whose surface the diff actually
-  # touched. A pure documentation push runs only doc-updater. A pure
-  # spec push runs spec-reviewer + doc-updater (the doc-updater follow
-  # picks up missing REQ backlinks, table-of-contents drift, etc.).
-  local lanes=""
-  if [ "$touches_sdd" = "1" ]; then
-    lanes="spec-reviewer doc-updater"
-  fi
-  if [ "$touches_docs" = "1" ]; then
-    case " $lanes " in
-      *" doc-updater "*) ;;
-      *) lanes="$lanes doc-updater" ;;
-    esac
-  fi
-  # Trim leading/trailing whitespace. Empty lanes here is structurally
-  # impossible (file_count > 0 AND no classification matched would only
-  # happen if a file was simultaneously NOT in sdd/, NOT in the doc-surface
-  # set, and NOT behavioral, which the catch-all `*` arm forbids).
-  echo "$lanes" | awk '{$1=$1; print}'
-}
+. "$(dirname "$0")/lib/lane-classifier.sh" 2>/dev/null || exit 0
 
 REQUIRED_LANES=$(compute_required_lanes "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD")
 
