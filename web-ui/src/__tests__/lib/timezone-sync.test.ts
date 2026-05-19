@@ -1,4 +1,4 @@
-// REQ-MEM-001 AC3: the frontend captures the browser's IANA timezone
+// REQ-SESSION-016 AC5: the frontend captures the browser's IANA timezone
 // via Intl.DateTimeFormat().resolvedOptions().timeZone on Dashboard
 // mount and persists it via updatePreferences. Future sessions started
 // from that browser propagate the same zone into the container so the
@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { syncBrowserTimezone, getBrowserTimezone } from '../../lib/timezone-sync';
 
-describe('getBrowserTimezone (REQ-MEM-001 AC3)', () => {
+describe('getBrowserTimezone (REQ-SESSION-016 AC5)', () => {
   it('returns a non-empty IANA string in a real browser environment', () => {
     // In the vitest jsdom/happy-dom environment, Intl.DateTimeFormat
     // resolves to the host's timezone (typically UTC in CI, local in dev).
@@ -34,7 +34,7 @@ describe('getBrowserTimezone (REQ-MEM-001 AC3)', () => {
   });
 });
 
-describe('syncBrowserTimezone (REQ-MEM-001 AC3)', () => {
+describe('syncBrowserTimezone (REQ-SESSION-016 AC5)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });

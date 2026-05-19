@@ -394,6 +394,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 2. The Container DO persists the value to `ctx.storage` under the `userTimezone` key.
 3. Subsequent container starts inject `USER_TIMEZONE=<value>` into the container environment via the standard env-var pipeline; if the field is unset, the entrypoint falls back to `$TZ`, then `/etc/timezone`, then UTC.
 4. A timezone change takes effect on the next session start (no live re-injection into a running container).
+5. On Dashboard mount, the frontend reads the browser's IANA timezone via `Intl.DateTimeFormat().resolvedOptions().timeZone` and PATCHes `userTimezone` when the resolved zone differs from the stored preference. The sync is best-effort: failures are swallowed and never block the mount path, so a transient API error cannot strand the Dashboard.
 
 **Constraints:**
 - Validation uses a runtime IANA-zone round-trip rather than a static zone allowlist, so the validator stays accurate as the IANA database evolves.
