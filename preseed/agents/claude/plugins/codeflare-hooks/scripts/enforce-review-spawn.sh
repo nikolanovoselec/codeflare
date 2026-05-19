@@ -541,21 +541,30 @@ compute_required_lanes() {
   # --no-renames forces both old and new paths into the list, so the
   # source path triggers the behavioral fall-through.
   #
-  # -z + read -d '' uses NUL terminators so filenames containing literal
+  # -z emits NUL-terminated filenames so paths containing literal
   # newlines (legal in POSIX) are not split across iterations and
   # mis-classified.
-  local changed
-  changed=$(git diff -z --name-only --no-renames "$last_ack" "$current" 2>/dev/null)
-  if [ -z "$changed" ]; then
-    echo "code-reviewer spec-reviewer doc-updater"
-    return
-  fi
-
-  # Classification. Note: bash `case` pattern globs match `/` (unlike
-  # filesystem globs), so `sdd/*` matches `sdd/foo` AND `sdd/a/b/c`.
-  local has_behavioral=0 touches_sdd=0 touches_docs=0
+  #
+  # CRITICAL: feed the git output to the read loop via process
+  # substitution (`< <(...)`), NOT via command substitution
+  # (`changed=$(git diff -z ...)` + `<<< "$changed"`). Bash strips NUL
+  # bytes from `$(...)` captures (emitting the warning "ignored null
+  # byte in input") -- which destroys the delimiter the read loop
+  # waits for, so `read -d ''` blocks until EOF, returns failure, and
+  # the loop body NEVER executes. has_behavioral / touches_sdd /
+  # touches_docs all stay 0 -> compute_required_lanes returns empty
+  # string -> the caller's "no lanes required" branch silently acks
+  # the checkpoint for an unreviewed behavioral push. Process
+  # substitution streams the bytes through a pipe with NULs intact.
+  #
+  # Defense in depth: if the diff was non-empty (we saw files) but
+  # classification produced no signal, force all three lanes. This
+  # guards against any future NUL-handling regression or unexpected
+  # git output.
+  local has_behavioral=0 touches_sdd=0 touches_docs=0 file_count=0
   while IFS= read -r -d '' file; do
     [ -z "$file" ] && continue
+    file_count=$((file_count + 1))
     case "$file" in
       sdd/*)
         touches_sdd=1
@@ -572,7 +581,14 @@ compute_required_lanes() {
         has_behavioral=1
         ;;
     esac
-  done <<< "$changed"
+  done < <(git diff -z --name-only --no-renames "$last_ack" "$current" 2>/dev/null)
+
+  # Empty diff -> caller saw no file changes between ACK and HEAD.
+  # Conservative: require all three lanes rather than silently ack.
+  if [ "$file_count" = "0" ]; then
+    echo "code-reviewer spec-reviewer doc-updater"
+    return
+  fi
 
   if [ "$has_behavioral" = "1" ]; then
     echo "code-reviewer spec-reviewer doc-updater"
@@ -593,7 +609,10 @@ compute_required_lanes() {
       *) lanes="$lanes doc-updater" ;;
     esac
   fi
-  # Trim leading/trailing whitespace.
+  # Trim leading/trailing whitespace. Empty lanes here is structurally
+  # impossible (file_count > 0 AND no classification matched would only
+  # happen if a file was simultaneously NOT in sdd/, NOT in the doc-surface
+  # set, and NOT behavioral, which the catch-all `*` arm forbids).
   echo "$lanes" | awk '{$1=$1; print}'
 }
 
