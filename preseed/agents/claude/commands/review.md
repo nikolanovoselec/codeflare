@@ -165,6 +165,19 @@ Step 1d — print the run summary so the user knows what's happening:
 
 Use `$REVIEW_DIR` for ALL output files and `$REVIEW_DIR/.scope.txt` for scope plumbing in every subsequent phase.
 
+Step 1e — refresh the graphify graph so every downstream phase queries current code. Per REQ-AGENT-023, graphify is ambient infrastructure in every codeflare container; per REQ-AGENT-025 the post-clone hook ensures a graph exists. Before Phase 2 spawns any agent:
+
+```bash
+if [ -f "$PROJECT_ROOT/graphify-out/graph.json" ]; then
+  # AST-only refresh, free, ~5-15s on medium repos; ensures graph reflects current HEAD
+  (cd "$PROJECT_ROOT" && graphify update . --no-viz 2>>"$REVIEW_DIR/.graphify-update.log") || true
+else
+  echo "Note: no graphify graph at $PROJECT_ROOT/graphify-out/graph.json - structural review checks will fall back to grep-style search. Run /graphify once to enable graph-aware review." > "$REVIEW_DIR/.no-graph.notice"
+fi
+```
+
+The update runs at most once per `/review` invocation. Errors are non-fatal (the review still runs without graph queries); the log captures them for debugging. When the graph is absent, downstream phases that would query graphify silently fall back to grep-equivalent search. Tool-agnostic: in context-mode environments the same step runs via `mcp__context-mode__ctx_execute` for the `graphify update` call; in plain Bash via the snippet above.
+
 ## Phase 2: Parallel Agent Dispatch (6 Task agents)
 
 Launch **all 6 agents in parallel** using the Task tool. Each agent reviews per the parsed `$SCOPE` (`all` = entire codebase; `diff` = the diff against `origin/$BASE_REF`) plus the optional `$SCOPE_HINT`, then writes structured findings to its output file.
@@ -203,6 +216,8 @@ Scope mode: [SCOPE]    ([SCOPE_DESCRIPTION])
 
 [For SCOPE = diff: Use the DIFF_CMD output to identify changed files; Read each one fully and Read directly-related files for context. Do NOT review files outside the diff unless they are imported by changed files.]
 [For SCOPE = all:  Use Glob and Grep to explore; Read to examine files.]
+
+For structural lookups - "what calls X", "what depends on Y", "where is Z used", "is this dead code", "what does this symbol connect to" - PREFER the `mcp__graphify__*` MCP tools (`get_node`, `get_neighbors`, `query_graph`, `shortest_path`, `god_nodes`, `get_community`, `graph_stats`) over Grep / ctx_search. The graph at `[PROJECT_ROOT]/graphify-out/graph.json` was refreshed at the start of this `/review` run (Phase 1 Step 1e). Graphify MCP tools work identically under both Bash and context-mode environments. If the graph does not exist (rare; `$REVIEW_DIR/.no-graph.notice` will be present), fall back to Grep / ctx_search.
 
 Rate each finding with one of these severities:
 - CRITICAL: Security vulnerabilities, data loss risks, production-breaking issues
@@ -499,9 +514,9 @@ After the Task agent completes, read the first ~20 lines of `$REVIEW_DIR/09-acti
 
 ## Phase 6: Reality Filter (Task agent)
 
-The Reality Filter re-evaluates every Phase-5-active finding against five questions, using prior triage history (`sdd/.review-decisions.md`), ADR bodies, MCP memory, recent git log, and `sdd/changes.md`. It produces a SHORT list of real findings the user actually triages, an audit log of every drop, and a Tech-Debt-Surfaced section for findings that don't clear the user-impact bar.
+The Reality Filter re-evaluates every Phase-5-active finding against six questions, using prior triage history (`sdd/.review-decisions.md`), ADR bodies, MCP memory, recent git log, `sdd/changes.md`, and the graphify code-knowledge graph at `[PROJECT_ROOT]/graphify-out/graph.json`. It produces a SHORT list of real findings the user actually triages, an audit log of every drop, and a Tech-Debt-Surfaced section for findings that don't clear the user-impact bar. Three of the six questions (Q3 clustering, Q5 chain validation, Q6 graph-orphan) use graphify for structural rather than string-based judgments.
 
-Launch a single Task agent (`code-reviewer` type). The agent has access to MCP memory tools (`mcp__memory__search_nodes`, `mcp__memory__open_nodes`).
+Launch a single Task agent (`code-reviewer` type). The agent has access to MCP memory tools (`mcp__memory__search_nodes`, `mcp__memory__open_nodes`) AND the graphify MCP tools (`mcp__graphify__get_node`, `mcp__graphify__get_neighbors`, `mcp__graphify__get_community`, `mcp__graphify__shortest_path`, `mcp__graphify__query_graph`) for the graph-aware questions Q3, Q5, and Q6. The graph at `[PROJECT_ROOT]/graphify-out/graph.json` was refreshed in Phase 1 Step 1e. If the graph is missing (`$REVIEW_DIR/.no-graph.notice` exists), Q3 falls back to category-only grouping and Q6 is inert this cycle.
 
 Task agent prompt:
 
@@ -537,7 +552,7 @@ the questions, surface all N.
 7. (Optional) [PROJECT_ROOT]/pending.md if present - explains in-flight work that may
    make a "missing feature" finding actually a known gap.
 
-## The five questions, applied per finding (DROP, KEEP, or DEMOTE-to-Tech-Debt)
+## The six questions, applied per finding (DROP, KEEP, or DEMOTE-to-Tech-Debt)
 
 ### Q1: Repeat-offender drop
 
@@ -562,9 +577,9 @@ into a helper"):
 
 ### Q3: Cluster aggregation
 
-Group surviving (post-Q1, post-Q2) findings by category. If a category has 3 or more
-findings, AND none of them have a Q1 match in sdd/.review-decisions.md (i.e. this is
-the first cycle this rule is producing violations):
+Group surviving (post-Q1, post-Q2) findings by **(category, community)** where community is the graphify community membership of the finding's cited file/symbol. Call `mcp__graphify__get_community(<node>)` for each finding's location; group findings that share both category and community. If `[PROJECT_ROOT]/graphify-out/graph.json` is missing (`$REVIEW_DIR/.no-graph.notice` exists), fall back to category-only grouping.
+
+If a group has 3 or more findings, AND none of them have a Q1 match in sdd/.review-decisions.md (i.e. this is the first cycle this rule is producing violations):
   -> COLLAPSE the group into ONE cluster finding listing all locations.
   -> Cluster finding ID: take the lowest CF-ID in the absorbed group and append
      "-cluster" (e.g., absorbing CF-005, CF-018, CF-031 -> CF-005-cluster). If
@@ -574,16 +589,16 @@ the first cycle this rule is producing violations):
      expands clusters to per-location entries keyed by (file:line, category)),
      so cross-cycle stability is not required.
   -> Severity = max severity in the group.
-  -> Description: "<rule short name>: <count> instances. <one-line shared description>"
-  -> Suggestion: "Sweep PR. Or AD-justify the pattern."
-  -> Audit reason per absorbed finding: "Q3: clustered into CF-NNN-cluster."
+  -> Description: "<rule short name>: <count> instances in <community-label>. <one-line shared description>"
+  -> Suggestion: "Sweep PR across the <community-label> cluster. Or AD-justify the pattern."
+  -> Audit reason per absorbed finding: "Q3: clustered into CF-NNN-cluster (community: <community-label>)."
 
 The user triages the cluster ONCE. The triage decision (Phase 8) writes ONE
 .review-decisions entry PER LOCATION in the cluster, so Q1's per-location lookup
 works in cycle N+1.
 
 Threshold rationale: 3 is the smallest "this is a pattern, not individual issues"
-count. 1 or 2 instances are individual problems; 3+ deserves a sweep decision.
+count. 1 or 2 instances are individual problems; 3+ deserves a sweep decision. Community-aware grouping prevents two unrelated 3-instance patterns from collapsing into one false cluster just because they share a category label.
 
 ### Q4: User-impact bar (DEMOTE to Tech-Debt-Surfaced)
 
@@ -628,6 +643,19 @@ If source confirms finding:
   -> KEEP at the original severity (often HIGH or CRITICAL for doc drift on
      security or billing). Add evidence: "Verified at <file:line>: <quote>."
 
+When the finding claims a spec-to-implementation chain ("REQ-X-NNN says the auth endpoint validates X but `routes/auth.ts:42` does not"), additionally call `mcp__graphify__shortest_path(<REQ-or-AC-node>, <cited-symbol>)` to confirm the structural chain exists. If the graph returns no path, the cited mapping may be stale (the symbol was renamed or moved). In that case, downgrade to MEDIUM with audit reason "Q5: graph chain not found; cited symbol may be stale." If the graph returns a path: keep at original severity and record the path as evidence.
+
+### Q6: Graph-orphan check (graphify-aware)
+
+For any finding citing a specific code symbol or file (not "repository-wide", not "multiple files"), confirm the cited node exists in the graphify graph via `mcp__graphify__get_node(<symbol-or-file>)`.
+
+If the node is missing AND `[PROJECT_ROOT]/graphify-out/graph.json` exists (i.e. graph is current, not stale): the cited location has been removed or renamed since the finding was generated. Audit reason: "Q6: graph-orphan; cited <symbol-or-file> not present in current graph."
+  -> DROP.
+
+If the graph is missing (`$REVIEW_DIR/.no-graph.notice` exists): Q6 is inert this cycle.
+
+This catches the class of findings produced by agents who looked at a stale checkout, an older commit, or a deleted-since-but-still-named-in-memory symbol.
+
 ## Hard rules
 
 - Be ruthful, not aggressive. The point is to drop findings that ARE noise. Erring
@@ -650,7 +678,7 @@ Format:
 **Source:** [REVIEW_DIR]
 **Cycle:** N+1 (read `Last cycle: N` from sdd/.review-decisions.md if it exists - this run is cycle N+1; if file is missing, this is cycle 1)
 **Active findings (Phase 5 input):** X
-**Real findings (after Q1-Q5):** Y
+**Real findings (after Q1-Q6):** Y
 **Tech-Debt surfaced:** W
 **Auto-filtered (dropped):** X - Y - W
 
@@ -703,6 +731,9 @@ will treat these as Tech-Debt by default unless the user upgrades them.]
 ### Q5: Spec-vs-shipped truth-test failures (X)
 - CF-NNN at <location>: cited <file:line>; actual code <quote>; finding's premise contradicted.
 
+### Q6: Graph-orphan drops (X)
+- CF-NNN at <location>: cited symbol/file not present in current graphify graph; likely removed or renamed.
+
 ## Memory mode
 
 Used: MCP knowledge graph (primary) | File-based fallback (~/.claude/projects/.../memory/MEMORY.md).
@@ -715,7 +746,7 @@ when DROP/DEMOTE counts are non-zero, the phase failed.
 
 After the Task agent completes, read the first ~30 lines of `$REVIEW_DIR/10-real-findings.md` and print them to the user.
 
-**Orchestrator check:** Parse the "Real findings (after Q1-Q5)" count and the "Tech-Debt surfaced" count from the header. If both are 0, output "Clean review - no actionable findings after Reality Filter" and STOP. Do not proceed to Phase 7 or beyond.
+**Orchestrator check:** Parse the "Real findings (after Q1-Q6)" count and the "Tech-Debt surfaced" count from the header. If both are 0, output "Clean review - no actionable findings after Reality Filter" and STOP. Do not proceed to Phase 7 or beyond.
 
 If `--verify-high` is NOT in $ARGUMENTS, skip Phase 7 and proceed to Phase 8.
 
