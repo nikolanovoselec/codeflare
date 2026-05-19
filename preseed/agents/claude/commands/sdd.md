@@ -303,9 +303,7 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
 5. **Derive CLEAR REQs** (the official spec; render in the canonical shape — ACs numbered `1. 2. 3.`, each labeled field on its own line, `Constraints:` and `Dependencies:` always present even if `None.`):
    - **Intent**: lifted directly from the evidence (README sentence, PR description, commit message, docstring)
    - **Acceptance Criteria**: observable behavior at the user-facing level, derived from named test assertions or documented contracts. Numbered (`1.`, `2.`, `3.`), never bulleted.
-   - **Status**:
-     - `enforce_tdd: true` — `Implemented` if a test references the REQ ID, `Partial` otherwise.
-     - `enforce_tdd: false` (Import Mode default) — `Implemented` unconditionally when source code implements the AC. Demoting every imported REQ to `Partial` because tests don't reference REQ IDs (the imported code predates the convention) would falsely brand the spec 65%+ incomplete. Each `sdd/{domain}.md` file (per domain, not the top-level `sdd/README.md`) receives one footnote `_Verification: code-only (no automated coverage)._` at the bottom; per-REQ Notes are not used for this signal.
+   - **Status**: `Implemented` unconditionally when source code implements the AC. Import Mode is hard-wired to `enforce_tdd: false` at scaffold time (step 9), so test-presence does not gate Status — the imported code predates the REQ-ID test convention and demoting every imported REQ to `Partial` would falsely brand the spec 65%+ incomplete. Each `sdd/{domain}.md` file (per domain, not the top-level `sdd/README.md`) receives one footnote `_Verification: code-only (no automated coverage)._` at the bottom; per-REQ Notes are not used for this signal. The user can later flip `enforce_tdd: true` manually after adding REQ-ID references to test names; the next `/sdd clean` will then re-evaluate Status against test presence.
    - **Priority**: P0 for core flows, P1 for supporting features, P2 for polish, P3 for stretch
    - **Constraints**: linked `[CON-X-NNN](constraints.md#anchor)` references, or literal `None.` when empty
    - **Dependencies**: cross-domain links rendered as `[REQ-X-NNN](other-domain.md#anchor)` (or `#anchor` for same-file), or literal `None.` when empty
@@ -408,7 +406,7 @@ Triggered when `/sdd init` is invoked on a project where `sdd/` already exists a
      [c] correct: describe what this is for and how it works (free-form prose)
      [l] lost: information genuinely unrecoverable (one-line Reason required)
      [s] skip for now (stays open)
-     [q] quit (commit progress, exit)
+     [q] quit (exit; prior decisions are already committed per-item, open items remain for next session)
    ```
 
 6. **Apply the decision**. Only `accept` and `correct` promote anything into the official spec. `skip` and `lost` do not:

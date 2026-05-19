@@ -134,11 +134,20 @@ Step 1a — parse `$ARGUMENTS` into four variables:
 
 Step 1b — resolve the project root and create the run directory:
 ```bash
-PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -z "$PROJECT_ROOT" ]; then
+  echo "ERROR: /review must be invoked from inside a git repository." >&2
+  exit 1
+fi
+HAS_SDD=0
+[ -d "$PROJECT_ROOT/sdd" ] && HAS_SDD=1
+HAS_DOCS=0
+[ -d "$PROJECT_ROOT/documentation" ] && HAS_DOCS=1
 REVIEW_DIR=/home/user/Temporary/Review/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$REVIEW_DIR"
 ln -sfn "$REVIEW_DIR" /home/user/Temporary/Review/latest
 ```
+`HAS_SDD=0` means later phases that read `sdd/*` files treat each as empty (no errors, no findings). `HAS_DOCS=0` means later phases that read `documentation/*` likewise treat as empty.
 
 Step 1c — record the scope decision so Task agents can read it without re-parsing `$ARGUMENTS`:
 ```bash
@@ -174,7 +183,7 @@ if [ -f "$PROJECT_ROOT/graphify-out/graph.json" ]; then
   # If the refresh fails, the on-disk graph may be stale relative to HEAD — Q6 graph-orphan
   # would then false-positive-DROP real findings. Set the no-graph marker on failure so
   # downstream phases use the safer grep-style fallback instead of trusting stale state.
-  if ! (cd "$PROJECT_ROOT" && timeout 180 graphify update . --no-viz 2>>"$REVIEW_DIR/.graphify-update.log"); then
+  if ! (cd "$PROJECT_ROOT" && timeout 180 graphify update . 2>>"$REVIEW_DIR/.graphify-update.log"); then
     echo "Note: graphify update . failed or timed out at $(date -Iseconds). Graph at $PROJECT_ROOT/graphify-out/graph.json may be stale; treating as no-graph to avoid stale-orphan false positives. See .graphify-update.log for details." > "$REVIEW_DIR/.no-graph.notice"
   fi
 else
@@ -223,7 +232,7 @@ Scope mode: [SCOPE]    ([SCOPE_DESCRIPTION])
 [For SCOPE = diff: Use the DIFF_CMD output to identify changed files; Read each one fully and Read directly-related files for context. Do NOT review files outside the diff unless they are imported by changed files.]
 [For SCOPE = all:  Use Glob and Grep to explore; Read to examine files.]
 
-For structural lookups - "what calls X", "what depends on Y", "where is Z used", "is this dead code", "what does this symbol connect to" - PREFER the `mcp__graphify__*` MCP tools (`get_node`, `get_neighbors`, `query_graph`, `shortest_path`, `god_nodes`, `get_community`, `graph_stats`) over Grep / ctx_search. The graph at `[PROJECT_ROOT]/graphify-out/graph.json` was refreshed at the start of this `/review` run (Phase 1 Step 1e). Graphify MCP tools work identically under both Bash and context-mode environments. If the graph does not exist (rare; `$REVIEW_DIR/.no-graph.notice` will be present), fall back to Grep / ctx_search.
+For structural lookups - "what calls X", "what depends on Y", "where is Z used", "is this dead code", "what does this symbol connect to" - PREFER the `mcp__graphify__*` MCP tools (`get_node`, `get_neighbors`, `query_graph`, `shortest_path`, `god_nodes`, `get_community`, `graph_stats`) over Grep / ctx_search. The graph at `[PROJECT_ROOT]/graphify-out/graph.json` was refreshed at the start of this `/review` run (Phase 1 Step 1e). Graphify MCP tools work identically under both Bash and context-mode environments. If the graph is unavailable or stale (`$REVIEW_DIR/.no-graph.notice` is present), fall back to Grep / ctx_search.
 
 Rate each finding with one of these severities:
 - CRITICAL: Security vulnerabilities, data loss risks, production-breaking issues
@@ -552,11 +561,13 @@ the questions, surface all N.
    pipeline. Pulling them back in would re-surface findings the user already
    resolved via an architecture decision.
 2. Persistent triage history: [PROJECT_ROOT]/sdd/.review-decisions.md
-   - If the file does not exist, treat as empty (first run). Q1 will produce no drops on first run.
+   - If `HAS_SDD=0` or the file does not exist, treat as empty (first run / non-SDD project). Q1 will produce no drops.
    - This file is the primary source of triage history. It is committed to git, so prior decisions follow the repo, not the developer's machine.
 3. Full ADR bodies: [PROJECT_ROOT]/documentation/decisions/README.md
+   - If `HAS_DOCS=0` or the file does not exist, treat as empty (no ADRs). Q1 sub-step checking for ADR-anchored decisions yields no matches.
 4. Recent git activity: cd [PROJECT_ROOT] && git log --since="30 days ago" --oneline --no-merges
 5. Spec changes: [PROJECT_ROOT]/sdd/changes.md and [PROJECT_ROOT]/sdd/README.md
+   - If `HAS_SDD=0` or either file is missing, treat as empty.
 6. MCP memory: call mcp__memory__search_nodes with each of these queries and read the
    relevant entities returned:
      - "code review feedback"
@@ -575,7 +586,7 @@ the questions, surface all N.
    falls back to category-only grouping, Q5 skips the graph step and keeps original
    severity, Q6 is inert this cycle.
 
-## The six questions, applied per finding (DROP, KEEP, or DEMOTE-to-Tech-Debt)
+## The six questions, applied per finding (DROP, KEEP, DOWNGRADE, or DEMOTE-to-Tech-Debt)
 
 ### Q1: Repeat-offender drop
 
