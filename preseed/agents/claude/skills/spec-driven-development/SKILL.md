@@ -46,27 +46,48 @@ pending.md         # In-flight work and known gaps (NOT requirements)
 
 ## REQ format
 
+Every Active REQ in `sdd/{domain}.md` MUST render in this exact shape. Deviations are MEDIUM, auto-fixed by re-rendering (mechanics in `spec-enforce` § REQ rendering template).
+
 ```markdown
 ### REQ-{DOMAIN}-{NNN}: {Title}
 
-**Intent:** {Why this exists — the problem, not the solution.}
+**Intent:** {one paragraph, 1-4 sentences. No bullets, no headings, no code blocks.}
 
-**Applies To:** {Actor — User, Admin, etc. Not "System" — that's a qualifier.}
+**Applies To:** {single actor name — User, Admin, etc. Never "System".}
 
 **Acceptance Criteria:**
-1. {Testable, binary pass/fail}
-2. {Another}
 
-**Constraints:** CON-* references where applicable
+1. {first AC, single behavioural statement, <=150 words}
+2. {second AC}
+3. {...up to 7 maximum}
+
+**Constraints:** [CON-X-NNN](constraints.md#con-x-nnn-title-slug), [CON-Y-NNN](constraints.md#con-y-nnn-title-slug)
 
 **Priority:** P0 | P1 | P2 | P3
-**Dependencies:** REQ-*-* | None
+
+**Dependencies:** [REQ-X-NNN](#req-x-nnn-title-slug), [REQ-Y-NNN](other-domain.md#req-y-nnn-title-slug)
+
 **Verification:** Automated test | Integration test | Manual check
-**Status:** Proposed | Planned | Partial | Implemented | Deprecated
-**Notes:** {Optional, only valid for Partial status, ≤3 sentences explaining what's missing}
-**Replaced By:** REQ-*-* {Required for Deprecated status}
-**Removed In:** YYYY-MM-DD {Alternative for Deprecated when no replacement REQ exists}
+
+**Status:** Proposed | Planned | Partial | Implemented
+
+---
 ```
+
+**Required fields, always present** (no exceptions, even on fresh-drafted REQs):
+
+- **Intent**, **Applies To**, **Acceptance Criteria**, **Priority**, **Verification**, **Status** — always populated.
+- **Constraints**, **Dependencies** — always present. Render `None.` (literal) when empty. A REQ missing these fields entirely is a MEDIUM finding `req-missing-required-field`.
+
+**ACs are numbered** (`1.`, `2.`, `3.`), never bulleted. Bulleted ACs are MEDIUM `ac-bullets-not-numbered`, auto-fixed by re-rendering.
+
+**Each labeled field is on its own line**, separated by a single blank line. Stacking Priority/Dependencies/Verification/Status on consecutive lines without blank-line separation collapses them into one rendered paragraph on GitHub — MEDIUM `trailing-fields-collapsed`.
+
+**Cross-references render as markdown anchor links**, not plain text. Plain-text REQ-* or CON-* IDs inside `**Constraints:**` or `**Dependencies:**` are MEDIUM `cross-reference-not-linked`, auto-fixed by rewriting to the link form. Same-file: `[REQ-X-NNN](#req-x-nnn-title-slug)`. Other-domain: `[REQ-X-NNN](other-domain.md#req-x-nnn-title-slug)`. Constraint: `[CON-X-NNN](constraints.md#con-x-nnn-title-slug)`.
+
+**Notes** is OPTIONAL — only two shapes are valid (see `spec-enforce` § Rule B): Partial-explanation (`Status: Partial` only, <=3 sentences) or Doc-pointer (any status, <=2 sentences, MUST contain a markdown link to `documentation/**` or `sdd/**`). Sibling-REQ cross-references go in `**Dependencies:**`, never in Notes.
+
+**Deprecated REQs are deleted, not tombstoned.** No `Replaced By:` field, no `Removed In:` field. Successor REQ (if any) stands on its own; out-of-scope ideas go to `## Out of Scope` in the domain README. Mechanism in `spec-enforce` § Deprecated REQs are deleted.
 
 ## Status semantics
 
@@ -76,11 +97,12 @@ pending.md         # In-flight work and known gaps (NOT requirements)
 | `Planned` | Committed to spec, not yet built |
 | `Partial` | Built but some AC unmet OR no automated test verification found |
 | `Implemented` | Built AND tests verify the acceptance criteria |
-| `Deprecated` | Was implemented, then removed or replaced. Requires `Replaced By:` or `Removed In:` field. |
 
 **One word, no prose.** The Status field cannot contain commit SHAs, file paths, or "Partial — missing X, Y, Z" notes. Use the optional `Notes:` field (≤3 sentences) for Partial status only. Use `pending.md` for implementation tracking.
 
-**Never-built REQs** that the team decided to skip should NOT be marked Deprecated. Move them to the `## Out of Scope` section in the relevant domain file or `sdd/README.md`. This preserves the decision history without bloating the active spec.
+**Default Status when source code exists but no test references the REQ ID:** when `enforce_tdd: true`, default is `Partial`. When `enforce_tdd: false`, default is `Implemented` — the project has opted out of test-based verification, and demoting every REQ to Partial would falsely brand the entire spec as incomplete. The domain README appends a one-line footnote `_Verification: code-only (no automated coverage)._` when this branch fires.
+
+**Removed and never-built REQs.** When a REQ stops being the contract — feature removed, replaced by another REQ, scope dropped — delete it from `sdd/{domain}.md` entirely. Do not tombstone with `Status: Deprecated`. Never-built ideas (considered and rejected) go to the `## Out of Scope` section in the relevant domain file or `sdd/README.md`. Mechanism in `spec-enforce` § Deprecated REQs are deleted.
 
 ## Three autonomy modes
 
@@ -171,7 +193,17 @@ While `sdd/init-triage.md` contains any `**Status:** open` items, the project is
 
 When the queue drains to zero (every item `resolved` or `lost`), `transition: true` clears automatically. Full SDD discipline applies on the next push and autonomous agentic development is unlocked. `enforce_tdd` is NOT auto-flipped - the user sets it manually when ready (typically after adding REQ-ID references to test names in the imported source). `sdd/init-triage.md` is preserved as the audit record.
 
-Import Mode writes CLEAR REQs to `sdd/{domain}.md` files automatically, without user confirmation. The agent's confidence threshold (single matching domain, unambiguous behavior, clear evidence in code/PRs/tests) is the gate; anything below it becomes a triage entry. Only the triage queue surfaces unclear/ambiguous items for user judgment, one at a time in Resume Mode. To correct any CLEAR REQ after import, the user runs `/sdd edit {domain}`.
+Import Mode follows the **same lean two-confirm shape as greenfield**: derive everything from evidence, present the full draft as one review surface, apply edits, then write. The single user-facing question at step 1 is "Derive from existing code, or treat as fresh start?". At step 3 the user reviews the full inferred spec (vision pre-filled from README, derived domains, CLEAR REQs, triage queue summary, founding ADRs inferred from stack and middleware) and accepts or asks for edits.
+
+**Status default for imported REQs.** When a CLEAR REQ has source code that implements the AC:
+- `enforce_tdd: true` (greenfield default) — Status defaults `Implemented` if a test file mentions the REQ ID, `Partial` otherwise.
+- `enforce_tdd: false` (Import Mode default) — Status defaults `Implemented` unconditionally when source exists; the project has opted out of test-based verification at import time, and demoting every imported REQ to Partial would falsely brand the entire spec as 65%+ incomplete. The domain README receives a single footnote `_Verification: code-only (no automated coverage)._` at the bottom. Per-REQ `Notes:` are not used for this — the footnote is the canonical signal.
+
+This rule applies only during Import Mode and Resume Mode while `transition: true`. After transition closes, the normal `enforce_tdd` interaction in `spec-enforce-truth` governs Status assignment.
+
+CLEAR REQs land in `sdd/{domain}.md` automatically after the user accepts the draft. The agent's confidence threshold (single matching domain, unambiguous behavior, clear evidence in code/PRs/tests) is the gate; anything below it became a triage entry. Only the triage queue surfaces unclear/ambiguous items for user judgment, one at a time in Resume Mode. To correct any CLEAR REQ after import, the user runs `/sdd edit {domain}`.
+
+Enrichment Phase 5 (cross-link + ADR-seed + glossary-seed; see greenfield section above) runs in Import Mode too, after the draft is accepted and before files are written.
 
 ### Resume Mode — picking up where you left off
 
@@ -191,31 +223,51 @@ Only `accept` and `correct` promote the answer into the official spec REQs. `cor
 - `enforce_tdd` is NOT changed - the user flips it to `true` manually when ready for TDD enforcement (typically after adding REQ-ID test names)
 - The agent enters Plan Mode (same hard gate as greenfield `/sdd init` step 17) so the first feature work on top of the now-real spec is plan-gated
 
-In **greenfield mode**, the agent:
+In **greenfield mode**, the agent runs a **lean two-confirm flow** — vision in, full draft out, single review-and-edit pass, then write. The point is to compress the old 10-15-turn back-and-forth into two decisions so the user can think about the spec as a whole instead of approving one fragment at a time.
 
-1. **Drafts the vision** from the user's prose, presents for confirmation
-2. **Proposes actors** (typically User, Admin — never "System")
-3. **Maps the user journey** by asking one question, then proposes domains
-4. **Drafts requirements** for each domain (5-15 per domain), confirms one domain at a time
-5. **Drafts constraints** with CON-* IDs
-6. **Writes the spec scaffolding** by reading and instantiating templates from `references/templates/`:
+1. **Ask for vision** (one free-form question if `$ARGUMENTS` is empty). Confirm what you heard in one sentence.
+2. **Draft the entire spec in memory** without asking the user anything else. From the vision, derive:
+   - **Actors** (typically 2-3; User, Admin defaults; never "System")
+   - **Design principles** (3-7 specific to this product, not generic)
+   - **Domains** (5-12 with one-line summary + priority)
+   - **REQs per domain** (5-15 per domain, every REQ in the canonical format above, every required field populated, `Constraints: None.` / `Dependencies: None.` rendered explicitly when empty)
+   - **CON-* constraints** (cross-cutting; technology stack, performance, security, observability)
+   - **Founding ADRs** (3-8 seeded from the vision + inferred stack — tech stack choice, framework, deployment target, auth pattern, data store, key middleware)
+   - **Glossary terms** (product nouns, vendor names, protocols, domain concepts — every one mentioned in any REQ)
+3. **Present the full draft as a single review surface**: a tree showing the domain index + a brief summary per domain + the seeded ADR list + the glossary. Ask one question: "Accept as-is, edit a section (name it), or restart?" Apply edits in place until the user accepts.
+4. **Run Phase 5 enrichment in memory** (see Enrichment pass below) — cross-link Dependencies anchors across REQs, finalize ADR-to-REQ backlinks, ensure every term mentioned in a REQ exists in glossary.
+5. **Write all files** by instantiating templates from `references/templates/`:
    - `root-readme.md` → `README.md` (project root)
    - `sdd-readme.md` → `sdd/README.md`
    - `sdd-glossary.md` → `sdd/glossary.md`
    - `sdd-constraints.md` → `sdd/constraints.md`
    - `sdd-changes.md` → `sdd/changes.md`
-   - `sdd-config.yml` → `sdd/config.yml` (mode: interactive by default)
+   - `sdd-config.yml` → `sdd/config.yml` (mode: interactive by default; `enforce_tdd: true` for greenfield)
    - `documentation-readme.md` → `documentation/README.md`
    - `documentation-architecture.md` → `documentation/architecture.md`
    - `documentation-api-reference.md` → `documentation/api-reference.md`
    - `documentation-configuration.md` → `documentation/configuration.md`
    - `documentation-deployment.md` → `documentation/deployment.md`
-   - `documentation-decisions-readme.md` → `documentation/decisions/README.md`
-7. **Creates `tests/` folder** (empty, ready for the user to populate with TDD)
-8. **Substitutes placeholders** like `{PROJECT_NAME}`, `{ACTOR_1}`, `{INSTALL_COMMAND}` with values inferred from the user's idea
-9. **Reports next steps** to the user
+   - `documentation-decisions-readme.md` → `documentation/decisions/README.md` (seeded with the founding ADRs from step 2)
+   - One `sdd/{domain}.md` per drafted domain
+   - Empty `sdd/.review-needed.md`, `sdd/.coverage-report.md`, `sdd/.last-clean-run.md` with one-line `_Awaiting first run._` placeholder so the slot structure is visible from day one
+   - Empty `tests/` directory
+6. **Substitute placeholders** like `{PROJECT_NAME}`, `{ACTOR_1}`, `{INSTALL_COMMAND}` with values inferred from the user's vision and the chosen stack
+7. **Report next steps** to the user
 
 The agent does not need internet access — all templates are bundled in `references/templates/`.
+
+### Enrichment pass (Phase 5 — binding for both greenfield and Import Mode)
+
+After the full draft exists in memory (or is read from disk in Import Mode), run three passes in one cycle before writing files:
+
+**a. Cross-link pass.** Walk every drafted REQ; for every other REQ whose Intent or AC bullets reference the same concept, vendor, protocol, or actor flow, propose a `Dependencies:` entry. Same applies to CON-* references in REQ Intent / ACs: lift them into `Constraints:`. Goal: every REQ that names another REQ in its body also names it in `Dependencies:`, anchored as `[REQ-X-NNN](#req-x-nnn-title-slug)`.
+
+**b. ADR-seed pass.** From the vision (greenfield) or evidence (Import Mode), draft 3-8 founding ADRs covering the non-obvious choices a future contributor would need to understand to avoid undoing: tech stack, framework, deployment target, auth pattern, data store, key middleware, observability stack. Each ADR carries the standard fields (Status, Context, Decision, Alternatives considered, Rationale, Consequences, Related requirements). ADRs go into `documentation/decisions/README.md` as a ledger with an index table at the top and per-ADR `### AD-N: Title` sections.
+
+**c. Glossary-seed pass.** Walk every REQ Intent + AC bullets; extract product nouns, vendor product names, protocol names, and domain-specific terms; ensure each has a one-line definition in `sdd/glossary.md`. Include common synonyms when both forms appear in the spec (e.g. "article pool / global pool").
+
+The three passes run in one cycle (single in-memory transform), not three separate user-visible phases. The user already accepted the full draft in step 3; enrichment does not re-prompt.
 
 If `sdd/` already exists with no open triage items, `/sdd init` aborts with an error pointing the user at `/sdd clean` for spec rescue. If open triage items exist, `/sdd init` enters Resume Mode.
 

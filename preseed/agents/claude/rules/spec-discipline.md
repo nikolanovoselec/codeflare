@@ -29,7 +29,11 @@ Every REQ has one Status value. **One word, no prose.**
 | `Partial` | Built but some AC unmet OR no automated verification found |
 | `Implemented` | Built AND tests verify the ACs |
 
-Status transitions and auto-fix behaviour live in the `spec-enforce` skill.
+Status transitions and auto-fix behaviour live in the `spec-enforce` skill. The canonical REQ render shape (numbered ACs `1. 2. 3.`, every labeled field on its own line with blank-line separators) is also there.
+
+**Required REQ fields:** `Intent`, `Applies To`, `Acceptance Criteria`, `Constraints`, `Priority`, `Dependencies`, `Verification`, `Status` — all eight always present. `Constraints` and `Dependencies` render as the literal string `None.` when empty (never omitted). REQs missing these fields entirely are MEDIUM `req-missing-required-field`, auto-fixed by re-rendering.
+
+**Default Status when `enforce_tdd: false` (Import Mode + opt-out projects):** source code present → `Implemented`; source missing → `Partial`. Test absence alone never demotes. The domain README appends one footnote `_Verification: code-only (no automated coverage)._` instead of per-REQ Notes. Mechanism in `spec-enforce-truth`.
 
 Out-of-scope ideas (never-built) go to "Out of Scope" in the domain README, not to a `Deprecated` Status. `Deprecated` is not a valid Status; existing entries are deleted (mechanism in `spec-enforce`).
 

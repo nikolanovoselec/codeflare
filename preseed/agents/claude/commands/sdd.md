@@ -164,76 +164,63 @@ Bootstrap a new project. Always interactive — you confirm the vision before an
 
 ### Behavior
 
-1. **Check for existing sdd/**:
+The greenfield flow is a **lean two-confirm** loop: vision in, full draft out, single review-and-edit pass, then write. Old "10-15-turn back-and-forth" is gone.
+
+1. **Detect scenario**:
    - If `sdd/` does not exist → continue to step 2.
-   - If `sdd/` exists AND `sdd/init-triage.md` exists AND it contains items with `**Status:** open` → enter **Resume Mode** (jump to "Resume Mode" section below). The user is mid-transition; pick up where the prior session left off.
-   - If `sdd/` exists with no open triage items, abort with:
-     ```
-     Error: sdd/ already exists in this project.
-     To rescue an existing rotted spec, use /sdd clean.
-     ```
-2. **Detect existing code**: check for substantive source code in the project
-   - Look for `src/`, `lib/`, `app/`, `pkg/`, language-specific directories
-   - Look for project files: `package.json`, `Cargo.toml`, `go.mod`, `requirements.txt`, `pyproject.toml`, `Gemfile`, `pom.xml`, etc.
-   - Count source files (`.py`, `.ts`, `.tsx`, `.js`, `.go`, `.rs`, `.rb`, `.java`, etc.) — if >5 source files exist, treat as **existing codebase**
-3. **Branch on detection**:
-   - **Empty or near-empty project** → continue to step 4 (greenfield bootstrap)
-   - **Existing codebase detected** → switch to **import mode** (jump to "Import Mode" section below)
-4. **Read the user's input**: `$ARGUMENTS` may contain a one-sentence idea, a paragraph, or be empty
-5. **If empty**, ask: "What are you building? Describe in plain language — a sentence is enough."
-6. **Draft a vision** from the prose. Present for confirmation:
-   > "Here's what I think you're describing: {vision}. Is that right, or should I adjust?"
-7. **Propose actors**. Use User and Admin as defaults. "System" is a qualifier, not an actor. Present a table.
-8. **Map the journey**. Ask one question:
-   > "Walk me through what happens from the moment someone first opens this until they're using it daily."
-   From the answer, extract domains. If the user is brief, propose a journey yourself.
-9. **Propose 5-12 domains** with one-line descriptions and priorities. Present as a table.
-10. **Propose 3-7 design principles** specific to this product (not generic).
-11. **Draft requirements** for each domain (5-15 per domain). Present one domain at a time. Confirm before moving to the next.
-12. **Draft constraints** with CON-* IDs. Propose technology stack based on what the user has implied.
-13. **Read scaffolding templates** from `~/.claude/skills/spec-driven-development/references/templates/`:
-    - `root-readme.md`
-    - `sdd-readme.md`
-    - `sdd-glossary.md`
-    - `sdd-constraints.md`
-    - `sdd-changes.md`
-    - `sdd-config.yml`
-    - `documentation-readme.md`
-    - `documentation-architecture.md`
-    - `documentation-api-reference.md`
-    - `documentation-configuration.md`
-    - `documentation-deployment.md`
-    - `documentation-decisions-readme.md`
-14. **Substitute placeholders** (`{PROJECT_NAME}`, `{ACTOR_1}`, `{INSTALL_COMMAND}`, etc.) with values from the user's input and inferred context
-15. **Write the files**:
-    - `sdd/README.md`, `sdd/glossary.md`, `sdd/constraints.md`, `sdd/changes.md`, `sdd/config.yml`
-    - One file per domain in `sdd/{domain}.md` with the drafted REQs
-    - `README.md` in repo root
-    - `documentation/README.md`, `architecture.md`, `api-reference.md`, `configuration.md`, `deployment.md`
-    - `documentation/decisions/README.md`
-    - `tests/` (empty directory)
-16. **Print next steps**:
-    ```
-    ✓ Spec created at sdd/
-    ✓ Documentation scaffolding at documentation/
-    ✓ Root README.md linking both
-    ✓ Test scaffolding at tests/
-    ✓ sdd/config.yml created (mode: interactive)
+   - If `sdd/` exists AND `sdd/init-triage.md` exists AND it contains items with `**Status:** open` → enter **Resume Mode** (jump to "Resume Mode" section below).
+   - If `sdd/` exists with no open triage items → abort: `Error: sdd/ already exists in this project. To rescue an existing rotted spec, use /sdd clean.`
 
-    What to do next:
-      1. Review the spec at sdd/README.md
-      2. I'll enter Plan Mode next to lay out a tests-first
-         implementation plan from the Planned REQs. Approve or
-         revise before any source file is written.
-      3. tdd-guide authors the RED phase; spec-reviewer promotes
-         Planned → Implemented on push.
+2. **Detect existing code**: check for substantive source code (`src/`, `lib/`, `app/`, `pkg/`, language-specific directories; `package.json`, `Cargo.toml`, `go.mod`, etc.). >5 source files = **existing codebase** → jump to Import Mode below.
 
-    To switch modes:
-      /sdd mode auto                → auto (recommended for solo dev)
-      /sdd mode unleashed           → walk-away mode (PR-based review)
-    ```
+3. **Ask for vision** (greenfield path). If `$ARGUMENTS` is empty, ask once: `What are you building? Describe in plain language — a sentence is enough.` Confirm what you heard in one sentence; accept silently if the user nods.
 
-17. **NEXT ACTION — MANDATORY**: enter Plan Mode. No code, tests, or config under `src/`, `lib/`, `app/`, `pkg/`, `tests/` before Plan Mode. Hard gate. "build now" / "go" / "execute" / "ship it" / "just do it" authorize starting, never skipping. See `Plan Mode integration` in the `spec-driven-development` skill.
+4. **Draft the entire spec in memory** from the vision, without asking the user anything else:
+   - Actors (typically 2-3; User, Admin defaults; never "System")
+   - Design principles (3-7 product-specific, not generic)
+   - Domains (5-12 with one-line summary + priority)
+   - REQs per domain (5-15 per domain, every REQ in the canonical format defined in `~/.claude/skills/spec-driven-development/SKILL.md` § REQ format — ACs numbered `1. 2. 3.`, every labeled field on its own line with blank-line separators, `Constraints: None.` / `Dependencies: None.` rendered explicitly when empty)
+   - CON-* constraints (cross-cutting)
+   - Founding ADRs (3-8 seeded from the vision + inferred stack)
+   - Glossary terms (every product noun, vendor name, protocol used in any REQ)
+
+5. **Present the full draft as one review surface**: a tree showing the domain index + brief per-domain summary + the seeded ADR list + the glossary preview. Ask one question: `Accept as-is, edit a section (name it), or restart?` Apply edits in place until the user accepts.
+
+6. **Run enrichment** (see SKILL.md § Enrichment pass): cross-link Dependencies anchors across all drafted REQs, finalize ADR-to-REQ backlinks, ensure every term mentioned in any REQ is in the glossary. Single in-memory transform, no further user prompts.
+
+7. **Read scaffolding templates** from `~/.claude/skills/spec-driven-development/references/templates/` and substitute placeholders (`{PROJECT_NAME}`, `{ACTOR_1}`, `{INSTALL_COMMAND}`, etc.) from the user's vision + inferred context.
+
+8. **Write the files**:
+   - `sdd/README.md`, `sdd/glossary.md`, `sdd/constraints.md`, `sdd/changes.md`, `sdd/config.yml`
+   - One file per domain in `sdd/{domain}.md` with the drafted REQs in canonical shape
+   - `sdd/.review-needed.md`, `sdd/.coverage-report.md`, `sdd/.last-clean-run.md` — each touched with a single `_Awaiting first run._` line so the slot structure is visible
+   - `README.md` in repo root
+   - `documentation/README.md` (the ~150-line scaffold with lane table + jump-TOC + synonym glossary), `architecture.md`, `api-reference.md`, `configuration.md`, `deployment.md`
+   - `documentation/decisions/README.md` (seeded with the founding ADRs from step 4)
+   - `tests/` (empty directory)
+
+9. **Print next steps**:
+   ```
+   ✓ Spec created at sdd/
+   ✓ Documentation scaffolding at documentation/ (incl. founding ADRs)
+   ✓ Root README.md linking both
+   ✓ Test scaffolding at tests/
+   ✓ sdd/config.yml created (mode: interactive)
+
+   What to do next:
+     1. Review the spec at sdd/README.md
+     2. I'll enter Plan Mode next to lay out a tests-first
+        implementation plan from the Planned REQs. Approve or
+        revise before any source file is written.
+     3. tdd-guide authors the RED phase; spec-reviewer promotes
+        Planned → Implemented on push.
+
+   To switch modes:
+     /sdd mode auto                → auto (recommended for solo dev)
+     /sdd mode unleashed           → walk-away mode (PR-based review)
+   ```
+
+10. **NEXT ACTION — MANDATORY**: enter Plan Mode. No code, tests, or config under `src/`, `lib/`, `app/`, `pkg/`, `tests/` before Plan Mode. Hard gate. "build now" / "go" / "execute" / "ship it" / "just do it" authorize starting, never skipping. See `Plan Mode integration` in the `spec-driven-development` skill.
 
 ### Import Mode (existing codebase)
 
@@ -314,29 +301,33 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
 
    A `**Reason:**` field is appended only when an item is marked `lost` (one-line explanation of why information is genuinely unrecoverable). Not part of the canonical shape for `open` or `resolved` entries.
 
-5. **Derive CLEAR REQs** (the official spec):
+5. **Derive CLEAR REQs** (the official spec; render in the canonical shape — ACs numbered `1. 2. 3.`, each labeled field on its own line, `Constraints:` and `Dependencies:` always present even if `None.`):
    - **Intent**: lifted directly from the evidence (README sentence, PR description, commit message, docstring)
-   - **Acceptance Criteria**: observable behavior at the user-facing level, derived from named test assertions or documented contracts
-   - **Status**: `Implemented` if a test verifies the AC, `Partial` otherwise (one-time import baseline; future runs respect `enforce_tdd`)
+   - **Acceptance Criteria**: observable behavior at the user-facing level, derived from named test assertions or documented contracts. Numbered (`1.`, `2.`, `3.`), never bulleted.
+   - **Status**:
+     - `enforce_tdd: true` — `Implemented` if a test references the REQ ID, `Partial` otherwise.
+     - `enforce_tdd: false` (Import Mode default) — `Implemented` unconditionally when source code implements the AC. Demoting every imported REQ to `Partial` because tests don't reference REQ IDs (the imported code predates the convention) would falsely brand the spec 65%+ incomplete. The domain README receives one footnote `_Verification: code-only (no automated coverage)._` at the bottom; per-REQ Notes are not used for this signal.
    - **Priority**: P0 for core flows, P1 for supporting features, P2 for polish, P3 for stretch
-   - **Dependencies**: cross-domain links from imports
+   - **Constraints**: linked `[CON-X-NNN](constraints.md#anchor)` references, or literal `None.` when empty
+   - **Dependencies**: cross-domain links rendered as `[REQ-X-NNN](other-domain.md#anchor)` (or `#anchor` for same-file), or literal `None.` when empty
    - **Verification**: `Automated test` if a test references the feature, `Manual check` otherwise
 
 6. **Identify cross-cutting constraints** by reading config files and middleware (tech stack from manifests, security headers from middleware, performance budgets from CI config, compliance markers from privacy/legal files). Each becomes a `CON-*` entry. Constraints that the agent can't justify from evidence also go to triage.
 
-7. **Write CLEAR REQs silently** to `sdd/{domain}.md` files. No user confirmation. The agent's confidence threshold (single matching domain + unambiguous behavior + clear evidence in code/PRs/tests) is the gate; anything not meeting it became a triage entry in step 4. Print triage queue size: "{T} items in triage queue at `sdd/init-triage.md`. Run `/sdd init` again to resume triage, one item at a time, at your own pace." Do NOT walk through every triage item now; that's what Resume Mode does on subsequent `/sdd init` runs. To correct any CLEAR REQ after import, the user runs `/sdd edit {domain}`.
+7. **Present the full inferred spec as one review surface** (same lean shape as greenfield step 5): pre-filled vision from README, derived domains with their CLEAR REQ titles, triage queue size, founding ADRs inferred from stack + middleware, glossary preview. Ask one question: `Accept as-is, edit a section (name it), or treat as fresh start?` Apply edits in place until the user accepts. The agent's confidence threshold (single matching domain + unambiguous behavior + clear evidence in code/PRs/tests) is the gate; anything not meeting it became a triage entry in step 4. Triage items are NOT walked through here — Resume Mode handles them later, one at a time, at the user's pace.
 
-8. **Optionally fill in vision and principles** (same as before: pre-fill from README, user confirms or rewrites).
+8. **Run enrichment** (cross-link Dependencies anchors across REQs, finalize ADR-to-REQ backlinks, ensure glossary covers every product noun mentioned in any REQ — same Phase as greenfield step 6; see `~/.claude/skills/spec-driven-development/SKILL.md` § Enrichment pass). Single in-memory transform, no further user prompts.
 
 9. **Write the scaffolding**:
    - `sdd/README.md` with derived domain index and Out of Scope section (empty)
-   - One `sdd/{domain}.md` per derived domain with CLEAR REQs
+   - One `sdd/{domain}.md` per derived domain with CLEAR REQs (canonical shape — numbered ACs, each labeled field on its own line, `Constraints:` and `Dependencies:` always present even if `None.`). When `enforce_tdd: false`, append one footnote `_Verification: code-only (no automated coverage)._` at the bottom of each domain README.
    - `sdd/constraints.md` with derived CON-* entries
-   - `sdd/glossary.md` with terms from code (vendor names, protocols, domain concepts)
+   - `sdd/glossary.md` populated from the glossary-seed pass (vendor names, protocols, domain concepts extracted from REQs)
    - `sdd/changes.md` with one entry: `## YYYY-MM-DD\n- Initial spec imported via /sdd init (N clear REQs across M domains, T triage items — see sdd/init-triage.md)`
    - `sdd/config.yml` with `mode: interactive`, `enforce_tdd: false`, and **`transition: true`** (cleared automatically when triage drains)
    - **`sdd/init-triage.md`** with all triage entries (each with Context + Recommendation populated)
-   - `documentation/` scaffolding from templates, with backlinks to CLEAR REQs where applicable
+   - `sdd/.review-needed.md`, `sdd/.coverage-report.md`, `sdd/.last-clean-run.md` — each touched with `_Awaiting first run._` so the slot structure is visible from day one
+   - `documentation/` scaffolding from templates, with backlinks to CLEAR REQs where applicable; `documentation/decisions/README.md` seeded with the founding ADRs from the enrichment pass
    - Root `README.md` updated to reference `sdd/` and `documentation/` (preserve existing content — append the SDD section)
 
 10. **Print next steps**:

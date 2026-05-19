@@ -76,11 +76,17 @@ When `enforce_tdd: true`:
 2. **Source-vs-test coverage**: `Planned`/`Partial` REQ with source but no test: HIGH; auto-promote `Planned` to `Partial` with explanatory Notes.
 3. **Test quality heuristics**: AC count vs test count, tautology / empty-body / skip patterns. Quality findings produce no changelog entry.
 
-When `enforce_tdd: false`, write `sdd/.coverage-report.md` without modifying spec.
+When `enforce_tdd: false`:
+
+1. **Status assignment for newly-drafted REQs (Import Mode + `/sdd edit` / `/sdd add` while `enforce_tdd: false`)**: default `Implemented` when source code implements the AC, regardless of test presence. The project has opted out of test-based verification; demoting every REQ to `Partial` because tests don't reference REQ IDs would falsely brand the spec 65%+ incomplete. The domain README receives one footnote `_Verification: code-only (no automated coverage)._` at the bottom; per-REQ `Notes:` are NOT used for this signal.
+2. **No auto-demote on existing REQs**: do not move `Implemented` → `Partial` based on test absence alone. Source-vs-spec drift findings still emit, but as informational entries in `sdd/.coverage-report.md`, never as Status mutations.
+3. **CQ-1, CQ-2, CQ-3 still run** and write to `sdd/.coverage-report.md` rather than mutating spec.
+
+The interaction with `transition: true` is the same as `enforce_tdd: false` (see next section) — no auto-demote, source-presence defaults Implemented.
 
 ## Auto-demote suppression during SDD transition
 
-When `transition: true` in `sdd/config.yml` (see `spec-enforce` spine SDD transition section), the auto-demote rule above is SUPPRESSED. CQ-1 still runs but writes findings to `sdd/.coverage-report.md` rather than mutating Status. The imported spec is intentionally partial; that's what the triage queue means.
+When `transition: true` in `sdd/config.yml` (see `spec-enforce` spine SDD transition section), the auto-demote rule above is SUPPRESSED — identical to `enforce_tdd: false` semantics. CQ-1 still runs but writes findings to `sdd/.coverage-report.md` rather than mutating Status. Imported REQs default `Implemented` when source code implements the AC; the imported spec describes shipped behaviour, not aspirational gaps. (Genuinely unmet behaviour goes to `sdd/init-triage.md`, not to a Partial Status that's actually false.)
 
 ## Severity application
 
