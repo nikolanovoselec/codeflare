@@ -7,8 +7,10 @@
 # interactive: confirm every fix before applying. Safe for new SDD users.
 # auto:        apply SAFE+RISKY fixes silently on the current branch.
 #              Escalate JUDGMENT calls to sdd/.review-needed.md.
-# unleashed:   apply everything (including JUDGMENT) on a new branch + PR.
-#              Walk-away workflow — review the PR when you come back.
+# unleashed:   apply everything (including JUDGMENT) on the current branch.
+#              Conservative defaults preserve information without overwriting intent.
+#              Walk-away autopilot - come back to per-category commits, git revert
+#              any unwanted change. No PR, no branch creation.
 mode: interactive
 
 # enforce_tdd: false for codeflare.

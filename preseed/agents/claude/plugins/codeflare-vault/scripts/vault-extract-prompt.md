@@ -264,8 +264,10 @@ to_json(G_merged, cluster(G_merged) if G_merged.number_of_nodes() else {}, str(v
 to_json(G_merged, cluster(G_merged) if G_merged.number_of_nodes() else {}, str(out_path))
 
 print(f'vault graph: {G_merged.number_of_nodes()} nodes ({G_new.number_of_nodes()} new, {G_prior.number_of_nodes()} prior), {G_merged.number_of_edges()} edges')
-" ) || true
+" ) || EXTRACT_FAILED=1
 ```
+
+If the Python step or `flock -w 5` failed (lock holder wedged or build error), `EXTRACT_FAILED` is set. Step 6 reads this flag and skips the marker-touch so the next 60s daemon tick re-discovers the same changed files. The wrapper used to be `|| true` (silent swallow); replaced because that allowed a silent failure to advance the high-water mark and lose the change permanently.
 
 The `flock` lock matches the one used by `graphify global add` in step 5
 and `graphify-active-repo.sh`, so concurrent writers do not stomp the
@@ -290,8 +292,10 @@ vault state on every run instead of clobbering it.
 
 ```bash
 ( flock -w 5 /tmp/graphify-global.lock /usr/local/bin/graphify global add \
-    /home/user/Vault/graphify-out/vault-graph.json --as user_vault ) || true
+    /home/user/Vault/graphify-out/vault-graph.json --as user_vault ) || EXTRACT_FAILED=1
 ```
+
+Same pattern as step 4: any failure here (lock timeout, graphify CLI absent, malformed graph.json) sets `EXTRACT_FAILED=1` and step 6 will leave the high-water marker old so the daemon retries.
 
 `graphify global add` is hash-keyed and idempotent - re-running it
 with the same `vault-graph.json` content is a no-op. Tagged `--as user_vault` so
@@ -305,13 +309,22 @@ label.
 ### 6. Advance the high-water mark - FINAL step
 
 ```bash
-touch ~/.cache/codeflare-hooks/vault-extract.last
+if [ -z "${EXTRACT_FAILED:-}" ]; then
+    touch ~/.cache/codeflare-hooks/vault-extract.last
+else
+    echo "[vault-extract] step 4 or 5 failed; leaving high-water mark old for retry" >&2
+fi
 ```
 
-Only run this if steps 3-5 succeeded (or step 2 returned zero files,
-in which case advancing the marker is also correct). If any extraction
-or global-add failed, leave the marker old; the next daemon tick will
-re-discover the changed files and try again.
+The `EXTRACT_FAILED` gate is the programmatic enforcement of "only
+touch on success": steps 4 and 5 set the flag on any non-zero exit
+(lock timeout, graphify CLI missing, malformed JSON). If the flag is
+unset, all extractions succeeded (or step 2 returned zero files, in
+which case advancing the marker is also correct - there is nothing to
+retry). If set, the next 60s daemon tick will re-discover the same
+changed files and retry. Earlier versions of this prompt relied on the
+sonnet agent interpreting "only if steps 3-5 succeeded" prose, which
+allowed a silent failure to advance the marker and lose the change.
 
 ## Done
 

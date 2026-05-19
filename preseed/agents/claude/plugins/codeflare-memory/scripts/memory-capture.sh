@@ -48,6 +48,10 @@ TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 # `[^<]` filter already excludes them. No second-pass isMeta subtraction
 # needed; an earlier draft of this fix tried it with the wrong field
 # order and produced 0 anyway.
+# DO NOT drop the `|| CURRENT_COUNT=0` tail. `set -e` is active (line 5) and
+# `grep -c` exits 1 when the pattern has zero matches (legitimate on a fresh
+# transcript). Without the fallback the hook crashes silently inside Claude
+# Code with no user-visible error.
 CURRENT_COUNT=$(grep -c '"role":"user","content":"[^<]' "$TRANSCRIPT") || CURRENT_COUNT=0
 
 COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"

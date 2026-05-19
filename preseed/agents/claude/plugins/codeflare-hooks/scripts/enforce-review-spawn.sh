@@ -346,6 +346,16 @@ CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
 LAST_ACK_PR_HEAD=""
 if [ -f "$ACK_FILE" ]; then
   LAST_ACK_PR_HEAD=$(cat "$ACK_FILE" 2>/dev/null)
+  # SHA-shape guard: only accept a 40-char lower-hex string. A corrupt or
+  # accidentally-touched ACK file (truncated, contains a stray newline, or
+  # holds non-SHA bytes) used to silently load and force the authoritative
+  # gh round-trip via the !match path below; this explicit validation
+  # makes the self-heal visible in audit and prevents the unlikely future
+  # case of a partially-valid prefix matching by accident.
+  case "$LAST_ACK_PR_HEAD" in
+    *[!0-9a-f]* | "" ) LAST_ACK_PR_HEAD="" ;;
+    *) [ "${#LAST_ACK_PR_HEAD}" -eq 40 ] || LAST_ACK_PR_HEAD="" ;;
+  esac
 fi
 
 if [ -n "$LAST_ACK_PR_HEAD" ]; then

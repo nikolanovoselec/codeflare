@@ -261,6 +261,8 @@ Agent ID prefixes: SEC (security), ARCH (architecture), QUAL (code-quality), DEA
 
 ### CRITICAL: All 6 agents MUST be launched in a SINGLE message with 6 parallel Task tool calls.
 
+Note: this is `/review`'s own orchestration. It is deliberately divergent from the PR-boundary protocol (code+spec parallel, then doc-updater sequentially) because `/review` Phase 2 agents write only to `$REVIEW_DIR/0N-*.md` report files - not to `sdd/` or `documentation/` - so the filesystem-race rationale for sequential spec→doc does not apply here.
+
 If the environment does not support 6 parallel Task calls, launch in batches of 3. If any agent fails, retry once. If it still fails, continue with successful reports and note the missing report in the summary.
 
 Wait for all 6 agents to complete. Then:
