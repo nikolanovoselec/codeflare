@@ -59,7 +59,7 @@ if [ -f "$LAST_MARKER" ] && [ ! "$VARS_FILE" -nt "$LAST_MARKER" ]; then
     exit 0
 fi
 
-CONTEXT="Vault changes detected. Spawn a background sonnet agent to read ${PROMPT_FILE} and ${VARS_FILE}, then execute the 5-step contract. The sonnet deletes ${VARS_FILE} as its first step. If you have already spawned this agent in the current turn, do nothing."
+CONTEXT="Vault changes detected. Spawn the **vault-extract** subagent (Task tool with subagent_type=\"vault-extract\") in the background. Pass PROMPT_FILE=${PROMPT_FILE} and VARS_FILE=${VARS_FILE} so it can execute the 5-step contract documented in the prompt file. The subagent's first step is to delete ${VARS_FILE} as the dedup gate. The subagent's frontmatter pins the model to sonnet (AD58); do not pass a model override. If you have already spawned this subagent in the current turn, do nothing."
 
 jq -n --arg ctx "$CONTEXT" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
 exit 0
