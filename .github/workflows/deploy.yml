@@ -43,9 +43,23 @@ jobs:
     # PR Checks would skip the guard but the deploy job's needs:
     # would still be satisfied — the gate must be on the job that
     # actually performs the deploy.
+    # Two additional workflow_run guards beyond conclusion==success defeat
+    # the public-repo pwn-request vector. PR Checks fires on both push and
+    # pull_request to main/develop. A fork PR with a head branch named
+    # 'main' would pass the outer workflow_run `branches: [main]` filter
+    # (the filter matches the PR head ref name, not the source repo).
+    # Without the two extra guards below, the deploy job would check out
+    # the fork's untrusted SHA with actions:write perms and access to
+    # deploy secrets. Hardened as a result of Scorecard DangerousWorkflowID
+    # alert #34 audit.
+    #   workflow_run.event == 'push'                   -- only post-merge runs trigger deploy
+    #   head_repository.full_name == github.repository -- and only from this repo, never a fork
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      (github.event_name == 'workflow_run'
+       && github.event.workflow_run.conclusion == 'success'
+       && github.event.workflow_run.event == 'push'
+       && github.event.workflow_run.head_repository.full_name == github.repository)
     environment: ${{ github.ref == 'refs/heads/main' && (inputs.environment || 'production') || 'integration' }}
     timeout-minutes: 30
     env:
