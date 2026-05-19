@@ -179,5 +179,5 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P0
 **Dependencies:** REQ-MEM-001 (capture pipeline contract), REQ-VAULT-002 (vault is always-on in the global graph)
-**Verification:** Automated test (`host/__tests__/vault-extract-merge.test.js` patterns the prompt for load + merge + persist + flock; integration smoke via running the vault-extract agent twice in a row and confirming the global graph's user_vault node count grows monotonically). The vault HTML viz re-render (step 5b) is intentionally outside the test envelope: it is non-fatal and bounded to cosmetic output; failure is recoverable on the next extraction.
+**Verification:** Automated test (`host/__tests__/vault-extract-merge.test.js` patterns the prompt for load + merge + persist + flock; integration smoke via running the vault-extract agent twice in a row and confirming the global graph's user_vault node count grows monotonically). The non-fatal `graphify cluster-only` HTML re-render that follows the merge (documented as step 5b of the vault-extract contract in `documentation/vault.md`) is intentionally outside the test envelope: it is bounded to cosmetic output and a failed render is recoverable on the next extraction.
 **Status:** Implemented
