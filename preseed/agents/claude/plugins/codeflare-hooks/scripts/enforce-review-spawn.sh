@@ -132,11 +132,24 @@ PUSH_LINE=$(awk '
   # spaces" && git push`) break the `[^"]*` inner-string constraint. The
   # outer `"name":"Bash"` guard keeps false positives bounded; Layer 2
   # (PR HEAD SHA) filters any that slip through.
+  #
+  # `gh pr merge` is also recognised: a server-side merge into develop
+  # advances origin/develop without a local `git push`, but it is the
+  # exact event that creates an un-acked develop->main PR HEAD. Without
+  # this surface, develop->main reviewers silently fail to arm. See
+  # commit history for the "stop hook never fires after gh pr merge"
+  # incident.
   /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
     if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
     if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
+      print NR; next
+    }
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
+      print NR; next
+    }
+    if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
       print NR; next
     }
   }
@@ -152,6 +165,12 @@ PUSH_LINE=$(awk '
     if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
+      print NR; next
+    }
+    if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
+      print NR; next
+    }
   }
   # C. mcp__*__ctx_execute with `"language":"shell"` (uses `"code"` field).
   #    Pattern note: `mcp__[^"]*ctx_execute"` requires the literal `ctx_execute`
@@ -164,6 +183,12 @@ PUSH_LINE=$(awk '
       print NR; next
     }
     if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
+      print NR; next
+    }
+    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
+      print NR; next
+    }
+    if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
       print NR; next
     }
   }
