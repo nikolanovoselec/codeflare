@@ -219,11 +219,6 @@
       "advanced"
     ]
   },
-  "rules/common/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/documentation-discipline.md": {
     "modes": [
       "advanced"
