@@ -58,6 +58,7 @@ HSTS, CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions
 | Session ID validation | `/^[a-z0-9]{8,24}$/` enforced before any DO interaction |
 | Path traversal prevention | `decodeURIComponent` before `..` check; catches `%2E%2E` and double-encoded variants |
 | Supply chain | CodeQL, OSSF Scorecard, `npm audit`, dependency review, Dependabot, Trivy container scanning |
+| Deploy gate | `deploy.yml` `workflow_run` trigger requires `event == 'push'` and `head_repository.full_name == github.repository` so a fork PR cannot trigger a deploy by naming its head branch `main` (defeats Scorecard DangerousWorkflowID pwn-request pattern). |
 | Penetration testing | Weekly automated external pentest (auth gate, headers, TLS, injection, info disclosure) |
 | Secret scanning | GitHub secret scanning with push protection enabled |
 | Credential masking | `maskSecret()` shows only last 4 chars in all API responses |
