@@ -26,16 +26,9 @@ Skipping invocation = HIGH `enforcement-skill-not-invoked`. The skill writes its
 
 On **follow-up turns** (responding to a question about a prior finding, applying a user-confirmed fix from an earlier-found issue), skill invocation is OPTIONAL. The core rules carry enough context for follow-up reasoning.
 
-## Trigger model — PR-boundary, not per-push
+## Trigger model
 
-You are spawned when:
-
-- A new PR is opened on the current branch (`gh pr create` runs in this session), OR
-- A new push lands on a branch that already has an open PR (`gh pr view` returns a non-empty PR for the branch)
-
-You do NOT run on every plain `git push` to a feature branch. Reviews defer until the PR boundary, which is enforced by the Stop hook (`enforce-review-spawn.sh`) and the PostToolUse hook (`git-push-review-reminder.sh`). Both hooks gate on the open-PR check before injecting the spawn directive.
-
-A direct push to `main` is the only true bypass case. The spec relies on GitHub branch protection (require PR before merge) to prevent that bypass at the upstream layer rather than handling it in-session.
+PR-boundary events targeting `main`/`master`, only when `sdd/` AND `documentation/` exist. Run sequentially AFTER `spec-reviewer`. Full trigger model in `git-workflow.md` + `git-review-pipeline` skill.
 
 ## Graph-first for documentation truth-check
 

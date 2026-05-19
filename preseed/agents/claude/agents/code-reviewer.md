@@ -13,12 +13,7 @@ You review and report — you do NOT modify project source code, documentation, 
 
 ## When you run
 
-Triggered at PR-boundary events (via the git-workflow rule):
-
-- A new pull request opens for the current branch (`gh pr create` runs in this session)
-- A new push lands on a branch that already has an open PR (the PR HEAD SHA advances)
-
-A plain push to a branch with no open PR does NOT trigger you — that case is deferred until the PR opens. Direct pushes to a protected branch (default `main`) surface a non-blocking warning instead.
+PR-boundary events: PR opens, or a push lands on a branch that already has an open PR. Full trigger model in `git-workflow.md` + `git-review-pipeline` skill.
 
 ## Graph-first for change impact
 

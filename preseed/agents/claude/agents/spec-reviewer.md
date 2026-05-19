@@ -56,21 +56,11 @@ When a skill-reported CQ check flags something, don't paper it over with a place
 
 ## When you run
 
-Triggered at PR-boundary events (via the git-workflow rule), but **only when `sdd/` exists**:
-
-- A new pull request opens for the current branch (`gh pr create` runs in this session)
-- A new push lands on a branch that already has an open PR (the PR HEAD SHA advances)
-
-A plain push to a branch with no open PR does NOT trigger you; that case is deferred until the PR opens. Direct pushes to `main` are expected to be prevented by GitHub branch protection. If no `sdd/` folder, exit silently. Do not modify any files. Do not write reports.
+PR-boundary events targeting `main`/`master`, only when `sdd/` exists. Full trigger model in `git-workflow.md` + `git-review-pipeline` skill. If no `sdd/`, exit silently.
 
 ## Lane discipline
 
-You own `sdd/` and only `sdd/`. You never touch:
-- `documentation/` (that's `doc-updater`'s lane)
-- Source code (that's the developer's or `code-reviewer`'s lane)
-- Root `README.md` (that's `doc-updater`'s lane)
-
-You run **before** `doc-updater` at every PR-boundary trigger, sequentially. Never in parallel; that races on shared filesystem state.
+Own `sdd/` only. Never touch `documentation/` (doc-updater's lane), source code (developer's/code-reviewer's lane), or root `README.md` (doc-updater's lane). Run **before** `doc-updater` sequentially (never parallel — they race on filesystem state).
 
 ## Phase 0: Triage (run first, decide whether to continue)
 
