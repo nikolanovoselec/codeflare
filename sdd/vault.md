@@ -73,7 +73,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 1. `memory-agent-prompt.md` Step 4 writes the capture file at `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter + Context/Decisions/Observations/References template.
 2. Concept references use `[[wikilinks]]`; file paths, code symbols, and PR/issue references stay as prose.
-3. Step 5 runs `flock -w 5 /tmp/graphify-global.lock graphify extract --file ... && flock -w 5 /tmp/graphify-global.lock graphify global add ... --as user_vault` so the new capture is merged into the unified graph atomically.
+3. Step 5 builds the vault graph inline (sonnet emits chunk JSON matching graphify's schema, then a `flock -w 5 /tmp/graphify-global.lock` Python step calls `graphify.build` / `graphify.cluster` / `graphify.export.to_json` to materialise it), then Step 7 merges it into the unified graph via `flock -w 5 /tmp/graphify-global.lock graphify global add ... --as user_vault`. The headless `graphify extract` CLI is intentionally bypassed per REQ-MEM-001 AC5: codeflare ships no LLM provider key for graphify and the capture agent IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit.
 4. If extraction fails, the markdown file stays on disk and the next vault-monitor tick will re-discover it via the high-water marker comparison.
 5. The MCP `server-memory` subsystem (`mcp__memory__*`) has been removed entirely; the capture agent does not invoke it, and no historical JSONL graph is read.
 
