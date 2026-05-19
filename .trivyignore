@@ -248,6 +248,13 @@ CVE-2026-42010
 # server role. No fix available in Debian bookworm.
 CVE-2026-42011
 
+# libgnutls30 3.7.9-2+deb12u6: DoS via DTLS packet reordering. Container does
+# not expose any DTLS endpoint (no DTLS server, no DTLS client), and GnuTLS
+# is only loaded as a transitive dep of curl/libcurl which speaks HTTPS over
+# TCP only. Same exposure profile as the other gnutls entries above. No fix
+# available in Debian bookworm.
+CVE-2026-42009
+
 # libmbedcrypto7 / libmbedtls14 / libmbedx509-1 (mbedtls 2.28.3): seed misuse
 # in HMAC_DRBG / CTR_DRBG. Container does not use mbedtls directly; transitive
 # dep of rclone/curl. No DRBG-derived material is exposed. No fix in bookworm.
