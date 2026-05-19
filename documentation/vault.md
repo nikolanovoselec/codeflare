@@ -75,7 +75,8 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 |   |-- STYLES.md          <- PRESEED-MANAGED: Codeflare editor theme (overwritten each boot)
 |   |-- Raw/
 |   |   |-- Sessions/      <- AGENT-OWNED: one .md per 15-prompt capture
-|   |   `-- Pasted/        <- USER-OWNED: image/PDF drops from SilverBullet
+|   |   |-- Pasted/        <- USER-OWNED: image/PDF drops from SilverBullet
+|   |   `-- Graphs/        <- USER-EDITABLE: Vault Graph.md + Global Graph.md (seeded once, never overwritten)
 |   |-- Notes/             <- USER-OWNED: curated prose, concept notes
 |   |-- Inbox/             <- USER-OWNED: SB "Quick Note" target
 |   |-- Journal/           <- USER-OWNED: SB "Journal: Today" target
@@ -95,7 +96,7 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 
 ## Capture Path (REQ-VAULT-002)
 
-The `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to spawn a background sonnet agent. The sonnet agent runs `memory-agent-prompt.md` end to end:
+The `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to dispatch the **memory-capture** named subagent (Task tool with `subagent_type="memory-capture"`). The subagent's frontmatter (`preseed/agents/claude/agents/memory-capture.md`) pins `model: sonnet` per AD58; the hook directive instructs the main agent not to pass a model override so the pin cannot be silently downgraded. The subagent runs `memory-agent-prompt.md` end to end:
 
 1. Deletes the `.vars` marker (dedup gate so a concurrent prompt cannot spawn a duplicate).
 2. Reads the new transcript range.
@@ -125,7 +126,7 @@ The daemon excludes `Raw/Sessions/`, `graphify-out/`, and `.silverbullet/` from 
 
 On boots where at least one preseed page was rewritten, `init_user_vault()` also touches `vault-extract.last` before the daemon starts. This advances the high-water mark past the preseed-page mtimes so the very first daemon tick finds nothing and no spurious extraction is triggered. The two guards are layered for defence-in-depth: the AC1 exclusion handles the four pages by name, and the AC6 marker-bump covers any future preseed page added without an exclusion-list update.
 
-`vault-monitor-hook.sh` is the UserPromptSubmit hook for the user-edit path. It exits 0 immediately when `vault-extract.vars` is absent (~99% of prompts), keeping token cost at zero on idle. When the marker is present it emits `additionalContext` pointing the main agent at `vault-extract-prompt.md`.
+`vault-monitor-hook.sh` is the UserPromptSubmit hook for the user-edit path. It exits 0 immediately when `vault-extract.vars` is absent (~99% of prompts), keeping token cost at zero on idle. When the marker is present it emits `additionalContext` instructing the main agent to dispatch the **vault-extract** named subagent (Task tool with `subagent_type="vault-extract"`). The subagent's frontmatter (`preseed/agents/claude/agents/vault-extract.md`) pins `model: sonnet` per AD58; the hook directive instructs the main agent not to pass a model override.
 
 The vault-extract agent's contract:
 
@@ -222,7 +223,8 @@ If the bisync exceeds 120s, the log records `TIMED OUT after 120s` -- a recognis
 
 The vault plugin and supporting rule ship as preseed entries that land in every advanced-mode session at container boot:
 
-- `preseed/agents/claude/plugins/codeflare-vault/` -- plugin descriptor, `vault-monitor-hook.sh` UserPromptSubmit hook, `vault-extract-prompt.md` for the spawned sonnet agent (see AD58). Registered in `preseed/agents/claude/manifest.json`.
+- `preseed/agents/claude/plugins/codeflare-vault/` -- plugin descriptor, `vault-monitor-hook.sh` UserPromptSubmit hook, `vault-extract-prompt.md` (the 5-step contract for the vault-extract subagent). Registered in `preseed/agents/claude/manifest.json`.
+- `preseed/agents/claude/agents/vault-extract.md` -- named subagent definition; frontmatter pins `model: sonnet` per AD58 so the model cannot be silently downgraded via a Task tool override. Registered in the manifest's top-level `agents/` section and delivered via `reconcileAgentConfigs()` (same pipeline as architect, code-reviewer, etc.).
 - `preseed/agents/claude/rules/vault.md` -- concept rule, advanced-mode only (see `ADVANCED_ONLY_CODEFLARE_RULES` in the ECC rules test).
 - `preseed/agents/claude/rules/vault-note-capture.md` + `preseed/agents/claude/skills/vault-note-capture/SKILL.md` -- minimal trigger rule + on-demand skill that captures "take a note" / "note this down" requests into `Notes/<Category>/`. Advanced-mode only. The rule stays small to keep always-in-context bloat minimal; the skill loads on demand with category inference, filename format, body template, and wikilink convention.
 - `preseed/silverbullet/` -- optional `atlas.plug.js`, the four preseeded plug files (`pdf`, `treeview`, `github`, `graph` -- see `preseed/silverbullet/plugs/MANIFEST.md`), and the four preseed-managed pages (`Index.md`, `README.md`, `CONFIG.md`, `STYLES.md`). The Dockerfile copies this directory to `/opt/silverbullet-preseed/`; `init_user_vault()` syncs from there on every boot. (`config.yaml` was removed -- SilverBullet 2.x ignores `.silverbullet/config.yaml` entirely; runtime config goes through `CONFIG.md` and env vars only.)
@@ -235,8 +237,9 @@ The vault plugin and supporting rule ship as preseed entries that land in every 
 
 | Tier | Path | Behaviour on every boot |
 |------|------|------------------------|
-| Always-mkdir (critical dirs) | `Raw/Sessions/`, `Raw/Pasted/`, `Notes/`, `graphify-out/`, `.silverbullet/_plug/` | `mkdir -p`; existing contents untouched. User-deleted directories are recreated empty so agent hooks and SilverBullet cannot land in a broken state. |
+| Always-mkdir (critical dirs) | `Raw/Sessions/`, `Raw/Pasted/`, `Raw/Graphs/`, `Notes/`, `graphify-out/`, `.silverbullet/_plug/` | `mkdir -p`; existing contents untouched. User-deleted directories are recreated empty so agent hooks and SilverBullet cannot land in a broken state. |
 | Always-overwrite (Codeflare-authoritative pages) | `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` | Copied from `/opt/silverbullet-preseed/`, gated so identical files are not rewritten. User edits are silently reverted on next boot; these files are Codeflare-owned because they encode dashboard contract, SB `#meta` config, theme, and user guide. |
+| Create-if-missing (user-editable index pages) | `Raw/Graphs/Vault Graph.md`, `Raw/Graphs/Global Graph.md` | Copied from `/opt/silverbullet-preseed/Raw/Graphs/` only when absent. Never overwritten on subsequent boots -- user edits and deletions are preserved. Seeded so the treeview shows a `Raw/Graphs/` folder on a fresh vault (treeview is page-driven; an empty directory is invisible). |
 | Recreate-if-missing (build-output stub) | `graphify-out/graph.json` | Seeded with the empty-graph JSON only when absent; the populated graph from a prior session is never overwritten. The graph is build output regenerated by `graphify extract` / `graphify global add`. |
 | Cleanup of dead config | `.silverbullet/config.yaml` | Removed on every boot. SilverBullet 2.x does not read this file; leaving it on disk only misleads future readers. |
 | Idempotent plug sync | `Library/Codeflare/*.plug.js` | Each file copied from `/opt/silverbullet-preseed/plugs/` only when content differs. User plugs in other `Library/` subdirectories are untouched. **Never** copy a partial `Library/Std/` onto disk -- SilverBullet's binary ships compiled `Library/Std/Plugs/*.plug.js` via `client_bundle/base_fs` overlay; a disk shadow with only source markdown breaks widget rendering. |
@@ -250,7 +253,7 @@ The contract closes failure modes that surfaced in earlier releases:
 
 `CONFIG.md` is a SilverBullet 2.x `#meta` page with an optional `space-lua` config block (built-in keys defined in `Library/Std/Config.md`; see [SilverBullet docs](https://silverbullet.md/Configuration)). Earlier releases used a yaml block with `libraries:` and `pageBlackList:` -- both keys are unrecognized by SB 2.x and were always no-ops.
 
-The preseed `CONFIG.md` includes a `space-lua` block that configures treeview navigation exclusions (REQ-VAULT-008 AC7). The upstream silverbullet-treeview plug v2 schema requires the top-level key `treeview` (not `plug.treeview`) and the field `exclusions` (not `exclude`), where each entry is `{ type = "regex", rule = "<regex>" }`. Bare-string glob patterns are silently dropped by the plug. The block hides `Library/`, `graphify-out/`, and the four top-level preseed pages (`CONFIG`, `Index`, `README`, `STYLES`). `.silverbullet/` is dot-prefixed and hidden by SilverBullet's default behaviour without an explicit rule. This exclusion list is the UI-side complement to the server-side `/.fs` filter (AC6) that strips `graphify-out/**` from raw listings.
+The preseed `CONFIG.md` includes a `space-lua` block that configures treeview navigation exclusions (REQ-VAULT-008 AC7). The upstream silverbullet-treeview plug v2 schema requires the top-level key `treeview` (not `plug.treeview`) and the field `exclusions` (not `exclude`), where each entry is `{ type = "regex", rule = "<regex>" }`. Bare-string glob patterns are silently dropped by the plug. The block hides `Library/`, `Repositories/`, `graphify-out/`, and the four top-level preseed pages (`CONFIG`, `Index`, `README`, `STYLES`). `Repositories/` is SilverBullet's own library-manager mirror created at runtime by the Library Manager plug; users do not curate it. `.silverbullet/` is dot-prefixed and hidden by SilverBullet's default behaviour without an explicit rule. This exclusion list is the UI-side complement to the server-side `/.fs` filter (AC6) that strips `graphify-out/**` from raw listings.
 
 `Library/Std` (and its compiled `Plugs/*.plug.js`) is served by the SilverBullet binary from its built-in `client_bundle/base_fs` overlay. There is nothing to federate at runtime and nothing to preseed onto disk. The dashboard's `widgets.commandButton`, `templates.fullPageItem`, `templates.pageItem`, `templates.taskItem`, `index.contentPages()`, and `tags.page` all resolve through that overlay automatically. The first-load delay (~30 s on a fresh browser) is the SilverBullet client building its IndexedDB index of Library/Std files; subsequent loads are instant from cache.
 
@@ -273,7 +276,7 @@ On every boot, `init_user_vault()` copies the plug files from `/opt/silverbullet
 
 ## First-session Expectations
 
-A brand-new session boots with a pre-populated vault: `Index.md`, `README.md`, `CONFIG.md`, and `STYLES.md` are always written from preseed on every boot. Critical subdirectories (`Raw/Sessions/`, `Raw/Pasted/`, `Notes/`, `graphify-out/`, `.silverbullet/_plug/`) are always `mkdir -p`'d. `graphify-out/graph.json` is seeded as an empty stub only when absent. A returning session inherits R2-restored content for user-owned paths (`Notes/`, `Inbox/`, `Journal/`, `Raw/Pasted/`, `Raw/Sessions/`); the always-overwrite pages are refreshed from preseed regardless, so any preseed update propagates without per-user migration.
+A brand-new session boots with a pre-populated vault: `Index.md`, `README.md`, `CONFIG.md`, and `STYLES.md` are always written from preseed on every boot. Critical subdirectories (`Raw/Sessions/`, `Raw/Pasted/`, `Raw/Graphs/`, `Notes/`, `graphify-out/`, `.silverbullet/_plug/`) are always `mkdir -p`'d. `Raw/Graphs/Vault Graph.md` and `Raw/Graphs/Global Graph.md` are seeded from preseed only when absent (never overwritten). `graphify-out/graph.json` is seeded as an empty stub only when absent. A returning session inherits R2-restored content for user-owned paths (`Notes/`, `Inbox/`, `Journal/`, `Raw/Pasted/`, `Raw/Sessions/`); the always-overwrite pages are refreshed from preseed regardless, so any preseed update propagates without per-user migration.
 
 `init_user_vault()` runs AFTER `establish_bisync_baseline()` so we never run the per-boot sync over a half-restored vault. If the baseline fails for any reason, the init function still runs (`(init_user_vault) || echo ...`) and the critical-dir + preseed-page tiers are created locally; the next successful bisync reconciles user content.
 

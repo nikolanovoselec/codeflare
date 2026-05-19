@@ -14,6 +14,16 @@
       "advanced"
     ]
   },
+  "agents/memory-capture.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/vault-extract.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "agents/deep-reviewer.md": {
     "modes": [
       "advanced"

@@ -11,11 +11,11 @@ Add custom config in the block below:
 
 -- REQ-VAULT-008 AC7: treeview exclude patterns. Hidden because they
 -- are either derived/agent-owned (graphify-out, Library), editor
--- state (.silverbullet, dotted - SB hides by default), or top-level
--- preseed pages the user should not accidentally edit (CONFIG, Index,
--- README, STYLES). The server-side /.fs filter (AC6) handles
--- graphify-out at the response layer; this block is the parallel
--- UI-side guard.
+-- state (.silverbullet, dotted - SB hides by default), SB's own
+-- library-manager mirror (Repositories), or top-level preseed pages
+-- the user should not accidentally edit (CONFIG, Index, README,
+-- STYLES). The server-side /.fs filter (AC6) handles graphify-out at
+-- the response layer; this block is the parallel UI-side guard.
 --
 -- Schema is the silverbullet-treeview plug's v2 config: top-level key
 -- `treeview` (NOT `plug.treeview`), field `exclusions` (NOT `exclude`),
@@ -25,7 +25,7 @@ Add custom config in the block below:
 config.set {
   treeview = {
     exclusions = {
-      { type = "regex", rule = "^(Library|graphify-out)/" },
+      { type = "regex", rule = "^(Library|Repositories|graphify-out)/" },
       { type = "regex", rule = "^(CONFIG|Index|README|STYLES)$" },
     },
   },

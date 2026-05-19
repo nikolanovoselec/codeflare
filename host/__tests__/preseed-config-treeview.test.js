@@ -95,6 +95,8 @@ test('treeview rules hide every entry that should be hidden (REQ-VAULT-008 AC7)'
     'STYLES',
     'Library/Codeflare/treeview.plug.js',
     'Library/Std/Config',
+    'Repositories/Std/Pages/Library Manager',
+    'Repositories/silverbulletmd/silverbullet-pdf',
     'graphify-out/graph.json',
     'graphify-out/vault-graph.json',
   ]) {
