@@ -221,7 +221,7 @@ Only `accept` and `correct` promote the answer into the official spec REQs. `cor
 - `transition: true` is cleared from `sdd/config.yml`
 - A closure entry is appended to `sdd/changes.md` (e.g., `SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost).`)
 - `enforce_tdd` is NOT changed - the user flips it to `true` manually when ready for TDD enforcement (typically after adding REQ-ID test names)
-- The agent enters Plan Mode (same hard gate as greenfield `/sdd init` step 17) so the first feature work on top of the now-real spec is plan-gated
+- The agent enters Plan Mode (same hard gate as greenfield `/sdd init` step 10) so the first feature work on top of the now-real spec is plan-gated
 
 In **greenfield mode**, the agent runs a **lean two-confirm flow** — vision in, full draft out, single review-and-edit pass, then write. The point is to compress the old 10-15-turn back-and-forth into two decisions so the user can think about the spec as a whole instead of approving one fragment at a time.
 

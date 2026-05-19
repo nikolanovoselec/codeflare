@@ -231,10 +231,7 @@ When step 2 detected substantive existing code, the agent enters import mode. Th
 1. **Official spec REQs** in `sdd/{domain}.md` — for anything clearly determinable from source, tests, comments, commits, PRs, or existing docs. Normal REQ shape, normal SDD discipline. No `(inferred)` marker, no review queue.
 2. **Triage entries** in `sdd/init-triage.md` — for anything unclear or missing: magic numbers without rationale, retry policies without context, ambiguous contracts, orphan code, missing Intent. Each entry carries the agent's **Context** (concrete evidence — file:line, git author, commit refs, related tests/PRs) and **Recommendation** (best-guess answer with one-line rationale). The user reviews context + recommendation and decides — accept, correct, or mark `lost`. They don't perform archaeology from scratch.
 
-**Transition state.** While `sdd/init-triage.md` contains any `open` items, the project is in SDD transition. `sdd/config.yml` carries `transition: true`. During transition:
-- spec-reviewer suppresses the Implemented → Partial auto-demote rule (the imported spec is intentionally partial — that's what the triage queue means)
-- `/sdd mode unleashed` is rejected (judgment is required for triage; cannot run blind)
-- doc-updater and code-reviewer operate normally
+**Transition state.** While `sdd/init-triage.md` contains any `open` items, the project is in SDD transition. `sdd/config.yml` carries `transition: true`. During transition, the PR-boundary review pipeline is entirely suspended: spec-reviewer, doc-updater, and code-reviewer all exit no-op on every push or PR event. `/sdd mode unleashed` is rejected (judgment is required for triage; cannot run blind).
 
 When the queue drains to zero (every item is `resolved` or `lost`), `transition: true` clears automatically. Full SDD discipline applies on the next push and autonomous agentic development is unlocked. `sdd/init-triage.md` is preserved as the audit record (`lost` items remain visible as the documented gaps in the spec's heritage).
 
@@ -437,7 +434,7 @@ Triggered when `/sdd init` is invoked on a project where `sdd/` already exists a
      planning. "go" / "execute" / "ship it" / "build now" authorize
      starting the plan, never skipping it.
      ```
-   - Enter Plan Mode (same gate as greenfield `/sdd init` step 17).
+   - Enter Plan Mode (same gate as greenfield `/sdd init` step 10).
 
 To re-open a previously resolved or lost item, the user edits `sdd/init-triage.md` directly: change `**Status:**` back to `open`. The next `/sdd init` Resume Mode run surfaces it again. Note: re-opening does NOT automatically un-fold the prior Resolution from the Target REQ — the user reverts that edit manually (the REQ history is in `git log sdd/{domain}.md`).
 

@@ -86,7 +86,9 @@ The interaction with `transition: true` is the same as `enforce_tdd: false` (see
 
 ## Auto-demote suppression during SDD transition
 
-When `transition: true` in `sdd/config.yml` (see `spec-enforce` spine SDD transition section), the auto-demote rule above is SUPPRESSED — identical to `enforce_tdd: false` semantics. CQ-1 still runs but writes findings to `sdd/.coverage-report.md` rather than mutating Status. Imported REQs default `Implemented` when source code implements the AC; the imported spec describes shipped behaviour, not aspirational gaps. (Genuinely unmet behaviour goes to `sdd/init-triage.md`, not to a Partial Status that's actually false.)
+When `transition: true` in `sdd/config.yml`, spec-reviewer exits no-op entirely (Phase 0b.5 in the spec-reviewer agent definition); this skill is therefore never invoked on PR-boundary triggers during transition. The suppression rule documented here describes the correct behaviour for the rare path that DOES reach this skill while transition is active — e.g. a manual `/sdd clean` invocation against the transition branch.
+
+In that path, the auto-demote rule is SUPPRESSED — identical to `enforce_tdd: false` semantics. Findings write to `sdd/.coverage-report.md` rather than mutating Status. Imported REQs default `Implemented` when source code implements the AC; the imported spec describes shipped behaviour, not aspirational gaps. (Genuinely unmet behaviour goes to `sdd/init-triage.md`, not to a Partial Status that's actually false.)
 
 ## Severity application
 
