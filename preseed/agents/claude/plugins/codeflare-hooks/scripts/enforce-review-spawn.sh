@@ -422,8 +422,18 @@ fi
 
 spawned_after_push() {
   local agent="$1"
+  # Anchor on `"type":"tool_use"` AND `"name":"Agent"` on the same line so
+  # the substring match only fires on actual Agent tool_use envelopes, not
+  # on prose / tool_result text / ctx_execute output that happens to quote
+  # the literal `"subagent_type":"<name>"` bytes (e.g. a diagnostic script
+  # printing hook JSON to the transcript). The JSONL transcript serialises
+  # each tool_use envelope on a single line, so this triple-condition match
+  # is reliable.
   awk -v p="$PUSH_LINE" -v a="$agent" '
-    NR > p && index($0, "\"subagent_type\":\"" a "\"") { found = 1; exit }
+    NR > p \
+      && index($0, "\"type\":\"tool_use\"") \
+      && index($0, "\"name\":\"Agent\"") \
+      && index($0, "\"subagent_type\":\"" a "\"") { found = 1; exit }
     END { exit !found }
   ' "$TRANSCRIPT"
 }
@@ -673,8 +683,14 @@ requires_lane "spec-reviewer" && SPEC_REQUIRED=1
 if [ "$DOC_REQUIRED" = "1" ] && [ "$SPEC_REQUIRED" = "1" ]; then
   # Sequential gating: wait for spec-reviewer's tool-use to mark
   # completed</status>, then require doc-updater to follow.
+  # Anchor each subagent_type match on `"type":"tool_use"` AND
+  # `"name":"Agent"` so prose / tool_result text quoting the bytes
+  # cannot false-positive (see spawned_after_push comment above).
   SPEC_SPAWN_LINE=$(awk -v p="$PUSH_LINE" '
-    NR > p && /"subagent_type":"spec-reviewer"/ { print NR }
+    NR > p \
+      && index($0, "\"type\":\"tool_use\"") \
+      && index($0, "\"name\":\"Agent\"") \
+      && index($0, "\"subagent_type\":\"spec-reviewer\"") { print NR }
   ' "$TRANSCRIPT" | tail -1)
 
   if [ -n "$SPEC_SPAWN_LINE" ]; then
@@ -687,7 +703,13 @@ if [ "$DOC_REQUIRED" = "1" ] && [ "$SPEC_REQUIRED" = "1" ]; then
 
       if [ -n "$SPEC_DONE_LINE" ]; then
         SINCE_SPEC_DONE=$(echo "$SINCE_SPEC" | tail -n +"$SPEC_DONE_LINE")
-        if ! echo "$SINCE_SPEC_DONE" | grep -q '"subagent_type"[[:space:]]*:[[:space:]]*"doc-updater"'; then
+        # Same precision anchor for the doc-updater follow-up scan.
+        if ! echo "$SINCE_SPEC_DONE" | awk '
+          index($0, "\"type\":\"tool_use\"") \
+            && index($0, "\"name\":\"Agent\"") \
+            && index($0, "\"subagent_type\":\"doc-updater\"") { found=1; exit }
+          END { exit !found }
+        '; then
           REASON="spec-reviewer done; doc-updater missing. Spawn doc-updater via Agent tool (sequential -- shared filesystem). Lanes required for this push: $REQUIRED_LANES. USER bypass: 'skip review' or 'touch /tmp/review-bypass'."
           emit_block "$REASON"
         fi
@@ -712,7 +734,10 @@ elif [ "$SPEC_REQUIRED" = "1" ]; then
   # also pulls doc-updater). Ack once spec-reviewer's tool-use is
   # marked completed.
   SPEC_SPAWN_LINE=$(awk -v p="$PUSH_LINE" '
-    NR > p && /"subagent_type":"spec-reviewer"/ { print NR }
+    NR > p \
+      && index($0, "\"type\":\"tool_use\"") \
+      && index($0, "\"name\":\"Agent\"") \
+      && index($0, "\"subagent_type\":\"spec-reviewer\"") { print NR }
   ' "$TRANSCRIPT" | tail -1)
   if [ -n "$SPEC_SPAWN_LINE" ]; then
     SPEC_LINE_CONTENT=$(awk -v L="$SPEC_SPAWN_LINE" 'NR==L { print; exit }' "$TRANSCRIPT")
@@ -728,7 +753,10 @@ else
   # Only code-reviewer required (no spec, no docs). Ack once
   # code-reviewer's tool-use is marked completed.
   CODE_SPAWN_LINE=$(awk -v p="$PUSH_LINE" '
-    NR > p && /"subagent_type":"code-reviewer"/ { print NR }
+    NR > p \
+      && index($0, "\"type\":\"tool_use\"") \
+      && index($0, "\"name\":\"Agent\"") \
+      && index($0, "\"subagent_type\":\"code-reviewer\"") { print NR }
   ' "$TRANSCRIPT" | tail -1)
   if [ -n "$CODE_SPAWN_LINE" ]; then
     CODE_LINE_CONTENT=$(awk -v L="$CODE_SPAWN_LINE" 'NR==L { print; exit }' "$TRANSCRIPT")

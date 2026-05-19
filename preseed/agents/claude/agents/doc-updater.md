@@ -79,6 +79,8 @@ test -d sdd && test -f sdd/README.md
 
 **If false, exit silently with code 0.** Non-SDD projects do not get automatic documentation maintenance; the user has not opted into the workflow.
 
+**Exception: when invoked from `/review` Phase 2.** The `/review` orchestrator passes an inline override (see `preseed/agents/claude/commands/review.md` doc-updater bullet) instructing this agent to emit a one-line "no-op (vibe-coding mode)" header to its output file instead of exiting empty. Honor that override: write the header line and return. This preserves REQ-AGENT-015 AC6's "ran and found nothing" vs "did not run" distinction so the cross-reference phase can detect-and-skip.
+
 (Manual invocation on a non-SDD project is still allowed; if the user calls this agent directly via the Task tool without `sdd/`, proceed with `documentation/` maintenance using `documentation/README.md` as the routing table. Never create `documentation/` or its README from scratch in that case; report the missing scaffolding and stop.)
 
 ### Step 0a.5: Detect SDD transition state

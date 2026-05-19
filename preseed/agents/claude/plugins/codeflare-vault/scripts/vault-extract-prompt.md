@@ -217,7 +217,7 @@ write it back. The persistent graph is then what `graphify global add`
 consumes in step 5.
 
 ```bash
-flock /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python -c "
+flock -w 5 /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python -c "
 import json
 import networkx as nx
 from pathlib import Path
@@ -289,7 +289,7 @@ to `graphify global add`, NOT the per-extraction chunk graph. The
 vault state on every run instead of clobbering it.
 
 ```bash
-flock /tmp/graphify-global.lock /usr/local/bin/graphify global add \
+flock -w 5 /tmp/graphify-global.lock /usr/local/bin/graphify global add \
     /home/user/Vault/graphify-out/vault-graph.json --as user_vault
 ```
 

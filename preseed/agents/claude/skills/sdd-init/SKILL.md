@@ -29,7 +29,7 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - Glossary terms (every product noun, vendor name, protocol mentioned in any REQ)
 3. **Present the full draft as a single review surface**: tree of domain index + per-domain summary + ADR list + glossary. Ask one question: "Accept as-is, edit a section (name it), or restart?" On `edit <section>`: re-draft only that section, re-present, ask again. On `restart`: discard, return to step 1. Loop until accepted. Phase 5 enrichment runs once, only after final acceptance.
 4. **Run Phase 5 enrichment in memory** (see Enrichment pass below).
-5. **Write all files** from `references/templates/` in the `spec-driven-development` skill:
+5. **Write all files** from `references/templates/` in the `spec-driven-development` skill, substituting placeholders (`{PROJECT_NAME}`, `{ACTOR_1}`, `{INSTALL_COMMAND}`, etc.) inline from the vision + inferred stack as each template is written:
    - `root-readme.md` → `README.md`
    - `sdd-readme.md` → `sdd/README.md`
    - `sdd-glossary.md` → `sdd/glossary.md`
@@ -42,9 +42,8 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - One `sdd/{domain}.md` per drafted domain
    - Empty `sdd/.review-needed.md`, `.coverage-report.md`, `.last-clean-run.md` with `_Awaiting first run._` placeholder
    - Empty `tests/` directory
-6. **Substitute placeholders** (`{PROJECT_NAME}`, `{ACTOR_1}`, `{INSTALL_COMMAND}`, etc.) from the vision + inferred stack.
-7. **Commit the scaffold** as one commit with subject `[sdd-init] initial spec scaffold`. The `[sdd-init]` prefix is excluded from the spec-reviewer round counter.
-8. **Report next steps** to the user.
+6. **Commit the scaffold** as one commit with subject `[sdd-init] initial spec scaffold`. The `[sdd-init]` prefix is excluded from the spec-reviewer round counter.
+7. **Report next steps** to the user.
 
 No internet needed — all templates live in the `spec-driven-development` skill's `references/templates/`.
 
@@ -59,7 +58,7 @@ The migration path from legacy manual coding to autonomous agentic coding. Two s
 
 **Degradation when GitHub sources are unreachable.** Detect failure conditions up front (non-GitHub remote — GitLab / Bitbucket / Forgejo / Gerrit; `gh auth status` fails; rate-limited; private repo with insufficient token scope; air-gapped). On failure, skip the GitHub sources and proceed with working-tree + git-log evidence only. Print a one-line notice (`Note: discovery used working tree + git log only ({reason} - GitHub sources unavailable).`) and append the same to the `sdd/changes.md` import entry.
 
-While `sdd/init-triage.md` contains `**Status:** open` items, the project is in **SDD transition**. `sdd/config.yml` carries `transition: true`. During transition, the PR-boundary review pipeline is **entirely suspended**: code-reviewer, spec-reviewer, doc-updater do not fire. `/sdd mode unleashed` is rejected.
+While `sdd/init-triage.md` contains `**Status:** open` items, the project is in **SDD transition**. Import Mode writes `sdd/config.yml` with `transition: true` and `enforce_tdd: false` at scaffold time (the two Import-Mode-specific config defaults; greenfield uses `transition: false` and `enforce_tdd: true`). During transition, the PR-boundary review pipeline is **entirely suspended**: code-reviewer, spec-reviewer, doc-updater do not fire. Mode-selector behavior during transition (specifically the `/sdd mode unleashed` rejection) is owned by the `spec-driven-development` skill's `/sdd mode` section — single source of truth, see there for the full rule.
 
 When the queue drains to zero, `transition: true` clears automatically. Full SDD discipline applies on the next push. `enforce_tdd` is NOT auto-flipped — user sets it manually when ready (typically after adding REQ-ID test names). `sdd/init-triage.md` is preserved as the audit record.
 

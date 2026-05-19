@@ -50,8 +50,9 @@ spawn. Then write the counter as a safety reset.
 
 ```bash
 rm -f {VARS_FILE}
-printf '{CURRENT_COUNT}\n{TOTAL_LINES}\n' > {COUNTER_FILE}
 ```
+
+The hook (`memory-capture.sh`) already advanced the counter at `{COUNTER_FILE}` before emitting this directive, so do not rewrite it here — a stale rewrite under concurrent 15-message batches would move the counter backwards and cause the next hook to over-count.
 
 ### 2. Prefilter and chunk the transcript
 
@@ -255,7 +256,7 @@ Schema (must match exactly):
 ### 6. Build the vault graph.json from the chunk
 
 ```bash
-flock /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python -c "
+flock -w 5 /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python -c "
 import json
 from pathlib import Path
 from graphify.build import build_from_json
@@ -276,7 +277,7 @@ print(f'vault graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges')
 ### 7. Merge into the unified global graph
 
 ```bash
-flock /tmp/graphify-global.lock /usr/local/bin/graphify global add \
+flock -w 5 /tmp/graphify-global.lock /usr/local/bin/graphify global add \
     /home/user/Vault/graphify-out/graph.json --as user_vault
 ```
 
@@ -286,9 +287,13 @@ flock /tmp/graphify-global.lock /usr/local/bin/graphify global add \
 `[[GraphifyGlobalAdd]]` mentioned here unifies with the same-labeled
 node from any per-repo graph.
 
-If any of steps 5-7 fail (transient I/O, malformed JSON), log it and
-continue -- the file is on disk and will be picked up by the next
-vault-monitor tick. Do not delete the markdown file.
+If any of steps 5-7 fail (transient I/O, malformed JSON, flock timeout),
+log it and continue -- the markdown file stays on disk for the user to
+read. The vault-monitor daemon explicitly excludes `Raw/Sessions/` from
+its `find` (per `entrypoint.sh start_vault_monitor_daemon`), so a failed
+graph merge is NOT retried by the vault-extract pipeline. Re-running the
+capture by triggering another 15-message batch is the recovery path. Do
+not delete the markdown file.
 
 ### 8. Cleanup
 

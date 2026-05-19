@@ -1,3 +1,0 @@
-# SDD — added by /sdd init
-# (No SDD files are gitignored. Everything in sdd/ is part of the project history.)
-# This file exists as documentation; /sdd init does not add anything to .gitignore.

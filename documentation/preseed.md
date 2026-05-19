@@ -103,7 +103,7 @@ reference files)**: `cloudflare-stack`, `github-cloudflare-ship`
 `backend-patterns`, `content-hash-cache-pattern`,
 `database-migrations`, `deployment-patterns`, `frontend-patterns`,
 `iterative-retrieval`, `search-first`, `spec-driven-development`
-(+ 13 reference templates for `/sdd init` scaffolding; covers the
+(+ 12 reference templates for `/sdd init` scaffolding; covers the
 three Import/Resume modes for legacy-codebase transition documented
 below), `sdd-init`, `sdd-clean` (sub-command skills the `/sdd`
 dispatch table routes to for `init` and `clean`), `vault-operations`
@@ -190,7 +190,7 @@ All preseed content is deployed via the manifest pipeline:
   default+advanced skills), consult-llm, api-design,
   backend-patterns, content-hash-cache-pattern, database-migrations,
   deployment-patterns, frontend-patterns, iterative-retrieval,
-  search-first, spec-driven-development (+13 reference templates
+  search-first, spec-driven-development (+12 reference templates
   for /sdd init scaffolding), sdd-init, sdd-clean (sub-command
   skills), vault-operations, vault-note-capture, spec-enforce,
   spec-enforce-ac, spec-enforce-truth, doc-enforce, doc-enforce-lanes,

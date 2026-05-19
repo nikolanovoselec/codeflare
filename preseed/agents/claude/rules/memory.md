@@ -18,7 +18,7 @@ For "take a note" / "note this down" / "save this" / similar phrases, [vault-not
 
 ## Hook-triggered capture (every 15 user messages)
 
-`memory-capture.sh` (PostToolUse hook) fires every 15 user messages and emits a directive pointing at a `.vars` file.
+`memory-capture.sh` (UserPromptSubmit hook) fires every 15 user messages and emits a directive pointing at a `.vars` file.
 
 - If the `.vars` file exists -> spawn a background `subagent_type: memory-capture` (sonnet) with the hook's instructions. The subagent's first step deletes the `.vars` file (dedup gate).
 - If it does not exist -> do nothing.
@@ -27,4 +27,4 @@ Sonnet (not haiku) because capture must cite REQ IDs / ADRs / commit SHAs verbat
 
 ## Vault-edit hook (vault-extract subagent)
 
-`vault-monitor-hook.sh` (PostToolUse hook) fires on direct user vault edits. Same `.vars` directive protocol, but spawns `subagent_type: vault-extract` (sonnet) which reads the recent change, chunks it, and merges into `/home/user/Vault/graphify-out/vault-graph.json` then `graphify global add ... --as user_vault` updates the unified global graph.
+`vault-monitor-hook.sh` (UserPromptSubmit hook, paired with a 60s daemon that polls `~/Vault/` for changes and writes the `.vars` directive) fires on direct user vault edits. Same `.vars` directive protocol, but spawns `subagent_type: vault-extract` (sonnet) which reads the recent change, chunks it, and merges into `/home/user/Vault/graphify-out/vault-graph.json` then `graphify global add ... --as user_vault` updates the unified global graph.
