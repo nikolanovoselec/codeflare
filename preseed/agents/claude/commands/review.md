@@ -87,18 +87,9 @@ SIBLINGS
   /sdd clean --diff      Same, diff-scoped
 ```
 
-## Shell execution (applies to every phase)
+## Context Preservation (load-bearing)
 
-Shell snippets in this command run via one of two transparent paths:
-
-- **Context-mode session** — route through `mcp__context-mode__ctx_execute(language: "shell", code: "<body>")` (or `ctx_batch_execute` for multi-step batches). `enforce-ctx-mode.sh` denies `gh`, `while`, `head`, `tail`, `awk`, `sed`, `cat`, `echo` in the native Bash tool.
-- **Non-context-mode session** — same body via the Bash tool directly.
-
-Both paths produce identical output; the wrapper is transparent.
-
-## Context Preservation
-
-**CRITICAL:** The main session agent is primarily an orchestrator. All source-code analysis and all reading of files `01-12` and `documentation/decisions/README.md` MUST be delegated to Task agents.
+The main session agent is primarily an orchestrator. All source-code analysis and all reading of files `01-12` and `documentation/decisions/README.md` MUST be delegated to Task agents.
 
 The main agent may read only:
 - After Phase 5: the first ~20 lines of `09-active-findings.md`
@@ -107,21 +98,11 @@ The main agent may read only:
 - Phase 8: the `## Real Findings` and `## Tech-Debt Surfaced` sections of `10-real-findings.md` (or `11-llm-verified.md` if Phase 7 ran) for triage
 - Phase 11: the `## Fix` section of `12-triage-results.md` to enter plan mode
 
-The main agent must never read source files, `01-08`, or `documentation/decisions/README.md` directly.
+Never read source files, `01-08`, or `documentation/decisions/README.md` directly.
 
-## Arguments
+## Shell execution
 
-$ARGUMENTS supports the following flags. The scope flag (`--all` or `--diff`) is mandatory — its absence triggers the help screen above.
-
-- `--all` — review the entire codebase. Phase 2 agents run with `scope=all` (the value propagates into doc-enforce / tdd-enforce skill invocations).
-- `--diff` — review only the diff against the PR base (resolved via `gh pr view --json baseRefName`; fallback `origin/main`). Phase 2 agents run with `scope=diff`. The resolved base ref is captured in `$REVIEW_DIR/.scope.txt` so Task agents can read it.
-- `--deep` — adds Phase 3: behavioral verification of SDD REQs. Spawns ceil(N/15) parallel deep-reviewer agents. Independent of `--verify-high` and combinable with it. Expensive — opt-in.
-- `--verify-high` — adds Phase 7: send all surviving HIGH/CRITICAL findings to external LLMs (GPT + Gemini) for verification. 2 LLM calls total.
-- Any remaining text — free-text scope hint passed to every Phase 2 agent (e.g., "focus on src/routes/"). Combines with --all or --diff to narrow within the chosen mode.
-
-## A note on cycle counts
-
-`/review` is calibrated so that, on a stable codebase, the count of active CRITICAL/HIGH/MEDIUM findings drops materially each cycle and is typically near-zero by the third successive run. The Phase 5 header surfaces this metric for visibility - it is an expectation, not a gate. Cycle 3 with non-zero active CRITICAL/HIGH/MEDIUM still completes normally; the number is informational so the user can decide whether the Reality Filter needs re-tuning or whether new code is genuinely introducing real bugs faster than they get fixed.
+In context-mode sessions, route shell snippets through `mcp__context-mode__ctx_execute` (or `ctx_batch_execute` for multi-step batches). Otherwise use the Bash tool directly. Both produce identical output.
 
 ## Phase 1: Parse Arguments + Create Run Directory (main agent)
 
