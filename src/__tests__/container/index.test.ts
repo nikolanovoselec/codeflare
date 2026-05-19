@@ -505,6 +505,32 @@ describe('container DO class', () => {
       expect(instance.envVars?.USER_TIMEZONE).toBe('America/New_York');
     });
 
+    // REQ-MEM-001 AC3: malformed IANA shapes (path traversal, junk) must
+    // not reach storage or the env var — entrypoint.sh uses USER_TIMEZONE
+    // to build the /etc/localtime symlink target, so a value like
+    // '../../etc/shadow' would otherwise be an unbounded-path injection vector.
+    it('setBucketName rejects malformed userTimezone shape (first-time path)', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return null;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: JSON.stringify({ bucketName: 'new-bucket', userTimezone: '../../etc/shadow' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      const putCalls = mockStorage.put.mock.calls.map((c: unknown[]) => c[0] as string);
+      expect(putCalls).not.toContain('userTimezone');
+      expect(instance.envVars?.USER_TIMEZONE).toBeUndefined();
+    });
+
     it('proxies unknown routes via super.fetch when container is running', async () => {
       mockContainerRuntime.running = true;
       mockStorage.get.mockImplementation(async (key: string) => {

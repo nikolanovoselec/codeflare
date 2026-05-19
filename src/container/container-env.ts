@@ -132,6 +132,21 @@ export function validateBucketNameInput(input: {
   return null;
 }
 
+/**
+ * Normalize an IANA timezone identifier. Returns the trimmed value if it
+ * matches the IANA shape (starts with letter, contains letters/digits/`+_-/`,
+ * <= 64 chars), or undefined for anything else. The DO is the trust boundary
+ * for this field — the Worker forwards browser-detected strings via
+ * SetBucketNameBodySchema which is `z.string().optional()` without shape
+ * checks, so a malformed value (path-traversal, junk) would otherwise reach
+ * storage + the env var + entrypoint.sh symlink path.
+ */
+function normalizeIanaTz(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const trimmed = v.trim();
+  return /^[A-Za-z][A-Za-z0-9+_/-]{0,63}$/.test(trimmed) ? trimmed : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Env-var construction
 // ---------------------------------------------------------------------------
@@ -247,10 +262,14 @@ export async function applyBucketName(
 
   // REQ-MEM-001 AC3: persist userTimezone so the capture pipeline sees
   // the user's IANA zone on subsequent DO wakes too (the env var flows
-  // through buildEnvVars to the container's entrypoint).
-  if (r2Creds?.userTimezone) {
-    state._userTimezone = r2Creds.userTimezone;
-    await storage.put('userTimezone', r2Creds.userTimezone);
+  // through buildEnvVars to the container's entrypoint). Persist BEFORE
+  // mutating state so a storage failure does not split-brain (in-memory
+  // env reflects new tz while next wake hydrates the stale value).
+  // Garbage / path-traversal shapes are dropped at this boundary.
+  const tz = normalizeIanaTz(r2Creds?.userTimezone);
+  if (tz) {
+    await storage.put('userTimezone', tz);
+    state._userTimezone = tz;
   }
 
   // Use Worker-provided R2 credentials (most reliable — Worker definitely has secrets)
@@ -321,11 +340,20 @@ export async function applyPrefsOnRestart(
   // user travels or fixes a wrong value via the Dashboard auto-sync.
   // Update state + storage when the new value differs from the cached
   // one so the next container start emits the correct USER_TIMEZONE.
-  if (typeof input.userTimezone === 'string' && input.userTimezone && input.userTimezone !== state._userTimezone) {
-    state._userTimezone = input.userTimezone;
-    await storage.put('userTimezone', input.userTimezone);
+  //
+  // Sticky-once-set semantics: undefined / empty / malformed shapes are
+  // no-op (cannot clear an existing value). The Worker filters empty
+  // strings upstream via the truthy spread in buildSetBucketNameBody, so
+  // in practice the field is either omitted entirely or carries a real
+  // IANA identifier. Persist BEFORE state mutation to avoid split-brain
+  // on storage failure (in-memory env would emit the new tz while the
+  // next wake would hydrate the stale stored value).
+  const tzRestart = normalizeIanaTz(input.userTimezone);
+  if (tzRestart && tzRestart !== state._userTimezone) {
+    await storage.put('userTimezone', tzRestart);
+    state._userTimezone = tzRestart;
     changed = true;
-    logger.info('Updated userTimezone on restart', { userTimezone: input.userTimezone });
+    logger.info('Updated userTimezone on restart', { userTimezone: tzRestart });
   }
 
   // Always update LLM keys, deploy keys, and session mode on restart
