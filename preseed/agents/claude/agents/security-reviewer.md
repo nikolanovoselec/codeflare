@@ -37,6 +37,15 @@ When `graphify-out/graph.json` exists, use graphify to map the attack surface be
 
 Fall back to Grep only when the graph is absent or when you need exact source text to evaluate a flagged region.
 
+## Cross-session signals (prior security decisions)
+
+Before flagging a control as "missing", query the unified graph:
+
+- `mcp__graphify__query_graph("security decision")` / `query_graph("threat model")` — surface ADR-tagged decisions about deliberately-accepted risks (e.g. "we accept that internal admin tooling has no rate limit because it's behind Cloudflare Access"). Finding that contradicts such a decision should be DROPPED with the ADR cited, not surfaced as a finding the user already decided about.
+- `mcp__graphify__query_graph("user preferences security")` — surface user-stated thresholds (e.g. "no rate limit on read endpoints", "PII may flow to logs in dev only").
+
+CRITICAL findings (data loss, credential exposure, auth bypass) override user preferences — surface them regardless. The cross-session check only applies to MEDIUM/HIGH judgment calls.
+
 ## Core Responsibilities
 
 1. **Vulnerability Detection** — Identify OWASP Top 10 and common security issues
@@ -95,15 +104,6 @@ Flag these patterns immediately (web-app and Node-backend specific; on other sur
 3. **Fail Securely** — Errors should not expose data
 4. **Don't Trust Input** — Validate and sanitize everything
 5. **Update Regularly** — Keep dependencies current
-
-## Cross-session signals (prior security decisions)
-
-Before flagging a control as "missing", query the unified graph:
-
-- `mcp__graphify__query_graph("security decision")` / `query_graph("threat model")` — surface ADR-tagged decisions about deliberately-accepted risks (e.g. "we accept that internal admin tooling has no rate limit because it's behind Cloudflare Access"). Finding that contradicts such a decision should be DROPPED with the ADR cited, not surfaced as a finding the user already decided about.
-- `mcp__graphify__query_graph("user preferences security")` — surface user-stated thresholds (e.g. "no rate limit on read endpoints", "PII may flow to logs in dev only").
-
-CRITICAL findings (data loss, credential exposure, auth bypass) override user preferences — surface them regardless. The cross-session check only applies to MEDIUM/HIGH judgment calls.
 
 ## Common False Positives
 

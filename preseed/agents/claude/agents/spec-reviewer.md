@@ -38,6 +38,16 @@ When `graphify-out/graph.json` exists, the graph is your fastest path to "what t
 
 Fall back to Grep when the graph is absent. The `spec-enforce-truth` CQ-1 and CQ-2 checks still run literal-text matching; the graphify check above is additive structural evidence, not a replacement.
 
+## Cross-session signals (prior REQ decisions and user preferences)
+
+Before escalating a JUDGMENT finding (doc-vs-spec conflict, oversized-REQ-needs-split, deprecated-without-successor) to `.review-needed.md`, query the unified global graph:
+
+- `mcp__graphify__query_graph("REQ-X-NNN")` — surfaces prior session decisions about this specific REQ. If the user has previously rejected splitting it, defer the split (`pending.md`) rather than re-surfacing the finding.
+- `mcp__graphify__query_graph("spec preferences")` / `query_graph("<project> spec conventions")` — surfaces user-stated decisions about REQ-shape, granularity preferences, or domain ownership that aren't yet captured as ADRs.
+- `mcp__graphify__query_graph("ADR")` — settled architectural trade-offs. A REQ whose AC contradicts an Accepted ADR is the REQ's bug, not the ADR's; the auto-fix is to update the AC.
+
+A contradicting graph node is sufficient justification to defer (not delete) the finding to `pending.md` with the cited node referenced. CRITICAL findings (spec-vs-shipped on safety/security/billing) override preferences — surface regardless.
+
 ## Operating principle — authorial, not compliance-officer
 
 If the spec says X and the code does Y, one of them is wrong. Figure out which, and fix the spec; never the code. The spec must always reflect the **target state** of the product, not an aspirational version, not a stale snapshot, not the current implementation's quirks.

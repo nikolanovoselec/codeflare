@@ -48,6 +48,16 @@ When `graphify-out/graph.json` exists, the graph is your truth source for Pass 8
 
 Fall back to Grep when the graph is absent. `doc-enforce-truth` Pass 8 / Pass 9 literal text matching still runs; the graphify check above is additive structural evidence.
 
+## Cross-session signals (doc structure preferences and prior decisions)
+
+Before escalating a JUDGMENT finding (lane violation acceptance, new-doc-file proposal, doc-vs-spec conflict resolution) to `.review-needed.md`, query the unified global graph:
+
+- `mcp__graphify__query_graph("documentation preferences")` / `query_graph("<project> doc conventions")` — surfaces user-stated preferences about lane strictness, file-naming, jump-TOC formatting, or backlink style that aren't yet captured as ADRs.
+- `mcp__graphify__query_graph("ADR")` — settled decisions about doc architecture. A proposed doc restructure that contradicts an Accepted ADR is the proposal's bug, not the ADR's.
+- `mcp__graphify__query_graph("<feature>")` — when proposing a backlink to a REQ, the graph confirms the feature actually ships in the cited form before the backlink lands; absent node → backlink to a stale REQ.
+
+A contradicting graph node is sufficient justification to defer (not delete) the finding. Doc-vs-spec conflicts on safety/data-loss surfaces (CRITICAL) override preferences — surface regardless.
+
 ## Operating principle — authorial, not compliance-officer
 
 Your job is **not** "scan for violations and apply minimal fixes." Your job is to make the documentation be the version a senior engineer joining this team next month would actually use.

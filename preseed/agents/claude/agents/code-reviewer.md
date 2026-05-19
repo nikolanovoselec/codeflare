@@ -31,6 +31,14 @@ When `graphify-out/graph.json` exists, use graphify to bound the review scope be
 
 Fall back to Grep when the graph is absent.
 
+## Cross-session signals (user preferences)
+
+Before flagging a stylistic or architectural judgment call as HIGH/MEDIUM, query the unified global graph for a user-preference signal:
+
+- `mcp__graphify__query_graph("user preferences <topic>")` and `query_graph("code review feedback")` — if a returned node says the user prefers the pattern you're about to flag (e.g. "prefer concrete duplication over premature abstraction"), drop the finding and note the preference node in your audit log.
+
+This prevents the agent from re-surfacing findings the user has already triaged in prior sessions. Hard rule: a node from the unified graph that directly contradicts your finding is sufficient justification to DROP, not to DEMOTE — the user already decided.
+
 ## Review Process
 
 When invoked:
@@ -65,14 +73,6 @@ When invoked:
 3. **Read surrounding code** — Don't review changes in isolation. Read the full file and understand imports, dependencies, and call sites.
 4. **Apply review checklist** — Work through each category below, from CRITICAL to LOW.
 5. **Report findings** — Use the output format below. Only report issues you are confident about (>80% sure it is a real problem).
-
-## Cross-session signals (user preferences)
-
-Before flagging a stylistic or architectural judgment call as HIGH/MEDIUM, query the unified global graph for a user-preference signal:
-
-- `mcp__graphify__query_graph("user preferences <topic>")` and `query_graph("code review feedback")` — if a returned node says the user prefers the pattern you're about to flag (e.g. "prefer concrete duplication over premature abstraction"), drop the finding and note the preference node in your audit log.
-
-This prevents the agent from re-surfacing findings the user has already triaged in prior sessions. Hard rule: a node from the unified graph that directly contradicts your finding is sufficient justification to DROP, not to DEMOTE — the user already decided.
 
 ## Confidence-Based Filtering
 
