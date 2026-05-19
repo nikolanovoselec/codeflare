@@ -506,7 +506,7 @@ describe('container DO class', () => {
     });
 
     // REQ-MEM-001 AC3: malformed IANA shapes (path traversal, junk) must
-    // not reach storage or the env var — entrypoint.sh uses USER_TIMEZONE
+    // not reach storage or the env var. entrypoint.sh uses USER_TIMEZONE
     // to build the /etc/localtime symlink target, so a value like
     // '../../etc/shadow' would otherwise be an unbounded-path injection vector.
     it('setBucketName rejects malformed userTimezone shape (first-time path)', async () => {
@@ -523,12 +523,44 @@ describe('container DO class', () => {
         headers: { 'Content-Type': 'application/json' },
       });
 
+      // 200 is intentional: malformed values are silently dropped per the
+      // sticky-once-set semantics in applyBucketName, not surfaced as a 400.
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
       const putCalls = mockStorage.put.mock.calls.map((c: unknown[]) => c[0] as string);
       expect(putCalls).not.toContain('userTimezone');
       expect(instance.envVars?.USER_TIMEZONE).toBeUndefined();
+    });
+
+    // Mirror of the first-time-path test for the restart branch in
+    // applyPrefsOnRestart. A revert of normalizeIanaTz on the restart
+    // branch (container-env.ts applyPrefsOnRestart) would otherwise slip
+    // past CI because the only HTTP malformed-shape assertion lives on
+    // the first-time path.
+    it('setBucketName rejects malformed userTimezone shape (restart path, bucket already set)', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'existing-bucket';
+        if (key === 'userTimezone') return 'Europe/Zurich';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: JSON.stringify({ bucketName: 'existing-bucket', userTimezone: '../../etc/shadow' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(409);
+
+      const putCalls = mockStorage.put.mock.calls
+        .filter((c: unknown[]) => c[0] === 'userTimezone')
+        .map((c: unknown[]) => c[1] as string);
+      expect(putCalls).not.toContain('../../etc/shadow');
+      expect(instance.envVars?.USER_TIMEZONE).toBe('Europe/Zurich');
     });
 
     it('proxies unknown routes via super.fetch when container is running', async () => {

@@ -136,7 +136,7 @@ export function validateBucketNameInput(input: {
  * Normalize an IANA timezone identifier. Returns the trimmed value if it
  * matches the IANA shape (starts with letter, contains letters/digits/`+_-/`,
  * <= 64 chars), or undefined for anything else. The DO is the trust boundary
- * for this field — the Worker forwards browser-detected strings via
+ * for this field - the Worker forwards browser-detected strings via
  * SetBucketNameBodySchema which is `z.string().optional()` without shape
  * checks, so a malformed value (path-traversal, junk) would otherwise reach
  * storage + the env var + entrypoint.sh symlink path.
