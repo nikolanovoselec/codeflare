@@ -76,7 +76,7 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 |   |-- Raw/
 |   |   |-- Sessions/      <- AGENT-OWNED: one .md per 15-prompt capture
 |   |   |-- Pasted/        <- USER-OWNED: image/PDF drops from SilverBullet
-|   |   `-- Graphs/        <- USER-EDITABLE: Vault Graph.md + Global Graph.md (seeded once, never overwritten)
+|   |   `-- Graphs/        <- USER-EDITABLE: Vault Graph.md (seeded once, never overwritten); links to vault-graph.html re-rendered on each vault-extract pass
 |   |-- Notes/             <- USER-OWNED: curated prose, concept notes
 |   |-- Inbox/             <- USER-OWNED: SB "Quick Note" target
 |   |-- Journal/           <- USER-OWNED: SB "Journal: Today" target
@@ -110,6 +110,8 @@ Linking convention enforced in the prompt: concepts go in `[[wikilinks]]` so gra
 
 ## User-edit Path (REQ-VAULT-003)
 
+Implements [REQ-MEM-009](../sdd/memory.md#req-mem-009) (monotonic vault graph accumulation across extractions).
+
 A second daemon, `start_vault_monitor_daemon` in entrypoint.sh, polls the vault every 60s. It uses a three-marker pattern to avoid the daemon-advances-mtime-before-extraction-reads-it race:
 
 | Marker | Touched by | Used by |
@@ -135,6 +137,7 @@ The vault-extract agent's contract (REQ-MEM-009):
 3. Acts as the LLM extractor for each changed file: reads the file, produces a chunk JSON (nodes / edges / hyperedges matching graphify's schema; `[[wikilinks]]` become concept nodes with `source_file: null` for cross-repo dedup).
 4. Loads the persistent vault graph at `/home/user/Vault/graphify-out/vault-graph.json` (starting from an empty graph if absent), merges the new chunk's nodes/edges using a hash-keyed union (existing IDs dedupe, new IDs append), and writes the updated cumulative graph back to `vault-graph.json`. This is what `graphify global add ... --as user_vault` consumes, so the global graph's `user_vault` tag always reflects cumulative vault content rather than only the most recent extraction. Prior to REQ-MEM-009, each pass replaced the entire `user_vault` entry with the chunk graph, causing vault knowledge to shrink on every extraction (observed: 17 nodes -> 2 nodes after two stub files were extracted).
 5. Run `flock -w 5 /tmp/graphify-global.lock graphify global add ... --as user_vault`.
+5b. Re-render the vault viz HTML: run `graphify cluster-only .` (cwd `/home/user/Vault`) against the per-run `graph.json` and copy `graph.html` into `Raw/Graphs/vault-graph.html` so the `Vault Graph.md` index page link resolves. Non-fatal: failure here does not set `EXTRACT_FAILED` because graph data is already persisted by steps 4-5; the only loss is a stale viz HTML and the next successful extraction re-renders.
 6. Touch `vault-extract.last` -- FINAL step only.
 
 ## Unified Global Graph (REQ-VAULT-004)
@@ -242,7 +245,8 @@ The vault plugin and supporting rule ship as preseed entries that land in every 
 |------|------|------------------------|
 | Always-mkdir (critical dirs) | `Raw/Sessions/`, `Raw/Pasted/`, `Raw/Graphs/`, `Notes/`, `graphify-out/`, `.silverbullet/_plug/` | `mkdir -p`; existing contents untouched. User-deleted directories are recreated empty so agent hooks and SilverBullet cannot land in a broken state. |
 | Always-overwrite (Codeflare-authoritative pages) | `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` | Copied from `/opt/silverbullet-preseed/`, gated so identical files are not rewritten. User edits are silently reverted on next boot; these files are Codeflare-owned because they encode dashboard contract, SB `#meta` config, theme, and user guide. |
-| Create-if-missing (user-editable index pages) | `Raw/Graphs/Vault Graph.md`, `Raw/Graphs/Global Graph.md` | Copied from `/opt/silverbullet-preseed/Raw/Graphs/` only when absent. Never overwritten on subsequent boots -- user edits and deletions are preserved. Seeded so the treeview shows a `Raw/Graphs/` folder on a fresh vault (treeview is page-driven; an empty directory is invisible). |
+| Create-if-missing (user-editable index page) | `Raw/Graphs/Vault Graph.md` | Copied from `/opt/silverbullet-preseed/Raw/Graphs/` only when absent. Never overwritten on subsequent boots -- user edits and deletions are preserved. Seeded so the treeview shows a `Raw/Graphs/` folder on a fresh vault (treeview is page-driven; an empty directory is invisible). |
+| One-time cleanup (legacy pages) | `Raw/Graphs/Global Graph.md`, `Raw/Graphs/global-graph.html` | Removed on every boot if present (idempotent `rm -f`). The unified global graph is a 10k+ node corpus that renders as an unusable force-directed hairball; structural queries via `mcp__graphify__*` are the real interface. Vaults restored from R2 snapshots predating the drop are reconciled to current state on the next boot. |
 | Recreate-if-missing (build-output stub) | `graphify-out/graph.json` | Seeded with the empty-graph JSON only when absent; the populated graph from a prior session is never overwritten. The graph is build output regenerated by `graphify extract` / `graphify global add`. |
 | Cleanup of dead config | `.silverbullet/config.yaml` | Removed on every boot. SilverBullet 2.x does not read this file; leaving it on disk only misleads future readers. |
 | Idempotent plug sync | `Library/Codeflare/*.plug.js` | Each file copied from `/opt/silverbullet-preseed/plugs/` only when content differs. User plugs in other `Library/` subdirectories are untouched. **Never** copy a partial `Library/Std/` onto disk -- SilverBullet's binary ships compiled `Library/Std/Plugs/*.plug.js` via `client_bundle/base_fs` overlay; a disk shadow with only source markdown breaks widget rendering. |
@@ -279,7 +283,7 @@ On every boot, `init_user_vault()` copies the plug files from `/opt/silverbullet
 
 ## First-session Expectations
 
-A brand-new session boots with a pre-populated vault: `Index.md`, `README.md`, `CONFIG.md`, and `STYLES.md` are always written from preseed on every boot. Critical subdirectories (`Raw/Sessions/`, `Raw/Pasted/`, `Raw/Graphs/`, `Notes/`, `graphify-out/`, `.silverbullet/_plug/`) are always `mkdir -p`'d. `Raw/Graphs/Vault Graph.md` and `Raw/Graphs/Global Graph.md` are seeded from preseed only when absent (never overwritten). `graphify-out/graph.json` is seeded as an empty stub only when absent. A returning session inherits R2-restored content for user-owned paths (`Notes/`, `Inbox/`, `Journal/`, `Raw/Pasted/`, `Raw/Sessions/`); the always-overwrite pages are refreshed from preseed regardless, so any preseed update propagates without per-user migration.
+A brand-new session boots with a pre-populated vault: `Index.md`, `README.md`, `CONFIG.md`, and `STYLES.md` are always written from preseed on every boot. Critical subdirectories (`Raw/Sessions/`, `Raw/Pasted/`, `Raw/Graphs/`, `Notes/`, `graphify-out/`, `.silverbullet/_plug/`) are always `mkdir -p`'d. `Raw/Graphs/Vault Graph.md` is seeded from preseed only when absent (never overwritten). Legacy `Global Graph.md` pages from earlier installs are removed on every boot (the unified global graph is too large for useful HTML rendering; use `mcp__graphify__*` instead). `graphify-out/graph.json` is seeded as an empty stub only when absent. A returning session inherits R2-restored content for user-owned paths (`Notes/`, `Inbox/`, `Journal/`, `Raw/Pasted/`, `Raw/Sessions/`); the always-overwrite pages are refreshed from preseed regardless, so any preseed update propagates without per-user migration.
 
 `init_user_vault()` runs AFTER `establish_bisync_baseline()` so we never run the per-boot sync over a half-restored vault. If the baseline fails for any reason, the init function still runs (`(init_user_vault) || echo ...`) and the critical-dir + preseed-page tiers are created locally; the next successful bisync reconciles user content.
 

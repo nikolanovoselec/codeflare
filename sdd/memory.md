@@ -174,9 +174,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 4. If the persistent vault graph file is missing or unreadable, the pass starts a fresh one (rather than crashing) and writes it at the end of the run.
 5. The merge step runs under `flock -w 5 /tmp/graphify-global.lock` so it serialises with capture-pipeline writes and active-repo hooks; the 5s timeout prevents indefinite block if the lock holder crashes, matching REQ-MEM-001 AC5.
 
-**Constraints:** None.
+**Constraints:**
+- Global-graph HTML visualization is intentionally absent: the unified graph is a 10k+ node corpus that renders as an unusable force-directed hairball. Structural queries via `mcp__graphify__*` are the real interface. The vault viz (`Raw/Graphs/vault-graph.html`) is the only graphify-rendered HTML shipped to users and covers the curated subset they actually edit.
 
 **Priority:** P0
 **Dependencies:** REQ-MEM-001 (capture pipeline contract), REQ-VAULT-002 (vault is always-on in the global graph)
-**Verification:** Automated test (`host/__tests__/vault-extract-merge.test.js` patterns the prompt for load + merge + persist + flock; integration smoke via running the vault-extract agent twice in a row and confirming the global graph's user_vault node count grows monotonically).
+**Verification:** Automated test (`host/__tests__/vault-extract-merge.test.js` patterns the prompt for load + merge + persist + flock; integration smoke via running the vault-extract agent twice in a row and confirming the global graph's user_vault node count grows monotonically). The vault HTML viz re-render (step 5b) is intentionally outside the test envelope: it is non-fatal and bounded to cosmetic output; failure is recoverable on the next extraction.
 **Status:** Implemented
