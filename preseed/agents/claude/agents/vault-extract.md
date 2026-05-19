@@ -1,7 +1,7 @@
 ---
 name: vault-extract
 description: Background vault-graph extraction agent. Spawned by vault-monitor-hook.sh when the user has edited files under /home/user/Vault/ directly. Reads the changed files, builds a graphify chunk, merges into the unified global graph, advances the high-water marker. Sonnet per AD58.
-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
+tools: ["Read", "Write", "Bash", "Grep", "Glob", "mcp__context-mode__ctx_search", "mcp__context-mode__ctx_execute", "mcp__context-mode__ctx_execute_file", "mcp__context-mode__ctx_batch_execute"]
 model: sonnet
 ---
 

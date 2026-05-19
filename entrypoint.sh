@@ -1288,8 +1288,23 @@ init_user_vault() {
     # Critical directories. Always mkdir -p on every boot so a user who
     # deletes Raw/Sessions/, Notes/, etc. cannot break the agent hooks
     # or SilverBullet on the next session start.
-    mkdir -p "$VAULT/Raw/Sessions" "$VAULT/Raw/Pasted" "$VAULT/Notes" \
+    mkdir -p "$VAULT/Raw/Sessions" "$VAULT/Raw/Pasted" "$VAULT/Raw/Graphs" "$VAULT/Notes" \
              "$VAULT/graphify-out" "$VAULT/.silverbullet/_plug"
+
+    # Create-if-missing pages under Raw/Graphs/. These are user-editable
+    # index pages that link to the graphify-rendered viz HTML siblings;
+    # we ship initial content so a fresh vault has a Graphs/ folder
+    # visible in the treeview (treeview is page-driven; an empty
+    # directory does not render). Never overwritten -- if the user
+    # edits or deletes the page they stay deleted/edited.
+    local GRAPH_PAGE
+    for GRAPH_PAGE in "Vault Graph.md" "Global Graph.md"; do
+        if [ -f "$PRESEED_DIR/Raw/Graphs/$GRAPH_PAGE" ] \
+           && [ ! -f "$VAULT/Raw/Graphs/$GRAPH_PAGE" ]; then
+            cp "$PRESEED_DIR/Raw/Graphs/$GRAPH_PAGE" "$VAULT/Raw/Graphs/$GRAPH_PAGE"
+            echo "[entrypoint] Seeded Raw/Graphs/$GRAPH_PAGE"
+        fi
+    done
 
     # Preseed-managed pages. Always overwritten from preseed on every boot
     # so SilverBullet cannot be permanently broken by file deletion or by

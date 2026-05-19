@@ -2,6 +2,12 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-19
+
+- REQ-MEM-001 AC3 and REQ-VAULT-003 AC3: dispatch contract for the background memory-capture and vault-extract agents now goes through named subagents (`subagent_type="memory-capture"` / `"vault-extract"`). Each subagent's frontmatter pins `model: sonnet` per AD58; the hook directives explicitly instruct the main agent not to pass a model override. This reverses the silent haiku downgrade observed in an integration session after PR #385 (the parent runtime defaulted to haiku when the model was only a natural-language hint). Free-form "spawn a background sonnet agent" prose is replaced by structural enforcement at the agent-file level.
+- REQ-MEM-008 AC2: cross-reference added for the new `preseed/agents/claude/agents/memory-capture.md` named-subagent definition file. The codeflare-memory plugin still ships four files; the subagent definition is delivered via the manifest's top-level `agents/` section alongside the existing named subagents (architect, code-reviewer, etc.), under the REQ-AGENT-008 reconcileAgentConfigs pipeline.
+- REQ-VAULT-008 AC7: `Repositories/` added to the preseed CONFIG.md treeview exclusion regex. SilverBullet's library-manager plug creates `Vault/Repositories/` at runtime to mirror plug source repos; the user does not curate it directly. The folder now disappears from the navigation tree on integration and prod alike.
+
 ## 2026-05-18
 
 - REQ-VAULT-003 AC7 added: vault-extract agent now ingests PDF files via the Read tool instead of skipping them as binary; emits document and concept nodes, and a `cites` edge when a sibling note wikilinks the PDF. AC8 added: Read failures on individual PDFs emit a bare document node and do not block the high-water marker from advancing.
