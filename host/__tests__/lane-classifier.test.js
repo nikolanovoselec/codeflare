@@ -42,23 +42,25 @@ function commitFile(cwd, run, relpath, body, msg) {
 }
 
 function classify(cwd, lastAck, current) {
-  // Source the lib then invoke. Use bash -c so the function definition is
-  // scoped to a single subshell and cannot leak between cases.
+  // Source the lib then invoke. Use `bash -s -- LIB SHA1 SHA2` with the
+  // script piped via stdin so the shell command itself is the literal
+  // string "bash" with no constructed command-string at all. The arguments
+  // reach the script as positional $1 $2 $3 and are double-quoted at the
+  // expansion site.
   //
-  // CodeQL js/shell-command-injection-from-environment: pass LIB_PATH and
-  // the SHA arguments as positional argv ($1, $2, $3) rather than
-  // string-interpolating them into the script body. Even though the test
-  // SHAs come from `git rev-parse HEAD` (40-char hex, safe) and LIB_PATH
-  // is fixed by the test layout, defence-in-depth keeps shell metacharacters
-  // out of the script string regardless of fixture future shape.
-  const script = `
-    . "$1"
-    compute_required_lanes "$2" "$3"
-  `;
+  // CodeQL js/shell-command-injection-from-environment alerts #51 and #52:
+  // the earlier `bash -c <script>` form (even with argv-passed values) was
+  // flagged because CodeQL does not model "$1"-quoting as a safety boundary.
+  // The stdin-fed form has no command-string built from environment values
+  // and is the recommended pattern in the CodeQL guidance.
   const r = spawnSync(
     'bash',
-    ['-c', script, 'classify', LIB_PATH, lastAck, current],
-    { cwd, encoding: 'utf8' },
+    ['-s', '--', LIB_PATH, lastAck, current],
+    {
+      cwd,
+      encoding: 'utf8',
+      input: '. "$1"\ncompute_required_lanes "$2" "$3"\n',
+    },
   );
   if (r.status !== 0) {
     throw new Error(`classify failed: status=${r.status} stderr=${r.stderr}`);
