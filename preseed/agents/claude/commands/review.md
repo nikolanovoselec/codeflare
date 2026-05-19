@@ -145,6 +145,8 @@ Step 1c — record the scope decision so Task agents can read it without re-pars
 } > "$REVIEW_DIR/.scope.txt"
 ```
 
+> **Force-push caveat:** `git diff origin/$BASE_REF...HEAD` resolves against the current branch tip and does not consult the Stop hook's `.git/sdd-last-ack-pr-head` checkpoint. On force-pushed branches, the diff may include files whose history was rewritten rather than just the genuinely new changes. The noise is bounded (still scoped to the merge-base side of `...`) and only affects manually-invoked `/review` on force-pushed PRs. If you need a strict "since-last-review" diff on a force-pushed branch, pass `--scope=diff` with an explicit base or run `/review --scope=all`.
+
 Step 1d — print the run summary so the user knows what's happening:
 ```
 /review run: $REVIEW_DIR

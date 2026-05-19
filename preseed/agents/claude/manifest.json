@@ -255,6 +255,11 @@
       "advanced"
     ]
   },
+  "rules/karpathy.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "rules/memory.md": {
     "modes": [
       "advanced"

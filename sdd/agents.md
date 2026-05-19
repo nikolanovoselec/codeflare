@@ -405,6 +405,8 @@ Multi-agent support, preseed system, and session modes.
 3. Findings filtered against architecture decisions.
 4. Optional LLM verification of HIGH/CRITICAL findings.
 5. Interactive triage with fix/AD/defer/ignore options. Defer/Ignore/Tech-Debt decisions persist to `sdd/.review-decisions.md` so subsequent runs do not re-surface the same noise.
+6. When a specialist agent determines it has no applicable surface (e.g., doc-updater on a project with no `sdd/` or no `documentation/`), it writes a one-line no-op header to its output file rather than leaving it empty, so the cross-reference phase can distinguish "ran and found nothing" from "did not run".
+7. Findings reported in interactive triage are never auto-applied by `/review`; the user explicitly confirms each fix. The `auto` and `unleashed` modes that auto-apply spec/doc fixes are scoped to the PR-boundary review pipeline (configured via `sdd/config.yml`), not to interactive `/review` invocations.
 
 **Applies To:** User
 
@@ -532,7 +534,7 @@ Multi-agent support, preseed system, and session modes.
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. Pro mode preseeds the `spec-driven-development` skill, the `sdd-init` and `sdd-clean` sub-command skills, the `vault-operations` skill, the `/sdd` command, the `spec-discipline` rule (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
+1. Pro mode preseeds the `spec-driven-development` skill, the `sdd-init` and `sdd-clean` sub-command skills, the `vault-operations` skill, the `/sdd` command, the `spec-discipline` and `documentation-discipline` rules (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
 2. `/sdd init` scaffolds a new `sdd/` from templates for greenfield projects.
 3. In import mode, `/sdd init` derives a spec from existing source code rather than scaffolding from templates.
 4. When `/sdd init` generates a package manifest, top-level dependency versions are resolved at scaffold time via the ecosystem's registry (npm, Cargo, pip, Go) rather than emitted from memory. The Cloudflare Workers stack pins `wrangler`, `@cloudflare/workers-types`, `@cloudflare/vitest-pool-workers`, and `vitest` as a single co-resolved cohort.
