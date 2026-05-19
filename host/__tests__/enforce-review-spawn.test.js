@@ -731,6 +731,84 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     assert.equal(r.status, 0);
     assert.match(r.stdout, /"decision"\s*:\s*"block"/);
   });
+
+  // REQ-AGENT-021 AC7: gh pr merge must be recognised as a PUSH_LINE
+  // trigger across all three tool surfaces. Server-side merges into
+  // develop advance the develop->main PR HEAD without producing a local
+  // git push line; without these matches the review pipeline silently
+  // fails to arm. Spec-reviewer flagged the missing coverage as MEDIUM
+  // because the named-incident behaviour was unverified by CI.
+  const bashGhMerge = (
+    ts = '2026-05-03T12:00:00.000Z',
+    command = 'gh pr merge 394 --merge',
+  ) =>
+    JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'Bash',
+            input: { command },
+          },
+        ],
+      },
+      timestamp: ts,
+    });
+
+  it('blocks on Bash gh pr merge', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(cwd, [bashGhMerge()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'Bash gh pr merge must trigger PUSH_LINE detection');
+  });
+
+  it('blocks on ctx_execute(language=shell) with gh pr merge', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(cwd, [
+      ctxExecPush('2026-05-03T12:00:00.000Z', 'gh pr merge 394 --merge'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'ctx_execute shell gh pr merge must trigger PUSH_LINE detection');
+  });
+
+  it('blocks on ctx_batch_execute with gh pr merge in commands array', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(cwd, [
+      ctxBatchPush('2026-05-03T12:00:00.000Z', [
+        { label: 'merge', command: 'gh pr merge 394 --merge' },
+      ]),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'ctx_batch_execute gh pr merge must trigger PUSH_LINE detection');
+  });
+
+  it('detects chained gh pr merge inside ctx_execute shell code', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(cwd, [
+      ctxExecPush(
+        '2026-05-03T12:00:00.000Z',
+        'git fetch origin && gh pr merge 394 --merge',
+      ),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+  });
 });
 
 describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => {
