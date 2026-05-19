@@ -369,7 +369,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. The terminal server's tab-1 PTY pre-warm is gated on an init-complete flag file (`/tmp/codeflare-init-complete`) written by the entrypoint after initial sync, file modifications, and tab autostart configuration complete; this preserves the readiness contract while letting the serving port bind before Cloudflare's container port-wait timeout.
+1. The terminal server's tab-1 PTY pre-warm is gated on an init-complete signal written by the entrypoint after initial sync, file modifications, and tab autostart configuration complete; this preserves the readiness contract while letting the serving port bind before Cloudflare's container port-wait timeout.
 2. The host terminal server rejects `/terminal` WebSocket upgrades with close code 1013 (reason `container-warming-up`) until both the init-complete flag is observed AND the pre-warm session is registered in the session map; this is the host-side guard against reconnects landing before shell autostart is in place.
 
 **Constraints:**
@@ -396,7 +396,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 4. A timezone change takes effect on the next session start (no live re-injection into a running container).
 
 **Constraints:**
-- Validation uses `Intl.DateTimeFormat([], { timeZone: tz })` round-trip so the validator does not ship a 400-entry static zone list.
+- Validation uses a runtime IANA-zone round-trip rather than a static zone allowlist, so the validator stays accurate as the IANA database evolves.
 - The field is optional; absence is silently treated as "use the entrypoint fallback chain", not an error.
 
 **Priority:** P1
