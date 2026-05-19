@@ -43,8 +43,8 @@ Environment variables, secrets, CORS configuration, and API token permissions.
 | `R2_ACCOUNT_ID` / `R2_ENDPOINT` | rclone endpoint | Worker -> DO or `getR2Config()` fallback |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 compatibility | Mirrors R2 keys |
 | `TERMINAL_PORT` | Always 8080 | TBD | no | Hardcoded | TBD |
-| `SYNC_MODE` | Sync strategy (`none`, `full`, or `metadata`) | TBD | no | Worker -> DO | TBD |
-| `WORKSPACE_SYNC_ENABLED` | Whether workspace sync is enabled (`'true'`/`'false'`) | TBD | no | Worker via `setBucketName` | TBD |
+| `SYNC_MODE` | Sync strategy (`none`, `full`, or `metadata`). Derived from `workspaceSyncEnabled`: `false` -> `none`, `true` -> `full`. `metadata` is a legacy value not currently selectable from the UI. | `none` | no | Worker -> DO | [REQ-STOR-003](../sdd/storage.md#req-stor-003) |
+| `WORKSPACE_SYNC_ENABLED` | Whether workspace sync is enabled (`'true'`/`'false'`). User-toggleable in Settings; opt-in because syncing `~/workspace/` slows every bisync cycle. | `'false'` | no | Worker via `setBucketName` | [REQ-STOR-003](../sdd/storage.md#req-stor-003) |
 | `TAB_CONFIG` | JSON array of terminal tab configurations | TBD | no | Worker -> DO | TBD |
 | `TERMINAL_ID` | Unique ID for this terminal instance | TBD | no | Host terminal server | TBD |
 | `CONTAINER_AUTH_TOKEN` | Auth token for container API calls, scoped to one DO lifecycle. See [security.md](./security.md#container-auth-token-req-sec-012). | TBD | no | Worker -> DO | TBD |
