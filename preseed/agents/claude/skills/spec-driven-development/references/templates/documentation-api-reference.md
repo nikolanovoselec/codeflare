@@ -1,4 +1,4 @@
-<!-- doc-discipline: 600 lines max, one-line table cells (≤50 words), no architecture rationale (lives in architecture.md), no env var docs (lives in configuration.md). -->
+<!-- doc-discipline: one-line table cells (≤50 words), no architecture rationale (lives in architecture.md), no env var docs (lives in configuration.md). -->
 
 # API Reference
 
@@ -14,7 +14,7 @@ All public and internal API endpoints.
 
 {One-line description.}
 
-**Implements:** [REQ-X-N](../sdd/{domain}.md#req-x-n)
+**Implements:** [REQ-X-N](../../sdd/spec/{domain}.md#req-x-n)
 
 **Authentication:** None | Required (describe)
 

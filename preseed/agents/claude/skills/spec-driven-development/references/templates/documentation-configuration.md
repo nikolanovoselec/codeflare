@@ -1,4 +1,4 @@
-<!-- doc-discipline: 200 lines max, one-line table cells (≤50 words), env var entries only — no API contracts, no deploy commands. Long descriptions go in body paragraphs below the variables table. -->
+<!-- doc-discipline: one-line table cells (≤50 words), env var entries only — no API contracts, no deploy commands. Long descriptions go in body paragraphs below the variables table. Each row carries an inline @impl source-anchor naming the consuming symbol. -->
 
 # Configuration
 

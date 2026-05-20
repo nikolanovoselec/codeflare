@@ -1,4 +1,4 @@
-<!-- doc-discipline: 100 lines per ADR; never delete entries (replace with Status: Reclassified or Status: Merged into AD-X stubs); one ADR per architectural decision -->
+<!-- doc-discipline: never delete entries (replace with Status: Reclassified or Status: Merged into AD-X stubs); one ADR per architectural decision; each ADR Context block carries an inline @impl source-anchor -->
 
 # Architecture Decision Records
 
@@ -39,7 +39,7 @@ When an existing ADR is reclassified to a canonical home, preserve its `### AD-N
 
 **Decision:** {What was decided in one sentence.}
 
-**Context:** {What prompted the decision. What problem or constraint was being addressed?}
+**Context:** {What prompted the decision. What problem or constraint was being addressed?} <!-- @impl: <path>::<symbol> -->
 
 **Alternatives considered:** {Brief list of other options that were rejected. ADRs require real alternatives — if none, this is not an ADR (see "What is NOT an ADR" above).}
 
@@ -47,6 +47,6 @@ When an existing ADR is reclassified to a canonical home, preserve its `### AD-N
 
 **Consequences:** {What downstream code/docs must keep in lockstep.}
 
-**Related requirements:** [REQ-X-N](../../sdd/{domain}.md#req-x-n)
+**Related requirements:** [REQ-X-N](../../sdd/spec/{domain}.md#req-x-n)
 
 ---

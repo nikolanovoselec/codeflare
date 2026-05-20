@@ -5,21 +5,23 @@
 #
 # interactive: confirm every fix before applying. Safe for new SDD users.
 # auto:        apply SAFE+RISKY fixes silently on the current branch.
-#              Escalate JUDGMENT calls to sdd/.review-needed.md.
+#              Escalate JUDGMENT calls to sdd/spec/triage.md.
 # unleashed:   apply everything (including JUDGMENT) on the current branch.
 #              Conservative defaults preserve information without overwriting intent.
 #              Walk-away autopilot — come back to per-category commits, git revert
 #              any unwanted change. No PR, no branch creation.
 mode: interactive
 
-# enforce_tdd: when true, spec-reviewer enforces the TDD contract on every run:
-#   - Downgrades Implemented REQs without test coverage to Partial
-#   - Flags Planned/Partial REQs with source code but no test (HIGH finding)
-#   - Runs test quality heuristics (AC count vs test count, tautology
-#     detection, skipped-test detection) against every test file
+# enforce_tdd: gates the TEST-anchor check ONLY (CQ-TEST in spec-enforce-truth):
+#   - When true: Downgrades Implemented REQs without test coverage to Partial.
+#     Flags Planned/Partial REQs with source code but no test (HIGH finding).
+#     Runs test quality heuristics (AC count vs test count, tautology
+#     detection, skipped-test detection) against every test file.
+#   - When false: CQ-TEST writes informational coverage gaps to sdd/spec/triage.md
+#     under "## Coverage gaps" but never mutates Status.
 #
-# When false, spec-reviewer only writes sdd/.coverage-report.md without
-# modifying the spec.
+# CQ-SOURCE (source-anchor truth-check) is NEVER gated by this flag — it runs
+# ALWAYS, regardless of mode or transition state. Fabrication is never optional.
 #
 # Unleashed mode refuses to run when this is false (preserves the per-project
 # opt-out). User flips to true manually when ready, or uses auto mode instead.
@@ -27,11 +29,13 @@ mode: interactive
 enforce_tdd: true
 
 # transition: set automatically by /sdd init Import Mode and cleared
-# automatically when the sdd/init-triage.md queue drains.
+# automatically when the sdd/spec/init-triage.md queue drains.
 # Do NOT set this by hand - it is managed by the /sdd init lifecycle.
 # While transition: true is set:
-#   - PR-boundary review pipeline is entirely suspended (no
-#     code-reviewer, spec-reviewer, or doc-updater fires on push or PR)
+#   - PR-boundary review pipeline is entirely suspended for spec/doc-side
+#     agents (no spec-reviewer or doc-updater fires on push or PR).
+#     code-reviewer still runs because the Truth guarantee (CQ-SOURCE) runs
+#     during transition.
 #   - /sdd mode unleashed is rejected
 # On queue drain, transition: true clears. enforce_tdd is NOT auto-flipped -
 # the user changes it manually when ready for TDD enforcement.

@@ -31,29 +31,45 @@ The user only invokes `/sdd` directly to:
 | `/sdd clean` | Invoke the `sdd-clean` skill (mode-aware spec rescue) |
 | `/sdd mode {interactive\|auto\|unleashed}` | This skill, § /sdd mode |
 
-## Spec structure
+## Spec structure (nested layout, canonical)
 
 ```
 sdd/
 ├── README.md            # Vision, principles, actors, domain index, "Out of Scope" section
-├── glossary.md          # Canonical term definitions
-├── constraints.md       # Technology stack, cross-cutting CON-* constraints
-├── changes.md           # Semantic changelog (≤2 sentences per entry, user-facing only)
-├── config.yml           # mode, enforce_tdd, test_globs, src_globs (optional), allowlists
-├── .review-needed.md    # Findings escalated for human review (committed, cleared on resolution)
-├── .review-decisions.md # Cumulative per-finding triage history from /review (committed, append-only)
-├── .coverage-report.md  # Output of enforce_tdd: false runs (committed)
-├── .last-clean-run.md   # Audit log of the most recent /sdd clean run (committed)
-└── {domain}.md          # Requirements per feature area
+└── spec/
+    ├── {domain}.md      # Requirements per feature area
+    ├── glossary.md      # Canonical term definitions
+    ├── constraints.md   # Technology stack, cross-cutting CON-* constraints
+    ├── changes.md       # Semantic changelog (≤2 sentences per entry, user-facing only)
+    ├── config.yml       # mode, enforce_tdd, test_globs, src_globs (optional), allowlists
+    ├── init-triage.md   # Import Mode triage queue (only present during transition)
+    └── triage.md        # Findings escalated for human review (replaces .review-needed.md)
+
+documentation/
+├── README.md            # Lane index + glossary-with-synonyms + related pointers
+├── lanes/
+│   ├── architecture.md         # universal lane
+│   ├── api-reference.md        # emit only when source has HTTP routes
+│   ├── api-reference-admin.md  # emit only when source has admin endpoints
+│   ├── configuration.md        # emit only when source has env vars / config files
+│   ├── deployment.md           # emit only when project is deployable
+│   ├── security.md             # emit only when source has auth / CSRF / CSP code
+│   ├── observability.md        # emit only when source has logging / metrics
+│   └── troubleshooting.md      # emit only when commit history references incidents
+└── decisions/
+    └── README.md               # ADR ledger (kept as sibling of lanes/)
 ```
 
 Project root also has:
 ```
 README.md          # Links to sdd/ and documentation/
-documentation/     # Implementation docs (architecture, API, config, deployment, decisions)
 tests/             # Tests (each test references a REQ ID for spec-reviewer to verify)
 pending.md         # In-flight work and known gaps (NOT requirements)
 ```
+
+**Dual-layout support during migration window.** Skills detect layout via `test -d sdd/spec`. Projects on flat layout (`sdd/{domain}.md` directly) keep working; `/sdd clean` migrates flat → nested on demand. The flat layout will be deprecated after one release cycle; no new flat-layout projects should be created.
+
+**Dotfile reduction.** The nested schema consolidates four prior dotfiles (`.review-needed.md`, `.coverage-report.md`, `.last-clean-run.md`, `.review-decisions.md`) into one `triage.md`. `/sdd clean` audit lives in commit history (`git log --grep='\[sdd-clean\]'` + commit bodies). `/review` cross-run dedup, when needed, is derived from `git log --grep='\[review\]'`.
 
 ## REQ format
 
@@ -68,8 +84,8 @@ Every Active REQ in `sdd/{domain}.md` MUST render in this exact shape. Deviation
 
 **Acceptance Criteria:**
 
-1. {first AC, single behavioural statement, <=150 words}
-2. {second AC}
+1. {first AC, single behavioural statement, <=150 words} <!-- @impl: <path>::<symbol> -->
+2. {AC asserting a concrete value} <!-- @impl: <path>::<symbol> = <value-pattern> -->
 3. {...up to 7 maximum}
 
 **Constraints:** [CON-X-NNN](constraints.md#con-x-nnn-title-slug), [CON-Y-NNN](constraints.md#con-y-nnn-title-slug)
@@ -85,6 +101,8 @@ Every Active REQ in `sdd/{domain}.md` MUST render in this exact shape. Deviation
 ---
 ```
 
+The `<!-- @impl: ... -->` HTML comment is rendered invisibly by Markdown and carries the source-anchor used by the Truth-guarantee validators. Full convention at § "Source-anchor convention" above.
+
 **Required fields, always present:**
 - **Intent**, **Applies To**, **Acceptance Criteria**, **Priority**, **Verification**, **Status** — always populated.
 - **Constraints**, **Dependencies** — always present. Render `None.` (literal) when empty. A REQ missing these fields entirely is MEDIUM `req-missing-required-field`.
@@ -98,6 +116,45 @@ Every Active REQ in `sdd/{domain}.md` MUST render in this exact shape. Deviation
 **Notes** is OPTIONAL — only two shapes (see `spec-enforce` § Rule B): Partial-explanation (`Status: Partial` only, ≤3 sentences) or Doc-pointer (any status, ≤2 sentences, MUST contain a markdown link to `documentation/**` or `sdd/**`). Sibling-REQ cross-references go in `Dependencies:`.
 
 **Deprecated REQs are deleted, not tombstoned.** No `Replaced By:` field, no `Removed In:` field. Out-of-scope ideas go to `## Out of Scope` in the domain README.
+
+**Inline source-anchors on AC bullets (binding from /sdd init forward).** Every AC bullet describing observable behaviour SHOULD carry a trailing `<!-- @impl: <path>::<symbol> -->` HTML comment naming the implementing symbol. AC bullets describing a specific concrete value (number, threshold, retry count, storage target) SHOULD carry `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. Validators (CQ-SOURCE in `spec-enforce-truth`) read these comments and verify the symbol + value against source. AC bullets without an anchor are valid but generate `ac-missing-source-anchor` findings (MEDIUM) during enforcement; `Verification: Manual check` REQs are exempt. The convention applies to ADR `Context:` blocks too.
+
+## Source-anchor convention (binding, single source of truth)
+
+The `@impl` HTML comment is the framework's anchor format for the Truth guarantee.
+
+**Form:**
+
+```
+<!-- @impl: <path>::<symbol> -->
+<!-- @impl: <path>::<symbol> = <value-pattern> -->
+```
+
+- `<path>` is a repo-relative file path (forward slashes regardless of host OS).
+- `<symbol>` is the function, class, constant, route, or other named site that implements the AC. Multi-segment symbols use `.` (e.g., `ClassName.methodName`).
+- `<value-pattern>` (optional) is the literal value the AC asserts (e.g., `50`, `"oauth-callback"`, `30 * 60`). For non-trivial patterns use a substring the validator can grep.
+
+**Examples:**
+
+```
+<!-- @impl: lib/services/auth_service.dart::login -->
+<!-- @impl: lib/services/activity_service.dart::_maxActivities = 50 -->
+<!-- @impl: cloudflare-oauth-redirect/src/worker.js::handleCallback -->
+<!-- @impl: src/middleware/admin-auth.ts::adminGate -->
+```
+
+**Detection regex:** `<!--\s*@impl:\s*([^:]+)::([^\s=]+)(?:\s*=\s*(.+?))?\s*-->`
+
+**Validation contract (CQ-SOURCE in `spec-enforce-truth`, Pass 8b in `doc-enforce-truth`):**
+
+1. Resolve `<symbol>` via `mcp__graphify__get_node` against the unified graph. Fallback: grep `<symbol>` in `<path>` when graphify cannot resolve.
+2. Symbol not resolved → HIGH `spec-anchor-orphaned` (or `doc-anchor-orphaned`).
+3. If `<value-pattern>` present: grep symbol body for literal pattern. Not found → HIGH `spec-value-drift` (or `doc-value-drift`).
+4. If `<value-pattern>` absent: confirm symbol body contains ≥3 AC-token overlap. Not found → MEDIUM `spec-behavior-orphaned`.
+
+**Drift behaviour:** symbol renames or deletions break the anchor and force a spec update on the next PR-boundary review — correct, because renames change the contract. Line moves within a file do NOT break the anchor (graphify indexes by symbol identity, not line number).
+
+**This validation runs ALWAYS** — both `enforce_tdd: true` and `enforce_tdd: false`, both Greenfield and Import Mode, both inside and outside SDD transition. `enforce_tdd` gates only the test-anchor check (`Implemented` defaulting on test absence); it never gates source-anchor truth-check.
 
 ## Status semantics
 
@@ -137,7 +194,8 @@ Once `sdd/` exists, the workflow runs automatically:
 
 - At PR-boundary events for PRs targeting `main` or `master` (PR open OR push to a branch with such a PR open): `code-reviewer` runs in parallel; `spec-reviewer` runs first, then `doc-updater` (sequential, never parallel).
 - Both `sdd/`-lane agents detect `sdd/` exists → SDD-strict mode.
-- Both agents read `sdd/config.yml` → know whether to be interactive/auto/unleashed.
+- **Layout detection:** `test -d sdd/spec` → nested (canonical); else flat (legacy, in migration window). Skills' file globs branch on this detection. `sdd/config.yml` lives at `sdd/spec/config.yml` (nested) or `sdd/config.yml` (flat).
+- Both agents read `config.yml` → know whether to be interactive/auto/unleashed.
 - Findings are auto-fixed per mode.
 
 If `sdd/` doesn't exist, `spec-reviewer` exits silently. `doc-updater` runs in `docs-only` mode.
@@ -249,15 +307,15 @@ All scaffolding templates live in `references/templates/` within this skill. The
 |---|---|
 | `root-readme.md` | `/sdd init` → `README.md` |
 | `sdd-readme.md` | `/sdd init` → `sdd/README.md` |
-| `sdd-glossary.md` | `/sdd init` → `sdd/glossary.md` |
-| `sdd-constraints.md` | `/sdd init` → `sdd/constraints.md` |
-| `sdd-changes.md` | `/sdd init` → `sdd/changes.md` |
-| `sdd-config.yml` | `/sdd init` → `sdd/config.yml` |
+| `sdd-glossary.md` | `/sdd init` → `sdd/spec/glossary.md` |
+| `sdd-constraints.md` | `/sdd init` → `sdd/spec/constraints.md` |
+| `sdd-changes.md` | `/sdd init` → `sdd/spec/changes.md` |
+| `sdd-config.yml` | `/sdd init` → `sdd/spec/config.yml` |
 | `documentation-readme.md` | `/sdd init` → `documentation/README.md` |
-| `documentation-architecture.md` | `/sdd init` → `documentation/architecture.md` |
-| `documentation-api-reference.md` | `/sdd init` → `documentation/api-reference.md` |
-| `documentation-configuration.md` | `/sdd init` → `documentation/configuration.md` |
-| `documentation-deployment.md` | `/sdd init` → `documentation/deployment.md` |
+| `documentation-architecture.md` | `/sdd init` → `documentation/lanes/architecture.md` (universal lane) |
+| `documentation-api-reference.md` | `/sdd init` → `documentation/lanes/api-reference.md` (when source has HTTP routes) |
+| `documentation-configuration.md` | `/sdd init` → `documentation/lanes/configuration.md` (when source has env vars / config) |
+| `documentation-deployment.md` | `/sdd init` → `documentation/lanes/deployment.md` (when project is deployable) |
 | `documentation-decisions-readme.md` | `/sdd init` → `documentation/decisions/README.md` |
 
 Placeholders use `{PLACEHOLDER_NAME}` format. The agent substitutes them based on the user's input and inferred context.

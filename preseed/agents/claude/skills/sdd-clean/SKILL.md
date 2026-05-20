@@ -21,7 +21,7 @@ The rescue command for projects whose spec has accumulated implementation leakag
 ## Safety nets (all modes)
 
 - **Working tree must be clean** before running (refuses if `git status --porcelain` is non-empty).
-- **Backup files** before any RISKY operation (e.g. `sdd/changes.md` → `sdd/changes-archive-YYYY-MM.md`).
+- **Backup files** before any RISKY operation (e.g. `sdd/spec/changes.md` → `sdd/spec/changes-archive-YYYY-MM.md`; flat: `sdd/changes.md` → `sdd/changes-archive-YYYY-MM.md`).
 - **Per-category commits** for selective revert.
 - **`[sdd-clean]` commit prefix** that bypasses round-detection in spec-reviewer.
 - **Sequential execution** — spec-reviewer first, then doc-updater.
@@ -29,7 +29,7 @@ The rescue command for projects whose spec has accumulated implementation leakag
 Unleashed-specific:
 - Pushes commits directly to the current branch (no new branch, no PR).
 - Each commit is per-category and tagged `[sdd-clean]` — `git revert <sha>` is the rollback surface.
-- Full audit log in `sdd/.last-clean-run.md` + per-category commit messages.
+- Audit log lives in per-category commit bodies (`git log --grep='\[sdd-clean\]' -p`); no separate dotfile.
 
 Both `auto` and `unleashed` push to whatever branch is checked out. User is responsible for the right branch before invoking.
 
@@ -39,12 +39,56 @@ When unleashed mode encounters a JUDGMENT call, it never picks a winner that ove
 
 | JUDGMENT type | Conservative resolution |
 |---|---|
-| Doc-vs-spec conflict | Mark BOTH the REQ and the related doc as `Status: Partial` with `Notes:` describing the conflict. Log to `sdd/.review-needed.md`. **Never overwrite either side.** |
-| Oversized REQ refactor | Shrink in place — extract implementation prose to `documentation/{relevant-file}.md`, leave Intent + AC verbatim. **Never split into multiple REQs.** |
+| Doc-vs-spec conflict | Mark BOTH the REQ and the related doc as `Status: Partial` with `Notes:` describing the conflict. Log to `sdd/spec/triage.md` (nested) / `sdd/.review-needed.md` (flat). **Never overwrite either side.** |
+| Oversized REQ refactor | Shrink in place — extract implementation prose to the relevant lane file (`documentation/lanes/{file}.md` nested, `documentation/{file}.md` flat), leave Intent + AC verbatim. **Never split into multiple REQs.** |
 | Fake-Deprecated REQ (no Replaced By) | Move REQ definition to README's `## Out of Scope` section, remove from domain file. Content preserved. |
-| Truly ambiguous content | Mark `Partial` with `Notes:`, log to `sdd/.review-needed.md`. |
+| Truly ambiguous content | Mark `Partial` with `Notes:`, log to triage file. |
+| CQ-SOURCE Truth findings (anchor orphaned, value drift) | NEVER auto-resolve. Always escalate to triage with the searched anchor + actual source state. Truth is JUDGMENT by construction. |
 
-The user comes back to new commits on the current branch, inspects per-category commits and `sdd/.review-needed.md`, and can `git revert <sha>` per-category. No PR, no merge step.
+The user comes back to new commits on the current branch, inspects per-category commits and the triage file, and can `git revert <sha>` per-category. No PR, no merge step.
+
+## Layout migration (flat → nested)
+
+When `/sdd clean` runs on a project with flat layout (`sdd/{domain}.md` files at top level, no `sdd/spec/` subdirectory), it offers migration to the nested canonical layout.
+
+**Detection (binding):**
+
+```bash
+LAYOUT="nested"
+[ -d sdd/spec ] || LAYOUT="flat"
+```
+
+If `LAYOUT=nested`, no migration needed; layout migration is a no-op. If `LAYOUT=flat` AND any `sdd/{domain}.md` file exists beyond `sdd/README.md`:
+
+**Mode-dependent behaviour:**
+
+| Mode | Behaviour |
+|---|---|
+| `interactive` | Prompt: "Detected flat layout. Migrate to nested (`sdd/spec/`) layout? Mechanical move + backlink rewrite + commit. (yes/no/show diff)" |
+| `auto` | Silently migrate on first invocation. |
+| `unleashed` | Silently migrate on first invocation. |
+
+**Migration mechanics:**
+
+1. Create `sdd/spec/` directory and `documentation/lanes/` directory via `mkdir -p`.
+2. Move every `sdd/*.md` file EXCEPT `sdd/README.md` into `sdd/spec/`. Use `git mv` so history follows (per-file rename detection).
+3. Move `sdd/config.yml` into `sdd/spec/config.yml`. Same for `sdd/init-triage.md` if present.
+4. Consolidate prior dotfiles into `sdd/spec/triage.md`: concatenate any non-empty contents of `sdd/.review-needed.md`, `sdd/.coverage-report.md`, `sdd/.last-clean-run.md`, `sdd/.review-decisions.md` under labelled sections (`## Escalations (from .review-needed.md)`, `## Coverage gaps (from .coverage-report.md)`, etc.). Then `git rm` the four dotfiles.
+5. Move every `documentation/*.md` file EXCEPT `documentation/README.md` into `documentation/lanes/`. Use `git mv`. Keep `documentation/decisions/` as sibling (no move).
+6. Rewrite cross-file backlinks throughout `sdd/spec/**/*.md`, `documentation/lanes/**/*.md`, `documentation/decisions/README.md`, root `README.md`. Use the Edit tool, never `sed`. Patterns:
+   - `(../sdd/{file}.md)` → `(../sdd/spec/{file}.md)` (from documentation lanes pointing into spec)
+   - `(../../sdd/{file}.md)` → `(../../sdd/spec/{file}.md)` (from decisions/README.md pointing into spec)
+   - `(../documentation/{file}.md)` → `(../../documentation/lanes/{file}.md)` (from sdd/spec/*.md pointing into lanes)
+   - `(documentation/{file}.md)` → `(documentation/lanes/{file}.md)` (from sdd/README.md pointing into lanes)
+   - `(../documentation/decisions/README.md)` → `(../../documentation/decisions/README.md)` (relative depth increased by one)
+7. Add migration entry to `sdd/spec/changes.md` under today's date (`SDD layout migrated from flat to nested. Single-commit mechanical move; cross-file backlinks rewritten.`).
+8. Commit as a single commit with subject `[sdd-clean] migrate sdd to nested layout` and a body that lists every moved file + the count of rewritten backlinks. The `[sdd-clean]` prefix bypasses the spec-reviewer round counter.
+
+**Idempotency.** Re-running `/sdd clean` on an already-nested layout: migration step is a no-op and exits silently before normal cleanup begins.
+
+**Rollback surface.** Single commit; `git revert <sha>` restores flat layout. The framework continues to support flat-layout projects after rollback (skills are layout-aware).
+
+**Migration ordering vs. other cleanup.** Layout migration runs FIRST in `/sdd clean` (before any other category). All subsequent cleanups operate against the nested layout. If migration is declined in interactive mode, the rest of `/sdd clean` runs against flat layout (still supported).
 
 ## What gets cleaned
 

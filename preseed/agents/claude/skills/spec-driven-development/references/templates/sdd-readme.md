@@ -21,8 +21,8 @@
 
 | # | Domain | File | Priority | Description |
 |---|--------|------|----------|-------------|
-| 1 | {Domain Name} | [{file}.md]({file}.md) | P0 | {What this domain covers} |
-| 2 | {Domain Name} | [{file}.md]({file}.md) | P0 | {Description} |
+| 1 | {Domain Name} | [spec/{file}.md](spec/{file}.md) | P0 | {What this domain covers} |
+| 2 | {Domain Name} | [spec/{file}.md](spec/{file}.md) | P0 | {Description} |
 
 ## Out of Scope
 
@@ -32,21 +32,16 @@ The following were considered and intentionally excluded from the product:
 
 ## Constraints
 
-See [constraints.md](constraints.md) for cross-cutting guardrails.
+See [spec/constraints.md](spec/constraints.md) for cross-cutting guardrails.
 
 ## Glossary
 
-See [glossary.md](glossary.md) for canonical term definitions.
+See [spec/glossary.md](spec/glossary.md) for canonical term definitions.
 
 ## Documentation
 
-Implementation documentation lives in `documentation/`:
-- `architecture.md` — System overview, components, data flow
-- `api-reference.md` — All API endpoints
-- `configuration.md` — Env vars, secrets, deployment config
-- `deployment.md` — Dev setup and deployment steps
-- `decisions/README.md` — Architecture Decision Records
+Implementation documentation lives in [`documentation/`](../documentation/README.md). Lane files emit only when source evidence justifies them; `documentation/lanes/architecture.md` is always present.
 
 ## Changelog
 
-See [changes.md](changes.md) for specification history.
+See [spec/changes.md](spec/changes.md) for specification history.

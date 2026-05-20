@@ -1,4 +1,4 @@
-<!-- doc-discipline: 200 lines max, one-line table cells (≤50 words), deploy commands and rollback steps only — no env var documentation (link to configuration.md), no API contracts (link to api-reference.md). -->
+<!-- doc-discipline: one-line table cells (≤50 words), deploy commands and rollback steps only — no env var documentation (link to configuration.md), no API contracts (link to api-reference.md). -->
 
 # Deployment
 
