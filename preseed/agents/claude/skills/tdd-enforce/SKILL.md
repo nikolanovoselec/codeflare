@@ -279,7 +279,7 @@ Mode-dependent action mirrors the spec-discipline mode table (interactive/auto/u
 
 ## enforce_tdd interaction
 
-The only user-controlled lever is `enforce_tdd: true | false` in `sdd/config.yml`. With `enforce_tdd: true` (default), code-reviewer flags antipatterns at the severities above and `spec-enforce-truth` auto-demotes Implemented REQs without test coverage. With `enforce_tdd: false`, both report findings to `sdd/.coverage-report.md` without modifying the spec - project-level opt-out only, intended for domains that genuinely don't admit automated testing (pure visual design systems, etc.).
+The only user-controlled lever is `enforce_tdd: true | false` in the layout-resolved config file (`sdd/spec/config.yml` nested or `sdd/config.yml` flat). With `enforce_tdd: true` (default), code-reviewer flags antipatterns at the severities above and `spec-enforce-truth` auto-demotes Implemented REQs without test coverage. With `enforce_tdd: false`, both report findings to the layout-resolved triage file (`sdd/spec/triage.md` nested or `sdd/.review-needed.md` flat legacy) under `## Coverage gaps` without modifying the spec - project-level opt-out only, intended for domains that genuinely don't admit automated testing (pure visual design systems, etc.).
 
 There is **no per-test opt-out**. Inline comment shortcuts like `// tdd-allow:` are explicitly NOT supported, by design. Per-test opt-outs are agent-writable bypasses - they degrade into "every test the agent doesn't want to fix" markers and defeat the rule. If a test legitimately can't fit the discipline, delete it; the absence of a useless test is more honest than a flagged-and-allowed one.
 

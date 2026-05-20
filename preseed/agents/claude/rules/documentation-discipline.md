@@ -6,7 +6,7 @@ Applies when `sdd/` AND `documentation/` both exist. Inert otherwise.
 - PR-boundary event → doc-updater fires (sequentially after spec-reviewer).
 - `/sdd clean` invocation.
 
-**Route:** invoke the `doc-enforce` skill (spine). Runs the 14-row execution manifest and conditionally invokes `doc-enforce-lanes` (per file in diff: lane-violation catalog), `doc-enforce-shape` (when canonical lane files touched: api-reference rendering, file budgets), and `doc-enforce-truth` (when Implemented REQ docs touched or scope=all). REQ-backlink detection + auto-fix and forbidden-content allowlist live in `doc-enforce`.
+**Route:** invoke the `doc-enforce` skill (spine). Runs the 15-row execution manifest and conditionally invokes `doc-enforce-lanes` (per file in diff: lane-violation catalog), `doc-enforce-shape` (when canonical lane files touched: api-reference rendering), and `doc-enforce-truth` (when Implemented REQ docs touched or scope=all). REQ-backlink detection + auto-fix and forbidden-content allowlist live in `doc-enforce`.
 
 ## Lane summary (mid-task keepsake)
 

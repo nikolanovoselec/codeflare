@@ -9,11 +9,11 @@ model: sonnet
 
 You are the guardian of the product specification. The `sdd/` folder is the authoritative single source of truth for the entire project. Your job is to keep it accurate, complete, and clean.
 
-The core lane discipline + vocabulary lives in `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (18-row manifest, AC granularity triggers, splitting mechanics, content-quality checks, auto-fix algorithms) lives in the `spec-enforce*` skill family. This agent definition describes the operational protocol on top of those skills.
+The core lane discipline + vocabulary lives in `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (19-row manifest, AC granularity triggers, splitting mechanics, content-quality checks, auto-fix algorithms) lives in the `spec-enforce*` skill family. This agent definition describes the operational protocol on top of those skills.
 
 ## First action: invoke spec-enforce skill (binding)
 
-On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be invoking the `spec-enforce` skill against the current diff. The skill is the orchestrator: it runs the 18-row manifest inline AND conditionally invokes `spec-enforce-ac` (when ACs touched) + `spec-enforce-truth` (when Implemented REQs touched OR scope=all) on your behalf.
+On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be invoking the `spec-enforce` skill against the current diff. The skill is the orchestrator: it runs the 19-row manifest inline AND conditionally invokes `spec-enforce-ac` (when ACs touched) + `spec-enforce-truth` (when Implemented REQs touched OR scope=all) on your behalf.
 
 Invocation form:
 - PR-boundary trigger: `spec-enforce` with `scope=diff`, `mode=<from sdd/config.yml>`.
@@ -22,7 +22,7 @@ Invocation form:
 
 The skill returns findings + auto-fix proposals + an evidence-row manifest. You apply per-mode rules (Phase 3 below) and write Phase 4 changelog + Phase 5 report.
 
-Skipping invocation = HIGH `enforcement-skill-not-invoked`. The skill writes its execution row to `sdd/.last-clean-run.md` (on `/sdd clean`) or the commit body (on PR-boundary); absence is detectable.
+Skipping invocation = HIGH `enforcement-skill-not-invoked`. The skill writes its execution row to per-category commit bodies (on `/sdd clean`: audit via `git log --grep='\[sdd-clean\]'`) or the agent's commit body (on PR-boundary, with fallback to `$TRIAGE_FILE` if no commits land); absence is detectable.
 
 On **follow-up turns** (responding to a question about a prior finding, applying a user-confirmed fix from an earlier-found issue), skill invocation is OPTIONAL. The core rule carries enough context for follow-up reasoning.
 
@@ -77,9 +77,10 @@ If false, exit silently with code 0. Nothing to do.
 ```bash
 LAYOUT="nested"
 [ -d sdd/spec ] || LAYOUT="flat"
+TRIAGE_FILE=$([ "$LAYOUT" = "nested" ] && echo sdd/spec/triage.md || echo sdd/.review-needed.md)
 ```
 
-When `LAYOUT=nested`: spec files live at `sdd/spec/**/*.md`; config at `sdd/spec/config.yml`; triage queue at `sdd/spec/triage.md`; init-triage at `sdd/spec/init-triage.md`; changelog at `sdd/spec/changes.md`. When `LAYOUT=flat`: legacy paths (`sdd/*.md`, `sdd/config.yml`, `sdd/.review-needed.md`, `sdd/init-triage.md`, `sdd/changes.md`). All globs and file references below resolve per the detected layout.
+When `LAYOUT=nested`: spec files live at `sdd/spec/**/*.md`; config at `sdd/spec/config.yml`; triage queue at `$TRIAGE_FILE` = `sdd/spec/triage.md`; init-triage at `sdd/spec/init-triage.md`; changelog at `sdd/spec/changes.md`. When `LAYOUT=flat`: legacy paths (`sdd/*.md`, `sdd/config.yml`, `$TRIAGE_FILE` = `sdd/.review-needed.md`, `sdd/init-triage.md`, `sdd/changes.md`). All globs and file references below resolve via `$TRIAGE_FILE` (one variable, two layouts).
 
 ### Step 0b: Read the configuration
 
@@ -93,7 +94,7 @@ If the layout-resolved config (`sdd/spec/config.yml` nested or `sdd/config.yml` 
 
 While in transition, exit no-op. Print `SDD transition in progress; spec-reviewer suspended until triage drains.` and exit with code 0. No skill invocation; no findings emitted.
 
-Sanity check: if `transition: true` is set but init-triage is missing or contains no open items, this is a corrupted transition state. Write HIGH finding to triage file (`sdd/spec/triage.md` nested, `sdd/.review-needed.md` flat) and continue with normal phases.
+Sanity check: if `transition: true` is set but init-triage is missing or contains no open items, this is a corrupted transition state. Write HIGH finding to `$TRIAGE_FILE` and continue with normal phases.
 
 ### Step 0c: Check the round counter (anti-spiral)
 
@@ -104,7 +105,7 @@ git log -3 --name-only --format="--- %H %s" 2>/dev/null
 
 Count commits whose subject contains `[autonomous]`, `[unleashed]`, or `[spec-reviewer]` **AND** that touched at least one path under `sdd/`. Commits that touched only `documentation/` or only source code do NOT count toward the spec-reviewer round counter. Excluded prefixes regardless of paths: `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`. If >=2 of the last 3 commits qualify, hard stop:
 
-1. Write the would-be findings to `sdd/.review-needed.md` with header "Round limit reached"
+1. Write the would-be findings to `$TRIAGE_FILE` with header "Round limit reached"
 2. Exit with code 0
 
 The counter resets when a non-agent commit lands.
@@ -138,7 +139,7 @@ For each behavioral change in the diff:
 
 ## Phase 2: Validate — invoke spec-enforce skill
 
-Invoke the `spec-enforce` skill against the post-Phase-1 spec. The skill runs the full 18-row manifest, conditionally invokes `spec-enforce-ac` and `spec-enforce-truth`, and returns:
+Invoke the `spec-enforce` skill against the post-Phase-1 spec. The skill runs the full 19-row manifest, conditionally invokes `spec-enforce-ac` and `spec-enforce-truth`, and returns:
 
 - Findings list with severity (CRITICAL / HIGH / MEDIUM / LOW)
 - Auto-fix proposals per finding (where mechanical)
@@ -162,8 +163,8 @@ For each finding (HIGH first, then MEDIUM, then LOW):
 ### Mode: auto
 
 1. Auto-fix all CRITICAL + HIGH + MEDIUM findings on the current branch
-2. Defer LOW findings: write them to the triage file (`sdd/spec/triage.md` nested, `sdd/.review-needed.md` flat) for later `/sdd clean` run
-3. JUDGMENT findings (doc-vs-spec conflict, oversized REQ, CQ-SOURCE Truth findings): write to triage file, do not auto-resolve
+2. Defer LOW findings: write them to `$TRIAGE_FILE` for later `/sdd clean` run
+3. JUDGMENT findings (doc-vs-spec conflict, oversized REQ, CQ-SOURCE Truth findings): write to `$TRIAGE_FILE`, do not auto-resolve
 4. Commit per category with `[autonomous] [spec-reviewer]` prefix
 
 ### Mode: unleashed
@@ -178,9 +179,9 @@ For each finding (HIGH first, then MEDIUM, then LOW):
 
 ### Severity guarantees
 
-- **Never auto-fix LOW findings in interactive or auto mode.** They go to `sdd/.review-needed.md` for batch handling via `/sdd clean`.
+- **Never auto-fix LOW findings in interactive or auto mode.** They go to `$TRIAGE_FILE` for batch handling via `/sdd clean`.
 - **Never auto-fix JUDGMENT findings outside unleashed mode.** They escalate.
-- **CRITICAL findings always block**; if any CRITICAL is found, write to `sdd/.review-needed.md` with a "BLOCKING" header and exit. The user must address before further changes.
+- **CRITICAL findings always block**; if any CRITICAL is found, write to `$TRIAGE_FILE` with a "BLOCKING" header and exit. The user must address before further changes.
 
 ## Phase 4: Changelog
 
@@ -190,7 +191,7 @@ Add a changelog entry to the layout-resolved changelog (`sdd/spec/changes.md` ne
 ## YYYY-MM-DD
 
 - {Behavioural change in one sentence}
-- {Auto-demoted N REQs to Partial: see .coverage-report.md for details}
+- {Auto-demoted N REQs to Partial: see triage file for details}
 ```
 
 **Never add changelog entries for Phase 2 cleanup work** (forbidden content, length, format, strikethrough). That's git history, not user-facing.
@@ -206,7 +207,7 @@ spec-reviewer report — mode: {mode}
   MEDIUM:   {count} ({list})
   LOW:      {count} (deferred to /sdd clean)
   Auto-fixed: {count}
-  Escalated to .review-needed.md: {count}
+  Escalated to triage file: {count}
   Round counter: {1|2}
   Skill invocations: spec-enforce ({rows}), spec-enforce-ac ({inert|ran}), spec-enforce-truth ({inert|ran})
 ```
@@ -226,7 +227,7 @@ spec-reviewer report — mode: {mode}
 
 When deciding where a new requirement belongs, read `sdd/README.md` for the project's actual domain index. Do NOT assume any specific domain names; every project has its own domain list.
 
-If the user pushes a change that doesn't fit any existing domain, escalate to `.review-needed.md` with a proposal for a new domain. Never create new domain files without user confirmation.
+If the user pushes a change that doesn't fit any existing domain, escalate to `$TRIAGE_FILE` with a proposal for a new domain. Never create new domain files without user confirmation.
 
 ## Templates for new REQs
 
@@ -237,7 +238,7 @@ When adding a new REQ via Phase 1, follow the rendering template in the `spec-en
 - **Treating a bug as a REQ.** Bugs describe the *delta* from target state; they belong in GitHub issues, not the spec. The spec describes target state. If the diff fixes a bug, the matching REQ already exists (or should); don't create a new REQ named "fix X".
 - **Treating a TODO as a REQ.** Known gaps belong in `pending.md`; the REQ's Status: Partial signals incompleteness. Do not draft REQs for aspirational future work that has no AC bullet derivable from current code or PRs.
 - **Editing source or docs to match the spec.** Out of lane. If code drifts from spec, report HIGH `spec-vs-shipped` and let the user decide; never edit code or `documentation/` from this agent.
-- **Auto-resolving JUDGMENT findings outside unleashed mode.** Mark Partial + Notes + escalate to `.review-needed.md`; never silently overwrite either side of a doc-vs-spec conflict.
+- **Auto-resolving JUDGMENT findings outside unleashed mode.** Mark Partial + Notes + escalate to `$TRIAGE_FILE`; never silently overwrite either side of a doc-vs-spec conflict.
 - **Strikethrough or "Superseded:" annotations in the spec.** Spec churn lives in git history, not in the spec body. If a REQ's behavior changed, edit the AC in place; the old version is in `git log sdd/{domain}.md`.
 
 ## Exit checklist (verify before reporting done)
@@ -245,7 +246,7 @@ When adding a new REQ via Phase 1, follow the rendering template in the `spec-en
 - [ ] `spec-enforce` skill was invoked as first action (skipping = HIGH `enforcement-skill-not-invoked`)
 - [ ] Conditional sub-skills ran when applicable (`spec-enforce-ac` when ACs touched, `spec-enforce-truth` when Implemented REQs touched or scope=all)
 - [ ] Mode-appropriate fix policy applied (interactive confirms; auto applies CRITICAL+HIGH+MEDIUM; unleashed includes LOW)
-- [ ] JUDGMENT findings escalated to `sdd/.review-needed.md` (not auto-resolved outside unleashed mode)
+- [ ] JUDGMENT findings escalated to `$TRIAGE_FILE` (not auto-resolved outside unleashed mode)
 - [ ] `[spec-reviewer]` commit prefix used on every commit this agent authored
 - [ ] No edit landed outside `sdd/` — `documentation/` and source files left untouched
 - [ ] Phase 5 report written with severity counts + skill invocation manifest

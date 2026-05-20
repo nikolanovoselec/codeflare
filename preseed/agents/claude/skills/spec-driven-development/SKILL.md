@@ -145,7 +145,7 @@ The `@impl` HTML comment is the framework's anchor format for the Truth guarante
 
 **Detection regex:** `<!--\s*@impl:\s*([^:]+)::([^\s=]+)(?:\s*=\s*(.+?))?\s*-->`
 
-**Validation contract (CQ-SOURCE in `spec-enforce-truth`, Pass 8b in `doc-enforce-truth`):**
+**Validation contract (CQ-SOURCE in `spec-enforce-truth`, Pass 15 in `doc-enforce-truth`):**
 
 1. Resolve `<symbol>` via `mcp__graphify__get_node` against the unified graph. Fallback: grep `<symbol>` in `<path>` when graphify cannot resolve.
 2. Symbol not resolved → HIGH `spec-anchor-orphaned` (or `doc-anchor-orphaned`).
@@ -180,8 +180,8 @@ The `@impl` HTML comment is the framework's anchor format for the Truth guarante
 | Where work lands | Current branch | Current branch | Current branch |
 | SAFE fixes (strip strikethrough, truncate prose Status, generate backlinks, move forbidden content) | Confirm → apply | Apply silently | Apply silently |
 | RISKY fixes (truncate changes.md, mass moves, bulk operations) | Confirm + backup + apply | Backup + apply | Backup + apply |
-| JUDGMENT calls (doc-vs-spec conflict, oversized REQ, fake-Deprecated) | Escalate to user, pause | Escalate to `sdd/.review-needed.md`, continue | Auto-resolve conservatively, continue |
-| `enforce_tdd` default | per `sdd/config.yml` (default true) | per `sdd/config.yml` (default true) | **Forced true** |
+| JUDGMENT calls (doc-vs-spec conflict, oversized REQ, fake-Deprecated) | Escalate to user, pause | Escalate to layout-resolved triage file (`sdd/spec/triage.md` nested OR `sdd/.review-needed.md` flat legacy), continue | Auto-resolve conservatively, continue |
+| `enforce_tdd` default | per layout-resolved config (`sdd/spec/config.yml` nested OR `sdd/config.yml` flat; default true) | same | **Forced true** |
 | Output | Inline confirmations | Inline reports | Inline reports; per-category commits |
 
 The fundamental difference is **how JUDGMENT is handled**. All modes push to the current branch. No PR, no new branch, no artificial change limits.

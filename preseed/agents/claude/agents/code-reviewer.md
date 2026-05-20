@@ -38,17 +38,19 @@ This prevents the agent from re-surfacing findings the user has already triaged 
 
 When invoked:
 
-0. **Transition gate (Phase 0, before any other work).** Run this check FIRST. If the project is in SDD transition, exit no-op with the notice `SDD transition in progress; review suspended until triage drains.` Single rule across all review agents; see `spec-discipline.md` → SDD transition state. The literal check (same regex shape as `spec-reviewer` and `doc-updater`):
+0. **Transition gate (Phase 0, before any other work).** Run this check FIRST. If the project is in SDD transition, exit no-op with the notice `SDD transition in progress; review suspended until triage drains.` Single rule across all review agents; see `spec-discipline.md` → SDD transition state. The literal check is layout-aware (nested `sdd/spec/` overrides flat `sdd/`):
    ```bash
-   if [ -f sdd/config.yml ] \
-      && grep -q '^transition:[[:space:]]*true' sdd/config.yml \
-      && [ -f sdd/init-triage.md ] \
-      && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' sdd/init-triage.md; then
+   CONFIG=$(test -f sdd/spec/config.yml && echo sdd/spec/config.yml || echo sdd/config.yml)
+   TRIAGE=$(test -f sdd/spec/init-triage.md && echo sdd/spec/init-triage.md || echo sdd/init-triage.md)
+   if [ -f "$CONFIG" ] \
+      && grep -q '^transition:[[:space:]]*true' "$CONFIG" \
+      && [ -f "$TRIAGE" ] \
+      && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "$TRIAGE"; then
      echo "SDD transition in progress; review suspended until triage drains."
      exit 0
    fi
    ```
-   Emit the notice and stop without writing any review report. Same gate shape as `git-push-review-reminder.sh` and `enforce-review-spawn.sh`.
+   Emit the notice and stop without writing any review report. Same gate shape as `spec-reviewer`, `doc-updater`, `git-push-review-reminder.sh`, and `enforce-review-spawn.sh`.
 
 1. **Gather the full diff** — Resolve the diff source from the PR base when a PR exists, falling back to upstream-aware syntax otherwise:
    ```bash
@@ -328,7 +330,7 @@ Detection regex on the diff:
 
 For each anchor whose `<symbol>` matches a renamed-or-deleted symbol in the source diff: HIGH `spec-anchor-orphaned-by-source-change` (or `doc-anchor-orphaned-by-source-change` when the anchor is in `documentation/`). The finding cites the spec/doc file + line, the anchor, and the source change that broke it.
 
-**Not auto-fixable.** Symbol-to-AC mapping is JUDGMENT — the new symbol may have different semantics. Escalate to the review report and let the user decide whether to update the anchor or rewrite the AC. The framework's Truth guarantee (CQ-SOURCE in `spec-enforce-truth`, Pass 8b in `doc-enforce-truth`) will independently flag the orphan on the next PR-boundary review; code-reviewer surfaces it earlier (at code-review time) so the rename can be reconciled in the same PR.
+**Not auto-fixable.** Symbol-to-AC mapping is JUDGMENT — the new symbol may have different semantics. Escalate to the review report and let the user decide whether to update the anchor or rewrite the AC. The framework's Truth guarantee (CQ-SOURCE in `spec-enforce-truth`, Pass 15 in `doc-enforce-truth`) will independently flag the orphan on the next PR-boundary review; code-reviewer surfaces it earlier (at code-review time) so the rename can be reconciled in the same PR.
 
 ## Project-Specific Guidelines
 

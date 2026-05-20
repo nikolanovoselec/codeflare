@@ -197,9 +197,9 @@ Domain with zero backlinks in any expected lane → emit MEDIUM finding to `sdd/
 
 ### Iterate-to-clean against enforcement skills
 
-After Phase 6 emission completes, invoke `doc-enforce` (skill) with `scope=all`. The skill runs the 14-row manifest and conditionally invokes `doc-enforce-shape`, `doc-enforce-lanes`, `doc-enforce-truth`. Mode-dependent action mirrors the rest of `/sdd init`:
+After Phase 6 emission completes, invoke `doc-enforce` (skill) with `scope=all`. The skill runs the 15-row manifest and conditionally invokes `doc-enforce-shape`, `doc-enforce-lanes`, `doc-enforce-truth`. Mode-dependent action mirrors the rest of `/sdd init`:
 - Mechanical findings (template field missing, lane violation pattern, REQ-backlink missing, shape inconsistency): auto-fix in `auto`/`unleashed`, prompt in `interactive`.
-- Truth-check findings (Pass 8b doc source-anchor mismatch): escalate to `sdd/spec/triage.md`, never silently rewrite.
+- Truth-check findings (Pass 15 doc source-anchor mismatch): escalate to `sdd/spec/triage.md`, never silently rewrite.
 - Stranger cold-read findings (Pass 12): escalate to `sdd/spec/triage.md`.
 
 Same loop applies to `spec-enforce` against the spec output. Re-run until no new auto-fixable findings appear (typically 1-2 cycles).

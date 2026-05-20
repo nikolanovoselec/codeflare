@@ -1,12 +1,12 @@
 ---
 name: doc-enforce
-description: SDD documentation enforcement orchestrator. Runs the 15-row execution manifest against documentation/. Detects forbidden content, per-element + per-file budget violations, within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, doc source-anchor truth (Pass 8b — always runs). Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and by /sdd clean.
+description: SDD documentation enforcement orchestrator. Runs the 15-row execution manifest against documentation/. Detects forbidden content, per-element budget violations (per-file caps deprecated in v2.0), within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, doc source-anchor truth (Pass 15 — always runs). Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and by /sdd clean.
 version: 2.0.0
 ---
 
 # Documentation Enforcement (orchestrator)
 
-This skill is the spine for SDD documentation enforcement. It runs the 14-row execution manifest against `documentation/` and orchestrates the conditional detail skills (`doc-enforce-lanes`, `doc-enforce-shape`, `doc-enforce-truth`).
+This skill is the spine for SDD documentation enforcement. It runs the 15-row execution manifest against `documentation/` and orchestrates the conditional detail skills (`doc-enforce-lanes`, `doc-enforce-shape`, `doc-enforce-truth`).
 
 ## Inputs
 
@@ -18,7 +18,7 @@ This skill is the spine for SDD documentation enforcement. It runs the 14-row ex
 **Layout-awareness.** All file globs in this skill respect the detected layout:
 - Lane files: `documentation/lanes/**/*.md` (nested) OR `documentation/*.md` excluding `README.md` (flat)
 - ADR ledger: `documentation/decisions/README.md` (both layouts; unchanged)
-- Triage / escalation: `documentation/.doc-coverage.md` (audit accumulator, still used to record Pass 12 cold-read gaps and Pass 8b retrofit-failure entries)
+- Triage / escalation: `documentation/.doc-coverage.md` (audit accumulator, still used to record Pass 12 cold-read gaps and Pass 15 retrofit-failure entries)
 
 ## Execution contract (binding)
 
@@ -40,13 +40,13 @@ Audit location by trigger:
 | Pass 6 — File-level shape consistency | Invoke `doc-enforce-shape`. | `ran (...)` or `inert` |
 | Pass 7 — Canonical per-endpoint rendering | Invoke `doc-enforce-shape`. | `ran (...)` or `inert (no api-reference*.md present)` |
 | Pass 8 — Verification truth-check | Invoke `doc-enforce-truth`. | `ran (...)` or `inert` |
-| Pass 8b — Doc source-anchor truth-check | Invoke `doc-enforce-truth` UNCONDITIONALLY for every lane file or ADR file in diff OR scope=all. Never gated. | `ran (D docs, A anchors verified, V drift, O orphaned, U unanchored)` |
 | Pass 9 — Implements-vs-AC cross-walk | Invoke `doc-enforce-truth`. | `ran (...)` or `inert` |
 | Pass 10 — Stale code-block detection | Invoke `doc-enforce-truth`. | `ran (...)` or `inert` |
 | Pass 11 — Content-preservation on trim | Invoke `doc-enforce-truth`. | `ran (...)` or `inert` |
 | Pass 12 — Stranger cold-read | Invoke `doc-enforce-truth`. | `ran (T tasks, M findings)` or `ran (cached, hit on SHA <sha>)` |
 | Pass 13 — Within-section semantic consistency | Walk every heading section in every `documentation/**.md`; fire 3 triggers. | `ran (K files, S sections, M findings)` |
 | Pass 14 — Authoring quality (reviewer-with-a-brain) | Re-read every prose diff hunk (or every paragraph in every canonical lane file on /sdd clean --all); flag weasel, unverifiable, missing-why. | `ran (D diff hunks, W weasel, U unverifiable, Y missing-why)` |
+| Pass 15 — Doc source-anchor truth-check | Invoke `doc-enforce-truth` UNCONDITIONALLY for every lane file or ADR file in diff OR scope=all. Never gated. | `ran (D docs, A anchors verified, V drift, O orphaned, U unanchored)` |
 
 Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit on SHA <sha>)`; that IS execution. Cache amortises cost across Stop hooks; never skips the pass.
 
@@ -57,7 +57,7 @@ Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit o
 3. **Conditional invocations**:
    - For every doc file touched in diff: invoke `doc-enforce-lanes` (covers Pass 3 + Pass 4).
    - IF `documentation/lanes/api-reference*.md` (or flat `documentation/api-reference*.md`) OR any canonical lane file touched in diff OR scope=all: invoke `doc-enforce-shape` (covers Pass 5 + Pass 6 + Pass 7).
-   - **Always invoke `doc-enforce-truth` Pass 8b** for every lane file or `decisions/README.md` in the diff OR scope=all (source-anchor truth-check is never gated). The other passes in `doc-enforce-truth` (Pass 8, Pass 9, Pass 10, Pass 11, Pass 12) fire only when Implemented REQ docs touched OR scope=all, as before.
+   - **Always invoke `doc-enforce-truth` Pass 15** for every lane file or `decisions/README.md` in the diff OR scope=all (source-anchor truth-check is never gated). The other passes in `doc-enforce-truth` (Pass 8, Pass 9, Pass 10, Pass 11, Pass 12) fire only when Implemented REQ docs touched OR scope=all, as before.
 4. **Aggregate** findings from sub-skill invocations into the unified manifest.
 5. **Apply mode**:
    - `interactive`: confirm each fix; CRITICAL/HIGH/MEDIUM blocking, LOW deferred.
@@ -170,7 +170,7 @@ Scan every section heading and first paragraph. Section describes a feature with
 | Severity | Definition |
 |---|---|
 | **CRITICAL** | Doc claims behaviour that contradicts shipped code in a security/data-loss-misleading way |
-| **HIGH** | Implementation-prose paragraph with no REQ; dual-narrative ADR; doc references removed function/file/route; doc-anchor-orphaned (Pass 8b); doc-value-drift (Pass 8b) |
+| **HIGH** | Implementation-prose paragraph with no REQ; dual-narrative ADR; doc references removed function/file/route; doc-anchor-orphaned (Pass 15); doc-value-drift (Pass 15) |
 | **MEDIUM** | Lane violation; cell >50 words; missing REQ backlink; ADR missing Status; index-table ID not linked; REQ ref in non-API TOC; doc-behavior-orphaned; doc-fact-not-anchored |
 | **LOW** | Cell 40-50 words; inconsistent heading capitalisation; broken intra-doc anchor link |
 

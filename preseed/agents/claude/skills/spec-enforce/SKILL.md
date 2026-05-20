@@ -6,7 +6,7 @@ version: 2.0.0
 
 # Spec Enforcement (orchestrator)
 
-This skill is the spine for SDD spec enforcement. It runs the 18-row execution manifest against `sdd/` and orchestrates the conditional detail skills (`spec-enforce-ac`, `spec-enforce-truth`).
+This skill is the spine for SDD spec enforcement. It runs the 19-row execution manifest against `sdd/` and orchestrates the conditional detail skills (`spec-enforce-ac`, `spec-enforce-truth`).
 
 ## Inputs
 
@@ -49,7 +49,7 @@ Audit location by trigger: `/sdd clean` writes to the per-category commit bodies
 | CQ-TEST — Test-anchor coverage | Invoke `spec-enforce-truth` if `enforce_tdd: true` AND (Implemented REQs touched OR scope=all). | `ran (N REQs, M findings)` or `inert (enforce_tdd: false)` |
 | CQ-SOURCE — Source-anchor truth-check | Invoke `spec-enforce-truth` UNCONDITIONALLY when any Implemented or Partial REQ in diff OR scope=all. Never gated by `enforce_tdd`. | `ran (N REQs, A anchors verified, V drift, O orphaned, U unanchored)` |
 | CQ-1, CQ-2, CQ-3 | Invoke `spec-enforce-truth`. | `ran (...)` or `inert` |
-| Backlog re-triage | Walk every open finding in `sdd/.review-needed.md`; re-classify under current rules; auto-fix what is now mechanisable. | `ran (B items, R re-triaged, F auto-fixed, S still-escalated)` |
+| Backlog re-triage | Walk every open finding in the layout-resolved triage file (`sdd/spec/triage.md` nested OR `sdd/.review-needed.md` flat legacy); re-classify under current rules; auto-fix what is now mechanisable. | `ran (B items, R re-triaged, F auto-fixed, S still-escalated)` |
 | Commit-prefix + 2-round limit | Check last 3 commits; halt if 2+ counted-tag commits in lane. | `ran (3 commits inspected, M findings)` |
 
 ## Orchestration logic
@@ -288,7 +288,7 @@ Self-limit to prevent micro-fix spirals. Counter is scoped to spec-reviewer's la
 
 1. `git log -3 --name-only --format="--- %H %s"`.
 2. Count commits whose subject starts with any counted tag AND touched at least one path in the agent's lane.
-3. >=2 of last 3 qualify: hard stop. Write would-be findings to `sdd/.review-needed.md` and exit.
+3. >=2 of last 3 qualify: hard stop. Write would-be findings to the layout-resolved triage file (`sdd/spec/triage.md` nested OR `sdd/.review-needed.md` flat legacy) and exit.
 4. Counter resets when a non-agent commit lands in the lane.
 
 Cross-cutting commits count for whichever agents own touched lanes. Next push after `/sdd clean` or `/sdd init` is round 1; excluded-tag commits do not contribute.

@@ -20,7 +20,7 @@ System overview, component map, and data flow.
 
 ## Source Modules
 
-Exhaustive listing of every source file in the primary source tree. The `Implements` column lists the REQs each file participates in. Source-anchor comments (`<!-- @impl: ... -->`) carry the symbol reference used by `doc-enforce-truth` Pass 8b.
+Exhaustive listing of every source file in the primary source tree. The `Implements` column lists the REQs each file participates in. Source-anchor comments (`<!-- @impl: ... -->`) carry the symbol reference used by `doc-enforce-truth` Pass 15.
 
 | Path | Responsibility | Implements |
 |---|---|---|
@@ -34,7 +34,7 @@ Exhaustive listing of every source file in the primary source tree. The `Impleme
 
 ## Data Flow
 
-{How data moves through the system. Include database, storage, and external services. Concrete persistence claims carry `<!-- @impl: <path>::<symbol> --> = <value> -->` anchors per `spec-driven-development` § Source-anchor convention.}
+{How data moves through the system. Include database, storage, and external services. Concrete persistence claims carry `<!-- @impl: <path>::<symbol> = <value> -->` anchors per `spec-driven-development` § Source-anchor convention.}
 
 ---
 

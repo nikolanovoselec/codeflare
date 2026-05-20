@@ -278,16 +278,19 @@ fi
 # SDD transition gate (REQ-AGENT-022) - do not block turn-end while the
 # user is mid-transition. The condition is the single source of truth
 # defined in spec-discipline.md "Transition gate condition": BOTH
-# transition: true in sdd/config.yml AND at least one **Status:** open
-# item in sdd/init-triage.md (case-insensitive on `open`). Both required.
+# transition: true in config AND at least one **Status:** open item in
+# init-triage (case-insensitive on `open`). Both required. Layout-aware:
+# nested sdd/spec/* paths override flat sdd/* paths.
 #
 # If transition: true is set but no open items exist, this is corrupted
 # state -- let the run proceed so spec-reviewer flags it (Step 0b.5
-# writes a HIGH finding to sdd/.review-needed.md).
+# writes a HIGH finding to the layout-resolved triage file).
 # ---------------------------------------------------------------------------
-if grep -q '^transition:[[:space:]]*true' sdd/config.yml 2>/dev/null \
-   && [ -f "sdd/init-triage.md" ] \
-   && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "sdd/init-triage.md" 2>/dev/null; then
+_config_file=$(test -f sdd/spec/config.yml && echo sdd/spec/config.yml || echo sdd/config.yml)
+_triage_init=$(test -f sdd/spec/init-triage.md && echo sdd/spec/init-triage.md || echo sdd/init-triage.md)
+if grep -q '^transition:[[:space:]]*true' "$_config_file" 2>/dev/null \
+   && [ -f "$_triage_init" ] \
+   && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "$_triage_init" 2>/dev/null; then
   exit 0
 fi
 
@@ -614,12 +617,13 @@ if [ "$PR_STATE" = "MERGED" ] || [ "$PR_STATE" = "CLOSED" ]; then
   if [ -n "$CURRENT_PR_HEAD" ] \
      && [ -n "$LAST_ACK_PR_HEAD" ] \
      && [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ]; then
+    triage_file=$(test -f sdd/spec/triage.md && echo sdd/spec/triage.md || echo sdd/.review-needed.md)
     {
       printf '\n## %s — PR %s un-acked at merge/close\n' \
         "$(date +%Y-%m-%d)" "$PR_STATE"
       printf -- '- PR for branch `%s` reached %s with un-acked HEAD `%s` (last ack: `%s`). Review pipeline did not complete before merge.\n' \
         "$CURRENT" "$PR_STATE" "${CURRENT_PR_HEAD:0:7}" "${LAST_ACK_PR_HEAD:0:7}"
-    } >> sdd/.review-needed.md 2>/dev/null || true
+    } >> "$triage_file" 2>/dev/null || true
   fi
   exit 0
 fi

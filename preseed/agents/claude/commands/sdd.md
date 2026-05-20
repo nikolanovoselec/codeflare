@@ -30,7 +30,8 @@ SUBCOMMANDS
 MODES
   interactive  (default)   Agent confirms every fix.
   auto                     Auto-fix CRITICAL+HIGH+MEDIUM; defer LOW.
-                           JUDGMENT → sdd/.review-needed.md.
+                           JUDGMENT → triage file (sdd/spec/triage.md
+                           nested, sdd/.review-needed.md flat legacy).
   unleashed                Auto-fix everything including LOW + JUDGMENT
                            (conservative). Refuses to run on enforce_tdd: false.
 
@@ -44,10 +45,15 @@ WORKFLOW
   /sdd clean             Run periodically (or after rotted spec is detected).
 
 FILES
-  sdd/                   The spec (one .md per domain + README.md + glossary.md
-                         + constraints.md + changes.md + config.yml).
-  documentation/         The how (architecture, api-reference, configuration,
-                         deployment, security, troubleshooting, decisions/).
+  sdd/                   The spec. Nested layout: sdd/README.md + sdd/spec/
+                         (per-domain .md + glossary.md + constraints.md +
+                         changes.md + triage.md + config.yml). Flat legacy:
+                         sdd/*.md at the top level.
+  documentation/         The how. Nested layout: documentation/README.md +
+                         documentation/lanes/ (architecture, api-reference,
+                         configuration, deployment, security, troubleshooting)
+                         + documentation/decisions/. Flat legacy: flat files
+                         under documentation/.
   pending.md             TODOs / known gaps not yet ready to be REQs.
 
 For full workflow details: invoke the spec-driven-development skill.

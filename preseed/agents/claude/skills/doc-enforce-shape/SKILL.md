@@ -194,6 +194,6 @@ Pass 7 validates the binding shape, not just field presence. A section with `**A
 
 ## Severity application
 
-All shape findings are MEDIUM. Cumulative findings on one file may push file-level total over the soft budget; that escalates via the spine's Pass 2.
+All shape findings are MEDIUM. (Pass 2 file-budget escalation removed; per-element caps in the spine's Pass 1 remain authoritative.)
 
 Mode-dependent action mirrors the spine.
