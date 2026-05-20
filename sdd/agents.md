@@ -705,3 +705,45 @@ Multi-agent support, preseed system, and session modes.
 **Dependencies:** REQ-AGENT-023, REQ-AGENT-024
 **Verification:** Automated test (`host/__tests__/enforce-ctx-mode-graphify.test.js`, `host/__tests__/graph-first-nudge.test.js`)
 **Status:** Implemented
+
+## REQ-AGENT-028: Scaffold-time spec validation contract
+
+**Intent:** `/sdd init` MUST validate the drafted spec against the `spec-enforce` family at scaffold time (Phase 5f), iterating up to 5 cycles until findings clear or residuals escalate to `sdd/.review-needed.md`. The validation contract that runs at PR boundary is the same contract that runs at scaffold emission — generation contract = validation contract.
+
+**Acceptance Criteria:**
+1. After Phase 5a-5e enrichment and draft acceptance, `sdd-init` writes the spec to the working tree and applies `spec-enforce` `scope=all` (the 18-row execution manifest plus conditional `spec-enforce-ac` + `spec-enforce-truth` invocations).
+2. Auto-fixable findings (mechanical rendering, missing fields, status drift) are applied inline. Extraction-required findings re-run the corresponding Phase 5 sub-pass against the specific target. Split-induced cross-link breakage (a REQ split by spec-enforce-ac's accretion guard) is re-resolved against split-children BEFORE re-invoking the validator.
+3. The iterate-to-clean loop exits on zero CRITICAL and zero HIGH findings, OR at 5 iterations (knob `scaffold_iteration_limit` in `sdd/config.yml`). On limit, residual CRITICAL/HIGH findings write to `sdd/.review-needed.md` under header `Scaffold-time validator residuals`; the scaffold commits regardless.
+4. The placeholder detection contract in `spec-driven-development` § "Placeholder detection contract (single source of truth)" is consumed by both the generation-side pre-flight (sdd-init template-write step) and the validation-side `spec-enforce` § Scaffold-section-empty rule. Neither site duplicates the regex inline.
+
+**Constraints:**
+- The validator runs through the same `spec-enforce` skill PR-boundary uses; no scaffold-only validator variant exists. Honest single-pass walk; iteration is owned by `sdd-init`, not by the enforce skill.
+- `--unleashed` at init time does NOT bypass the iterate-to-clean loop. It only affects the user-interaction prompts (vision, draft acceptance).
+
+**Applies To:** Agent
+**Priority:** P1
+**Dependencies:** REQ-AGENT-021 (SDD workflow), REQ-AGENT-022 (legacy-codebase transition), REQ-AGENT-023 (graphify)
+**Verification:** Manual (stress-test against zipline-native at `documentation/sdd-init-stress-test-2026-05-20.md`)
+**Status:** Partial — implementation honest-system at scaffold time; subagent-dispatched validator at PR boundary. Iterate-to-clean loop documented in `sdd-init/SKILL.md` § Iterate-to-clean.
+
+## REQ-AGENT-029: Scaffold-time documentation validation contract
+
+**Intent:** `/sdd init` MUST validate drafted documentation against the `doc-enforce` family at scaffold time (Phase 6j), with the same iterate-to-clean shape as REQ-AGENT-028. Graphify-extensive pre-extraction (Phase 6a-6h) supplies the section bodies; templates supply the skeleton; doc-enforce validates the result.
+
+**Acceptance Criteria:**
+1. After Phase 6a-6i drafting, `sdd-init` writes all documentation files to the working tree and applies `doc-enforce` `scope=all` (the 18-row execution manifest including Pass 16 scaffold-section-empty, Pass 17 ADR-marker sidecar staleness, Pass 18 Source Module Map exhaustiveness, plus conditional sub-skill invocations).
+2. Phase 6f emits ADR marker proposals to `documentation/.adr-marker-proposals.md` — a sidecar. Phase 6 does NOT mutate source files (lane crossing). The user applies markers manually; each application deletes the corresponding sidecar row in the same commit.
+3. The iterate-to-clean loop exits on zero CRITICAL and zero HIGH findings, OR at 5 iterations. On limit, residuals write to `documentation/.review-needed.md` under header `Scaffold-time validator residuals`.
+4. Phase 6a lane-discovery probe matrix is mirrored by `doc-enforce` Pass 15 (validation side). Both sites consume the same matrix; drift between them is a documentation-discipline finding.
+5. The placeholder detection contract in `spec-driven-development` § "Placeholder detection contract (single source of truth)" is consumed by the generation-side pre-flight (sdd-init template-write step) and the validation-side `doc-enforce` Pass 16. No inline duplication.
+
+**Constraints:**
+- Graphify is the load-bearing source of truth for Phase 6 structural extraction but is NOT required. Per-pass fallback (filesystem walk, grep) preserves a degraded path. The fallback emits a notice; the scaffold proceeds.
+- Project-scoping check: Phase 5a/6a MUST verify `graphify-out/graph.json` exists in `pwd` before any `mcp__graphify__*` call. The unified global graph returns data from unrelated projects when the local file is absent; that path is a noise source, not a fallback.
+- Cold-read at scaffold time (`doc-enforce-truth` Pass 12) runs via self-simulation only; subagent-dispatched cold-read fires only at PR boundary.
+
+**Applies To:** Agent
+**Priority:** P1
+**Dependencies:** REQ-AGENT-028, REQ-AGENT-023, REQ-AGENT-025
+**Verification:** Manual (stress-test against zipline-native at `documentation/sdd-init-stress-test-2026-05-20.md`)
+**Status:** Partial — Phase 6 documented in `sdd-init/SKILL.md`; doc-enforce Pass 15-18 implemented; subagent-dispatched scaffold-time validator dispatch is honest-system pending REQ-AGENT-028 promotion to Implemented.

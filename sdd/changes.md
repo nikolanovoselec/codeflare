@@ -2,6 +2,12 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-20
+
+- **REQ-AGENT-028 added (Partial):** Scaffold-time spec validation contract. Phase 5f iterate-to-clean against spec-enforce family.
+- **REQ-AGENT-029 added (Partial):** Scaffold-time documentation validation contract. Phase 6j iterate-to-clean against doc-enforce family. Includes Pass 15 (lane-discovery probe matrix), Pass 16 (scaffold-section-empty), Pass 17 (ADR-marker sidecar staleness), Pass 18 (Source Module Map exhaustiveness).
+- **sdd-init Phase 5 + Phase 6 documented in sdd-init/SKILL.md v2.0.0+:** graphify-extensive pre-extraction, iterate-to-clean validation loops, ADR marker sidecar emission, project-scoping check for graphify, autonomous-mode defaults for `--unleashed`. Both REQs Partial; full validator dispatch at scaffold time is honest-system pending future tooling.
+
 ## 2026-05-19
 
 - REQ-MEM-001 AC3 / REQ-SESSION-016 wiring fix: `handleSetBucketName` (`src/container/index.ts`) was silently dropping `userTimezone` from the DO entry-point JSON destructure. The Worker forwarded the browser's IANA tz, but the DO never read the field, so `USER_TIMEZONE` was always empty inside containers and capture filenames fell through to UTC. Destructure restored; field now flows through `setBucketName` -> `applyBucketName` and through `applyPrefsOnRestart`. `applyPrefsOnRestart` userTimezone branch now persists-before-mutates (matches the `ensureVaultKey` precedent) and validates the IANA shape at the DO boundary so path-traversal / junk strings cannot reach storage or the entrypoint symlink. Semantics documented as "sticky once set": empty/undefined/malformed inputs are no-op, since the Worker filters empties upstream via the truthy spread in `buildSetBucketNameBody`. Regression coverage added at two layers: helper-level unit tests (`src/__tests__/container/container-env.test.ts`) and HTTP-level integration tests (`src/__tests__/container/index.test.ts`) that POST to `/_internal/setBucketName` and assert `USER_TIMEZONE` surfaces on `envVars`. The HTTP-level tests fail if the destructure is reverted, closing the test-theater gap left by the helper-only tests.
