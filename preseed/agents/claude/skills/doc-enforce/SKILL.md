@@ -54,6 +54,7 @@ Audit location by trigger:
 | Pass 15 — Lane-discovery probe | Run the lane-discovery probe matrix against source; verify every probe-hit has a canonical lane file. Missing files: HIGH `lane-missing-but-probe-hit`. | `ran (P probes, M missing-lanes)` |
 | Pass 16 — Scaffold-section-empty | Walk every documentation/**.md; detect unsubstituted template placeholders (`{...}` literals) in mandate-closed sections, empty mandate-closed tables/lists, "TODO" markers in scaffold-emission lines. | `ran (K files, M empty-mandates)` |
 | Pass 17 — ADR marker sidecar staleness | When `documentation/.adr-marker-proposals.md` exists, invoke `doc-enforce-lanes` ADR sidecar staleness pass. | `ran (R rows, S stale, O orphaned, E empty)` or `inert (no sidecar)` |
+| Pass 18 — Source Module Map exhaustiveness | When `documentation/architecture.md` exists, invoke `doc-enforce-shape` exhaustiveness pass. | `ran (S source files, R rows, M findings)` or `inert (no architecture.md)` |
 
 Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit on SHA <sha>)`; that IS execution. Cache amortises cost across Stop hooks; never skips the pass.
 

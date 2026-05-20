@@ -50,11 +50,11 @@ Projects with `adr_marker_style: none` opt out of the inline-marker convention; 
 
 | ID | Decision | Category | Date |
 |----|----------|----------|------|
-| AD1 | {First decision title} | Architecture / Security / Storage / Billing / UI | YYYY-MM-DD |
+| AD-1 | {First decision title} | Architecture / Security / Storage / Billing / UI | YYYY-MM-DD |
 
 ---
 
-### AD1: {First decision title}
+### AD-1: {First decision title}
 
 **Status:** Accepted (YYYY-MM-DD)
 

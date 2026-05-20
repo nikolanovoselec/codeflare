@@ -1,6 +1,6 @@
 ---
 name: doc-enforce-shape
-description: SDD documentation structural shape enforcement. Runs Pass 5 (format-template field presence), Pass 6 (file-level shape consistency), Pass 7 (canonical per-endpoint rendering for api-reference*.md), plus the jump-TOC binding rule, TOC content rule, and index-table link rule. Invoked conditionally by doc-enforce when api-reference*.md or any canonical lane file is touched in diff (OR scope=all).
+description: SDD documentation structural shape enforcement. Runs Pass 5 (format-template field presence), Pass 6 (file-level shape consistency), Pass 7 (canonical per-endpoint rendering for api-reference*.md), Pass 18 (Source Module Map exhaustiveness), plus the jump-TOC binding rule, TOC content rule, and index-table link rule. Invoked conditionally by doc-enforce when api-reference*.md or any canonical lane file is touched in diff (OR scope=all).
 version: 1.0.0
 ---
 
@@ -21,6 +21,7 @@ Returns findings array + auto-fix actions. Writes evidence-count rows back to th
 - `Pass 5 — Format-template field presence`: `ran (S sections, M findings)`
 - `Pass 6 — File-level shape consistency`: `ran (K files, M findings)`
 - `Pass 7 — Canonical per-endpoint rendering`: `ran (E endpoints, M findings)` or `inert (no api-reference*.md present)`
+- `Pass 18 — Source Module Map exhaustiveness`: `ran (S source files, R rows, M findings)` or `inert (no architecture.md)`
 
 ## Per-lane format templates
 
@@ -117,6 +118,21 @@ Verify each canonical lane file against its expected shape declared by the per-l
 **Content-preservation guarantee:** auto-fix preserves all original prose verbatim. Restructuring a per-item section to grouped-table shape collapses the bolded pairs into table rows; extended prose preserved as body prose below the table. Reverse direction splits table rows into sections. Either direction, no clause dropped or paraphrased. If a section's prose cannot be split or merged without semantic loss (>200 words of inline prose that does not fit any single cell), auto-fix DEFERS that one section, emits MEDIUM `shape-conversion-content-bloat`. Rare residual JUDGMENT.
 
 Auto-fix in `auto`/`unleashed`: mechanical re-render; commit `[doc-updater] re-render: {file} to canonical shape`.
+
+## Pass 18 — Source Module Map exhaustiveness
+
+**Scope:** `documentation/architecture.md § 4. Source Module Map` only. Other files exempt.
+
+**Detection:** count source files in the project's primary source tree (`lib/`, `src/`, `app/`, etc., excluding `test*/`, `vendor/`, `generated/`, `node_modules/`, `.dart_tool/`, `build/`). Count rows in architecture.md § Source Module Map (across all subsystem subsections 4.1, 4.2, ...).
+
+**Finding tiers:**
+- `row_count >= 0.9 * source_file_count`: no finding.
+- `0.7 * source_file_count <= row_count < 0.9 * source_file_count`: MEDIUM `source-module-map-incomplete`.
+- `row_count < 0.7 * source_file_count`: HIGH `source-module-map-incomplete`.
+
+**Auto-fix in `auto`/`unleashed`:** re-run `sdd-init` Phase 6b against the missing files (intersect source-tree walk with current Source Module Map rows; emit rows for the difference). Maintains subsystem subsection clustering per 6b output.
+
+**Why this is a separate pass and not folded into Pass 6:** Pass 6 enforces shape consistency; Pass 18 enforces completeness. Different failure mode; different fix.
 
 ## Pass 7 — Canonical per-endpoint rendering
 

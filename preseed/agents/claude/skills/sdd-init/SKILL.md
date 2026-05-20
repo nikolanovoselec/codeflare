@@ -14,6 +14,18 @@ Three scenarios, auto-detected:
 
 Detect via source-file count (greenfield-vs-import) and presence of open triage items (resume).
 
+## Autonomous-mode defaults (binding when `--unleashed` is supplied)
+
+`--unleashed` at `/sdd init` time implies the user is not available to answer the vision prompt or the draft-accept prompt. The skill MUST proceed without blocking on user input:
+
+- **Vision prompt (Greenfield step 1, Import Mode step 1).** Skip the question. Vision defaults:
+  - Greenfield: read repo basename + any README content present; if both empty, vision is `"{repo-basename} — purpose to be filled by /sdd edit"`.
+  - Import Mode: vision = first paragraph of `README.md` (or `README` / `readme.md`); fallback to "Imported from existing code" if README absent.
+- **Draft-accept prompt (step 4).** Auto-accept the full draft. Skip the section-edit loop entirely. Console-log `Note: --unleashed; auto-accepted draft. Run /sdd edit to refine domains/REQs.`
+- **Triage decisions (Resume Mode).** `--unleashed` at Resume Mode does NOT auto-resolve triage items — triage explicitly requires user judgment per the SDD transition gate. Resume Mode prints `Note: --unleashed deferred during triage; triage items still require manual decision.` and presents items one at a time as in interactive mode.
+
+Non-autonomous flags (`--auto`, `--interactive`, no flag) prompt the user normally. The agent must NOT silently auto-accept when the user is present.
+
 ## Greenfield — lean two-confirm flow
 
 1. **Ask for vision** (one free-form question if `$ARGUMENTS` is empty). Confirm what you heard in one sentence.
@@ -131,6 +143,14 @@ Two surfaces — plain Bash and context-mode MCP. Every phase below MUST work on
 ## Phase 5 — Spec extraction + enrichment + validation (binding)
 
 **Pre-condition: a graphify graph at `graphify-out/graph.json` is the load-bearing source of truth for this phase.** Per REQ-AGENT-025, the post-clone PostToolUse hook prompts the user to build one immediately after `git clone`. If missing at `/sdd init` time, prompt the user ONCE: "No graphify graph found. Build one now via `/graphify cluster-only` (AST-only, free, ~30s)? Or proceed with in-memory enrichment (less reliable cross-link density)?". On accept: dispatch `/graphify cluster-only` and wait. On decline: fallback (below).
+
+**Project-scoping check (binding, runs before any graphify call).** The unified global graph layer (`~/.graphify/global-graph.json`) merges per-repo graphs + vault notes + session captures into one MCP-queryable surface. `mcp__graphify__*` calls succeed against the global graph even when the local `graphify-out/graph.json` is absent — meaning a naive "graph exists" check passes while the returned nodes belong to UNRELATED projects. Phase 5a MUST:
+
+1. Check `graphify-out/graph.json` exists in `pwd` (file-system check, not MCP).
+2. If absent: skip ALL `mcp__graphify__*` calls and fire fallback. Do NOT call `graph_stats` or `god_nodes` expecting useful project data — the global graph will return noise.
+3. If present: proceed with `mcp__graphify__*` calls against the (presumably project-scoped) graph.
+
+A project-scoped MCP query attempted while only the global graph exists is the dominant source-of-truth failure for Phase 5/6. The fallback is genuinely the better answer here — in-memory inference from README + filesystem is more reliable than vault-session noise from the global layer.
 
 Phase 5 runs in five passes, then a validation loop:
 
