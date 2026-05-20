@@ -1,7 +1,7 @@
 ---
 name: doc-enforce
-description: SDD documentation enforcement orchestrator. Runs the 14-row execution manifest against documentation/. Detects forbidden content, per-element + per-file budget violations, within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps. Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and by /sdd clean.
-version: 1.0.0
+description: SDD documentation enforcement orchestrator. Runs the 15-row execution manifest against documentation/. Detects forbidden content, per-element + per-file budget violations, within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, doc source-anchor truth (Pass 8b — always runs). Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and by /sdd clean.
+version: 2.0.0
 ---
 
 # Documentation Enforcement (orchestrator)
@@ -12,28 +12,35 @@ This skill is the spine for SDD documentation enforcement. It runs the 14-row ex
 
 - `diff`: git diff against base (PR-boundary triggers) OR full-tree view (scope=all)
 - `scope`: `all` | `diff` (default `diff`)
-- `mode`: `interactive` | `auto` | `unleashed` (read from `sdd/config.yml`)
+- `mode`: `interactive` | `auto` | `unleashed` (read from `sdd/spec/config.yml` when nested layout exists, else `sdd/config.yml` on flat layout)
+- `layout`: `nested` | `flat` (auto-detected via `test -d documentation/lanes`)
+
+**Layout-awareness.** All file globs in this skill respect the detected layout:
+- Lane files: `documentation/lanes/**/*.md` (nested) OR `documentation/*.md` excluding `README.md` (flat)
+- ADR ledger: `documentation/decisions/README.md` (both layouts; unchanged)
+- Triage / escalation: `documentation/.doc-coverage.md` (audit accumulator, still used to record Pass 12 cold-read gaps and Pass 8b retrofit-failure entries)
 
 ## Execution contract (binding)
 
 Every row of the manifest below MUST execute on every run. No cherry-picking; cost is never a valid skip. Manifest written FIRST with all rows `pending`, updated as each pass completes, finalised at run end. Pending rows at finalize emit HIGH `manifest-pending-at-finalize`. Status rows without concrete evidence counts emit HIGH `manifest-bare-evidence-count`. "skipped (looked clean)" is dishonest.
 
 Audit location by trigger:
-- `/sdd clean`: docs-side rows into `sdd/.last-clean-run.md`
-- PR-boundary doc-updater: docs-side manifest into the agent's commit body OR `documentation/.review-needed.md`
+- `/sdd clean`: docs-side rows into per-category commit bodies (audit via `git log --grep='\[sdd-clean\]'`); no separate dotfile.
+- PR-boundary doc-updater: docs-side manifest into the agent's commit body OR `documentation/.doc-coverage.md` (the audit accumulator; replaces the prior `.review-needed.md` on the doc lane).
 
 ## Required execution manifest
 
 | Pass | Required action | Status |
 |---|---|---|
 | Pass 1 — Per-element budgets | Walk every doc file; count cell/list/snippet/heading/paragraph against caps. | `ran (K files, M findings)` |
-| Pass 2 — File-level budgets | Walk every doc file; apply file-budget table; honour `doc-allow-large` markers. | `ran (K files, M findings)` |
+| Pass 2 — File-level budgets | DEPRECATED — no file-level line cap. Row remains for manifest stability; status always `inert (file-level cap removed in v2.0; per-element caps in Pass 1 still apply)`. | `inert (file-level cap removed)` |
 | Pass 3 — Implementation-prose detection | Invoke `doc-enforce-lanes`. | `ran (...)` or `inert` |
 | Pass 4 — Lane-violation detection | Invoke `doc-enforce-lanes`. | `ran (...)` or `inert` |
 | Pass 5 — Format-template field presence | Invoke `doc-enforce-shape`. | `ran (...)` or `inert` |
 | Pass 6 — File-level shape consistency | Invoke `doc-enforce-shape`. | `ran (...)` or `inert` |
 | Pass 7 — Canonical per-endpoint rendering | Invoke `doc-enforce-shape`. | `ran (...)` or `inert (no api-reference*.md present)` |
 | Pass 8 — Verification truth-check | Invoke `doc-enforce-truth`. | `ran (...)` or `inert` |
+| Pass 8b — Doc source-anchor truth-check | Invoke `doc-enforce-truth` UNCONDITIONALLY for every lane file or ADR file in diff OR scope=all. Never gated. | `ran (D docs, A anchors verified, V drift, O orphaned, U unanchored)` |
 | Pass 9 — Implements-vs-AC cross-walk | Invoke `doc-enforce-truth`. | `ran (...)` or `inert` |
 | Pass 10 — Stale code-block detection | Invoke `doc-enforce-truth`. | `ran (...)` or `inert` |
 | Pass 11 — Content-preservation on trim | Invoke `doc-enforce-truth`. | `ran (...)` or `inert` |
@@ -49,8 +56,8 @@ Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit o
 2. **Always-runs rows** (Pass 1, 2, 13, 14): execute inline. Each row updates its manifest status to concrete evidence count immediately on completion.
 3. **Conditional invocations**:
    - For every doc file touched in diff: invoke `doc-enforce-lanes` (covers Pass 3 + Pass 4).
-   - IF `documentation/api-reference*.md` OR any canonical lane file touched in diff OR scope=all: invoke `doc-enforce-shape` (covers Pass 5 + Pass 6 + Pass 7).
-   - IF any Implemented REQ docs touched OR scope=all: invoke `doc-enforce-truth` (covers Pass 8-12).
+   - IF `documentation/lanes/api-reference*.md` (or flat `documentation/api-reference*.md`) OR any canonical lane file touched in diff OR scope=all: invoke `doc-enforce-shape` (covers Pass 5 + Pass 6 + Pass 7).
+   - **Always invoke `doc-enforce-truth` Pass 8b** for every lane file or `decisions/README.md` in the diff OR scope=all (source-anchor truth-check is never gated). The other passes in `doc-enforce-truth` (Pass 8, Pass 9, Pass 10, Pass 11, Pass 12) fire only when Implemented REQ docs touched OR scope=all, as before.
 4. **Aggregate** findings from sub-skill invocations into the unified manifest.
 5. **Apply mode**:
    - `interactive`: confirm each fix; CRITICAL/HIGH/MEDIUM blocking, LOW deferred.
@@ -82,20 +89,11 @@ Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit o
 - **Cookie names, env var names, header names** when documenting configuration or HTTP contract
 - **Code snippets** illustrating a non-obvious calling pattern (<=15 lines)
 
-## Per-file line budgets
+## No file-level line cap
 
-| File | Soft budget | Severity above budget |
-|---|---|---|
-| `documentation/architecture.md` | 500 | LOW (500-700) / MEDIUM (700-1000) / HIGH (>1000) |
-| `documentation/api-reference*.md` | 600 | LOW (600-1000) / MEDIUM (1000-1500) / HIGH (>1500) |
-| `documentation/configuration.md` | 200 | LOW (200-350) / MEDIUM (350-500) / HIGH (>500) |
-| `documentation/deployment.md` | 200 | LOW (200-350) / MEDIUM (350-500) / HIGH (>500) |
-| `documentation/security.md` | 250 | LOW (250-400) / MEDIUM (400-600) / HIGH (>600) |
-| `documentation/troubleshooting.md` | 300 | LOW (300-500) / MEDIUM (500-800) / HIGH (>800) |
-| `documentation/decisions/README.md` | No soft budget | ADR ledger; use `doc-allow-large` hatch with AD reference |
-| Other files in `documentation/` | 250 | LOW (250-400) / MEDIUM (400-600) / HIGH (>600) |
+Lane files are sized by the project they describe. A 60-file library naturally has a 60-row Source Module Map; a single-endpoint Worker has a one-row API reference. Numeric line caps mis-fit both extremes — they constrain large projects into artificial splits and offer no signal on small ones. **There is no per-file line budget in this skill.** Quality is enforced by per-element caps (Pass 1) and structural shape (Pass 6, Pass 7) instead.
 
-**File-level exemption marker.** A `<!-- doc-allow-large: AD-NN reason -->` HTML comment in the file's preamble (after H1, before first `##`) exempts that file from its Pass 2 budget. The `AD-NN` reference is required; verified to exist. Multiple markers allowed. When marker is present but the cited ADR does NOT exist: MEDIUM `doc-allow-large-ad-missing`. Element-level markers from Pass 1 do NOT exempt from Pass 2.
+`<!-- doc-allow-large: ... -->` markers and `<!-- doc-allow-element: ... -->` markers are still recognised for backward compatibility but no longer gate any finding. The latter still exempts a specific element from per-element caps in Pass 1 when present.
 
 ## Per-element budgets
 
@@ -113,11 +111,13 @@ Walk each `documentation/*.md` and apply per-element caps. Cells over 50 words: 
 
 **Per-element exemption markers.** A `<!-- doc-allow-element: AD-NN reason -->` HTML comment on the line immediately above an element exempts that specific element from its cap. `AD-NN` reference required. The marker exempts ONLY the next element.
 
-## Pass 2 — File-level budget enforcement
+## Pass 2 — File-level budgets (DEPRECATED, no-op)
 
-Count lines per file (excluding blank lines and code fences). Apply budget table. Emit finding at severity tier.
+Pass 2 historically enforced numeric line caps per lane file. The cap was wrong: it constrained large projects into artificial splits while offering no signal on small ones. The cap is removed as of `doc-enforce` v2.0.
 
-In `auto`/`unleashed`, doc-updater proposes a split: identify natural section boundaries (top-level `##`); write a new sibling file with a redirect pointer. Commit: `[doc-updater] split: filename.md -> filename-{section}.md`.
+Pass 2 is preserved as a manifest row for backward compatibility with downstream tooling that reads the 15-row manifest shape; the row always reports `inert (file-level cap removed)`. Per-element caps (Pass 1) and structural-shape passes (Pass 6, Pass 7) remain authoritative.
+
+`<!-- doc-allow-large: AD-NN ... -->` markers in existing files are silently accepted and no longer required. Removing them is a documentation cleanup task, not an enforcement need.
 
 ## Pass 13 — Within-section semantic consistency
 
@@ -170,9 +170,9 @@ Scan every section heading and first paragraph. Section describes a feature with
 | Severity | Definition |
 |---|---|
 | **CRITICAL** | Doc claims behaviour that contradicts shipped code in a security/data-loss-misleading way |
-| **HIGH** | Implementation-prose paragraph with no REQ; dual-narrative ADR; doc references removed function/file/route; monolithic decisions README; file >2x soft budget |
-| **MEDIUM** | Lane violation; cell >50 words; file 1x-2x budget; missing REQ backlink; ADR missing Status; index-table ID not linked; REQ ref in non-API TOC |
-| **LOW** | Cell 40-50 words; file 0.8x-1x budget (approaching); inconsistent heading capitalisation; broken intra-doc anchor link |
+| **HIGH** | Implementation-prose paragraph with no REQ; dual-narrative ADR; doc references removed function/file/route; doc-anchor-orphaned (Pass 8b); doc-value-drift (Pass 8b) |
+| **MEDIUM** | Lane violation; cell >50 words; missing REQ backlink; ADR missing Status; index-table ID not linked; REQ ref in non-API TOC; doc-behavior-orphaned; doc-fact-not-anchored |
+| **LOW** | Cell 40-50 words; inconsistent heading capitalisation; broken intra-doc anchor link |
 
 Mode-dependent action:
 - `interactive`: confirm before applying any fix
@@ -182,7 +182,7 @@ Mode-dependent action:
 ## Output contract
 
 Writes manifest to one of two audit locations:
-- `/sdd clean` invocation: append to `sdd/.last-clean-run.md` as a `## Execution manifest (docs)` section
-- PR-boundary doc-updater: include in agent's commit body OR (if no commits) `documentation/.review-needed.md`
+- `/sdd clean` invocation: append to per-category commit bodies (audit via `git log --grep='\[sdd-clean\]'`); no separate dotfile.
+- PR-boundary doc-updater: include in agent's commit body OR (if no commits) `documentation/.doc-coverage.md` as `## Execution manifest`.
 
 Every row's status MUST carry concrete evidence counts. Bare `ran` without counts: HIGH `manifest-bare-evidence-count`. Pending rows at finalize: HIGH `manifest-pending-at-finalize`.

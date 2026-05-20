@@ -1,7 +1,7 @@
 ---
 name: spec-enforce
-description: SDD spec enforcement orchestrator. Runs the 18-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state. Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented REQs touched or scope=all). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
-version: 1.0.0
+description: SDD spec enforcement orchestrator. Runs the 19-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented REQs touched or scope=all). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
+version: 2.0.0
 ---
 
 # Spec Enforcement (orchestrator)
@@ -12,13 +12,21 @@ This skill is the spine for SDD spec enforcement. It runs the 18-row execution m
 
 - `diff`: git diff against base (PR-boundary triggers) OR full-tree view (scope=all)
 - `scope`: `all` | `diff` (default `diff`)
-- `mode`: `interactive` | `auto` | `unleashed` (read from `sdd/config.yml`)
+- `mode`: `interactive` | `auto` | `unleashed` (read from `sdd/spec/config.yml` when nested layout exists, else `sdd/config.yml` on flat layout)
+- `layout`: `nested` | `flat` (auto-detected via `test -d sdd/spec`)
+
+**Layout-awareness.** All file globs in this skill respect the detected layout:
+- Spec files: `sdd/spec/**/*.md` (nested) OR `sdd/*.md` excluding `README.md` (flat)
+- Config: `sdd/spec/config.yml` (nested) OR `sdd/config.yml` (flat)
+- Triage / escalation: `sdd/spec/triage.md` (nested) OR `sdd/.review-needed.md` (flat, legacy)
+
+The flat layout is supported during the migration window; `/sdd clean` migrates flat → nested on demand. Both layouts coexist correctly in this skill.
 
 ## Execution contract (binding)
 
 Every row of the manifest below MUST execute on every run. No cherry-picking; cost is never a valid skip. Manifest written FIRST with all rows `pending`, updated as each rule completes, finalised at run end. Pending rows at finalize emit HIGH `manifest-pending-at-finalize`. Status rows without concrete evidence counts (`ran (N REQs, M findings)`) emit HIGH `manifest-bare-evidence-count`. "skipped (looked clean)" is dishonest.
 
-Audit location by trigger: `/sdd clean` writes to `sdd/.last-clean-run.md`. PR-boundary spec-reviewer writes to the agent's commit body OR (if no commits) `sdd/.review-needed.md` as a `## Execution manifest` sub-section.
+Audit location by trigger: `/sdd clean` writes to the per-category commit bodies (audit via `git log --grep='\[sdd-clean\]'`). PR-boundary spec-reviewer writes to the agent's commit body OR (if no commits) `sdd/spec/triage.md` (nested) / `sdd/.review-needed.md` (flat, legacy) as a `## Execution manifest` sub-section.
 
 ## Required execution manifest
 
@@ -38,7 +46,8 @@ Audit location by trigger: `/sdd clean` writes to `sdd/.last-clean-run.md`. PR-b
 | Meta-content leakage Rule A (stub-after-extraction) | Walk every REQ; flag stub shape. | `ran (N REQs, M findings)` |
 | Meta-content leakage Rule B (Notes two-shape) | Walk every Notes field; flag violations. | `ran (N Notes, M findings)` |
 | Meta-content leakage Rule C (preamble edit-history) | Walk every `sdd/{domain}.md` preamble; flag edit-history prose. | `ran (K files, M findings)` |
-| Test coverage and enforce_tdd | Invoke `spec-enforce-truth` if `enforce_tdd: true` AND (Implemented REQs touched OR scope=all). | `ran (N REQs, M findings)` or `inert (enforce_tdd: false)` |
+| CQ-TEST — Test-anchor coverage | Invoke `spec-enforce-truth` if `enforce_tdd: true` AND (Implemented REQs touched OR scope=all). | `ran (N REQs, M findings)` or `inert (enforce_tdd: false)` |
+| CQ-SOURCE — Source-anchor truth-check | Invoke `spec-enforce-truth` UNCONDITIONALLY when any Implemented or Partial REQ in diff OR scope=all. Never gated by `enforce_tdd`. | `ran (N REQs, A anchors verified, V drift, O orphaned, U unanchored)` |
 | CQ-1, CQ-2, CQ-3 | Invoke `spec-enforce-truth`. | `ran (...)` or `inert` |
 | Backlog re-triage | Walk every open finding in `sdd/.review-needed.md`; re-classify under current rules; auto-fix what is now mechanisable. | `ran (B items, R re-triaged, F auto-fixed, S still-escalated)` |
 | Commit-prefix + 2-round limit | Check last 3 commits; halt if 2+ counted-tag commits in lane. | `ran (3 commits inspected, M findings)` |
@@ -224,22 +233,22 @@ Severity: LOW `preamble-edit-history-leakage`. Auto-fix in `unleashed`: delete o
 
 ## Backlog re-triage
 
-Without re-triage, escalated findings become permanent terminal state. Every PR-boundary trigger MUST run Backlog re-triage. Walks each open finding; three outcomes:
+Without re-triage, escalated findings become permanent terminal state. Every PR-boundary trigger MUST run Backlog re-triage. Walks each open finding in `sdd/spec/triage.md` (nested) or `sdd/.review-needed.md` (flat, legacy); three outcomes:
 
-1. **Re-classified as auto-fixable**: the finding's category now has a deterministic auto-fix. Apply, remove from `.review-needed.md`, record `Backlog re-triage:` in `sdd/changes.md`.
+1. **Re-classified as auto-fixable**: the finding's category now has a deterministic auto-fix. Apply, remove from triage file, record `Backlog re-triage:` in `sdd/spec/changes.md` (or `sdd/changes.md` flat).
 2. **Still-escalated, content unchanged**: still ownership work. Entry stays verbatim.
 3. **Superseded**: underlying state changed (REQ deleted, test renamed, file moved). Remove with `Resolved (superseded by <state-change>):` marker in commit body.
 
 Re-triage runs BEFORE other CQ checks this cycle so newly-fixable backlog items resolve before the structural sweep emits the same finding again.
 
-**Format requirement for `.review-needed.md` entries:**
+**Format requirement for triage entries:**
 ```
 **Finding ID:** {category}-{N}  ({YYYY-MM-DD})
-**Category:** req-test-name-only-match | sub-feature-split-cannot-mechanize | ...
-**Affected:** REQ-X-NNN | documentation/path | tests/path
+**Category:** req-test-name-only-match | sub-feature-split-cannot-mechanize | spec-anchor-orphaned | ...
+**Affected:** REQ-X-NNN | documentation/lanes/{file}.md | tests/path
 ```
 
-Older entries lacking this header re-classify as "still-escalated" and emit LOW `backlog-entry-missing-header`. The `/sdd init` scaffold placeholder `_Awaiting first run._` (entire file body) is recognised as the empty-slot marker and does NOT trigger the finding; only entries that look like real findings but lack the header do.
+Older entries lacking this header re-classify as "still-escalated" and emit LOW `backlog-entry-missing-header`. The `/sdd init` scaffold placeholder `_Awaiting first finding._` (entire file body) is recognised as the empty-slot marker and does NOT trigger the finding; only entries that look like real findings but lack the header do.
 
 **No re-triage during SDD transition.** When `transition: true`, the pass is `inert (transition active)`.
 
@@ -247,19 +256,21 @@ Older entries lacking this header re-classify as "still-escalated" and emit LOW 
 
 When `/sdd init` runs in Import Mode, it produces official REQs and a triage queue at `sdd/init-triage.md`. While any triage item carries `Status: open`, the project is in **SDD transition** and `sdd/config.yml` carries `transition: true`.
 
-**Transition gate condition** (single source of truth):
+**Transition gate condition** (single source of truth — layout-aware):
 
 ```
-IN_TRANSITION = grep -q '^transition: true' sdd/config.yml
-                AND test -f sdd/init-triage.md
-                AND grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' sdd/init-triage.md
+CONFIG=$(test -f sdd/spec/config.yml && echo sdd/spec/config.yml || echo sdd/config.yml)
+TRIAGE=$(test -f sdd/spec/init-triage.md && echo sdd/spec/init-triage.md || echo sdd/init-triage.md)
+IN_TRANSITION = grep -q '^transition: true' "$CONFIG"
+                AND test -f "$TRIAGE"
+                AND grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "$TRIAGE"
 ```
 
 All three conditions must be true. Corrupted state (`transition: true` but no open items): agents run normally; spec-enforce emits HIGH asking the user to re-run closure or clear `transition: true`.
 
-**During transition**: this skill's auto-demote of Implemented -> Partial is SUPPRESSED. spec-enforce-truth's CQ-1 still runs but writes to `sdd/.coverage-report.md` rather than mutating Status.
+**During transition**: this skill's CQ-TEST auto-demote of Implemented -> Partial is SUPPRESSED. CQ-1 still runs but writes to `sdd/spec/triage.md` (under `## Coverage gaps`) rather than mutating Status. **CQ-SOURCE is NOT suppressed during transition** — Truth guarantee runs always.
 
-`/sdd mode unleashed` is rejected during transition. Closure commit clears `transition: true` from `sdd/config.yml` + appends closure entry to `sdd/changes.md`.
+`/sdd mode unleashed` is rejected during transition. Closure commit clears `transition: true` from `sdd/spec/config.yml` (or `sdd/config.yml` flat) + appends closure entry to `sdd/spec/changes.md` (or `sdd/changes.md` flat).
 
 ## Commit-prefix contract (load-bearing for anti-spiral)
 
@@ -313,7 +324,7 @@ User revert or "don't do that for this REQ" is a normal git operation. Reverted 
 
 This skill writes to one of two audit locations:
 
-- `/sdd clean` invocation: append to `sdd/.last-clean-run.md` as a `## Execution manifest` section
-- PR-boundary spec-reviewer: include in agent's commit body OR (if no commits) `sdd/.review-needed.md` as `## Execution manifest`
+- `/sdd clean` invocation: append to the per-category commit body (audit via `git log --grep='\[sdd-clean\]'`); no separate dotfile.
+- PR-boundary spec-reviewer: include in agent's commit body OR (if no commits) `sdd/spec/triage.md` (nested) / `sdd/.review-needed.md` (flat, legacy) as `## Execution manifest`.
 
 Every row's status MUST carry concrete evidence counts (`ran (N REQs, M findings)` or `inert (reason)`). Bare `ran` without counts: HIGH `manifest-bare-evidence-count`. Pending rows at finalize: HIGH `manifest-pending-at-finalize`.
