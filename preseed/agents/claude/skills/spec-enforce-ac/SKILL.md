@@ -13,6 +13,13 @@ This skill enforces the rules that operate on Acceptance Criteria bullets and RE
 - `diff`: git diff against base
 - `scope`: `all` | `diff`
 - `mode`: `interactive` | `auto` | `unleashed`
+- `layout`: `nested` | `flat` (auto-detected by parent `spec-enforce`)
+
+**Layout-awareness.** Cross-cutting REQ extraction and new-domain scaffolding paths resolve per the detected layout:
+- Nested: new domain files land in `sdd/spec/{domain}.md`
+- Flat: new domain files land in `sdd/{domain}.md` (legacy)
+
+The AC granularity rules, splitting mechanics, and accretion guard are layout-invariant; only the target file paths change.
 
 ## Output
 

@@ -14,6 +14,14 @@ This skill enforces the rules that police HOW canonical lane files are rendered:
 - `scope`: `all` | `diff`
 - `mode`: `interactive` | `auto` | `unleashed`
 - `files`: list of canonical lane files in diff (when scope=diff)
+- `layout`: `nested` | `flat` (auto-detected by parent `doc-enforce` via `test -d documentation/lanes`)
+
+**Layout-awareness.** Canonical lane file resolution is layout-aware:
+- Nested: `documentation/lanes/{architecture,api-reference*,configuration,deployment,security,observability,troubleshooting}.md`
+- Flat: `documentation/{architecture,api-reference*,configuration,deployment,security,observability,troubleshooting}.md`
+- ADR ledger: `documentation/decisions/README.md` in both layouts.
+
+Per-lane format templates and the binding endpoint template apply identically across layouts; only the file globs change.
 
 ## Output
 

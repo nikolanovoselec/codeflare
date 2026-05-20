@@ -311,6 +311,25 @@ When reviewing, check for project context:
 - If `documentation/decisions/README.md` exists, check it before flagging architectural patterns — they may be intentional trade-offs documented as ADs
 - If neither exists, review based on code quality alone (projects without SDD are fully supported)
 
+### Orphaned `@impl` source-anchor check (binding when SDD is bootstrapped)
+
+When the diff renames, moves, or deletes any source symbol, scan the spec + docs for inline `<!-- @impl: <path>::<symbol> -->` anchors that now point at the missing or moved symbol. The convention is documented in `spec-driven-development` § "Source-anchor convention".
+
+Scan targets (layout-aware):
+- Spec: `sdd/spec/**/*.md` (nested) OR `sdd/*.md` (flat) excluding `README.md`.
+- ADRs: `documentation/decisions/README.md` (both layouts).
+- Lane files: `documentation/lanes/**/*.md` (nested) OR `documentation/*.md` (flat).
+
+Detection regex on the diff:
+
+```
+<!--\s*@impl:\s*([^:]+)::([^\s=]+)(?:\s*=\s*(.+?))?\s*-->
+```
+
+For each anchor whose `<symbol>` matches a renamed-or-deleted symbol in the source diff: HIGH `spec-anchor-orphaned-by-source-change` (or `doc-anchor-orphaned-by-source-change` when the anchor is in `documentation/`). The finding cites the spec/doc file + line, the anchor, and the source change that broke it.
+
+**Not auto-fixable.** Symbol-to-AC mapping is JUDGMENT — the new symbol may have different semantics. Escalate to the review report and let the user decide whether to update the anchor or rewrite the AC. The framework's Truth guarantee (CQ-SOURCE in `spec-enforce-truth`, Pass 8b in `doc-enforce-truth`) will independently flag the orphan on the next PR-boundary review; code-reviewer surfaces it earlier (at code-review time) so the rename can be reconciled in the same PR.
+
 ## Project-Specific Guidelines
 
 When available, also check project-specific conventions from `CLAUDE.md` or project rules:

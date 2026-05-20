@@ -63,7 +63,7 @@ When a pass surfaces a trimmed-context bullet (Pass 11), **decide whether the tr
 
 When a pass surfaces a misleading citation (Pass 8 / Pass 9), **fix the citation, don't paper over it**. If a `**Verification:**` field cites a file that doesn't exercise the section's REQ, drop the unrelated file or mark the field as `audit pending`. Name-dropping is worse than absence; an empty field signals "this needs human attention" while a wrong citation signals "this is verified" when it isn't.
 
-You own `documentation/` and the root `README.md`. You never touch:
+You own `documentation/` (both layouts: `documentation/lanes/**/*.md` nested, `documentation/*.md` flat) plus `documentation/decisions/**` and the root `README.md`. You never touch:
 - `sdd/` (that's `spec-reviewer`'s lane)
 - Source code (that's the developer's lane)
 
@@ -78,6 +78,18 @@ test -d sdd && test -f sdd/README.md
 ```
 
 **If false, exit silently with code 0.** Non-SDD projects do not get automatic documentation maintenance; the user has not opted into the workflow.
+
+**Layout detection (binding for every subsequent path resolution):**
+
+```bash
+SPEC_LAYOUT="nested"
+[ -d sdd/spec ] || SPEC_LAYOUT="flat"
+
+DOC_LAYOUT="nested"
+[ -d documentation/lanes ] || DOC_LAYOUT="flat"
+```
+
+When `SPEC_LAYOUT=nested`: spec backlinks resolve via `sdd/spec/{file}.md`. When `DOC_LAYOUT=nested`: lane files live at `documentation/lanes/**/*.md`. Both layouts can mix during the migration window. All globs and backlink generation below resolve per the detected layouts.
 
 **Exception: when invoked from `/review` Phase 2.** The `/review` orchestrator passes an inline override (see `preseed/agents/claude/commands/review.md` doc-updater bullet) instructing this agent to emit a one-line "no-op (vibe-coding mode)" header to its output file instead of exiting empty. Honor that override: write the header line and return. This preserves REQ-AGENT-015 AC6's "ran and found nothing" vs "did not run" distinction so the cross-reference phase can detect-and-skip.
 
@@ -231,14 +243,14 @@ You do not assume any specific filenames. If a project has `cms-guide.md` or `se
 
 For every `Status: Implemented` REQ that has no doc file mentioning its REQ ID:
 
-1. Find the most relevant doc file based on REQ domain (e.g., REQ-AUTH-* → `documentation/authentication.md` or `security.md`)
-2. Add a brief backlink in the appropriate section:
+1. Find the most relevant lane file based on REQ domain (e.g., REQ-AUTH-* → `documentation/lanes/security.md` nested OR `documentation/security.md` flat).
+2. Add a brief backlink in the appropriate section. Path depth depends on the resolved doc layout:
    ```markdown
    ## {Section title}
-   Implements [REQ-AUTH-001](../sdd/authentication.md#req-auth-001).
-   ...
+   Implements [REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001).   <!-- nested doc + nested spec -->
+   Implements [REQ-AUTH-001](../sdd/authentication.md#req-auth-001).            <!-- flat doc + flat spec -->
    ```
-3. If no obvious section exists, add a "Related Requirements" section at the bottom of the file
+3. If no obvious section exists, add a "Related Requirements" section at the bottom of the file.
 
 This is a MEDIUM finding (apply in auto and unleashed modes, defer in interactive).
 

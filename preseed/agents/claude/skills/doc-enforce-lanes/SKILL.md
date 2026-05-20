@@ -14,6 +14,13 @@ This skill enforces the rules that police what content belongs in which `documen
 - `scope`: `all` | `diff`
 - `mode`: `interactive` | `auto` | `unleashed`
 - `files`: list of changed doc files in diff (when scope=diff)
+- `layout`: `nested` | `flat` (auto-detected by parent `doc-enforce`)
+
+**Layout-awareness.** Lane-violation auto-fix proposals resolve the target lane file path per the detected layout:
+- Nested: target lane = `documentation/lanes/{file}.md`
+- Flat: target lane = `documentation/{file}.md`
+
+The lane signatures (the WHAT) are layout-invariant; only the WHERE-it-goes path changes.
 
 ## Output
 

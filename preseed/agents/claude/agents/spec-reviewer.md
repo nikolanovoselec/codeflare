@@ -60,7 +60,7 @@ PR-boundary events targeting `main`/`master`, only when `sdd/` exists. Full trig
 
 ## Lane discipline
 
-Own `sdd/` only. Never touch `documentation/` (doc-updater's lane), source code (developer's/code-reviewer's lane), or root `README.md` (doc-updater's lane). Run **before** `doc-updater` sequentially (never parallel — they race on filesystem state).
+Own `sdd/` only — both layouts (`sdd/spec/**/*.md` nested, `sdd/*.md` flat). Never touch `documentation/` (doc-updater's lane), source code (developer's/code-reviewer's lane), or root `README.md` (doc-updater's lane). Run **before** `doc-updater` sequentially (never parallel — they race on filesystem state).
 
 ## Phase 0: Triage (run first, decide whether to continue)
 
@@ -72,19 +72,28 @@ test -d sdd && test -f sdd/README.md
 
 If false, exit silently with code 0. Nothing to do.
 
+**Layout detection (binding for every subsequent path resolution):**
+
+```bash
+LAYOUT="nested"
+[ -d sdd/spec ] || LAYOUT="flat"
+```
+
+When `LAYOUT=nested`: spec files live at `sdd/spec/**/*.md`; config at `sdd/spec/config.yml`; triage queue at `sdd/spec/triage.md`; init-triage at `sdd/spec/init-triage.md`; changelog at `sdd/spec/changes.md`. When `LAYOUT=flat`: legacy paths (`sdd/*.md`, `sdd/config.yml`, `sdd/.review-needed.md`, `sdd/init-triage.md`, `sdd/changes.md`). All globs and file references below resolve per the detected layout.
+
 ### Step 0b: Read the configuration
 
-Read `sdd/config.yml`. If missing, write defaults from the `sdd-config.yml` template in the `spec-driven-development` skill (interactive mode, `enforce_tdd: true`) and continue.
+Read `sdd/spec/config.yml` (nested) or `sdd/config.yml` (flat). If missing, write defaults from the `sdd-config.yml` template in the `spec-driven-development` skill (interactive mode, `enforce_tdd: true`) and continue.
 
 Required fields: `mode`, `enforce_tdd`, `test_globs`, `forbidden_content_allowlist`. Optional: `transition` (set by `/sdd init` Import Mode while triage queue has open items), `src_globs`.
 
 ### Step 0b.5: Detect SDD transition state
 
-If `sdd/config.yml` carries `transition: true` AND `sdd/init-triage.md` exists with at least one `**Status:** open` item, the project is in SDD transition.
+If the layout-resolved config (`sdd/spec/config.yml` nested or `sdd/config.yml` flat) carries `transition: true` AND the layout-resolved init-triage file exists with at least one `**Status:** open` item, the project is in SDD transition.
 
 While in transition, exit no-op. Print `SDD transition in progress; spec-reviewer suspended until triage drains.` and exit with code 0. No skill invocation; no findings emitted.
 
-Sanity check: if `transition: true` is set but `sdd/init-triage.md` is missing or contains no open items, this is a corrupted transition state. Write HIGH finding to `sdd/.review-needed.md` and continue with normal phases.
+Sanity check: if `transition: true` is set but init-triage is missing or contains no open items, this is a corrupted transition state. Write HIGH finding to triage file (`sdd/spec/triage.md` nested, `sdd/.review-needed.md` flat) and continue with normal phases.
 
 ### Step 0c: Check the round counter (anti-spiral)
 
@@ -153,19 +162,19 @@ For each finding (HIGH first, then MEDIUM, then LOW):
 ### Mode: auto
 
 1. Auto-fix all CRITICAL + HIGH + MEDIUM findings on the current branch
-2. Defer LOW findings: write them to `sdd/.review-needed.md` for later `/sdd clean` run
-3. JUDGMENT findings (doc-vs-spec conflict, oversized REQ): write to `sdd/.review-needed.md`, do not auto-resolve
+2. Defer LOW findings: write them to the triage file (`sdd/spec/triage.md` nested, `sdd/.review-needed.md` flat) for later `/sdd clean` run
+3. JUDGMENT findings (doc-vs-spec conflict, oversized REQ, CQ-SOURCE Truth findings): write to triage file, do not auto-resolve
 4. Commit per category with `[autonomous] [spec-reviewer]` prefix
 
 ### Mode: unleashed
 
 1. Stay on the current branch.
 2. Auto-fix all findings including LOW
-3. Auto-resolve JUDGMENT items conservatively per `spec-enforce` "Conservative JUDGMENT auto-resolution" section.
-4. If `sdd/config.yml` has `enforce_tdd: false`, refuse to run in unleashed mode. Emit an explanatory finding pointing the user to either flip `enforce_tdd: true` or use `auto` mode instead.
+3. Auto-resolve JUDGMENT items conservatively per `spec-enforce` "Conservative JUDGMENT auto-resolution" section. CQ-SOURCE Truth findings NEVER auto-resolve — always escalate to triage.
+4. If config has `enforce_tdd: false`, refuse to run in unleashed mode. Emit an explanatory finding pointing the user to either flip `enforce_tdd: true` or use `auto` mode instead.
 5. Commit per category with `[unleashed] [spec-reviewer]` prefix. Each commit message includes its audit log excerpt.
 6. Push commits directly to the current branch. No new branch, no PR.
-7. Write `sdd/.last-clean-run.md` summarising what happened (full audit log lives here + in the per-category commit messages)
+7. Full audit log lives in per-category commit messages (`git log --grep='\[unleashed\] \[spec-reviewer\]' -p`); no separate dotfile.
 
 ### Severity guarantees
 
@@ -175,7 +184,7 @@ For each finding (HIGH first, then MEDIUM, then LOW):
 
 ## Phase 4: Changelog
 
-Add a changelog entry to `sdd/changes.md` ONLY if Phase 1 made behavioural updates or auto-demote ran. Format:
+Add a changelog entry to the layout-resolved changelog (`sdd/spec/changes.md` nested, `sdd/changes.md` flat) ONLY if Phase 1 made behavioural updates or auto-demote ran. Format:
 
 ```markdown
 ## YYYY-MM-DD
@@ -188,7 +197,7 @@ Add a changelog entry to `sdd/changes.md` ONLY if Phase 1 made behavioural updat
 
 ## Phase 5: Report
 
-Write a final summary to stdout (and to `sdd/.last-clean-run.md` if mode is unleashed). Format:
+Write a final summary to stdout (and to the unleashed-mode per-category commit body). Format:
 
 ```
 spec-reviewer report — mode: {mode}
