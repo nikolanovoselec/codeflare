@@ -1,12 +1,22 @@
 ---
 name: spec-enforce
-description: SDD spec enforcement orchestrator. Runs the 18-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state. Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented REQs touched or scope=all). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
-version: 1.0.0
+description: SDD spec enforcement orchestrator. Runs the 18-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, scaffold-section-empty (REQ stubs). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented REQs touched or scope=all). Invoked by spec-reviewer on every PR-boundary trigger, by /sdd clean, and by sdd-init Phase 5f (scaffold-time validation loop). Requires the spec-driven-development skill for the placeholder detection contract used by Scaffold-section-empty.
+version: 2.0.0
 ---
 
 # Spec Enforcement (orchestrator)
 
 This skill is the spine for SDD spec enforcement. It runs the 18-row execution manifest against `sdd/` and orchestrates the conditional detail skills (`spec-enforce-ac`, `spec-enforce-truth`).
+
+## Triggers
+
+This skill fires in three contexts:
+
+1. **PR-boundary spec-reviewer** — invoked by `spec-reviewer` agent on every PR-boundary push when `sdd/` exists. Default `scope=diff`.
+2. **`/sdd clean`** — invoked by `sdd-clean` skill. Default `scope=all`.
+3. **`sdd-init` Phase 5f (scaffold-time validation loop)** — invoked by `sdd-init` after Phase 5 spec drafting + enrichment. Default `scope=all`. The iteration loop lives in `sdd-init`, not here; this skill remains single-pass. Phase 5f invokes this skill up to 5 times, applying fixes between invocations, until findings are clean or the iteration limit triggers `.review-needed.md` residual.
+
+Behavior is identical across triggers — only the audit-location and iteration-orchestrator differ.
 
 ## Inputs
 
@@ -18,7 +28,10 @@ This skill is the spine for SDD spec enforcement. It runs the 18-row execution m
 
 Every row of the manifest below MUST execute on every run. No cherry-picking; cost is never a valid skip. Manifest written FIRST with all rows `pending`, updated as each rule completes, finalised at run end. Pending rows at finalize emit HIGH `manifest-pending-at-finalize`. Status rows without concrete evidence counts (`ran (N REQs, M findings)`) emit HIGH `manifest-bare-evidence-count`. "skipped (looked clean)" is dishonest.
 
-Audit location by trigger: `/sdd clean` writes to `sdd/.last-clean-run.md`. PR-boundary spec-reviewer writes to the agent's commit body OR (if no commits) `sdd/.review-needed.md` as a `## Execution manifest` sub-section.
+Audit location by trigger:
+- `/sdd clean`: spec-side rows into `sdd/.last-clean-run.md`
+- PR-boundary spec-reviewer: spec-side manifest into the agent's commit body OR (if no commits) `sdd/.review-needed.md` as a `## Execution manifest` sub-section
+- `sdd-init` Phase 5f: spec-side manifest into the iteration log; residual findings (after iteration limit) into `sdd/.review-needed.md` under header `Scaffold-time validator residuals`
 
 ## Required execution manifest
 
@@ -42,6 +55,7 @@ Audit location by trigger: `/sdd clean` writes to `sdd/.last-clean-run.md`. PR-b
 | CQ-1, CQ-2, CQ-3 | Invoke `spec-enforce-truth`. | `ran (...)` or `inert` |
 | Backlog re-triage | Walk every open finding in `sdd/.review-needed.md`; re-classify under current rules; auto-fix what is now mechanisable. | `ran (B items, R re-triaged, F auto-fixed, S still-escalated)` |
 | Commit-prefix + 2-round limit | Check last 3 commits; halt if 2+ counted-tag commits in lane. | `ran (3 commits inspected, M findings)` |
+| Scaffold-section-empty (REQs) | Walk every REQ; detect unsubstituted template placeholders (`{...}` literals), empty mandate-closed fields (Intent / Acceptance Criteria / Status), or stub REQ shape (Intent contains only "{describe...}" / Acceptance Criteria is empty). | `ran (N REQs, M findings)` |
 
 ## Orchestration logic
 
@@ -243,6 +257,21 @@ Older entries lacking this header re-classify as "still-escalated" and emit LOW 
 
 **No re-triage during SDD transition.** When `transition: true`, the pass is `inert (transition active)`.
 
+## Scaffold-section-empty (REQs)
+
+Mandate-closed REQ fields MUST be populated. A REQ left with template placeholder text is HIGH `scaffold-section-empty`.
+
+Detection rules:
+1. **Unsubstituted placeholders.** Apply the **placeholder detection contract** defined in `spec-driven-development` § "Placeholder detection contract (single source of truth)" (regex `\{[^{}\n]{2,80}\}` + exemption list). The contract is the canonical source; do not duplicate the regex or exemption list here. Examples of catches under this rule against an Active REQ: `{describe the behaviour}`, `{ACTOR_1}`, `{Intent prose}`, `{Constraint}`, `{file:line}`.
+2. **Empty mandate-closed field.** A REQ whose `Intent:` line ends with no prose, or whose `Acceptance Criteria:` block has zero bullets, or whose `Status:` is blank. (`Constraints: None.` and `Dependencies: None.` are explicit-empty markers and DO populate the field.)
+3. **Stub REQ shape.** An Active REQ whose Intent matches a regex equivalent to template boilerplate (e.g. "{One-sentence intent}", "TBD", "TODO") and whose ACs are empty.
+
+**Severity.** Default HIGH for any Active REQ with stub shape. CRITICAL when the stub REQ is the sole REQ for a Constraint or ADR (an empty REQ leaves the constraint orphaned).
+
+**Detection scope.** Fires on every Active REQ regardless of trigger. Scaffold-time (Phase 5f) is the primary catch surface. PR-boundary catches regressions where a contributor opened a REQ stub and forgot to fill it.
+
+**Auto-fix.** Mode `auto`/`unleashed`: when the source-side signal that drove the REQ's creation is recoverable (graphify trace, related test, ADR reference), the iteration loop re-runs the relevant Phase 5 sub-pass that emits the REQ (cross-link pass for Constraints/Dependencies; glossary-seed for terms). Otherwise escalate to `sdd/.review-needed.md` with REQ ID + unfilled field.
+
 ## SDD transition state (legacy-codebase imports)
 
 When `/sdd init` runs in Import Mode, it produces official REQs and a triage queue at `sdd/init-triage.md`. While any triage item carries `Status: open`, the project is in **SDD transition** and `sdd/config.yml` carries `transition: true`.
@@ -315,5 +344,6 @@ This skill writes to one of two audit locations:
 
 - `/sdd clean` invocation: append to `sdd/.last-clean-run.md` as a `## Execution manifest` section
 - PR-boundary spec-reviewer: include in agent's commit body OR (if no commits) `sdd/.review-needed.md` as `## Execution manifest`
+- `sdd-init` Phase 5f: iteration log + residual findings into `sdd/.review-needed.md` under `Scaffold-time validator residuals` (only after iteration limit is reached)
 
 Every row's status MUST carry concrete evidence counts (`ran (N REQs, M findings)` or `inert (reason)`). Bare `ran` without counts: HIGH `manifest-bare-evidence-count`. Pending rows at finalize: HIGH `manifest-pending-at-finalize`.

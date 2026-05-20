@@ -1,7 +1,7 @@
 ---
 name: doc-enforce-lanes
-description: SDD documentation lane-discipline enforcement. Runs Pass 3 (implementation-prose detection), Pass 4 (lane-violation signature catalogue), dual-narrative ADR detection, and Big-O jargon detection. Invoked conditionally by doc-enforce per file in diff.
-version: 1.0.0
+description: SDD documentation lane-discipline enforcement. Runs Pass 3 (implementation-prose detection), Pass 4 (lane-violation signature catalogue), dual-narrative ADR detection, Big-O jargon detection, per-subsystem lane-split probe (graphify community + prefix coherence), and ADR marker sidecar staleness detection. Invoked conditionally by doc-enforce per file in diff or on scope=all when the sidecar exists.
+version: 2.1.0
 ---
 
 # Documentation Enforcement — Lane discipline
@@ -72,6 +72,48 @@ Fix: the original ADR is immutable. Write a new ADR `Supersedes: <original-adr>.
 
 Severity: HIGH `dual-narrative-adr`. No mechanical auto-fix; the supersedure decision is JUDGMENT (the user decides which decision is the current one). Escalate to `documentation/.review-needed.md` with both narratives quoted.
 
+## Per-subsystem lane-split probe
+
+When a project has distinct subsystems (e.g., a Worker + a mobile app, or a backend + admin UI), each subsystem may merit its own lane file rather than being co-mingled. The probe uses graphify community detection plus name-prefix coherence to detect candidate splits.
+
+**Trigger:**
+- `subsystem_lane_threshold` (default 40 files OR 800 lines in a single canonical lane file) is exceeded, AND
+- A graphify community within the project's primary source tree has >=`subsystem_prefix_coherence` (default 60%) of its files sharing a directory prefix (e.g., `src/admin/*`, `mobile/lib/*`, `worker/src/api/*`).
+
+Both knobs read from `sdd/config.yml`.
+
+**Detection (graphify-backed):**
+1. Call `mcp__graphify__get_community(<community-id>)` for each community returned by `mcp__graphify__query_graph(communities)`.
+2. For each community, compute the most common directory prefix and its share of community members.
+3. If share >= threshold AND the community has >=10 files: candidate subsystem.
+4. Cross-check against `documentation/architecture.md § Source Module Map`: if the candidate is already isolated into its own subsection, the split has been documented at the architecture level; otherwise propose a lane split.
+
+**Detection (graphify-less fallback):**
+1. Walk the source tree; group by top-level directory under `src/`.
+2. Apply the prefix-share calculation by directory size.
+
+**Findings:**
+- A lane file (e.g., `api-reference.md`) covers >=2 detected subsystems and exceeds the threshold: MEDIUM `subsystem-lane-split-candidate` with the proposed split (e.g., `api-reference-admin.md`, `api-reference-mobile.md`).
+- The same finding becomes HIGH if the file is >=2x its soft budget AND a clean split exists.
+
+**Auto-fix.** Mode `auto`/`unleashed`: split along the proposed boundary. Write the new sibling lane file with the carved subsystem's entries. Replace the carved section in the original with a single redirect line. Commit per category. The split heuristic uses the same subsystem subsection structure that `documentation/architecture.md § 4` already organises by; honour that ordering.
+
+## ADR marker sidecar staleness
+
+When `documentation/.adr-marker-proposals.md` exists (emitted by `sdd-init` Phase 6f), each row is a proposed inline ADR marker for the user to apply manually. The sidecar is short-lived: rows are deleted as markers are applied; the file is deleted entirely when the last row is removed. This pass detects staleness.
+
+**Trigger:** fires whenever `documentation/.adr-marker-proposals.md` exists (regardless of diff scope).
+
+**Detection rules:**
+
+1. **Stale row (marker already applied).** Parse each table row; extract `File` and `Line`. Read the indicated source file; check whether a `// AD-N: ...` (or `// CF-N:`, `// {PREFIX}-N:` per `adr_marker_style`) comment exists at or within 5 lines of the indicated line, with `AD-N` matching the row's ADR ID. If yes: MEDIUM `adr-marker-sidecar-stale` (row should be deleted; the user applied the marker but forgot to clean the sidecar).
+2. **Orphaned row (target file/line no longer exists).** If the indicated source file does not exist, OR the indicated line is past EOF, OR the surrounding 10 lines do not contain the original ADR target concept (use the row's `Title` field as a string-overlap probe): MEDIUM `adr-marker-sidecar-orphaned` (row should be deleted; the code drifted after the sidecar was generated, the proposal is no longer actionable).
+3. **Empty sidecar (table has header but zero rows).** When the file contains only the preamble + header row and no data rows: HIGH `adr-marker-sidecar-empty` (file should be deleted; its persistence is documentation rot).
+
+**Auto-fix in `auto`/`unleashed`:** rule 1 + rule 3 are mechanical (delete row / delete file). Rule 2 is conservative — the orphaned row might still be salvageable (refactored code may have moved the concept elsewhere); escalate to `documentation/.review-needed.md` rather than auto-delete. Rule 3 auto-delete fires only when rule 1 cleanup leaves the file empty in the same pass.
+
+**Why this pass exists:** without it, the sidecar becomes a documentation-rot vector — proposal rows for markers already in source persist indefinitely, and a future reader cannot tell which rows are pending vs. already done. The lifecycle contract in `sdd-init/SKILL.md` § Pass 6f names this finding; this pass implements it.
+
 ## Severity application
 
 - Pass 3 implementation-prose with matching REQ: MEDIUM (auto-fix: rewrite to backlink).
@@ -79,5 +121,9 @@ Severity: HIGH `dual-narrative-adr`. No mechanical auto-fix; the supersedure dec
 - Pass 4 lane violations: MEDIUM each; cumulative file may push file-budget over cap, which then escalates via Pass 2.
 - Big-O jargon: MEDIUM.
 - Dual-narrative ADR: HIGH.
+- Subsystem-lane-split candidate: MEDIUM (default) or HIGH (file >=2x budget + clean split available).
+- `adr-marker-sidecar-stale`: MEDIUM (auto-fix: delete row).
+- `adr-marker-sidecar-orphaned`: MEDIUM (escalate to `.review-needed.md`; do not auto-delete).
+- `adr-marker-sidecar-empty`: HIGH (auto-fix: delete file).
 
 Mode-dependent action mirrors the spine.

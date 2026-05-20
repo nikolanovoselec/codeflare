@@ -25,6 +25,27 @@ When an existing ADR is reclassified to a canonical home, preserve its `### AD-N
 
 ---
 
+## Inline Markers
+
+This project's ADR marker convention is **`{ADR_MARKER_STYLE}`** (set in `sdd/config.yml` as `adr_marker_style`). Default: `ad` (markers render as `// AD-N:` at the canonical implementation site).
+
+Every ADR in this ledger SHOULD carry an inline source-code marker at the implementation site it governs:
+
+```typescript
+// AD-N: {one-line title that matches the ADR heading}
+```
+
+Markers are load-bearing anchors:
+- A contributor looking at `// AD-12: ...` in source can `grep AD-12` to find the decision.
+- `doc-enforce` Pass 9 (Implements-vs-AC cross-walk) verifies every inline marker has a reciprocal ADR.
+- `sdd-init` Phase 5c mines existing markers as ADR seeds; Phase 6f seeds new markers for ADRs that came from god-nodes / README mine but had no source-side anchor.
+
+When the ADR's canonical implementation site moves, update the marker location in the same commit that moves the code. When the ADR is reclassified or merged, the marker stays but the comment text updates to reference the new ADR ID.
+
+Projects with `adr_marker_style: none` opt out of the inline-marker convention; ADR-to-source resolution then relies on title matching, which is lossy and discouraged.
+
+---
+
 ## Decision Index
 
 | ID | Decision | Category | Date |

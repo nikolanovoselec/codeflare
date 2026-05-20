@@ -184,7 +184,9 @@ Same as `/sdd edit` but creates a new domain file:
 
 The setting is persistent in `sdd/config.yml` and travels with the project. Per-command overrides via `--interactive`, `--auto`, `--unleashed` flags on `/sdd clean`.
 
-**Transition gate on `unleashed`:** `/sdd mode unleashed` is rejected while `sdd/config.yml` carries `transition: true` (open triage items). Unleashed runs blind and auto-resolves JUDGMENT; triage items need user judgment by construction. Drain the queue via Resume Mode first. `auto` and `interactive` are both allowed during transition.
+**Transition gate on `unleashed`:** `/sdd mode unleashed` (the runtime flip) is rejected while `sdd/config.yml` carries `transition: true` (open triage items). Unleashed runs blind and auto-resolves JUDGMENT; triage items need user judgment by construction. Drain the queue via Resume Mode first. `auto` and `interactive` are both allowed during transition.
+
+**`/sdd init --unleashed` differs from `/sdd mode unleashed`.** The init flag declares intent at bootstrap time and is honoured by deferring the requested mode to `requested_mode_post_transition` in `sdd/config.yml` (active `mode:` stays `interactive` during transition). The runtime flip has no deferral path — it would activate immediately. By construction, the active `mode:` is never `unleashed` while `transition: true`, regardless of which command set the intent. See `sdd-init` § "Mode-flag persistence at init time" for the full mechanism.
 
 ## Test discipline
 
@@ -261,6 +263,30 @@ All scaffolding templates live in `references/templates/` within this skill. The
 | `documentation-decisions-readme.md` | `/sdd init` → `documentation/decisions/README.md` |
 
 Placeholders use `{PLACEHOLDER_NAME}` format. The agent substitutes them based on the user's input and inferred context.
+
+### Placeholder detection contract (single source of truth)
+
+The same regex + exemption list is consumed by three sites: `sdd-init` pre-flight (generation-side, before template write), `doc-enforce` Pass 16 (validation-side, against `documentation/**.md`), and `spec-enforce` § Scaffold-section-empty (validation-side, against Active REQs). All three reference this contract; do not duplicate the regex inline.
+
+**Detection regex:** `\{[^{}\n]{2,80}\}`
+
+**Exemptions (a match is NOT a finding when):**
+1. Inside a fenced code block (``` ... ```).
+2. Inside an inline code span (`` `...` ``).
+3. Preceded by `$` (shell env-var reference like `${HOME}`, `$ {HOME}` with space — both forms exempted via prefix check, not regex lookbehind).
+4. Matches the positive allowlist of intentional ID placeholders that survive into final output:
+   - `\{REQ-[A-Z]+-\d+\}` (REQ cross-references)
+   - `\{AD-\d+\}` (ADR cross-references)
+   - `\{CF-\d+\}` (alternate ADR marker style)
+   - `\{CON-[A-Z]+-\d+\}` (constraint cross-references)
+
+**Severity at detection sites:**
+- `sdd-init` pre-flight (generation-side): fail loudly, do not write the file. The agent must compute a substitution value or drop the placeholder context entirely.
+- `doc-enforce` Pass 16: HIGH (default) / CRITICAL on load-bearing mandate-closed sections.
+- `spec-enforce` § Scaffold-section-empty: HIGH (default) / CRITICAL when the stub REQ is the sole REQ for a Constraint or ADR.
+
+**Drift contract:** changes to the regex or exemption list MUST be made here first; the three consumer sites carry only a reference (`see spec-driven-development § Placeholder detection contract`). A consumer site that copies the regex inline rather than referencing it is a doc-enforce-lanes finding.
+
 
 ## Template conventions
 

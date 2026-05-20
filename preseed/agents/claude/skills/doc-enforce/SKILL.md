@@ -1,12 +1,22 @@
 ---
 name: doc-enforce
-description: SDD documentation enforcement orchestrator. Runs the 14-row execution manifest against documentation/. Detects forbidden content, per-element + per-file budget violations, within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps. Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and by /sdd clean.
-version: 1.0.0
+description: SDD documentation enforcement orchestrator. Runs the 14-row execution manifest against documentation/. Detects forbidden content, per-element + per-file budget violations, within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, missing-lane-but-probe-hit, scaffold-section-empty. Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger, by /sdd clean, and by sdd-init Phase 6j (scaffold-time validation loop). Requires the spec-driven-development skill for the placeholder detection contract used by Pass 16.
+version: 2.0.0
 ---
 
 # Documentation Enforcement (orchestrator)
 
 This skill is the spine for SDD documentation enforcement. It runs the 14-row execution manifest against `documentation/` and orchestrates the conditional detail skills (`doc-enforce-lanes`, `doc-enforce-shape`, `doc-enforce-truth`).
+
+## Triggers
+
+This skill fires in three contexts:
+
+1. **PR-boundary doc-updater** — invoked by `doc-updater` agent on every PR-boundary push when `sdd/` exists. Default `scope=diff`.
+2. **`/sdd clean`** — invoked by `sdd-clean` skill. Default `scope=all`.
+3. **`sdd-init` Phase 6j (scaffold-time validation loop)** — invoked by `sdd-init` after Phase 6 documentation drafting. Default `scope=all`. The iteration loop lives in `sdd-init`, not here; this skill remains single-pass. Phase 6j invokes this skill up to 5 times, applying fixes between invocations, until findings are clean or the iteration limit triggers `.review-needed.md` residual.
+
+Behavior is identical across triggers — only the audit-location and iteration-orchestrator differ.
 
 ## Inputs
 
@@ -21,6 +31,7 @@ Every row of the manifest below MUST execute on every run. No cherry-picking; co
 Audit location by trigger:
 - `/sdd clean`: docs-side rows into `sdd/.last-clean-run.md`
 - PR-boundary doc-updater: docs-side manifest into the agent's commit body OR `documentation/.review-needed.md`
+- `sdd-init` Phase 6j: docs-side manifest into the iteration log; residual findings (after iteration limit) into `documentation/.review-needed.md` under header `Scaffold-time validator residuals`
 
 ## Required execution manifest
 
@@ -40,6 +51,9 @@ Audit location by trigger:
 | Pass 12 — Stranger cold-read | Invoke `doc-enforce-truth`. | `ran (T tasks, M findings)` or `ran (cached, hit on SHA <sha>)` |
 | Pass 13 — Within-section semantic consistency | Walk every heading section in every `documentation/**.md`; fire 3 triggers. | `ran (K files, S sections, M findings)` |
 | Pass 14 — Authoring quality (reviewer-with-a-brain) | Re-read every prose diff hunk (or every paragraph in every canonical lane file on /sdd clean --all); flag weasel, unverifiable, missing-why. | `ran (D diff hunks, W weasel, U unverifiable, Y missing-why)` |
+| Pass 15 — Lane-discovery probe | Run the lane-discovery probe matrix against source; verify every probe-hit has a canonical lane file. Missing files: HIGH `lane-missing-but-probe-hit`. | `ran (P probes, M missing-lanes)` |
+| Pass 16 — Scaffold-section-empty | Walk every documentation/**.md; detect unsubstituted template placeholders (`{...}` literals) in mandate-closed sections, empty mandate-closed tables/lists, "TODO" markers in scaffold-emission lines. | `ran (K files, M empty-mandates)` |
+| Pass 17 — ADR marker sidecar staleness | When `documentation/.adr-marker-proposals.md` exists, invoke `doc-enforce-lanes` ADR sidecar staleness pass. | `ran (R rows, S stale, O orphaned, E empty)` or `inert (no sidecar)` |
 
 Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit on SHA <sha>)`; that IS execution. Cache amortises cost across Stop hooks; never skips the pass.
 
@@ -155,6 +169,46 @@ Three questions, asked in order on every prose hunk:
 
 **Triggers are seeds for judgment.** Deny prose because after reading as a reviewer it is vague, unverifiable, or missing context. A weasel-shaped sentence concretely anchored elsewhere is fine; a sentence with no seed words but no concrete payload is not.
 
+## Pass 15 — Lane-discovery probe matrix
+
+Mirrors `sdd-init` Phase 6a but as validation. The matrix maps source-side signals to required canonical lane files. When a probe fires (signal present in source) but the corresponding lane file is missing from `documentation/`, the finding is HIGH `lane-missing-but-probe-hit`.
+
+| Probe | Signal | Required lane file |
+|---|---|---|
+| Auth middleware | Files matching `auth*`, `session*`, `oauth*`, `*Token*`, `middleware/auth*` OR any handler with auth-related decorators / wrappers | `documentation/security.md` |
+| Rate limiting | `Cache-Control`, `RateLimit-`, Durable Object `RateLimiter*`, `rate-limit*` middleware | `documentation/security.md` (rate-limit section) |
+| CSP / security headers | `Content-Security-Policy`, `X-Frame-Options`, header-setting middleware | `documentation/security.md` |
+| Secrets / env vars | `wrangler.toml [vars]`, `.env*` template files, `process.env.*`, `env.*` in handlers, secret-binding declarations | `documentation/configuration.md` |
+| Observability | Logger imports, `console.*` patterns with structured fields, OpenTelemetry, Sentry, analytics emit | `documentation/observability.md` |
+| Error recovery / on-call | `try/catch` with explicit alert/page emit, runbook references, `documentation/incidents/` directory | `documentation/troubleshooting.md` |
+| Deployment | CI workflow files, `wrangler.toml`, Dockerfile, Procfile, `fly.toml`, etc. | `documentation/deployment.md` |
+| Migrations | `migrations/`, `db/schema*`, `prisma/schema.prisma`, ORM migration directory | `documentation/architecture.md` § Data Flow (small projects) OR `documentation/migrations.md` (>=3 migrations) |
+| Admin endpoints | Route files matching `*/admin/*`, handlers with admin-only auth wrapper | `documentation/api-reference-admin.md` (>=3 admin endpoints) OR `api-reference.md` § Admin API |
+| ADRs (god-node tech choices) | `mcp__graphify__god_nodes(top_n=20)` returns vendor/framework/pattern nodes | `documentation/decisions/README.md` populated with founding ADRs |
+
+The probe runs on `scope=all` (always) and on `scope=diff` (only when a probe-relevant source file is in the diff). At PR-boundary triggers a deletion of a probed-required file: HIGH. At `sdd-init` Phase 6j: HIGH if the scaffold did not emit the file.
+
+**Graphify-backed acceleration.** Use `mcp__graphify__query_graph(<probe-pattern>)` and `mcp__graphify__get_neighbors(<seed-file>)` to detect probe hits cheaply. Fallback (no graph): grep the source tree for the literal patterns. Both surfaces produce the same finding shape.
+
+## Pass 16 — Scaffold-section-empty
+
+Mandate-closed sections in lane templates (architecture, api-reference, configuration, deployment, security, troubleshooting, decisions/README) MUST be populated. A scaffold emission that leaves a template placeholder is HIGH `scaffold-section-empty`.
+
+Detection rules:
+1. **Unsubstituted placeholders.** Apply the **placeholder detection contract** defined in `spec-driven-development` § "Placeholder detection contract (single source of truth)" (regex `\{[^{}\n]{2,80}\}` + exemption list). The contract is the canonical source; do not duplicate the regex or exemption list here. Examples of catches under this rule: `{PROJECT_NAME}`, `{ascii diagram}`, `{ACTOR_1}`, `{One-line description}`, `{First decision title}`, `{file:line}`.
+2. **Empty mandate-closed table.** A table that only contains the header row + the example-row stub from the template (e.g., `| {Component} | {What it does in ≤50 words} |`) is empty.
+3. **Empty mandate-closed list.** A list whose first bullet is the example stub from the template.
+4. **TODO markers in scaffold output.** Lines containing `TODO`, `FIXME`, `XXX`, `placeholder` within scaffold-emission contexts.
+5. **Zero numbered subsections in mandate-closed parents.** Sections explicitly mandated by template (e.g., architecture.md § Request Lifecycles when the project has >=1 detected entry point) with zero `### N.M` children.
+
+**Severity escalation.** Default HIGH. CRITICAL when both:
+- The file is on the documentation-load-bearing list (`architecture.md`, `api-reference*.md`, `security.md` for projects with auth probe-hit, `deployment.md` for projects with CI/deploy probe-hit), AND
+- The empty section is mandate-closed (not an "if applicable" section)
+
+**Detection scope.** Pass 16 fires on every documentation file regardless of trigger. Scaffold-time (Phase 6j) is the primary catch surface; PR-boundary catches regressions where a contributor manually authored over a section then left a placeholder.
+
+**Auto-fix.** Mode `auto`/`unleashed`: when the placeholder has enough source-side signal to populate, the iteration loop re-runs the relevant Phase 6 sub-pass that emits this section (e.g., Phase 6b for Source Module Map, Phase 6c for Request Lifecycles). Otherwise escalate to `.review-needed.md` with the section path + the unfilled token.
+
 ## REQ backlinks in documentation/
 
 Every documented feature should reference the REQ that specifies it. Format: inline `(REQ-X-NNN)` immediately after the feature name in a heading or first sentence.
@@ -169,8 +223,8 @@ Scan every section heading and first paragraph. Section describes a feature with
 
 | Severity | Definition |
 |---|---|
-| **CRITICAL** | Doc claims behaviour that contradicts shipped code in a security/data-loss-misleading way |
-| **HIGH** | Implementation-prose paragraph with no REQ; dual-narrative ADR; doc references removed function/file/route; monolithic decisions README; file >2x soft budget |
+| **CRITICAL** | Doc claims behaviour that contradicts shipped code in a security/data-loss-misleading way; `scaffold-section-empty` on a load-bearing mandate-closed section |
+| **HIGH** | Implementation-prose paragraph with no REQ; dual-narrative ADR; doc references removed function/file/route; monolithic decisions README; file >2x soft budget; `lane-missing-but-probe-hit`; `scaffold-section-empty` (default) |
 | **MEDIUM** | Lane violation; cell >50 words; file 1x-2x budget; missing REQ backlink; ADR missing Status; index-table ID not linked; REQ ref in non-API TOC |
 | **LOW** | Cell 40-50 words; file 0.8x-1x budget (approaching); inconsistent heading capitalisation; broken intra-doc anchor link |
 
