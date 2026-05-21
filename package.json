@@ -44,7 +44,7 @@
     "oxlint": "^1.63.0",
     "puppeteer": "^24.43.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.6",
+    "vitest": "^4.1.7",
     "wrangler": "4.81.0"
   }
 }
