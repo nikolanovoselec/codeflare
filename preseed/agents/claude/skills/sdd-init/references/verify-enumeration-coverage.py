@@ -299,9 +299,11 @@ def main() -> int:
                 'recommendation': (
                     'Draft an AC that references this file via @impl, '
                     'OR add a triage entry to the layout-appropriate file '
-                    '(nested: sdd/spec/.init-triage.md; flat-layout legacy: '
-                    'sdd/.init-triage.md) naming the file and the '
-                    'unresolved question.'
+                    '(nested: sdd/spec/.init-triage.md (Import Mode) or '
+                    'sdd/spec/.review-queue.md (greenfield); flat-layout '
+                    'legacy: sdd/.init-triage.md (Import Mode) or '
+                    'sdd/.review-needed.md (greenfield)) naming the file '
+                    'and the unresolved question.'
                 ),
             })
 
