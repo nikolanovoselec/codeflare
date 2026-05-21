@@ -18,7 +18,7 @@ USAGE
 SUBCOMMANDS
   init [idea]            Bootstrap a new project (greenfield) OR derive a spec
                          from existing source (import). Re-running while
-                         sdd/init-triage.md has open items resumes triage.
+                         sdd/.init-triage.md has open items resumes triage.
   edit <domain>          Add or modify requirements in an existing domain.
   add <domain>           Create a new domain in an existing spec.
   clean                  Refactor a rotted spec. Mode-aware. Flags:
@@ -30,7 +30,7 @@ SUBCOMMANDS
 MODES
   interactive  (default)   Agent confirms every fix.
   auto                     Auto-fix CRITICAL+HIGH+MEDIUM; defer LOW.
-                           JUDGMENT → triage file (sdd/spec/triage.md
+                           JUDGMENT → triage file (sdd/spec/.review-queue.md
                            nested, sdd/.review-needed.md flat legacy).
   unleashed                Auto-fix everything including LOW + JUDGMENT
                            (conservative). Refuses to run on enforce_tdd: false.
@@ -47,7 +47,7 @@ WORKFLOW
 FILES
   sdd/                   The spec. Nested layout: sdd/README.md + sdd/spec/
                          (per-domain .md + glossary.md + constraints.md +
-                         changes.md + triage.md + config.yml). Flat legacy:
+                         changes.md + .review-queue.md + config.yml). Flat legacy:
                          sdd/*.md at the top level.
   documentation/         The how. Nested layout: documentation/README.md +
                          documentation/lanes/ (architecture, api-reference,
@@ -79,6 +79,6 @@ Unknown sub-command: print the help screen, exit.
 
 1. `git status --porcelain` must be empty (clean working tree). Refuse otherwise with the dirty-tree message.
 2. If sub-command is `clean` or `mode`: `sdd/` must exist; otherwise tell the user to run `/sdd init` first.
-3. If sub-command is `init` and `sdd/` already exists: enter Resume Mode if `sdd/init-triage.md` has open items, else inform the user `/sdd init` has already run and suggest `/sdd edit` or `/sdd add`.
+3. If sub-command is `init` and `sdd/` already exists: enter Resume Mode if `sdd/.init-triage.md` has open items, else inform the user `/sdd init` has already run and suggest `/sdd edit` or `/sdd add`.
 
 The skill body owns everything else.

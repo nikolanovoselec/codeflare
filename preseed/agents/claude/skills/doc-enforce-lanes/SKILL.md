@@ -86,7 +86,7 @@ The canonical SDD layout (single source of truth) is defined in `spec-driven-dev
 Detection (one walk, on every PR-boundary review and on `scope=all`):
 1. List every file under `sdd/` and `documentation/`.
 2. For each file, check membership against the canonical layout:
-   - Allowed under `sdd/`: `README.md`, `spec/{domain}.md` (any name without leading `.`), `spec/glossary.md`, `spec/constraints.md`, `spec/changes.md`, `spec/config.yml`, `spec/triage.md`, `spec/init-triage.md`, `spec/changes-archive-*.md` (archive output of `/sdd clean`).
+   - Allowed under `sdd/`: `README.md`, `spec/{domain}.md` (any name without leading `.`), `spec/glossary.md`, `spec/constraints.md`, `spec/changes.md`, `spec/config.yml`, `spec/.review-queue.md`, `spec/.init-triage.md`, `spec/changes-archive-*.md` (archive output of `/sdd clean`).
    - Allowed under `documentation/`: `README.md`, `lanes/{lane}.md` (the seven canonical lane names + any `api-reference-*` sibling), `decisions/README.md`, `.doc-coverage.md` (audit dotfile), `.cold-read-tasks.yml` (project override).
 3. Any file outside the allowed set = HIGH `layout-violation` listing the path and the reason it doesn't fit.
 

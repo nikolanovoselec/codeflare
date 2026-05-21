@@ -9,8 +9,8 @@ version: 1.0.0
 Three scenarios, auto-detected:
 
 1. **Greenfield**: empty project, no existing code. Bootstrap from prose.
-2. **Import**: project already has source, no `sdd/` yet. Enter **Import Mode** — derive a spec where behavior is clear from source/tests/comments/commits, file the unclear parts to `sdd/init-triage.md` with concrete Context + Recommendation, write the scaffolding.
-3. **Resume**: `sdd/` exists and `sdd/init-triage.md` has `**Status:** open` items. Enter **Resume Mode** — surface one triage item at a time with refreshed Context.
+2. **Import**: project already has source, no `sdd/` yet. Enter **Import Mode** — derive a spec where behavior is clear from source/tests/comments/commits, file the unclear parts to `sdd/.init-triage.md` with concrete Context + Recommendation, write the scaffolding.
+3. **Resume**: `sdd/` exists and `sdd/.init-triage.md` has `**Status:** open` items. Enter **Resume Mode** — surface one triage item at a time with refreshed Context.
 
 Detect via source-file count (greenfield-vs-import) and presence of open triage items (resume).
 
@@ -37,7 +37,7 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - `sdd-changes.md` → `sdd/spec/changes.md`
    - `sdd-config.yml` → `sdd/spec/config.yml` (mode: interactive; `enforce_tdd: true` for greenfield)
    - One `sdd/spec/{domain}.md` per drafted domain (each AC carries `<!-- @impl: <path>::<symbol> -->` anchors per Phase 5's source-evidence pass)
-   - Empty `sdd/spec/triage.md` with `_Awaiting first finding._` placeholder
+   - Empty `sdd/spec/.review-queue.md` with `_Awaiting first finding._` placeholder
    - Empty `tests/` directory
 
    **Emit only files in the canonical layout** (defined in `spec-driven-development` § "Spec structure"). Anything outside that layout — including `sdd/spec/README.md` or `documentation/lanes/README.md` — is a HIGH `layout-violation` caught by `doc-enforce-lanes` § Layout conformance on the next review. The single comprehensive index lives in `sdd/README.md` (Domains table linking to `spec/{file}.md`) and `documentation/README.md` (Jump-TOC linking to lanes + decisions).
@@ -49,25 +49,62 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - `documentation-deployment.md` → `documentation/lanes/deployment.md` (only when project is deployable)
    - Lane files for `security.md`, `observability.md`, `troubleshooting.md`, `api-reference-admin.md` rendered when source supports them
    - `documentation-decisions-readme.md` → `documentation/decisions/README.md` (founding ADRs from Phase 5c, each `Context:` carries `<!-- @impl: ... -->` anchor)
-7. **Iterate-to-clean (BINDING — non-skippable).** Validation against the freshly-written content. This step is REQUIRED; skipping it is itself a HIGH `enforcement-skill-not-invoked` finding caught by the next PR-boundary review.
+7. **Phase 7a — Programmatic source-anchor verification (CRITICAL, evidence-gated, non-skippable).**
+
+   This step is the load-bearing Truth gate. It runs BEFORE the broader iterate-to-clean enforcement (step 8). Failures here BLOCK the commit. The agent does NOT "check by reading"; the agent RUNS the verifier and copies its output verbatim into the commit body.
+
+   **Invocation:**
+
+   ```bash
+   python3 ~/.claude/skills/sdd-init/references/verify-source-anchors.py \
+       --root . \
+       --json-out .verify-anchors.json
+   echo "exit=$?"
+   ```
+
+   The verifier walks every `<!-- @impl: <path>::<symbol>[ = <value-pattern>] -->` anchor across `sdd/**/*.md` + `documentation/**/*.md`, programmatically checks: (a) `<path>` exists on disk, (b) `<symbol>` greps in that file, (c) when a `= <value>` tail is present, the literal pattern matches the source body. It emits machine-readable JSON: `{ parsed, resolved, orphaned, drifted, failures: [...], exit_code }`. **Exit code is the authoritative signal — 0 = clean, 1 = at least one anchor failed.**
+
+   **Anti-substitution clauses (CRITICAL severity — these are the failure modes that cause the spec to lie):**
+   - Agent self-attestation ("I checked the anchors manually, all good") without the verifier output in the commit body is itself **CRITICAL `phase-7a-self-attestation`**, caught by the next PR-boundary review and blocking the merge.
+   - Sampling ("I verified the load-bearing anchors") is not Phase 7a. The verifier walks 100% of anchors deterministically; partial reads are not equivalent. A sampled audit is **CRITICAL `phase-7a-incomplete-coverage`**.
+   - "spec-enforce ran its own CQ-SOURCE pass, that covers it" is wrong: spec-enforce-truth row 16 trusts Phase 7a's output during `/sdd init`. Running spec-enforce first without Phase 7a leaves the broader enforcement skill consuming an unverified anchor set — **CRITICAL `phase-7a-pipeline-inversion`**.
+   - "The verifier path didn't exist on disk, so I skipped it" is **CRITICAL `phase-7a-tooling-bypass`**. The verifier ships inside this skill (`references/verify-source-anchors.py`); if the install path doesn't resolve, install or copy it before proceeding.
+
+   **On `exit_code = 1`:**
+   - For each entry in `failures[]`, append a `.review-queue.md` (greenfield) or `.init-triage.md` (Import Mode) entry with Context = `failures[i].file:line :: failures[i].path::failures[i].symbol — failures[i].reason` and Recommendation = best-guess corrected anchor OR "abandon claim and re-derive from source".
+   - **BLOCK COMMIT** until every failure is either fixed (anchor edited or source corrected) OR escalated to triage with concrete Context + Recommendation.
+   - Re-run the verifier after every fix. Commit proceeds only when `exit_code = 0` OR every remaining failure has a triage entry.
+
+   **Commit body inclusion (BINDING).** Step 9 commit body MUST contain a verbatim line:
+
+   ```
+   Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N exit_code=0|1
+   ```
+
+   The line is the cheap-to-verify proof Phase 7a ran. Absence is **CRITICAL `phase-7a-evidence-missing`** caught by the next PR-boundary review and by `spec-enforce` row 16 reading the most recent `[sdd-init]` commit body.
+
+8. **Iterate-to-clean (BINDING — non-skippable).** Broader validation against the freshly-written content, downstream of the Phase 7a anchor gate. Skipping is itself a HIGH `enforcement-skill-not-invoked` finding caught by the next PR-boundary review.
 
    **Anti-substitution rule.** A structural sanity check (file existence + REQ-ID uniqueness + template-field presence) is NOT iterate-to-clean. It is necessary but not sufficient. The "Execute Full Plan" user-memory directive is about not pausing between phases for confirmation — it is NOT authority to skip protocol-required enforcement passes. Conflating the two is itself a HIGH finding.
 
    **Required invocations (every /sdd init run, every mode):**
-   1. **Invoke `spec-enforce` skill with `scope=all`.** Run the full 19-row execution manifest against `sdd/spec/`. CQ-SOURCE (row 16) and CQ-1/2/3 (row 17) are ALWAYS RUNS — never gated by `enforce_tdd` or by transition state. Every `<!-- @impl: <path>::<symbol> -->` anchor in every REQ AC must resolve via `mcp__graphify__get_node(<symbol>)` (fallback: grep `<symbol>` in `<path>`); unresolved = HIGH `cq-source-anchor-orphaned`.
-   2. **Invoke `doc-enforce` skill with `scope=all`.** Run the full 15-row execution manifest against `documentation/`. Pass 15 (doc source-anchor truth-check) is ALWAYS RUN — never gated. Every `<!-- @impl: ... -->` anchor in every lane file and ADR `Context:` block must resolve, and every literal value pattern must match source; mismatches = HIGH `doc-anchor-orphaned` or `doc-value-drift`.
-   3. **Template-verbatim + layout audit (step-7 owned).** Walk each `references/templates/*.md` that was emitted; for each, extract the level-2 (`##`) section headings and verify every one appears in the emitted file. Missing heading = HIGH `scaffold-template-stripped` listing the template, the emitted path, and the missing section. Layout conformance (any file outside `spec-driven-development` § "Spec structure") is caught by `doc-enforce-lanes` § Layout conformance — no separate check needed here. Finally verify `sdd/README.md`'s Domains table lists every domain file actually present under `sdd/spec/*.md` (excluding glossary, constraints, changes, triage, init-triage, config); missing rows = HIGH `scaffold-domain-table-incomplete`.
+   1. **Invoke `spec-enforce` skill with `scope=all`.** Run the full 19-row execution manifest against `sdd/spec/`. CQ-SOURCE (row 16) consumes the Phase 7a verifier JSON output (`.verify-anchors.json`) rather than re-running anchor resolution; CQ-1/2/3 (row 17) runs independently. CQ-SOURCE is ALWAYS RUN — never gated by `enforce_tdd` or by transition state.
+   2. **Invoke `doc-enforce` skill with `scope=all`.** Run the full 15-row execution manifest against `documentation/`. Pass 15 (doc source-anchor truth-check) ALSO consumes the Phase 7a verifier JSON (the verifier walks `documentation/**/*.md` too) rather than re-deriving; Pass 8/9/10/11 run independently. Pass 15 is ALWAYS RUN — never gated.
+   3. **Template-verbatim + layout audit (step-8 owned).** Walk each `references/templates/*.md` that was emitted; for each, extract the level-2 (`##`) section headings and verify every one appears in the emitted file. Missing heading = HIGH `scaffold-template-stripped` listing the template, the emitted path, and the missing section. Layout conformance (any file outside `spec-driven-development` § "Spec structure") is caught by `doc-enforce-lanes` § Layout conformance — no separate check needed here. Finally verify `sdd/README.md`'s Domains table lists every domain file actually present under `sdd/spec/*.md` (excluding glossary, constraints, changes, .review-queue, .init-triage, config); missing rows = HIGH `scaffold-domain-table-incomplete`.
 
    **Mode-dependent action on findings:**
    - Mechanical findings (template field missing, lane violation pattern, REQ-backlink missing, shape inconsistency): auto-fix in `auto`/`unleashed`, prompt in `interactive`.
-   - Truth-check findings (CQ-SOURCE, Pass 15): NEVER silently rewrite. Escalate to `sdd/spec/triage.md` with concrete Context (file:line, symbol attempted, why it didn't resolve) and Recommendation (best-guess corrected anchor, or "abandon claim").
-   - Block-emit at /sdd init time: HIGH Truth findings block the file write. Source-scan for plausible anchors, regenerate the section, attempt emit again. On second-pass failure, the section becomes a triage entry rather than committed prose. (Same rule as `doc-enforce-truth` § Block-emit at /sdd init time.)
+   - Truth-check findings (CQ-SOURCE, Pass 15) — these are Phase 7a `failures[]` entries surfaced upstream; NEVER silently rewrite. Escalation to `sdd/spec/.review-queue.md` (or `.init-triage.md` during Import Mode) already happened in Phase 7a; step 8 verifies the triage entries are well-formed.
+   - Block-emit at /sdd init time: HIGH non-Truth findings block the file write. Source-scan for plausible anchors, regenerate the section, attempt emit again. On second-pass failure, the section becomes a triage entry rather than committed prose. (Same rule as `doc-enforce-truth` § Block-emit at /sdd init time.)
 
    **Exit criteria:** zero CRITICAL/HIGH findings remain (either fixed or escalated to triage with concrete Context + Recommendation). Re-run both skills until findings stabilize (typically 1-2 cycles).
 
-   **Commit gate:** step 8 is FORBIDDEN until step 7 has been completed with both `spec-enforce` and `doc-enforce` actually invoked (not substituted with a structural check). The commit body MUST include a one-line audit per skill invocation: `spec-enforce: ran (N REQs, M anchors verified, V drift, O orphaned) — auto-fixed F, escalated E` and the equivalent for `doc-enforce`.
-8. **Commit the scaffold** as one commit with subject `[sdd-init] initial spec scaffold`. The `[sdd-init]` prefix is excluded from the spec-reviewer round counter. Commit body MUST include the step-7 audit log per skill (see Commit gate above); absence is itself a HIGH `enforcement-skill-not-invoked` finding on the next PR-boundary review.
-9. **Report next steps** to the user.
+   **Commit gate:** step 9 is FORBIDDEN until BOTH (a) Phase 7a `exit_code = 0` OR every failure escalated to triage, AND (b) step 8 enforcement skills have actually been invoked (not substituted with a structural check). The commit body MUST include:
+   - the Phase 7a verifier line (mandatory, see step 7 above)
+   - `spec-enforce: ran (N REQs, M anchors verified, V drift, O orphaned) — auto-fixed F, escalated E`
+   - the equivalent for `doc-enforce`
+9. **Commit the scaffold** as one commit with subject `[sdd-init] initial spec scaffold`. The `[sdd-init]` prefix is excluded from the spec-reviewer round counter. Commit body MUST include the Phase 7a verifier line AND the step-8 audit log per skill (see Commit gate above); absence is itself a HIGH `enforcement-skill-not-invoked` finding on the next PR-boundary review.
+10. **Report next steps** to the user.
 
 All templates live in the `spec-driven-development` skill's `references/templates/`, bundled with the agent seed and resolved locally.
 
@@ -76,17 +113,17 @@ All templates live in the `spec-driven-development` skill's `references/template
 The migration path from legacy manual coding to autonomous agentic coding. Two simultaneous outputs:
 
 - **Official spec REQs** in `sdd/spec/{domain}.md` — for behavior clearly determinable from the full discovery surface. Normal REQ shape (each AC carrying `<!-- @impl: ... -->` per Phase 5d), normal SDD discipline.
-- **Triage entries** in `sdd/spec/init-triage.md` — for unclear items (magic numbers without rationale, retry policies without context, ambiguous contracts, orphan code, missing Intent, claims with no source anchor from Phase 5d). Each entry carries the agent's **Context** (file:line, git author, commit refs, related tests, PRs, issues, releases) and **Recommendation** (best-guess with one-line Rationale). The user reviews and decides; they don't archaeology from scratch.
+- **Triage entries** in `sdd/spec/.init-triage.md` — for unclear items (magic numbers without rationale, retry policies without context, ambiguous contracts, orphan code, missing Intent, claims with no source anchor from Phase 5d). Each entry carries the agent's **Context** (file:line, git author, commit refs, related tests, PRs, issues, releases) and **Recommendation** (best-guess with one-line Rationale). The user reviews and decides; they don't archaeology from scratch.
 
 **Discovery surface is the full project history**, not just source. Intent in legacy systems lives in PR descriptions, issue threads, code-review comments, release notes. Pull from: working tree (README, configs, source, tests, inline comments, ADRs), git history (commits, tags), and the GitHub corpus when a remote exists (PRs via `gh pr view --comments`, issues via `gh issue view --comments`, releases via `gh release view`, wiki via API). When a PR references an issue ("Closes #142"), Context follows the chain backward.
 
 **Degradation when GitHub sources are unreachable.** Detect failure conditions up front (non-GitHub remote — GitLab / Bitbucket / Forgejo / Gerrit; `gh auth status` fails; rate-limited; private repo with insufficient token scope). On failure, skip the GitHub sources and proceed with working-tree + git-log evidence only. Print a one-line notice (`Note: discovery used working tree + git log only ({reason} - GitHub sources unavailable).`) and append the same to the `sdd/spec/changes.md` import entry.
 
-While `sdd/spec/init-triage.md` contains `**Status:** open` items, the project is in **SDD transition**. Import Mode writes `sdd/spec/config.yml` with `transition: true` and `enforce_tdd: false` at scaffold time (the two Import-Mode-specific config defaults; greenfield uses `transition: false` and `enforce_tdd: true`). During transition, the PR-boundary review pipeline is **entirely suspended**: code-reviewer, spec-reviewer, doc-updater do not fire. Mode-selector behavior during transition (specifically the `/sdd mode unleashed` rejection) is owned by the `spec-driven-development` skill's `/sdd mode` section — single source of truth, see there for the full rule.
+While `sdd/spec/.init-triage.md` contains `**Status:** open` items, the project is in **SDD transition**. Import Mode writes `sdd/spec/config.yml` with `transition: true` and `enforce_tdd: false` at scaffold time (the two Import-Mode-specific config defaults; greenfield uses `transition: false` and `enforce_tdd: true`). During transition, the PR-boundary review pipeline is **entirely suspended**: code-reviewer, spec-reviewer, doc-updater do not fire. Mode-selector behavior during transition (specifically the `/sdd mode unleashed` rejection) is owned by the `spec-driven-development` skill's `/sdd mode` section — single source of truth, see there for the full rule.
 
 Note: the `enforce_tdd: false` default gates only the test-anchor check (whether tests reference REQ IDs). The CQ-SOURCE source-anchor truth-check still runs during transition — fabrication is never optional. See `spec-enforce-truth` for the split.
 
-When the queue drains to zero, `transition: true` clears automatically. Full SDD discipline applies on the next push. `enforce_tdd` is NOT auto-flipped — user sets it manually when ready (typically after adding REQ-ID test names). `sdd/spec/init-triage.md` is preserved as the audit record.
+When the queue drains to zero, `transition: true` clears automatically. Full SDD discipline applies on the next push. `enforce_tdd` is NOT auto-flipped — user sets it manually when ready (typically after adding REQ-ID test names). `sdd/spec/.init-triage.md` is preserved as the audit record.
 
 Import Mode follows the **same lean two-confirm shape as greenfield**. Single user-facing question at step 1: "Derive from existing code, or treat as fresh start?". At step 3 user reviews the full inferred spec (vision pre-filled from README, derived domains, CLEAR REQs, triage queue summary, founding ADRs) and accepts or asks for edits.
 
@@ -105,7 +142,7 @@ Phase 5 enrichment runs in Import Mode too, after the draft is accepted and befo
 Re-invoking `/sdd init` on a project with open triage items enters Resume Mode.
 
 1. **Working tree must be clean** (`git status --porcelain` empty). Refuse if not — Resume Mode commits per decision and would mix WIP edits with triage commits.
-2. **Sanity-check transition state.** If `transition: true` is missing from `sdd/spec/config.yml` but open items exist, restore quietly. If `transition: true` is set but `sdd/spec/init-triage.md` is unreadable, abort with a recovery hint.
+2. **Sanity-check transition state.** If `transition: true` is missing from `sdd/spec/config.yml` but open items exist, restore quietly. If `transition: true` is set but `sdd/spec/.init-triage.md` is unreadable, abort with a recovery hint.
 3. **Print a mode-auto notice** when `sdd/spec/config.yml` says `mode: auto`: Resume Mode is always interactive; auto suspends for this run and resumes after the queue drains.
 4. **Surface one item at a time** with **refreshed** Context (re-read source, re-check git log, re-fetch related PRs — the codebase may have evolved). User picks one of:
    - `accept` the recommendation → fold into the relevant REQ
@@ -151,7 +188,7 @@ After the draft exists in memory, run four passes in one cycle before writing fi
 3. For AC bullets asserting a concrete value (numbers, thresholds, retry counts, storage targets): grep the symbol body for the literal value pattern. On match: emit the AC with `<!-- @impl: <relative-path>::<symbol> = <value-pattern> -->`. On miss: the AC content becomes a triage entry rather than emitted as AC.
 4. For AC bullets asserting behaviour without a specific value: emit `<!-- @impl: <relative-path>::<symbol> -->`. The validator later confirms ≥3 AC-token overlap with the symbol body; the agent does its own overlap check now to avoid emitting an AC whose symbol body doesn't match.
 5. For ADR `Context:` blocks: emit `<!-- @impl: <relative-path>::<symbol> -->` naming the chosen-path implementation site. No site → ADR becomes triage entry.
-6. **Never fabricate.** When source evidence cannot be established for a claim, the claim becomes a triage entry (`sdd/spec/triage.md` for greenfield, `sdd/spec/init-triage.md` for Import Mode). The triage entry carries the agent's Context (what was searched, where, what was expected) and Recommendation (best guess, marked as such). The user resolves via interactive Q&A in Resume Mode.
+6. **Never fabricate.** When source evidence cannot be established for a claim, the claim becomes a triage entry (`sdd/spec/.review-queue.md` for greenfield, `sdd/spec/.init-triage.md` for Import Mode). The triage entry carries the agent's Context (what was searched, where, what was expected) and Recommendation (best guess, marked as such). The user resolves via interactive Q&A in Resume Mode.
 
 The four passes run in one in-memory cycle. The user already accepted the full draft in step 3; enrichment does not re-prompt.
 
@@ -211,40 +248,43 @@ After lane files are written, verify each spec domain's REQs appear via `Impleme
 | `connectivity*`, `network*` | architecture.md, observability.md |
 | `deploy*`, `build*`, `config*` | configuration.md, deployment.md |
 
-Domain with zero backlinks in any expected lane → emit MEDIUM finding to `sdd/spec/triage.md` with the domain name and the missing lane(s). The user resolves via Resume Mode (either extend the relevant lane to backlink the domain's REQs, or correct the domain hint mapping for the project).
+Domain with zero backlinks in any expected lane → emit MEDIUM finding to `sdd/spec/.review-queue.md` with the domain name and the missing lane(s). The user resolves via Resume Mode (either extend the relevant lane to backlink the domain's REQs, or correct the domain hint mapping for the project).
 
-### Iterate-to-clean against enforcement skills (binding)
+### Phase 7a + Iterate-to-clean against enforcement skills (binding)
 
-This section is the operational detail of greenfield-flow step 7 (and Import/Resume equivalents). It is BINDING — every `/sdd init` run, every mode, every project. Skipping = HIGH `enforcement-skill-not-invoked` on the next PR-boundary review.
+This section is the operational detail of greenfield-flow steps 7 (Phase 7a verifier) and 8 (iterate-to-clean). It is BINDING — every `/sdd init` run, every mode, every project. Skipping either is itself a finding: skipping Phase 7a = CRITICAL `phase-7a-*` (see step 7); skipping step 8 = HIGH `enforcement-skill-not-invoked`.
 
-**Anti-substitution rule (repeated for emphasis).** A structural sanity check (file existence + REQ-ID uniqueness + template-field presence) is necessary but NOT sufficient. The actual truth-check — verifying every `<!-- @impl: path::symbol -->` anchor resolves to a real symbol via `mcp__graphify__get_node` (fallback: grep), and every literal value pattern matches source — is the load-bearing pass. Substituting a structural check for the truth-check is itself a HIGH finding. The "Execute Full Plan" user-memory directive is about not pausing between phases for confirmation — it is NOT authority to drop protocol-required passes.
+**Anti-substitution rule (repeated for emphasis).** A structural sanity check (file existence + REQ-ID uniqueness + template-field presence) is necessary but NOT sufficient. The actual truth-check is the programmatic Phase 7a verifier — `references/verify-source-anchors.py` walks every `<!-- @impl: path::symbol -->` anchor and produces a machine-readable JSON report with `parsed`, `resolved`, `orphaned`, `drifted` counts. **The agent does not "verify by reading" or "spot-check the load-bearing anchors" — the agent runs the verifier and copies its output into the commit body.** Substituting a structural check or an agent self-attestation for the verifier output is itself a CRITICAL finding (`phase-7a-self-attestation` / `phase-7a-incomplete-coverage` / `phase-7a-pipeline-inversion` / `phase-7a-tooling-bypass` — see step 7 catalogue). The "Execute Full Plan" user-memory directive is about not pausing between phases for confirmation — it is NOT authority to drop the verifier or substitute it with reading.
 
-**Spec side.** Invoke `spec-enforce` with `scope=all`. Always-runs rows (the 19-row manifest):
-- CQ-SOURCE — Source-anchor truth-check (row 16): walk every Implemented or Partial REQ's `@impl` anchors; resolve via graphify; HIGH `cq-source-anchor-orphaned` for unresolved, HIGH `cq-source-value-drift` for literal-pattern mismatches. NEVER gated by `enforce_tdd` or transition state.
+**Phase 7a (CRITICAL gate, BEFORE the two enforcement skills).** Run `python3 ~/.claude/skills/sdd-init/references/verify-source-anchors.py --root . --json-out .verify-anchors.json`. Block commit on `exit_code != 0` until every failure is fixed or escalated to triage. Copy the verifier summary line into the commit body verbatim. See step 7 of the greenfield flow for the full catalogue of CRITICAL findings (`phase-7a-self-attestation`, `phase-7a-incomplete-coverage`, `phase-7a-pipeline-inversion`, `phase-7a-tooling-bypass`, `phase-7a-evidence-missing`).
+
+**Spec side (downstream of Phase 7a).** Invoke `spec-enforce` with `scope=all`. Always-runs rows (the 19-row manifest):
+- CQ-SOURCE — Source-anchor truth-check (row 16): consumes the Phase 7a verifier JSON (`.verify-anchors.json`). HIGH `cq-source-anchor-orphaned` and `cq-source-value-drift` findings are surfaced from `failures[]` already, so this row is mechanically aggregating Phase 7a output rather than re-deriving. NEVER gated by `enforce_tdd` or transition state.
 - CQ-1, CQ-2, CQ-3 (row 17): REQ-test truth-check, vendor drift, content-preservation.
 - Per-REQ structural rows 1-14: forbidden content, status drift, AC granularity, etc.
 - Backlog re-triage (row 18): walk existing triage entries; reclassify against current rules.
 
-**Doc side.** Invoke `doc-enforce` with `scope=all`. Always-runs rows (the 15-row manifest):
-- Pass 15 — Doc source-anchor truth-check (always runs, never gated): every `<!-- @impl: ... -->` anchor in every lane file and ADR `Context:` block must resolve, every literal value must match source.
+**Doc side (downstream of Phase 7a).** Invoke `doc-enforce` with `scope=all`. Always-runs rows (the 15-row manifest):
+- Pass 15 — Doc source-anchor truth-check: consumes the same Phase 7a verifier JSON (the verifier walks both `sdd/**/*.md` and `documentation/**/*.md` in one pass). Always runs, never gated.
 - Pass 8 — Verification truth-check, Pass 9 — Implements-vs-AC cross-walk, Pass 10 — Stale code-block detection, Pass 11 — Content-preservation on trim.
 - Pass 1, 13, 14 — per-element budgets, within-section semantic consistency, authoring quality.
 - Pass 12 — Stranger cold-read (caches on commit SHA — first /sdd init run is uncached).
 
 **Mode-dependent action on findings:**
 - Mechanical findings (template field missing, lane violation pattern, REQ-backlink missing, shape inconsistency): auto-fix in `auto`/`unleashed`, prompt in `interactive`.
-- Truth-check findings (CQ-SOURCE, Pass 8/9/10, Pass 15): NEVER silently rewrite. Escalate to `sdd/spec/triage.md` with concrete Context (file:line, symbol attempted, why it didn't resolve) and Recommendation (best-guess corrected anchor, or "abandon claim").
-- Stranger cold-read findings (Pass 12): escalate to `sdd/spec/triage.md`.
+- Truth-check findings (CQ-SOURCE, Pass 8/9/10, Pass 15): NEVER silently rewrite. Escalate to `sdd/spec/.review-queue.md` with concrete Context (file:line, symbol attempted, why it didn't resolve) and Recommendation (best-guess corrected anchor, or "abandon claim").
+- Stranger cold-read findings (Pass 12): escalate to `sdd/spec/.review-queue.md`.
 
 **Block-emit at /sdd init time.** HIGH Truth findings BLOCK the file write. Source-scan for plausible anchors, regenerate the section, attempt emit again. On second-pass failure, the section content becomes a triage entry rather than committed prose. The block-emit gate is `/sdd init`-specific — steady-state doc-updater on existing files cannot rewrite history; it flags and escalates.
 
 **Exit criteria.** Zero CRITICAL/HIGH findings remain (every truth-check anchor either resolves OR escalates to triage with concrete Context + Recommendation). Re-run both skills until findings stabilize (typically 1-2 cycles).
 
-**Visible audit trail (binding).** Step 8 commit body MUST include a one-line audit per skill invocation, e.g.:
+**Visible audit trail (binding).** Step 9 commit body MUST include three lines (in order):
+- `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N exit_code=0|1` (CRITICAL — see step 7)
 - `spec-enforce: ran (N REQs, M anchors verified, V drift, O orphaned) — auto-fixed F, escalated E`
 - `doc-enforce: ran (D docs, A anchors verified, V drift, O orphaned, U unanchored) — auto-fixed F, escalated E`
 
-Absence of the audit lines in the commit body is itself HIGH `enforcement-skill-not-invoked` on the next PR-boundary review. The audit is the cheap-to-verify proof that step 7 actually ran rather than being substituted with a structural check.
+Absence of any line is itself a finding on the next PR-boundary review (CRITICAL for the Phase 7a line, HIGH `enforcement-skill-not-invoked` for the other two). The lines are the cheap-to-verify proof that steps 7 and 8 actually ran rather than being substituted with reading or a structural check.
 
 The iterate-to-clean loop is the depth-floor mechanism: every mandatory field that doc-enforce-shape Pass 5/6/7 demands either has a source-anchored value (real content) or becomes a triage entry (visible to the user as a question). The output cannot be vacuously thin AND structurally complete.
 

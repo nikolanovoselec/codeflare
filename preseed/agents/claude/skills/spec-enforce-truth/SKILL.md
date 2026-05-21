@@ -65,7 +65,7 @@ Three outcomes:
 
 ## CQ-TEST — Test-anchor coverage (gated by `enforce_tdd`)
 
-Every `Implemented` REQ must have at least one test file referencing its REQ ID. **This pass is gated by `enforce_tdd: true`** (default). When `enforce_tdd: false`, the pass writes informational entries to `sdd/spec/triage.md` (or `sdd/triage.md` flat) under a `## Coverage gaps` section but never mutates Status.
+Every `Implemented` REQ must have at least one test file referencing its REQ ID. **This pass is gated by `enforce_tdd: true`** (default). When `enforce_tdd: false`, the pass writes informational entries to `sdd/spec/.review-queue.md` (or `sdd/.review-queue.md` flat) under a `## Coverage gaps` section but never mutates Status.
 
 **Test discovery** uses `test_globs` from `sdd/spec/config.yml` (or `sdd/config.yml` flat). Defaults cover vitest/jest, pytest, go test, rspec, cypress, playwright.
 
@@ -80,7 +80,7 @@ When `enforce_tdd: true`:
 When `enforce_tdd: false`:
 
 1. **Status assignment for newly-drafted REQs (Import Mode + `/sdd edit` / `/sdd add` while `enforce_tdd: false`)**: default `Implemented` when source code implements the AC AND the AC's `<!-- @impl: ... -->` anchor resolves via CQ-SOURCE. The project has opted out of test-based verification; demoting every REQ to `Partial` because tests don't reference REQ IDs would falsely brand the spec 65%+ incomplete. Each `sdd/spec/{domain}.md` file (per domain, not the top-level `sdd/README.md`) receives one footnote `_Verification: code-only (no automated coverage)._` at the bottom; per-REQ `Notes:` are NOT used for this signal.
-2. **No auto-demote on existing REQs**: do not move `Implemented` → `Partial` based on test absence alone. Test-coverage findings still emit, but as informational entries in `sdd/spec/triage.md` under `## Coverage gaps`, never as Status mutations.
+2. **No auto-demote on existing REQs**: do not move `Implemented` → `Partial` based on test absence alone. Test-coverage findings still emit, but as informational entries in `sdd/spec/.review-queue.md` under `## Coverage gaps`, never as Status mutations.
 3. **CQ-1, CQ-2, CQ-3, CQ-SOURCE still run normally** (see below); CQ-SOURCE specifically is NEVER gated by `enforce_tdd`.
 
 ## CQ-SOURCE — Source-anchor truth-check (ALWAYS runs, never gated)
@@ -99,20 +99,26 @@ Capture groups: `<path>`, `<symbol>`, optional `<value-pattern>`.
 
 Same regex applies to ADR `Context:` blocks in `documentation/decisions/README.md` (one anchor per ADR Context, immediately at end of the Context paragraph).
 
-### Per-anchor validation
+### Per-anchor validation — Phase 7a is the canonical implementation
+
+During `/sdd init`, anchor validation is performed by the Phase 7a verifier (`~/.claude/skills/sdd-init/references/verify-source-anchors.py`), and this skill's row 16 (CQ-SOURCE) consumes the resulting JSON (`.verify-anchors.json`) rather than re-deriving — see `sdd-init/SKILL.md` step 7. The agent never claims "I checked the anchors" without the verifier output line in the commit body; that self-attestation is **CRITICAL `phase-7a-self-attestation`**.
+
+Outside `/sdd init` (steady-state PR-boundary review on an existing project), this skill performs the same checks inline using the same algorithm:
 
 For each captured anchor:
 
-1. **Resolve symbol.** Call `mcp__graphify__get_node(<symbol>)` against the unified graph. If graphify cannot resolve (graph absent, stale, or symbol not indexed), fall back to `Grep` against `<path>`. Symbol not resolved by either path → HIGH `spec-anchor-orphaned` listing REQ-ID, AC-N, the searched `<path>::<symbol>`. No auto-fix; escalate to `sdd/spec/triage.md`.
+1. **Resolve symbol.** Call `mcp__graphify__get_node(<symbol>)` against the unified graph. If graphify cannot resolve (graph absent, stale, or symbol not indexed), fall back to `Grep` against `<path>`. Symbol not resolved by either path → HIGH `spec-anchor-orphaned` listing REQ-ID, AC-N, the searched `<path>::<symbol>`. No auto-fix; escalate to `sdd/spec/.review-queue.md`.
 2. **Verify value (when `<value-pattern>` present).** Read the symbol's source body (graphify `source_location` or direct file read on the path slice). Grep for the literal `<value-pattern>`. Not found → HIGH `spec-value-drift` listing REQ-ID, AC-N, expected vs anything-found-in-symbol. No auto-fix; escalate.
 3. **Verify behaviour overlap (when `<value-pattern>` absent).** Compute token overlap between the AC text (content words ≥4 chars, stopwords excluded) and the symbol body. Overlap <3 tokens → MEDIUM `spec-behavior-orphaned`. Auto-fix in `auto`/`unleashed`: attempt to find a sibling symbol with stronger overlap via `get_neighbors`; on success, rewrite the anchor; otherwise escalate.
+
+The Phase 7a verifier is the deterministic checker. Steady-state review uses graphify+grep because (a) the graph is the right hammer for symbol-vs-source questions on a mature codebase, (b) the diff scope keeps it cheap. Both paths produce findings of the same shape and follow the same escalation rule (NEVER silently rewrite; route to `.review-queue.md` with concrete Context + Recommendation).
 
 ### Unanchored AC detection
 
 For every AC bullet without `<!-- @impl: ... -->`:
 
 - Skip clause: `Verification: Manual check` REQs are exempt. Their behaviour cannot be source-anchored by construction.
-- For other REQs: MEDIUM `ac-missing-source-anchor` listing REQ-ID, AC-N. Auto-fix in `auto`/`unleashed`: best-effort retrofit — extract symbol candidate by AC verb-phrase + Phase 5a community map; if a plausible symbol resolves AND overlap ≥3 tokens, write the anchor inline via Edit. Otherwise escalate to `sdd/spec/triage.md` with the missing-anchor recommendation.
+- For other REQs: MEDIUM `ac-missing-source-anchor` listing REQ-ID, AC-N. Auto-fix in `auto`/`unleashed`: best-effort retrofit — extract symbol candidate by AC verb-phrase + Phase 5a community map; if a plausible symbol resolves AND overlap ≥3 tokens, write the anchor inline via Edit. Otherwise escalate to `sdd/spec/.review-queue.md` with the missing-anchor recommendation.
 
 ### ADR Context anchors
 
@@ -120,7 +126,7 @@ ADR `Context:` blocks (in `documentation/decisions/README.md`) use the same conv
 
 ### CQ-SOURCE during SDD transition
 
-Unlike CQ-TEST, CQ-SOURCE runs during `transition: true`. The Truth guarantee is the entire point of the source-evidence pass in Phase 5d; suppressing CQ-SOURCE during transition would allow fabricated Import-Mode REQs to ship unchecked. Findings during transition go to `sdd/spec/init-triage.md` (not `triage.md`) so they fold into the Resume Mode queue.
+Unlike CQ-TEST, CQ-SOURCE runs during `transition: true`. The Truth guarantee is the entire point of the source-evidence pass in Phase 5d; suppressing CQ-SOURCE during transition would allow fabricated Import-Mode REQs to ship unchecked. Findings during transition go to `sdd/spec/.init-triage.md` (not `.review-queue.md`) so they fold into the Resume Mode queue.
 
 ### CQ-SOURCE output
 
@@ -130,7 +136,7 @@ Manifest row evidence count: `ran (N REQs, A anchors verified, V drift findings,
 
 When `transition: true` in `sdd/spec/config.yml`, spec-reviewer exits no-op entirely (Phase 0b.5 in the spec-reviewer agent definition); this skill is therefore never invoked on PR-boundary triggers during transition. The suppression rule documented here describes the correct behaviour for the rare path that DOES reach this skill while transition is active — e.g. a manual `/sdd clean` invocation against the transition branch.
 
-In that path: **CQ-TEST auto-demote is SUPPRESSED**, identical to `enforce_tdd: false` semantics. Findings write to `sdd/spec/triage.md` rather than mutating Status. Imported REQs default `Implemented` when source code implements the AC AND CQ-SOURCE confirms the anchor. **CQ-SOURCE itself is NOT suppressed** — it runs during transition exactly as outside transition. Genuinely unmet behaviour goes to `sdd/spec/init-triage.md`, not to a Partial Status that's actually false.
+In that path: **CQ-TEST auto-demote is SUPPRESSED**, identical to `enforce_tdd: false` semantics. Findings write to `sdd/spec/.review-queue.md` rather than mutating Status. Imported REQs default `Implemented` when source code implements the AC AND CQ-SOURCE confirms the anchor. **CQ-SOURCE itself is NOT suppressed** — it runs during transition exactly as outside transition. Genuinely unmet behaviour goes to `sdd/spec/.init-triage.md`, not to a Partial Status that's actually false.
 
 ## Severity application
 

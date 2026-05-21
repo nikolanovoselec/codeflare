@@ -5,7 +5,7 @@
 #
 # interactive: confirm every fix before applying. Safe for new SDD users.
 # auto:        apply SAFE+RISKY fixes silently on the current branch.
-#              Escalate JUDGMENT calls to sdd/spec/triage.md.
+#              Escalate JUDGMENT calls to sdd/spec/.review-queue.md.
 # unleashed:   apply everything (including JUDGMENT) on the current branch.
 #              Conservative defaults preserve information without overwriting intent.
 #              Walk-away autopilot — come back to per-category commits, git revert
@@ -17,7 +17,7 @@ mode: interactive
 #     Flags Planned/Partial REQs with source code but no test (HIGH finding).
 #     Runs test quality heuristics (AC count vs test count, tautology
 #     detection, skipped-test detection) against every test file.
-#   - When false: CQ-TEST writes informational coverage gaps to sdd/spec/triage.md
+#   - When false: CQ-TEST writes informational coverage gaps to sdd/spec/.review-queue.md
 #     under "## Coverage gaps" but never mutates Status.
 #
 # CQ-SOURCE (source-anchor truth-check) is NEVER gated by this flag — it runs
@@ -29,7 +29,7 @@ mode: interactive
 enforce_tdd: true
 
 # transition: set automatically by /sdd init Import Mode and cleared
-# automatically when the sdd/spec/init-triage.md queue drains.
+# automatically when the sdd/spec/.init-triage.md queue drains.
 # Do NOT set this by hand - it is managed by the /sdd init lifecycle.
 # While transition: true is set:
 #   - PR-boundary review pipeline is entirely suspended for spec/doc-side

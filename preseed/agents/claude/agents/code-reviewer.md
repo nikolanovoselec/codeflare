@@ -41,7 +41,7 @@ When invoked:
 0. **Transition gate (Phase 0, before any other work).** Run this check FIRST. If the project is in SDD transition, exit no-op with the notice `SDD transition in progress; review suspended until triage drains.` Single rule across all review agents; see `spec-discipline.md` → SDD transition state. The literal check is layout-aware (nested `sdd/spec/` overrides flat `sdd/`):
    ```bash
    CONFIG=$(test -f sdd/spec/config.yml && echo sdd/spec/config.yml || echo sdd/config.yml)
-   TRIAGE=$(test -f sdd/spec/init-triage.md && echo sdd/spec/init-triage.md || echo sdd/init-triage.md)
+   TRIAGE=$(test -f sdd/spec/.init-triage.md && echo sdd/spec/.init-triage.md || echo sdd/.init-triage.md)
    if [ -f "$CONFIG" ] \
       && grep -q '^transition:[[:space:]]*true' "$CONFIG" \
       && [ -f "$TRIAGE" ] \

@@ -210,7 +210,7 @@ else
   jq -n --arg dir "$TARGET_DIR" '{
     hookSpecificOutput: {
       hookEventName: "PostToolUse",
-      additionalContext: ("The user just cloned `" + $dir + "`. No graphify knowledge graph is present in the cloned tree. Before doing anything else with this repo, ask the user via AskUserQuestion whether to build one. Recommend YES for repos with more than 50 files: the graph gives you structural awareness and saves Grep tokens on every later architecture question. If the user agrees, cd into `" + $dir + "` and run `/graphify` (or `graphify .` from the CLI). For repos larger than 2000 files, suggest `graphify cluster-only . --no-viz` (AST-only, no LLM extraction). If the user declines, proceed without it.")
+      additionalContext: ("The user just cloned `" + $dir + "`. No graphify knowledge graph is present in the cloned tree. Before doing anything else with this repo, ask the user via AskUserQuestion a single YES/NO question: \"Build a graphify knowledge graph for `" + $dir + "`?\". Two options only: (a) Yes — invoke /graphify (Recommended for repos with more than 50 files; the graph gives you structural awareness and saves Grep tokens on every later architecture question). (b) No — proceed without it. DO NOT ask about build mode (AST-only vs Full) here — the graphify skill itself asks that question after it loads (see graphify SKILL.md note #8). Asking mode twice is a duplicate-question bug. If the user accepts, cd into `" + $dir + "` and invoke /graphify; the skill will surface the mode choice with the right corpus stats in context.")
     }
   }' 2>/dev/null || true
 fi

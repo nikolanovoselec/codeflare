@@ -42,8 +42,8 @@ sdd/
     ├── constraints.md   # Technology stack, cross-cutting CON-* constraints
     ├── changes.md       # Semantic changelog (≤2 sentences per entry, user-facing only)
     ├── config.yml       # mode, enforce_tdd, test_globs, src_globs (defaults to "src/** lib/** app/** pkg/** cmd/** internal/**" minus test/build dirs when unset; see spec-enforce-truth § Inputs), allowlists
-    ├── init-triage.md   # Import Mode triage queue (only present during transition)
-    └── triage.md        # Findings escalated for human review (replaces .review-needed.md)
+    ├── .init-triage.md   # Import Mode triage queue (only present during transition)
+    └── .review-queue.md        # Findings escalated for human review (replaces .review-needed.md)
 
 documentation/
 ├── README.md            # Lane index + glossary-with-synonyms + related pointers
@@ -76,7 +76,7 @@ pending.md         # In-flight work and known gaps (NOT requirements)
 
 The enforcement check (one walk, one rule) lives in `doc-enforce-lanes` § Layout conformance.
 
-**Dotfile reduction.** The nested schema consolidates four prior dotfiles (`.review-needed.md`, `.coverage-report.md`, `.last-clean-run.md`, `.review-decisions.md`) into one `triage.md`. `/sdd clean` audit lives in commit history (`git log --grep='\[sdd-clean\]'` + commit bodies). `/review` cross-run dedup, when needed, is derived from `git log --grep='\[review\]'`.
+**Dotfile reduction.** The nested schema consolidates four prior dotfiles (`.review-needed.md`, `.coverage-report.md`, `.last-clean-run.md`, `.review-decisions.md`) into one `.review-queue.md`. `/sdd clean` audit lives in commit history (`git log --grep='\[sdd-clean\]'` + commit bodies). `/review` cross-run dedup, when needed, is derived from `git log --grep='\[review\]'`.
 
 ## REQ format
 
@@ -187,7 +187,7 @@ The `@impl` HTML comment is the framework's anchor format for the Truth guarante
 | Where work lands | Current branch | Current branch | Current branch |
 | SAFE fixes (strip strikethrough, truncate prose Status, generate backlinks, move forbidden content) | Confirm → apply | Apply silently | Apply silently |
 | RISKY fixes (truncate changes.md, mass moves, bulk operations) | Confirm + backup + apply | Backup + apply | Backup + apply |
-| JUDGMENT calls (doc-vs-spec conflict, oversized REQ, fake-Deprecated) | Escalate to user, pause | Escalate to layout-resolved triage file (`sdd/spec/triage.md` nested OR `sdd/.review-needed.md` flat legacy), continue | Auto-resolve conservatively, continue |
+| JUDGMENT calls (doc-vs-spec conflict, oversized REQ, fake-Deprecated) | Escalate to user, pause | Escalate to layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy), continue | Auto-resolve conservatively, continue |
 | `enforce_tdd` default | per layout-resolved config (`sdd/spec/config.yml` nested OR `sdd/config.yml` flat; default true) | same | **Forced true** |
 | Output | Inline confirmations | Inline reports | Inline reports; per-category commits |
 

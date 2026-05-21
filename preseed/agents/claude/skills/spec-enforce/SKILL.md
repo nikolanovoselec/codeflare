@@ -18,7 +18,7 @@ This skill is the spine for SDD spec enforcement. It runs the 19-row execution m
 **Layout-awareness.** All file globs in this skill respect the detected layout:
 - Spec files: `sdd/spec/**/*.md` (nested) OR `sdd/*.md` excluding `README.md` (flat)
 - Config: `sdd/spec/config.yml` (nested) OR `sdd/config.yml` (flat)
-- Triage / escalation: `sdd/spec/triage.md` (nested) OR `sdd/.review-needed.md` (flat, legacy)
+- Triage / escalation: `sdd/spec/.review-queue.md` (nested) OR `sdd/.review-needed.md` (flat, legacy)
 
 The flat layout is supported during the migration window; `/sdd clean` migrates flat → nested on demand. Both layouts coexist correctly in this skill.
 
@@ -26,7 +26,7 @@ The flat layout is supported during the migration window; `/sdd clean` migrates 
 
 Every row of the manifest below MUST execute on every run. No cherry-picking; cost is never a valid skip. Manifest written FIRST with all rows `pending`, updated as each rule completes, finalised at run end. Pending rows at finalize emit HIGH `manifest-pending-at-finalize`. Status rows without concrete evidence counts (`ran (N REQs, M findings)`) emit HIGH `manifest-bare-evidence-count`. "skipped (looked clean)" is dishonest.
 
-Audit location by trigger: `/sdd clean` writes to the per-category commit bodies (audit via `git log --grep='\[sdd-clean\]'`). PR-boundary spec-reviewer writes to the agent's commit body OR (if no commits) `sdd/spec/triage.md` (nested) / `sdd/.review-needed.md` (flat, legacy) as a `## Execution manifest` sub-section.
+Audit location by trigger: `/sdd clean` writes to the per-category commit bodies (audit via `git log --grep='\[sdd-clean\]'`). PR-boundary spec-reviewer writes to the agent's commit body OR (if no commits) `sdd/spec/.review-queue.md` (nested) / `sdd/.review-needed.md` (flat, legacy) as a `## Execution manifest` sub-section.
 
 ## Required execution manifest
 
@@ -47,9 +47,9 @@ Audit location by trigger: `/sdd clean` writes to the per-category commit bodies
 | Meta-content leakage Rule B (Notes two-shape) | Walk every Notes field; flag violations. | `ran (N Notes, M findings)` |
 | Meta-content leakage Rule C (preamble edit-history) | Walk every `sdd/{domain}.md` preamble; flag edit-history prose. | `ran (K files, M findings)` |
 | CQ-TEST — Test-anchor coverage | Invoke `spec-enforce-truth` if `enforce_tdd: true` AND (Implemented REQs touched OR scope=all). | `ran (N REQs, M findings)` or `inert (enforce_tdd: false)` |
-| CQ-SOURCE — Source-anchor truth-check | Invoke `spec-enforce-truth` UNCONDITIONALLY when any Implemented or Partial REQ in diff OR scope=all. Never gated by `enforce_tdd`. | `ran (N REQs, A anchors verified, V drift, O orphaned, U unanchored)` |
+| CQ-SOURCE — Source-anchor truth-check | During `/sdd init`: consume the Phase 7a verifier JSON (`.verify-anchors.json`). Outside `/sdd init`: invoke `spec-enforce-truth` UNCONDITIONALLY when any Implemented or Partial REQ in diff OR scope=all. Never gated by `enforce_tdd`. Agent self-attestation without verifier output = CRITICAL `phase-7a-self-attestation` (see `sdd-init/SKILL.md` step 7). | `ran (N REQs, A anchors verified, V drift, O orphaned, U unanchored)` |
 | CQ-1, CQ-2, CQ-3 | Invoke `spec-enforce-truth`. | `ran (...)` or `inert` |
-| Backlog re-triage | Walk every open finding in the layout-resolved triage file (`sdd/spec/triage.md` nested OR `sdd/.review-needed.md` flat legacy); re-classify under current rules; auto-fix what is now mechanisable. | `ran (B items, R re-triaged, F auto-fixed, S still-escalated)` |
+| Backlog re-triage | Walk every open finding in the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy); re-classify under current rules; auto-fix what is now mechanisable. | `ran (B items, R re-triaged, F auto-fixed, S still-escalated)` |
 | Commit-prefix + 2-round limit | Check last 3 commits; halt if 2+ counted-tag commits in lane. | `ran (3 commits inspected, M findings)` |
 
 ## Orchestration logic
@@ -220,7 +220,7 @@ Auto-fix in `unleashed`: reshape to doc-pointer form if a link to `documentation
 
 Prose between an `sdd/{domain}.md` H1 and the first `---` separator (or first `### REQ-` heading) describes WHAT the domain is. Edit history belongs in git log and `sdd/changes.md`.
 
-**Scope:** Rule C applies ONLY to `sdd/{domain}.md` concrete domain spec files. Does NOT apply to dotfiles, README.md, `sdd/changes.md`, `sdd/glossary.md`, `sdd/constraints.md`, `sdd/init-triage.md`, `sdd/config.yml`.
+**Scope:** Rule C applies ONLY to `sdd/{domain}.md` concrete domain spec files. Does NOT apply to dotfiles, README.md, `sdd/changes.md`, `sdd/glossary.md`, `sdd/constraints.md`, `sdd/.init-triage.md`, `sdd/config.yml`.
 
 Forbidden patterns in preamble:
 - ISO dates (`\d{4}-\d{2}-\d{2}`)
@@ -233,7 +233,7 @@ Severity: LOW `preamble-edit-history-leakage`. Auto-fix in `unleashed`: delete o
 
 ## Backlog re-triage
 
-Without re-triage, escalated findings become permanent terminal state. Every PR-boundary trigger MUST run Backlog re-triage. Walks each open finding in `sdd/spec/triage.md` (nested) or `sdd/.review-needed.md` (flat, legacy); three outcomes:
+Without re-triage, escalated findings become permanent terminal state. Every PR-boundary trigger MUST run Backlog re-triage. Walks each open finding in `sdd/spec/.review-queue.md` (nested) or `sdd/.review-needed.md` (flat, legacy); three outcomes:
 
 1. **Re-classified as auto-fixable**: the finding's category now has a deterministic auto-fix. Apply, remove from triage file, record `Backlog re-triage:` in `sdd/spec/changes.md` (or `sdd/changes.md` flat).
 2. **Still-escalated, content unchanged**: still ownership work. Entry stays verbatim.
@@ -254,13 +254,13 @@ Older entries lacking this header re-classify as "still-escalated" and emit LOW 
 
 ## SDD transition state (legacy-codebase imports)
 
-When `/sdd init` runs in Import Mode, it produces official REQs and a triage queue at `sdd/init-triage.md`. While any triage item carries `Status: open`, the project is in **SDD transition** and `sdd/config.yml` carries `transition: true`.
+When `/sdd init` runs in Import Mode, it produces official REQs and a triage queue at `sdd/.init-triage.md`. While any triage item carries `Status: open`, the project is in **SDD transition** and `sdd/config.yml` carries `transition: true`.
 
 **Transition gate condition** (single source of truth — layout-aware):
 
 ```
 CONFIG=$(test -f sdd/spec/config.yml && echo sdd/spec/config.yml || echo sdd/config.yml)
-TRIAGE=$(test -f sdd/spec/init-triage.md && echo sdd/spec/init-triage.md || echo sdd/init-triage.md)
+TRIAGE=$(test -f sdd/spec/.init-triage.md && echo sdd/spec/.init-triage.md || echo sdd/.init-triage.md)
 IN_TRANSITION = grep -q '^transition: true' "$CONFIG"
                 AND test -f "$TRIAGE"
                 AND grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "$TRIAGE"
@@ -268,7 +268,7 @@ IN_TRANSITION = grep -q '^transition: true' "$CONFIG"
 
 All three conditions must be true. Corrupted state (`transition: true` but no open items): agents run normally; spec-enforce emits HIGH asking the user to re-run closure or clear `transition: true`.
 
-**During transition**: this skill's CQ-TEST auto-demote of Implemented -> Partial is SUPPRESSED. CQ-1 still runs but writes to `sdd/spec/triage.md` (under `## Coverage gaps`) rather than mutating Status. **CQ-SOURCE is NOT suppressed during transition** — Truth guarantee runs always.
+**During transition**: this skill's CQ-TEST auto-demote of Implemented -> Partial is SUPPRESSED. CQ-1 still runs but writes to `sdd/spec/.review-queue.md` (under `## Coverage gaps`) rather than mutating Status. **CQ-SOURCE is NOT suppressed during transition** — Truth guarantee runs always.
 
 `/sdd mode unleashed` is rejected during transition. Closure commit clears `transition: true` from `sdd/spec/config.yml` (or `sdd/config.yml` flat) + appends closure entry to `sdd/spec/changes.md` (or `sdd/changes.md` flat).
 
@@ -288,7 +288,7 @@ Self-limit to prevent micro-fix spirals. Counter is scoped to spec-reviewer's la
 
 1. `git log -3 --name-only --format="--- %H %s"`.
 2. Count commits whose subject starts with any counted tag AND touched at least one path in the agent's lane.
-3. >=2 of last 3 qualify: hard stop. Write would-be findings to the layout-resolved triage file (`sdd/spec/triage.md` nested OR `sdd/.review-needed.md` flat legacy) and exit.
+3. >=2 of last 3 qualify: hard stop. Write would-be findings to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) and exit.
 4. Counter resets when a non-agent commit lands in the lane.
 
 Cross-cutting commits count for whichever agents own touched lanes. Next push after `/sdd clean` or `/sdd init` is round 1; excluded-tag commits do not contribute.
@@ -325,6 +325,6 @@ User revert or "don't do that for this REQ" is a normal git operation. Reverted 
 This skill writes to one of two audit locations:
 
 - `/sdd clean` invocation: append to the per-category commit body (audit via `git log --grep='\[sdd-clean\]'`); no separate dotfile.
-- PR-boundary spec-reviewer: include in agent's commit body OR (if no commits) `sdd/spec/triage.md` (nested) / `sdd/.review-needed.md` (flat, legacy) as `## Execution manifest`.
+- PR-boundary spec-reviewer: include in agent's commit body OR (if no commits) `sdd/spec/.review-queue.md` (nested) / `sdd/.review-needed.md` (flat, legacy) as `## Execution manifest`.
 
 Every row's status MUST carry concrete evidence counts (`ran (N REQs, M findings)` or `inert (reason)`). Bare `ran` without counts: HIGH `manifest-bare-evidence-count`. Pending rows at finalize: HIGH `manifest-pending-at-finalize`.

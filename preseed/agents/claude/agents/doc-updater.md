@@ -101,7 +101,7 @@ Layout-aware (nested `sdd/spec/` overrides flat `sdd/`):
 
 ```bash
 CONFIG=$(test -f sdd/spec/config.yml && echo sdd/spec/config.yml || echo sdd/config.yml)
-TRIAGE=$(test -f sdd/spec/init-triage.md && echo sdd/spec/init-triage.md || echo sdd/init-triage.md)
+TRIAGE=$(test -f sdd/spec/.init-triage.md && echo sdd/spec/.init-triage.md || echo sdd/.init-triage.md)
 IN_TRANSITION=0
 if [ -f "$CONFIG" ] \
    && grep -q '^transition:[[:space:]]*true' "$CONFIG" 2>/dev/null \

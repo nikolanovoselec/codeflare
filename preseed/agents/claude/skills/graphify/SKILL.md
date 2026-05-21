@@ -61,7 +61,7 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
 
 5. **Context-mode coexistence.** When context-mode is active (custom tier), subagent Read/Grep calls during extraction route through `mcp__context-mode__ctx_execute` automatically. When it is not, graphify's own subagent-chunking model still bounds your main context. Both regimes work; no per-tier branching needed in this skill.
 
-6. **AskUserQuestion on clone.** A PostToolUse hook (`graphify-clone-prompt.sh`) injects a directive after `git clone` / `gh repo clone` asking you to prompt the user via AskUserQuestion whether to build a graph. Recommend YES for repos with more than 50 files; suggest `cluster-only --no-viz` for repos with more than 2000 files; respect a NO without arguing.
+6. **AskUserQuestion on clone — YES/NO only, NOT mode.** A PostToolUse hook (`graphify-clone-prompt.sh`) injects a directive after `git clone` / `gh repo clone`. At clone time you ask **one** yes/no question: "Build a graphify knowledge graph for `<dir>`?". Recommend YES for repos with more than 50 files. **Do NOT ask about build mode (AST-only vs Full) at clone time** — that question is owned by note #8 below and fires from inside the skill *after* it loads, when the corpus has actually been detected and the cost surface (file counts, image counts, agent count) can be surfaced in the prompt. Asking the mode question both at clone time AND inside the skill is a duplicate-question bug; the user sees the same prompt twice. Respect a NO without arguing.
 
 7. **Discipline rule.** When `graphify-out/graph.json` exists, `~/.claude/rules/graph-first.md` applies: prefer focused MCP queries over Grep for architecture, dependency, and call-flow questions.
 

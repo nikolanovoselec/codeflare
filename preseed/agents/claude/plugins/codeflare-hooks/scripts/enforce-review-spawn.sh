@@ -287,7 +287,7 @@ fi
 # writes a HIGH finding to the layout-resolved triage file).
 # ---------------------------------------------------------------------------
 _config_file=$(test -f sdd/spec/config.yml && echo sdd/spec/config.yml || echo sdd/config.yml)
-_triage_init=$(test -f sdd/spec/init-triage.md && echo sdd/spec/init-triage.md || echo sdd/init-triage.md)
+_triage_init=$(test -f sdd/spec/.init-triage.md && echo sdd/spec/.init-triage.md || echo sdd/.init-triage.md)
 if grep -q '^transition:[[:space:]]*true' "$_config_file" 2>/dev/null \
    && [ -f "$_triage_init" ] \
    && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "$_triage_init" 2>/dev/null; then
@@ -617,7 +617,7 @@ if [ "$PR_STATE" = "MERGED" ] || [ "$PR_STATE" = "CLOSED" ]; then
   if [ -n "$CURRENT_PR_HEAD" ] \
      && [ -n "$LAST_ACK_PR_HEAD" ] \
      && [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ]; then
-    triage_file=$(test -f sdd/spec/triage.md && echo sdd/spec/triage.md || echo sdd/.review-needed.md)
+    triage_file=$(test -f sdd/spec/.review-queue.md && echo sdd/spec/.review-queue.md || echo sdd/.review-needed.md)
     {
       printf '\n## %s — PR %s un-acked at merge/close\n' \
         "$(date +%Y-%m-%d)" "$PR_STATE"

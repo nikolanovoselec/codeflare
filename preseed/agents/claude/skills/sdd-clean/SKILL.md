@@ -14,7 +14,7 @@ The rescue command for projects whose spec has accumulated implementation leakag
 
 **interactive** — reports findings batch-by-batch, asks for confirmation before applying.
 
-**auto** — applies SAFE and RISKY fixes silently on the current branch. JUDGMENT items go to the layout-resolved triage file (`sdd/spec/triage.md` nested, `sdd/.review-needed.md` flat).
+**auto** — applies SAFE and RISKY fixes silently on the current branch. JUDGMENT items go to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested, `sdd/.review-needed.md` flat).
 
 **unleashed** — applies SAFE + RISKY + JUDGMENT on the current branch (conservative defaults for JUDGMENT), commits per category, pushes directly. No new branch, no PR. If `enforce_tdd: false`, unleashed refuses to run and emits a finding asking the user to either flip the value or use `auto` instead. Commits land where the user pushed from.
 
@@ -39,7 +39,7 @@ When unleashed mode encounters a JUDGMENT call, it never picks a winner that ove
 
 | JUDGMENT type | Conservative resolution |
 |---|---|
-| Doc-vs-spec conflict | Mark BOTH the REQ and the related doc as `Status: Partial` with `Notes:` describing the conflict. Log to `sdd/spec/triage.md` (nested) / `sdd/.review-needed.md` (flat). **Never overwrite either side.** |
+| Doc-vs-spec conflict | Mark BOTH the REQ and the related doc as `Status: Partial` with `Notes:` describing the conflict. Log to `sdd/spec/.review-queue.md` (nested) / `sdd/.review-needed.md` (flat). **Never overwrite either side.** |
 | Oversized REQ refactor | Shrink in place — extract implementation prose to the relevant lane file (`documentation/lanes/{file}.md` nested, `documentation/{file}.md` flat), leave Intent + AC verbatim. **Never split into multiple REQs.** |
 | Fake-Deprecated REQ (no Replaced By) | Move REQ definition to README's `## Out of Scope` section, remove from domain file. Content preserved. |
 | Truly ambiguous content | Mark `Partial` with `Notes:`, log to triage file. |
@@ -72,8 +72,8 @@ If `LAYOUT=nested`, no migration needed; layout migration is a no-op. If `LAYOUT
 
 1. Create `sdd/spec/` directory and `documentation/lanes/` directory via `mkdir -p`.
 2. Move every `sdd/*.md` file EXCEPT `sdd/README.md` into `sdd/spec/`. Use `git mv` so history follows (per-file rename detection).
-3. Move `sdd/config.yml` into `sdd/spec/config.yml`. Same for `sdd/init-triage.md` if present.
-4. Consolidate prior dotfiles into `sdd/spec/triage.md`: concatenate any non-empty contents of `sdd/.review-needed.md`, `sdd/.coverage-report.md`, `sdd/.last-clean-run.md`, `sdd/.review-decisions.md` under labelled sections (`## Escalations (from .review-needed.md)`, `## Coverage gaps (from .coverage-report.md)`, etc.). Then `git rm` the four dotfiles.
+3. Move `sdd/config.yml` into `sdd/spec/config.yml`. Same for `sdd/.init-triage.md` if present.
+4. Consolidate prior dotfiles into `sdd/spec/.review-queue.md`: concatenate any non-empty contents of `sdd/.review-needed.md`, `sdd/.coverage-report.md`, `sdd/.last-clean-run.md`, `sdd/.review-decisions.md` under labelled sections (`## Escalations (from .review-needed.md)`, `## Coverage gaps (from .coverage-report.md)`, etc.). Then `git rm` the four dotfiles.
 5. Move every `documentation/*.md` file EXCEPT `documentation/README.md` into `documentation/lanes/`. Use `git mv`. Keep `documentation/decisions/` as sibling (no move).
 6. Rewrite cross-file backlinks throughout `sdd/spec/**/*.md`, `documentation/lanes/**/*.md`, `documentation/decisions/README.md`, root `README.md`. Use the Edit tool, never `sed`. Patterns:
    - `(../sdd/{file}.md)` → `(../sdd/spec/{file}.md)` (from documentation lanes pointing into spec)
@@ -98,7 +98,7 @@ If `LAYOUT=nested`, no migration needed; layout migration is a no-op. If `LAYOUT
 - **Fake-Deprecated REQs** (Deprecated without `Replaced By:`) → moved to `## Out of Scope` in domain README (per the escalation rules above).
 - **Oversized REQs** (>50 lines) → flagged; in unleashed, implementation prose extracted to docs while Intent + AC stay verbatim.
 - **Bloated `changes.md`** (verification log entries, commit SHAs, multi-paragraph entries) → archived to `sdd/changes-archive-YYYY-MM.md`, new file with user-facing entries only.
-- **Status: Implemented REQs without test coverage** → if `enforce_tdd: true`, demoted to `Partial` with `Notes:`; if `enforce_tdd: false`, written to the layout-resolved triage file (`sdd/spec/triage.md` nested OR `sdd/.review-needed.md` flat legacy) under `## Coverage gaps` only.
+- **Status: Implemented REQs without test coverage** → if `enforce_tdd: true`, demoted to `Partial` with `Notes:`; if `enforce_tdd: false`, written to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) under `## Coverage gaps` only.
 - **Status: Planned/Partial REQs with source but no test** → if `enforce_tdd: true`, HIGH finding + auto-promote `Planned → Partial` with `Notes:`.
 - **Test quality heuristics** → AC-count vs test-count check, tautology detection, skipped-test detection (run when `enforce_tdd: true`).
 - **Missing doc→spec backlinks** → generated automatically.

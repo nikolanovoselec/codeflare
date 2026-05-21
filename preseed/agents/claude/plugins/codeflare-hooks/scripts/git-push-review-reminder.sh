@@ -122,7 +122,7 @@ fi
 # file).
 # ---------------------------------------------------------------------------
 _config_file=$(test -f sdd/spec/config.yml && echo sdd/spec/config.yml || echo sdd/config.yml)
-_triage_init=$(test -f sdd/spec/init-triage.md && echo sdd/spec/init-triage.md || echo sdd/init-triage.md)
+_triage_init=$(test -f sdd/spec/.init-triage.md && echo sdd/spec/.init-triage.md || echo sdd/.init-triage.md)
 if grep -q '^transition:[[:space:]]*true' "$_config_file" 2>/dev/null \
    && [ -f "$_triage_init" ] \
    && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "$_triage_init" 2>/dev/null; then

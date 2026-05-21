@@ -77,10 +77,10 @@ If false, exit silently with code 0. Nothing to do.
 ```bash
 LAYOUT="nested"
 [ -d sdd/spec ] || LAYOUT="flat"
-TRIAGE_FILE=$([ "$LAYOUT" = "nested" ] && echo sdd/spec/triage.md || echo sdd/.review-needed.md)
+TRIAGE_FILE=$([ "$LAYOUT" = "nested" ] && echo sdd/spec/.review-queue.md || echo sdd/.review-needed.md)
 ```
 
-When `LAYOUT=nested`: spec files live at `sdd/spec/**/*.md`; config at `sdd/spec/config.yml`; triage queue at `$TRIAGE_FILE` = `sdd/spec/triage.md`; init-triage at `sdd/spec/init-triage.md`; changelog at `sdd/spec/changes.md`. When `LAYOUT=flat`: legacy paths (`sdd/*.md`, `sdd/config.yml`, `$TRIAGE_FILE` = `sdd/.review-needed.md`, `sdd/init-triage.md`, `sdd/changes.md`). All globs and file references below resolve via `$TRIAGE_FILE` (one variable, two layouts).
+When `LAYOUT=nested`: spec files live at `sdd/spec/**/*.md`; config at `sdd/spec/config.yml`; triage queue at `$TRIAGE_FILE` = `sdd/spec/.review-queue.md`; init-triage at `sdd/spec/.init-triage.md`; changelog at `sdd/spec/changes.md`. When `LAYOUT=flat`: legacy paths (`sdd/*.md`, `sdd/config.yml`, `$TRIAGE_FILE` = `sdd/.review-needed.md`, `sdd/.init-triage.md`, `sdd/changes.md`). All globs and file references below resolve via `$TRIAGE_FILE` (one variable, two layouts).
 
 ### Step 0b: Read the configuration
 

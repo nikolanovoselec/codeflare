@@ -116,7 +116,11 @@ Each load-bearing fact must satisfy ONE of:
 - (a) Carries inline `<!-- @impl: <path>::<symbol>[ = <value-pattern>] -->` HTML comment trailing the fact (single line) or trailing the section's title line (section-wide anchor).
 - (b) Section header carries `(REQ-X-NNN)` backlink AND the linked REQ's AC carries an anchor that CQ-SOURCE has validated.
 
-### Validation contract (identical to spec-enforce-truth CQ-SOURCE)
+### Validation contract — Phase 7a is the canonical implementation
+
+During `/sdd init`, anchor validation across both `sdd/**/*.md` and `documentation/**/*.md` is performed by the Phase 7a verifier (`~/.claude/skills/sdd-init/references/verify-source-anchors.py`). Pass 15 consumes the resulting JSON (`.verify-anchors.json`) rather than re-deriving — see `sdd-init/SKILL.md` step 7. The agent never claims "I checked the doc anchors" without the verifier output line in the commit body; that self-attestation is **CRITICAL `phase-7a-self-attestation`** (catalogued in `sdd-init`).
+
+Outside `/sdd init` (steady-state doc-updater on existing lane files), Pass 15 performs the checks inline using the same algorithm:
 
 For each direct `<!-- @impl: ... -->` comment in a doc file:
 
@@ -128,7 +132,7 @@ For each load-bearing fact WITHOUT direct anchor AND WITHOUT REQ backlink: MEDIU
 
 ### Block-emit at /sdd init time
 
-When Pass 15 runs as part of `/sdd init`'s Phase 6 iterate-to-clean (rather than as a steady-state doc-updater check on an existing file), any HIGH finding blocks the file write. Doc-updater retries: source-scan for plausible anchors, regenerate the section, attempt emit again. On second-pass failure, the section content becomes a `sdd/spec/triage.md` entry instead of being emitted.
+When Pass 15 runs as part of `/sdd init`'s Phase 7a (and downstream step 8 iterate-to-clean), any HIGH finding blocks the file write. Doc-updater retries: source-scan for plausible anchors, regenerate the section, attempt emit again. On second-pass failure, the section content becomes a `sdd/spec/.review-queue.md` entry instead of being emitted. The Phase 7a verifier is the deterministic source of these findings — see `sdd-init/SKILL.md` step 7 for the CRITICAL anti-substitution catalogue.
 
 The block-emit rule is `/sdd init`-specific because that's the one moment where the agent can hold the entire lane file in-memory and choose not to commit a fabricated fact. Steady-state doc-updater on existing files cannot rewrite history; it flags and escalates.
 
@@ -144,4 +148,4 @@ CQ-SOURCE (in `spec-enforce-truth`) verifies the spec side. Pass 15 verifies the
 | **MEDIUM** | `verification-field-cites-unrelated-test`, `route-handler-renamed`, `function-signature-drift`, `json-example-shape-drift`, `implements-field-too-narrow`, `implements-field-low-confidence`, `trim-would-lose-load-bearing-content`, `stranger-cold-read-gap`, `doc-behavior-orphaned`, `doc-fact-not-anchored` |
 | **LOW** | none in this skill |
 
-Mode-dependent action mirrors the spine. Pass 15 HIGH findings (`doc-anchor-orphaned`, `doc-value-drift`) NEVER silently rewrite — Truth findings always escalate to `documentation/.doc-coverage.md` (or `sdd/spec/triage.md` when fired during `/sdd init`).
+Mode-dependent action mirrors the spine. Pass 15 HIGH findings (`doc-anchor-orphaned`, `doc-value-drift`) NEVER silently rewrite — Truth findings always escalate to `documentation/.doc-coverage.md` (or `sdd/spec/.review-queue.md` when fired during `/sdd init`).
