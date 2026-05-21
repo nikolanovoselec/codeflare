@@ -78,7 +78,7 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    **Commit body inclusion (BINDING).** Step 9 commit body MUST contain a verbatim line:
 
    ```
-   Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N exit_code=0|1
+   Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1
    ```
 
    The line is the cheap-to-verify proof Phase 7a ran. Absence is **CRITICAL `phase-7a-evidence-missing`** caught by the next PR-boundary review and by `spec-enforce` row 16 reading the most recent `[sdd-init]` commit body.
@@ -280,7 +280,7 @@ This section is the operational detail of greenfield-flow steps 7 (Phase 7a veri
 **Exit criteria.** Zero CRITICAL/HIGH findings remain (every truth-check anchor either resolves OR escalates to triage with concrete Context + Recommendation). Re-run both skills until findings stabilize (typically 1-2 cycles).
 
 **Visible audit trail (binding).** Step 9 commit body MUST include three lines (in order):
-- `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N exit_code=0|1` (CRITICAL — see step 7)
+- `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1` (CRITICAL — see step 7)
 - `spec-enforce: ran (N REQs, M anchors verified, V drift, O orphaned) — auto-fixed F, escalated E`
 - `doc-enforce: ran (D docs, A anchors verified, V drift, O orphaned, U unanchored) — auto-fixed F, escalated E`
 

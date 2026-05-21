@@ -820,7 +820,7 @@ describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => 
   }
 
   function withTriage(cwd, body) {
-    writeFileSync(join(cwd, 'sdd/init-triage.md'), body);
+    writeFileSync(join(cwd, 'sdd/.init-triage.md'), body);
   }
 
   it('exits 0 silently and never calls gh when transition + open triage', () => {
@@ -864,7 +864,7 @@ describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => 
       'no open items must let enforcement reach gh so spec-reviewer can flag the corrupted state');
   });
 
-  it('proceeds to enforcement when init-triage.md is missing entirely', () => {
+  it('proceeds to enforcement when .init-triage.md is missing entirely', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     // Normal project: no transition config, no triage file

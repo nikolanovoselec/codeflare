@@ -523,7 +523,7 @@ describe('git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)', ()
   }
 
   function withTriage(cwd, body) {
-    writeFileSync(join(cwd, 'sdd/init-triage.md'), body);
+    writeFileSync(join(cwd, 'sdd/.init-triage.md'), body);
   }
 
   it('exits 0 silently when transition: true AND triage has Status: open', () => {
@@ -564,7 +564,7 @@ describe('git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)', ()
       'no open items means run proceeds to the normal PR-SYNC path');
   });
 
-  it('fires normally when init-triage.md is missing entirely', () => {
+  it('fires normally when .init-triage.md is missing entirely', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     // No transition config, no triage file -- normal project state
@@ -575,7 +575,7 @@ describe('git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)', ()
       'no transition state at all means review fires normally');
   });
 
-  it('fires normally when transition: false even if init-triage.md has open items', () => {
+  it('fires normally when transition: false even if .init-triage.md has open items', () => {
     // Conjunction: both transition: true AND open items required. If
     // config flag is cleared but triage file lingers (e.g. archive),
     // review must still fire.
