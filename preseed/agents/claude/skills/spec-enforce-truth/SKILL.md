@@ -65,7 +65,7 @@ Three outcomes:
 
 ## CQ-TEST — Test-anchor coverage (gated by `enforce_tdd`)
 
-Every `Implemented` REQ must have at least one test file referencing its REQ ID. **This pass is gated by `enforce_tdd: true`** (default). When `enforce_tdd: false`, the pass writes informational entries to `sdd/spec/.review-queue.md` (or `sdd/.review-queue.md` flat) under a `## Coverage gaps` section but never mutates Status.
+Every `Implemented` REQ must have at least one test file referencing its REQ ID. **This pass is gated by `enforce_tdd: true`** (default). When `enforce_tdd: false`, the pass writes informational entries to `sdd/spec/.review-queue.md` (nested) or `sdd/.review-needed.md` (flat-legacy) under a `## Coverage gaps` section but never mutates Status.
 
 **Test discovery** uses `test_globs` from `sdd/spec/config.yml` (or `sdd/config.yml` flat). Defaults cover vitest/jest, pytest, go test, rspec, cypress, playwright.
 

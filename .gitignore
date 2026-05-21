@@ -33,5 +33,8 @@ graphify-out/obsidian/
 .graphify_root
 .graphify_labels.json
 
+# Phase 7a source-anchor verifier output (regenerated every /sdd init run)
+.verify-anchors.json
+
 # Raw ingest material for graphify (sourced from private repos)
 raw/

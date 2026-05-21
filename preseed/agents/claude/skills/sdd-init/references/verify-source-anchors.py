@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """
-verify-source-anchors.py — Phase 7a Programmatic Source-Anchor Verifier (CRITICAL)
+verify-source-anchors.py - Phase 7a Programmatic Source-Anchor Verifier (CRITICAL)
 
 Walks every `<!-- @impl: <path>::<symbol>[ = <value-pattern>] -->` anchor in
 `sdd/**/*.md` + `documentation/**/*.md`, programmatically validates each
 against source on disk, and emits a machine-readable JSON summary.
 
 Exit code is the authoritative signal:
-    0 — every anchor resolves AND every literal value pattern matches source
-    1 — at least one anchor failed (orphaned OR value-drift); commit MUST be blocked
+    0 - every anchor resolves AND every literal value pattern matches source
+    1 - at least one anchor failed (orphaned, drifted, malformed, or any
+        doc file was unreadable); commit MUST be blocked
 
-The agent invoking /sdd init MUST run this BEFORE invoking spec-enforce / doc-enforce
-and MUST copy the parsed/resolved/orphaned/drifted counts (plus exit code)
-verbatim into the [sdd-init] commit body. Self-attestation without the verifier
-output is itself a CRITICAL phase-7a-self-attestation finding caught by the
-next PR-boundary review.
+The agent invoking /sdd init MUST run this BEFORE invoking spec-enforce /
+doc-enforce and MUST copy the parsed/resolved/orphaned/drifted/malformed/
+unreadable counts (plus exit_code) verbatim into the [sdd-init] commit body.
+Self-attestation without the verifier output is itself a CRITICAL
+phase-7a-self-attestation finding caught by the next PR-boundary review.
 
 Usage:
     python3 verify-source-anchors.py [--root <repo-root>] [--json-out <path>] [--quiet]
@@ -28,31 +29,54 @@ import re
 import sys
 from pathlib import Path
 
-# Match: <!-- @impl: PATH::SYMBOL [ = VALUE] -->
-# PATH allows any non-whitespace except `:`. SYMBOL allows any non-whitespace
-# but stops at ` -->` or ` = `. VALUE captures the literal pattern verbatim.
+# Match: <!-- @impl: PATH::SYMBOL_OR_PAIR -->
+# PATH allows any non-whitespace except `:`. The trailing capture is
+# everything up to the literal `-->` close - non-greedy so we stop at the
+# first `-->` rather than consuming `>` inside arrow-function values,
+# threshold literals, or generic type parameters.
 ANCHOR_RE = re.compile(
-    r'<!--\s*@impl:\s*([^\s:][^:]*?)::([^\s][^>]*?)\s*-->'
+    r'<!--\s*@impl:\s*([^\s:][^:]*?)::(.+?)\s*-->'
 )
 
-# Inside the captured "symbol" portion, an optional " = VALUE" tail is the
-# literal-pattern part. We split here rather than in the outer regex to keep
-# the symbol-vs-value boundary clean across whitespace variants.
+# Sentinel for any `@impl` comment we recognise as "intended to be an anchor"
+# but that fails to fully parse via ANCHOR_RE. Counted as `malformed` and
+# fails the run - silent drop is exactly the failure mode this gate exists
+# to prevent.
+ANCHOR_SHAPE_RE = re.compile(r'<!--\s*@impl:')
+
+# Inside the captured "symbol or pair" portion, an optional " = VALUE" tail
+# is the literal-pattern part. We split here rather than in the outer regex
+# to keep the symbol-vs-value boundary clean across whitespace variants.
 SYM_VAL_RE = re.compile(r'^(.+?)\s*=\s*(.+?)\s*$')
 
 
-def collect_anchors(repo_root: Path, doc_globs: list[str]) -> list[dict]:
-    """Return [{file, line, path, symbol, value_or_none, raw}] for every anchor."""
-    found: list[dict] = []
+def collect_anchors(repo_root: Path, doc_globs: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
+    """Return (anchors, malformed, unreadable).
+
+    - anchors: fully-parsed entries [{file, line, path, symbol, value, raw}].
+    - malformed: comments that look like `@impl` markers but don't match
+      ANCHOR_RE - silent drop is forbidden, so they're reported as failures.
+    - unreadable: doc files whose contents could not be read.
+    """
+    anchors: list[dict] = []
+    malformed: list[dict] = []
+    unreadable: list[dict] = []
     for pattern in doc_globs:
         for md in sorted(repo_root.glob(pattern)):
             try:
                 lines = md.read_text(encoding='utf-8', errors='replace').splitlines()
             except OSError as exc:
-                print(f'WARN: cannot read {md}: {exc}', file=sys.stderr)
+                unreadable.append({
+                    'file': str(md.relative_to(repo_root)),
+                    'reason': str(exc),
+                })
                 continue
             for ln, text in enumerate(lines, 1):
-                for m in ANCHOR_RE.finditer(text):
+                shape_hits = list(ANCHOR_SHAPE_RE.finditer(text))
+                if not shape_hits:
+                    continue
+                parsed_hits = list(ANCHOR_RE.finditer(text))
+                for m in parsed_hits:
                     path = m.group(1).strip()
                     sym_or_pair = m.group(2).strip()
                     sym_match = SYM_VAL_RE.match(sym_or_pair)
@@ -62,7 +86,7 @@ def collect_anchors(repo_root: Path, doc_globs: list[str]) -> list[dict]:
                     else:
                         symbol = sym_or_pair
                         value = None
-                    found.append({
+                    anchors.append({
                         'file': str(md.relative_to(repo_root)),
                         'line': ln,
                         'path': path,
@@ -70,14 +94,34 @@ def collect_anchors(repo_root: Path, doc_globs: list[str]) -> list[dict]:
                         'value': value,
                         'raw': m.group(0),
                     })
-    return found
+                # Any `@impl`-shaped marker on the line that ANCHOR_RE didn't
+                # also match is a malformed anchor.
+                if len(parsed_hits) < len(shape_hits):
+                    malformed.append({
+                        'file': str(md.relative_to(repo_root)),
+                        'line': ln,
+                        'text': text.strip(),
+                        'reason': 'anchor-shape-but-not-parseable',
+                    })
+    return anchors, malformed, unreadable
+
+
+def _symbol_region(body: str, leaf: str, window: int = 300) -> str | None:
+    """Return the source region immediately AFTER the leaf identifier, or None
+    if the leaf does not appear as a word-bounded token. Forward-only scoping
+    so a value-assignment on a preceding line (e.g. `unrelated = 1;` followed
+    by `TARGET = 5;`) cannot bleed into the value-pattern check for TARGET."""
+    m = re.search(rf'\b{re.escape(leaf)}\b', body)
+    if not m:
+        return None
+    end = min(len(body), m.start() + window)
+    return body[m.start():end]
 
 
 def verify_anchor(repo_root: Path, anchor: dict) -> dict:
     """Return {status: 'resolved'|'orphaned'|'drifted', reason: str|None}."""
     target = repo_root / anchor['path']
 
-    # 1. Path existence.
     if not target.exists():
         return {'status': 'orphaned', 'reason': f"path-not-found: {anchor['path']}"}
     if not target.is_file():
@@ -88,34 +132,47 @@ def verify_anchor(repo_root: Path, anchor: dict) -> dict:
     except OSError as exc:
         return {'status': 'orphaned', 'reason': f'unreadable: {exc}'}
 
-    # 2. Symbol presence. Take the last `.`-separated segment as the leaf
-    #    identifier (e.g. `AuthService._migrateSensitiveDataIfNeeded` -> the
-    #    method name, which is the part that uniquely identifies the symbol
-    #    in source). For Kotlin/JS where dots are package separators not
-    #    member separators we also accept the full literal as fallback.
+    # Symbol presence: word-boundary check on the leaf identifier (last
+    # `.`-separated segment) AND fall back to the full literal for Kotlin/JS
+    # where dots are package separators. Substring containment alone produces
+    # false resolves against unrelated tokens that happen to contain the leaf.
     symbol = anchor['symbol']
     leaf = symbol.rsplit('.', 1)[-1]
-    if leaf not in body and symbol not in body:
+    leaf_present = re.search(rf'\b{re.escape(leaf)}\b', body) is not None
+    # Dotted-name fallback (e.g. Kotlin/JS `package.Class`): the full literal
+    # with the dot is distinctive enough to substring-match safely. When
+    # symbol == leaf (no dot), the substring fallback would defeat the
+    # word-boundary check, so skip it in that case.
+    has_dot = '.' in symbol
+    full_present = has_dot and symbol in body
+    if not (leaf_present or full_present):
         return {
             'status': 'orphaned',
             'reason': f"symbol-not-found: {anchor['path']}::{symbol}",
         }
 
-    # 3. Value-pattern check (only when an ` = VALUE` tail was supplied).
     if anchor['value'] is not None:
         value = anchor['value']
-        # Try several literal renderings the source might use.
+        # Scope the value-pattern search to the region around the symbol.
+        # Without scoping, short values like `1` / `true` / `0` substring-match
+        # anywhere in the file and the verifier reports a false `resolved`.
+        region = _symbol_region(body, leaf) or _symbol_region(body, symbol) or body
         candidates = [
+            f' = {value}',
             f'= {value}',
+            f' ={value}',
             f'={value}',
             f': {value}',
             f':{value}',
             f' {value};',
             f' {value},',
             f' {value})',
-            value,
         ]
-        if not any(c in body for c in candidates):
+        # Bare-substring fallback only for sufficiently distinctive values.
+        # `1`, `true`, single chars will substring-match almost any file.
+        if len(value) >= 8:
+            candidates.append(value)
+        if not any(c in region for c in candidates):
             return {
                 'status': 'drifted',
                 'reason': f"value-pattern-not-found: {anchor['path']}::{symbol} expected={value!r}",
@@ -125,7 +182,9 @@ def verify_anchor(repo_root: Path, anchor: dict) -> dict:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split('\n')[1])
+    ap = argparse.ArgumentParser(
+        description='Phase 7a programmatic source-anchor verifier (CRITICAL).'
+    )
     ap.add_argument('--root', default='.', help='Repo root (default: cwd)')
     ap.add_argument(
         '--json-out',
@@ -142,38 +201,39 @@ def main() -> int:
     repo_root = Path(args.root).resolve()
     doc_globs = ['sdd/**/*.md', 'documentation/**/*.md']
 
-    anchors = collect_anchors(repo_root, doc_globs)
-    if not anchors:
-        # Empty corpus is acceptable on a fresh project, but worth surfacing.
-        report = {
-            'parsed': 0, 'resolved': 0, 'orphaned': 0, 'drifted': 0,
-            'failures': [], 'exit_code': 0,
-        }
-    else:
-        failures = []
-        resolved = 0
-        for a in anchors:
-            outcome = verify_anchor(repo_root, a)
-            if outcome['status'] == 'resolved':
-                resolved += 1
-            else:
-                failures.append({
-                    'file': a['file'], 'line': a['line'],
-                    'path': a['path'], 'symbol': a['symbol'],
-                    'value': a['value'],
-                    'status': outcome['status'],
-                    'reason': outcome['reason'],
-                })
-        orphaned = sum(1 for f in failures if f['status'] == 'orphaned')
-        drifted = sum(1 for f in failures if f['status'] == 'drifted')
-        report = {
-            'parsed': len(anchors),
-            'resolved': resolved,
-            'orphaned': orphaned,
-            'drifted': drifted,
-            'failures': failures,
-            'exit_code': 1 if (orphaned + drifted) > 0 else 0,
-        }
+    anchors, malformed, unreadable = collect_anchors(repo_root, doc_globs)
+
+    failures: list[dict] = []
+    resolved = 0
+    for a in anchors:
+        outcome = verify_anchor(repo_root, a)
+        if outcome['status'] == 'resolved':
+            resolved += 1
+        else:
+            failures.append({
+                'file': a['file'], 'line': a['line'],
+                'path': a['path'], 'symbol': a['symbol'],
+                'value': a['value'],
+                'status': outcome['status'],
+                'reason': outcome['reason'],
+            })
+
+    orphaned = sum(1 for f in failures if f['status'] == 'orphaned')
+    drifted = sum(1 for f in failures if f['status'] == 'drifted')
+    failed = orphaned + drifted + len(malformed) + len(unreadable)
+
+    report = {
+        'parsed': len(anchors),
+        'resolved': resolved,
+        'orphaned': orphaned,
+        'drifted': drifted,
+        'malformed': len(malformed),
+        'unreadable': len(unreadable),
+        'failures': failures,
+        'malformed_entries': malformed,
+        'unreadable_entries': unreadable,
+        'exit_code': 1 if failed > 0 else 0,
+    }
 
     print(json.dumps(report, indent=2))
 
@@ -186,6 +246,8 @@ def main() -> int:
             f"resolved={report['resolved']} "
             f"orphaned={report['orphaned']} "
             f"drifted={report['drifted']} "
+            f"malformed={report['malformed']} "
+            f"unreadable={report['unreadable']} "
             f"exit_code={report['exit_code']}",
             file=sys.stderr,
         )
