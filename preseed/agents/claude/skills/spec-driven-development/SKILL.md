@@ -69,6 +69,13 @@ pending.md         # In-flight work and known gaps (NOT requirements)
 
 **Dual-layout support during migration window.** Skills detect layout via `test -d sdd/spec`. Projects on flat layout (`sdd/{domain}.md` directly) keep working; `/sdd clean` migrates flat → nested on demand. The flat layout will be deprecated after one release cycle; no new flat-layout projects should be created.
 
+**Layout is exhaustive (binding).** The tree above is the COMPLETE allowed set of files under `sdd/` and `documentation/` on the nested layout. Anything else is a violation:
+- No `sdd/spec/README.md` — the single comprehensive index is `sdd/README.md` (Vision + Actors + Design Principles + Domains table linking to `spec/{file}.md` + Out of Scope, plus one-line links to constraints/glossary/documentation/changelog).
+- No `documentation/lanes/README.md` — the lane index is `documentation/README.md` (Jump-TOC + Lane ownership + REQ backlinks + Synonym glossary + Reading order + Related).
+- No extra subdirectories under `sdd/spec/`, `documentation/lanes/`, or `documentation/decisions/`.
+
+The enforcement check (one walk, one rule) lives in `doc-enforce-lanes` § Layout conformance.
+
 **Dotfile reduction.** The nested schema consolidates four prior dotfiles (`.review-needed.md`, `.coverage-report.md`, `.last-clean-run.md`, `.review-decisions.md`) into one `triage.md`. `/sdd clean` audit lives in commit history (`git log --grep='\[sdd-clean\]'` + commit bodies). `/review` cross-run dedup, when needed, is derived from `git log --grep='\[review\]'`.
 
 ## REQ format

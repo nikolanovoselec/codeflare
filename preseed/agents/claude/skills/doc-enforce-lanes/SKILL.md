@@ -79,6 +79,27 @@ Fix: the original ADR is immutable. Write a new ADR `Supersedes: <original-adr>.
 
 Severity: HIGH `dual-narrative-adr`. No mechanical auto-fix; the supersedure decision is JUDGMENT (the user decides which decision is the current one). Escalate to `documentation/.doc-coverage.md` with both narratives quoted.
 
+## Layout conformance
+
+The canonical SDD layout (single source of truth) is defined in `spec-driven-development` § "Spec structure (nested layout, canonical)". The layout is EXHAUSTIVE — anything not in the canonical tree is a violation.
+
+Detection (one walk, on every PR-boundary review and on `scope=all`):
+1. List every file under `sdd/` and `documentation/`.
+2. For each file, check membership against the canonical layout:
+   - Allowed under `sdd/`: `README.md`, `spec/{domain}.md` (any name without leading `.`), `spec/glossary.md`, `spec/constraints.md`, `spec/changes.md`, `spec/config.yml`, `spec/triage.md`, `spec/init-triage.md`, `spec/changes-archive-*.md` (archive output of `/sdd clean`).
+   - Allowed under `documentation/`: `README.md`, `lanes/{lane}.md` (the seven canonical lane names + any `api-reference-*` sibling), `decisions/README.md`, `.doc-coverage.md` (audit dotfile), `.cold-read-tasks.yml` (project override).
+3. Any file outside the allowed set = HIGH `layout-violation` listing the path and the reason it doesn't fit.
+
+Common violations and auto-fix in `auto`/`unleashed`:
+- `sdd/spec/README.md`: merge any sections not already in `sdd/README.md` (Domains table, summary), then `git rm`. Commit `[doc-updater] merge sdd/spec/README.md into sdd/README.md`.
+- `documentation/lanes/README.md`: merge any sections not already in `documentation/README.md` (Jump-TOC additions), then `git rm`. Commit `[doc-updater] merge documentation/lanes/README.md into documentation/README.md`.
+- Unknown lane file (e.g. `documentation/lanes/internals.md`): escalate to `documentation/.doc-coverage.md` — the user decides whether to add the lane to the canonical set or fold its content into an existing lane.
+- Subdirectory under `sdd/spec/` or `documentation/lanes/`: escalate; nested subdirs are never auto-flattened.
+
+In `interactive`: show the proposed merge/delete per file, ask before applying.
+
+Rationale: a single positive layout spec replaces an open-ended ban-list. The check is one tree walk against one allowlist, so adding a new canonical file means updating the layout in `spec-driven-development` § "Spec structure" and the allowlist above — the only two places.
+
 ## Severity application
 
 - Pass 3 implementation-prose with matching REQ: MEDIUM (auto-fix: rewrite to backlink).
@@ -86,5 +107,6 @@ Severity: HIGH `dual-narrative-adr`. No mechanical auto-fix; the supersedure dec
 - Pass 4 lane violations: MEDIUM each. (Pass 2 file-budget escalation removed; codeflare-scale projects intentionally exceed Zipline-scale page counts. Per-element caps in Pass 1 remain authoritative.)
 - Big-O jargon: MEDIUM.
 - Dual-narrative ADR: HIGH.
+- Layout violation: HIGH `layout-violation`.
 
 Mode-dependent action mirrors the spine.

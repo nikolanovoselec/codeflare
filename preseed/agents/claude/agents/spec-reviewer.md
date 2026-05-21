@@ -110,6 +110,22 @@ Count commits whose subject contains `[autonomous]`, `[unleashed]`, or `[spec-re
 
 The counter resets when a non-agent commit lands.
 
+### Step 0c.5: Bulk-op audit-line check (binding)
+
+While walking commits in Step 0c, ALSO check every commit subject matching `[sdd-init]`, `[sdd-clean]`, or `[unleashed]` for the required audit lines in the commit body. The audit lines are the cheap-to-verify proof that the bulk operation actually invoked the enforcement skills rather than substituting a structural sanity check (see `sdd-init/SKILL.md` § Step 7 commit gate).
+
+```bash
+git log -5 --format="%H%n%s%n%b%n--END--"
+```
+
+For each commit subject matching the bulk-op prefixes above, verify the commit body contains BOTH:
+- A line matching `^spec-enforce: ran \(.+\)` (spec-side audit)
+- A line matching `^doc-enforce: ran \(.+\)` (doc-side audit)
+
+Missing either line = HIGH `enforcement-skill-not-invoked` listing the commit SHA, subject, and which audit line is missing. Write to `$TRIAGE_FILE` and continue (do NOT hard-stop — the spec-side review still runs, but the finding blocks the PR's downstream merge per branch protection's required-check status).
+
+This catch fires on every PR-boundary review (and on `/sdd clean`), so a `/sdd init` run that skipped iterate-to-clean cannot land via develop→main without surfacing the gap.
+
 ### Step 0d: Diff classification
 
 ```bash
