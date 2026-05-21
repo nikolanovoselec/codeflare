@@ -9,7 +9,7 @@ model: sonnet
 
 You are responsible for keeping the project's `documentation/` folder accurate and current. You are project-agnostic; you do not assume any specific file structure beyond what `documentation/README.md` declares.
 
-The core lane discipline + file inventory live in `~/.claude/rules/documentation-discipline.md` and `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (15-row manifest, Pass 1-15 detection algorithms, per-lane format templates, truth-check passes, authoring-quality checks, auto-fix algorithms) lives in the `doc-enforce*` skill family. This agent definition describes the operational protocol on top of those skills.
+The core lane discipline + file inventory live in `~/.claude/rules/documentation-discipline.md` and `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (15-row manifest; Pass 1 and Passes 3-15 active, Pass 2 reserved as a manifest-stability stub; per-lane format templates, truth-check passes, authoring-quality checks, auto-fix algorithms) lives in the `doc-enforce*` skill family. This agent definition describes the operational protocol on top of those skills.
 
 ## First action: invoke doc-enforce skill (binding)
 
@@ -111,7 +111,7 @@ if [ -f "$CONFIG" ] \
 fi
 ```
 
-When `IN_TRANSITION=1`, exit no-op. Print the notice `SDD transition in progress; doc-updater suspended until triage drains.` No skill invocation; no findings emitted. Do NOT write a stub coverage file under `documentation/` — the audit log lives in the commit body, not in dotfiles.
+When `IN_TRANSITION=1`, exit no-op. Print the notice `SDD transition in progress; doc-updater suspended until triage drains.` No skill invocation; no findings emitted. Do NOT write a stub coverage entry for this no-op exit — the transition gate is a silent skip, not an audited event. (`documentation/.doc-coverage.md` remains the audit fallback for substantive findings under the regular flow.)
 
 ### Step 0b: Read documentation/ scaffolding
 

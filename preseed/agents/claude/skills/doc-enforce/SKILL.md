@@ -53,7 +53,7 @@ Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit o
 ## Orchestration logic
 
 1. **Parse diff.** Identify: changed doc files, changed sections, changed prose hunks, presence of api-reference*.md or canonical lane files in diff, REQ IDs cited in diff.
-2. **Always-runs rows** (Pass 1, 2, 13, 14): execute inline. Each row updates its manifest status to concrete evidence count immediately on completion.
+2. **Always-runs rows** (Pass 1, 13, 14 actively; Pass 2 always reports `inert (file-level cap removed)` as a manifest-stability stub): execute inline. Each row updates its manifest status to concrete evidence count immediately on completion.
 3. **Conditional invocations**:
    - For every doc file touched in diff: invoke `doc-enforce-lanes` (covers Pass 3 + Pass 4).
    - IF `documentation/lanes/api-reference*.md` (or flat `documentation/api-reference*.md`) OR any canonical lane file touched in diff OR scope=all: invoke `doc-enforce-shape` (covers Pass 5 + Pass 6 + Pass 7).
