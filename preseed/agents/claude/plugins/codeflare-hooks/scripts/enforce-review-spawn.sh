@@ -784,7 +784,7 @@ if requires_lane "spec-reviewer" && ! spawned_after_push "spec-reviewer"; then
 fi
 
 if [ -n "$MISSING" ]; then
-  REASON="PR #$CURRENT (head ${CURRENT_PR_HEAD:0:7}) needs SDD review. Spawn missing:$MISSING in parallel via Agent tool. Lanes required for this push: $REQUIRED_LANES. USER bypass: 'skip review' or 'touch /tmp/review-bypass'."
+  REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: spawn$MISSING in parallel. Bypass: 'skip review'."
   emit_block "$REASON"
 fi
 
@@ -836,7 +836,7 @@ if [ "$DOC_REQUIRED" = "1" ] && [ "$SPEC_REQUIRED" = "1" ]; then
             && index($0, "\"subagent_type\":\"doc-updater\"") { found=1; exit }
           END { exit !found }
         '; then
-          REASON="spec-reviewer done; doc-updater missing. Spawn doc-updater via Agent tool (sequential -- shared filesystem). Lanes required for this push: $REQUIRED_LANES. USER bypass: 'skip review' or 'touch /tmp/review-bypass'."
+          REASON="spec-reviewer done; spawn doc-updater (sequential). Bypass: 'skip review'."
           emit_block "$REASON"
         fi
         PIPELINE_COMPLETE=1
@@ -850,7 +850,7 @@ elif [ "$DOC_REQUIRED" = "1" ]; then
   # the doc-updater tool-use envelope; we cannot ack a SHA we never
   # verified.
   if ! spawned_after_push "doc-updater"; then
-    REASON="PR #$CURRENT (head ${CURRENT_PR_HEAD:0:7}) needs doc-updater (lane required: documentation surface touched, spec/code clean). Spawn via Agent tool. USER bypass: 'skip review' or 'touch /tmp/review-bypass'."
+    REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: spawn doc-updater. Bypass: 'skip review'."
     emit_block "$REASON"
   fi
   PIPELINE_COMPLETE=1
