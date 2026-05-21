@@ -71,7 +71,7 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - "The verifier path didn't exist on disk, so I skipped it" is **CRITICAL `phase-7a-tooling-bypass`**. The verifier ships inside this skill (`references/verify-source-anchors.py`); if the install path doesn't resolve, install or copy it before proceeding.
 
    **On `exit_code = 1`:**
-   - For each entry in `failures[]`, append a `.review-queue.md` (greenfield) or `.init-triage.md` (Import Mode) entry with Context = `failures[i].file:line :: failures[i].path::failures[i].symbol — failures[i].reason` and Recommendation = best-guess corrected anchor OR "abandon claim and re-derive from source".
+   - For each entry in `failures[]`, append an entry to the layout-appropriate triage file (nested: `sdd/spec/.review-queue.md` greenfield or `sdd/spec/.init-triage.md` Import Mode; flat-layout legacy: `sdd/.review-needed.md` greenfield or `sdd/.init-triage.md` Import Mode) with Context = `failures[i].file:line :: failures[i].path::failures[i].symbol — failures[i].reason` and Recommendation = best-guess corrected anchor OR "abandon claim and re-derive from source".
    - **BLOCK COMMIT** until every failure is either fixed (anchor edited or source corrected) OR escalated to triage with concrete Context + Recommendation.
    - Re-run the verifier after every fix. Commit proceeds only when `exit_code = 0` OR every remaining failure has a triage entry.
 

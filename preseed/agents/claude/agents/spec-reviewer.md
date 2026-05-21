@@ -112,7 +112,7 @@ The counter resets when a non-agent commit lands.
 
 ### Step 0c.5: Bulk-op audit-line check (binding)
 
-While walking commits in Step 0c, ALSO check every commit subject matching `[sdd-init]` or `[sdd-clean]` for the required audit lines in the commit body. The audit lines are the cheap-to-verify proof that the bulk operation actually invoked the enforcement skills rather than substituting a structural sanity check (see `sdd-init/SKILL.md` § Step 7 commit gate). `[unleashed]` is excluded: it is the autonomy-mode prefix for single-lane commits where only one (or neither) skill ran.
+While walking commits in Step 0c, ALSO check every commit subject matching `[sdd-init]` or `[sdd-clean]` for the required audit lines in the commit body. The audit lines are the cheap-to-verify proof that the bulk operation actually invoked the enforcement skills rather than substituting a structural sanity check (see `sdd-init/SKILL.md` step 9 iterate-to-clean commit gate, which gates the step 10 commit on Phase 7a + Phase 7b evidence). `[unleashed]` is excluded: it is the autonomy-mode prefix for single-lane commits where only one (or neither) skill ran.
 
 ```bash
 git log -5 --format="%H%n%s%n%b%n--END--"

@@ -29,7 +29,7 @@ Exit code is the authoritative signal:
 The /sdd init agent MUST run this AFTER Phase 7a and BEFORE invoking
 spec-enforce / doc-enforce, and MUST copy the summary line verbatim into
 the [sdd-init] commit body. Anti-substitution clauses mirror Phase 7a
-(see sdd-init/SKILL.md step 7b).
+(see sdd-init/SKILL.md step 8).
 """
 from __future__ import annotations
 import argparse
@@ -77,9 +77,12 @@ EXCLUDE_DIR_TOKENS = (
 )
 
 # Top-level repo directories excluded as a path prefix (not as any-segment).
-# `sdd/` and `documentation/` are reserved framework dirs; `spec`/`specs` only
-# excludes the actual `sdd/spec/` subtree, not legitimate Ruby `Specs/` source
-# directories anywhere else in the tree.
+# `sdd/` and `documentation/` are reserved framework dirs. Note: `spec`/`specs`
+# is intentionally NOT excluded here; the only `sdd/spec/` subtree is already
+# covered by the `sdd` top-level prefix. Trade-off: RSpec-style top-level
+# `spec/` test directories (Ruby convention) and PascalCase `Specs/` source
+# directories are now enumerated; projects with RSpec layout MUST waive each
+# `*_spec.rb` via `sdd/spec/.phase-7b-waiver.txt`.
 EXCLUDE_TOP_LEVEL_PREFIXES = (
     ('sdd',),
     ('documentation',),
@@ -130,16 +133,6 @@ class CoverageReport:
     unaccounted_entries: list = field(default_factory=list)
     enumerated_entries: list = field(default_factory=list)
     exit_code: int = 0
-
-
-def is_under_excluded_dir(path: Path, repo_root: Path) -> bool:
-    rel_parts = path.relative_to(repo_root).parts
-    if any(part.lower() in EXCLUDE_DIR_TOKENS for part in rel_parts[:-1]):
-        return True
-    for prefix in EXCLUDE_TOP_LEVEL_PREFIXES:
-        if tuple(p.lower() for p in rel_parts[: len(prefix)]) == prefix:
-            return True
-    return False
 
 
 def is_under_load_bearing_dir(path: Path, repo_root: Path) -> bool:
