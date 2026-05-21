@@ -55,7 +55,7 @@ Audit location by trigger: `/sdd clean` writes to the per-category commit bodies
 ## Orchestration logic
 
 1. **Parse diff.** Identify: changed REQs, changed files, changed AC bullets, REQ ID set in diff, Status field changes, `sdd/changes.md` deltas.
-2. **Always-runs rows** (the 14 spine rows above): execute inline. Each row updates its manifest status to `ran (N REQs, M findings)` immediately on completion.
+2. **Always-runs rows** (the 10 inline rows in the manifest above — Forbidden content, Status field semantics, REQ rendering, REQ length, Changelog drift, the three Meta-content leakage rules, Backlog re-triage, Commit-prefix + 2-round limit): execute inline. Each row updates its manifest status to `ran (N REQs, M findings)` immediately on completion. The remaining 9 rows invoke `spec-enforce-ac` (6 rows: AC granularity, actor coherence, sub-bullets, cross-cutting, concern-boundary, mechanism leakage) or `spec-enforce-truth` (3 rows: CQ-TEST, CQ-SOURCE, CQ-1/2/3) per the conditional rules below.
 3. **Conditional invocations**:
    - IF any AC bullet line changed in diff OR scope=all: invoke `spec-enforce-ac` skill with the diff + scope + mode.
    - IF any REQ with `Status: Implemented` is in the diff OR scope=all: invoke `spec-enforce-truth` skill with the diff + scope + mode.

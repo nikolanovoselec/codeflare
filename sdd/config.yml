@@ -6,7 +6,8 @@
 #
 # interactive: confirm every fix before applying. Safe for new SDD users.
 # auto:        apply SAFE+RISKY fixes silently on the current branch.
-#              Escalate JUDGMENT calls to sdd/.review-needed.md.
+#              Escalate JUDGMENT calls to the layout-resolved triage file
+#              (sdd/spec/triage.md nested, sdd/.review-needed.md flat-legacy).
 # unleashed:   apply everything (including JUDGMENT) on the current branch.
 #              Conservative defaults preserve information without overwriting intent.
 #              Walk-away autopilot - come back to per-category commits, git revert
@@ -23,9 +24,11 @@ mode: interactive
 # — which is a lie about coverage, not a reflection of reality.
 #
 # Instead, with enforce_tdd: false, spec-reviewer writes coverage findings
-# to sdd/.coverage-report.md without modifying the spec. We get visibility
-# into the gap and can backfill REQ-ID test names incrementally as we touch
-# each domain, then flip this to true once the bulk of the bridge is built.
+# to the layout-resolved triage file (sdd/spec/triage.md nested,
+# sdd/.review-needed.md flat-legacy) under "## Coverage gaps" without
+# modifying the spec. We get visibility into the gap and can backfill
+# REQ-ID test names incrementally as we touch each domain, then flip this
+# to true once the bulk of the bridge is built.
 enforce_tdd: false
 
 # Test discovery globs — where spec-reviewer looks for REQ ID references.
