@@ -13,7 +13,7 @@ The core lane discipline + vocabulary lives in `~/.claude/rules/spec-discipline.
 
 ## First action: invoke spec-enforce skill (binding)
 
-On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be invoking the `spec-enforce` skill against the current diff. The skill is the orchestrator: it runs the 19-row manifest inline AND conditionally invokes `spec-enforce-ac` (when ACs touched) + `spec-enforce-truth` (when Implemented REQs touched OR scope=all) on your behalf.
+On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be invoking the `spec-enforce` skill against the current diff. The skill is the orchestrator: it runs the 19-row manifest inline AND conditionally invokes `spec-enforce-ac` (when ACs touched) + `spec-enforce-truth` (when Implemented or Partial REQs touched OR scope=all — Partial included so CQ-SOURCE can validate `@impl` anchors) on your behalf.
 
 Invocation form:
 - PR-boundary trigger: `spec-enforce` with `scope=diff`, `mode=<from sdd/config.yml>`.
@@ -244,7 +244,7 @@ When adding a new REQ via Phase 1, follow the rendering template in the `spec-en
 ## Exit checklist (verify before reporting done)
 
 - [ ] `spec-enforce` skill was invoked as first action (skipping = HIGH `enforcement-skill-not-invoked`)
-- [ ] Conditional sub-skills ran when applicable (`spec-enforce-ac` when ACs touched, `spec-enforce-truth` when Implemented REQs touched or scope=all)
+- [ ] Conditional sub-skills ran when applicable (`spec-enforce-ac` when ACs touched, `spec-enforce-truth` when Implemented or Partial REQs touched or scope=all)
 - [ ] Mode-appropriate fix policy applied (interactive confirms; auto applies CRITICAL+HIGH+MEDIUM; unleashed includes LOW)
 - [ ] JUDGMENT findings escalated to `$TRIAGE_FILE` (not auto-resolved outside unleashed mode)
 - [ ] `[spec-reviewer]` commit prefix used on every commit this agent authored

@@ -1,6 +1,6 @@
 ---
 name: spec-enforce
-description: SDD spec enforcement orchestrator. Runs the 19-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented REQs touched or scope=all). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
+description: SDD spec enforcement orchestrator. Runs the 19-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
 version: 2.0.0
 ---
 
@@ -58,7 +58,7 @@ Audit location by trigger: `/sdd clean` writes to the per-category commit bodies
 2. **Always-runs rows** (the 10 inline rows in the manifest above — Forbidden content, Status field semantics, REQ rendering, REQ length, Changelog drift, the three Meta-content leakage rules, Backlog re-triage, Commit-prefix + 2-round limit): execute inline. Each row updates its manifest status to `ran (N REQs, M findings)` immediately on completion. The remaining 9 rows invoke `spec-enforce-ac` (6 rows: AC granularity, actor coherence, sub-bullets, cross-cutting, concern-boundary, mechanism leakage) or `spec-enforce-truth` (3 rows: CQ-TEST, CQ-SOURCE, CQ-1/2/3) per the conditional rules below.
 3. **Conditional invocations**:
    - IF any AC bullet line changed in diff OR scope=all: invoke `spec-enforce-ac` skill with the diff + scope + mode.
-   - IF any REQ with `Status: Implemented` is in the diff OR scope=all: invoke `spec-enforce-truth` skill with the diff + scope + mode.
+   - IF any REQ with `Status: Implemented` or `Status: Partial` is in the diff OR scope=all: invoke `spec-enforce-truth` skill with the diff + scope + mode. Partial REQs are included because they may carry `@impl` source anchors that can drift, and CQ-SOURCE must run wherever an anchor exists (Truth guarantee is never gated). The skill itself decides per-pass which REQs each pass applies to (CQ-TEST only fires on Implemented when `enforce_tdd: true`; CQ-SOURCE fires on every REQ with anchors regardless of Status).
 4. **Aggregate** findings from sub-skill invocations into the unified manifest. Each sub-skill returns its own evidence rows.
 5. **Apply mode**:
    - `interactive`: confirm each fix; CRITICAL/HIGH/MEDIUM blocking, LOW deferred.
