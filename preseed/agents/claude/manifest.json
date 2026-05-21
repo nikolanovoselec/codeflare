@@ -478,6 +478,11 @@
       "advanced"
     ]
   },
+  "skills/sdd-init/references/verify-enumeration-coverage.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/search-first/SKILL.md": {
     "modes": [
       "advanced"
