@@ -112,15 +112,15 @@ The counter resets when a non-agent commit lands.
 
 ### Step 0c.5: Bulk-op audit-line check (binding)
 
-While walking commits in Step 0c, ALSO check every commit subject matching `[sdd-init]`, `[sdd-clean]`, or `[unleashed]` for the required audit lines in the commit body. The audit lines are the cheap-to-verify proof that the bulk operation actually invoked the enforcement skills rather than substituting a structural sanity check (see `sdd-init/SKILL.md` § Step 7 commit gate).
+While walking commits in Step 0c, ALSO check every commit subject matching `[sdd-init]` or `[sdd-clean]` for the required audit lines in the commit body. The audit lines are the cheap-to-verify proof that the bulk operation actually invoked the enforcement skills rather than substituting a structural sanity check (see `sdd-init/SKILL.md` § Step 7 commit gate). `[unleashed]` is excluded: it is the autonomy-mode prefix for single-lane commits where only one (or neither) skill ran.
 
 ```bash
 git log -5 --format="%H%n%s%n%b%n--END--"
 ```
 
 For each commit subject matching the bulk-op prefixes above, verify the commit body contains BOTH:
-- A line matching `^spec-enforce: ran \([^)]*anchors verified[^)]*\)` (spec-side audit; the `anchors verified` token is the proof that CQ-SOURCE actually walked the `@impl` anchors)
-- A line matching `^doc-enforce: ran \([^)]*anchors verified[^)]*\)` (doc-side audit; same proof for Pass 15)
+- A line matching `spec-enforce: ran \([^)]*anchors verified[^)]*\)` (spec-side audit; the `anchors verified` token is the proof that CQ-SOURCE actually walked the `@impl` anchors). Optional leading bullet/whitespace/backtick tolerated.
+- A line matching `doc-enforce: ran \([^)]*anchors verified[^)]*\)` (doc-side audit; same proof for Pass 15). Optional leading bullet/whitespace/backtick tolerated.
 
 Missing either line, OR a line present but lacking the `anchors verified` token = HIGH `enforcement-skill-not-invoked` listing the commit SHA, subject, and which audit is missing/incomplete. Write to `$TRIAGE_FILE` and continue (do NOT hard-stop — the spec-side review still runs, but the finding blocks the PR's downstream merge per branch protection's required-check status).
 
