@@ -119,10 +119,10 @@ git log -5 --format="%H%n%s%n%b%n--END--"
 ```
 
 For each commit subject matching the bulk-op prefixes above, verify the commit body contains BOTH:
-- A line matching `^spec-enforce: ran \(.+\)` (spec-side audit)
-- A line matching `^doc-enforce: ran \(.+\)` (doc-side audit)
+- A line matching `^spec-enforce: ran \([^)]*anchors verified[^)]*\)` (spec-side audit; the `anchors verified` token is the proof that CQ-SOURCE actually walked the `@impl` anchors)
+- A line matching `^doc-enforce: ran \([^)]*anchors verified[^)]*\)` (doc-side audit; same proof for Pass 15)
 
-Missing either line = HIGH `enforcement-skill-not-invoked` listing the commit SHA, subject, and which audit line is missing. Write to `$TRIAGE_FILE` and continue (do NOT hard-stop — the spec-side review still runs, but the finding blocks the PR's downstream merge per branch protection's required-check status).
+Missing either line, OR a line present but lacking the `anchors verified` token = HIGH `enforcement-skill-not-invoked` listing the commit SHA, subject, and which audit is missing/incomplete. Write to `$TRIAGE_FILE` and continue (do NOT hard-stop — the spec-side review still runs, but the finding blocks the PR's downstream merge per branch protection's required-check status).
 
 This catch fires on every PR-boundary review (and on `/sdd clean`), so a `/sdd init` run that skipped iterate-to-clean cannot land via develop→main without surfacing the gap.
 
