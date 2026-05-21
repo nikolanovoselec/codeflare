@@ -75,7 +75,7 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - **BLOCK COMMIT** until every failure is either fixed (anchor edited or source corrected) OR escalated to triage with concrete Context + Recommendation.
    - Re-run the verifier after every fix. Commit proceeds only when `exit_code = 0` OR every remaining failure has a triage entry.
 
-   **Commit body inclusion (BINDING).** Step 9 commit body MUST contain a verbatim line:
+   **Commit body inclusion (BINDING).** The step-10 commit body MUST contain a verbatim line:
 
    ```
    Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1
@@ -110,7 +110,7 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - "Phase 4 enumeration was skipped because Drafted-In-Memory" — drafting in memory does NOT exempt Phase 4. The enumeration table is the input to drafting, not a side artifact. Skipping is **CRITICAL `phase-4-enumeration-skipped`**.
 
    **On `exit_code = 1`:**
-   - For each entry in `unaccounted_entries[]`, append a `.init-triage.md` entry with Context = `entry.path (reason=entry.reason, line_count=entry.line_count) — never appeared in any drafted AC or ADR` and Recommendation = best-guess role / "drop as dead code if confirmed by user" / "fold into REQ-X-NNN if the file implements that AC".
+   - For each entry in `unaccounted_entries[]`, append an entry to the layout-appropriate triage file (nested: `sdd/spec/.init-triage.md`; flat-layout legacy: `sdd/.init-triage.md`) with Context = `entry.path (reason=entry.reason, line_count=entry.line_count) — never appeared in any drafted AC or ADR` and Recommendation = best-guess role / "drop as dead code if confirmed by user" / "fold into REQ-X-NNN if the file implements that AC".
    - **BLOCK COMMIT** until every unaccounted file is either (i) drafted into an AC by re-running Phase 5d on the file, (ii) escalated to triage with concrete Context + Recommendation, or (iii) added to `sdd/spec/.phase-7b-waiver.txt` with a one-line justification.
    - Re-run the verifier after every fix. Commit proceeds only when `exit_code = 0`.
 

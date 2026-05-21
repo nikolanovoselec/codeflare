@@ -298,8 +298,10 @@ def main() -> int:
                 'line_count': lb.line_count,
                 'recommendation': (
                     'Draft an AC that references this file via @impl, '
-                    'OR add a triage entry to sdd/spec/.init-triage.md '
-                    'naming the file and the unresolved question.'
+                    'OR add a triage entry to the layout-appropriate file '
+                    '(nested: sdd/spec/.init-triage.md; flat-layout legacy: '
+                    'sdd/.init-triage.md) naming the file and the '
+                    'unresolved question.'
                 ),
             })
 

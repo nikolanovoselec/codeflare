@@ -133,17 +133,19 @@ Count commits whose subject starts with `[doc-updater]`, `[autonomous]`, or `[un
 
 ### Step 0c.5: Bulk-op audit-line check (binding)
 
-While walking commits in Step 0c, ALSO check every commit subject matching `[sdd-init]` or `[sdd-clean]` for the required audit lines in the commit body. The audit lines are the cheap-to-verify proof that the bulk operation actually invoked the enforcement skills rather than substituting a structural sanity check (see `sdd-init/SKILL.md` § Step 7 commit gate). `[unleashed]` is excluded: it is the autonomy-mode prefix for single-lane commits where only one (or neither) skill ran.
+While walking commits in Step 0c, ALSO check every commit subject matching `[sdd-init]` or `[sdd-clean]` for the required audit lines in the commit body. The audit lines are the cheap-to-verify proof that the bulk operation actually invoked the enforcement skills rather than substituting a structural sanity check (see `sdd-init/SKILL.md` step 9 iterate-to-clean commit gate, which gates the step 10 commit on Phase 7a + Phase 7b evidence). `[unleashed]` is excluded: it is the autonomy-mode prefix for single-lane commits where only one (or neither) skill ran.
 
 ```bash
 git log -5 --format="%H%n%s%n%b%n--END--"
 ```
 
-For each commit subject matching the bulk-op prefixes above, verify the commit body contains BOTH:
+For each commit subject matching the bulk-op prefixes above, verify the commit body contains ALL FOUR audit lines (Phase 7a + Phase 7b for `[sdd-init]` only; spec-enforce + doc-enforce for both `[sdd-init]` and `[sdd-clean]`):
+- A line matching `^[[:space:]>*`-]*Phase 7a verifier: parsed=[0-9]+ resolved=[0-9]+ orphaned=[0-9]+ drifted=[0-9]+` (source-anchor verifier proof; `[sdd-init]` only — `[sdd-clean]` does not run Phase 7a). Missing on `[sdd-init]` = CRITICAL `phase-7a-evidence-missing`.
+- A line matching `^[[:space:]>*`-]*Phase 7b enum verifier: enumerated=[0-9]+ accounted=[0-9]+ unaccounted=[0-9]+` (enumeration-coverage verifier proof; `[sdd-init]` only). Missing on `[sdd-init]` = CRITICAL `phase-7b-evidence-missing`. The verifier output is also load-bearing: if the line shows `unaccounted > 0` without a justification block elsewhere in the commit body, the finding is CRITICAL `import-mode-narrowed-scope`.
 - A line matching `^[[:space:]>*`-]*spec-enforce: ran \([^)]*anchors verified[^)]*\)` (spec-side audit; the `anchors verified` token is the proof that CQ-SOURCE actually walked the `@impl` anchors). Line-anchored with optional leading bullet/blockquote/whitespace/backtick.
 - A line matching `^[[:space:]>*`-]*doc-enforce: ran \([^)]*anchors verified[^)]*\)` (doc-side audit; same proof for Pass 15). Line-anchored with optional leading bullet/blockquote/whitespace/backtick.
 
-Missing either line, OR a line present but lacking the `anchors verified` token = HIGH `enforcement-skill-not-invoked` listing the commit SHA, subject, and which audit is missing/incomplete. Write to `documentation/.doc-coverage.md` under `## Enforcement gaps` and continue (do NOT hard-stop — the doc-side review still runs, but the finding blocks the PR's downstream merge per branch protection's required-check status).
+Missing any required line, OR a line present but lacking the load-bearing token (`anchors verified` for the enforce lines; `unaccounted=` for the Phase 7b line; `resolved=` for the Phase 7a line) = HIGH `enforcement-skill-not-invoked` (or CRITICAL for the Phase 7a / Phase 7b cases, per `sdd-init/SKILL.md` step 7 and step 8) listing the commit SHA, subject, and which audit is missing/incomplete. Write to `documentation/.doc-coverage.md` under `## Enforcement gaps` and continue (do NOT hard-stop — the doc-side review still runs, but the finding blocks the PR's downstream merge per branch protection's required-check status).
 
 This catch fires on every PR-boundary review (and on `/sdd clean`), so a `/sdd init` run that skipped iterate-to-clean cannot land via develop→main without surfacing the gap.
 
