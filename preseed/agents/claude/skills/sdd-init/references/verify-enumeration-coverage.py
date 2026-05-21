@@ -34,12 +34,26 @@ the [sdd-init] commit body. Anti-substitution clauses mirror Phase 7a
 from __future__ import annotations
 import argparse
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 ANCHOR_PATH_RE = re.compile(r'<!--\s*@impl:\s*([^\s:][^:]*?)::')
+
+
+def normalize_path(p: str) -> str:
+    """Normalize a path token for cross-platform string comparison.
+
+    - Strip a leading "./" so `./lib/foo.dart` matches `lib/foo.dart`.
+    - Convert backslashes to forward slashes so Windows-checkout anchors
+      match POSIX-rendered repo-relative paths.
+    """
+    p = p.strip()
+    if p.startswith('./'):
+        p = p[2:]
+    return p.replace('\\', '/')
 
 LOAD_BEARING_DIR_TOKENS = (
     'services', 'service',
@@ -56,13 +70,19 @@ LOAD_BEARING_DIR_TOKENS = (
 
 EXCLUDE_DIR_TOKENS = (
     'test', 'tests', '__tests__', '__pycache__',
-    'spec', 'specs',
     'node_modules', 'dist', 'build', 'vendor',
     '.git', '.dart_tool', '.next', '.svelte-kit', '.cache',
     'generated', 'gen', '__generated__',
     'graphify-out',
-    'documentation',
-    'sdd',
+)
+
+# Top-level repo directories excluded as a path prefix (not as any-segment).
+# `sdd/` and `documentation/` are reserved framework dirs; `spec`/`specs` only
+# excludes the actual `sdd/spec/` subtree, not legitimate Ruby `Specs/` source
+# directories anywhere else in the tree.
+EXCLUDE_TOP_LEVEL_PREFIXES = (
+    ('sdd',),
+    ('documentation',),
 )
 
 SOURCE_EXTENSIONS = {
@@ -113,8 +133,13 @@ class CoverageReport:
 
 
 def is_under_excluded_dir(path: Path, repo_root: Path) -> bool:
-    rel = path.relative_to(repo_root)
-    return any(part.lower() in EXCLUDE_DIR_TOKENS for part in rel.parts[:-1])
+    rel_parts = path.relative_to(repo_root).parts
+    if any(part.lower() in EXCLUDE_DIR_TOKENS for part in rel_parts[:-1]):
+        return True
+    for prefix in EXCLUDE_TOP_LEVEL_PREFIXES:
+        if tuple(p.lower() for p in rel_parts[: len(prefix)]) == prefix:
+            return True
+    return False
 
 
 def is_under_load_bearing_dir(path: Path, repo_root: Path) -> bool:
@@ -151,31 +176,44 @@ def count_source_lines(path: Path) -> int:
 
 
 def enumerate_load_bearing(repo_root: Path) -> list[LoadBearing]:
+    """Walk the tree, pruning excluded subdirs in-place to avoid descending
+    into node_modules / dist / .git / etc. — `rglob` would yield every file
+    under those before filter, eating wall time on large monorepos.
+    """
     seen_paths: set[str] = set()
     out: list[LoadBearing] = []
-    for path in repo_root.rglob('*'):
-        if not path.is_file():
-            continue
-        if path.suffix not in SOURCE_EXTENSIONS:
-            continue
-        if is_under_excluded_dir(path, repo_root):
-            continue
-        if is_generated(path):
-            continue
-        rel = str(path.relative_to(repo_root))
-        if rel in seen_paths:
-            continue
+    for dirpath, dirnames, filenames in os.walk(repo_root):
+        dirnames[:] = [
+            d for d in dirnames
+            if d.lower() not in EXCLUDE_DIR_TOKENS
+        ]
+        # Prune top-level reserved framework dirs as well (sdd/, documentation/).
+        rel_dir = Path(dirpath).relative_to(repo_root)
+        if rel_dir.parts:
+            top = (rel_dir.parts[0].lower(),)
+            if top in EXCLUDE_TOP_LEVEL_PREFIXES:
+                dirnames[:] = []
+                continue
+        for fname in filenames:
+            path = Path(dirpath) / fname
+            if path.suffix not in SOURCE_EXTENSIONS:
+                continue
+            if is_generated(path):
+                continue
+            rel = normalize_path(str(path.relative_to(repo_root)))
+            if rel in seen_paths:
+                continue
 
-        under_lb = is_under_load_bearing_dir(path, repo_root)
-        line_count = count_source_lines(path)
-        if under_lb:
-            reason = 'load-bearing-directory'
-        elif line_count >= LARGE_FILE_LINE_THRESHOLD:
-            reason = f'source-lines>={LARGE_FILE_LINE_THRESHOLD}'
-        else:
-            continue
-        seen_paths.add(rel)
-        out.append(LoadBearing(path=rel, reason=reason, line_count=line_count))
+            under_lb = is_under_load_bearing_dir(path, repo_root)
+            line_count = count_source_lines(path)
+            if under_lb:
+                reason = 'load-bearing-directory'
+            elif line_count >= LARGE_FILE_LINE_THRESHOLD:
+                reason = f'source-lines>={LARGE_FILE_LINE_THRESHOLD}'
+            else:
+                continue
+            seen_paths.add(rel)
+            out.append(LoadBearing(path=rel, reason=reason, line_count=line_count))
     return out
 
 
@@ -188,7 +226,7 @@ def collect_anchored_paths(repo_root: Path) -> set[str]:
             except OSError:
                 continue
             for m in ANCHOR_PATH_RE.finditer(text):
-                anchored = m.group(1).strip()
+                anchored = normalize_path(m.group(1))
                 if anchored and '<' not in anchored and '>' not in anchored:
                     out.add(anchored)
     return out
@@ -213,7 +251,7 @@ def collect_triage_paths(repo_root: Path) -> set[str]:
         except OSError:
             continue
         for m in path_token_re.finditer(text):
-            out.add(m.group(0))
+            out.add(normalize_path(m.group(0)))
     return out
 
 

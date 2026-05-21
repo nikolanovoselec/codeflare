@@ -79,6 +79,12 @@ def collect_anchors(repo_root: Path, doc_globs: list[str]) -> tuple[list[dict], 
                     # Prose using `<placeholder>` syntax is not an anchor.
                     if '<' in path or '>' in path:
                         continue
+                    # Normalise cross-platform path tokens: strip leading
+                    # `./` and convert `\\` to `/` so anchors written on
+                    # any host match the repo-relative POSIX form.
+                    if path.startswith('./'):
+                        path = path[2:]
+                    path = path.replace('\\', '/')
                     sym_match = SYM_VAL_RE.match(sym_or_pair)
                     if sym_match:
                         symbol = sym_match.group(1).strip()
