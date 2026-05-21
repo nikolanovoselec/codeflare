@@ -62,7 +62,7 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    echo "exit=$?"
    ```
 
-   The verifier walks every `<!-- @impl: <path>::<symbol>[ = <value-pattern>] -->` anchor across `sdd/**/*.md` + `documentation/**/*.md`, programmatically checks: (a) `<path>` exists on disk, (b) `<symbol>` greps in that file, (c) when a `= <value>` tail is present, the literal pattern matches the source body. It emits machine-readable JSON: `{ parsed, resolved, orphaned, drifted, failures: [...], exit_code }`. **Exit code is the authoritative signal — 0 = clean, 1 = at least one anchor failed.**
+   The verifier walks every `<!-- @impl: <path>::<symbol>[ = <value-pattern>] -->` anchor across `sdd/**/*.md` + `documentation/**/*.md`, programmatically checks: (a) `<path>` exists on disk, (b) `<symbol>` greps in that file, (c) when a `= <value>` tail is present, the literal pattern matches the source body. It emits machine-readable JSON: `{ parsed, resolved, orphaned, drifted, malformed, unreadable, failures: [...], malformed_entries: [...], unreadable_entries: [...], exit_code }`. **Exit code is the authoritative signal — 0 = clean, 1 = at least one anchor failed.**
 
    **Anti-substitution clauses (CRITICAL severity — these are the failure modes that cause the spec to lie):**
    - Agent self-attestation ("I checked the anchors manually, all good") without the verifier output in the commit body is itself **CRITICAL `phase-7a-self-attestation`**, caught by the next PR-boundary review and blocking the merge.
