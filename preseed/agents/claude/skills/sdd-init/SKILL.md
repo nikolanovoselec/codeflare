@@ -29,9 +29,9 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - Glossary terms (every product noun, vendor name, protocol mentioned in any REQ)
 3. **Present the full draft as a single review surface**: tree of domain index + per-domain summary + ADR list + glossary. Ask one question: "Accept as-is, edit a section (name it), or restart?" On `edit <section>`: re-draft only that section, re-present, ask again. On `restart`: discard, return to step 1. Loop until accepted. Phase 5 enrichment runs once, only after final acceptance.
 4. **Run Phase 5 enrichment in memory** (see Enrichment pass below).
-5. **Write the spec files** from `references/templates/` in the `spec-driven-development` skill, substituting placeholders inline from the vision + inferred stack. Output uses the nested layout (`sdd/spec/`):
+5. **Write the spec files** from `references/templates/` in the `spec-driven-development` skill, substituting placeholders inline from the vision + inferred stack. Emit each template VERBATIM with section headings, tables, and prose intact — do not collapse or abbreviate. Output uses the nested layout (`sdd/spec/`):
    - `root-readme.md` → `README.md`
-   - `sdd-readme.md` → `sdd/README.md`
+   - `sdd-readme.md` → `sdd/README.md` — the single comprehensive index (Vision, Actors, Design Principles, Domains table linking to `spec/{file}.md`, Out of Scope, plus one-line links to constraints/glossary/documentation/changelog)
    - `sdd-glossary.md` → `sdd/spec/glossary.md`
    - `sdd-constraints.md` → `sdd/spec/constraints.md`
    - `sdd-changes.md` → `sdd/spec/changes.md`
@@ -39,16 +39,36 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - One `sdd/spec/{domain}.md` per drafted domain (each AC carries `<!-- @impl: <path>::<symbol> -->` anchors per Phase 5's source-evidence pass)
    - Empty `sdd/spec/triage.md` with `_Awaiting first finding._` placeholder
    - Empty `tests/` directory
-6. **Run Phase 6 — documentation lane emission and audit.** Conditional per-lane emission driven by source evidence (see § Phase 6 below). Outputs:
-   - `documentation-readme.md` → `documentation/README.md`
+
+   **Forbidden outputs (HIGH `scaffold-duplicate-index` if emitted):**
+   - `sdd/spec/README.md` — the Domains table belongs in `sdd/README.md` directly, linking to `spec/{file}.md` per the `sdd-readme.md` template. Do not split the index across two files. `sdd/spec/` contains domain files + glossary + constraints + changes + triage + init-triage + config only.
+   - `documentation/lanes/README.md` — the lane index belongs in `documentation/README.md` directly.
+6. **Run Phase 6 — documentation lane emission and audit.** Conditional per-lane emission driven by source evidence (see § Phase 6 below). Emit each template VERBATIM — the `documentation-readme.md` template includes Jump-TOC, Lane ownership table, REQ backlinks section, Synonym glossary, Reading order, and Related links; abbreviated emission that strips any of those sections is a HIGH `scaffold-template-stripped` finding caught by step 7's iterate-to-clean (the audit verifies all template section headings are present in the emitted output). Outputs:
+   - `documentation-readme.md` → `documentation/README.md` (full template, all sections intact)
    - `documentation-architecture.md` → `documentation/lanes/architecture.md` (universal)
    - `documentation-api-reference.md` → `documentation/lanes/api-reference.md` (only when source has HTTP routes)
    - `documentation-configuration.md` → `documentation/lanes/configuration.md` (only when source has env vars / config)
    - `documentation-deployment.md` → `documentation/lanes/deployment.md` (only when project is deployable)
    - Lane files for `security.md`, `observability.md`, `troubleshooting.md`, `api-reference-admin.md` rendered when source supports them
    - `documentation-decisions-readme.md` → `documentation/decisions/README.md` (founding ADRs from Phase 5c, each `Context:` carries `<!-- @impl: ... -->` anchor)
-7. **Iterate-to-clean.** Run `spec-enforce` and `doc-enforce` skills against the freshly-written content. Auto-fixable findings: apply silently in `unleashed`/`auto`, prompt in `interactive`. Non-mechanical findings: append to `sdd/spec/triage.md` with Context + Recommendation. Re-run skills until findings stabilize (typically 1-2 cycles).
-8. **Commit the scaffold** as one commit with subject `[sdd-init] initial spec scaffold`. The `[sdd-init]` prefix is excluded from the spec-reviewer round counter.
+7. **Iterate-to-clean (BINDING — non-skippable).** Validation against the freshly-written content. This step is REQUIRED; skipping it is itself a HIGH `enforcement-skill-not-invoked` finding caught by the next PR-boundary review.
+
+   **Anti-substitution rule.** A structural sanity check (file existence + REQ-ID uniqueness + template-field presence) is NOT iterate-to-clean. It is necessary but not sufficient. The "Execute Full Plan" user-memory directive is about not pausing between phases for confirmation — it is NOT authority to skip protocol-required enforcement passes. Conflating the two is itself a HIGH finding.
+
+   **Required invocations (every /sdd init run, every mode):**
+   1. **Invoke `spec-enforce` skill with `scope=all`.** Run the full 19-row execution manifest against `sdd/spec/`. CQ-SOURCE (row 16) and CQ-1/2/3 (row 17) are ALWAYS RUNS — never gated by `enforce_tdd` or by transition state. Every `<!-- @impl: <path>::<symbol> -->` anchor in every REQ AC must resolve via `mcp__graphify__get_node(<symbol>)` (fallback: grep `<symbol>` in `<path>`); unresolved = HIGH `cq-source-anchor-orphaned`.
+   2. **Invoke `doc-enforce` skill with `scope=all`.** Run the full 15-row execution manifest against `documentation/`. Pass 15 (doc source-anchor truth-check) is ALWAYS RUN — never gated. Every `<!-- @impl: ... -->` anchor in every lane file and ADR `Context:` block must resolve, and every literal value pattern must match source; mismatches = HIGH `doc-anchor-orphaned` or `doc-value-drift`.
+   3. **Template-verbatim audit (step-7 owned, not a skill pass).** Walk each `references/templates/*.md` that was emitted; for each, extract the level-2 (`##`) section headings and verify every one appears in the emitted file. Missing heading = HIGH `scaffold-template-stripped` listing the template, the emitted path, and the missing section. Also verify no forbidden outputs exist: `sdd/spec/README.md` (Domains table lives in `sdd/README.md`), `documentation/lanes/README.md` (lane index lives in `documentation/README.md`). Either present = HIGH `scaffold-duplicate-index`. Finally verify `sdd/README.md`'s Domains table lists every domain file actually present under `sdd/spec/*.md` (excluding glossary, constraints, changes, triage, init-triage, config); missing rows = HIGH `scaffold-domain-table-incomplete`.
+
+   **Mode-dependent action on findings:**
+   - Mechanical findings (template field missing, lane violation pattern, REQ-backlink missing, shape inconsistency): auto-fix in `auto`/`unleashed`, prompt in `interactive`.
+   - Truth-check findings (CQ-SOURCE, Pass 15): NEVER silently rewrite. Escalate to `sdd/spec/triage.md` with concrete Context (file:line, symbol attempted, why it didn't resolve) and Recommendation (best-guess corrected anchor, or "abandon claim").
+   - Block-emit at /sdd init time: HIGH Truth findings block the file write. Source-scan for plausible anchors, regenerate the section, attempt emit again. On second-pass failure, the section becomes a triage entry rather than committed prose. (Same rule as `doc-enforce-truth` § Block-emit at /sdd init time.)
+
+   **Exit criteria:** zero CRITICAL/HIGH findings remain (either fixed or escalated to triage with concrete Context + Recommendation). Re-run both skills until findings stabilize (typically 1-2 cycles).
+
+   **Commit gate:** step 8 is FORBIDDEN until step 7 has been completed with both `spec-enforce` and `doc-enforce` actually invoked (not substituted with a structural check). The commit body MUST include a one-line audit per skill invocation: `spec-enforce: ran (N REQs, M anchors verified, V drift, O orphaned) — auto-fixed F, escalated E` and the equivalent for `doc-enforce`.
+8. **Commit the scaffold** as one commit with subject `[sdd-init] initial spec scaffold`. The `[sdd-init]` prefix is excluded from the spec-reviewer round counter. Commit body MUST include the step-7 audit log per skill (see Commit gate above); absence is itself a HIGH `enforcement-skill-not-invoked` finding on the next PR-boundary review.
 9. **Report next steps** to the user.
 
 All templates live in the `spec-driven-development` skill's `references/templates/`, bundled with the agent seed and resolved locally.
@@ -195,14 +215,38 @@ After lane files are written, verify each spec domain's REQs appear via `Impleme
 
 Domain with zero backlinks in any expected lane → emit MEDIUM finding to `sdd/spec/triage.md` with the domain name and the missing lane(s). The user resolves via Resume Mode (either extend the relevant lane to backlink the domain's REQs, or correct the domain hint mapping for the project).
 
-### Iterate-to-clean against enforcement skills
+### Iterate-to-clean against enforcement skills (binding)
 
-After Phase 6 emission completes, invoke `doc-enforce` (skill) with `scope=all`. The skill runs the 15-row manifest and conditionally invokes `doc-enforce-shape`, `doc-enforce-lanes`, `doc-enforce-truth`. Mode-dependent action mirrors the rest of `/sdd init`:
+This section is the operational detail of greenfield-flow step 7 (and Import/Resume equivalents). It is BINDING — every `/sdd init` run, every mode, every project. Skipping = HIGH `enforcement-skill-not-invoked` on the next PR-boundary review.
+
+**Anti-substitution rule (repeated for emphasis).** A structural sanity check (file existence + REQ-ID uniqueness + template-field presence) is necessary but NOT sufficient. The actual truth-check — verifying every `<!-- @impl: path::symbol -->` anchor resolves to a real symbol via `mcp__graphify__get_node` (fallback: grep), and every literal value pattern matches source — is the load-bearing pass. Substituting a structural check for the truth-check is itself a HIGH finding. The "Execute Full Plan" user-memory directive is about not pausing between phases for confirmation — it is NOT authority to drop protocol-required passes.
+
+**Spec side.** Invoke `spec-enforce` with `scope=all`. Always-runs rows (the 19-row manifest):
+- CQ-SOURCE — Source-anchor truth-check (row 16): walk every Implemented or Partial REQ's `@impl` anchors; resolve via graphify; HIGH `cq-source-anchor-orphaned` for unresolved, HIGH `cq-source-value-drift` for literal-pattern mismatches. NEVER gated by `enforce_tdd` or transition state.
+- CQ-1, CQ-2, CQ-3 (row 17): REQ-test truth-check, vendor drift, content-preservation.
+- Per-REQ structural rows 1-14: forbidden content, status drift, AC granularity, etc.
+- Backlog re-triage (row 18): walk existing triage entries; reclassify against current rules.
+
+**Doc side.** Invoke `doc-enforce` with `scope=all`. Always-runs rows (the 15-row manifest):
+- Pass 15 — Doc source-anchor truth-check (always runs, never gated): every `<!-- @impl: ... -->` anchor in every lane file and ADR `Context:` block must resolve, every literal value must match source.
+- Pass 8 — Verification truth-check, Pass 9 — Implements-vs-AC cross-walk, Pass 10 — Stale code-block detection, Pass 11 — Content-preservation on trim.
+- Pass 1, 13, 14 — per-element budgets, within-section semantic consistency, authoring quality.
+- Pass 12 — Stranger cold-read (caches on commit SHA — first /sdd init run is uncached).
+
+**Mode-dependent action on findings:**
 - Mechanical findings (template field missing, lane violation pattern, REQ-backlink missing, shape inconsistency): auto-fix in `auto`/`unleashed`, prompt in `interactive`.
-- Truth-check findings (Pass 15 doc source-anchor mismatch): escalate to `sdd/spec/triage.md`, never silently rewrite.
+- Truth-check findings (CQ-SOURCE, Pass 8/9/10, Pass 15): NEVER silently rewrite. Escalate to `sdd/spec/triage.md` with concrete Context (file:line, symbol attempted, why it didn't resolve) and Recommendation (best-guess corrected anchor, or "abandon claim").
 - Stranger cold-read findings (Pass 12): escalate to `sdd/spec/triage.md`.
 
-Same loop applies to `spec-enforce` against the spec output. Re-run until no new auto-fixable findings appear (typically 1-2 cycles).
+**Block-emit at /sdd init time.** HIGH Truth findings BLOCK the file write. Source-scan for plausible anchors, regenerate the section, attempt emit again. On second-pass failure, the section content becomes a triage entry rather than committed prose. The block-emit gate is `/sdd init`-specific — steady-state doc-updater on existing files cannot rewrite history; it flags and escalates.
+
+**Exit criteria.** Zero CRITICAL/HIGH findings remain (every truth-check anchor either resolves OR escalates to triage with concrete Context + Recommendation). Re-run both skills until findings stabilize (typically 1-2 cycles).
+
+**Visible audit trail (binding).** Step 8 commit body MUST include a one-line audit per skill invocation, e.g.:
+- `spec-enforce: ran (N REQs, M anchors verified, V drift, O orphaned) — auto-fixed F, escalated E`
+- `doc-enforce: ran (D docs, A anchors verified, V drift, O orphaned, U unanchored) — auto-fixed F, escalated E`
+
+Absence of the audit lines in the commit body is itself HIGH `enforcement-skill-not-invoked` on the next PR-boundary review. The audit is the cheap-to-verify proof that step 7 actually ran rather than being substituted with a structural check.
 
 The iterate-to-clean loop is the depth-floor mechanism: every mandatory field that doc-enforce-shape Pass 5/6/7 demands either has a source-anchored value (real content) or becomes a triage entry (visible to the user as a question). The output cannot be vacuously thin AND structurally complete.
 
