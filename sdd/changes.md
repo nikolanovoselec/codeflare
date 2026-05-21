@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-21
+
+- REQ-AGENT-021 ACs 6 + 20 updated to reflect the `/sdd init` quality redesign (PR #398) and dotfile-reduction pass: AC 6 drops the `sdd/.last-clean-run.md` audit-log mention (the audit lives in per-category commit bodies now); AC 20 replaces the eager scaffold of three slot files (`sdd/.review-needed.md`, `sdd/.coverage-report.md`, `sdd/.last-clean-run.md`) with the new lazy-create design (one layout-resolved triage file, `documentation/.doc-coverage.md` as the doc-lane audit accumulator, no scaffold-time touches). Both ACs additionally surface the nested-vs-flat layout pair where they refer to runtime files.
+
 ## 2026-05-19
 
 - REQ-MEM-001 AC3 / REQ-SESSION-016 wiring fix: `handleSetBucketName` (`src/container/index.ts`) was silently dropping `userTimezone` from the DO entry-point JSON destructure. The Worker forwarded the browser's IANA tz, but the DO never read the field, so `USER_TIMEZONE` was always empty inside containers and capture filenames fell through to UTC. Destructure restored; field now flows through `setBucketName` -> `applyBucketName` and through `applyPrefsOnRestart`. `applyPrefsOnRestart` userTimezone branch now persists-before-mutates (matches the `ensureVaultKey` precedent) and validates the IANA shape at the DO boundary so path-traversal / junk strings cannot reach storage or the entrypoint symlink. Semantics documented as "sticky once set": empty/undefined/malformed inputs are no-op, since the Worker filters empties upstream via the truthy spread in `buildSetBucketNameBody`. Regression coverage added at two layers: helper-level unit tests (`src/__tests__/container/container-env.test.ts`) and HTTP-level integration tests (`src/__tests__/container/index.test.ts`) that POST to `/_internal/setBucketName` and assert `USER_TIMEZONE` surfaces on `envVars`. The HTTP-level tests fail if the destructure is reverted, closing the test-theater gap left by the helper-only tests.
