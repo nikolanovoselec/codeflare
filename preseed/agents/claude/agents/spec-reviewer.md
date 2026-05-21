@@ -119,8 +119,8 @@ git log -5 --format="%H%n%s%n%b%n--END--"
 ```
 
 For each commit subject matching the bulk-op prefixes above, verify the commit body contains BOTH:
-- A line matching `spec-enforce: ran \([^)]*anchors verified[^)]*\)` (spec-side audit; the `anchors verified` token is the proof that CQ-SOURCE actually walked the `@impl` anchors). Optional leading bullet/whitespace/backtick tolerated.
-- A line matching `doc-enforce: ran \([^)]*anchors verified[^)]*\)` (doc-side audit; same proof for Pass 15). Optional leading bullet/whitespace/backtick tolerated.
+- A line matching `^[[:space:]>*`-]*spec-enforce: ran \([^)]*anchors verified[^)]*\)` (spec-side audit; the `anchors verified` token is the proof that CQ-SOURCE actually walked the `@impl` anchors). Line-anchored with optional leading bullet/blockquote/whitespace/backtick.
+- A line matching `^[[:space:]>*`-]*doc-enforce: ran \([^)]*anchors verified[^)]*\)` (doc-side audit; same proof for Pass 15). Line-anchored with optional leading bullet/blockquote/whitespace/backtick.
 
 Missing either line, OR a line present but lacking the `anchors verified` token = HIGH `enforcement-skill-not-invoked` listing the commit SHA, subject, and which audit is missing/incomplete. Write to `$TRIAGE_FILE` and continue (do NOT hard-stop — the spec-side review still runs, but the finding blocks the PR's downstream merge per branch protection's required-check status).
 

@@ -41,7 +41,7 @@ sdd/
     ├── glossary.md      # Canonical term definitions
     ├── constraints.md   # Technology stack, cross-cutting CON-* constraints
     ├── changes.md       # Semantic changelog (≤2 sentences per entry, user-facing only)
-    ├── config.yml       # mode, enforce_tdd, test_globs, src_globs (defaults to ["src/**","lib/**","app/**","worker/**","workers/**"] when unset), allowlists
+    ├── config.yml       # mode, enforce_tdd, test_globs, src_globs (defaults to "src/** lib/** app/** pkg/** cmd/** internal/**" minus test/build dirs when unset; see spec-enforce-truth § Inputs), allowlists
     ├── init-triage.md   # Import Mode triage queue (only present during transition)
     └── triage.md        # Findings escalated for human review (replaces .review-needed.md)
 
