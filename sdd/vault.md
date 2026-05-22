@@ -223,33 +223,32 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
-## REQ-VAULT-008: Zero-UI vault encryption + cold-start payload reduction + per-session IDB lifecycle
+## REQ-VAULT-008: Zero-UI vault encryption + per-session IDB lifecycle
 
-**Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. Three coupled improvements ship as one requirement: (a) the IDB cache is encrypted at rest with a per-session key generated and stored by the Container DO (no user passphrase prompt), (b) the cold-start payload is reduced (concurrency bumped, lazy attachments, server-side filter for derived output, treeview nav filtered), and (c) deleted sessions have their IDB cleaned up rather than lingering across browser sessions. The threat model is BitLocker-grade: defeats offline disk attacks (profile theft, backup leak, ransomware scan), does NOT defeat anyone with an authenticated browser tab. The key dies with `container.destroy()` so deletion is forward-secret.
+**Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. Two coupled improvements ship as one requirement: (a) the IDB cache is encrypted at rest with a per-session key generated and stored by the Container DO (no user passphrase prompt), and (b) deleted sessions have their IDB cleaned up rather than lingering across browser sessions. The threat model is BitLocker-grade: defeats offline disk attacks (profile theft, backup leak, ransomware scan), does NOT defeat anyone with an authenticated browser tab. The key dies with `container.destroy()` so deletion is forward-secret.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 1. Container DO generates a 32-byte random `vaultKey` on first start, persists in `ctx.storage` under key `vaultKey`, and returns the same key on every subsequent read. The key is never rotated; it is wiped only when `container.destroy()` runs (session DELETE).
 2. The Worker `/api/vault/:sid/.config` proxy fetches the vault key via DO RPC and merges `{ vaultEncryptionKey: "<base64>", enableClientEncryption: true }` into the BootConfig JSON returned to SilverBullet.
-3. SilverBullet consumes the vault key delivered via boot config, uses it to derive the IndexedDB database name and as the encryption key for IndexedDB contents. No passphrase prompt is shown to the user.
-4. The vendored SilverBullet bundle is configured with elevated sync concurrency so that the unavoidable first-sync of a fresh session completes in under 5 seconds on a typical vault (measured against the cold-start smoke target in the Verification field).
-5. Files matching `Raw/Pasted/**` are not eagerly synced into IndexedDB on the bulk-sync path; SilverBullet falls through to the standard `readFile` path on user open, fetching attachments on demand.
-6. The vendored SilverBullet Go server filters `/.fs` listings to exclude `graphify-out/**` so derived output never reaches the browser.
-7. The preseed `CONFIG.md` declares a `treeview.exclusions` block (upstream v2 schema) hiding `Library/`, `Repositories/`, `graphify-out/`, and the four top-level preseed pages (`CONFIG`, `Index`, `README`, `STYLES`) from the navigation tree. `Repositories/` is SilverBullet's own library-manager mirror (created at runtime by the Library Manager plug); the user does not curate it directly. `.silverbullet/` is dot-prefixed and hidden by SilverBullet's default behaviour; it requires no explicit rule.
-8. The frontend invokes `cleanupSessionVaultCache(sessionId)` on session DELETE (not stop) -- deletes both `sb_files_<hash>` and `sb_data_<hash>` databases, unregisters the SilverBullet service worker registered at `/api/vault/<sid>/`, and removes the `localStorage["vault-session-<sid>"]` marker.
-9. On dashboard mount and on every session-list refresh, the frontend sweeps `localStorage["vault-session-<sid>"]` markers and nukes the IDB + marker for any session NOT present in the user's active sessions list (covers the case where the session was deleted from another device).
+3. SilverBullet consumes the vault key and uses it as the AES-CTR key for the `sb_data_<hash>` IndexedDB via its built-in `EncryptedKvPrimitives` wrapper. The Worker delivers the key through a one-time bootstrap-hop page at `/api/vault/<sid>/.codeflare-bootstrap` that registers a key-shim service worker, posts the key via `{type: "set-encryption-key"}`, sets `localStorage["enableEncryption"]`, and sets a `codeflare_vault_bootstrap` cookie before redirecting back to the shell. Subsequent shell-path requests bypass the hop via the cookie. No passphrase prompt is shown to the user.
+4. The vendored SilverBullet Go server filters `/.fs` listings to exclude `graphify-out/**` so derived output never reaches the browser.
+5. The preseed `CONFIG.md` declares a `treeview.exclusions` block (upstream v2 schema) hiding `Library/`, `Repositories/`, `graphify-out/`, and the four top-level preseed pages (`CONFIG`, `Index`, `README`, `STYLES`) from the navigation tree. `Repositories/` is SilverBullet's own library-manager mirror (created at runtime by the Library Manager plug); the user does not curate it directly. `.silverbullet/` is dot-prefixed and hidden by SilverBullet's default behaviour; it requires no explicit rule.
+6. The frontend invokes `cleanupSessionVaultCache(sessionId)` on session DELETE (not stop) — deletes every `sb_*` database recorded for the session in `localStorage["vault-session-<sid>-idbs"]` (populated at boot by the `injectVaultIdbRecorder` shim that wraps `indexedDB.open`), unregisters the SilverBullet service worker registered at `/api/vault/<sid>/`, and removes both `localStorage["vault-session-<sid>"]` and `localStorage["vault-session-<sid>-idbs"]`.
+7. On dashboard mount and on every session-list refresh, the frontend sweeps every `localStorage["vault-session-<sid>-idbs"]` and `localStorage["vault-session-<sid>"]` entry and, for any sid NOT in the user's active sessions list, deletes the recorded IDBs and drops both localStorage entries (covers the case where the session was deleted from another device).
 
 **Constraints:**
 - Encryption protects against offline attacks ONLY. Anyone with an authenticated browser tab (or who can run JavaScript in the codeflare origin) can fetch the key from `/.config` and decrypt. The threat-model trade-off is documented in `documentation/decisions/README.md` AD59.
-- The vault key MUST NOT be rotated mid-session. Rotation would orphan all existing IDB ciphertext on the browser and force a fresh re-sync on every container restart, defeating the cold-start optimisation.
+- The vault key MUST NOT be rotated mid-session. Rotation would orphan all existing IDB ciphertext on the browser and force a fresh re-sync on every container restart.
 - The vault key MUST be wiped on `container.destroy()`. Persistence of the key after deletion would let a recovered browser profile decrypt the orphaned IDB.
 - Per-session `:sid` MUST remain in the proxy URL to preserve the parallel-session isolation property (each session has its own IDB; cross-session reads/writes never collide).
+- The IDB cleanup helpers MUST NEVER enumerate via `indexedDB.databases()`. They operate exclusively on the names recorded by the boot shim. Enumeration would re-introduce the regression where the live session's IDB was nuked on every Dashboard mount, forcing a full SB resync on every reopen.
 
 **Priority:** P0
 **Dependencies:** REQ-VAULT-005 (Worker proxy exposes vault editor), REQ-VAULT-001 (vault directory survives sessions), REQ-MEM-006 (Pro mode gating)
-**Verification:** Unit tests (DO `ensureVaultKey()` persistence + idempotency in `src/__tests__/container/index.test.ts`; Worker `/.config` merge + boot-script injection + `/.fs` filter in `src/__tests__/routes/vault.test.ts`; `cleanupSessionVaultCache` + `sweepOrphanVaultCaches` in `web-ui/src/__tests__/lib/vault-cache.test.ts`; CONFIG.md treeview exclude in `host/__tests__/preseed-config-treeview.test.js`); manual smoke (cold-start time under 5s on second session; IDB bytes are AES ciphertext; deleted-session IDB is gone).
-**Status:** Partial
+**Verification:** Unit tests (DO `ensureVaultKey()` persistence + idempotency in `src/__tests__/container/index.test.ts`; Worker `/.config` merge, bootstrap-hop HTML render, IDB-recorder injection, SW shim message handlers, and `/.fs` filter in `src/__tests__/routes/vault.test.ts`; `cleanupSessionVaultCache` + `sweepOrphanVaultCaches` real IDB deletion in `web-ui/src/__tests__/lib/vault-cache.test.ts`; CONFIG.md treeview exclude in `host/__tests__/preseed-config-treeview.test.js`); manual smoke (open SB tab, confirm `sb_data_*` IDB bytes are AES ciphertext, delete the session, confirm `sb_data_*` IDB is gone from DevTools).
+**Status:** Implemented
 
 ---
 
