@@ -104,45 +104,21 @@ Auto-fix in `auto`/`unleashed`: detect `Status: Deprecated` REQs and delete them
 
 ## REQ rendering template (binding)
 
-Every Active REQ in `sdd/{domain}.md` MUST render in exactly this shape. Deviations are MEDIUM, auto-fixed by re-rendering.
+**Canonical shape: `spec-driven-development/references/templates/req-shape-example.md`.** That fixture is the single source of truth for REQ rendering. Every Active REQ in `sdd/{domain}.md` (flat layout) or `sdd/spec/{domain}.md` (nested layout) MUST copy its shape exactly. Deviations from any rule below are MEDIUM, auto-fixed by re-rendering.
 
-```
-### REQ-{DOMAIN}-{NNN}: {Title}
+**Rules walked by this row (single normative list):**
 
-**Intent:** {one paragraph, 1-4 sentences. No bullets, no headings, no code blocks.}
+- **Heading**: `### REQ-{DOMAIN}-{NNN}: {Title}` (H3, never H2).
+- **Field order is locked**: Intent → Applies To → Acceptance Criteria → Notes (optional) → Constraints → Priority → Dependencies → Verification → Status. Status is ALWAYS the last field. Out-of-order fields = MEDIUM `req-field-order-violation`.
+- **Required fields** present in every REQ: Intent, Applies To, Acceptance Criteria, Constraints, Priority, Dependencies, Verification, Status. Missing field = MEDIUM `req-missing-required-field`.
+- **Empty Constraints/Dependencies render the literal `None.`** (with trailing period). Omitting the field entirely is a `req-missing-required-field` violation, NOT a no-op.
+- **Cross-reference linking**: Every `CON-*` and `REQ-*` ID inside `**Constraints:**` and `**Dependencies:**` MUST render as a markdown anchor link. Same-file REQ: `[REQ-X-NNN](#req-x-nnn-title-slug)`. Other-domain REQ: `[REQ-X-NNN](other-domain.md#req-x-nnn-title-slug)`. Constraint: `[CON-X-NNN](constraints.md#con-x-nnn-title-slug)`. Slugs follow GFM convention. Plain-text IDs in these fields = MEDIUM `cross-reference-not-linked`. Detection: regex `\b(REQ|CON)-[A-Z]+-\d+\b` inside the field values, outside `]( )` parentheses.
+- **Blank-line policy**: one blank line between every `**Field:**` line, including each member of the trailing-fields block (Constraints, Priority, Dependencies, Verification, Status). Two label lines on consecutive lines collapse on GitHub render = MEDIUM `trailing-fields-collapsed`. Closing `---` separator on its own line, blank lines either side.
+- **AC numbering**: ACs are numbered (`1. 2. 3.`), never bulleted (`-`) = MEDIUM `ac-bullets-not-numbered`. Maximum 7 ACs per REQ.
+- **Source anchors**: Every AC describing observable behaviour ends with `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. Anchor absent on an AC = MEDIUM `ac-missing-source-anchor` (Manual-check REQs exempt).
+- **Banned inside a REQ body**: sub-headings (`####`/`#####`), nested lists, code blocks, tables, strikethrough, "Current behaviour:" / "Previously:" branches, block quotes.
 
-**Applies To:** {single actor name from sdd/README.md actors table. Never "System".}
-
-**Acceptance Criteria:**
-
-1. {first AC, single behavioural statement, <=150 words, no sub-bullets, no nested lists}
-2. {second AC, same shape}
-3. {...up to 7 maximum}
-
-**Notes:** {OPTIONAL. Two sanctioned shapes - see Rule B.}
-
-**Constraints:** [CON-AUTH-001](constraints.md#con-auth-001-title-slug), [CON-SEC-001](constraints.md#con-sec-001-title-slug)
-
-**Priority:** {P0 | P1 | P2 | P3}
-
-**Dependencies:** [REQ-AUTH-002](#req-auth-002-title-slug), [REQ-AUTH-003](authentication.md#req-auth-003-title-slug)
-
-**Verification:** {Automated test | Integration test | Manual check}
-
-**Status:** {Proposed | Planned | Partial | Implemented}
-```
-
-**Cross-reference linking (binding).** Every `CON-*` and `REQ-*` ID inside `**Constraints:**` and `**Dependencies:**` MUST render as a markdown anchor link, not plain text. Form:
-
-- Same-file REQ reference: `[REQ-X-NNN](#req-x-nnn-title-slug)`
-- Other-domain REQ reference: `[REQ-X-NNN](other-domain.md#req-x-nnn-title-slug)`
-- Constraint reference: `[CON-X-NNN](constraints.md#con-x-nnn-title-slug)`
-
-Slugs follow GitHub-flavoured Markdown convention. Plain-text IDs in these four fields are a MEDIUM finding `cross-reference-not-linked`, auto-fixed by rewriting to the link form. Detection: regex `\b(REQ|CON)-[A-Z]+-\d+\b` inside the four field values, outside `]( )` parentheses.
-
-**Banned inside a REQ body:** sub-headings (`####`/`#####`), nested lists, code blocks, tables, strikethrough, "Current behaviour:" / "Previously:" branches, block quotes.
-
-**Blank-line policy (binding):** one blank line between every labeled field, including each of the trailing-fields block (`Constraints`, `Priority`, `Dependencies`, `Verification`, `Status`). Stacking these on consecutive lines without blank-line separation collapses them into one rendered paragraph on GitHub, MEDIUM `trailing-fields-collapsed`. Closing `---` separator on its own line, preceded and followed by one blank line.
+Auto-fix in `auto`/`unleashed`: re-render the REQ from its parsed fields into the canonical shape (inserts blank lines, renumbers ACs, reorders fields, rewrites cross-refs as anchor links, fills `None.` on empty Constraints/Dependencies). Interactive mode prompts before each rewrite. If a required field cannot be inferred from existing content (e.g. `Applies To:` was never written), escalate to triage rather than fabricate.
 
 ## REQ length guidance
 
