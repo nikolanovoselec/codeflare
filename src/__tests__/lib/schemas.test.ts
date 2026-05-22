@@ -1,3 +1,7 @@
+// @req REQ-AGENT-001: Support Multiple AI Coding Agents
+// @req REQ-AGENT-002: Agent Selection at Session Creation
+// @req REQ-SEC-009: Input validation at system boundaries
+
 import { describe, it, expect } from 'vitest';
 import { TabConfigSchema } from '../../lib/schemas';
 

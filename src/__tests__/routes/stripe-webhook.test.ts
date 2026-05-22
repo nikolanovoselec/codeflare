@@ -1,3 +1,7 @@
+// @req REQ-SUB-005: Trial Is Compute-Based, Not Time-Based
+// @req REQ-SUB-015: Stripe Webhook Signal-and-Sync Pattern
+// @req REQ-SUB-021: Billing Cycle Alignment
+
 /**
  * Stripe webhook handler tests — Signal and Sync pattern.
  *

@@ -1,3 +1,7 @@
+// @req REQ-AUTH-002: SaaS mode uses Direct GitHub OAuth
+// @req REQ-AUTH-008: Session cookie auto-refresh
+// @req REQ-AUTH-009: Logout dispatches by mode
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../../types';

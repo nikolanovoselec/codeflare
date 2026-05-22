@@ -1,3 +1,8 @@
+// @req REQ-SESSION-012: Wake-loop prevention
+// @req REQ-TERM-001: Up to 6 terminal tabs per session
+// @req REQ-TERM-002: WebSocket connection to container PTY
+// @req REQ-TERM-004: Close code 4503 is authoritative (no retry)
+
 import { describe, it, expect } from 'vitest';
 import { validateWebSocketRoute } from '../../routes/terminal';
 

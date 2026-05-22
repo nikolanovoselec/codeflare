@@ -1,3 +1,5 @@
+// @req REQ-MOB-005: Swipe gestures send arrow keys or scroll
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { attachSwipeGestures, sendTerminalKey } from '../../lib/touch-gestures';
 import type { Terminal } from '@xterm/xterm';

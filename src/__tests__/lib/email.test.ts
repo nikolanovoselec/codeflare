@@ -1,3 +1,5 @@
+// @req REQ-AUTH-012: Welcome email on first login
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { sendEmail, sendWelcomeEmail, sendSubscriptionEmail, sendSubscriptionAdminNotification, getModeLabel, buildPlanChangeRows, buildSubscriptionDetailRows } from '../../lib/email';
 

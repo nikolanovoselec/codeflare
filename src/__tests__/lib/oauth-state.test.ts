@@ -1,3 +1,5 @@
+// @req REQ-AUTH-002: SaaS mode uses Direct GitHub OAuth
+
 import { describe, it, expect } from 'vitest';
 import { signOauthState, verifyOauthState, parseOauthState, claimOauthNonce } from '../../lib/oauth-state';
 import { createMockKV } from '../helpers/mock-kv';

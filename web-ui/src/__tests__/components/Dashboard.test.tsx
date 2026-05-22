@@ -1,3 +1,7 @@
+// @req REQ-SESSION-013: Sleep timer countdown UI
+// @req REQ-SESSION-016: User timezone propagated from preferences to container env
+// @req REQ-SUB-019: Session limit popup in frontend
+
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import { mdiXml } from '@mdi/js';

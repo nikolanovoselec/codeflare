@@ -1,3 +1,5 @@
+// @req REQ-SETUP-002: Setup wizard configures domain, auth, R2 credentials, and Turnstile
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleGetAccount } from '../../../routes/setup/account';
 import type { SetupStep } from '../../../routes/setup/shared';

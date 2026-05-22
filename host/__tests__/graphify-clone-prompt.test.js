@@ -1,3 +1,5 @@
+// @req REQ-AGENT-025: Post-Clone Graph Triage
+
 // Verifies REQ-AGENT-025 AC1+AC2: the PostToolUse clone-prompt hook
 // recognises `git clone` and `gh repo clone` across the three supported
 // tool-input shapes (Bash, mcp__context-mode__ctx_execute, ctx_batch_execute),

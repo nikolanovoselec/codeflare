@@ -1,3 +1,9 @@
+// @req REQ-OPS-006: Idle containers cost zero
+// @req REQ-SESSION-004: Idle containers sleep after configurable timeout
+// @req REQ-SESSION-005: Input-based idle detection
+// @req REQ-SUB-006: Real-Time Usage Tracking via Timekeeper DO
+// @req REQ-SUB-008: Mid-Session Quota Enforcement (Graceful Stop)
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV, MockKV } from './helpers/mock-kv';
 import type { Session } from '../types';

@@ -1,3 +1,6 @@
+// @req REQ-AUTH-008: Session cookie auto-refresh
+// @req REQ-SEC-008: Security headers on every response
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../types';

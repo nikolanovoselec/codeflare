@@ -1,3 +1,20 @@
+// @req REQ-VAULT-006: Shutdown bisync completes vault writes before SIGKILL
+// @req REQ-VAULT-008: Zero-UI vault encryption + per-session IDB lifecycle
+// @req REQ-SESSION-015: Container Port-Readiness Gating with Pre-Warm Pre-Condition
+// @req REQ-OPS-006: Idle containers cost zero
+// @req REQ-SEC-012: Container auth token per DO lifecycle
+// @req REQ-SESSION-002: One container per session (isolation)
+// @req REQ-SESSION-003: R2 bucket mounted and synced on start
+// @req REQ-SESSION-004: Idle containers sleep after configurable timeout
+// @req REQ-SESSION-006: User can stop, restart, and delete sessions
+// @req REQ-SESSION-008: Container restart preserves R2 bucket
+// @req REQ-SESSION-009: Container destroy wipes session state
+// @req REQ-SESSION-011: Graceful shutdown with final sync
+// @req REQ-SESSION-012: Wake-loop prevention
+// @req REQ-SESSION-014: User-configurable auto-sleep timeout in Settings
+// @req REQ-STOR-005: Graceful Shutdown Performs Final Sync
+// @req REQ-TERM-004: Close code 4503 is authoritative (no retry)
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**

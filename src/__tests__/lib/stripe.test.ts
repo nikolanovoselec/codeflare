@@ -1,3 +1,8 @@
+// @req REQ-SUB-004: Paid Tiers Integrate with Stripe Checkout
+// @req REQ-SUB-011: Graceful Degradation Without Stripe
+// @req REQ-SUB-016: Customer Portal and Plan Switching
+// @req REQ-SUB-020: Multi-Currency Pricing
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   getStripePriceId,

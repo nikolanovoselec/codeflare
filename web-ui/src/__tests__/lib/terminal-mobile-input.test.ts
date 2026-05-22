@@ -1,3 +1,6 @@
+// @req REQ-MOB-006: Sticky Ctrl button for mobile
+// @req REQ-MOB-009: Visibility return recovers keyboard state
+
 /**
  * Tests for mobile keyboard key dispatch logic (CF-020)
  *

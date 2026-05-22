@@ -1,3 +1,5 @@
+// @req REQ-AGENT-023: Knowledge-Graph Capability (Graphify)
+
 // Verifies REQ-AGENT-023 AC5: the PostToolUse active-repo hook writes
 // the agent's current repo root to ~/.cache/codeflare-hooks/graphify-active-cwd
 // across all matcher shapes (Bash, Edit/Write/Read/NotebookEdit,

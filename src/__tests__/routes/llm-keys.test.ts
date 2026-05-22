@@ -1,3 +1,6 @@
+// @req REQ-AGENT-009: LLM API Key Storage (Encrypted in KV)
+// @req REQ-AGENT-020: LLM API key management UI
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env, LlmKeys } from '../../types';

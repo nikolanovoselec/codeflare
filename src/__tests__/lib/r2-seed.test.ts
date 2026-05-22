@@ -1,3 +1,10 @@
+// @req REQ-AGENT-004: Two Session Modes - Standard and Pro
+// @req REQ-AGENT-008: Preseed Deployed to Container on Start
+// @req REQ-AGENT-011: Agent Configs Manually Recreatable from Settings
+// @req REQ-MEM-006: Memory available only in Pro (Advanced) mode
+// @req REQ-STOR-009: Getting-Started Docs Auto-Seeded on First Session
+// @req REQ-STOR-010: Agent Configs Auto-Seeded Based on Session Mode
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Env } from '../../types';
 

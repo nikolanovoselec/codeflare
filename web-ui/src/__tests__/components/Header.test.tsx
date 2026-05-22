@@ -1,3 +1,7 @@
+// @req REQ-AUTH-016: Header user dropdown
+// @req REQ-AUTH-017: Gravatar integration
+// @req REQ-SESSION-013: Sleep timer countdown UI
+
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
 import { mdiViewDashboardOutline } from '@mdi/js';

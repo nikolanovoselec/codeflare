@@ -1,3 +1,5 @@
+// @req REQ-MOB-006: Sticky Ctrl button for mobile
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@solidjs/testing-library';
 import FloatingTerminalButtons from '../../components/FloatingTerminalButtons';

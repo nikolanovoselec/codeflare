@@ -1,3 +1,5 @@
+// @req REQ-SUB-020: Multi-Currency Pricing
+
 import { describe, it, expect } from 'vitest';
 import { getCurrencyForCountry, SUPPORTED_CURRENCIES } from '../../lib/currency';
 
