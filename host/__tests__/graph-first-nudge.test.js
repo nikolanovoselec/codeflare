@@ -1,6 +1,3 @@
-// @req REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
-// @req REQ-AGENT-027: Context-Mode Interoperability
-
 // Verifies REQ-AGENT-023 AC10: the PreToolUse graph-first nudge hook
 // fires only when a graphify graph exists in the agent's cwd, covers
 // both non-custom-tier matchers (Grep, Glob) and custom-tier matchers

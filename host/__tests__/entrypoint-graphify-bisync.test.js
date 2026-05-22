@@ -1,5 +1,3 @@
-// @req REQ-AGENT-026: Knowledge-Graph Persistence via Git
-
 // Verifies REQ-AGENT-026 AC1: rclone bisync filter in entrypoint.sh excludes
 // **/graphify-out/** so R2 never carries graphify artifacts. Per-repo graph
 // data is committed to git (or kept local-ephemeral) - never sync'd via R2.

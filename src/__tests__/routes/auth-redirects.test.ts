@@ -1,5 +1,3 @@
-// @req REQ-AUTH-009: Logout dispatches by mode
-
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../../types';

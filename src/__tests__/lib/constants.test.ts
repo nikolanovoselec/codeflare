@@ -1,8 +1,3 @@
-// @req REQ-SEC-009: Input validation at system boundaries
-// @req REQ-SESSION-001: Session creation with name and agent type
-// @req REQ-SESSION-007: Running session count limited per tier
-// @req REQ-TERM-001: Up to 6 terminal tabs per session
-
 import { describe, it, expect } from 'vitest';
 import {
   TERMINAL_SERVER_PORT,

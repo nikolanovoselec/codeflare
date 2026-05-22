@@ -1,5 +1,3 @@
-// @req REQ-AGENT-023: Knowledge-Graph Capability (Graphify)
-
 // Verifies REQ-AGENT-023 AC4: the graphify MCP wrapper (graphify-mcp-lazy.py)
 // implements the load-bearing hot-reload + repo-aware resolution
 // contract. Tests inspect the preseed source for the invariants the

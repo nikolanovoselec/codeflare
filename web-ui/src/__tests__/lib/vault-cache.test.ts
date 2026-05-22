@@ -1,5 +1,3 @@
-// @req REQ-VAULT-008: Zero-UI vault encryption + per-session IDB lifecycle
-
 // REQ-VAULT-008 AC8+AC9: vault-cache deletes the SilverBullet IDBs for a
 // removed session and sweeps orphan IDBs on dashboard mount.
 //

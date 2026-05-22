@@ -1,19 +1,3 @@
-// @req REQ-AUTH-001: Two authentication modes
-// @req REQ-AUTH-003: CF Access mode for all other deployments
-// @req REQ-AUTH-004: Service token authentication for E2E testing
-// @req REQ-AUTH-006: User email normalized
-// @req REQ-AUTH-007: JIT user provisioning in SaaS mode
-// @req REQ-AUTH-010: Auth bypass prevention
-// @req REQ-AUTH-011: Auth resolution order
-// @req REQ-AUTH-012: Welcome email on first login
-// @req REQ-SEC-001: Authenticated endpoints reject unauthenticated requests
-// @req REQ-SEC-009: Input validation at system boundaries
-// @req REQ-SEC-014: SaaS service-token header not trusted in SaaS mode
-// @req REQ-SEC-016: Concurrent cache deduplication for auth config
-// @req REQ-SETUP-002: Setup wizard configures domain, auth, R2 credentials, and Turnstile
-// @req REQ-SETUP-003: Three deployment modes
-// @req REQ-SETUP-005: Post-setup reconfiguration requires admin auth
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { mockLoggerWarn } = vi.hoisted(() => ({

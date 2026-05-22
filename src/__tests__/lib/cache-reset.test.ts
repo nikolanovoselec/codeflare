@@ -1,5 +1,3 @@
-// @req REQ-SUB-010: Tier Config Cached with 60-Second TTL
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock the dependent cache modules before importing

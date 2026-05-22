@@ -1,6 +1,3 @@
-// @req REQ-AUTH-003: CF Access mode for all other deployments
-// @req REQ-SETUP-002: Setup wizard configures domain, auth, R2 credentials, and Turnstile
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleCreateAccessApp, getAccessGroupNames } from '../../../routes/setup/access';
 import type { SetupStep } from '../../../routes/setup/shared';

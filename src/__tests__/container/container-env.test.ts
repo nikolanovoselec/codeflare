@@ -1,8 +1,3 @@
-// @req REQ-SESSION-016: User timezone propagated from preferences to container env
-// @req REQ-AGENT-012: Fast CLI Start (Configurable)
-// @req REQ-SEC-002: API tokens never enter containers
-// @req REQ-SESSION-003: R2 bucket mounted and synced on start
-
 // REQ-MEM-001 AC3: buildEnvVars must propagate the per-session
 // USER_TIMEZONE so the capture haiku's `TZ="$RESOLVED" date '+%...'`
 // step produces a wall-clock timestamp in the user's local zone

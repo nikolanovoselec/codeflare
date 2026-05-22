@@ -1,5 +1,3 @@
-// @req REQ-AGENT-023: Knowledge-Graph Capability (Graphify)
-
 // Verifies REQ-AGENT-023 AC2: graphify MCP server registration in
 // ~/.claude.json (unconditional - both default and advanced modes) and
 // AC1 tier-independent presence via the GRAPHIFY_MANIFEST gate.

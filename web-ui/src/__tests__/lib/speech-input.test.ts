@@ -1,5 +1,3 @@
-// @req REQ-MOB-007: Voice input via Web Speech API
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock SpeechRecognition before importing module

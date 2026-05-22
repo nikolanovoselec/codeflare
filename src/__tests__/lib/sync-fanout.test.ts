@@ -1,5 +1,3 @@
-// @req REQ-STOR-015: Explicit Sync Trigger from UI
-
 // REQ-STOR-015 backfill: sync-fanout helper covers AC1 (enumerate +
 // fan out to running sessions only), AC2 (concurrency cap = 8),
 // AC3 (per-session failure isolation), and AC4 (upload-trigger wiring).

@@ -1,5 +1,3 @@
-// @req REQ-AUTH-018: User management admin panel
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 

@@ -1,5 +1,3 @@
-// @req REQ-SEC-005: R2 files encrypted via SSE-C when ENCRYPTION_KEY configured
-
 /**
  * R2 SSE-C (Server-Side Encryption with Customer-Provided Keys) header generation
  */

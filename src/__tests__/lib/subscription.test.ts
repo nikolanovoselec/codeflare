@@ -1,15 +1,3 @@
-// @req REQ-AUTH-005: Three-tier authorization middleware
-// @req REQ-SEC-015: Blocked user cannot self-upgrade subscription
-// @req REQ-SESSION-007: Running session count limited per tier
-// @req REQ-STOR-006: Storage Quota Enforced Per Tier at Session Start
-// @req REQ-SUB-001: Eight-Tier Subscription System
-// @req REQ-SUB-002: Tier Property Definitions
-// @req REQ-SUB-009: Admin-Configurable Tiers via Management Panel
-// @req REQ-SUB-010: Tier Config Cached with 60-Second TTL
-// @req REQ-SUB-012: Billing Status Enforcement (Effective Tier)
-// @req REQ-SUB-013: Concurrent Session Limits
-// @req REQ-SUB-014: Session Mode Gating by Tier
-
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   SubscriptionTierSchema,

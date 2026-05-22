@@ -1,8 +1,3 @@
-// @req REQ-SEC-002: API tokens never enter containers
-// @req REQ-SEC-003: Per-user R2 tokens scoped to user bucket
-// @req REQ-SESSION-003: R2 bucket mounted and synced on start
-// @req REQ-STOR-001: Dedicated Per-User R2 Bucket
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock circuit breaker to pass through

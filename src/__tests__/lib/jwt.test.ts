@@ -1,6 +1,3 @@
-// @req REQ-AUTH-003: CF Access mode for all other deployments
-// @req REQ-SEC-016: Concurrent cache deduplication for auth config
-
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { verifyAccessJWT, resetJWKSCache } from '../../lib/jwt';
 

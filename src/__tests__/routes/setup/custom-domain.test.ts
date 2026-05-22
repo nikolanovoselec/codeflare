@@ -1,7 +1,3 @@
-// @req REQ-SETUP-002: Setup wizard configures domain, auth, R2 credentials, and Turnstile
-// @req REQ-SETUP-004: Setup is idempotent
-// @req REQ-SETUP-007: Custom domain with DNS validation
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleConfigureCustomDomain } from '../../../routes/setup/custom-domain';
 import type { SetupStep } from '../../../routes/setup/shared';

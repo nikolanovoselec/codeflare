@@ -1,9 +1,3 @@
-// @req REQ-SUB-005: Trial Is Compute-Based, Not Time-Based
-// @req REQ-SUB-006: Real-Time Usage Tracking via Timekeeper DO
-// @req REQ-SUB-007: Quota Enforcement at Session Start (402)
-// @req REQ-SUB-008: Mid-Session Quota Enforcement (Graceful Stop)
-// @req REQ-SUB-021: Billing Cycle Alignment
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock KV and storage

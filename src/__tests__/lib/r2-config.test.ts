@@ -1,5 +1,3 @@
-// @req REQ-STOR-001: Dedicated Per-User R2 Bucket
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getR2Config } from '../../lib/r2-config';
 import { createMockKV } from '../helpers/mock-kv';
