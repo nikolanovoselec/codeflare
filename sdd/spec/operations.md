@@ -26,6 +26,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-001: Deploy triggered by push to main
 
+<!-- @impl: .github/workflows/deploy.yml -->
+
 **Intent:** Production deployments are triggered automatically on every push to the `main` branch, with manual dispatch as fallback for both production and integration environments.
 
 **Applies To:** User
@@ -58,6 +60,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ---
 
 ### REQ-OPS-002: Docker image built, scanned, and deployed to Cloudflare
+
+<!-- @impl: .github/workflows/deploy.yml -->
+<!-- @impl: Dockerfile -->
+<!-- @impl: .trivyignore -->
 
 **Intent:** Every deploy builds a Docker image, scans it for vulnerabilities, and pushes it to the Cloudflare container registry before deploying the Worker.
 
@@ -92,6 +98,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-003: PR checks run lint, test, typecheck, and security audit
 
+<!-- @impl: .github/workflows/test.yml -->
+<!-- @impl: .github/workflows/codeql.yml -->
+<!-- @impl: .github/workflows/scorecard.yml -->
+
 **Intent:** Every pull request to `main` must pass comprehensive quality checks before merge.
 
 **Applies To:** User
@@ -121,6 +131,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ---
 
 ### REQ-OPS-004: E2E tests on deployed worker
+
+<!-- @impl: .github/workflows/e2e.yml -->
 
 **Intent:** End-to-end tests verify the deployed worker functions correctly for API operations, desktop UI, and mobile UI.
 
@@ -153,6 +165,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ---
 
 ### REQ-OPS-005: Weekly pentest and fuzz testing
+
+<!-- @impl: .github/workflows/pentest.yml -->
+<!-- @impl: .github/workflows/fuzz.yml -->
 
 **Intent:** Automated security testing runs on a weekly schedule to detect regressions in security posture and identify edge-case bugs.
 
@@ -187,6 +202,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ---
 
 ### REQ-OPS-006: Idle containers cost zero
+
+<!-- @impl: src/container/index.ts -->
+<!-- @impl: src/container/container-metrics.ts -->
 
 **Intent:** Containers that are not actively in use must hibernate and incur zero compute cost.
 
@@ -224,6 +242,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-007: Container specs configurable per environment
 
+<!-- @impl: .github/workflows/deploy.yml -->
+<!-- @impl: wrangler.toml -->
+
 **Intent:** Container resource allocation (CPU, memory, disk) must be configurable per deployment environment to balance cost and performance.
 
 **Applies To:** Admin
@@ -258,6 +279,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-008: Stress testing validates rate limits and concurrency
 
+<!-- @impl: .github/workflows/stress-test.yml -->
+<!-- @impl: src/lib/rate-limit-core.ts -->
+
 **Intent:** Load testing validates that rate limiting, session lifecycle, storage operations, and WebSocket concurrency behave correctly under high load.
 
 **Applies To:** User
@@ -287,6 +311,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ---
 
 ### REQ-OPS-009: Supply chain security monitoring
+
+<!-- @impl: .github/workflows/scorecard.yml -->
+<!-- @impl: .github/workflows/test.yml -->
 
 **Intent:** The project's open-source supply chain security posture must be continuously monitored and reported.
 
@@ -318,6 +345,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-010: Graceful container shutdown preserves data
 
+<!-- @impl: Dockerfile -->
+<!-- @impl: entrypoint.sh::shutdown_handler -->
+<!-- @impl: entrypoint.sh::bisync_with_r2 -->
+
 **Intent:** Container shutdown must complete a final sync to R2 before termination to prevent data loss.
 
 **Applies To:** User
@@ -348,6 +379,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-011: Container base image is Debian bookworm-slim
 
+<!-- @impl: Dockerfile -->
+
 **Intent:** Reliable CLI agent execution requires a glibc-based Linux distribution (Alpine/musl caused crashes for some agents).
 
 **Applies To:** Admin
@@ -371,6 +404,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ---
 
 ### REQ-OPS-012: Per-environment container concurrency limit
+
+<!-- @impl: .github/workflows/deploy.yml -->
+<!-- @impl: wrangler.toml -->
 
 **Intent:** Operators can control how many containers run concurrently per environment independently of resource tier.
 
