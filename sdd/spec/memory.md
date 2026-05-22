@@ -92,7 +92,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Verification:** Automated test (unit test for counter delta logic in memory-capture.sh).
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-MEM-002` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 
@@ -198,7 +200,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Verification:** Automated test (`generate-agent-seed.mjs` output includes memory plugin files).
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-MEM-008` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 

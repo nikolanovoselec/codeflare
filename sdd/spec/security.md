@@ -264,7 +264,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (unit tests for rate limiter + pentest.yml injection job)
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-SEC-007` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 
@@ -364,7 +366,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (pentest.yml injection job)
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-SEC-010` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 
@@ -395,7 +399,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (deploy.yml Trivy scan step)
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-SEC-011` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 
@@ -456,7 +462,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (pentest.yml injection job)
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-SEC-013` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 

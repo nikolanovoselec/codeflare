@@ -221,7 +221,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-TERM-006` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 
