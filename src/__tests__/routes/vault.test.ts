@@ -391,7 +391,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
-  describe('injectVaultBootScript (REQ-VAULT-008 AC8/AC9 sid plumbing)', () => {
+  describe('injectVaultBootScript (REQ-VAULT-008 AC3 sid plumbing)', () => {
     it('injects a <script> exposing window.__codeflareVaultBoot.sessionId before </head>', () => {
       const html = '<!DOCTYPE html><html><head><title>SB</title></head><body></body></html>';
       const out = injectVaultBootScript(html, { sessionId: 'abcdef12' });
@@ -486,7 +486,10 @@ describe('validateVaultRoute', () => {
       const html = '<html><head></head><body></body></html>';
       const once = injectVaultIdbRecorder(html);
       const twice = injectVaultIdbRecorder(once);
-      const occurrences = (twice.match(new RegExp(VAULT_IDB_RECORDER_MARKER.replace(/[*]/g, '\\*'), 'g')) || []).length;
+      // Count substring occurrences without regex — avoids the
+      // incomplete-sanitization trap (CodeQL js/incomplete-sanitization)
+      // of escaping only some regex meta-chars in the marker.
+      const occurrences = twice.split(VAULT_IDB_RECORDER_MARKER).length - 1;
       expect(occurrences).toBe(1);
     });
 
@@ -516,6 +519,57 @@ describe('validateVaultRoute', () => {
       expect(out).toContain('document.cookie');
       // Redirects to the real shell URL
       expect(out).toContain('location.replace');
+    });
+
+    it('sets the bootstrap cookie with both SameSite=Lax and Secure', () => {
+      // The project policy is: every state cookie carries Secure (HSTS
+      // enforced everywhere). This is a one-line behavioural pin so a
+      // future hand-edit cannot silently drop the flag.
+      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
+      // Both flags must appear in the same cookie string. Use a regex
+      // tolerant of whitespace inside the JS source.
+      expect(out).toMatch(/SameSite=Lax/);
+      expect(out).toMatch(/Secure/);
+      // Sanity check: not declaring Secure inside a comment / string
+      // that says "don't add Secure". The literal `; Secure` substring
+      // appears in the cookie assignment.
+      expect(out).toContain('; Secure');
+    });
+
+    it('guards cookie+redirect inside the SW-success branch — failure must NOT proceed (REQ-VAULT-008 AC3 fail-loud)', () => {
+      // The function's own docstring promises "never silently degrades
+      // to plaintext IDB". The previous implementation set the cookie
+      // and called location.replace unconditionally — a SW registration
+      // failure (private mode, SW disabled, exotic browser) left the
+      // user redirected into SB without a key in the SW, silently
+      // unencrypted. The fix: cookie + redirect live AFTER the SW
+      // success path, and the catch branch shows an inline failure UI
+      // instead.
+      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
+      // Failure UI exists.
+      expect(out).toContain('Vault could not start encryption');
+      // Catch branch returns early (no redirect) — the `return;` is
+      // load-bearing and pinned here.
+      const catchClause = out.match(/} catch \(e\) \{[\s\S]*?\}/);
+      expect(catchClause).toBeTruthy();
+      expect(catchClause![0]).toContain('return;');
+      expect(catchClause![0]).not.toContain('document.cookie');
+      expect(catchClause![0]).not.toContain('location.replace');
+      // Cookie/redirect order: cookie set BEFORE location.replace, both
+      // after the try/catch block (i.e. only on the success path).
+      const cookieIdx = out.indexOf('document.cookie');
+      const replaceIdx = out.indexOf('location.replace');
+      const catchEndIdx = out.indexOf('}', out.indexOf('} catch (e) {'));
+      expect(cookieIdx).toBeGreaterThan(catchEndIdx);
+      expect(replaceIdx).toBeGreaterThan(cookieIdx);
+    });
+
+    it('aborts (no cookie, no redirect) when reg.active/installing/waiting are all null', () => {
+      // Edge case the function explicitly handles: serviceWorker.ready
+      // resolves but the registration has no SW reference yet. The
+      // hop must NOT proceed.
+      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
+      expect(out).toContain('if (!sw) { fail("service worker not active"); return; }');
     });
 
     it('embeds the session id verbatim once', () => {
