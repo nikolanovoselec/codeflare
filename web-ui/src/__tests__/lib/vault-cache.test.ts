@@ -51,10 +51,11 @@ function clearGlobals() {
   delete (globalThis as { indexedDB?: unknown }).indexedDB;
 }
 
-describe('cleanupSessionVaultCache (REQ-VAULT-008 AC8)', () => {
+describe('cleanupSessionVaultCache (REQ-VAULT-008 AC6)', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
   afterEach(() => { clearGlobals(); });
 
+  // REQ-VAULT-008 AC6 (deletes every sb_ database recorded for the session)
   it('deletes every recorded sb_ IDB for the session', async () => {
     const sid = 'abcdef12';
     const { store } = installFakeLocalStorage();
@@ -70,6 +71,7 @@ describe('cleanupSessionVaultCache (REQ-VAULT-008 AC8)', () => {
     expect(deleteDatabase).toHaveBeenCalledWith(`sb_files_bbbbbbbb`);
   });
 
+  // REQ-VAULT-008 AC6 (removes localStorage["vault-session-<sid>-idbs"])
   it('removes the vault-session-<sid>-idbs mapping after deleting', async () => {
     const sid = 'abcdef12';
     const { fake, store } = installFakeLocalStorage();
@@ -80,6 +82,7 @@ describe('cleanupSessionVaultCache (REQ-VAULT-008 AC8)', () => {
     expect(fake.removeItem).toHaveBeenCalledWith(`vault-session-${sid}-idbs`);
   });
 
+  // REQ-VAULT-008 AC6 (removes localStorage["vault-session-<sid>"])
   it('removes the vault-session-<sid> marker (preserved from prior behaviour)', async () => {
     const sid = 'abcdef12';
     const { fake, store } = installFakeLocalStorage();
@@ -92,6 +95,7 @@ describe('cleanupSessionVaultCache (REQ-VAULT-008 AC8)', () => {
     expect(fake.removeItem).not.toHaveBeenCalledWith('vault-session-other');
   });
 
+  // REQ-VAULT-008 AC6 (unregisters the SilverBullet service worker scoped to /api/vault/<sid>/)
   it('unregisters the service worker scoped to /api/vault/<sid>/ (preserved)', async () => {
     const sid = 'abcdef12';
     installFakeLocalStorage();
@@ -106,6 +110,7 @@ describe('cleanupSessionVaultCache (REQ-VAULT-008 AC8)', () => {
     expect(untargeted).not.toHaveBeenCalled();
   });
 
+  // REQ-VAULT-008 AC6 (graceful safety: missing -idbs mapping)
   it('is a graceful no-op when the -idbs mapping is missing', async () => {
     const { store } = installFakeLocalStorage();
     store.set(`vault-session-abcdef12`, '1'); // marker present, no IDB mapping
@@ -115,6 +120,7 @@ describe('cleanupSessionVaultCache (REQ-VAULT-008 AC8)', () => {
     expect(deleteDatabase).not.toHaveBeenCalled();
   });
 
+  // REQ-VAULT-008 AC6 (graceful safety: malformed JSON)
   it('is a graceful no-op when the -idbs value is malformed JSON', async () => {
     const { store } = installFakeLocalStorage();
     store.set(`vault-session-abcdef12-idbs`, '<<not json>>');
@@ -124,6 +130,7 @@ describe('cleanupSessionVaultCache (REQ-VAULT-008 AC8)', () => {
     expect(deleteDatabase).not.toHaveBeenCalled();
   });
 
+  // REQ-VAULT-008 AC6 (graceful safety: non-array JSON)
   it('is a graceful no-op when the -idbs value is not a JSON array', async () => {
     const { store } = installFakeLocalStorage();
     store.set(`vault-session-abcdef12-idbs`, JSON.stringify({ not: 'an array' }));
@@ -138,6 +145,7 @@ describe('cleanupSessionVaultCache (REQ-VAULT-008 AC8)', () => {
   // truth. If a future refactor reintroduces databases(), the live
   // session's IDB gets nuked on every Dashboard mount (the bug this
   // file was written to prevent).
+  // REQ-VAULT-008 Constraint (IDB cleanup helpers MUST NEVER enumerate via indexedDB.databases())
   it('does NOT call indexedDB.databases() — only acts on recorded names', async () => {
     const { store } = installFakeLocalStorage();
     store.set(`vault-session-abcdef12-idbs`, JSON.stringify([`sb_data_xxx`]));
@@ -147,10 +155,12 @@ describe('cleanupSessionVaultCache (REQ-VAULT-008 AC8)', () => {
     expect(databases).not.toHaveBeenCalled();
   });
 
+  // REQ-VAULT-008 AC6 (graceful safety: missing globals)
   it('does not throw if globals are missing (SSR / test pre-mount safety)', async () => {
     await expect(cleanupSessionVaultCache('abcdef12')).resolves.toBeUndefined();
   });
 
+  // REQ-VAULT-008 AC6 (graceful safety: missing indexedDB global)
   it('does not throw if indexedDB global is missing but localStorage exists', async () => {
     installFakeLocalStorage();
     installFakeServiceWorker();
@@ -159,10 +169,11 @@ describe('cleanupSessionVaultCache (REQ-VAULT-008 AC8)', () => {
   });
 });
 
-describe('sweepOrphanVaultCaches (REQ-VAULT-008 AC9)', () => {
+describe('sweepOrphanVaultCaches (REQ-VAULT-008 AC7)', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
   afterEach(() => { clearGlobals(); });
 
+  // REQ-VAULT-008 AC7 (sweeps every -idbs entry; for sids NOT in active list, deletes recorded IDBs)
   it('deletes recorded sb_ IDBs for sessions that are not active', async () => {
     const { store } = installFakeLocalStorage();
     store.set('vault-session-active1-idbs', JSON.stringify(['sb_data_active1']));
@@ -174,6 +185,7 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-008 AC9)', () => {
     expect(deleteDatabase).not.toHaveBeenCalledWith('sb_data_active1');
   });
 
+  // REQ-VAULT-008 AC7 (drops both vault-session-<sid> and -idbs entries for orphan sids)
   it('removes vault-session-<sid> and -idbs entries for orphan sessions', async () => {
     const { fake, store } = installFakeLocalStorage();
     store.set('vault-session-active1', '1');
@@ -187,6 +199,7 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-008 AC9)', () => {
     expect(fake.removeItem).not.toHaveBeenCalledWith('vault-session-active1');
   });
 
+  // REQ-VAULT-008 AC7 (active sessions are preserved; only orphan sids are swept)
   it('is a no-op when every marker matches an active session', async () => {
     const { fake, store } = installFakeLocalStorage();
     store.set('vault-session-a-idbs', JSON.stringify(['sb_data_a']));
@@ -197,6 +210,7 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-008 AC9)', () => {
     expect(fake.removeItem).not.toHaveBeenCalled();
   });
 
+  // REQ-VAULT-008 AC7 (sweep iterates every -idbs entry; -idbs alone is sufficient to identify a sid for cleanup)
   it('treats a -idbs orphan with no plain marker as still an orphan', async () => {
     // The recorder may write the -idbs entry before the dashboard ever
     // writes the plain marker (or the plain marker may have been
@@ -210,10 +224,12 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-008 AC9)', () => {
     expect(deleteDatabase).toHaveBeenCalledWith('sb_data_o');
   });
 
+  // REQ-VAULT-008 AC7 (graceful safety: missing localStorage)
   it('does not throw if localStorage is missing', async () => {
     await expect(sweepOrphanVaultCaches(['active1'])).resolves.toBeUndefined();
   });
 
+  // REQ-VAULT-008 AC7 (graceful safety: malformed -idbs value)
   it('handles malformed -idbs values gracefully (no throw, nothing deleted)', async () => {
     const { store } = installFakeLocalStorage();
     store.set('vault-session-bad-idbs', 'not-json');
@@ -226,6 +242,7 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-008 AC9)', () => {
   // Principled-rejection invariant: NEVER enumerate IDBs via
   // indexedDB.databases() in the sweep path either. See the equivalent
   // guard in the cleanup describe block.
+  // REQ-VAULT-008 Constraint (sweep path also MUST NEVER call indexedDB.databases())
   it('does NOT call indexedDB.databases() — only acts on recorded names', async () => {
     const { store } = installFakeLocalStorage();
     store.set('vault-session-orphan-idbs', JSON.stringify(['sb_data_orphan']));
