@@ -2,9 +2,11 @@
 // fan out to running sessions only), AC2 (concurrency cap = 8),
 // AC3 (per-session failure isolation), and AC4 (upload-trigger wiring).
 // AC5 (SIGUSR1 in-flight/rerun coalescing) is asserted in
-// entrypoint-bisync-trigger.test.js. AC6 (frontend button disabled while
-// syncing) is asserted in web-ui StorageBrowser.test.tsx. AC7 (rate
-// limit 6/min) is asserted on the rate-limiter constant directly here.
+// host/__tests__/entrypoint-bisync-behavior.test.js — both the
+// sleep-interrupt branch and the in-flight coalesce branch.
+// AC6 (frontend button disabled while syncing) is asserted in web-ui
+// StorageBrowser.test.tsx. AC7 (rate limit 6/min) is asserted on the
+// rate-limiter constant directly here.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';

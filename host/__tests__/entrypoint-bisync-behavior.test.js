@@ -61,6 +61,7 @@ function buildHarness({
   bisyncBehavior = 'success',
   recoveryReturns = 1, // default: no vanished-file recovery
   resyncBehavior = 'success',
+  blockReleaseFile, // for bisyncBehavior='block-until-released'
 }) {
   // Patch the daemon body: shrink cadence so tests finish in <2s.
   const patched = daemonBody
@@ -78,8 +79,10 @@ function buildHarness({
   // Stub bodies, indexed by behavior selector.
   const bisyncStub =
     bisyncBehavior === 'success'
-      ? `bisync_with_r2() {
-          echo "BISYNC_CALLED args=$*" >> "${logFile}"
+      ? `BISYNC_CALL_COUNT=0
+         bisync_with_r2() {
+          BISYNC_CALL_COUNT=$((BISYNC_CALL_COUNT + 1))
+          echo "BISYNC_CALLED n=$BISYNC_CALL_COUNT args=$*" >> "${logFile}"
           return 0
         }`
       : bisyncBehavior === 'failure'
@@ -87,13 +90,29 @@ function buildHarness({
             echo "BISYNC_CALLED args=$*" >> "${logFile}"
             return 7
           }`
-        : // recover-then-success: first call fails (vanished file), second succeeds
-          `BISYNC_CALL_COUNT=0
-           bisync_with_r2() {
-            BISYNC_CALL_COUNT=$((BISYNC_CALL_COUNT + 1))
-            echo "BISYNC_CALLED n=$BISYNC_CALL_COUNT args=$*" >> "${logFile}"
-            if [ $BISYNC_CALL_COUNT -eq 1 ]; then return 7; else return 0; fi
-          }`;
+        : bisyncBehavior === 'block-until-released'
+          ? // First call blocks on a sentinel file until the test
+            // writes it, so SIGUSR1 has time to land while
+            // BISYNC_IN_FLIGHT=1 (the RERUN_REQUESTED branch). All
+            // subsequent calls return immediately so the rerun cycle
+            // visibly completes.
+            `BISYNC_CALL_COUNT=0
+             bisync_with_r2() {
+              BISYNC_CALL_COUNT=$((BISYNC_CALL_COUNT + 1))
+              echo "BISYNC_CALLED n=$BISYNC_CALL_COUNT args=$*" >> "${logFile}"
+              if [ $BISYNC_CALL_COUNT -eq 1 ]; then
+                # Block until the test creates the release sentinel.
+                while [ ! -f "${blockReleaseFile}" ]; do sleep 0.05; done
+              fi
+              return 0
+            }`
+          : // recover-then-success: first call fails (vanished file), second succeeds
+            `BISYNC_CALL_COUNT=0
+             bisync_with_r2() {
+              BISYNC_CALL_COUNT=$((BISYNC_CALL_COUNT + 1))
+              echo "BISYNC_CALLED n=$BISYNC_CALL_COUNT args=$*" >> "${logFile}"
+              if [ $BISYNC_CALL_COUNT -eq 1 ]; then return 7; else return 0; fi
+            }`;
 
   const resyncStub =
     resyncBehavior === 'success'
@@ -212,7 +231,7 @@ describe('entrypoint.sh bisync daemon behavior (real)', () => {
     }
   });
 
-  it('SIGUSR1 interrupts the cadence sleep and triggers bisync immediately (REQ-STOR-015 AC5)', async () => {
+  it('SIGUSR1 interrupts the cadence sleep and triggers bisync immediately (REQ-STOR-015 AC5: sleep-interrupt branch)', async () => {
     // Use sleep 10 in the patched daemon to make the test deterministic:
     // without SIGUSR1, bisync would not fire for 10s; with SIGUSR1, the
     // `wait $SYNC_SLEEP_PID` returns >128 within ~50ms.
@@ -228,6 +247,61 @@ describe('entrypoint.sh bisync daemon behavior (real)', () => {
       assert.match(log, /BISYNC_CALLED/,
         'SIGUSR1 must interrupt the 10s sleep and fire bisync within ~1s');
     } finally {
+      killHarness(h.child, pid);
+    }
+  });
+
+  it('N SIGUSR1s arriving mid-flight coalesce into exactly one rerun (REQ-STOR-015 AC5: in-flight coalesce branch)', async () => {
+    // The spec wording for AC5 is: "a SIGUSR1 sent to the bisync daemon
+    // while a bisync is already in flight causes exactly one rerun
+    // after the current cycle completes (N concurrent signals coalesce
+    // to one rerun, not N)." The sleep-interrupt test above only
+    // covers the BISYNC_REQUESTED=1 branch; this test covers the
+    // BISYNC_RERUN_REQUESTED=1 branch (entrypoint.sh:646 trap, with
+    // BISYNC_IN_FLIGHT=1 active).
+    //
+    // Mechanism: bisync_with_r2 blocks on a sentinel file the test
+    // controls. Daemon enters the in-flight state. Test fires 5
+    // SIGUSR1s while bisync is blocked. Test releases the block.
+    // The daemon must run EXACTLY ONE additional bisync (n=2), not 5.
+    const releaseFile = join(tmpdir(), `bisync-release-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const h = spawnHarness({
+      daemonBody,
+      bisyncBehavior: 'block-until-released',
+      blockReleaseFile: releaseFile,
+    });
+    const pid = await readDaemonPid(h.child);
+    try {
+      // Wait until the daemon enters the first bisync (now blocked).
+      await waitFor(h.logFile, (s) => /BISYNC_CALLED n=1/.test(s), 4000);
+      // Fire 5 SIGUSR1s mid-flight. BISYNC_IN_FLIGHT=1, so each trap
+      // call sets BISYNC_RERUN_REQUESTED=1 (idempotent — N signals
+      // collapse to one rerun, not N).
+      for (let i = 0; i < 5; i++) {
+        process.kill(pid, 'SIGUSR1');
+      }
+      // Release the in-flight bisync. The daemon now finishes cycle 1,
+      // sees BISYNC_RERUN_REQUESTED=1, runs ONE rerun (cycle 2), then
+      // continues to the next sleep.
+      writeFileSync(releaseFile, '');
+      // Wait for the rerun (n=2) to appear.
+      await waitFor(h.logFile, (s) => /BISYNC_CALLED n=2/.test(s), 5000);
+      // Sleep long enough to be sure no n=3 ever appears. With
+      // patched 1s cadence, ~2s is enough to catch a runaway rerun.
+      await new Promise((r) => setTimeout(r, 2000));
+      const finalLog = readFileSync(h.logFile, 'utf8');
+      const matches = finalLog.match(/BISYNC_CALLED n=\d+/g) || [];
+      // Count distinct n=1, n=2 occurrences. The bisync stub increments
+      // its counter once per invocation, so n=3 appearing means 5
+      // SIGUSR1s produced 4 reruns instead of 1.
+      const ns = matches.map((m) => m.match(/n=(\d+)/)[1]);
+      assert.equal(ns.includes('1'), true, 'cycle 1 must be logged');
+      assert.equal(ns.includes('2'), true, 'cycle 2 (the rerun) must be logged');
+      assert.equal(ns.includes('3'), false,
+        `5 SIGUSR1s mid-flight must coalesce into exactly one rerun, not multiple. Saw ns=[${ns.join(',')}]`);
+    } finally {
+      // Make sure the daemon never hangs the test cleanup.
+      try { writeFileSync(releaseFile, ''); } catch { /* ignore */ }
       killHarness(h.child, pid);
     }
   });
