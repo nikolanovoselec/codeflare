@@ -22,6 +22,7 @@ import {
  * (authenticateRequest, getContainer, KV) which is too coupled for unit
  * testing — mirrors the terminal.test.ts decision.
  */
+// REQ-VAULT-005 AC3 (validateVaultRoute is the boundary identifier paired with handleVaultRequest for the shared auth chain; per Verification field: "validateVaultRoute boundary cases")
 describe('validateVaultRoute', () => {
   function createRequest(path: string, headers: Record<string, string> = {}): Request {
     return new Request(`https://example.com${path}`, {
@@ -90,6 +91,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
+  // REQ-VAULT-009 AC1, AC2 (missing-Origin fallback + allowlist preserved), AC3 (body preservation), AC4 (GET/HEAD unchanged)
   describe('maybeSynthesizeCsrfHeader', () => {
     function makeRequest(method: string, headers: Record<string, string> = {}, body?: string): Request {
       const init: RequestInit = { method, headers: new Headers(headers) };
@@ -197,6 +199,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
+  // REQ-VAULT-005 AC8 (browser-initiated SW registration short-circuit: method+path+Service-Worker header+no-Cookie selector, defence-in-depth)
   describe('isServiceWorkerRegistration', () => {
     function swRequest(
       method: string,
@@ -697,6 +700,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
+  // REQ-VAULT-008 AC3 (codeflare_vault_bootstrap cookie selector: subsequent shell-path requests bypass the hop via the cookie)
   describe('hasVaultBootstrapCookie', () => {
     function reqWithCookie(value: string | undefined): Request {
       const headers = new Headers();
@@ -824,6 +828,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
+  // REQ-VAULT-005 Constraint (/api/vault/:sid/status runs through Hono middleware chain; only catch-all proxy is intercepted before Hono)
   describe('status sub-route', () => {
     it('matches /api/vault/:sid/status (handled by Hono, not the proxy)', () => {
       // We still report isVaultRoute=true — the caller in src/index.ts
