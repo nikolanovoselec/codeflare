@@ -67,7 +67,9 @@ function runHook(home, { transcriptPath, sessionId = 'sess-1' }) {
   });
 }
 
-describe('memory-capture.sh — input gating', () => {
+// REQ-MEM-002 (input gating: safety guards for missing inputs/files)
+describe('memory-capture.sh - input gating', () => {
+  // REQ-MEM-002 (input safety: hook called without transcript_path exits 0 silently)
   it('exits 0 silently when transcript_path is missing', () => {
     const home = makeFixture();
     const r = spawnSync('bash', [HOOK], {
@@ -79,6 +81,7 @@ describe('memory-capture.sh — input gating', () => {
     assert.equal(r.stdout, '');
   });
 
+  // REQ-MEM-002 AC1 (counter file keyed by session_id; absent session_id -> nothing to read/write)
   it('exits 0 silently when session_id is missing', () => {
     const home = makeFixture();
     const t = writeTranscript(home, [realUserLine('hi')]);
@@ -91,6 +94,7 @@ describe('memory-capture.sh — input gating', () => {
     assert.equal(r.stdout, '');
   });
 
+  // REQ-MEM-002 (input safety: nonexistent transcript file path exits 0 silently)
   it('exits 0 silently when transcript file does not exist', () => {
     const home = makeFixture();
     const r = runHook(home, {
@@ -101,7 +105,9 @@ describe('memory-capture.sh — input gating', () => {
   });
 });
 
-describe('memory-capture.sh — first-run baseline', () => {
+// REQ-MEM-002 AC2 (no counter -> write baseline + emit graphify-query directive)
+describe('memory-capture.sh - first-run baseline', () => {
+  // REQ-MEM-002 AC2 + REQ-MEM-001 AC8 (first-run emits memory-scan directive)
   it('first run creates counter file and emits memory-scan directive', () => {
     const home = makeFixture();
     const t = writeTranscript(home, [realUserLine('first message')]);
@@ -119,7 +125,9 @@ describe('memory-capture.sh — first-run baseline', () => {
   });
 });
 
-describe('memory-capture.sh — user-message counting', () => {
+// REQ-MEM-002 AC3/AC4/AC5 (delta logic: <15 silent, >=15 fires, counter advances)
+describe('memory-capture.sh - user-message counting', () => {
+  // REQ-MEM-002 AC3 (delta calculation counts only real user prompts; delta<15 -> silent)
   it('counts only real user prompts, excluding tool_results and command wrappers', () => {
     const home = makeFixture();
     // Pre-create counter so this isn't a first-run baseline
@@ -148,6 +156,7 @@ describe('memory-capture.sh — user-message counting', () => {
       'delta < 15 with existing counter must produce no output');
   });
 
+  // REQ-MEM-002 AC4 + AC6 (delta>=15 -> write .vars + emit additionalContext mentioning vars path)
   it('triggers capture when 15+ NEW real prompts since last_count', () => {
     const home = makeFixture();
     mkdirSync(join(home, '.memory/counter'), { recursive: true });
@@ -173,6 +182,7 @@ describe('memory-capture.sh — user-message counting', () => {
     assert.equal(v.current_count, '15');
   });
 
+  // REQ-MEM-002 AC3 (boundary: 14 real prompts is < 15 threshold -> silent, no .vars)
   it('does NOT trigger when 14 new real prompts (boundary, delta < 15)', () => {
     const home = makeFixture();
     mkdirSync(join(home, '.memory/counter'), { recursive: true });
@@ -190,6 +200,7 @@ describe('memory-capture.sh — user-message counting', () => {
     );
   });
 
+  // REQ-MEM-002 AC5 (counter updated BEFORE emitting; subsequent invocations within window are silent)
   it('counter advances on capture so the next run starts a fresh window', () => {
     const home = makeFixture();
     mkdirSync(join(home, '.memory/counter'), { recursive: true });
@@ -211,7 +222,9 @@ describe('memory-capture.sh — user-message counting', () => {
   });
 });
 
-describe('memory-capture.sh — tilde expansion', () => {
+// REQ-MEM-002 (path handling: tilde expansion for cross-environment robustness)
+describe('memory-capture.sh - tilde expansion', () => {
+  // REQ-MEM-002 (operational robustness: ~/path must resolve to $HOME)
   it('expands ~ in transcript_path to $HOME', () => {
     const home = makeFixture();
     mkdirSync(join(home, '.memory/counter'), { recursive: true });
@@ -228,7 +241,9 @@ describe('memory-capture.sh — tilde expansion', () => {
   });
 });
 
-describe('memory-capture.sh — output protocol', () => {
+// REQ-MEM-001 AC1 (hook is registered as UserPromptSubmit; output must conform to that protocol)
+describe('memory-capture.sh - output protocol', () => {
+  // REQ-MEM-001 AC1 (UserPromptSubmit JSON shape, never Stop-hook decision/block fields)
   it('output is valid UserPromptSubmit JSON, never Stop-hook decision/block', () => {
     const home = makeFixture();
     const t = writeTranscript(home, [realUserLine('first message')]);
