@@ -1,6 +1,3 @@
-// @req REQ-AGENT-010: Deploy Credential Storage (GitHub PAT, CF API Token)
-// @req REQ-AGENT-018: Push & Deploy credential management UI
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env, DeployKeys } from '../../types';

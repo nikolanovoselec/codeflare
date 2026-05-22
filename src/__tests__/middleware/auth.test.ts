@@ -1,6 +1,3 @@
-// @req REQ-AUTH-005: Three-tier authorization middleware
-// @req REQ-AUTH-007: JIT user provisioning in SaaS mode
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import { authMiddleware, requireAdmin, AuthVariables } from '../../middleware/auth';

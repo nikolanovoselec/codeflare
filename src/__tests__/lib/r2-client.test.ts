@@ -1,5 +1,3 @@
-// @req REQ-SEC-005: R2 files encrypted via SSE-C when ENCRYPTION_KEY configured
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createR2Client,

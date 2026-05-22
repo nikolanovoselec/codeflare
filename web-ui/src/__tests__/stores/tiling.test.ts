@@ -1,5 +1,3 @@
-// @req REQ-TERM-007: Tiling layouts (2-split, 3-split, 4-grid)
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock terminal store before importing session store

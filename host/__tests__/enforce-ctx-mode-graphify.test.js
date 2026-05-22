@@ -1,5 +1,3 @@
-// @req REQ-AGENT-027: Context-Mode Interoperability
-
 // Verifies REQ-AGENT-027 AC1: when the context-mode plugin is preseeded
 // (custom tier + advanced session mode), `graphify` is in the
 // enforce-ctx-mode.sh Bash whitelist so `graphify update .` is not denied.

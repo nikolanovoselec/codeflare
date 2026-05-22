@@ -1,5 +1,3 @@
-// @req REQ-MEM-009: Vault graph accumulates monotonically across extractions
-
 // REQ-MEM-009: the vault-extract pipeline must accumulate the user_vault
 // subgraph across extractions instead of replacing it on every run. The
 // haiku's prompt is the canonical contract -- it spells out the exact

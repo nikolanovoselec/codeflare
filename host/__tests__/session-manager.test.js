@@ -1,6 +1,3 @@
-// @req REQ-TERM-001: Up to 6 terminal tabs per session
-// @req REQ-TERM-005: Tab 1 auto-starts the configured agent
-
 import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 

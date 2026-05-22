@@ -1,5 +1,3 @@
-// @req REQ-SESSION-002: One container per session (isolation)
-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getContainerId, getSessionIdFromQuery } from '../../lib/container-helpers';
 import type { HealthData } from '../../lib/container-helpers';

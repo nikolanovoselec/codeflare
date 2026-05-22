@@ -1,5 +1,3 @@
-// @req REQ-AGENT-013: Browser Shim for OAuth Flows
-
 import { describe, it, expect, vi } from 'vitest';
 
 // We test the internal helper types exported from the module.

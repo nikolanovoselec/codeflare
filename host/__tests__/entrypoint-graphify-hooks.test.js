@@ -1,5 +1,3 @@
-// @req REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
-
 // Verifies REQ-AGENT-023 AC3 + AC4 + AC10: graphify SessionStart + PostToolUse + PreToolUse
 // hooks are merged into settings.json in advanced session mode when the
 // plugin manifest is present, and absent otherwise (mode-gated discipline).

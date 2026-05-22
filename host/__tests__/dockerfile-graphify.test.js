@@ -1,6 +1,3 @@
-// @req REQ-AGENT-023: Knowledge-Graph Capability (Graphify)
-// @req REQ-AGENT-026: Knowledge-Graph Persistence via Git
-
 // Verifies REQ-AGENT-023 AC1 (graphifyy install with pinned version + extras)
 // and REQ-AGENT-026 AC2 (global semantic merge-driver registration) by
 // reading the Dockerfile content. These are build-time facts the Dockerfile

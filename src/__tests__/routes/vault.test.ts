@@ -1,7 +1,3 @@
-// @req REQ-VAULT-005: Worker proxy exposes the in-container vault editor
-// @req REQ-VAULT-008: Zero-UI vault encryption + per-session IDB lifecycle
-// @req REQ-VAULT-009: Vault writes succeed end-to-end for SilverBullet attachment uploads
-
 import { describe, it, expect, vi } from 'vitest';
 import {
   validateVaultRoute,

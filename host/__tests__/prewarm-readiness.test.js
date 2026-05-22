@@ -1,5 +1,3 @@
-// @req REQ-SESSION-015: Container Port-Readiness Gating with Pre-Warm Pre-Condition
-
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 

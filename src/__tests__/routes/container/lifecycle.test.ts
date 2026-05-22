@@ -1,8 +1,3 @@
-// @req REQ-SESSION-007: Running session count limited per tier
-// @req REQ-SESSION-008: Container restart preserves R2 bucket
-// @req REQ-SUB-007: Quota Enforcement at Session Start (402)
-// @req REQ-SUB-013: Concurrent Session Limits
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env, Session } from '../../../types';

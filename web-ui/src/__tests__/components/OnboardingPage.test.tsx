@@ -1,5 +1,3 @@
-// @req REQ-AUTH-015: Guided onboarding flow
-
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
 import OnboardingPage from '../../components/OnboardingPage';

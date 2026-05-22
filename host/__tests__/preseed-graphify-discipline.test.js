@@ -1,5 +1,3 @@
-// @req REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
-
 // Verifies REQ-AGENT-024 AC1-AC3: in advanced session mode the discipline
 // pieces are preseeded (graph-first rule + SKILL.md + SessionStart hook
 // script). Also asserts the manifest gates the rule/skill to advanced mode

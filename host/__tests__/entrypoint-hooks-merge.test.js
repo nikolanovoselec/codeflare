@@ -1,8 +1,3 @@
-// @req REQ-MEM-004: Vault contents synced to R2 across sessions
-// @req REQ-STOR-004: Initial Sync Restores Files on Container Start
-// @req REQ-STOR-011: Sync Mode Controls Workspace Scope
-// @req REQ-VAULT-001: Persistent vault directory survives across sessions
-
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

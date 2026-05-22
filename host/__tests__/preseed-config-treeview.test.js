@@ -1,5 +1,3 @@
-// @req REQ-VAULT-008: Zero-UI vault encryption + per-session IDB lifecycle
-
 // REQ-VAULT-008 AC7: preseed CONFIG.md declares treeview exclusions
 // that hide agent-derived / system entries from the SB tree pane:
 // Library/, graphify-out/, and the top-level preseed pages CONFIG,

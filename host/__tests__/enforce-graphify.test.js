@@ -1,5 +1,3 @@
-// @req REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
-
 // Real behavioral tests for the graphify PreToolUse enforcement hook.
 //
 // Spawn the actual bash script with stdin input and assert on exit code

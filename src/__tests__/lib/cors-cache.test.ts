@@ -1,5 +1,3 @@
-// @req REQ-SETUP-007: Custom domain with DNS validation
-
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { isAllowedOrigin, resetCorsOriginsCache } from '../../lib/cors-cache';
 import { createMockKV } from '../helpers/mock-kv';
