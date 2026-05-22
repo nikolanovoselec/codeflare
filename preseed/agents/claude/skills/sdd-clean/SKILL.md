@@ -40,7 +40,7 @@ When unleashed mode encounters a JUDGMENT call, it never picks a winner that ove
 | JUDGMENT type | Conservative resolution |
 |---|---|
 | Doc-vs-spec conflict | Mark BOTH the REQ and the related doc as `Status: Partial` with `Notes:` describing the conflict. Log to `sdd/spec/.review-queue.md` (nested) / `sdd/.review-needed.md` (flat). **Never overwrite either side.** |
-| Oversized REQ refactor | Shrink in place — extract implementation prose to the relevant lane file (`documentation/lanes/{file}.md` nested, `documentation/{file}.md` flat), leave Intent + AC verbatim. **Never split into multiple REQs.** |
+| Oversized REQ by **line count** (>50 lines, bloated by implementation prose) | Shrink in place — extract implementation prose to the relevant lane file (`documentation/lanes/{file}.md` nested, `documentation/{file}.md` flat), leave Intent + AC verbatim. **This row does NOT cover oversize-by-AC-count.** REQs with >7 ACs are handled deterministically by `spec-enforce-ac` § Splitting by sub-feature (which DOES auto-split in `auto`/`unleashed`); they never enter the JUDGMENT path. |
 | Fake-Deprecated REQ (no Replaced By) | Move REQ definition to README's `## Out of Scope` section, remove from domain file. Content preserved. |
 | Truly ambiguous content | Mark `Partial` with `Notes:`, log to triage file. |
 | CQ-SOURCE Truth findings (anchor orphaned, value drift) | NEVER auto-resolve. Always escalate to triage with the searched anchor + actual source state. Truth is JUDGMENT by construction. |
@@ -96,7 +96,8 @@ If `LAYOUT=nested`, no migration needed; layout migration is a no-op. If `LAYOUT
 - **Prose Status fields** (multi-line status notes) → truncated to one word, prose moved to `pending.md` or `Notes:` field for `Partial` status.
 - **Implementation leakage** (hex codes, CSS classes, file paths, function names, env vars) → moved to appropriate `documentation/` files.
 - **Fake-Deprecated REQs** (Deprecated without `Replaced By:`) → moved to `## Out of Scope` in domain README (per the escalation rules above).
-- **Oversized REQs** (>50 lines) → flagged; in unleashed, implementation prose extracted to docs while Intent + AC stay verbatim.
+- **Oversized REQs by line count** (>50 lines, typically bloated by implementation prose) → flagged; in `unleashed`, implementation prose extracted to `documentation/` while Intent + AC stay verbatim. This rule fires on body size only.
+- **Oversized REQs by AC count** (>7 ACs) → handled deterministically by `spec-enforce-ac` § Splitting by sub-feature, invoked from row 5 of the spec-enforce manifest. In `auto`/`unleashed`: 8-10 ACs are MEDIUM with auto-fix (attempt sibling merge, else split by sub-feature); >10 ACs are HIGH with mandatory auto-split. Split mechanics: Jaccard-cluster ACs by first-12-content-word overlap (≥0.25), dominant cluster keeps the original REQ ID, remaining clusters become sibling REQs with the next free IDs. Cross-refs in `documentation/` and `sdd/changes.md` rewrite in the same commit. Tests are NOT renamed (substring matching keeps coverage green).
 - **Bloated `changes.md`** (verification log entries, commit SHAs, multi-paragraph entries) → archived to `sdd/changes-archive-YYYY-MM.md`, new file with user-facing entries only.
 - **Status: Implemented REQs without test coverage** → if `enforce_tdd: true`, demoted to `Partial` with `Notes:`; if `enforce_tdd: false`, written to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) under `## Coverage gaps` only.
 - **Status: Planned/Partial REQs with source but no test** → if `enforce_tdd: true`, HIGH finding + auto-promote `Planned → Partial` with `Notes:`.
