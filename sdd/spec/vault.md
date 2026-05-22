@@ -38,6 +38,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-001: Persistent vault directory survives across sessions
 
+<!-- @impl: entrypoint.sh::init_user_vault -->
+<!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
+
 **Intent:** A user opens a new session and finds their previous notes, captures, and pasted assets intact -- the same way the rest of `/home/user/` survives.
 
 **Applies To:** User
@@ -74,6 +77,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-002: Conversation captures land in the vault as markdown
 
+<!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
+
 **Intent:** The capture agent writes one markdown file per 15-prompt batch into `Raw/Sessions/`, replacing the previous MCP-memory write path. Captures appear in `mcp__graphify__*` queries the same turn they are written.
 
 **Applies To:** User
@@ -102,6 +108,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ---
 
 ### REQ-VAULT-003: User-curated edits are detected and ingested within ~60s
+
+<!-- @impl: entrypoint.sh::start_vault_monitor_daemon -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md -->
 
 **Intent:** A user adds a note in SilverBullet (or any other editor) and within roughly one daemon tick the new content shows up in `mcp__graphify__*` query results.
 
@@ -135,6 +145,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-004: Unified global graph merges vault + active repos
 
+<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::_resolve_active -->
+<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
+
 **Intent:** A single `mcp__graphify__*` call returns nodes from the vault and from every per-repo graphify-out the session has touched, so cross-cutting questions ("did we ever discuss X with respect to Y") work without manually selecting a graph.
 
 **Applies To:** Agent
@@ -166,6 +179,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ---
 
 ### REQ-VAULT-005: Worker proxy exposes the in-container vault editor
+
+<!-- @impl: src/routes/vault.ts::handleVaultRequest -->
+<!-- @impl: src/routes/vault.ts::validateVaultRoute -->
+<!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
 
 **Intent:** Clicking the Vault button in the codeflare UI opens SilverBullet in a new tab, behind the same auth + rate-limit boundary as every other tier-gated session feature.
 
@@ -203,6 +220,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-006: Shutdown bisync completes vault writes before SIGKILL
 
+<!-- @impl: entrypoint.sh::shutdown_handler -->
+<!-- @impl: src/container/index.ts::destroy -->
+
 **Intent:** A user who stops a session and closes their browser within seconds finds their latest vault edits intact on the next session, instead of losing them to a mid-bisync SIGKILL.
 
 **Applies To:** User
@@ -231,6 +251,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ---
 
 ### REQ-VAULT-007: Vault rules and plugin are preseeded into every advanced session
+
+<!-- @impl: preseed/agents/claude/manifest.json -->
+<!-- @impl: scripts/generate-agent-seed.mjs -->
 
 **Intent:** A fresh advanced-mode session ships with the codeflare-vault plugin (hook + extraction prompt + plugin descriptor) and the memory rule (which carries the folded vault trigger/route content) already in place -- no per-session install step.
 
@@ -261,6 +284,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ---
 
 ### REQ-VAULT-008: Zero-UI vault encryption + per-session IDB lifecycle
+
+<!-- @impl: src/container/index.ts::ensureVaultKey -->
+<!-- @impl: src/routes/vault.ts::injectVaultBootstrapHopHtml -->
+<!-- @impl: src/routes/vault.ts::injectVaultIdbRecorder -->
+<!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
+<!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
 
 **Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. Two coupled improvements ship as one requirement: (a) the IDB cache is encrypted at rest with a per-session key generated and stored by the Container DO (no user passphrase prompt), and (b) deleted sessions have their IDB cleaned up rather than lingering across browser sessions. The threat model is BitLocker-grade: defeats offline disk attacks (profile theft, backup leak, ransomware scan), does NOT defeat anyone with an authenticated browser tab. The key dies with `container.destroy()` so deletion is forward-secret.
 
@@ -295,6 +324,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ---
 
 ### REQ-VAULT-009: Vault writes succeed end-to-end for SilverBullet attachment uploads
+
+<!-- @impl: src/routes/vault.ts::maybeSynthesizeCsrfHeader -->
+<!-- @impl: src/routes/vault.ts::inferOriginValidated -->
 
 **Intent:** SilverBullet's drag-drop attachment upload (PUT `/api/vault/<sid>/Inbox/<file>`) must succeed when the user is authenticated, regardless of whether the browser's fetch implementation set the Origin header. The previous code path required Origin to be present and allowlisted before synthesising the CSRF guard header, so a service-worker-controlled fetch or a same-origin fetch that omitted Origin landed at the auth chain without X-Requested-With and was rejected. PDF uploads from the SB Inbox plug repeatedly surfaced this as a 401 to the user.
 
