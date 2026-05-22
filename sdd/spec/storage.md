@@ -453,7 +453,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-015: Explicit Sync Trigger from UI
 
-<!-- @impl: src/routes/sessions.ts -->
+<!-- @impl: src/routes/session/index.ts -->
 <!-- @impl: src/lib/sync-fanout.ts -->
 <!-- @impl: entrypoint.sh::start_sync_daemon -->
 

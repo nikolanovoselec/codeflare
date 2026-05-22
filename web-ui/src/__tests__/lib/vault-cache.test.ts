@@ -1,4 +1,4 @@
-// REQ-VAULT-008 AC8+AC9: vault-cache deletes the SilverBullet IDBs for a
+// REQ-VAULT-008 AC6+AC7: vault-cache deletes the SilverBullet IDBs for a
 // removed session and sweeps orphan IDBs on dashboard mount.
 //
 // The deletion path relies on the boot-injected recorder (see

@@ -431,7 +431,7 @@ None.
 
 ### REQ-AUTH-014: Auth expiry detection mid-session
 
-<!-- @impl: web-ui/src/lib/api-client.ts -->
+<!-- @impl: web-ui/src/api/client.ts -->
 <!-- @impl: web-ui/src/components/Layout.tsx -->
 
 **Intent:** Users are warned when their auth session expires during active use instead of silently failing.
