@@ -29,18 +29,18 @@ Codeflare is an ephemeral cloud IDE that runs AI coding agents in isolated conta
 
 | Domain | Description | Priority | Status |
 |--------|-------------|----------|--------|
-| [Session Lifecycle](session-lifecycle.md) | Container creation, idle detection, auto-sleep, restart | P0 | Active |
-| [Authentication](authentication.md) | Dual auth (CF Access + GitHub OIDC), user provisioning | P0 | Active |
-| [Terminal](terminal.md) | PTY, WebSocket, multi-tab, tiling, keyboard | P0 | Active |
-| [Mobile](mobile.md) | Touch input, virtual keyboard, scroll stability | P2 | Active |
-| [Storage](storage.md) | R2 persistence, rclone bisync, quotas | P0 | Active |
-| [Subscription](subscription.md) | Tiers, billing, usage tracking, quotas | P1 | Active |
-| [Agents](agents.md) | Multi-agent support, preseed, session modes | P1 | Active |
-| [Setup](setup.md) | Onboarding wizard, deployment modes, DNS | P1 | Active |
-| [Security](security.md) | Auth enforcement, encryption, rate limiting, headers | P0 | Active |
-| [Operations](operations.md) | CI/CD, testing, deployment, cost | P1 | Active |
-| [Memory](memory.md) | Vault-based cross-session memory, automatic capture, hook delivery | P2 | Active |
-| [Vault](vault.md) | Persistent obsidian-style notes, unified graphify graph, SilverBullet editor | P2 | Active |
+| [Session Lifecycle](spec/session-lifecycle.md) | Container creation, idle detection, auto-sleep, restart | P0 | Active |
+| [Authentication](spec/authentication.md) | Dual auth (CF Access + GitHub OIDC), user provisioning | P0 | Active |
+| [Terminal](spec/terminal.md) | PTY, WebSocket, multi-tab, tiling, keyboard | P0 | Active |
+| [Mobile](spec/mobile.md) | Touch input, virtual keyboard, scroll stability | P2 | Active |
+| [Storage](spec/storage.md) | R2 persistence, rclone bisync, quotas | P0 | Active |
+| [Subscription](spec/subscription.md) | Tiers, billing, usage tracking, quotas | P1 | Active |
+| [Agents](spec/agents.md) | Multi-agent support, preseed, session modes | P1 | Active |
+| [Setup](spec/setup.md) | Onboarding wizard, deployment modes, DNS | P1 | Active |
+| [Security](spec/security.md) | Auth enforcement, encryption, rate limiting, headers | P0 | Active |
+| [Operations](spec/operations.md) | CI/CD, testing, deployment, cost | P1 | Active |
+| [Memory](spec/memory.md) | Vault-based cross-session memory, automatic capture, hook delivery | P2 | Active |
+| [Vault](spec/vault.md) | Persistent obsidian-style notes, unified graphify graph, SilverBullet editor | P2 | Active |
 
 ## Out of Scope
 
