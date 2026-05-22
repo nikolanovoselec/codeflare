@@ -110,7 +110,7 @@ Linking convention enforced in the prompt: concepts go in `[[wikilinks]]` so gra
 
 ## User-edit Path (REQ-VAULT-003)
 
-Implements [REQ-MEM-009](../sdd/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) (monotonic vault graph accumulation across extractions).
+Implements [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) (monotonic vault graph accumulation across extractions).
 
 A second daemon, `start_vault_monitor_daemon` in entrypoint.sh, polls the vault every 60s. It uses a three-marker pattern to avoid the daemon-advances-mtime-before-extraction-reads-it race:
 
@@ -337,4 +337,4 @@ SilverBullet writes pasted / drag-dropped attachments next to the note that refe
 - [memory.md](./memory.md) -- The capture-hook plumbing that the vault reuses.
 - [architecture.md](./architecture.md) -- Container layout, Worker proxy boundary.
 - [deployment.md](./deployment.md) -- How Dockerfile + preseed land in a new session.
-- [`sdd/vault.md`](../sdd/vault.md) -- Spec / acceptance criteria.
+- [`sdd/vault.md`](../../sdd/spec/vault.md) -- Spec / acceptance criteria.

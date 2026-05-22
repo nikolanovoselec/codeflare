@@ -311,13 +311,13 @@ Base64-encoded inputs are validated with try/catch around `atob()`. Invalid base
 
 3. **Rate-limit check:** The 30 connections/60s window counter is only consulted after both gates above pass.
 
-Implements [REQ-SEC-007 AC10, AC11](../sdd/security.md#req-sec-007-rate-limiting-on-all-mutation-endpoints).
+Implements [REQ-SEC-007 AC10, AC11](../../sdd/spec/security.md#req-sec-007-rate-limiting-on-all-mutation-endpoints).
 
 ### Vault Editor Rate Limit (REQ-VAULT-005)
 
 The vault editor proxy at `/api/vault/:sid/*` runs through `validateVaultRoute` -> `handleVaultRequest` in `src/routes/vault.ts`. WebSocket upgrades for SilverBullet's live-edit sync are rate-limited via the same `ws-connect:<email>` bucket as terminal WebSockets (30 connections per 60s window), sharing budget across both surfaces so a runaway editor reconnect cannot starve terminal use. Plain HTTP requests to the editor share the per-user HTTP rate-limit defaults.
 
-Implements [REQ-VAULT-005](../sdd/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor).
+Implements [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor).
 
 ### Session Limits
 
@@ -350,4 +350,4 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 - [PENTEST.md](PENTEST.md) - Penetration testing results
 - [STRESS_TEST.md](STRESS_TEST.md) - Load testing and rate limit validation
 - [Troubleshooting](troubleshooting.md#common-failure-modes) - Common failure modes
-- [Decisions](decisions/README.md#ad7-pre-setup-public-endpoints) - Security-related architecture decisions
+- [Decisions](../decisions/README.md#ad7-pre-setup-public-endpoints) - Security-related architecture decisions

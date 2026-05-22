@@ -54,8 +54,8 @@ separate Recreate click is required; the UI shows a confirmation
 when the toggle completes. On Stripe-driven or Settings-driven
 reconciliation, preseed files are overwritten to match the new mode;
 user-created files are never deleted. Implements
-[REQ-AGENT-004](../sdd/agents.md#req-agent-004) AC4 - AC5 and
-[REQ-AGENT-005](../sdd/agents.md#req-agent-005).
+[REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004) AC4 - AC5 and
+[REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005).
 
 **Cleanup on Recreate**: `reconcileAgentConfigs()` seeds
 mode-appropriate files then deletes preseed-managed files not in
@@ -281,7 +281,7 @@ correctly by excluding keys that have a variant in the target mode.
 
 ## Settings.json Merge
 
-Implements [REQ-AGENT-008](../sdd/agents.md#req-agent-008) AC3 - AC5.
+Implements [REQ-AGENT-008](../../sdd/spec/agents.md#req-agent-008) AC3 - AC5.
 
 `entrypoint.sh` merges settings into `~/.claude/settings.json`
 using a two-phase strategy. Non-hooks settings (statusLine,
@@ -320,7 +320,7 @@ Handles three cases:
 
 ## Plugin Enablement
 
-(Implements [REQ-MEM-006](../sdd/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-007](../sdd/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session).)
+(Implements [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session).)
 
 `entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json`
 to enable both the `codeflare-memory` and `codeflare-hooks` plugins.
@@ -350,7 +350,7 @@ is done via `settings.json` (see above).
   (`git`, `mkdir`, `rm`, `mv`, `cd`, `ls`, `npm install`, `pip
   install`) - all `gh` calls in Bash are denied and agents route them
   through MCP shell tools instead. Implements
-  [REQ-AGENT-021](../sdd/agents.md#req-agent-021) AC4, AC7, AC8. Hooks
+  [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021) AC4, AC7, AC8. Hooks
   registered in settings.json, scripts delivered via plugin.
 
 ## Third-party plugin: context-mode
@@ -377,7 +377,7 @@ and redirected to the equivalent `ctx_*` tools. Per-call bypass via
 
 context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/context-mode/blob/main/LICENSE).
 The integration is sized to stay within ELv2's permitted-use envelope.
-See [AD49](decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) for the full design + license analysis.
+See [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) for the full design + license analysis.
 
 ### Graphify hard-block PreToolUse hook (REQ-AGENT-024)
 
@@ -414,7 +414,7 @@ No additional user prompts during the enrichment cycle. When the graphify graph 
 
 **Phase 7a - source-anchor truth-check (CRITICAL gate).** Before scaffold commit, `/sdd init` runs `verify-source-anchors.py` (`skills/sdd-init/references/verify-source-anchors.py`) against every `<!-- @impl: <path>::<symbol>[ = <value>] -->` anchor in the drafted `sdd/**/*.md` and `documentation/**/*.md`. The verifier resolves each anchor's path on disk, confirms word-bounded symbol presence in source, validates literal value patterns within the symbol's local region, counts malformed `@impl`-shaped comments, and counts unreadable files. It emits a JSON report to `.verify-anchors.json` with shape `{parsed, resolved, orphaned, drifted, malformed, unreadable, failures, malformed_entries, unreadable_entries, exit_code}` — the three detail arrays carry per-anchor failure context that CQ-SOURCE and Pass 15 consume. The `[sdd-init]` commit body MUST include the summary line verbatim: `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`. A non-zero exit blocks the commit until every failure is fixed in source or escalated to `sdd/spec/.review-queue.md`. Substituting an agent self-attestation, a sampled audit, or a structural sanity check for the verifier output is CRITICAL — five named failure modes: `phase-7a-self-attestation`, `phase-7a-incomplete-coverage`, `phase-7a-pipeline-inversion`, `phase-7a-tooling-bypass`, `phase-7a-evidence-missing`. All caught by the next PR-boundary review. Steady-state CQ-SOURCE and Pass 15 consume the same JSON when present rather than re-deriving.
 
-**Phase 7b - enumeration-coverage verification (CRITICAL gate).** After Phase 7a and before iterate-to-clean, `/sdd init` runs `verify-enumeration-coverage.py` (`skills/sdd-init/references/verify-enumeration-coverage.py`) as the symmetric counterpart. Where Phase 7a verifies every claim the agent wrote is anchored, Phase 7b verifies the agent did not silently drop entire source files from the enumeration. The verifier walks the working tree (with `os.walk` in-place pruning to skip `node_modules`, `dist`, `.git`, `sdd/`, `documentation/`, etc.), identifies load-bearing source files via project-shape-agnostic heuristic (lives under `services/`, `handlers/`, `controllers/`, `providers/`, `models/`, `domain/`, `core/`, `commands/`, `usecases/`, `workers/` OR has >= 100 source lines), and checks each file's repo-relative path against (a) the `<path>` portion of every `@impl` anchor in the drafted spec + docs, AND (b) literal mentions in the layout-appropriate triage queue (nested: `sdd/spec/.init-triage.md` + `sdd/spec/.review-queue.md`; flat-layout legacy: `sdd/.init-triage.md` + `sdd/.review-needed.md`). Output JSON to `.phase-7b.json` with shape `{enumerated, accounted, unaccounted, coverage_pct, accounted_via, unaccounted_entries, exit_code}`. The `[sdd-init]` step-10 commit body MUST include the summary line verbatim alongside Phase 7a's: `Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1`. The two gates close the Validation-Equals-Generation gap: an Import-Mode agent using anchorability as the generation predicate ends up with a clean Phase 7a + an empty triage queue + a spec that elides every ambiguity. Phase 7b detects this. Failure modes (all CRITICAL): `phase-7b-self-attestation`, `phase-7b-incomplete-coverage`, `phase-7b-pipeline-inversion`, `phase-7b-evidence-missing`, `import-mode-narrowed-scope` (`unaccounted > 0` with an empty triage queue), `import-mode-empty-triage-implausible` (Phase 4 enumeration-review companion), `phase-4-enumeration-skipped`. Per-project waiver: `sdd/spec/.phase-7b-waiver.txt` (one repo-relative path per line, `#` comments allowed) excludes specific framework-boilerplate files from the coverage check; entries require a one-line justification. Phase 7b is advisory for greenfield (`enumerated=0` and `coverage_pct=100.0` are the expected outcome with no source on disk yet; the commit body line is still required so the audit-trail format stays uniform across modes). Implements [REQ-AGENT-021](../sdd/agents.md#req-agent-021) AC26.
+**Phase 7b - enumeration-coverage verification (CRITICAL gate).** After Phase 7a and before iterate-to-clean, `/sdd init` runs `verify-enumeration-coverage.py` (`skills/sdd-init/references/verify-enumeration-coverage.py`) as the symmetric counterpart. Where Phase 7a verifies every claim the agent wrote is anchored, Phase 7b verifies the agent did not silently drop entire source files from the enumeration. The verifier walks the working tree (with `os.walk` in-place pruning to skip `node_modules`, `dist`, `.git`, `sdd/`, `documentation/`, etc.), identifies load-bearing source files via project-shape-agnostic heuristic (lives under `services/`, `handlers/`, `controllers/`, `providers/`, `models/`, `domain/`, `core/`, `commands/`, `usecases/`, `workers/` OR has >= 100 source lines), and checks each file's repo-relative path against (a) the `<path>` portion of every `@impl` anchor in the drafted spec + docs, AND (b) literal mentions in the layout-appropriate triage queue (nested: `sdd/spec/.init-triage.md` + `sdd/spec/.review-queue.md`; flat-layout legacy: `sdd/.init-triage.md` + `sdd/.review-needed.md`). Output JSON to `.phase-7b.json` with shape `{enumerated, accounted, unaccounted, coverage_pct, accounted_via, unaccounted_entries, exit_code}`. The `[sdd-init]` step-10 commit body MUST include the summary line verbatim alongside Phase 7a's: `Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1`. The two gates close the Validation-Equals-Generation gap: an Import-Mode agent using anchorability as the generation predicate ends up with a clean Phase 7a + an empty triage queue + a spec that elides every ambiguity. Phase 7b detects this. Failure modes (all CRITICAL): `phase-7b-self-attestation`, `phase-7b-incomplete-coverage`, `phase-7b-pipeline-inversion`, `phase-7b-evidence-missing`, `import-mode-narrowed-scope` (`unaccounted > 0` with an empty triage queue), `import-mode-empty-triage-implausible` (Phase 4 enumeration-review companion), `phase-4-enumeration-skipped`. Per-project waiver: `sdd/spec/.phase-7b-waiver.txt` (one repo-relative path per line, `#` comments allowed) excludes specific framework-boilerplate files from the coverage check; entries require a one-line justification. Phase 7b is advisory for greenfield (`enumerated=0` and `coverage_pct=100.0` are the expected outcome with no source on disk yet; the commit body line is still required so the audit-trail format stays uniform across modes). Implements [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021) AC26.
 
 **Tool surface compatibility.** Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works under both Bash and the context-mode MCP tool family (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_search`). Discovery commands that produce more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) route through `ctx_execute` / `ctx_batch_execute` in context-mode environments and through Bash in plain environments.
 
@@ -433,7 +433,7 @@ While `sdd/.init-triage.md` contains any open items, `sdd/config.yml` carries `t
 
 `enforce_tdd` is NOT touched by the closure commit. The user changes it manually when ready for TDD enforcement (typically after adding REQ-ID references to test names in the imported source).
 
-Full SDD discipline applies on the next push; autonomous agentic development is unlocked. `sdd/.init-triage.md` is preserved as the audit record. Implements [REQ-AGENT-021](../sdd/agents.md#req-agent-021) AC17-AC21 and [REQ-AGENT-022](../sdd/agents.md#req-agent-022).
+Full SDD discipline applies on the next push; autonomous agentic development is unlocked. `sdd/.init-triage.md` is preserved as the audit record. Implements [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021) AC17-AC21 and [REQ-AGENT-022](../../sdd/spec/agents.md#req-agent-022).
 
 **GitHub corpus degradation.** When Import Mode cannot reach GitHub (non-GitHub remote, `gh auth status` failure, rate-limited, air-gapped), discovery falls back to working-tree + git-log evidence only. A one-line notice naming the reason is appended to the `sdd/changes.md` import entry; triage Context fields reference whatever artifact refs are reachable.
 
@@ -451,4 +451,4 @@ See [Preseed Troubleshooting](preseed-troubleshooting.md) for hook debugging, at
 - [Container](container.md#claude-code-integration) - Claude Code
   configuration
 - [Storage & Sync](storage-and-sync.md) - R2 sync internals
-- [Decisions](decisions/README.md) - Architecture decisions
+- [Decisions](../decisions/README.md) - Architecture decisions

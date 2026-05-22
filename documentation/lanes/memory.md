@@ -41,9 +41,9 @@ layout, capture paths, and the unified graph contract.
 
 Conversation context (decisions, debugging insights, observations) is
 automatically captured into the vault every 15 user messages. Implements
-[REQ-MEM-001](../sdd/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault),
-[REQ-MEM-002](../sdd/memory.md#req-mem-002-capture-triggers-every-15-user-messages),
-[REQ-MEM-008](../sdd/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline).
+[REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault),
+[REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages),
+[REQ-MEM-008](../../sdd/spec/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline).
 
 The capture agent writes a markdown file to
 `Raw/Sessions/{ISO_TS}-{SID_SHORT}.md` (YAML frontmatter + Context /
@@ -84,7 +84,7 @@ gate), runs `prefilter-transcript.sh` (jq filter that strips tool I/O,
 slash-command wrappers, and meta records -- 76x size reduction on a
 typical transcript), splits the clean NDJSON into chunks, processes each
 chunk into a scratchpad, then synthesises the final vault note and merges
-into the global graph. See [AD58](decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)
+into the global graph. See [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)
 for the rationale (recency bias + haiku confabulation that motivated the
 switch from haiku to sonnet).
 
@@ -123,4 +123,4 @@ or session-mode gating issues, see [preseed.md](preseed.md#troubleshooting).
 - [Preseed System](preseed.md) -- session modes, manifest pipeline, hook registration
 - [Storage & Sync](storage-and-sync.md) -- R2 bisync mechanics
 - [Architecture](architecture.md#system-components) -- System overview
-- [Decisions](decisions/README.md) -- Architecture decisions
+- [Decisions](../decisions/README.md) -- Architecture decisions

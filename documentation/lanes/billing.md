@@ -51,7 +51,7 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 **Architecture - Signal and Sync pattern:** Webhooks are signals that trigger a fetch of the latest state from Stripe. KV is a read cache, not the source of truth.
 
 - Library: `src/lib/stripe.ts` - checkout session creation, webhook signature verification, `fetchSubscription()` (Signal and Sync), Stripe API communication
-- Currency detection: `src/lib/currency.ts` - `getCurrencyForCountry(country)` maps ISO country code to CHF/USD/EUR/GBP. Implements [REQ-SUB-020](../sdd/subscription.md#req-sub-020).
+- Currency detection: `src/lib/currency.ts` - `getCurrencyForCountry(country)` maps ISO country code to CHF/USD/EUR/GBP. Implements [REQ-SUB-020](../../sdd/spec/subscription.md#req-sub-020).
 - Billing routes: `src/routes/billing.ts` - `POST /api/billing/checkout`, `GET /api/billing/status`, `POST /api/billing/switch`
 - Webhook: `src/routes/stripe-webhook.ts` - `POST /public/stripe/webhook` (unauthenticated, HMAC-verified)
 
@@ -73,7 +73,7 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 2. Calls `fetchSubscription()` - fetches latest subscription state from Stripe
 3. Timestamp guard: skips write if KV's `lastSyncedAt` > now (prevents stale webhook overwriting newer state)
 4. Writes via `updateUserRecord()` (preserves existing KV fields)
-5. **Auto-reconcile on mode change:** `reconcileAgentConfigs()` runs on upgrade/downgrade and subscription termination. Seeds the correct preseed set. Implements [REQ-SUB-015](../sdd/subscription.md#req-sub-015) AC6-AC7.
+5. **Auto-reconcile on mode change:** `reconcileAgentConfigs()` runs on upgrade/downgrade and subscription termination. Seeds the correct preseed set. Implements [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015) AC6-AC7.
 
 **Security:**
 - Webhook at `/public/stripe/webhook` bypasses CF Access (same as `/public/auth/providers`)
@@ -146,7 +146,7 @@ Session start (`POST /api/container/start`) checks tier-based usage quota in `va
 
 Frontend detects `code === 'QUOTA_EXCEEDED'` and shows upgrade CTA.
 
-**Usage display:** The `GET /api/sessions/batch-status` response includes an optional `usage` field (SaaS mode only) with `{ dailySeconds, monthlySeconds, monthlyQuotaSeconds, tier }`. Warning banners appear at 80%, 95%, 100% of monthly quota. The 80%/95% banners are dismissible per UTC month (localStorage). The 100% banner is not dismissible and blocks session creation. Implements [REQ-SUB-018](../sdd/subscription.md#req-sub-018).
+**Usage display:** The `GET /api/sessions/batch-status` response includes an optional `usage` field (SaaS mode only) with `{ dailySeconds, monthlySeconds, monthlyQuotaSeconds, tier }`. Warning banners appear at 80%, 95%, 100% of monthly quota. The 80%/95% banners are dismissible per UTC month (localStorage). The 100% banner is not dismissible and blocks session creation. Implements [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018).
 
 ---
 
