@@ -161,6 +161,7 @@ describe('multi-agent documents', () => {
     }
   });
 
+  // REQ-MEM-008 AC2 (manifest declares the four files) + AC3 (all advanced-only)
   it('codeflare-memory plugin files are advanced-only', () => {
     const pluginDocs = claudeDocs().filter((d) => d.key.includes('codeflare-memory'));
     const fileNames = pluginDocs.map((d) => d.key.split('/').pop()).sort();
@@ -175,6 +176,7 @@ describe('multi-agent documents', () => {
     }
   });
 
+  // REQ-MEM-008 AC7 (memory plugin files excluded from non-CC agents; no Codex/Gemini/Copilot/OpenCode equivalents)
   it('codeflare-memory plugin is excluded from non-Claude agents', () => {
     const nonClaude = AGENTS_SEEDED_CONFIGS.filter((d) => !d.key.startsWith('.claude/'));
     for (const doc of nonClaude) {
@@ -182,6 +184,7 @@ describe('multi-agent documents', () => {
     }
   });
 
+  // REQ-MEM-008 AC4 (hook script delivered via plugin, NOT via hooks/ - registered via settings.json merge)
   it('no standalone memory hook files remain in hooks/ directory', () => {
     const memoryHooks = claudeDocs().filter(
       (d) => d.key.startsWith('.claude/hooks/memory')
