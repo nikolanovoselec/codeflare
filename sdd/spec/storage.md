@@ -30,6 +30,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-001: Dedicated Per-User R2 Bucket
 
+<!-- @impl: src/lib/r2-admin.ts::createBucketIfNotExists -->
+<!-- @impl: src/lib/r2-config.ts -->
+
 **Intent:** Each authenticated user must have an isolated R2 bucket so that one user's files are never accessible to another user.
 
 **Applies To:** User
@@ -57,6 +60,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-002: File Persistence Across Sessions
 
+<!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
+<!-- @impl: entrypoint.sh::bisync_with_r2 -->
+
 **Intent:** User files must survive container destruction and be available when a new session starts, because containers are ephemeral.
 
 **Applies To:** User
@@ -83,6 +89,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ---
 
 ### REQ-STOR-003: Bidirectional Sync Every 15 Minutes (with Manual Triggers)
+
+<!-- @impl: entrypoint.sh::start_sync_daemon -->
+<!-- @impl: entrypoint.sh::bisync_with_r2 -->
+<!-- @impl: entrypoint.sh::recover_vanished_files -->
 
 **Intent:** Changes made locally (by the agent or user) and changes in R2 (from the file browser or another session's sync) must converge within a bounded interval, balanced against R2 operation cost. The 15-minute cadence is supplemented by explicit user-driven triggers (REQ-STOR-015) so the user is never blocked waiting for a cycle when they want fresh state.
 
@@ -116,6 +126,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-004: Initial Sync Restores Files on Container Start
 
+<!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
+<!-- @impl: entrypoint.sh::establish_bisync_baseline -->
+<!-- @impl: entrypoint.sh::init_recovery_filters -->
+
 **Intent:** When a container boots, it must restore the user's persisted files from R2 before the agent or terminal becomes usable.
 
 **Applies To:** User
@@ -146,6 +160,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-005: Graceful Shutdown Performs Final Sync
 
+<!-- @impl: entrypoint.sh::shutdown_handler -->
+<!-- @impl: src/container/index.ts::destroy -->
+
 **Intent:** When a container is stopped or evicted, unsaved local changes must be pushed to R2 before the process exits.
 
 **Applies To:** User
@@ -174,6 +191,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ---
 
 ### REQ-STOR-006: Storage Quota Enforced Per Tier at Session Start
+
+<!-- @impl: src/routes/storage/stats.ts -->
+<!-- @impl: src/lib/subscription.ts::getTierConfig -->
 
 **Intent:** Users must not be able to start new sessions when their storage usage exceeds their tier's quota, preventing unbounded R2 consumption.
 
@@ -204,6 +224,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ---
 
 ### REQ-STOR-007: Web File Browser
+
+<!-- @impl: src/routes/storage/browse.ts -->
+<!-- @impl: src/routes/storage/upload.ts -->
+<!-- @impl: src/routes/storage/download.ts -->
+<!-- @impl: src/routes/storage/delete.ts -->
+<!-- @impl: src/routes/storage/preview.ts -->
+<!-- @impl: src/routes/storage/validation.ts::validateKey -->
 
 **Intent:** Users must be able to browse, upload, download, delete, and preview files in their R2 storage without using the terminal.
 
@@ -238,6 +265,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-008: Multipart Upload for Large Files
 
+<!-- @impl: src/routes/storage/upload.ts -->
+
 **Intent:** Files larger than the single-request upload limit must be uploadable via chunked multipart upload.
 
 **Applies To:** User
@@ -267,6 +296,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-009: Getting-Started Docs Auto-Seeded on First Session
 
+<!-- @impl: src/routes/storage/seed.ts -->
+<!-- @impl: src/lib/r2-seed.ts -->
+
 **Intent:** New users must find starter documentation in their storage on first use so they have immediate orientation material.
 
 **Applies To:** User
@@ -294,6 +326,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ---
 
 ### REQ-STOR-010: Agent Configs Auto-Seeded Based on Session Mode
+
+<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+<!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs -->
+<!-- @impl: src/lib/agent-seed.generated.ts -->
 
 **Intent:** Each user's R2 bucket must contain the correct agent configuration files for their session mode (Standard or Pro) so that agents start with the right rules, skills, and tools.
 
@@ -326,6 +362,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-011: Sync Mode Controls Workspace Scope
 
+<!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
+<!-- @impl: entrypoint.sh::create_rclone_config -->
+
 **Intent:** Users must be able to choose how much of their workspace is synced to R2, balancing persistence against sync overhead.
 
 **Applies To:** User
@@ -353,6 +392,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ---
 
 ### REQ-STOR-012: Session Transcript Cleanup
+
+<!-- @impl: entrypoint.sh::cleanup_old_transcripts -->
 
 **Intent:** Old session transcripts must be pruned to prevent unbounded R2 growth from long-lived users.
 
@@ -382,6 +423,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-014: R2 Storage Stats Caching
 
+<!-- @impl: src/routes/storage/stats.ts -->
+
 **Intent:** Storage statistics must be available quickly without paginating all R2 objects on every request.
 
 **Applies To:** User
@@ -409,6 +452,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ---
 
 ### REQ-STOR-015: Explicit Sync Trigger from UI
+
+<!-- @impl: src/routes/sessions.ts -->
+<!-- @impl: src/lib/sync-fanout.ts -->
+<!-- @impl: entrypoint.sh::start_sync_daemon -->
 
 **Intent:** Because the periodic bisync cadence is 15 minutes (REQ-STOR-003), users must have explicit ways to force convergence between the container filesystem and R2 without waiting for the next cycle.
 
