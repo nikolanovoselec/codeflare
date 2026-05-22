@@ -201,31 +201,34 @@ describe('SilverBullet binary install (REQ-VAULT-005, REQ-VAULT-007)', () => {
 });
 
 describe('shutdown bisync reliability (REQ-VAULT-006)', () => {
-  // REQ-VAULT-006 AC1 (120s watchdog; note the audit regex says 60s but spec mandates 120s — see spec drift in CQ-TEST)
-  it('wraps final bisync with a 60s budget + watchdog kill', () => {
+  // REQ-VAULT-006 AC1 (120s watchdog: 108s sleep + SIGTERM, then 12s sleep + SIGKILL)
+  it('wraps final bisync with a 120s budget + watchdog kill (108s SIGTERM + 12s SIGKILL)', () => {
     // We use a background subshell + watchdog rather than timeout(1)
-    // because bisync_with_r2 is a shell function (not a binary).
+    // because bisync_with_r2 is a shell function (not a binary). 108s
+    // SIGTERM gives rclone room to flush; 12s more SIGKILL is the hard
+    // kill. Total 120s matches the budget the DO destroy() leaves us
+    // (135s minus 15s clean-exit buffer). See AD57.
     assert.ok(
-      /sleep 60.*kill.*BISYNC_PID/s.test(entrypoint),
-      'shutdown_handler must hard-kill bisync at 60s if it runs over budget'
+      /sleep 108[\s\S]*kill_subtree TERM "\$BISYNC_PID"[\s\S]*sleep 12[\s\S]*kill_subtree KILL "\$BISYNC_PID"/.test(entrypoint),
+      'shutdown_handler must SIGTERM at 108s then SIGKILL at 120s'
     );
     assert.ok(
-      entrypoint.includes('TIMED OUT after 60s'),
-      'shutdown_handler must log a recognisable timeout message for telemetry'
+      entrypoint.includes('TIMED OUT after 120s'),
+      'shutdown_handler must log a recognisable 120s timeout message for telemetry'
     );
   });
 
-  // REQ-VAULT-006 AC2
+  // REQ-VAULT-006 AC2 (also terminates vault-monitor and silverbullet supervisor pidfiles)
   it('also terminates vault-monitor + silverbullet supervisor pids', () => {
     assert.ok(entrypoint.includes('/tmp/vault-monitor.pid'), 'shutdown_handler must kill the vault-monitor daemon');
     assert.ok(entrypoint.includes('/tmp/silverbullet.pid'), 'shutdown_handler must kill the silverbullet supervisor');
   });
 
-  // REQ-VAULT-006 AC3
+  // REQ-VAULT-006 AC3 (logs shutdown elapsed time so operators can tune the 120s budget)
   it('logs elapsed shutdown time for telemetry', () => {
     assert.ok(
       entrypoint.includes('elapsed:'),
-      'shutdown_handler must emit an elapsed-time line so we can tune the 60s/75s budget over time'
+      'shutdown_handler must emit an elapsed-time line so we can tune the 120s budget over time'
     );
   });
 });
