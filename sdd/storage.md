@@ -362,6 +362,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-STOR-003, REQ-STOR-007, REQ-STOR-011
-**Verification:** Automated test (`src/__tests__/lib/sync-fanout.test.ts` for AC1-AC4 fan-out + concurrency + isolation + rate-limit). AC5 (SIGUSR1 coalesce/rerun) and AC6 (Sync-now button disabled-while-syncing) are pending — see `sdd/pending.md`.
+**Verification:** Automated test (`src/__tests__/lib/sync-fanout.test.ts` for AC1-AC4 fan-out + concurrency + isolation + rate-limit; `host/__tests__/entrypoint-bisync-behavior.test.js` for AC5 — both the SIGUSR1 sleep-interrupt branch and the in-flight N-signals-coalesce-to-one-rerun branch; `web-ui/src/__tests__/components/StorageBrowser.test.tsx` for AC6 Sync-now button disabled-while-syncing).
 
-**Status:** Partial
+**Status:** Implemented
