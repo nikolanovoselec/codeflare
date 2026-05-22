@@ -349,9 +349,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Verification:** Integration test
 
-**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-SESSION-010` annotation to the relevant test.
-
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

@@ -55,9 +55,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated test (deploy.yml pipeline success on push to main)
 
-**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-OPS-001` annotation to the relevant test.
-
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -94,9 +92,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated test (deploy.yml Trivy scan + container push steps)
 
-**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-OPS-002` annotation to the relevant test.
-
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -130,9 +126,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated test (test.yml runs on every PR to main)
 
-**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-OPS-003` annotation to the relevant test.
-
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -166,9 +160,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Integration test (e2e.yml workflow dispatch against deployed worker)
 
-**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-OPS-004` annotation to the relevant test.
-
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -205,9 +197,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated test (pentest.yml and fuzz.yml scheduled runs)
 
-**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-OPS-005` annotation to the relevant test.
-
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -283,9 +273,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated test (deploy.yml verifies wrangler.toml patching)
 
-**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-OPS-007` annotation to the relevant test.
-
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -318,9 +306,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Integration test (stress-test.yml manual dispatch against integration)
 
-**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-OPS-008` annotation to the relevant test.
-
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -353,9 +339,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated test (scorecard.yml and dependency-review in test.yml)
 
-**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-OPS-009` annotation to the relevant test.
-
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -415,9 +399,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Integration test
 
-**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-OPS-011` annotation to the relevant test.
-
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -445,6 +427,4 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Integration test
 
-**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-OPS-012` annotation to the relevant test.
-
-**Status:** Partial
+**Status:** Implemented
