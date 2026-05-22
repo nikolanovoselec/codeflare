@@ -24,6 +24,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-001: Terminal fully usable on mobile devices
 
+<!-- @impl: web-ui/src/lib/mobile.ts -->
+<!-- @impl: web-ui/src/hooks/useTerminal.ts -->
+
 **Intent:** The terminal must be fully functional on phones and tablets, providing a usable coding experience without requiring a desktop browser.
 
 **Applies To:** User
@@ -53,6 +56,10 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 ---
 
 ### REQ-MOB-002: Virtual keyboard opens reliably on tap
+
+<!-- @impl: web-ui/src/lib/mobile.ts::enableVirtualKeyboardOverlay -->
+<!-- @impl: web-ui/src/lib/mobile.ts::disableVirtualKeyboardOverlay -->
+<!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight -->
 
 **Intent:** Tapping the terminal must reliably open the device's virtual keyboard, and the terminal must resize correctly to accommodate it.
 
@@ -84,6 +91,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 ---
 
 ### REQ-MOB-003: Samsung Internet keyboard quirks handled
+
+<!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState -->
+<!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight -->
 
 **Intent:** Samsung Internet's non-standard VirtualKeyboard API behavior must be compensated for so the terminal functions correctly on Samsung devices.
 
@@ -117,6 +127,10 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 ---
 
 ### REQ-MOB-004: Scroll position stable during output and keyboard transitions
+
+<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/stores/terminal.ts::beginProgrammaticScroll -->
+<!-- @impl: web-ui/src/hooks/useTerminal.ts::isAtBottom -->
 
 **Intent:** The terminal viewport must not jump or flicker during burst output, keyboard open/close transitions, or browser background/foreground cycling.
 
@@ -152,6 +166,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-005: Swipe gestures send arrow keys or scroll
 
+<!-- @impl: web-ui/src/lib/touch-gestures.ts -->
+
 **Intent:** Horizontal swipe gestures simulate arrow key presses for command-line navigation, while vertical swipes scroll the terminal buffer when the keyboard is closed.
 
 **Applies To:** User
@@ -183,6 +199,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-006: Sticky Ctrl button for mobile
 
+<!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx -->
+<!-- @impl: web-ui/src/lib/terminal-mobile-input.ts -->
+
 **Intent:** Mobile users can send Ctrl-modified key sequences (Ctrl+C, Ctrl+D, etc.) without a physical keyboard by using a persistent on-screen Ctrl button.
 
 **Applies To:** User
@@ -211,6 +230,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 ---
 
 ### REQ-MOB-007: Voice input via Web Speech API
+
+<!-- @impl: web-ui/src/lib/speech-input.ts -->
 
 **Intent:** Users can dictate text into the terminal using the device microphone, providing an alternative input method on mobile (and desktop).
 
@@ -245,6 +266,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-008: Cursor visible for all supported agents
 
+<!-- @impl: web-ui/src/hooks/useTerminal.ts::applyCursorVisibility -->
+<!-- @impl: web-ui/src/lib/terminal-config.ts -->
+
 **Intent:** The terminal cursor must be visible and correctly rendered for all supported CLI agents (Claude Code, Copilot, etc.) without duplication or visual artifacts.
 
 **Applies To:** User
@@ -273,6 +297,10 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 ---
 
 ### REQ-MOB-009: Visibility return recovers keyboard state
+
+<!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::restoreFocusIfNeeded -->
+<!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState -->
+<!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn -->
 
 **Intent:** When the browser is backgrounded and returned to, keyboard state signals must be reset so the terminal functions correctly without manual intervention.
 
@@ -303,6 +331,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 ---
 
 ### REQ-MOB-010: FitAddon fit calls are coordinated
+
+<!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminals -->
+<!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported -->
 
 **Intent:** Multiple code paths that trigger `fitAddon.fit()` must not conflict with each other or cause visual artifacts.
 
