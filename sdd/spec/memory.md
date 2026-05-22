@@ -29,6 +29,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-001: Conversation context automatically captured to vault
 
+<!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh -->
+
 **Intent:** Important conversation context (decisions, debugging insights, observations) must be extracted from the transcript and persisted to the vault without manual intervention.
 
 **Applies To:** User
@@ -62,6 +66,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-002: Capture triggers every 15 user messages
 
+<!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
+
 **Intent:** Memory capture must fire at a regular interval to balance context freshness against overhead.
 
 **Applies To:** User
@@ -91,6 +97,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ---
 
 ### REQ-MEM-004: Vault contents synced to R2 across sessions
+
+<!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
+<!-- @impl: entrypoint.sh::init_user_vault -->
+<!-- @impl: entrypoint.sh::bisync_with_r2 -->
 
 **Intent:** Vault content (agent captures + user notes) must persist across container lifecycles by syncing to the user's R2 bucket.
 
@@ -122,6 +132,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ---
 
 ### REQ-MEM-006: Memory available only in Pro (Advanced) mode
+
+<!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
+<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+<!-- @impl: preseed/agents/claude/manifest.json -->
 
 **Intent:** Vault persistence and automatic capture are gated behind the advanced session mode to control feature exposure and resource usage.
 
@@ -156,6 +170,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-008: Memory prompt files preseeded via manifest pipeline
 
+<!-- @impl: preseed/agents/claude/manifest.json -->
+<!-- @impl: scripts/generate-agent-seed.mjs -->
+
 **Intent:** Memory capture prompt files must be deployed alongside the rest of the preseed content through the standard manifest pipeline.
 
 **Applies To:** User
@@ -186,6 +203,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ---
 
 ### REQ-MEM-009: Vault graph accumulates monotonically across extractions
+
+<!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md -->
 
 **Intent:** Each vault-monitor extraction must add new nodes to the `user_vault` subgraph in the unified global graph without destroying nodes from prior extractions. Previously the agent called `graphify global add ... --as user_vault` after building a chunk graph from only the newly-changed files; `--as <tag>` replaces the entire repo-tag contribution, so every vault edit wiped all prior vault knowledge from the global graph (observed: 17 nodes -> 2 nodes after the agent ran on 2 newly-created stub `.md` files).
 
