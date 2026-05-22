@@ -454,7 +454,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
-  describe('injectVaultIdbRecorder (REQ-VAULT-008 AC8/AC9)', () => {
+  describe('injectVaultIdbRecorder (REQ-VAULT-008 AC6 boot recording)', () => {
     it('injects a recorder <script> before </head>', () => {
       const html = '<html><head></head><body></body></html>';
       const out = injectVaultIdbRecorder(html);
@@ -556,11 +556,18 @@ describe('validateVaultRoute', () => {
       expect(catchClause![0]).not.toContain('document.cookie');
       expect(catchClause![0]).not.toContain('location.replace');
       // Cookie/redirect order: cookie set BEFORE location.replace, both
-      // after the try/catch block (i.e. only on the success path).
+      // after the catch BLOCK ends (not just after the catch start).
+      // Walk past the `} catch (e) {` opener (note: indexOf returns the
+      // leading `}` of that fragment; we need to advance past the WHOLE
+      // catch fragment and then find the next `}` that closes its body).
+      const catchOpenStr = '} catch (e) {';
+      const catchOpenIdx = out.indexOf(catchOpenStr);
+      expect(catchOpenIdx).toBeGreaterThanOrEqual(0);
+      const catchBodyEndIdx = out.indexOf('}', catchOpenIdx + catchOpenStr.length);
+      expect(catchBodyEndIdx).toBeGreaterThan(catchOpenIdx);
       const cookieIdx = out.indexOf('document.cookie');
       const replaceIdx = out.indexOf('location.replace');
-      const catchEndIdx = out.indexOf('}', out.indexOf('} catch (e) {'));
-      expect(cookieIdx).toBeGreaterThan(catchEndIdx);
+      expect(cookieIdx).toBeGreaterThan(catchBodyEndIdx);
       expect(replaceIdx).toBeGreaterThan(cookieIdx);
     });
 
