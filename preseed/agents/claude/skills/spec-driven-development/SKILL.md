@@ -80,51 +80,20 @@ The enforcement check (one walk, one rule) lives in `doc-enforce-lanes` § Layou
 
 ## REQ format
 
-Every Active REQ in `sdd/{domain}.md` MUST render in this exact shape. Deviations are MEDIUM, auto-fixed by re-rendering (mechanics in `spec-enforce` § REQ rendering template).
+**Canonical shape: see `references/templates/req-shape-example.md`.** That file is the single source of truth — a fully-rendered two-REQ example with every field, blank lines, numbered ACs, source-anchor comments, and the empty-field (`None.`) rendering. Every Active REQ in `sdd/{domain}.md` (or `sdd/spec/{domain}.md` on the nested layout) MUST copy that shape verbatim. Deviations are MEDIUM, auto-fixed by re-rendering (mechanics in `spec-enforce` § REQ rendering template).
 
-```markdown
-### REQ-{DOMAIN}-{NNN}: {Title}
+**Hard rules (scannable mid-write — the full exemplar is in the template):**
 
-**Intent:** {one paragraph, 1-4 sentences. No bullets, no headings, no code blocks.}
-
-**Applies To:** {single actor name — User, Admin, etc. Never "System".}
-
-**Acceptance Criteria:**
-
-1. {first AC, single behavioural statement, <=150 words} <!-- @impl: <path>::<symbol> -->
-2. {AC asserting a concrete value} <!-- @impl: <path>::<symbol> = <value-pattern> -->
-3. {...up to 7 maximum}
-
-**Constraints:** [CON-X-NNN](constraints.md#con-x-nnn-title-slug), [CON-Y-NNN](constraints.md#con-y-nnn-title-slug)
-
-**Priority:** P0 | P1 | P2 | P3
-
-**Dependencies:** [REQ-X-NNN](#req-x-nnn-title-slug), [REQ-Y-NNN](other-domain.md#req-y-nnn-title-slug)
-
-**Verification:** Automated test | Integration test | Manual check
-
-**Status:** Proposed | Planned | Partial | Implemented
-
----
-```
-
-The `<!-- @impl: ... -->` HTML comment is rendered invisibly by Markdown and carries the source-anchor used by the Truth-guarantee validators. Full convention at § "Source-anchor convention" above.
-
-**Required fields, always present:**
-- **Intent**, **Applies To**, **Acceptance Criteria**, **Priority**, **Verification**, **Status** — always populated.
-- **Constraints**, **Dependencies** — always present. Render `None.` (literal) when empty. A REQ missing these fields entirely is MEDIUM `req-missing-required-field`.
-
-**ACs are numbered** (`1.`, `2.`, `3.`), never bulleted. Bulleted ACs are MEDIUM `ac-bullets-not-numbered`, auto-fixed.
-
-**Each labeled field is on its own line**, separated by a single blank line. Stacking Priority/Dependencies/Verification/Status on consecutive lines without blank-line separation collapses them into one rendered paragraph on GitHub — MEDIUM `trailing-fields-collapsed`.
-
-**Cross-references render as markdown anchor links**, not plain text. Plain-text REQ-* or CON-* IDs inside `**Constraints:**` or `**Dependencies:**` are MEDIUM `cross-reference-not-linked`, auto-fixed.
-
-**Notes** is OPTIONAL — only two shapes (see `spec-enforce` § Rule B): Partial-explanation (`Status: Partial` only, ≤3 sentences) or Doc-pointer (any status, ≤2 sentences, MUST contain a markdown link to `documentation/**` or `sdd/**`). Sibling-REQ cross-references go in `Dependencies:`.
-
-**Deprecated REQs are deleted, not tombstoned.** No `Replaced By:` field, no `Removed In:` field. Out-of-scope ideas go to `## Out of Scope` in the domain README.
-
-**Inline source-anchors on AC bullets (binding from /sdd init forward).** Every AC bullet describing observable behaviour SHOULD carry a trailing `<!-- @impl: <path>::<symbol> -->` HTML comment naming the implementing symbol. AC bullets describing a specific concrete value (number, threshold, retry count, storage target) SHOULD carry `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. Validators (CQ-SOURCE in `spec-enforce-truth`) read these comments and verify the symbol + value against source. AC bullets without an anchor are valid but generate `ac-missing-source-anchor` findings (MEDIUM) during enforcement; `Verification: Manual check` REQs are exempt. The convention applies to ADR `Context:` blocks too.
+- Heading is `### REQ-{DOMAIN}-{NNN}: {Title}` (H3, never H2).
+- Field order is locked: **Intent → Applies To → Acceptance Criteria → Notes (optional) → Constraints → Priority → Dependencies → Verification → Status**. Status is the LAST field, never the first.
+- **Required fields** (every REQ): Intent, Applies To, Acceptance Criteria, Constraints, Priority, Dependencies, Verification, Status. Constraints and Dependencies render the literal `None.` when empty; omitting them entirely is MEDIUM `req-missing-required-field`.
+- One blank line between every `**Field:**` line. Stacking two label lines on consecutive lines collapses them on GitHub render — MEDIUM `trailing-fields-collapsed`.
+- ACs are **numbered** (`1. 2. 3.`), never bulleted (`-`) — MEDIUM `ac-bullets-not-numbered`. Maximum 7 ACs per REQ.
+- CON-* and REQ-* IDs inside Constraints/Dependencies render as markdown anchor links, not plain text — MEDIUM `cross-reference-not-linked`.
+- Every AC describing observable behaviour ends with `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. Validators in `spec-enforce-truth` (CQ-SOURCE) read these comments and verify symbol + value against source. AC bullets without an anchor are valid but generate `ac-missing-source-anchor` findings (MEDIUM); `Verification: Manual check` REQs are exempt. Same convention applies to ADR `Context:` blocks.
+- **Notes** is OPTIONAL — only two shapes (see `spec-enforce` § Rule B): Partial-explanation (`Status: Partial` only, ≤3 sentences) or Doc-pointer (any status, ≤2 sentences, MUST contain a markdown link to `documentation/**` or `sdd/**`). Sibling-REQ cross-references go in `Dependencies:`.
+- Each REQ ends with `---` on its own line, blank lines either side.
+- **Deprecated REQs are deleted, not tombstoned.** No `Replaced By:`, no `Removed In:`. Out-of-scope ideas go to `## Out of Scope` in the domain README.
 
 ## Source-anchor convention (binding, single source of truth)
 
@@ -312,6 +281,7 @@ All scaffolding templates live in `references/templates/` within this skill. The
 
 | Template | Used by |
 |---|---|
+| `req-shape-example.md` | Read-only exemplar — canonical shape every REQ MUST copy. NOT emitted as a file; consulted before every REQ write. |
 | `root-readme.md` | `/sdd init` → `README.md` |
 | `sdd-readme.md` | `/sdd init` → `sdd/README.md` |
 | `sdd-glossary.md` | `/sdd init` → `sdd/spec/glossary.md` |
