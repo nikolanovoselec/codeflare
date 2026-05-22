@@ -28,6 +28,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ### REQ-SETUP-001: First-time setup requires zero pre-configuration
 
+<!-- @impl: src/routes/setup/index.ts -->
+<!-- @impl: src/routes/setup/handlers.ts -->
+
 **Intent:** A freshly deployed Codeflare instance must be configurable through the setup wizard without any prior manual setup of authentication, DNS, or storage.
 
 **Applies To:** Admin
@@ -56,6 +59,15 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 ---
 
 ### REQ-SETUP-002: Setup wizard configures domain, auth, R2 credentials, and Turnstile
+
+<!-- @impl: src/routes/setup/handlers.ts -->
+<!-- @impl: src/routes/setup/account.ts -->
+<!-- @impl: src/routes/setup/credentials.ts -->
+<!-- @impl: src/routes/setup/custom-domain.ts -->
+<!-- @impl: src/routes/setup/access.ts -->
+<!-- @impl: src/routes/setup/turnstile.ts -->
+<!-- @impl: src/routes/setup/secrets.ts -->
+<!-- @impl: src/routes/setup/shared.ts::withSetupRetry -->
 
 **Intent:** A single `POST /api/setup/configure` call provisions all required Cloudflare resources and stores the resulting configuration in Workers KV.
 
@@ -94,6 +106,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ### REQ-SETUP-003: Three deployment modes
 
+<!-- @impl: src/lib/onboarding.ts -->
+<!-- @impl: src/lib/access.ts -->
+
 **Intent:** Codeflare supports three deployment modes that determine authentication strategy and user provisioning.
 
 **Applies To:** Admin
@@ -122,6 +137,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 ---
 
 ### REQ-SETUP-004: Setup is idempotent
+
+<!-- @impl: src/routes/setup/handlers.ts -->
+<!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
 
 **Intent:** Re-running the setup wizard with the same or updated inputs must safely update existing resources without creating duplicates or leaving orphaned state.
 
@@ -152,6 +170,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ### REQ-SETUP-005: Post-setup reconfiguration requires admin auth
 
+<!-- @impl: src/routes/setup/index.ts -->
+<!-- @impl: src/lib/access.ts::authenticateRequest -->
+
 **Intent:** After initial setup is complete, only authenticated administrators can reconfigure the deployment.
 
 **Applies To:** Admin
@@ -180,6 +201,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 ---
 
 ### REQ-SETUP-006: Setup streams progress via NDJSON
+
+<!-- @impl: src/routes/setup/handlers.ts -->
 
 **Intent:** The setup configure endpoint must stream real-time progress so the client can display step-by-step status updates.
 
@@ -214,6 +237,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ### REQ-SETUP-007: Custom domain with DNS validation
 
+<!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
+<!-- @impl: src/lib/cors-cache.ts -->
+
 **Intent:** The setup wizard must configure a custom domain with proper DNS records and Worker routes, supporting nested subdomains and ccTLDs.
 
 **Applies To:** Admin
@@ -245,6 +271,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ### REQ-SETUP-008: Setup helper endpoints support prefill and detection
 
+<!-- @impl: src/routes/setup/handlers.ts -->
+<!-- @impl: src/routes/setup/index.ts -->
+
 **Intent:** The setup UI must be able to pre-populate fields from existing configuration and detect the API token's capabilities.
 
 **Applies To:** Admin
@@ -273,6 +302,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ### REQ-SETUP-009: Subscribe page with tier selection
 
+<!-- @impl: web-ui/src/components/SubscribePage.tsx -->
+
 **Intent:** Users can choose their subscription tier with a clear comparison of features and pricing.
 
 **Applies To:** User
@@ -299,6 +330,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 ---
 
 ### REQ-SETUP-010: Social-share preview metadata on the public landing page
+
+<!-- @impl: web-ui/src/components/OnboardingLanding.tsx -->
+<!-- @impl: web-ui/index.html -->
 
 **Intent:** When the public-facing URL is shared on social platforms or chat apps, the unfurl renders a branded preview card with the product tagline and a 1200x630 preview image so the link communicates what Codeflare is before the visitor clicks.
 
