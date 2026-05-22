@@ -29,6 +29,8 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-001: Eight-Tier Subscription System
 
+<!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
+
 **Intent:** The platform must support a graduated set of subscription tiers that control access levels, compute quotas, session limits, and available features.
 
 **Applies To:** User
@@ -56,6 +58,8 @@ Tiers, billing, usage tracking, and quotas.
 ---
 
 ### REQ-SUB-002: Tier Property Definitions
+
+<!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
 
 **Intent:** Each tier must define a complete set of properties that drive quota enforcement, session limits, mode gating, and pricing.
 
@@ -95,6 +99,9 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-003: Free Tier Requires No Payment
 
+<!-- @impl: src/routes/auth.ts -->
+<!-- @impl: src/routes/billing.ts -->
+
 **Intent:** Users must be able to use the platform at the free tier without providing payment information.
 
 **Applies To:** User
@@ -122,6 +129,9 @@ Tiers, billing, usage tracking, and quotas.
 ---
 
 ### REQ-SUB-004: Paid Tiers Integrate with Stripe Checkout
+
+<!-- @impl: src/routes/billing.ts -->
+<!-- @impl: src/lib/stripe.ts::createCheckoutSession -->
 
 **Intent:** Paid tiers (standard, advanced, max) must collect payment via Stripe before activating the subscription.
 
@@ -155,6 +165,9 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-005: Trial Is Compute-Based, Not Time-Based
 
+<!-- @impl: src/timekeeper/index.ts -->
+<!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
+
 **Intent:** Trial periods must be capped by actual compute usage, not calendar days, so that inactive users do not burn through their trial.
 
 **Applies To:** User
@@ -184,6 +197,9 @@ Tiers, billing, usage tracking, and quotas.
 ---
 
 ### REQ-SUB-006: Real-Time Usage Tracking via Timekeeper DO
+
+<!-- @impl: src/timekeeper/index.ts::Timekeeper -->
+<!-- @impl: src/container/container-metrics.ts -->
 
 **Intent:** Compute usage must be tracked accurately in real time so that quota enforcement and billing decisions use current data.
 
@@ -216,6 +232,9 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-007: Quota Enforcement at Session Start (402)
 
+<!-- @impl: src/routes/container/lifecycle.ts -->
+<!-- @impl: src/timekeeper/index.ts::Timekeeper -->
+
 **Intent:** Users who have consumed their monthly compute quota must be prevented from starting new sessions.
 
 **Applies To:** User
@@ -246,6 +265,9 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-008: Mid-Session Quota Enforcement (Graceful Stop)
 
+<!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+<!-- @impl: src/timekeeper/index.ts -->
+
 **Intent:** Sessions that exceed quota while running must be stopped gracefully, not left running indefinitely.
 
 **Applies To:** User
@@ -272,6 +294,9 @@ Tiers, billing, usage tracking, and quotas.
 ---
 
 ### REQ-SUB-009: Admin-Configurable Tiers via Management Panel
+
+<!-- @impl: src/routes/admin -->
+<!-- @impl: src/lib/subscription.ts::getTierConfig -->
 
 **Intent:** Administrators must be able to customize tier properties (quotas, prices, sessions, storage) without code changes.
 
@@ -303,6 +328,9 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-010: Tier Config Cached with 60-Second TTL
 
+<!-- @impl: src/lib/subscription.ts::getTierConfig -->
+<!-- @impl: src/lib/cache-reset.ts -->
+
 **Intent:** Tier configuration reads must be fast (avoid KV round-trip on every request) while still reflecting admin changes within a bounded delay.
 
 **Applies To:** User
@@ -332,6 +360,9 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-011: Graceful Degradation Without Stripe
 
+<!-- @impl: src/routes/billing.ts -->
+<!-- @impl: src/lib/stripe.ts -->
+
 **Intent:** The platform must function without Stripe for development, self-hosted, and non-SaaS deployments.
 
 **Applies To:** User
@@ -359,6 +390,9 @@ Tiers, billing, usage tracking, and quotas.
 ---
 
 ### REQ-SUB-012: Billing Status Enforcement (Effective Tier)
+
+<!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
+<!-- @impl: src/lib/subscription.ts::isActiveTier -->
 
 **Intent:** A user's effective tier must reflect their current billing state, automatically downgrading when payment lapses.
 
@@ -392,6 +426,9 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-013: Concurrent Session Limits
 
+<!-- @impl: src/lib/subscription.ts::getMaxSessionsForTier -->
+<!-- @impl: src/routes/container/lifecycle.ts::validateSessionAndCheckLimits -->
+
 **Intent:** Each tier must enforce a maximum number of simultaneously running sessions to control resource consumption.
 
 **Applies To:** User
@@ -420,6 +457,9 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-014: Session Mode Gating by Tier
 
+<!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
+<!-- @impl: src/lib/subscription.ts -->
+
 **Intent:** Only tiers that include Pro (advanced) mode in their `sessionModes` array may create Pro sessions.
 
 **Applies To:** User
@@ -447,6 +487,9 @@ Tiers, billing, usage tracking, and quotas.
 ---
 
 ### REQ-SUB-015: Stripe Webhook Signal-and-Sync Pattern
+
+<!-- @impl: src/routes/stripe-webhook.ts -->
+<!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 
 **Intent:** KV billing state must always reflect the latest Stripe state to prevent race conditions from incremental patching.
 
@@ -480,6 +523,9 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-016: Customer Portal and Plan Switching
 
+<!-- @impl: src/lib/stripe.ts::createPortalSession -->
+<!-- @impl: src/routes/billing.ts -->
+
 **Intent:** Active subscribers must be able to manage their subscription (cancel, switch plans, update payment) via Stripe's billing portal.
 
 **Applies To:** User
@@ -510,6 +556,8 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-017: Enterprise tier contact flow
 
+<!-- @impl: web-ui/src/components/SubscribePage.tsx -->
+
 **Intent:** The Custom (enterprise) tier is not self-service. Users interested in enterprise-grade access can send an inquiry to admins without leaving the subscribe page.
 
 **Applies To:** User
@@ -539,6 +587,10 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-018: Usage dashboard page
 
+<!-- @impl: web-ui/src/components/UsagePage.tsx -->
+<!-- @impl: web-ui/src/components/UsageInlineBadge.tsx -->
+<!-- @impl: src/routes/usage.ts -->
+
 **Intent:** Users can see their compute usage and understand how close they are to their quota.
 
 **Applies To:** User
@@ -565,6 +617,8 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-019: Session limit popup in frontend
 
+<!-- @impl: web-ui/src/components/Dashboard.tsx -->
+
 **Intent:** Users understand why they can't start more sessions and which ones to stop.
 
 **Applies To:** User
@@ -588,6 +642,9 @@ Tiers, billing, usage tracking, and quotas.
 ---
 
 ### REQ-SUB-020: Multi-Currency Pricing
+
+<!-- @impl: src/lib/currency.ts -->
+<!-- @impl: src/lib/stripe.ts -->
 
 **Intent:** Visitors must see subscription prices in their local currency (CHF, USD, EUR, GBP) with Stripe charging the exact displayed amount -- no surprise FX conversion on the bank statement.
 
@@ -617,6 +674,9 @@ Tiers, billing, usage tracking, and quotas.
 ---
 
 ### REQ-SUB-021: Billing Cycle Alignment
+
+<!-- @impl: src/routes/stripe-webhook.ts -->
+<!-- @impl: src/timekeeper/index.ts -->
 
 **Intent:** New paid subscriptions are billed on the 1st of each UTC calendar month so that recurring charges and monthly quota resets happen on the same date, eliminating the mid-cycle quota refresh that previously gave users roughly twice the paid quota between two billing charges.
 
