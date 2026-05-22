@@ -26,6 +26,9 @@ None. Authentication is foundational; other domains depend on it.
 
 ### REQ-AUTH-001: Two authentication modes
 
+<!-- @impl: src/lib/access.ts::getUserFromRequest -->
+<!-- @impl: src/lib/onboarding.ts::isSaasModeActive -->
+
 **Intent:** Codeflare supports two mutually exclusive authentication mechanisms: Cloudflare Access (CF Access) and Direct GitHub OAuth, selected by deployment configuration.
 
 **Applies To:** User
@@ -53,6 +56,9 @@ None. Authentication is foundational; other domains depend on it.
 ---
 
 ### REQ-AUTH-002: SaaS mode uses Direct GitHub OAuth
+
+<!-- @impl: src/routes/github-auth.ts -->
+<!-- @impl: src/lib/oauth-state.ts -->
 
 **Intent:** When `SAAS_MODE=active` and `OAUTH_CLIENT_ID` is configured, Codeflare presents a branded login page and handles GitHub OAuth directly, with no Cloudflare Access involvement.
 
@@ -85,6 +91,10 @@ None. Authentication is foundational; other domains depend on it.
 
 ### REQ-AUTH-003: CF Access mode for all other deployments
 
+<!-- @impl: src/lib/jwt.ts::verifyAccessJWT -->
+<!-- @impl: src/lib/jwt.ts::resetJWKSCache -->
+<!-- @impl: src/routes/setup/access.ts -->
+
 **Intent:** When `OAUTH_CLIENT_ID` is not set, Cloudflare Access provides the authentication layer, supporting multiple identity providers (GitHub, Google, etc.) managed through the CF Access dashboard.
 
 **Applies To:** User
@@ -115,6 +125,8 @@ None. Authentication is foundational; other domains depend on it.
 
 ### REQ-AUTH-004: Service token authentication for E2E testing
 
+<!-- @impl: src/lib/access.ts::getUserFromRequest -->
+
 **Intent:** Automated E2E tests can authenticate without a browser-based OAuth flow by presenting a service token header.
 
 **Applies To:** User
@@ -144,6 +156,11 @@ None. Authentication is foundational; other domains depend on it.
 
 ### REQ-AUTH-005: Three-tier authorization middleware
 
+<!-- @impl: src/middleware/auth.ts::requireIdentity -->
+<!-- @impl: src/middleware/auth.ts::requireActiveUser -->
+<!-- @impl: src/middleware/auth.ts::requireAdmin -->
+<!-- @impl: src/lib/subscription.ts::isActiveTier -->
+
 **Intent:** Protected routes use a layered middleware stack that enforces identity verification, active subscription status, and admin role checks independently.
 
 **Applies To:** User
@@ -172,6 +189,9 @@ None. Authentication is foundational; other domains depend on it.
 
 ### REQ-AUTH-006: User email normalized
 
+<!-- @impl: src/lib/access.ts::getBucketName -->
+<!-- @impl: src/lib/access.ts::resolveUserFromKV -->
+
 **Intent:** User email addresses are normalized before any lookup, comparison, or storage operation to prevent case-sensitive duplicates and whitespace-related mismatches.
 
 **Applies To:** User
@@ -197,6 +217,9 @@ None. Authentication is foundational; other domains depend on it.
 ---
 
 ### REQ-AUTH-007: JIT user provisioning in SaaS mode
+
+<!-- @impl: src/lib/access.ts::resolveOrProvisionUser -->
+<!-- @impl: src/middleware/auth.ts::requireIdentity -->
 
 **Intent:** In SaaS mode, users who authenticate via GitHub OAuth for the first time are automatically provisioned in KV with a `pending` subscription tier, eliminating manual allowlisting.
 
@@ -227,6 +250,9 @@ None. Authentication is foundational; other domains depend on it.
 
 ### REQ-AUTH-008: Session cookie auto-refresh
 
+<!-- @impl: src/index.ts -->
+<!-- @impl: src/routes/github-auth.ts -->
+
 **Intent:** The `codeflare_session` cookie (Direct GitHub OAuth mode) is automatically refreshed before expiry to prevent session interruption during active use.
 
 **Applies To:** User
@@ -254,6 +280,9 @@ None. Authentication is foundational; other domains depend on it.
 ---
 
 ### REQ-AUTH-009: Logout dispatches by mode
+
+<!-- @impl: src/routes/auth-redirects.ts -->
+<!-- @impl: src/routes/github-auth.ts -->
 
 **Intent:** Logout correctly terminates the session regardless of the active authentication mode, with a single frontend endpoint that dispatches to the appropriate backend flow.
 
@@ -283,6 +312,9 @@ None. Authentication is foundational; other domains depend on it.
 
 ### REQ-AUTH-010: Auth bypass prevention
 
+<!-- @impl: src/lib/access.ts::resetAuthConfigCache -->
+<!-- @impl: src/lib/access.ts::getUserFromRequest -->
+
 **Intent:** A transient KV failure must not permanently degrade a configured deployment to the pre-setup header-trust model, which would allow unauthenticated access.
 
 **Applies To:** User
@@ -311,6 +343,8 @@ None. Authentication is foundational; other domains depend on it.
 
 ### REQ-AUTH-011: Auth resolution order
 
+<!-- @impl: src/lib/access.ts::getUserFromRequest -->
+
 **Intent:** Authentication methods are checked in a strict priority order to prevent ambiguity and ensure the most specific credential takes precedence.
 
 **Applies To:** User
@@ -337,6 +371,9 @@ None. Authentication is foundational; other domains depend on it.
 ---
 
 ### REQ-AUTH-012: Welcome email on first login
+
+<!-- @impl: src/lib/email.ts::sendWelcomeEmail -->
+<!-- @impl: src/lib/access.ts::resolveOrProvisionUser -->
 
 **Intent:** New users in SaaS mode receive a welcome email on first login, providing a professional onboarding touchpoint and confirming their account was created.
 
@@ -366,6 +403,8 @@ None. Authentication is foundational; other domains depend on it.
 
 ### REQ-AUTH-013: Custom branded login page
 
+<!-- @impl: web-ui/src/components/LoginPage.tsx -->
+
 **Intent:** SaaS mode provides a branded login experience instead of the raw CF Access login page.
 
 **Applies To:** User
@@ -392,6 +431,9 @@ None.
 
 ### REQ-AUTH-014: Auth expiry detection mid-session
 
+<!-- @impl: web-ui/src/lib/api-client.ts -->
+<!-- @impl: web-ui/src/components/Layout.tsx -->
+
 **Intent:** Users are warned when their auth session expires during active use instead of silently failing.
 
 **Applies To:** User
@@ -417,6 +459,8 @@ None.
 ---
 
 ### REQ-AUTH-015: Guided onboarding flow
+
+<!-- @impl: web-ui/src/components/OnboardingPage.tsx -->
 
 **Intent:** First-time users are walked through connecting their accounts step by step.
 
@@ -445,6 +489,8 @@ None.
 
 ### REQ-AUTH-016: Header user dropdown
 
+<!-- @impl: web-ui/src/components/Header.tsx -->
+
 **Intent:** Quick access to account actions from any page.
 
 **Applies To:** User
@@ -471,6 +517,9 @@ None.
 
 ### REQ-AUTH-017: Gravatar integration
 
+<!-- @impl: web-ui/src/components/Header.tsx -->
+<!-- @impl: web-ui/src/lib/gravatar.ts -->
+
 **Intent:** Visual user identification via avatar.
 
 **Applies To:** User
@@ -496,6 +545,10 @@ None.
 ---
 
 ### REQ-AUTH-018: User management admin panel
+
+<!-- @impl: src/routes/admin -->
+<!-- @impl: src/routes/users.ts -->
+<!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
 
 **Intent:** Admins can manage users, approve access, and configure tiers without CLI tools.
 
