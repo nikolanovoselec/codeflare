@@ -28,7 +28,8 @@ const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
 const dockerfile = readFileSync(resolve(repoRoot, 'Dockerfile'), 'utf8');
 const manifest = JSON.parse(readFileSync(resolve(repoRoot, 'preseed/agents/claude/manifest.json'), 'utf8'));
 
-describe('vault bisync filter (REQ-MEMORY-100)', () => {
+describe('vault bisync filter (REQ-VAULT-001 AC1, REQ-MEM-004 AC1)', () => {
+  // REQ-VAULT-001 AC1, REQ-MEM-004 AC1
   it('explicitly includes Vault/** before the graphify-out exclude', () => {
     const includeIdx = entrypoint.indexOf('--filter "+ Vault/**"');
     const excludeIdx = entrypoint.indexOf('--filter "- **/graphify-out/**"');
@@ -40,6 +41,7 @@ describe('vault bisync filter (REQ-MEMORY-100)', () => {
     );
   });
 
+  // REQ-VAULT-001 AC5
   it('also includes Uploads/** and Temporary/** before the graphify-out exclude', () => {
     // These two prefixes are the always-on R2-backed user folders the
     // storage panel exposes alongside Vault. They must sync to R2 with
@@ -56,6 +58,7 @@ describe('vault bisync filter (REQ-MEMORY-100)', () => {
     );
   });
 
+  // REQ-VAULT-001 Constraint (non-hidden basename)
   it('does not still include the legacy hidden-vault path .user_vault/**', () => {
     // The vault was at ~/.user_vault/ until the rename. Leaving the old
     // include behind would bisync stale content and surface a confusing
@@ -66,6 +69,7 @@ describe('vault bisync filter (REQ-MEMORY-100)', () => {
     );
   });
 
+  // REQ-VAULT-001 AC2, REQ-MEM-004 AC5
   it('excludes .graphify/ (ephemeral global graph) from bisync', () => {
     assert.ok(
       entrypoint.includes('--filter "- .graphify/**"'),
@@ -75,6 +79,7 @@ describe('vault bisync filter (REQ-MEMORY-100)', () => {
 });
 
 describe('persistent user folders (REQ-VAULT-001 AC5)', () => {
+  // REQ-VAULT-001 AC5
   it('init_user_vault mkdir -p creates Uploads + Temporary alongside Vault', () => {
     // The storage panel always-shows these prefixes, and the tooltip
     // promises the user the files live at /home/user/{Uploads,Temporary}.
@@ -85,6 +90,7 @@ describe('persistent user folders (REQ-VAULT-001 AC5)', () => {
     );
   });
 
+  // REQ-VAULT-001 Constraint (non-hidden basename), REQ-VAULT-005 AC2
   it('silverbullet supervisor pins VAULT_ROOT to literal $HOME/Vault', () => {
     // This is a code-presence audit (the test name reflects what is
     // actually verified): we pin the literal `$HOME/Vault` string in the
@@ -100,7 +106,8 @@ describe('persistent user folders (REQ-VAULT-001 AC5)', () => {
   });
 });
 
-describe('vault skeleton + daemons (REQ-MEMORY-101..103)', () => {
+describe('vault skeleton + daemons (REQ-VAULT-001, REQ-VAULT-003, REQ-VAULT-005)', () => {
+  // REQ-VAULT-001 AC3, AC4
   it('defines init_user_vault and runs it after baseline', () => {
     assert.ok(/^init_user_vault\(\)/m.test(entrypoint), 'init_user_vault function must exist');
     assert.ok(
@@ -109,6 +116,7 @@ describe('vault skeleton + daemons (REQ-MEMORY-101..103)', () => {
     );
   });
 
+  // REQ-VAULT-003 AC1
   it('defines start_vault_monitor_daemon and launches it', () => {
     assert.ok(/^start_vault_monitor_daemon\(\)/m.test(entrypoint), 'start_vault_monitor_daemon function must exist');
     assert.ok(
@@ -117,12 +125,14 @@ describe('vault skeleton + daemons (REQ-MEMORY-101..103)', () => {
     );
   });
 
+  // REQ-VAULT-003 AC2 (three-marker pattern)
   it('uses the two-marker pattern (tick + last + vars)', () => {
     assert.ok(entrypoint.includes('vault-monitor.tick'), 'must reference vault-monitor.tick (heartbeat)');
     assert.ok(entrypoint.includes('vault-extract.last'), 'must reference vault-extract.last (high-water mark)');
     assert.ok(entrypoint.includes('vault-extract.vars'), 'must reference vault-extract.vars (trigger)');
   });
 
+  // REQ-VAULT-003 AC1, REQ-VAULT-001 AC7
   it('excludes all four preseed-managed root pages from the daemon find (REQ-VAULT-003 AC1)', () => {
     for (const page of ['Index.md', 'CONFIG.md', 'README.md', 'STYLES.md']) {
       assert.ok(
@@ -132,6 +142,7 @@ describe('vault skeleton + daemons (REQ-MEMORY-101..103)', () => {
     }
   });
 
+  // REQ-VAULT-003 AC6
   it('bumps vault-extract.last after init_user_vault writes a preseed page (REQ-VAULT-003 AC1)', () => {
     assert.ok(
       /PRESEED_PAGE_WRITTEN[\s\S]{0,400}touch\s+"\$HOOK_CACHE\/vault-extract\.last"/.test(entrypoint),
@@ -139,6 +150,7 @@ describe('vault skeleton + daemons (REQ-MEMORY-101..103)', () => {
     );
   });
 
+  // REQ-VAULT-005 AC2
   it('defines start_silverbullet_supervisor with a restart loop', () => {
     assert.ok(/^start_silverbullet_supervisor\(\)/m.test(entrypoint), 'silverbullet supervisor function must exist');
     assert.ok(
@@ -149,6 +161,7 @@ describe('vault skeleton + daemons (REQ-MEMORY-101..103)', () => {
       'silverbullet must bind to localhost (Worker proxy is the auth boundary)');
   });
 
+  // REQ-VAULT-005 AC9, REQ-VAULT-001 Constraint
   it('exports SB_INDEX_PAGE=Index in the supervisor (TitleCase index page)', () => {
     // SilverBullet 2.x hardcodes IndexPage to lowercase "index" in
     // server/cmd/server.go:29; the only override is the SB_INDEX_PAGE
@@ -161,7 +174,8 @@ describe('vault skeleton + daemons (REQ-MEMORY-101..103)', () => {
   });
 });
 
-describe('SilverBullet binary install (REQ-MEMORY-103)', () => {
+describe('SilverBullet binary install (REQ-VAULT-005, REQ-VAULT-007)', () => {
+  // REQ-VAULT-005 AC1
   it('Dockerfile installs the silverbullet-server binary (not the CLI sb)', () => {
     assert.ok(
       dockerfile.includes('silverbullet-server-linux-x86_64.zip'),
@@ -177,6 +191,7 @@ describe('SilverBullet binary install (REQ-MEMORY-103)', () => {
     );
   });
 
+  // REQ-VAULT-007 AC2
   it('Dockerfile preseeds SilverBullet config under /opt/silverbullet-preseed/', () => {
     assert.ok(
       dockerfile.includes('COPY preseed/silverbullet/ /opt/silverbullet-preseed/'),
@@ -185,7 +200,8 @@ describe('SilverBullet binary install (REQ-MEMORY-103)', () => {
   });
 });
 
-describe('shutdown bisync reliability (bundled fix)', () => {
+describe('shutdown bisync reliability (REQ-VAULT-006)', () => {
+  // REQ-VAULT-006 AC1 (120s watchdog; note the audit regex says 60s but spec mandates 120s — see spec drift in CQ-TEST)
   it('wraps final bisync with a 60s budget + watchdog kill', () => {
     // We use a background subshell + watchdog rather than timeout(1)
     // because bisync_with_r2 is a shell function (not a binary).
@@ -199,11 +215,13 @@ describe('shutdown bisync reliability (bundled fix)', () => {
     );
   });
 
+  // REQ-VAULT-006 AC2
   it('also terminates vault-monitor + silverbullet supervisor pids', () => {
     assert.ok(entrypoint.includes('/tmp/vault-monitor.pid'), 'shutdown_handler must kill the vault-monitor daemon');
     assert.ok(entrypoint.includes('/tmp/silverbullet.pid'), 'shutdown_handler must kill the silverbullet supervisor');
   });
 
+  // REQ-VAULT-006 AC3
   it('logs elapsed shutdown time for telemetry', () => {
     assert.ok(
       entrypoint.includes('elapsed:'),
@@ -212,7 +230,8 @@ describe('shutdown bisync reliability (bundled fix)', () => {
   });
 });
 
-describe('UserPromptSubmit hook registration (REQ-MEMORY-102)', () => {
+describe('UserPromptSubmit hook registration (REQ-VAULT-003, REQ-MEM-001)', () => {
+  // REQ-VAULT-003 AC3, REQ-MEM-001 AC1
   it('SETTINGS_CONFIG registers vault-monitor-hook.sh as UserPromptSubmit', () => {
     const settingsLineIdx = entrypoint.indexOf('SETTINGS_CONFIG=');
     assert.notEqual(settingsLineIdx, -1, 'SETTINGS_CONFIG must exist');
@@ -226,7 +245,7 @@ describe('UserPromptSubmit hook registration (REQ-MEMORY-102)', () => {
   });
 });
 
-describe('preseed manifest entries (REQ-MEMORY-100..103)', () => {
+describe('preseed manifest entries (REQ-VAULT-007 AC1)', () => {
   const required = [
     'plugins/codeflare-vault/.claude-plugin/plugin.json',
     'plugins/codeflare-vault/scripts/vault-monitor-hook.sh',
@@ -240,7 +259,7 @@ describe('preseed manifest entries (REQ-MEMORY-100..103)', () => {
   }
 });
 
-describe('vault preseed files exist on disk', () => {
+describe('vault preseed files exist on disk (REQ-VAULT-007 AC1)', () => {
   const files = [
     'preseed/agents/claude/plugins/codeflare-vault/.claude-plugin/plugin.json',
     'preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh',
