@@ -1,9 +1,8 @@
-// REQ-MEM-001 AC3: buildEnvVars must propagate the per-session
-// USER_TIMEZONE so the capture haiku's `TZ="$RESOLVED" date '+%...'`
-// step produces a wall-clock timestamp in the user's local zone
-// instead of falling all the way through to UTC. Without this, every
-// vault capture filename gets a +0000 suffix regardless of where the
-// user actually is.
+// REQ-SESSION-016 AC3: buildEnvVars must propagate the per-session
+// USER_TIMEZONE into the container env-var pipeline so REQ-MEM-001 AC9
+// (capture pipeline consumes $USER_TIMEZONE) gets a non-empty value.
+// Without this, every vault capture filename gets a +0000 suffix
+// regardless of where the user actually is.
 
 import { describe, it, expect } from 'vitest';
 import { buildEnvVars, applyBucketName, applyPrefsOnRestart, type ContainerEnvState } from '../../container/container-env';
@@ -29,14 +28,14 @@ function baseState(): ContainerEnvState {
     _containerAuthToken: 'tok',
     _sessionId: 'sid-abcdef12',
     _userEmail: 'user@example.com',
-    // Field gated by REQ-MEM-001 AC3 (added in this PR).
+    // Field gated by REQ-SESSION-016 AC3 (added in this PR).
     _userTimezone: null,
   } as unknown as ContainerEnvState;
 }
 
 const baseEnv: Env = {} as Env;
 
-describe('buildEnvVars (REQ-MEM-001 AC3)', () => {
+describe('buildEnvVars (REQ-SESSION-016 AC3)', () => {
   it('emits USER_TIMEZONE when _userTimezone is set', () => {
     const state = baseState();
     (state as unknown as { _userTimezone: string | null })._userTimezone = 'Europe/Zurich';
@@ -74,7 +73,7 @@ describe('buildEnvVars (REQ-MEM-001 AC3)', () => {
 // was silently dropped and USER_TIMEZONE always emitted empty in
 // production. Both code paths (first-time setBucketName via applyBucketName,
 // and subsequent wakes via applyPrefsOnRestart) are exercised here.
-describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-MEM-001 AC3 wiring regression)', () => {
+describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESSION-016 AC3 wiring regression)', () => {
   function makeStorage() {
     const writes: Record<string, unknown> = {};
     return {

@@ -52,6 +52,7 @@ describe('Preferences Routes', () => {
     return app;
   }
 
+  // REQ-SESSION-014 (preferences endpoint; GET/PATCH for KV-backed user prefs)
   describe('GET /preferences', () => {
     it('returns empty object when no preferences are stored', async () => {
       const app = createTestApp();
@@ -79,6 +80,7 @@ describe('Preferences Routes', () => {
     });
   });
 
+  // REQ-SESSION-014 (PATCH merges into KV; rejects invalid types with VALIDATION_ERROR)
   describe('PATCH /preferences', () => {
     it('updates workspaceSyncEnabled and keeps existing fields', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
@@ -127,6 +129,7 @@ describe('Preferences Routes', () => {
     });
   });
 
+  // REQ-SESSION-008 AC1 (fastStartEnabled persisted across restart; 409 restart path stores it in DO storage)
   describe('fastStartEnabled preference', () => {
     it('GET returns stored fastStartEnabled', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
@@ -192,6 +195,7 @@ describe('Preferences Routes', () => {
     });
   });
 
+  // REQ-MEM-006 AC6 (sessionMode stored as 'default'|'advanced' in UserPreferences; PATCH validates the literal set)
   describe('sessionMode preference', () => {
     it('GET returns stored sessionMode', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
@@ -283,6 +287,7 @@ describe('Preferences Routes', () => {
     });
   });
 
+  // REQ-SESSION-014 (strict schema validation: malformed JSON or unknown keys return VALIDATION_ERROR)
   describe('malformed JSON and unknown fields', () => {
     it('PATCH with malformed JSON body returns 400', async () => {
       const app = createTestApp();
@@ -333,6 +338,7 @@ describe('Preferences Routes', () => {
   // ---------------------------------------------------------------------------
   // Preseed reconciliation on sessionMode change
   // ---------------------------------------------------------------------------
+  // REQ-MEM-006 AC7-AC8 (mode change triggers reconcileAgentConfigs to seed/delete mode-appropriate preseed files)
   describe('preseed reconciliation on sessionMode change', () => {
     it('calls reconcileAgentConfigs when sessionMode changes from default to advanced', async () => {
       const app = createTestApp();
@@ -437,7 +443,8 @@ describe('Preferences Routes', () => {
     });
   });
 
-  describe('userTimezone (REQ-MEM-001 AC3)', () => {
+  // REQ-SESSION-016 AC1 (PATCH /api/preferences accepts userTimezone, validates IANA, max 64 chars; invalid returns ValidationError)
+  describe('userTimezone (REQ-SESSION-016 AC1)', () => {
     it('accepts a valid IANA timezone and persists it', async () => {
       const app = createTestApp();
       const res = await app.request('/preferences', {
