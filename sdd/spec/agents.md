@@ -27,34 +27,42 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-## REQ-AGENT-001: Support Multiple AI Coding Agents
+### REQ-AGENT-001: Support Multiple AI Coding Agents
 
 **Intent:** The platform must support multiple AI coding agents so users can choose the tool that fits their workflow.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. Six agent types are defined: `claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `bash`.
 2. The `AgentType` type is enforced via Zod schema (`AgentTypeSchema`).
 3. Each agent's CLI is pre-installed in the container image as a global npm package (or native binary for Go-based agents).
 4. Node.js-based agent CLIs (Codex, Gemini, Copilot) run `--version` at Docker build time to trigger V8 compile cache warm-up via `NODE_COMPILE_CACHE`. Claude Code is a native binary and needs no warm-up. Go-based agents (OpenCode) are natively compiled.
 
 **Constraints:**
+
 - Agent CLI versions are installed via `@latest` at build time; versions may drift between deploys.
 - Major version jumps between deploys have caused regressions; monitoring is required after deploys.
 
-**Applies To:** User
 **Priority:** P0
-**Dependencies:** None
+
+**Dependencies:** None.
+
 **Verification:** Automated test
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-002: Agent Selection at Session Creation
+### REQ-AGENT-002: Agent Selection at Session Creation
 
 **Intent:** Users must be able to choose which AI agent to use when creating a session.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. `POST /api/sessions` accepts an optional `agentType` field in the request body.
 2. `agentType` is validated against `AgentTypeSchema`.
 3. The selected agent type is persisted in the session record.
@@ -62,23 +70,28 @@ Multi-agent support, preseed system, and session modes.
 5. When `agentType` is not specified, it defaults to `claude-code`.
 
 **Constraints:**
+
 - Agent type is immutable after session creation (a new session is required to switch agents).
 - The `bash` agent type provides a plain terminal without an AI agent.
 
-**Applies To:** User
 **Priority:** P0
-**Dependencies:** REQ-AGENT-001
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
+
 **Verification:** Automated test
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-003: Agent CLI Auto-Started in Tab 1
+### REQ-AGENT-003: Agent CLI Auto-Started in Tab 1
 
 **Intent:** When a session starts, the selected agent's CLI must be running and ready in the first terminal tab without manual user intervention.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. `configure_tab_autostart()` in `entrypoint.sh` writes the agent's launch command into `.bashrc` for tab 1.
 2. The agent starts with `--dangerously-skip-permissions` flag (for Claude Code via `claude`). The container sets `IS_SANDBOX=1` to allow this flag when running as root.
 3. Auto-start only runs for tab 1; user-created tabs (where `MANUAL_TAB=1`) skip autostart.
@@ -87,24 +100,29 @@ Multi-agent support, preseed system, and session modes.
 6. A 20-second hard timeout exists as a safety net if the PTY produces no output.
 
 **Constraints:**
+
 - Auto-updates are disabled by default via `FAST_CLI_START=true` to avoid 5-30s startup delay.
 - Each agent has a different auto-update disable mechanism (env var or config file).
 - The autostart command must complete after the initial R2 sync but before bisync baseline to avoid hash mismatches.
 
-**Applies To:** User
 **Priority:** P0
-**Dependencies:** REQ-AGENT-001, REQ-AGENT-002, REQ-STOR-004
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), REQ-STOR-004
+
 **Verification:** Integration test
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-004: Two Session Modes -- Standard and Pro
+### REQ-AGENT-004: Two Session Modes - Standard and Pro
 
 **Intent:** Users must be able to choose between a Standard mode (essential configs) and a Pro (Advanced) mode (full agent enhancement suite).
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. Session mode is stored as `sessionMode?: 'default' | 'advanced'` in `UserPreferences` (KV).
 2. `resolveSessionMode(prefs)` is the single source of truth for the `?? 'default'` fallback.
 3. Mode selection is available in Settings > Session Defaults.
@@ -113,23 +131,28 @@ Multi-agent support, preseed system, and session modes.
 6. Reconciliation triggered by webhooks or Settings is non-fatal: failure does not block the webhook response or the preference write.
 
 **Constraints:**
+
 - Only tiers with `'advanced'` in their `sessionModes` array can use Pro mode (see REQ-SUB-014).
 - When a user is promoted to `advanced` tier, `sessionMode: 'advanced'` is written to preferences if not already set.
 
-**Applies To:** User
 **Priority:** P1
+
 **Dependencies:** REQ-SUB-014
+
 **Verification:** Automated test
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-005: Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers
+### REQ-AGENT-005: Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers
 
-**Intent:** Pro mode must provide a significantly enhanced agent experience over Standard — more rules, skills, agent definitions, commands, hooks, and persistent memory. The context-mode helper tools are universally available to every user on demand, while context-mode's automatic context-window-reduction behavior is reserved for the Custom subscription tier.
+**Intent:** Pro mode must provide a significantly enhanced agent experience over Standard - more rules, skills, agent definitions, commands, hooks, and persistent memory. The context-mode helper tools are universally available to every user on demand, while context-mode's automatic context-window-reduction behavior is reserved for the Custom subscription tier.
+
+**Applies To:** User
 
 **Acceptance Criteria:**
+
 1. Pro mode delivers a strict superset of the content Standard mode delivers, covering memory persistence, language rules, agent definitions, slash commands, cherry-picked skills, the discipline triad (spec, docs, tests), and the commit-attribution and PR-boundary review hooks. The canonical per-content-category matrix lives in [documentation/preseed.md](../../documentation/lanes/preseed.md#session-modes); the spec lane documents the user-observable contract only.
 2. Pro mode enables persistent memory (the `.memory/` directory is included in storage sync); Standard mode excludes it so memory does not persist across container restarts.
 3. Pro-mode hooks fire uniformly regardless of which tool surface invoked the underlying command, so coverage is identical whether the user is on Custom tier (commands route through context-mode) or any other tier (commands run directly): commit attribution is blocked before the commit lands, the SDD review pipeline is triggered at every PR-to-`main` boundary event, the turn cannot end while a PR HEAD remains unreviewed, and memory capture runs on the user-prompt cadence.
@@ -138,23 +161,28 @@ Multi-agent support, preseed system, and session modes.
 6. Downgrading away from Custom tier, or switching away from Pro mode, removes the Custom-tier-only behavior on the next reconcile so the automatic redirection no longer fires.
 
 **Constraints:**
+
 - Cleanup on mode switch is scoped strictly to preseed-managed content; user-created files are never deleted.
 - The Custom-tier context-mode behavior must be delivered through the platform's preseed pipeline, never through a user-driven marketplace install that could mutate settings outside the platform's control.
 
-**Applies To:** User
 **Priority:** P1
-**Dependencies:** REQ-AGENT-004, REQ-AGENT-006
+
+**Dependencies:** REQ-AGENT-004, [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
+
 **Verification:** Automated test
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-006: Preseed Configs Generated from Single Source of Truth
+### REQ-AGENT-006: Preseed Configs Generated from Single Source of Truth
 
 **Intent:** All agent configurations must be derived from the Claude Code preseed to prevent divergence and eliminate duplicate maintenance.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. Source files live in `preseed/agents/claude/` organized by type: `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`.
 2. `preseed/agents/claude/manifest.json` maps each file to its applicable modes (`default`, `advanced`, or both).
 3. `scripts/generate-agent-seed.mjs` reads the manifest and source files, generating `src/lib/agent-seed.generated.ts` with an `AGENTS_SEEDED_CONFIGS` array.
@@ -163,23 +191,28 @@ Multi-agent support, preseed system, and session modes.
 6. The generator produces output for all supported agents (Claude Code as the source-of-truth lane plus adapted lanes for Codex, Gemini, Copilot, OpenCode).
 
 **Constraints:**
+
 - The generator must be re-run when preseed source files or the manifest change.
 - Generated TypeScript file must not be manually edited.
 
-**Applies To:** User
 **Priority:** P1
-**Dependencies:** None
+
+**Dependencies:** None.
+
 **Verification:** Automated test
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-007: Multi-Agent Adaptation Pipeline
+### REQ-AGENT-007: Multi-Agent Adaptation Pipeline
 
 **Intent:** Each supported agent must receive properly adapted configurations matching its specific config format, tool names, and file conventions.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. Adapted configs are generated for all 5 supported agents from the Claude Code source.
 2. Tool names are remapped per agent (e.g., `Read` -> `read_file` for Gemini, `Read` -> `read` for Codex).
 3. Instructions are concatenated into a single file for agents that use monolithic config (Codex: `AGENTS.md`, Gemini: `GEMINI.md`, Copilot: `copilot-instructions.md`, OpenCode: `AGENTS.md`).
@@ -190,24 +223,29 @@ Multi-agent support, preseed system, and session modes.
 8. File extensions match agent conventions (e.g., `.agent.md` for Copilot agents).
 
 **Constraints:**
+
 - Hooks, commands, and plugins are excluded from non-CC agents (they are CC-specific features).
 - `rules/memory.md` and `consult-llm` skill are excluded from non-CC agents (they depend on CC-specific MCP).
 - Each non-CC agent gets a strictly-smaller config than Claude Code, since CC is the source-of-truth lane and other agents drop CC-specific content (hooks, slash commands, plugins, MCP-dependent rules/skills).
 
-**Applies To:** User
 **Priority:** P1
-**Dependencies:** REQ-AGENT-006
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
+
 **Verification:** Automated test
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-008: Preseed Deployed to Container on Start
+### REQ-AGENT-008: Preseed Deployed to Container on Start
 
 **Intent:** Preseed files must be available in the container's filesystem when the agent launches so that rules, skills, and agent definitions are active from the first prompt.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. On first bucket creation, `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate files to R2.
 2. During container startup, initial `rclone sync` from R2 restores preseed files to the container's config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`).
 3. `entrypoint.sh` merges settings into `~/.claude/settings.json` using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks and replacing managed hooks with the current platform version. The managed-hook detector matches `plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/` (anchored on the literal `plugins/` segment so unrelated workspace tools with the same basenames are not falsely managed), references to `enforce-ctx-mode.sh` (legacy `~/.claude/hooks/` and current `~/.claude/plugins/context-mode/scripts/` paths), and `context-mode hook claude-code` CLI invocations (bare, `bunx`, and `npx -y` forms).
@@ -216,24 +254,29 @@ Multi-agent support, preseed system, and session modes.
 6. Settings merge handles three cases: file doesn't exist (create), file exists (recursive merge), file malformed (skip with warning).
 
 **Constraints:**
+
 - All file modifications must complete after initial sync but before bisync baseline to avoid hash mismatches.
 - Plugin enablement is permanent because Claude Code silently skips missing plugins.
 - Any new managed-hook surface added to `entrypoint.sh:MANAGED_HOOKS_REGEX` must also be reflected in AC3 above; otherwise prior copies accumulate on every container boot instead of being replaced. The regex enumeration in AC3 is the spec-side single source of truth for what counts as managed.
 
-**Applies To:** User
 **Priority:** P0
-**Dependencies:** REQ-AGENT-006, REQ-STOR-004
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), REQ-STOR-004
+
 **Verification:** Integration test
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-009: LLM API Key Storage (Encrypted in KV)
+### REQ-AGENT-009: LLM API Key Storage (Encrypted in KV)
 
 **Intent:** Users must be able to store LLM provider API keys so that cross-model consultation features work without re-entering keys each session.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. `PUT /api/llm-keys` accepts `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`.
 2. String value sets the key; `null` deletes it; omitted/undefined means no change.
 3. Keys are stored in KV at `llm-keys:{bucketName}`.
@@ -244,24 +287,29 @@ Multi-agent support, preseed system, and session modes.
 8. Keys are NOT persisted in DO storage; they are read fresh from KV on each container start.
 
 **Constraints:**
+
 - Encryption uses Web Crypto API AES-256-GCM with random 12-byte IV and KV key name as AAD.
 - The ciphertext format is `v1:` + base64 for forward compatibility.
 - Transparent upgrade: plaintext values are auto-encrypted on read when `ENCRYPTION_KEY` is present.
 
-**Applies To:** User
 **Priority:** P1
+
 **Dependencies:** REQ-SEC-004
+
 **Verification:** Automated test
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-010: Deploy Credential Storage (GitHub PAT, CF API Token)
+### REQ-AGENT-010: Deploy Credential Storage (GitHub PAT, CF API Token)
 
 **Intent:** Users must be able to store GitHub and Cloudflare credentials so that git push, repository management, and Cloudflare deployments work without re-authenticating each session.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. `PUT /api/deploy-keys` validates tokens against provider APIs before storing.
 2. `GET /api/deploy-keys` returns masked tokens, never full values.
 3. `DELETE /api/deploy-keys` clears all stored deploy credentials.
@@ -270,30 +318,34 @@ Multi-agent support, preseed system, and session modes.
 6. Keys are sent as explicit `null` when absent (not omitted) to ensure revocation propagates on session restart.
 7. When `GH_TOKEN` is present, `entrypoint.sh` configures `git config --global credential.helper` for HTTPS auth.
 8. `CLOUDFLARE_ACCOUNT_ID` is auto-fetched from the Cloudflare API when a Cloudflare API token is stored.
-
 9. GitHub token creation offers three scope tiers (Minimal, Recommended, Advanced) via a selector in the connect flow. Recommended is pre-selected. The URL pre-fills the correct scopes per tier.
 10. Cloudflare token creation directs users to use the "Edit Cloudflare Workers" template with account and zone selection. No scope pre-fill (Cloudflare template URLs are broken).
 11. A documentation page lists all scopes per tier with explanations of why each is needed, linked from the UI via "See all scopes".
 
 **Constraints:**
+
 - GitHub Minimal: 1 scope (contents). Recommended: 6 scopes (contents, PRs, actions, workflows, administration, secrets). Advanced: all 19 scopes including Copilot.
 - Cloudflare: "Edit Cloudflare Workers" template covers Workers, KV, R2, Pages, Containers, Routes. Users add extra scopes (D1, DNS, Access, Turnstile) when their agent requests them.
-- Copilot CLI checks env vars in order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`; auth fails silently if the token lacks Copilot scope — requires Advanced tier.
+- Copilot CLI checks env vars in order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`; auth fails silently if the token lacks Copilot scope - requires Advanced tier.
 
-**Applies To:** User
 **Priority:** P1
+
 **Dependencies:** REQ-SEC-004
+
 **Verification:** Automated test
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-011: Agent Configs Manually Recreatable from Settings
+### REQ-AGENT-011: Agent Configs Manually Recreatable from Settings
 
 **Intent:** Users must be able to reset their agent configurations to the platform defaults at any time, recovering from accidental deletion or corruption.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. "Recreate AI agent skills & rules" button in Settings triggers `POST /api/storage/seed/agent-configs`.
 2. The endpoint calls `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })`.
 3. Overwrite mode replaces all preseed-managed files with current defaults.
@@ -304,24 +356,29 @@ Multi-agent support, preseed system, and session modes.
 8. After seeding, the storage stats KV cache is invalidated.
 
 **Constraints:**
+
 - Cleanup uses explicit key lists, not bucket listing or prefix scans.
 - Partial delete failures produce warnings but do not fail the overall operation.
 - Container must perform a bisync cycle to pull the updated R2 files into the local filesystem.
 
-**Applies To:** User
 **Priority:** P1
-**Dependencies:** REQ-AGENT-006, REQ-STOR-010
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), REQ-STOR-010
+
 **Verification:** Manual check
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-012: Fast CLI Start (Configurable)
+### REQ-AGENT-012: Fast CLI Start (Configurable)
 
 **Intent:** Agent CLIs must start quickly by default, with an option for users who want automatic updates.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. `fastStartEnabled` preference (default: `true`) maps to `FAST_CLI_START` container env var.
 2. When enabled, auto-update checks are disabled for all 5 AI tools, eliminating 5-30s startup delay.
 3. Each tool has a specific disable mechanism:
@@ -334,46 +391,56 @@ Multi-agent support, preseed system, and session modes.
 5. Users can toggle this in Settings > Session Defaults.
 
 **Constraints:**
+
 - Gemini settings file is synced via rclone, so jq merge must preserve user customizations.
 - Codex `~/.codex/` directory is excluded from sync, so `version.json` is safe to recreate on every start.
 
-**Applies To:** User
 **Priority:** P1
-**Dependencies:** REQ-AGENT-003
+
+**Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1)
+
 **Verification:** Manual check
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-013: Browser Shim for OAuth Flows
+### REQ-AGENT-013: Browser Shim for OAuth Flows
 
 **Intent:** Agent CLIs that attempt to open a browser for OAuth must degrade gracefully to printing clickable URLs in the terminal.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. `BROWSER` env var points to `/usr/local/bin/open-url` shim that exits with code 1.
 2. `xdg-open` is replaced with a shim (`xdg-open-shim`) that also exits with code 1.
 3. CLIs fall back to printing auth URLs as plain text in the PTY when the browser fails to open.
 4. The xterm.js link provider detects URLs in terminal output and makes them clickable.
 
 **Constraints:**
+
 - The shim must not block or hang; it must exit immediately with a non-zero code.
 - All CLI tools that attempt browser-based OAuth (Claude Code, OpenCode, Gemini) must be covered.
 
-**Applies To:** User
 **Priority:** P1
-**Dependencies:** REQ-AGENT-001
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
+
 **Verification:** Manual check
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-014: Manifest-Driven Preseed Pipeline
+### REQ-AGENT-014: Manifest-Driven Preseed Pipeline
 
 **Intent:** The preseed system must use a declarative manifest to control which files are included, their mode assignments, and their target agents, ensuring auditable and reproducible builds.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. `preseed/agents/claude/manifest.json` is the single declaration of all preseed files and their mode assignments.
 2. The manifest organizes entries by type: rules (including the discipline triad: spec-discipline, documentation-discipline, tdd-discipline), agents, commands, skills (including SDD scaffolding templates), and plugins (memory and hook plugins).
 3. Each entry specifies `"modes"` as an array of `"default"`, `"advanced"`, or both.
@@ -383,23 +450,28 @@ Multi-agent support, preseed system, and session modes.
 7. Variant-per-mode keys (same R2 key, different content per mode) are handled correctly by `getPreseedKeysNotInMode()`.
 
 **Constraints:**
+
 - The manifest must be updated when adding, removing, or re-categorizing preseed files.
 - The generated TypeScript file is a build artifact, not manually maintained.
 
-**Applies To:** User
 **Priority:** P1
-**Dependencies:** REQ-AGENT-006
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
+
 **Verification:** Automated test
 
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-015: /review command for multi-perspective codebase review
+### REQ-AGENT-015: /review command for multi-perspective codebase review
 
 **Intent:** Comprehensive code review using specialized AI agents catches issues a single reviewer would miss.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
+
 1. `/review` launches 6 parallel specialist agents (security, architecture, code quality, dead code, test gaps, documentation), followed by a sequential Reality Filter pass that re-evaluates findings against repeat-offender, memory, cluster-aggregation, user-impact, and spec-vs-shipped questions.
 2. Results cross-referenced and deduplicated.
 3. Findings filtered against architecture decisions.
@@ -408,126 +480,153 @@ Multi-agent support, preseed system, and session modes.
 6. When `doc-updater` is invoked on a project with no `sdd/` or no `documentation/` surface (vibe-coding mode), it writes a one-line no-op header to its output file rather than leaving it empty, so the cross-reference phase can distinguish "ran and found nothing" from "did not run". The other five specialist agents always have a code surface to review and produce findings or `Verified Clean` sections normally.
 7. Findings reported in interactive triage are never auto-applied by `/review`; the user explicitly confirms each fix. The `auto` and `unleashed` modes that auto-apply spec/doc fixes are scoped to the PR-boundary review pipeline and `/sdd clean` (configured via `sdd/config.yml`), not to interactive `/review` invocations.
 
-**Applies To:** User
-
 **Constraints:**
-- None
+
+None.
 
 **Priority:** P1
-**Dependencies:** None
+
+**Dependencies:** None.
+
 **Verification:** Manual check
+
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-016: consult-llm preference toggle
+### REQ-AGENT-016: consult-llm preference toggle
 
 **Intent:** Users control whether their LLM API keys power the multi-model consultation feature.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
+
 1. Toggle in Settings controls whether OpenAI/Gemini keys are passed to the consult-llm MCP server.
 2. Default: off.
 3. When off, consult-llm is not configured in the agent's MCP settings.
 
 **Constraints:**
-- None
+
+None.
 
 **Priority:** P2
-**Dependencies:** REQ-AGENT-009
+
+**Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
+
 **Verification:** Integration test
+
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-017: Bubblewrap sandbox for Codex
+### REQ-AGENT-017: Bubblewrap sandbox for Codex
 
 **Intent:** Codex agent runs in a bubblewrap sandbox for additional isolation within the container.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
+
 1. bubblewrap (bwrap) is installed in the container image.
 2. Codex uses it for sandboxed execution.
 
 **Constraints:**
-- None
+
+None.
 
 **Priority:** P1
-**Dependencies:** REQ-AGENT-001
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
+
 **Verification:** Automated test
+
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-018: Push & Deploy credential management UI
+### REQ-AGENT-018: Push & Deploy credential management UI
 
 **Intent:** Users connect GitHub and Cloudflare accounts through a visual interface without CLI commands.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
+
 1. Settings panel has Deploy Keys section with provider rows for GitHub and Cloudflare.
 2. Tokens validated against provider APIs before saving.
 3. Stored encrypted in KV.
 4. Injected as container env vars (GH_TOKEN, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID).
 
 **Constraints:**
+
 - Must comply with CON-SEC-003
 
 **Priority:** P1
-**Dependencies:** REQ-AGENT-010
+
+**Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
+
 **Verification:** Integration test
+
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-019: Branded settings UI
+### REQ-AGENT-019: Branded settings UI
 
 **Intent:** Professional, intuitive settings panel for managing all user preferences and credentials.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
+
 1. Settings panel uses accordion groups (appearance, session, deploy, LLM, admin).
 2. Provider rows with SVG brand icons and inline expansion.
 3. Appearance section with accent color picker.
 4. Session section with agent type, sleep timeout, session mode dropdowns.
 
 **Constraints:**
-- None
+
+None.
 
 **Priority:** P2
-**Dependencies:** None
+
+**Dependencies:** None.
+
 **Verification:** Manual check
+
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-020: LLM API key management UI
+### REQ-AGENT-020: LLM API key management UI
 
 **Intent:** Users can store their OpenAI and Gemini API keys through a visual interface.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
+
 1. Settings panel has LLM Keys section with masked password inputs for OpenAI and Gemini.
 2. Keys validated before saving.
 3. Delete button clears all keys.
 4. Keys displayed as masked (never shown in full after save).
 
 **Constraints:**
+
 - Must comply with CON-SEC-003
 
 **Priority:** P1
-**Dependencies:** REQ-AGENT-009
+
+**Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
+
 **Verification:** Integration test
+
 **Status:** Implemented
 
 ---
 
-## REQ-AGENT-021: Spec-Driven Development Workflow (Pro)
+### REQ-AGENT-021: Spec-Driven Development Workflow (Pro)
 
 **Intent:** Pro users need a workflow that keeps a product specification in lockstep with their codebase without manual maintenance, so the spec remains a trustworthy single source of truth even when development happens at high velocity.
 
@@ -562,15 +661,19 @@ Multi-agent support, preseed system, and session modes.
 26. `/sdd init` runs Phase 7b (programmatic enumeration-coverage verification) as a second CRITICAL non-skippable gate AFTER Phase 7a and BEFORE iterate-to-clean. Phase 7b executes `verify-enumeration-coverage.py --root . --json-out .phase-7b.json` which walks the working tree, identifies load-bearing source files (under `services/`, `handlers/`, `controllers/`, `providers/`, `models/`, `domain/`, `core/`, `commands/`, `usecases/`, `workers/` OR source-line-count >= 100), and checks each file's repo-relative path against (a) the `<path>` portion of every `<!-- @impl: <path>::<symbol> -->` anchor in `sdd/**/*.md` + `documentation/**/*.md`, AND (b) literal mentions in the layout-appropriate triage files (nested: `sdd/spec/.init-triage.md` + `sdd/spec/.review-queue.md`; flat-layout legacy: `sdd/.init-triage.md` + `sdd/.review-needed.md`). The verifier emits a JSON report `{enumerated, accounted, unaccounted, coverage_pct, accounted_via, unaccounted_entries, exit_code}` and a verbatim summary line which the `[sdd-init]` step-10 commit body MUST include alongside the Phase 7a line: `Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1`. The two gates close the Validation-Equals-Generation gap: Phase 7a verifies every claim the agent wrote is anchored; Phase 7b verifies the agent did not silently drop entire source files from the enumeration. An empty triage queue on Import Mode with `unaccounted > 0` (the agent drafted only around the cleanly-anchorable subset of source) is CRITICAL `import-mode-narrowed-scope`. Agent self-attestation without the verifier output is CRITICAL `phase-7b-self-attestation`; sampling is CRITICAL `phase-7b-incomplete-coverage`; running `spec-enforce` first without Phase 7b is CRITICAL `phase-7b-pipeline-inversion`; committing without the summary line is CRITICAL `phase-7b-evidence-missing`. Per-project waiver: `sdd/spec/.phase-7b-waiver.txt` (one repo-relative path per line) excludes specific framework-boilerplate files from coverage; entries require a one-line justification. Phase 7b is advisory for greenfield (`enumerated=0` and `coverage_pct=100.0` are the expected outcome with no source on disk yet; the commit body line is still required so the audit-trail format stays uniform across modes).
 
 **Constraints:**
+
 - Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the `enforce_tdd` test-coverage rule follow `rules/spec-discipline.md`.
 - The structural-vs-content-quality split, per-pass severity and auto-fix behavior, and the cold-read task registry follow `rules/documentation-discipline.md`.
 
 **Priority:** P1
-**Dependencies:** REQ-AGENT-005, REQ-AGENT-006, REQ-AGENT-007, REQ-AGENT-023, REQ-AGENT-025
+
+**Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
+
 **Verification:** Manual check
+
 **Status:** Implemented
 
-## REQ-AGENT-022: Legacy-codebase transition to SDD via init triage
+### REQ-AGENT-022: Legacy-codebase transition to SDD via init triage
 
 **Intent:** Enterprises migrating a legacy codebase from manual development to autonomous agentic development need a transition path that converts un-extracted intent into a real spec. `/sdd init` Import Mode runs discovery against the full project history — working tree, git log, pull requests, issues (open and closed), code-review comments, release notes, wiki — and produces two outputs from the same pass: official REQs for behavior clear from that surface, and a triage queue for everything unclear, with the agent's concrete Context and Recommendation populated up front. The user resolves the queue at their own pace; until it drains, the project is in SDD transition. Once the queue is empty, full SDD discipline applies and autonomous agentic coding is unlocked, because the agent has a real contract to reason against.
 
@@ -598,17 +701,21 @@ Multi-agent support, preseed system, and session modes.
 14. Status default for CLEAR REQs derived during Import Mode depends on `enforce_tdd`. When `enforce_tdd: false` (the Import Mode default), CLEAR REQs whose source code implements the AC default to `Status: Implemented` unconditionally — the project has opted out of test-based verification at import time, and demoting every imported REQ to `Partial` because tests don't reference REQ IDs (the imported code predates the convention) would falsely brand the spec as 65%+ incomplete. When `enforce_tdd: true`, Status defaults `Implemented` only if a test file references the REQ ID, `Partial` otherwise.
 
 **Constraints:**
+
 - Triage items live only in `sdd/.init-triage.md`. No separate state file, no JSON mirror, no machine-readable index. Git history is the audit trail for who resolved which item with what decision.
 - Triage workflow is interactive only. `auto` and `unleashed` modes do not auto-resolve triage items - the entire point is that judgment is required, and triage cannot be bypassed without abandoning the transition guarantees.
 - `sdd/.init-triage.md` is owned by `/sdd init`. spec-reviewer reads it to determine transition state and to verify resolved items' REQs received the fold-in; doc-updater does not touch it.
 - When `enforce_tdd: false`, each domain `sdd/{domain}.md` file receives one footnote `_Verification: code-only (no automated coverage)._` appended at the bottom. This is the only signal location; per-REQ `Notes:` fields are not used for this signal.
 
 **Priority:** P1
-**Dependencies:** REQ-AGENT-021
+
+**Dependencies:** [REQ-AGENT-021](#req-agent-021-spec-driven-development-workflow-pro)
+
 **Verification:** Manual check
+
 **Status:** Implemented
 
-## REQ-AGENT-023: Knowledge-Graph Capability (Graphify)
+### REQ-AGENT-023: Knowledge-Graph Capability (Graphify)
 
 **Intent:** Every container ships the graphify code-knowledge-graph capability as ambient infrastructure, so any session (default or advanced session mode) can query an existing graph or build a new one without per-tier provisioning.
 
@@ -619,19 +726,24 @@ Multi-agent support, preseed system, and session modes.
 4. The MCP server tolerates a missing `graphify-out/graph.json` at startup. A wrapper (`graphify-mcp-lazy.py`) presents a `LazyGraph` to `graphify.serve` so the server starts with an empty graph and rebinds within `GRAPHIFY_POLL_SECONDS` (default 2 seconds) of a graph file appearing or changing on disk. Sessions that begin with an empty workspace and clone a repo mid-session do not require a Claude Code restart.
 5. In advanced session mode only, a PostToolUse hook (`graphify-active-repo.sh`) writes the current repo root to a sentinel file at `~/.cache/codeflare-hooks/graphify-active-cwd`. The hook fires on the matcher set `Bash | Edit | Write | Read | NotebookEdit | mcp__context-mode__ctx_execute | mcp__context-mode__ctx_execute_file | mcp__context-mode__ctx_batch_execute`. Resolution walks up from the candidate dir to the nearest ancestor containing `.git/` or `graphify-out/`. The MCP wrapper reads this sentinel to rebind its in-memory graph; when the sentinel is absent or stale, the wrapper falls back to the freshest `CODEFLARE_WORKSPACE/*/graphify-out/graph.json` by mtime.
 
+**Applies To:** Agent
+
 **Constraints:**
+
 - Graphify is the upstream `graphifyy` package on PyPI (Apache-2.0). No Codeflare fork.
 - MCP server registration + the `graphify-mcp-lazy.py` wrapper are unconditional on session mode (capability is ambient). The disciplines in REQ-AGENT-024 and the active-repo hook (AC5) are mode-gated to advanced.
 - Per-branch graphs are not supported. The wrapper reads `<repo>/.git/HEAD` only for log identification; graphify upstream models snapshots not branches, so users run `graphify update` after a checkout and the wrapper picks up the new mtime.
 - `[office]`, `[google]`, `[video]`, `[neo4j]`, and external-provider backend extras (`[ollama]`, `[bedrock]`, `[gemini]`, `[openai]`) are not installed. Users who need them can `uv tool install --upgrade graphifyy[all]` manually.
 
-**Applies To:** Agent
 **Priority:** P1
-**Dependencies:** REQ-AGENT-001, REQ-AGENT-004, REQ-AGENT-005, REQ-AGENT-008
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), REQ-AGENT-004, [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-008](#req-agent-008-preseed-deployed-to-container-on-start)
+
 **Verification:** Automated test (`host/__tests__/entrypoint-graphify-mcp.test.js`, `host/__tests__/dockerfile-graphify.test.js`, `host/__tests__/graphify-active-repo.test.js`, `host/__tests__/graphify-mcp-lazy.test.js`)
+
 **Status:** Implemented
 
-## REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
+### REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
 
 **Intent:** In advanced session mode, the agent is taught to prefer the knowledge graph over Grep-style text search for structural questions, so token cost on architecture, dependency, and call-flow questions is bounded.
 
@@ -644,17 +756,22 @@ Multi-agent support, preseed system, and session modes.
 6. In advanced session mode only, before dispatching semantic-extraction subagents in a `/graphify` build (Step B2 of the upstream protocol), the agent presents an `AskUserQuestion` with exactly two modes - AST-only (free, structural edges only) and Full (AST plus parallel Haiku subagents extracting concepts from docs / papers / images) - and includes both the actual subagent count and a wall-time estimate. The question is skipped only when the corpus contains zero docs/papers/images (code-only repos go straight to Part C with nothing for Part B to do).
 7. In advanced session mode only, Part B semantic subagents are dispatched with `model: "haiku"` so per-build cost matches vault-extract economics (~1/8 of opus, ~1/3 of sonnet). Escalation to Sonnet is permitted only when `--mode deep` was explicitly passed on the `/graphify` command; Opus is never used from this skill.
 
+**Applies To:** Agent
+
 **Constraints:**
+
 - The SessionStart hook never auto-builds a graph. It only injects context when one exists or a build suggestion when source files are present without one.
 - The AC4 soft-nudge hook never blocks; semantic judgment of whether a single grep is appropriate cannot be reliably made up-front. The AC5 hard-block enforces a quantitative threshold (3 grep-class calls without a graph query) rather than a per-call semantic judgment, so the two layers compose: nudge on every call, block only when the pattern persists.
 
-**Applies To:** Agent
 **Priority:** P1
-**Dependencies:** REQ-AGENT-023
+
+**Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
+
 **Verification:** Automated test (`host/__tests__/entrypoint-graphify-hooks.test.js`, `host/__tests__/graphify-session-start.test.js`, `host/__tests__/graph-first-nudge.test.js`, `host/__tests__/preseed-graphify-discipline.test.js`, `host/__tests__/skill-graphify-content.test.js`, `host/__tests__/enforce-graphify.test.js`)
+
 **Status:** Implemented
 
-## REQ-AGENT-025: Post-Clone Graph Triage
+### REQ-AGENT-025: Post-Clone Graph Triage
 
 **Intent:** After the agent clones a repo, it must triage whether to build (or refresh) a knowledge graph for it before doing other work, so users on unfamiliar repos do not start cold.
 
@@ -663,16 +780,21 @@ Multi-agent support, preseed system, and session modes.
 2. The directive branches on whether `<cloned-dir>/graphify-out/graph.json` already exists: if absent, the directive instructs the agent to prompt the user via `AskUserQuestion` and run a full `/graphify` build on confirmation; if present, the directive tells the agent to skip the prompt and run `graphify update .` (AST-only incremental refresh).
 3. The hook is idempotent per cloned directory per session via a marker file under `/tmp/codeflare-graphify-prompted-<session_id>/`. The marker dir is session-scoped via `session_id` from the hook envelope (fallback `ppid-$PPID`) so a fresh session re-triages the same clone and stale markers do not persist across container restarts.
 
+**Applies To:** Agent
+
 **Constraints:**
+
 - The hook never invokes graphify directly. It only injects a directive instructing the agent to prompt the user via AskUserQuestion (or to run `graphify update` for the graph-present branch).
 
-**Applies To:** Agent
 **Priority:** P1
-**Dependencies:** REQ-AGENT-023, REQ-AGENT-024
+
+**Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
+
 **Verification:** Automated test (`host/__tests__/graphify-clone-prompt.test.js`)
+
 **Status:** Implemented
 
-## REQ-AGENT-026: Knowledge-Graph Persistence via Git
+### REQ-AGENT-026: Knowledge-Graph Persistence via Git
 
 **Intent:** Graphify artifacts persist with the repository, not with the user, so contributors on a clone inherit the graph for free and Codeflare's R2 bisync does not carry per-repo graph data.
 
@@ -682,16 +804,21 @@ Multi-agent support, preseed system, and session modes.
 3. Repo owners with push permission commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `graph.html`, and optionally `wiki/` to git. Contributors get the graph and a browser-openable interactive visualization on clone. Concurrent edits to `graph.json` in repos that wire `graphify-out/graph.json merge=graphify` in `.gitattributes` are auto-resolved on `git merge` / `git pull` without manual JSON intervention.
 4. For repos without push permission, the graph lives in the working tree only and is ephemeral.
 
+**Applies To:** Agent
+
 **Constraints:**
+
 - SKILL guidance (REQ-AGENT-024 AC3) carries the per-repo `.gitignore` / `.gitattributes` instructions; this REQ specifies the platform-level pieces (bisync exclude, global merge-driver registration).
 
-**Applies To:** Agent
 **Priority:** P1
-**Dependencies:** REQ-AGENT-023
+
+**Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
+
 **Verification:** Automated test (`host/__tests__/entrypoint-graphify-bisync.test.js`, `host/__tests__/dockerfile-graphify.test.js`)
+
 **Status:** Implemented
 
-## REQ-AGENT-027: Context-Mode Interoperability
+### REQ-AGENT-027: Context-Mode Interoperability
 
 **Intent:** When the context-mode plugin is preseeded, the graphify CLI must coexist with the enforce-ctx-mode Bash whitelist and the graph-first soft-nudge must reach the agent through context-mode's redirected tool-call path.
 
@@ -699,11 +826,16 @@ Multi-agent support, preseed system, and session modes.
 1. When the context-mode plugin is preseeded (effectiveTier `unlimited` plus advanced session mode), `graphify` is in the `enforce-ctx-mode.sh` Bash whitelist so `graphify update .` and `graphify query ...` are not denied.
 2. The REQ-AGENT-024 AC4 PreToolUse soft-nudge hook registers both the non-ctx matchers (`Grep`, `Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`, `mcp__context-mode__ctx_batch_execute`) so the nudge fires in both tier paths.
 
+**Applies To:** Agent
+
 **Constraints:**
+
 - Graphify must not depend on context-mode at runtime. `/graphify` extraction uses upstream graphify's subagent-chunking model; context-mode, when present, provides bonus per-subagent token routing via its existing `Read|Grep|Glob|Agent` PreToolUse matchers, but is not a precondition.
 
-**Applies To:** Agent
 **Priority:** P2
-**Dependencies:** REQ-AGENT-023, REQ-AGENT-024
+
+**Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
+
 **Verification:** Automated test (`host/__tests__/enforce-ctx-mode-graphify.test.js`, `host/__tests__/graph-first-nudge.test.js`)
+
 **Status:** Implemented
