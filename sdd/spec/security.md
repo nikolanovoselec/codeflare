@@ -28,6 +28,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-001: Authenticated endpoints reject unauthenticated requests
 
+<!-- @impl: src/lib/access.ts::getUserFromRequest -->
+<!-- @impl: src/lib/access.ts::authenticateRequest -->
+
 **Intent:** All protected surfaces (`/app`, `/api`, `/setup` post-first-configure) must deny access to unauthenticated users with an appropriate HTTP response.
 
 **Applies To:** User
@@ -59,6 +62,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-002: API tokens never enter containers
 
+<!-- @impl: src/container/container-env.ts -->
+<!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token -->
+
 **Intent:** The master Cloudflare API token must never be exposed inside container environments. Containers receive only scoped, per-user credentials.
 
 **Applies To:** User
@@ -85,6 +91,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 ---
 
 ### REQ-SEC-003: Per-user R2 tokens scoped to user bucket
+
+<!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token -->
+<!-- @impl: src/lib/r2-admin.ts::createScopedR2Token -->
+<!-- @impl: src/lib/r2-admin.ts::deleteScopedR2Token -->
 
 **Intent:** Each user's container receives an R2 API token restricted to that user's storage bucket, preventing cross-user data access.
 
@@ -116,6 +126,11 @@ Security requirements for authentication enforcement, credential isolation, encr
 ---
 
 ### REQ-SEC-004: Credential encryption at rest when ENCRYPTION_KEY configured
+
+<!-- @impl: src/lib/kv-crypto.ts::importEncryptionKey -->
+<!-- @impl: src/lib/kv-crypto.ts::encryptForKV -->
+<!-- @impl: src/lib/kv-crypto.ts::decryptFromKV -->
+<!-- @impl: src/lib/kv-crypto.ts::warnIfNoEncryptionKey -->
 
 **Intent:** When an operator provides an encryption key, all user secrets stored in KV must be encrypted at rest using AES-256-GCM.
 
@@ -149,6 +164,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-005: R2 files encrypted via SSE-C when ENCRYPTION_KEY configured
 
+<!-- @impl: src/lib/r2-sse.ts -->
+<!-- @impl: src/lib/r2-client.ts -->
+<!-- @impl: entrypoint.sh::create_rclone_config -->
+
 **Intent:** When an operator provides an encryption key, all R2 object storage operations must use server-side encryption with customer-provided keys (SSE-C).
 
 **Applies To:** User
@@ -180,6 +199,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-006: Transparent KV encryption migration
 
+<!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
+<!-- @impl: src/lib/kv-crypto.ts::encryptAndStore -->
+
 **Intent:** Enabling encryption on an existing deployment with plaintext KV data must be seamless, with no downtime and no data loss.
 
 **Applies To:** User
@@ -210,6 +232,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 ---
 
 ### REQ-SEC-007: Rate limiting on all mutation endpoints
+
+<!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
 
 **Intent:** Every endpoint that creates, modifies, or deletes resources must be rate-limited to prevent abuse and resource exhaustion.
 
@@ -246,6 +270,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-008: Security headers on every response
 
+<!-- @impl: src/index.ts -->
+
 **Intent:** Every HTTP response must include standard security headers to prevent common web attacks.
 
 **Applies To:** User
@@ -279,6 +305,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-009: Input validation at system boundaries
 
+<!-- @impl: src/lib/schemas.ts -->
+<!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN -->
+<!-- @impl: src/lib/access.ts::getBucketName -->
+
 **Intent:** All external input (user requests, API parameters, file paths) must be validated before processing to prevent injection, traversal, and corruption.
 
 **Applies To:** User
@@ -309,6 +339,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-010: Path traversal prevention on storage endpoints
 
+<!-- @impl: src/routes/storage/validation.ts::validateKey -->
+
 **Intent:** Storage API endpoints must prevent directory traversal attacks that could access files outside the user's bucket scope.
 
 **Applies To:** User
@@ -338,6 +370,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-011: Container image scanned for CVEs before deploy
 
+<!-- @impl: .github/workflows/deploy.yml -->
+<!-- @impl: .trivyignore -->
+
 **Intent:** Every container image must be scanned for known vulnerabilities before being deployed to production.
 
 **Applies To:** User
@@ -365,6 +400,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 ---
 
 ### REQ-SEC-012: Container auth token per DO lifecycle
+
+<!-- @impl: src/container/index.ts -->
+<!-- @impl: host/src/server.ts -->
 
 **Intent:** Each Durable Object lifecycle generates a unique auth token for container communication, preventing unauthorized access to container endpoints.
 
@@ -396,6 +434,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-013: Content-Disposition hardening on downloads
 
+<!-- @impl: src/routes/storage/download.ts -->
+
 **Intent:** File download responses must prevent header injection attacks via sanitized filenames.
 
 **Applies To:** User
@@ -422,6 +462,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-014: SaaS service-token header not trusted in SaaS mode
 
+<!-- @impl: src/lib/access.ts::getUserFromRequest -->
+<!-- @impl: src/lib/onboarding.ts::isSaasModeActive -->
+
 **Intent:** The `cf-access-client-id` header must not be trusted as an authentication mechanism in SaaS mode where no CF Access edge validates it.
 
 **Applies To:** User
@@ -446,6 +489,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 ---
 
 ### REQ-SEC-015: Blocked user cannot self-upgrade subscription
+
+<!-- @impl: src/routes/auth.ts -->
+<!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
+<!-- @impl: src/routes/preferences.ts -->
 
 **Intent:** Users with a blocked subscription tier must not be able to bypass the block by accessing subscription endpoints.
 
@@ -475,6 +522,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-016: Concurrent cache deduplication for auth config
 
+<!-- @impl: src/lib/access.ts::resetAuthConfigCache -->
+<!-- @impl: src/lib/jwt.ts -->
+
 **Intent:** Multiple concurrent cold-start requests must not issue redundant KV reads for authentication configuration.
 
 **Applies To:** User
@@ -501,6 +551,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 ---
 
 ### REQ-SEC-017: R2 bucket nuke workflow for encryption migration
+
+<!-- @impl: .github/workflows/deploy.yml -->
 
 **Intent:** When enabling R2 SSE-C encryption, existing unencrypted files must be purged because they become unreadable with SSE-C enabled.
 
