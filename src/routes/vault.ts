@@ -371,27 +371,42 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
   const escapedKey = escape(vaultEncryptionKey);
   const escapedSid = escape(sessionId);
   const escapedCookie = escape(VAULT_BOOTSTRAP_COOKIE);
+  // The cookie and redirect run ONLY inside the SW-success branch.
+  // If SW registration or the postMessage handoff fails (private mode,
+  // SW disabled, exotic browser), we must NOT set the cookie or redirect
+  // \u2014 falling through to SB without a key in the SW would silently boot
+  // unencrypted IDB, the exact regression this REQ exists to prevent.
+  // Instead, show an inline failure UI so the user sees the problem
+  // and can retry instead of getting opaquely-plaintext storage.
   return '<!doctype html>\n' +
     '<html><head><meta charset="utf-8"><title>Codeflare vault loading</title>' +
-    '<style>html,body{height:100%;margin:0;background:#1e1e1e;color:#888;' +
+    '<style>html,body{height:100%;margin:0;background:#1e1e1e;color:#ccc;' +
     'font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;' +
-    'align-items:center;justify-content:center}</style>' +
-    '</head><body><div>Loading vault\u2026</div><script>' +
+    'align-items:center;justify-content:center;text-align:center;padding:1em}</style>' +
+    '</head><body><div id="status">Loading vault\u2026</div><script>' +
     '(async function () {' +
     'var sid = ' + escapedSid + ';' +
     'var key = ' + escapedKey + ';' +
     'var cookieName = ' + escapedCookie + ';' +
     'var scope = "/api/vault/" + sid + "/";' +
+    'function fail(msg) {' +
+    'var el = document.getElementById("status");' +
+    'if (el) el.textContent = "Vault could not start encryption: " + msg + ". Reload to retry.";' +
+    'console.warn("Codeflare vault bootstrap:", msg);' +
+    '}' +
     'try { localStorage.setItem("enableEncryption", "true"); } catch (_) {}' +
     'try {' +
     'await navigator.serviceWorker.register(scope + "service_worker.js", { scope: scope });' +
     'var reg = await navigator.serviceWorker.ready;' +
     'var sw = reg.active || reg.installing || reg.waiting;' +
-    'if (sw) sw.postMessage({ type: "set-encryption-key", key: key });' +
+    'if (!sw) { fail("service worker not active"); return; }' +
+    'sw.postMessage({ type: "set-encryption-key", key: key });' +
     '} catch (e) {' +
-    'console.warn("Codeflare vault bootstrap: service worker registration failed", e);' +
+    'fail("service worker registration failed (" + (e && e.message ? e.message : e) + ")");' +
+    'return;' +
     '}' +
-    'document.cookie = cookieName + "=1; Path=" + scope + "; SameSite=Lax";' +
+    '// SW is active and has the key; safe to mark the hop complete and proceed.' +
+    'document.cookie = cookieName + "=1; Path=" + scope + "; SameSite=Lax; Secure";' +
     'location.replace(scope);' +
     '})();' +
     '</script></body></html>';
