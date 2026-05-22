@@ -68,7 +68,8 @@ test_globs:
 #     stays true (quoted UI strings ARE the assertion target).
 #   - Custom: each flag set individually at init.
 #
-# Re-run `/sdd mode allowlist` to flip the flavour mid-project.
+# To flip the flavour mid-project, hand-edit the five flags below and run
+# `/sdd clean` to re-walk the spec under the new rules.
 forbidden_content_allowlist:
   protocols: {{ALLOWLIST_PROTOCOLS}}        # OAuth, JWT, WebSocket, etc.
   vendors: {{ALLOWLIST_VENDORS}}          # Cloudflare Access, Stripe, Resend, etc.

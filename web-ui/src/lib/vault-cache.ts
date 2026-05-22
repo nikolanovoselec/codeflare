@@ -27,9 +27,9 @@
 // was the sid; with the real format that field is the sha256 hex and
 // every name appeared "orphan", which nuked the live session's IDB on
 // every Dashboard mount and forced a full SB resync on every reopen.
-// The test file pins this invariant — see vault-cache.test.ts.
+// The test file pins this invariant - see vault-cache.test.ts.
 //
-// All operations are fail-safe — a missing global (SSR, fresh tab) or
+// All operations are fail-safe - a missing global (SSR, fresh tab) or
 // rejected lookup is swallowed silently because cleanup is best-effort
 // and must never block the delete UI or dashboard mount.
 
@@ -120,7 +120,7 @@ function readRecordedIdbNames(ls: Storage, sid: string): string[] {
 function deleteRecordedIdbs(idb: IDBFactory, names: string[]): void {
   // Fire-and-forget: `IDBFactory.deleteDatabase` returns an
   // IDBOpenDBRequest whose `success` fires asynchronously after the
-  // request is queued. We intentionally do NOT await — callers clear
+  // request is queued. We intentionally do NOT await - callers clear
   // the localStorage marker on the next line and want that visible
   // immediately so a concurrent Dashboard mount sees the sid as gone.
   // The trade-off: if the queued deletion fails post-marker-clear, the
@@ -134,7 +134,7 @@ function deleteRecordedIdbs(idb: IDBFactory, names: string[]): void {
       idb.deleteDatabase(name);
     } catch {
       // The sync throw path covers cases like a malformed name. Swallow
-      // — cleanup is best-effort.
+      // - cleanup is best-effort.
     }
   }
 }
