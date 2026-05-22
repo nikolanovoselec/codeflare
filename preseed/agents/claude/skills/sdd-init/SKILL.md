@@ -80,7 +80,7 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - `Constraints:` and `Dependencies:` ALWAYS present. Render `None.` (literal) when empty. CON-* and REQ-* IDs MUST render as markdown anchor links, not plain text.
    - Every AC describing observable behaviour ends with `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`.
    - `**Applies To:**`, `**Priority:**`, `**Verification:**` are REQUIRED — no REQ is allowed to omit them.
-   - **Notes is OPTIONAL** with two sanctioned shapes only: (a) Partial-explanation (`Status: Partial` only, ≤3 sentences, no mechanism tokens or SHAs) OR (b) Doc-pointer (any status, ≤2 sentences, MUST contain a markdown link to `documentation/**` or `sdd/**`). Sibling-REQ cross-refs go in `Dependencies:`, not Notes.
+   - **Notes is OPTIONAL** with two sanctioned shapes only: (a) Partial-explanation (`Status: Partial` only, ≤3 sentences explaining what's unmet — no mechanism tokens like file paths, function names, env vars, or commit SHAs; those go in `pending.md` or `documentation/`) OR (b) Doc-pointer (any status, ≤2 sentences, MUST contain a markdown link to `documentation/**` or `sdd/**`). Sibling-REQ cross-refs go in `Dependencies:`, not Notes.
    - **Banned inside a REQ body** (Intent or any AC): sub-headings (`####`/`#####`), nested lists, code blocks (` ``` `), tables, strikethrough, block quotes, "Current behaviour:" / "Previously:" branches. These belong in `documentation/`, not in the spec.
    - Each REQ ends with `---` on its own line, blank lines either side.
 
