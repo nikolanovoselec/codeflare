@@ -24,6 +24,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - Desktop Obsidian or web-VNC clients (SilverBullet covers the editing surface)
 - Standalone vault-only container (vault lives inside the session container)
 - Migration of legacy `~/.memory/session-*.jsonl` into the vault (MCP server-memory subsystem is removed; no historical graph is preserved)
+- Per-session `syncConcurrency` tuning for SilverBullet's sync engine. The value is a hardcoded module-level constant in SB 2.8 (`client/spaces/sync.ts:9`, value=3) and is not configurable via BootConfig. The cold-start latency delta between the SB default and a forked 15 is small at typical vault sizes (<1k files) and not worth maintaining a fork.
+- Lazy attachment loading for paths under `Raw/Pasted/**`. SB pastes attachments alongside the note they were dropped into, not under a centralised `Raw/Pasted/` tree, so the lazy-prefix optimisation has no real workload to apply to.
 
 ### Domain Dependencies
 

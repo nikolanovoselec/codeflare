@@ -297,6 +297,7 @@ describe('validateVaultRoute', () => {
         },
         skipWaiting,
         clients: { claim: clientsClaim },
+        location: { origin: 'https://codeflare.test' },
       };
       // eslint-disable-next-line @typescript-eslint/no-implied-eval
       const runShim = new Function('self', VAULT_KEY_SHIM_SERVICE_WORKER_JS);
@@ -312,17 +313,24 @@ describe('validateVaultRoute', () => {
       expect(clientsClaim).toHaveBeenCalled();
       expect(waitUntilArgs).toHaveLength(1);
 
-      // set-encryption-key stores
-      listeners.message?.({ data: { type: 'set-encryption-key', key: 'KEY-AAAA' } });
+      // Same-origin client builder
+      const sameOrigin = (replies: unknown[]) => ({
+        url: 'https://codeflare.test/api/vault/abc/',
+        postMessage: (msg: unknown) => replies.push(msg),
+      });
+
+      // set-encryption-key stores (sent from same-origin client)
+      listeners.message?.({
+        data: { type: 'set-encryption-key', key: 'KEY-AAAA' },
+        source: sameOrigin([]),
+      });
 
       // get-encryption-key replies via event.source.postMessage
       const replies: Array<{ type: string; key: string | undefined }> = [];
-      const source = {
-        postMessage: (msg: { type: string; key: string | undefined }) => {
-          replies.push(msg);
-        },
-      };
-      listeners.message?.({ data: { type: 'get-encryption-key' }, source });
+      listeners.message?.({
+        data: { type: 'get-encryption-key' },
+        source: sameOrigin(replies),
+      });
       expect(replies).toEqual([{ type: 'encryption-key', key: 'KEY-AAAA' }]);
 
       // get-encryption-key before any set returns undefined (fresh SW)
@@ -333,27 +341,89 @@ describe('validateVaultRoute', () => {
         },
         skipWaiting,
         clients: { claim: clientsClaim },
+        location: { origin: 'https://codeflare.test' },
       };
       // eslint-disable-next-line @typescript-eslint/no-implied-eval
       const runShim2 = new Function('self', VAULT_KEY_SHIM_SERVICE_WORKER_JS);
       runShim2(fresh);
-      const source2 = {
-        postMessage: (msg: { type: string; key: string | undefined }) => {
-          replies2.push(msg);
-        },
-      };
-      listeners.message?.({ data: { type: 'get-encryption-key' }, source: source2 });
+      listeners.message?.({
+        data: { type: 'get-encryption-key' },
+        source: sameOrigin(replies2),
+      });
       expect(replies2).toEqual([{ type: 'encryption-key', key: undefined }]);
 
       // Unknown message types are ignored (no throw, no reply)
       const replies3: unknown[] = [];
-      const sourceQuiet = {
-        postMessage: (msg: unknown) => {
-          replies3.push(msg);
-        },
-      };
-      listeners.message?.({ data: { type: 'something-else' }, source: sourceQuiet });
+      listeners.message?.({
+        data: { type: 'something-else' },
+        source: sameOrigin(replies3),
+      });
       expect(replies3).toEqual([]);
+    });
+
+    it('VAULT_KEY_SHIM_SERVICE_WORKER_JS rejects cross-origin clients (defence in depth)', () => {
+      // The SW scope already restricts which clients can talk to it, but
+      // we also gate on event.source.url being same-origin so that any
+      // future scope-widening or sibling-page accident does NOT leak
+      // the AES key out of the vault origin.
+      const listeners: Record<string, (e: unknown) => void> = {};
+      const self = {
+        addEventListener: (type: string, fn: (e: unknown) => void) => {
+          listeners[type] = fn;
+        },
+        skipWaiting: vi.fn(),
+        clients: { claim: vi.fn(() => Promise.resolve()) },
+        location: { origin: 'https://codeflare.test' },
+      };
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
+      new Function('self', VAULT_KEY_SHIM_SERVICE_WORKER_JS)(self);
+
+      // Prime with a key (from a legitimate same-origin client).
+      listeners.message?.({
+        data: { type: 'set-encryption-key', key: 'SECRET' },
+        source: {
+          url: 'https://codeflare.test/api/vault/abc/',
+          postMessage: () => {},
+        },
+      });
+
+      // Attacker (cross-origin) tries to read the key.
+      const evilReplies: unknown[] = [];
+      listeners.message?.({
+        data: { type: 'get-encryption-key' },
+        source: {
+          url: 'https://evil.example/x',
+          postMessage: (msg: unknown) => evilReplies.push(msg),
+        },
+      });
+      expect(evilReplies).toEqual([]);
+
+      // Attacker tries to overwrite the key with a known value.
+      listeners.message?.({
+        data: { type: 'set-encryption-key', key: 'ATTACKER' },
+        source: {
+          url: 'https://evil.example/x',
+          postMessage: () => {},
+        },
+      });
+      // Same-origin readback confirms the key is still SECRET.
+      const goodReplies: Array<{ type: string; key: string | undefined }> = [];
+      listeners.message?.({
+        data: { type: 'get-encryption-key' },
+        source: {
+          url: 'https://codeflare.test/api/vault/abc/',
+          postMessage: (msg: { type: string; key: string | undefined }) => goodReplies.push(msg),
+        },
+      });
+      expect(goodReplies).toEqual([{ type: 'encryption-key', key: 'SECRET' }]);
+
+      // Sources lacking a parseable url are also rejected.
+      const noUrlReplies: unknown[] = [];
+      listeners.message?.({
+        data: { type: 'get-encryption-key' },
+        source: { postMessage: (msg: unknown) => noUrlReplies.push(msg) },
+      });
+      expect(noUrlReplies).toEqual([]);
     });
   });
 
@@ -548,23 +618,32 @@ describe('validateVaultRoute', () => {
       const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
       // Failure UI exists.
       expect(out).toContain('Vault could not start encryption');
-      // Catch branch returns early (no redirect) — the `return;` is
-      // load-bearing and pinned here.
-      const catchClause = out.match(/} catch \(e\) \{[\s\S]*?\}/);
-      expect(catchClause).toBeTruthy();
-      expect(catchClause![0]).toContain('return;');
-      expect(catchClause![0]).not.toContain('document.cookie');
-      expect(catchClause![0]).not.toContain('location.replace');
-      // Cookie/redirect order: cookie set BEFORE location.replace, both
-      // after the catch BLOCK ends (not just after the catch start).
-      // Walk past the `} catch (e) {` opener (note: indexOf returns the
-      // leading `}` of that fragment; we need to advance past the WHOLE
-      // catch fragment and then find the next `}` that closes its body).
+      // Walk balanced braces to extract the FULL catch body (the body
+      // contains a try/catch of its own for the localStorage rollback,
+      // so a non-greedy regex match would stop too early).
       const catchOpenStr = '} catch (e) {';
       const catchOpenIdx = out.indexOf(catchOpenStr);
       expect(catchOpenIdx).toBeGreaterThanOrEqual(0);
-      const catchBodyEndIdx = out.indexOf('}', catchOpenIdx + catchOpenStr.length);
-      expect(catchBodyEndIdx).toBeGreaterThan(catchOpenIdx);
+      const bodyStart = catchOpenIdx + catchOpenStr.length;
+      let depth = 1;
+      let i = bodyStart;
+      for (; i < out.length && depth > 0; i++) {
+        if (out[i] === '{') depth++;
+        else if (out[i] === '}') depth--;
+      }
+      const catchBodyEndIdx = i - 1; // position of the closing `}`
+      expect(depth).toBe(0);
+      const catchBody = out.slice(bodyStart, catchBodyEndIdx);
+      // Catch branch returns early (no redirect, no cookie).
+      expect(catchBody).toContain('return;');
+      expect(catchBody).not.toContain('document.cookie');
+      expect(catchBody).not.toContain('location.replace');
+      // Rollback: the catch path clears the localStorage flag we
+      // optimistically set before register(), so a reload does not boot
+      // SB with enableEncryption=true but no SW key.
+      expect(catchBody).toContain('localStorage.removeItem("enableEncryption")');
+      // Cookie/redirect order: cookie set BEFORE location.replace, both
+      // after the catch block closes.
       const cookieIdx = out.indexOf('document.cookie');
       const replaceIdx = out.indexOf('location.replace');
       expect(cookieIdx).toBeGreaterThan(catchBodyEndIdx);
@@ -574,9 +653,24 @@ describe('validateVaultRoute', () => {
     it('aborts (no cookie, no redirect) when reg.active/installing/waiting are all null', () => {
       // Edge case the function explicitly handles: serviceWorker.ready
       // resolves but the registration has no SW reference yet. The
-      // hop must NOT proceed.
+      // hop must NOT proceed AND must roll back the localStorage flag
+      // it optimistically set above the try block.
       const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
-      expect(out).toContain('if (!sw) { fail("service worker not active"); return; }');
+      // The if-branch body contains both the rollback and the fail+return.
+      const ifIdx = out.indexOf('if (!sw)');
+      expect(ifIdx).toBeGreaterThanOrEqual(0);
+      // Walk to the closing brace of the if-body.
+      const bodyStart = out.indexOf('{', ifIdx) + 1;
+      let depth = 1;
+      let i = bodyStart;
+      for (; i < out.length && depth > 0; i++) {
+        if (out[i] === '{') depth++;
+        else if (out[i] === '}') depth--;
+      }
+      const ifBody = out.slice(bodyStart, i - 1);
+      expect(ifBody).toContain('localStorage.removeItem("enableEncryption")');
+      expect(ifBody).toContain('fail("service worker not active")');
+      expect(ifBody).toContain('return;');
     });
 
     it('embeds the session id verbatim once', () => {
