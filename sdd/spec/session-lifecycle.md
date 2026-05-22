@@ -27,6 +27,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-001: Session creation with name and agent type
 
+<!-- @impl: src/routes/session/crud.ts -->
+<!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN -->
+
 **Intent:** A user can create a named session associated with a specific AI agent, producing a unique session record stored in KV.
 
 **Applies To:** User
@@ -56,6 +59,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-002: One container per session (isolation)
 
+<!-- @impl: src/container/index.ts -->
+<!-- @impl: src/lib/container-helpers.ts::getContainerId -->
+
 **Intent:** Each session maps to exactly one Durable Object container instance, providing full process-level isolation between sessions.
 
 **Applies To:** User
@@ -83,6 +89,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 ---
 
 ### REQ-SESSION-003: R2 bucket mounted and synced on start
+
+<!-- @impl: src/container/index.ts -->
+<!-- @impl: src/container/container-env.ts -->
+<!-- @impl: src/lib/r2-admin.ts::createBucketIfNotExists -->
 
 **Intent:** When a container starts, the user's persistent R2 storage is mounted and bidirectionally synced so the workspace contains all previously persisted files.
 
@@ -112,6 +122,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 ---
 
 ### REQ-SESSION-004: Idle containers sleep after configurable timeout
+
+<!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+<!-- @impl: src/container/index.ts -->
 
 **Intent:** Containers that receive no user input for a configurable duration are automatically stopped to conserve resources and reduce cost.
 
@@ -145,6 +158,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-005: Input-based idle detection
 
+<!-- @impl: host/src/activity-tracker.ts -->
+<!-- @impl: host/src/session.ts -->
+<!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+
 **Intent:** Idle detection is based on actual user input (keystrokes, control keys, mouse clicks), not on WebSocket connection activity or heartbeat pings.
 
 **Applies To:** User
@@ -175,6 +192,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-006: User can stop, restart, and delete sessions
 
+<!-- @impl: src/routes/session/lifecycle.ts -->
+<!-- @impl: src/routes/session/crud.ts -->
+<!-- @impl: src/container/index.ts -->
+
 **Intent:** Users have explicit control over session lifecycle: stop a running session, restart a stopped session, or permanently delete a session.
 
 **Applies To:** User
@@ -203,6 +224,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 ---
 
 ### REQ-SESSION-007: Running session count limited per tier
+
+<!-- @impl: src/routes/container/lifecycle.ts::validateSessionAndCheckLimits -->
+<!-- @impl: src/lib/subscription.ts::getMaxSessionsForTier -->
+<!-- @impl: src/lib/constants.ts::getMaxSessions -->
 
 **Intent:** The number of concurrently running sessions is capped per subscription tier to enforce fair usage and plan differentiation.
 
@@ -233,6 +258,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-008: Container restart preserves R2 bucket
 
+<!-- @impl: src/container/index.ts -->
+<!-- @impl: src/routes/container/lifecycle.ts -->
+
 **Intent:** Restarting a session reconnects to the same R2 bucket, preserving all user files without data loss.
 
 **Applies To:** User
@@ -260,6 +288,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 ---
 
 ### REQ-SESSION-009: Container destroy wipes session state
+
+<!-- @impl: src/container/index.ts -->
 
 **Intent:** Destroying a container clears all transient session state from the Durable Object, leaving only the persistent KV record and R2 bucket.
 
@@ -289,6 +319,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 ---
 
 ### REQ-SESSION-010: Session status observable from dashboard
+
+<!-- @impl: src/routes/session/crud.ts -->
+<!-- @impl: web-ui/src/stores/session-polling.ts -->
 
 **Intent:** The dashboard displays the current status of each session (running, stopped, initializing, stopping, error) with near-real-time updates.
 
@@ -322,6 +355,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-011: Graceful shutdown with final sync
 
+<!-- @impl: entrypoint.sh::shutdown_handler -->
+<!-- @impl: src/container/index.ts -->
+<!-- @impl: Dockerfile -->
+
 **Intent:** When a container stops (idle timeout or user-initiated), a final bidirectional sync to R2 runs before process termination, ensuring no data loss.
 
 **Applies To:** User
@@ -352,6 +389,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-012: Wake-loop prevention
 
+<!-- @impl: src/container/index.ts -->
+<!-- @impl: src/routes/terminal.ts -->
+<!-- @impl: web-ui/src/stores/terminal.ts -->
+
 **Intent:** A browser's automatic WebSocket reconnect must not wake a hibernated container in an infinite stop/start cycle.
 
 **Applies To:** User
@@ -379,6 +420,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 ---
 
 ### REQ-SESSION-013: Sleep timer countdown UI
+
+<!-- @impl: web-ui/src/components/Dashboard.tsx -->
+<!-- @impl: web-ui/src/components/Header.tsx -->
 
 **Intent:** Users see how much idle time remains before their session hibernates.
 
@@ -408,6 +452,9 @@ None.
 
 ### REQ-SESSION-014: User-configurable auto-sleep timeout in Settings
 
+<!-- @impl: src/routes/preferences.ts -->
+<!-- @impl: src/container/index.ts -->
+
 **Intent:** Users choose how long their sessions stay alive when idle.
 
 **Applies To:** User
@@ -435,6 +482,10 @@ None.
 
 ### REQ-SESSION-015: Container Port-Readiness Gating with Pre-Warm Pre-Condition
 
+<!-- @impl: host/src/server.ts -->
+<!-- @impl: host/src/prewarm-config.ts -->
+<!-- @impl: entrypoint.sh -->
+
 **Intent:** A new container must bind its serving port quickly so Cloudflare's port-wait check succeeds, yet must refuse real terminal traffic until initial state restore and pre-warm are complete; the readiness gate sits between the port bind and the first accepted WebSocket upgrade.
 
 **Applies To:** User
@@ -460,6 +511,10 @@ None.
 ---
 
 ### REQ-SESSION-016: User timezone propagated from preferences to container env
+
+<!-- @impl: src/routes/preferences.ts -->
+<!-- @impl: src/container/container-env.ts -->
+<!-- @impl: web-ui/src/components/Dashboard.tsx -->
 
 **Intent:** The capture pipeline and any other consumer of `$USER_TIMEZONE` inside the container must receive the user's IANA timezone choice without manual env-var configuration; the preference is set via the preferences API and persists across restarts.
 
