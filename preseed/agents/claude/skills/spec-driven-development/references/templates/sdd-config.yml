@@ -56,13 +56,25 @@ test_globs:
   - "e2e/**"
 
 # Forbidden content allowlist — which categories are acceptable inside REQs.
-# When false, the category is banned. When true, it's allowed.
+# When false, the category is banned and any AC/Intent mentioning it is
+# flagged HIGH `forbidden-content-in-req`; the content moves to
+# documentation/. When true, the category is allowed.
+#
+# These five flags are set by the agent at /sdd init time based on the
+# spec-flavour prompt:
+#   - Technical (default for engineering teams): all five flags = true.
+#   - Business / behavioural (stakeholders read REQs): protocols, vendors,
+#     http_codes_in_api_reqs, performance_numbers = false; user_facing_strings
+#     stays true (quoted UI strings ARE the assertion target).
+#   - Custom: each flag set individually at init.
+#
+# Re-run `/sdd mode allowlist` to flip the flavour mid-project.
 forbidden_content_allowlist:
-  protocols: true        # OAuth, JWT, WebSocket, etc.
-  vendors: true          # Cloudflare Access, Stripe, Resend, etc.
-  http_codes_in_api_reqs: true  # HTTP status codes when documenting an API contract REQ
-  performance_numbers: true  # "p95 < 200ms", "LCP < 2.5s"
-  user_facing_strings: true  # quoted text the user actually sees
+  protocols: {{ALLOWLIST_PROTOCOLS}}        # OAuth, JWT, WebSocket, etc.
+  vendors: {{ALLOWLIST_VENDORS}}          # Cloudflare Access, Stripe, Resend, etc.
+  http_codes_in_api_reqs: {{ALLOWLIST_HTTP_CODES}}  # HTTP status codes when documenting an API contract REQ
+  performance_numbers: {{ALLOWLIST_PERFORMANCE}}  # "p95 < 200ms", "LCP < 2.5s"
+  user_facing_strings: {{ALLOWLIST_USER_FACING}}  # quoted text the user actually sees
 
 # Per-REQ overrides — REQ IDs that opt out of forbidden-content checks entirely
 forbidden_content_overrides: []

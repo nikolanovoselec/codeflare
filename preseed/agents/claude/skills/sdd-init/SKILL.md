@@ -18,7 +18,37 @@ Detect via source-file count (greenfield-vs-import) and presence of open triage 
 
 Compresses the old 10-15-turn back-and-forth into two decisions.
 
-1. **Ask for vision** (one free-form question if `$ARGUMENTS` is empty). Confirm what you heard in one sentence.
+1. **Ask for vision** (one free-form question if `$ARGUMENTS` is empty). Confirm what you heard in one sentence. **Then ask for spec flavour** with one question:
+
+   ```
+   What kind of spec is this?
+
+   1. Technical — REQs may name protocols (OAuth, JWT), vendors (Cloudflare,
+      Stripe), HTTP status codes, performance targets, and user-facing strings.
+      Default for engineering teams shipping software.
+
+   2. Business / behavioural — REQs describe observable behaviour only. No
+      protocols, no vendor names, no status codes inside REQs; technical
+      detail lives in documentation/. Pick this when stakeholders read REQs.
+
+   3. Custom — set each of the five forbidden-content allowlist flags
+      individually.
+   ```
+
+   The choice writes `forbidden_content_allowlist:` in `sdd/spec/config.yml` at step 5:
+
+   | Flag | Technical | Business | Custom |
+   |---|---|---|---|
+   | `protocols` | true | false | prompt |
+   | `vendors` | true | false | prompt |
+   | `http_codes_in_api_reqs` | true | false | prompt |
+   | `performance_numbers` | true | false | prompt |
+   | `user_facing_strings` | true | true | prompt |
+
+   `user_facing_strings` stays `true` on Business by default — quoted UI strings ARE the AC's assertion target, banning them leaves no concrete trigger to assert against. Custom can override.
+
+   This choice is binding: Business-flavour specs that later contain protocol/vendor/status-code references generate HIGH `forbidden-content-in-req` findings during enforcement, and the agent moves the content to `documentation/` rather than allowing it through.
+
 2. **Draft the entire spec in memory** without further questions. In Import Mode, drafting MUST iterate over the Phase 4 behavioral-enumeration table (see § "Behavioral enumeration (Phase 4)" below): every enumerated item MUST resolve to exactly one of (a) a drafted AC carrying an `@impl` anchor, (b) a triage entry in `.init-triage.md` with Context + Recommendation, or (c) an explicit one-line entry in the domain README's "Out of Scope" section. In greenfield this constraint is trivially satisfied because the drafted REQs ARE the enumeration; see Phase 4 for the greenfield carve-out. Items silently dropped from the draft on Import Mode are detected by the Phase 7b verifier (step 8) and block commit. Derive:
    - Actors (typically 2-3; User, Admin defaults; never "System")
    - Design principles (3-7 specific to this product, not generic)
@@ -39,6 +69,20 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - One `sdd/spec/{domain}.md` per drafted domain (each AC carries `<!-- @impl: <path>::<symbol> -->` anchors per Phase 5's source-evidence pass)
    - Empty `sdd/spec/.review-queue.md` with `_Awaiting first finding._` placeholder
    - Empty `tests/` directory
+
+   **REQ rendering — MUST READ before writing any `sdd/spec/{domain}.md` file.** The canonical shape lives at `references/templates/req-shape-example.md` (single source of truth). Open that file and copy the SHAPE of REQ-EXAMPLE-001 for every REQ you emit. The hard rules below are scannable mid-write; the full exemplar with two worked cases (populated + `None.`-rendered) lives in the template file.
+
+   **Hard rules (every REQ in every emitted file):**
+   - Heading is `### REQ-{DOMAIN}-{NNN}: {Title}` (H3, not H2).
+   - Field order is locked: **Intent → Applies To → Acceptance Criteria → Notes (optional) → Constraints → Priority → Dependencies → Verification → Status**. Status is the LAST field, never the first.
+   - One blank line between every labeled field. Stacking two `**Field:**` lines on consecutive lines collapses them on GitHub and is MEDIUM `trailing-fields-collapsed`.
+   - ACs are NUMBERED (`1. 2. 3.`), never bulleted (`-`). Bulleted ACs are MEDIUM `ac-bullets-not-numbered`.
+   - `Constraints:` and `Dependencies:` ALWAYS present. Render `None.` (literal) when empty. CON-* and REQ-* IDs MUST render as markdown anchor links, not plain text.
+   - Every AC describing observable behaviour ends with `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`.
+   - `**Applies To:**`, `**Priority:**`, `**Verification:**` are REQUIRED — no REQ is allowed to omit them.
+   - Each REQ ends with `---` on its own line, blank lines either side.
+
+   Deviation from this shape is a MEDIUM finding caught by `spec-enforce` row 3 (REQ rendering template) on the next PR-boundary review. **The shape is non-negotiable** — do not invent a tighter form because writing 15-45 REQs in a row is tedious. Re-open `req-shape-example.md` between domains if drift creeps in.
 
    **Emit only files in the canonical layout** (defined in `spec-driven-development` § "Spec structure"). Anything outside that layout — including `sdd/spec/README.md` or `documentation/lanes/README.md` — is a HIGH `layout-violation` caught by `doc-enforce-lanes` § Layout conformance on the next review. The single comprehensive index lives in `sdd/README.md` (Domains table linking to `spec/{file}.md`) and `documentation/README.md` (Jump-TOC linking to lanes + decisions).
 6. **Run Phase 6 — documentation lane emission and audit.** Conditional per-lane emission driven by source evidence (see § Phase 6 below). Emit each template VERBATIM — the `documentation-readme.md` template includes Jump-TOC, Lane ownership table, REQ backlinks section, Synonym glossary, Reading order, and Related links; abbreviated emission that strips any of those sections is a HIGH `scaffold-template-stripped` finding caught by step 9's iterate-to-clean (the audit verifies all template section headings are present in the emitted output). Outputs:
