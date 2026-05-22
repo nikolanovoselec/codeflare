@@ -286,9 +286,12 @@ describe('entrypoint.sh bisync daemon behavior (real)', () => {
       writeFileSync(releaseFile, '');
       // Wait for the rerun (n=2) to appear.
       await waitFor(h.logFile, (s) => /BISYNC_CALLED n=2/.test(s), 5000);
-      // Sleep long enough to be sure no n=3 ever appears. With
-      // patched 1s cadence, ~2s is enough to catch a runaway rerun.
-      await new Promise((r) => setTimeout(r, 2000));
+      // Sleep long enough to be sure no n=3 ever appears. With patched
+      // 1s cadence, 3 full cycles is the smallest window that catches a
+      // runaway rerun while staying within CI's per-test budget. Tuned up
+      // from 2s after code-reviewer flagged the original as flake-prone
+      // on the 1-vCPU CI runner.
+      await new Promise((r) => setTimeout(r, 3500));
       const finalLog = readFileSync(h.logFile, 'utf8');
       const matches = finalLog.match(/BISYNC_CALLED n=\d+/g) || [];
       // Count distinct n=1, n=2 occurrences. The bisync stub increments

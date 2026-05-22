@@ -133,16 +133,22 @@ export function maybeSynthesizeCsrfHeader(request: Request, originValidated: boo
 export const VAULT_KEY_SHIM_SERVICE_WORKER_JS =
   '// Codeflare vault key-shim service worker - see src/routes/vault.ts.\n' +
   'let encryptionKey = undefined;\n' +
+  'function isSameOriginClient(source) {\n' +
+  '  if (!source || typeof source.url !== "string") return false;\n' +
+  '  try { return new URL(source.url).origin === self.location.origin; }\n' +
+  '  catch (_) { return false; }\n' +
+  '}\n' +
   'self.addEventListener("install", () => self.skipWaiting());\n' +
   'self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));\n' +
   'self.addEventListener("message", (event) => {\n' +
   '  const msg = event && event.data;\n' +
   '  if (!msg || typeof msg !== "object") return;\n' +
+  '  if (!isSameOriginClient(event.source)) return;\n' +
   '  if (msg.type === "set-encryption-key") {\n' +
   '    encryptionKey = msg.key;\n' +
   '    return;\n' +
   '  }\n' +
-  '  if (msg.type === "get-encryption-key" && event.source) {\n' +
+  '  if (msg.type === "get-encryption-key") {\n' +
   '    event.source.postMessage({ type: "encryption-key", key: encryptionKey });\n' +
   '    return;\n' +
   '  }\n' +
@@ -399,9 +405,17 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'await navigator.serviceWorker.register(scope + "service_worker.js", { scope: scope });' +
     'var reg = await navigator.serviceWorker.ready;' +
     'var sw = reg.active || reg.installing || reg.waiting;' +
-    'if (!sw) { fail("service worker not active"); return; }' +
+    'if (!sw) {' +
+    'try { localStorage.removeItem("enableEncryption"); } catch (_) {}' +
+    'fail("service worker not active"); return;' +
+    '}' +
     'sw.postMessage({ type: "set-encryption-key", key: key });' +
     '} catch (e) {' +
+    '// SW handoff failed (private mode, SW disabled, exotic browser).' +
+    '// Roll back the localStorage flag we optimistically set above so a' +
+    '// reload does not boot SB with enableEncryption=true but no SW key' +
+    '// (which would surface as opaquely-failed encrypted reads).' +
+    'try { localStorage.removeItem("enableEncryption"); } catch (_) {}' +
     'fail("service worker registration failed (" + (e && e.message ? e.message : e) + ")");' +
     'return;' +
     '}' +

@@ -118,13 +118,23 @@ function readRecordedIdbNames(ls: Storage, sid: string): string[] {
 }
 
 function deleteRecordedIdbs(idb: IDBFactory, names: string[]): void {
+  // Fire-and-forget: `IDBFactory.deleteDatabase` returns an
+  // IDBOpenDBRequest whose `success` fires asynchronously after the
+  // request is queued. We intentionally do NOT await — callers clear
+  // the localStorage marker on the next line and want that visible
+  // immediately so a concurrent Dashboard mount sees the sid as gone.
+  // The trade-off: if the queued deletion fails post-marker-clear, the
+  // orphan IDB is unrecoverable on later sweeps (no marker -> no
+  // recorded names). That is acceptable because (a) deleteDatabase
+  // failures in practice mean the IDB is already gone or the page is
+  // unloading, and (b) the alternative (await each request) blocks the
+  // Dashboard mount on potentially-many concurrent sessions.
   for (const name of names) {
     try {
       idb.deleteDatabase(name);
     } catch {
-      // deleteDatabase is itself async-only on success; the sync throw
-      // path covers cases like a malformed name. Swallow — cleanup is
-      // best-effort.
+      // The sync throw path covers cases like a malformed name. Swallow
+      // — cleanup is best-effort.
     }
   }
 }
