@@ -259,7 +259,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-STOR-007` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 
@@ -290,7 +292,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Integration test
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-STOR-008` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 
@@ -447,7 +451,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-STOR-014` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 

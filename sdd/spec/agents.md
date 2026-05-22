@@ -120,7 +120,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Integration test
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-AGENT-003` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 
@@ -221,7 +223,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-AGENT-006` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 
@@ -256,7 +260,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-AGENT-007` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 
@@ -503,7 +509,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-AGENT-014` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 
@@ -591,7 +599,9 @@ None.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Notes:** Demoted by /sdd clean pass 6 (CQ-TEST): no automated test references this REQ-ID. Re-promote after adding `// @req REQ-AGENT-017` annotation to the relevant test.
+
+**Status:** Partial
 
 ---
 
