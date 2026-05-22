@@ -76,8 +76,18 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
      use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`.
   8. Applies To, Priority, and Verification are REQUIRED on every REQ.
   9. Each REQ ends with `---` on its own line, blank lines either side.
- 10. Notes is OPTIONAL and uses one of two shapes only: Partial-explanation
-     (Status=Partial only, <=3 sentences) OR Doc-pointer (any status,
-     <=2 sentences, MUST contain a markdown link to documentation/** or
-     sdd/**). Sibling-REQ cross-references go in Dependencies, not Notes.
+ 10. Notes is OPTIONAL and uses one of two shapes only:
+     (a) Partial-explanation: Status=Partial only, <=3 sentences,
+         explains what is unmet. No mechanism tokens, no commit SHAs.
+     (b) Doc-pointer: any status, <=2 sentences, MUST contain a
+         markdown link to documentation/** or sdd/**. Prose pattern
+         "X is documented at [link]".
+     Sibling-REQ cross-references go in Dependencies, not Notes.
+ 11. Maximum 7 ACs per REQ. A REQ that grows past 7 splits along a
+     concern boundary into a sibling REQ (mechanics in spec-enforce-ac).
+ 12. Banned inside a REQ body (Intent or any AC): sub-headings
+     (####/#####), nested lists, code blocks (```), tables,
+     strikethrough, block quotes, and "Current behaviour:" /
+     "Previously:" branches. These belong in documentation/, not in
+     the spec. Their presence is MEDIUM `req-body-forbidden-content`.
 -->

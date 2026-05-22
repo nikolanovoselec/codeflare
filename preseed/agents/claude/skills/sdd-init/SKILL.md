@@ -76,10 +76,12 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    - Heading is `### REQ-{DOMAIN}-{NNN}: {Title}` (H3, not H2).
    - Field order is locked: **Intent → Applies To → Acceptance Criteria → Notes (optional) → Constraints → Priority → Dependencies → Verification → Status**. Status is the LAST field, never the first.
    - One blank line between every labeled field. Stacking two `**Field:**` lines on consecutive lines collapses them on GitHub and is MEDIUM `trailing-fields-collapsed`.
-   - ACs are NUMBERED (`1. 2. 3.`), never bulleted (`-`). Bulleted ACs are MEDIUM `ac-bullets-not-numbered`.
+   - ACs are NUMBERED (`1. 2. 3.`), never bulleted (`-`). Bulleted ACs are MEDIUM `ac-bullets-not-numbered`. **Maximum 7 ACs per REQ** — past 7 splits along a concern boundary into a sibling REQ.
    - `Constraints:` and `Dependencies:` ALWAYS present. Render `None.` (literal) when empty. CON-* and REQ-* IDs MUST render as markdown anchor links, not plain text.
    - Every AC describing observable behaviour ends with `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`.
    - `**Applies To:**`, `**Priority:**`, `**Verification:**` are REQUIRED — no REQ is allowed to omit them.
+   - **Notes is OPTIONAL** with two sanctioned shapes only: (a) Partial-explanation (`Status: Partial` only, ≤3 sentences, no mechanism tokens or SHAs) OR (b) Doc-pointer (any status, ≤2 sentences, MUST contain a markdown link to `documentation/**` or `sdd/**`). Sibling-REQ cross-refs go in `Dependencies:`, not Notes.
+   - **Banned inside a REQ body** (Intent or any AC): sub-headings (`####`/`#####`), nested lists, code blocks (` ``` `), tables, strikethrough, block quotes, "Current behaviour:" / "Previously:" branches. These belong in `documentation/`, not in the spec.
    - Each REQ ends with `---` on its own line, blank lines either side.
 
    Deviation from this shape is a MEDIUM finding caught by `spec-enforce` row 3 (REQ rendering template) on the next PR-boundary review. **The shape is non-negotiable** — do not invent a tighter form because writing 15-45 REQs in a row is tedious. Re-open `req-shape-example.md` between domains if drift creeps in.

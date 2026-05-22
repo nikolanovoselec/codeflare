@@ -102,7 +102,19 @@ function buildHarness({
               echo "BISYNC_CALLED n=$BISYNC_CALL_COUNT args=$*" >> "${logFile}"
               if [ $BISYNC_CALL_COUNT -eq 1 ]; then
                 # Block until the test creates the release sentinel.
-                while [ ! -f "${blockReleaseFile}" ]; do sleep 0.05; done
+                # Upper-bound the poll so a forgotten release file fails
+                # fast with a clear log line instead of hanging until the
+                # harness's outer timeout fires (code-reviewer flagged
+                # the unbounded poll as a flake/debug-time risk).
+                BISYNC_WAIT_COUNT=0
+                while [ ! -f "${blockReleaseFile}" ]; do
+                  sleep 0.05
+                  BISYNC_WAIT_COUNT=$((BISYNC_WAIT_COUNT + 1))
+                  if [ $BISYNC_WAIT_COUNT -gt 200 ]; then
+                    echo "BISYNC_RELEASE_TIMEOUT after ~10s waiting on ${blockReleaseFile}" >> "${logFile}"
+                    break
+                  fi
+                done
               fi
               return 0
             }`
