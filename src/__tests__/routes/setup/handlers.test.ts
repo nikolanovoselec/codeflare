@@ -1,3 +1,9 @@
+// @req REQ-SETUP-001: First-time setup requires zero pre-configuration
+// @req REQ-SETUP-002: Setup wizard configures domain, auth, R2 credentials, and Turnstile
+// @req REQ-SETUP-004: Setup is idempotent
+// @req REQ-SETUP-006: Setup streams progress via NDJSON
+// @req REQ-SETUP-008: Setup helper endpoints support prefill and detection
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import handlers from '../../../routes/setup/handlers';
 import type { Env } from '../../../types';

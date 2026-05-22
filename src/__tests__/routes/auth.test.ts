@@ -1,3 +1,8 @@
+// @req REQ-AUTH-005: Three-tier authorization middleware
+// @req REQ-AUTH-007: JIT user provisioning in SaaS mode
+// @req REQ-SEC-015: Blocked user cannot self-upgrade subscription
+// @req REQ-SUB-003: Free Tier Requires No Payment
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env, AccessUser } from '../../types';

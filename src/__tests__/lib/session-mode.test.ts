@@ -1,3 +1,7 @@
+// @req REQ-AGENT-004: Two Session Modes - Standard and Pro
+// @req REQ-MEM-006: Memory available only in Pro (Advanced) mode
+// @req REQ-SUB-014: Session Mode Gating by Tier
+
 import { describe, it, expect } from 'vitest';
 import { resolveSessionMode } from '../../lib/session-mode';
 

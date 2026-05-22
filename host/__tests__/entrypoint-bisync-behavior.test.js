@@ -1,3 +1,11 @@
+// @req REQ-STOR-015: Explicit Sync Trigger from UI
+// @req REQ-MEM-004: Vault contents synced to R2 across sessions
+// @req REQ-OPS-010: Graceful container shutdown preserves data
+// @req REQ-STOR-002: File Persistence Across Sessions
+// @req REQ-STOR-003: Bidirectional Sync Every 15 Minutes (with Manual Triggers)
+// @req REQ-STOR-004: Initial Sync Restores Files on Container Start
+// @req REQ-STOR-012: Session Transcript Cleanup
+
 // Real behavioral tests for the bisync daemon in entrypoint.sh.
 //
 // The previous static text-matching tests (entrypoint-bisync-cadence,

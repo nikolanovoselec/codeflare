@@ -1,3 +1,5 @@
+// @req REQ-STOR-015: Explicit Sync Trigger from UI
+
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
 import { mdiSync } from '@mdi/js';

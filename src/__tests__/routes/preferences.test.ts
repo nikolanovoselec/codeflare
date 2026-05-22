@@ -1,3 +1,8 @@
+// @req REQ-SESSION-016: User timezone propagated from preferences to container env
+// @req REQ-AGENT-016: consult-llm preference toggle
+// @req REQ-SEC-015: Blocked user cannot self-upgrade subscription
+// @req REQ-SESSION-014: User-configurable auto-sleep timeout in Settings
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';

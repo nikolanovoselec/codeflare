@@ -1,3 +1,8 @@
+// @req REQ-SUB-003: Free Tier Requires No Payment
+// @req REQ-SUB-004: Paid Tiers Integrate with Stripe Checkout
+// @req REQ-SUB-011: Graceful Degradation Without Stripe
+// @req REQ-SUB-016: Customer Portal and Plan Switching
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';

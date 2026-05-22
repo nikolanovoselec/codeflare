@@ -1,3 +1,5 @@
+// @req REQ-SETUP-010: Social-share preview metadata on the public landing page
+
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
 import { mdiXml } from '@mdi/js';

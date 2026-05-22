@@ -1,3 +1,6 @@
+// @req REQ-SETUP-009: Subscribe page with tier selection
+// @req REQ-SUB-017: Enterprise tier contact flow
+
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, waitFor, fireEvent } from '@solidjs/testing-library';
 import SubscribePage from '../../components/SubscribePage';

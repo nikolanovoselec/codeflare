@@ -1,3 +1,7 @@
+// @req REQ-MOB-001: Terminal fully usable on mobile devices
+// @req REQ-MOB-004: Scroll position stable during output and keyboard transitions
+// @req REQ-MOB-008: Cursor visible for all supported agents
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoot, createSignal } from 'solid-js';
 

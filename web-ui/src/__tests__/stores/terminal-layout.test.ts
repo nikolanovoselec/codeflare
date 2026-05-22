@@ -1,3 +1,5 @@
+// @req REQ-MOB-010: FitAddon fit calls are coordinated
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { FitAddon } from '@xterm/addon-fit';
 

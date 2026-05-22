@@ -1,3 +1,10 @@
+// @req REQ-MOB-004: Scroll position stable during output and keyboard transitions
+// @req REQ-MOB-009: Visibility return recovers keyboard state
+// @req REQ-SESSION-012: Wake-loop prevention
+// @req REQ-TERM-003: Automatic WebSocket reconnection on transient failures
+// @req REQ-TERM-004: Close code 4503 is authoritative (no retry)
+// @req REQ-TERM-008: Write batching at 30fps
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Terminal } from '@xterm/xterm';
 

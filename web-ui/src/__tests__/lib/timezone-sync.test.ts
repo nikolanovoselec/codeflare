@@ -1,3 +1,5 @@
+// @req REQ-SESSION-016: User timezone propagated from preferences to container env
+
 // REQ-SESSION-016 AC5: the frontend captures the browser's IANA timezone
 // via Intl.DateTimeFormat().resolvedOptions().timeZone on Dashboard
 // mount and persists it via updatePreferences. Future sessions started

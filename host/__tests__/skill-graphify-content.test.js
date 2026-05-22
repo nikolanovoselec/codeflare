@@ -1,3 +1,5 @@
+// @req REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
+
 // Verifies REQ-AGENT-024 AC3: SKILL.md instructs the agent on the
 // codeflare-specific git-persistence model and large-repo flag. Failing
 // any of these means the agent will not be told to set up `.gitignore` /

@@ -1,3 +1,8 @@
+// @req REQ-AGENT-009: LLM API Key Storage (Encrypted in KV)
+// @req REQ-AGENT-010: Deploy Credential Storage (GitHub PAT, CF API Token)
+// @req REQ-SEC-004: Credential encryption at rest when ENCRYPTION_KEY configured
+// @req REQ-SEC-006: Transparent KV encryption migration
+
 /**
  * KV encryption primitives — AES-256-GCM via Web Crypto API
  */

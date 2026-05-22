@@ -1,3 +1,5 @@
+// @req REQ-TERM-010: Session presets (saved tab configurations)
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';

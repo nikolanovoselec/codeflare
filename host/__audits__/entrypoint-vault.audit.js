@@ -1,3 +1,10 @@
+// @req REQ-VAULT-001: Persistent vault directory survives across sessions
+// @req REQ-VAULT-002: Conversation captures land in the vault as markdown
+// @req REQ-VAULT-003: User-curated edits are detected and ingested within ~60s
+// @req REQ-VAULT-004: Unified global graph merges vault + active repos
+// @req REQ-VAULT-006: Shutdown bisync completes vault writes before SIGKILL
+// @req REQ-VAULT-007: Vault rules and plugin are preseeded into every advanced session
+
 // Structural audit (NOT a behavioural test) for REQ-VAULT-001..007:
 // the persistent vault wiring across entrypoint.sh, Dockerfile, and
 // the preseed layer.

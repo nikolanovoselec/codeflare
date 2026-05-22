@@ -1,3 +1,5 @@
+// @req REQ-AUTH-014: Auth expiry detection mid-session
+
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup } from '@solidjs/testing-library';
 

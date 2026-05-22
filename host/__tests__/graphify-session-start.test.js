@@ -1,3 +1,5 @@
+// @req REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
+
 // Verifies REQ-AGENT-023 AC3: SessionStart hook injects appropriate
 // context for three cwd shapes:
 //   1. graphify-out/graph.json + GRAPH_REPORT.md present -> graph reminder

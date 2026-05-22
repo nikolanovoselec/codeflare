@@ -1,3 +1,8 @@
+// @req REQ-MOB-001: Terminal fully usable on mobile devices
+// @req REQ-MOB-002: Virtual keyboard opens reliably on tap
+// @req REQ-MOB-003: Samsung Internet keyboard quirks handled
+// @req REQ-MOB-009: Visibility return recovers keyboard state
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // --- Mocks that must be set up BEFORE importing mobile.ts ---

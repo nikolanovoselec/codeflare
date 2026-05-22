@@ -1,3 +1,5 @@
+// @req REQ-VAULT-001: Persistent vault directory survives across sessions
+
 import { describe, it, expect } from 'vitest';
 import {
   SPECIAL_FOLDERS,

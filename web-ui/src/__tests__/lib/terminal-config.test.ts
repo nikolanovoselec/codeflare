@@ -1,3 +1,6 @@
+// @req REQ-MOB-008: Cursor visible for all supported agents
+// @req REQ-TERM-009: Process name detection via control messages
+
 import { describe, it, expect } from 'vitest';
 import { mdiConsole, mdiRobotOutline, mdiCodeBraces, mdiDiamond, mdiRobotIndustrial, mdiGithub } from '@mdi/js';
 import { TERMINAL_TAB_CONFIG, getTabIcon, getTabDisplayName, AGENT_ICON_MAP } from '../../lib/terminal-config';
