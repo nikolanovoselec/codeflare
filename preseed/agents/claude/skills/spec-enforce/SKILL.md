@@ -183,7 +183,7 @@ Edge case: when the source REQ has an actor-specific predicate beyond the bare p
 
 | Shape | When valid | Form |
 |---|---|---|
-| (a) Partial-explanation | `Status: Partial` only | <=3 sentences explaining what's unmet |
+| (a) Partial-explanation | `Status: Partial` only | <=3 sentences explaining what's unmet. No mechanism tokens (file paths, function names, env vars, commit SHAs) - those go in `pending.md` or `documentation/`. |
 | (b) Doc-pointer | Any status | <=2 sentences, MUST contain >=1 markdown link to `documentation/**` or `sdd/**`, prose pattern "X is documented at [link]" |
 
 Sibling-REQ cross-references use `Dependencies:`, NOT Notes.

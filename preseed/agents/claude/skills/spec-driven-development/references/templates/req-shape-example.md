@@ -78,7 +78,9 @@ One-paragraph domain summary — what this slice of behaviour covers and why it 
   9. Each REQ ends with `---` on its own line, blank lines either side.
  10. Notes is OPTIONAL and uses one of two shapes only:
      (a) Partial-explanation: Status=Partial only, <=3 sentences,
-         explains what is unmet. No mechanism tokens, no commit SHAs.
+         explains what is unmet. No mechanism tokens (file paths,
+         function names, env vars, commit SHAs) - those go in
+         pending.md or documentation/.
      (b) Doc-pointer: any status, <=2 sentences, MUST contain a
          markdown link to documentation/** or sdd/**. Prose pattern
          "X is documented at [link]".
