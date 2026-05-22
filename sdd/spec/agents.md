@@ -29,6 +29,9 @@ Multi-agent support, preseed system, and session modes.
 
 ### REQ-AGENT-001: Support Multiple AI Coding Agents
 
+<!-- @impl: Dockerfile -->
+<!-- @impl: src/lib/schemas.ts -->
+
 **Intent:** The platform must support multiple AI coding agents so users can choose the tool that fits their workflow.
 
 **Applies To:** User
@@ -56,6 +59,9 @@ Multi-agent support, preseed system, and session modes.
 ---
 
 ### REQ-AGENT-002: Agent Selection at Session Creation
+
+<!-- @impl: src/routes/session/crud.ts -->
+<!-- @impl: src/lib/schemas.ts -->
 
 **Intent:** Users must be able to choose which AI agent to use when creating a session.
 
@@ -85,6 +91,9 @@ Multi-agent support, preseed system, and session modes.
 ---
 
 ### REQ-AGENT-003: Agent CLI Auto-Started in Tab 1
+
+<!-- @impl: entrypoint.sh::configure_tab_autostart -->
+<!-- @impl: host/src/prewarm-config.ts -->
 
 **Intent:** When a session starts, the selected agent's CLI must be running and ready in the first terminal tab without manual user intervention.
 
@@ -117,6 +126,9 @@ Multi-agent support, preseed system, and session modes.
 
 ### REQ-AGENT-004: Two Session Modes - Standard and Pro
 
+<!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
+<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+
 **Intent:** Users must be able to choose between a Standard mode (essential configs) and a Pro (Advanced) mode (full agent enhancement suite).
 
 **Applies To:** User
@@ -146,6 +158,10 @@ Multi-agent support, preseed system, and session modes.
 ---
 
 ### REQ-AGENT-005: Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers
+
+<!-- @impl: preseed/agents/claude/manifest.json -->
+<!-- @impl: src/lib/agent-seed.generated.ts -->
+<!-- @impl: entrypoint.sh -->
 
 **Intent:** Pro mode must provide a significantly enhanced agent experience over Standard - more rules, skills, agent definitions, commands, hooks, and persistent memory. The context-mode helper tools are universally available to every user on demand, while context-mode's automatic context-window-reduction behavior is reserved for the Custom subscription tier.
 
@@ -177,6 +193,10 @@ Multi-agent support, preseed system, and session modes.
 
 ### REQ-AGENT-006: Preseed Configs Generated from Single Source of Truth
 
+<!-- @impl: preseed/agents/claude/manifest.json -->
+<!-- @impl: scripts/generate-agent-seed.mjs -->
+<!-- @impl: src/lib/agent-seed.generated.ts -->
+
 **Intent:** All agent configurations must be derived from the Claude Code preseed to prevent divergence and eliminate duplicate maintenance.
 
 **Applies To:** User
@@ -206,6 +226,8 @@ Multi-agent support, preseed system, and session modes.
 ---
 
 ### REQ-AGENT-007: Multi-Agent Adaptation Pipeline
+
+<!-- @impl: scripts/generate-agent-seed.mjs -->
 
 **Intent:** Each supported agent must receive properly adapted configurations matching its specific config format, tool names, and file conventions.
 
@@ -240,6 +262,9 @@ Multi-agent support, preseed system, and session modes.
 
 ### REQ-AGENT-008: Preseed Deployed to Container on Start
 
+<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+<!-- @impl: entrypoint.sh -->
+
 **Intent:** Preseed files must be available in the container's filesystem when the agent launches so that rules, skills, and agent definitions are active from the first prompt.
 
 **Applies To:** User
@@ -270,6 +295,9 @@ Multi-agent support, preseed system, and session modes.
 ---
 
 ### REQ-AGENT-009: LLM API Key Storage (Encrypted in KV)
+
+<!-- @impl: src/routes/llm-keys.ts -->
+<!-- @impl: src/lib/kv-crypto.ts -->
 
 **Intent:** Users must be able to store LLM provider API keys so that cross-model consultation features work without re-entering keys each session.
 
@@ -303,6 +331,9 @@ Multi-agent support, preseed system, and session modes.
 ---
 
 ### REQ-AGENT-010: Deploy Credential Storage (GitHub PAT, CF API Token)
+
+<!-- @impl: src/routes/deploy-keys.ts -->
+<!-- @impl: src/lib/kv-crypto.ts -->
 
 **Intent:** Users must be able to store GitHub and Cloudflare credentials so that git push, repository management, and Cloudflare deployments work without re-authenticating each session.
 
@@ -340,6 +371,9 @@ Multi-agent support, preseed system, and session modes.
 
 ### REQ-AGENT-011: Agent Configs Manually Recreatable from Settings
 
+<!-- @impl: src/routes/storage/seed.ts -->
+<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+
 **Intent:** Users must be able to reset their agent configurations to the platform defaults at any time, recovering from accidental deletion or corruption.
 
 **Applies To:** User
@@ -372,6 +406,9 @@ Multi-agent support, preseed system, and session modes.
 ---
 
 ### REQ-AGENT-012: Fast CLI Start (Configurable)
+
+<!-- @impl: entrypoint.sh -->
+<!-- @impl: src/container/container-env.ts -->
 
 **Intent:** Agent CLIs must start quickly by default, with an option for users who want automatic updates.
 
@@ -407,6 +444,9 @@ Multi-agent support, preseed system, and session modes.
 
 ### REQ-AGENT-013: Browser Shim for OAuth Flows
 
+<!-- @impl: Dockerfile -->
+<!-- @impl: web-ui/src/lib/terminal-link-provider.ts -->
+
 **Intent:** Agent CLIs that attempt to open a browser for OAuth must degrade gracefully to printing clickable URLs in the terminal.
 
 **Applies To:** User
@@ -434,6 +474,9 @@ Multi-agent support, preseed system, and session modes.
 ---
 
 ### REQ-AGENT-014: Manifest-Driven Preseed Pipeline
+
+<!-- @impl: preseed/agents/claude/manifest.json -->
+<!-- @impl: scripts/generate-agent-seed.mjs -->
 
 **Intent:** The preseed system must use a declarative manifest to control which files are included, their mode assignments, and their target agents, ensuring auditable and reproducible builds.
 
@@ -466,6 +509,8 @@ Multi-agent support, preseed system, and session modes.
 
 ### REQ-AGENT-015: /review command for multi-perspective codebase review
 
+<!-- @impl: preseed/agents/claude/commands/review.md -->
+
 **Intent:** Comprehensive code review using specialized AI agents catches issues a single reviewer would miss.
 
 **Applies To:** User
@@ -496,6 +541,9 @@ None.
 
 ### REQ-AGENT-016: consult-llm preference toggle
 
+<!-- @impl: src/routes/preferences.ts -->
+<!-- @impl: entrypoint.sh -->
+
 **Intent:** Users control whether their LLM API keys power the multi-model consultation feature.
 
 **Applies To:** User
@@ -522,6 +570,8 @@ None.
 
 ### REQ-AGENT-017: Bubblewrap sandbox for Codex
 
+<!-- @impl: Dockerfile -->
+
 **Intent:** Codex agent runs in a bubblewrap sandbox for additional isolation within the container.
 
 **Applies To:** User
@@ -546,6 +596,9 @@ None.
 ---
 
 ### REQ-AGENT-018: Push & Deploy credential management UI
+
+<!-- @impl: web-ui/src/components -->
+<!-- @impl: src/routes/deploy-keys.ts -->
 
 **Intent:** Users connect GitHub and Cloudflare accounts through a visual interface without CLI commands.
 
@@ -574,6 +627,8 @@ None.
 
 ### REQ-AGENT-019: Branded settings UI
 
+<!-- @impl: web-ui/src/components -->
+
 **Intent:** Professional, intuitive settings panel for managing all user preferences and credentials.
 
 **Applies To:** User
@@ -601,6 +656,9 @@ None.
 
 ### REQ-AGENT-020: LLM API key management UI
 
+<!-- @impl: src/routes/llm-keys.ts -->
+<!-- @impl: web-ui/src/components -->
+
 **Intent:** Users can store their OpenAI and Gemini API keys through a visual interface.
 
 **Applies To:** User
@@ -627,6 +685,14 @@ None.
 ---
 
 ### REQ-AGENT-021: Spec-Driven Development Workflow (Pro)
+
+<!-- @impl: preseed/agents/claude/skills/spec-driven-development -->
+<!-- @impl: preseed/agents/claude/skills/sdd-init -->
+<!-- @impl: preseed/agents/claude/skills/sdd-clean -->
+<!-- @impl: preseed/agents/claude/commands/sdd.md -->
+<!-- @impl: preseed/agents/claude/rules/spec-discipline.md -->
+<!-- @impl: preseed/agents/claude/rules/documentation-discipline.md -->
+<!-- @impl: preseed/agents/claude/rules/tdd-discipline.md -->
 
 **Intent:** Pro users need a workflow that keeps a product specification in lockstep with their codebase without manual maintenance, so the spec remains a trustworthy single source of truth even when development happens at high velocity.
 
@@ -675,6 +741,9 @@ None.
 
 ### REQ-AGENT-022: Legacy-codebase transition to SDD via init triage
 
+<!-- @impl: preseed/agents/claude/skills/sdd-init -->
+<!-- @impl: preseed/agents/claude/skills/sdd-clean -->
+
 **Intent:** Enterprises migrating a legacy codebase from manual development to autonomous agentic development need a transition path that converts un-extracted intent into a real spec. `/sdd init` Import Mode runs discovery against the full project history — working tree, git log, pull requests, issues (open and closed), code-review comments, release notes, wiki — and produces two outputs from the same pass: official REQs for behavior clear from that surface, and a triage queue for everything unclear, with the agent's concrete Context and Recommendation populated up front. The user resolves the queue at their own pace; until it drains, the project is in SDD transition. Once the queue is empty, full SDD discipline applies and autonomous agentic coding is unlocked, because the agent has a real contract to reason against.
 
 **Applies To:** User
@@ -717,6 +786,11 @@ None.
 
 ### REQ-AGENT-023: Knowledge-Graph Capability (Graphify)
 
+<!-- @impl: preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json -->
+<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py -->
+<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
+<!-- @impl: Dockerfile -->
+
 **Intent:** Every container ships the graphify code-knowledge-graph capability as ambient infrastructure, so any session (default or advanced session mode) can query an existing graph or build a new one without per-tier provisioning.
 
 **Acceptance Criteria:**
@@ -744,6 +818,12 @@ None.
 **Status:** Implemented
 
 ### REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
+
+<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh -->
+<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/enforce-graphify.sh -->
+<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-session-start.sh -->
+<!-- @impl: preseed/agents/claude/rules/graph-first.md -->
+<!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md -->
 
 **Intent:** In advanced session mode, the agent is taught to prefer the knowledge graph over Grep-style text search for structural questions, so token cost on architecture, dependency, and call-flow questions is bounded.
 
@@ -773,6 +853,8 @@ None.
 
 ### REQ-AGENT-025: Post-Clone Graph Triage
 
+<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-clone-prompt.sh -->
+
 **Intent:** After the agent clones a repo, it must triage whether to build (or refresh) a knowledge graph for it before doing other work, so users on unfamiliar repos do not start cold.
 
 **Acceptance Criteria:**
@@ -795,6 +877,9 @@ None.
 **Status:** Implemented
 
 ### REQ-AGENT-026: Knowledge-Graph Persistence via Git
+
+<!-- @impl: entrypoint.sh -->
+<!-- @impl: Dockerfile -->
 
 **Intent:** Graphify artifacts persist with the repository, not with the user, so contributors on a clone inherit the graph for free and Codeflare's R2 bisync does not carry per-repo graph data.
 
@@ -819,6 +904,9 @@ None.
 **Status:** Implemented
 
 ### REQ-AGENT-027: Context-Mode Interoperability
+
+<!-- @impl: preseed/agents/claude/plugins/context-mode -->
+<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh -->
 
 **Intent:** When the context-mode plugin is preseeded, the graphify CLI must coexist with the enforce-ctx-mode Bash whitelist and the graph-first soft-nudge must reach the agent through context-mode's redirected tool-call path.
 
