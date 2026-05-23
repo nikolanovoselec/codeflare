@@ -440,10 +440,15 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-<!-- @test: host/__tests__/workflow-stress-test.test.js (REQ-OPS-008 describe -> workflow_dispatch+k6 suites+STRESS_TEST_MODE bypass+one-time warning+SAAS conflict 503 -> AC1..AC6) -->
+<!-- @test: host/__tests__/workflow-stress-test.test.js (REQ-OPS-008 describe -> workflow_dispatch+k6 suites+STRESS_TEST_CONCURRENCY default 0 -> AC1,AC2,AC3 workflow YAML shape) -->
+<!-- @test: src/__tests__/middleware/rate-limit.test.ts (stress test mode bypass describe -> bypasses rate limit + does NOT access KV + still enforces when unset -> AC4 behavioural bypass) -->
+<!-- @test: src/__tests__/middleware/rate-limit.test.ts (REQ-OPS-008 AC5 one-time warning per isolate describe -> logs exactly one warning across many bypassed requests + no warning when STRESS_TEST_MODE unset -> AC5 vi.resetModules + logger spy proves single warn) -->
+<!-- @test: src/__tests__/index.test.ts (REQ-OPS-008 AC6 SAAS_MODE+STRESS_TEST_MODE conflict guard describe -> 503 + misconfiguration message + only-one-active passes through + string==active only -> AC6 worker.fetch integration) -->
 ### REQ-OPS-008: Stress testing validates rate limits and concurrency
 
 <!-- @impl: .github/workflows/stress-test.yml -->
+<!-- @impl: src/middleware/rate-limit.ts -->
+<!-- @impl: src/index.ts -->
 <!-- @impl: src/lib/rate-limit-core.ts -->
 
 **Intent:** Load testing validates that rate limiting, session lifecycle, storage operations, and WebSocket concurrency behave correctly under high load.

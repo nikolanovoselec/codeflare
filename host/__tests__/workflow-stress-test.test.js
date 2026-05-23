@@ -1,14 +1,15 @@
-// Structural audit of .github/workflows/stress-test.yml and
-// production source files for REQ-OPS-008 (stress testing validates
-// rate limits and concurrency).
+// Structural audit of .github/workflows/stress-test.yml for REQ-OPS-008
+// AC1-AC3 (workflow shape: trigger, suite jobs, concurrency var).
 //
-// ACs 1-3 are workflow-file presence audits: grep the YAML for canonical
-// step names, job definitions, and env-var patterns.
-// ACs 4-6 are source-file audits: grep src/middleware/rate-limit.ts and
-// src/index.ts for the bypass logic, the one-time warning, and the
-// SAAS_MODE conflict guard.
-// Gut-check: deleting the STRESS_TEST_MODE branch in rate-limit.ts or
-// the 503 guard in index.ts causes the relevant assertions to fail.
+// AC4 (rate-limit bypass when STRESS_TEST_MODE=active),
+// AC5 (one-time warning per isolate) and
+// AC6 (SAAS_MODE + STRESS_TEST_MODE conflict guard returns 503)
+// are exercised by REAL behavioural tests, not by reading source files:
+//   - AC4 + AC5 -> src/__tests__/middleware/rate-limit.test.ts
+//   - AC6      -> src/__tests__/index.test.ts (worker.fetch with both env vars)
+// This file owns ONLY the workflow-YAML structural checks; source-grep
+// theater for the rate-limit/index source was removed because it can be
+// gutted without failing (tdd-enforce antipattern #1).
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -19,8 +20,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../..');
 
 const workflow = readFileSync(resolve(repoRoot, '.github/workflows/stress-test.yml'), 'utf8');
-const rateLimitSrc = readFileSync(resolve(repoRoot, 'src/middleware/rate-limit.ts'), 'utf8');
-const indexSrc = readFileSync(resolve(repoRoot, 'src/index.ts'), 'utf8');
 
 // ---------------------------------------------------------------------------
 // REQ-OPS-008: Stress testing validates rate limits and concurrency
@@ -84,54 +83,12 @@ describe('REQ-OPS-008: Stress testing validates rate limits and concurrency', ()
     );
   });
 
-  it('REQ-OPS-008 AC4: when STRESS_TEST_MODE=active, HTTP rate limits are bypassed in rate-limit middleware', () => {
-    assert.ok(
-      rateLimitSrc.includes("c.env.STRESS_TEST_MODE === 'active'"),
-      "src/middleware/rate-limit.ts must check c.env.STRESS_TEST_MODE === 'active' to bypass rate limits"
-    );
-    // The bypass must short-circuit by calling next() before any KV check
-    const bypassIdx = rateLimitSrc.indexOf("c.env.STRESS_TEST_MODE === 'active'");
-    const nextIdx = rateLimitSrc.indexOf('return next()', bypassIdx);
-    const kvIdx = rateLimitSrc.indexOf('c.env.KV', bypassIdx);
-    assert.ok(nextIdx !== -1, 'rate-limit middleware must call return next() inside the STRESS_TEST_MODE bypass branch');
-    assert.ok(
-      nextIdx < kvIdx,
-      'STRESS_TEST_MODE bypass must short-circuit before any KV rate-limit check'
-    );
-  });
-
-  it('REQ-OPS-008 AC5: a one-time warning is logged per isolate when the rate limit bypass activates', () => {
-    // stressTestWarningLogged flag guards a single logger.warn call
-    assert.ok(
-      rateLimitSrc.includes('stressTestWarningLogged'),
-      'src/middleware/rate-limit.ts must use a stressTestWarningLogged flag for the one-time warning'
-    );
-    assert.ok(
-      rateLimitSrc.includes('STRESS_TEST_MODE is active') && rateLimitSrc.includes('rate limits bypassed'),
-      'src/middleware/rate-limit.ts must log a warning mentioning STRESS_TEST_MODE and rate limits bypassed'
-    );
-    assert.ok(
-      rateLimitSrc.includes('stressTestWarningLogged = true'),
-      'src/middleware/rate-limit.ts must set stressTestWarningLogged = true after the first warning'
-    );
-  });
-
-  it('REQ-OPS-008 AC6: STRESS_TEST_MODE must not be active alongside SAAS_MODE (global middleware returns 503)', () => {
-    assert.ok(
-      indexSrc.includes("SAAS_MODE === 'active' && c.env.STRESS_TEST_MODE === 'active'") ||
-      indexSrc.includes("c.env.SAAS_MODE === 'active' && c.env.STRESS_TEST_MODE === 'active'"),
-      'src/index.ts global middleware must check for SAAS_MODE + STRESS_TEST_MODE conflict'
-    );
-    // Must return 503 for this conflict
-    const conflictIdx = indexSrc.indexOf("STRESS_TEST_MODE === 'active'");
-    const block503 = indexSrc.slice(conflictIdx, conflictIdx + 300);
-    assert.ok(
-      block503.includes('503'),
-      'src/index.ts must return HTTP 503 when SAAS_MODE and STRESS_TEST_MODE are both active'
-    );
-    assert.ok(
-      block503.includes('Misconfiguration') || block503.includes('stress test mode'),
-      'src/index.ts 503 response must identify the misconfiguration'
-    );
-  });
+  // AC4, AC5, AC6 are NOT asserted here — they are behavioural and live in:
+  //   src/__tests__/middleware/rate-limit.test.ts (stress test mode bypass +
+  //     REQ-OPS-008 AC5 one-time-warning describe)
+  //   src/__tests__/index.test.ts (REQ-OPS-008 AC6 SAAS_MODE+STRESS_TEST_MODE
+  //     conflict guard describe)
+  // Asserting them via source-grep here would be text-matching theater:
+  // deleting the production branch could still leave the searched substrings
+  // (e.g. in a comment) and the test would stay green.
 });
