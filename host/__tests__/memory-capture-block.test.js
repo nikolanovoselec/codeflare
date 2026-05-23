@@ -9,7 +9,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,8 +19,6 @@ const HOOK = resolve(
   __dirname,
   '../../preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh',
 );
-
-const BYPASS_FILE = '/tmp/memory-capture-bypass';
 
 function makeFixture() {
   const home = mkdtempSync(join(tmpdir(), 'memblock-home-'));
@@ -173,32 +171,34 @@ describe('memory-capture-block.sh - subagent allowlist / REQ-MEM-012 AC4', () =>
   });
 });
 
-// REQ-MEM-012 AC5 (one-shot bypass surface for stale .vars recovery)
-describe('memory-capture-block.sh - bypass / REQ-MEM-012 AC5', () => {
-  it('exits 0 and consumes bypass file when /tmp/memory-capture-bypass exists', () => {
+// REQ-MEM-012 AC4 (no bypass: every non-allowed tool call blocks while .vars
+// exists, no in-hook escape, block clears only when subagent runs and deletes
+// .vars). Stop-hook semantics same as the review-agent enforcement hook.
+describe('memory-capture-block.sh - no bypass / REQ-MEM-012 AC4 stop-hook', () => {
+  it('blocks every non-Task-memory-capture call unconditionally while .vars exists', () => {
     const home = makeFixture();
     writeVars(home, 'sess-blocked');
-    // Cleanup any prior test leakage
-    try { unlinkSync(BYPASS_FILE); } catch {}
-    writeFileSync(BYPASS_FILE, '');
-    const r = runHook(home, {
-      session_id: 'sess-blocked',
-      tool_name: 'Bash',
-      tool_input: { command: 'ls' },
-    });
-    assert.equal(r.status, 0);
-    assert.match(r.stderr, /bypass consumed/);
-    assert.equal(existsSync(BYPASS_FILE), false, 'bypass file should be deleted after consumption');
+    // Try a variety of tool calls; all must hard-block.
+    const tools = [
+      { tool_name: 'Bash', tool_input: { command: 'ls' } },
+      { tool_name: 'Read', tool_input: { file_path: '/etc/hosts' } },
+      { tool_name: 'Edit', tool_input: { file_path: '/tmp/x', old_string: 'a', new_string: 'b' } },
+      { tool_name: 'Write', tool_input: { file_path: '/tmp/y', content: 'z' } },
+      { tool_name: 'Task', tool_input: { subagent_type: 'general-purpose', prompt: 'noop' } },
+    ];
+    for (const t of tools) {
+      const r = runHook(home, { session_id: 'sess-blocked', ...t });
+      assert.equal(r.status, 2, `${t.tool_name} (subagent_type=${t.tool_input?.subagent_type ?? 'n/a'}) must block`);
+      assert.match(r.stderr, /HARD BLOCK/);
+    }
   });
 
-  it('bypass is one-shot: second call after consumption blocks again', () => {
+  it('stderr explicitly states the block is unconditional and has no bypass', () => {
     const home = makeFixture();
     writeVars(home, 'sess-blocked');
-    try { unlinkSync(BYPASS_FILE); } catch {}
-    writeFileSync(BYPASS_FILE, '');
-    const r1 = runHook(home, { session_id: 'sess-blocked', tool_name: 'Bash', tool_input: {} });
-    assert.equal(r1.status, 0);
-    const r2 = runHook(home, { session_id: 'sess-blocked', tool_name: 'Bash', tool_input: {} });
-    assert.equal(r2.status, 2);
+    const r = runHook(home, { session_id: 'sess-blocked', tool_name: 'Bash', tool_input: {} });
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /unconditional/);
+    assert.match(r.stderr, /no bypass file/);
   });
 });
