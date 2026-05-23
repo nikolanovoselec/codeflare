@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-05-24
 
-- REQ-AGENT-023 Constraints + traceability extended for the `safe-graphify-update.sh` wrapper (resolves spec-reviewer advisory MEDIUM from the 906ab27 / a0e4520 review pair). New Constraint bullet makes wrapper-only invocation of `graphify update` from codeflare preseed surfaces (prompts, skills, commands, hooks) a hard contract, with the env knobs `GRAPHIFY_SAFE_RLIMIT_KB` (default 1500000 = 1.5 GB) / `GRAPHIFY_SAFE_WORKERS` (default 1) documented inline. Rationale: 1 vCPU / 3.2 GB / no-swap container session has been observed to die from a runaway `graphify update .`; wrapper bounds the child via `RLIMIT_AS` + single AST worker so an overshoot crashes the child with ENOMEM rather than OOM-killing the session. New `@impl` anchor points at the preseed wrapper, new `@test` anchor at `host/__tests__/safe-graphify-update.test.js` (6 behavioural tests including a proof-of-cap test that fires `RLIMIT_AS=100MB` against a 200MB allocation). Implementation, tests, manifest entry, and seed regen already shipped on develop across 175580c / f5d7374 / 2c1cec5 / 906ab27; this entry retroactively records the spec-side contract.
+- REQ-AGENT-023 Constraint added: preseed surfaces that invoke `graphify update` call the bounded wrapper rather than the bare CLI, so a runaway rebuild cannot OOM-kill the container session. `@impl` + `@test` anchors added. Implementation already shipped on develop (175580c / f5d7374 / 2c1cec5 / 906ab27); this records the spec-side contract. Resolves spec-reviewer advisory MEDIUM from the 906ab27 / a0e4520 pair.
 
 ## 2026-05-23
 
