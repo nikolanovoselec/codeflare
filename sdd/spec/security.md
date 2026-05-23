@@ -95,6 +95,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<!-- @test: src/__tests__/lib/r2-admin.test.ts (createScopedR2Token describe -> POST /accounts/{accountId}/tokens with bucket-scoped Object Read+Write policy + tokenId from result.id + secretAccessKey = SHA-256(result.value) -> AC1, AC2) -->
+<!-- @test: src/__tests__/lib/r2-admin.test.ts (getOrCreateScopedR2Token describe -> KV cache r2token:{email} + verifyTokenExists only invalidates on definitive 404 + transient errors preserve cache -> AC3, AC4, AC5) -->
+<!-- @test: src/__tests__/lib/r2-admin.test.ts (deleteScopedR2Token describe -> DELETE /accounts/{accountId}/tokens/{id} via CF API -> AC6) -->
+<!-- @test: src/__tests__/lib/user-cleanup.test.ts (cleanupUserData -> reads r2token KV, calls deleteScopedR2Token with stored tokenId, deletes r2token KV entry -> AC6 wiring) -->
 ### REQ-SEC-003: Per-user R2 tokens scoped to user bucket
 
 <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token -->
@@ -199,6 +203,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<!-- @test: src/__tests__/lib/r2-sse.test.ts (getSseHeaders describe -> 3 SSE-C headers x-amz-server-side-encryption-customer-{algorithm,key,key-MD5} present when ENCRYPTION_KEY set + empty when unset + MD5 = base64(MD5(raw key bytes)) deterministic with known-answer vectors -> AC1, AC2, AC6, AC7) -->
+<!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars describe -> emits ENCRYPTION_KEY when state._encryptionKey set, omits when null -> AC3 env-var forwarding + AC7 no-op when unset) -->
+<!-- @test: host/__tests__/entrypoint-sse-c-config.test.js (create_rclone_config describe -> harness runs the real entrypoint function and reads back generated rclone.conf; sse_customer_key_base64 + sse_customer_algorithm = AES256 appended when ENCRYPTION_KEY exported; absent when unset or empty -> AC4 entrypoint behavior, AC7 no-op path) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior describe -> bisync via rclone reads the configured rclone.conf (with or without SSE-C) and round-trips files -> AC5 transparent encrypt/decrypt during initial/periodic/shutdown sync) -->
 ### REQ-SEC-005: R2 files encrypted via SSE-C when ENCRYPTION_KEY configured
 
 <!-- @impl: src/lib/r2-sse.ts -->
@@ -533,10 +541,17 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<!-- @test: src/__tests__/container/index.test.ts (persists a freshly-generated containerAuthToken so subsequent wakes restore it -> CONTAINER_AUTH_TOKEN env var matches uuid regex and gets storage-put under key "containerAuthToken" -> AC1 random UUID per DO + env-var) -->
+<!-- @test: src/__tests__/container/index.test.ts (REQ-SEC-012 AC2: proxied non-internal request gets Authorization Bearer injected before super.fetch -> superFetchSpy assertion on forwarded Request header -> AC2) -->
+<!-- @test: host/__tests__/server-auth-check.test.js (checkContainerAuth describe -> non-exempt paths require matching Bearer + 503 when token unset + 401 on missing/wrong/empty Bearer + 200 on match -> AC3 terminal validates token on non-exempt paths) -->
+<!-- @test: host/__tests__/server-auth-check.test.js (REQ-SEC-012 AC4: only /health and /activity are auth-exempt describe -> AUTH_EXEMPT_PATHS contains exactly these two + both allowed without token -> AC4) -->
+<!-- @test: src/__tests__/container/index.test.ts (restores containerAuthToken from storage so DO wake does not desync from a running container -> PRIOR_TOKEN preserved through constructor + storage.put NOT called with new UUID -> AC5 token survives hibernate/wake) -->
+<!-- @test: src/__tests__/container/index.test.ts (REQ-SEC-012 AC6: destroy() clears persisted containerAuthToken so next session starts fresh -> storage.delete called with "containerAuthToken" + in-memory _containerAuthToken nulled -> AC6 no cross-lifecycle reuse) -->
 ### REQ-SEC-012: Container auth token per DO lifecycle
 
 <!-- @impl: src/container/index.ts -->
 <!-- @impl: host/src/server.ts -->
+<!-- @impl: host/src/auth-check.ts::checkContainerAuth -->
 
 **Intent:** Each Durable Object lifecycle generates a unique auth token for container communication, preventing unauthorized access to container endpoints.
 
