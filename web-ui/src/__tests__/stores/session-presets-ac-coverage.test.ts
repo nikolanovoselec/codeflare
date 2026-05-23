@@ -40,29 +40,28 @@ import {
   savePreset,
   applyPresetToSession,
 } from '../../stores/session-presets';
+// Import production types so type drift in SessionWithStatus / TabPreset breaks
+// the test compile rather than slipping past a stripped-down local copy.
+import type { TabConfig, TabPreset, SessionWithStatus, SessionTerminals } from '../../types';
 
 const mockedApi = vi.mocked(api);
 
-// Minimal shape required by the store's state getter
-type TabConfig = { id: string; command: string; label: string };
-type TabPreset = { id: string; name: string; tabs: TabConfig[]; createdAt: string };
-type SessionRecord = {
-  id: string;
-  name: string;
-  tabConfig?: TabConfig[];
-};
-type TerminalTab = { id: string; processName?: string; createdAt: string };
-type SessionTerminals = {
-  tabs: TerminalTab[];
-  tabOrder: string[];
-  activeTabId: string;
-};
-
 interface SessionState {
-  sessions: SessionRecord[];
+  sessions: SessionWithStatus[];
   presets: TabPreset[];
   terminalsPerSession: Record<string, SessionTerminals>;
   error: string | null;
+}
+
+function makeSession(id: string, name: string, tabConfig?: TabConfig[]): SessionWithStatus {
+  return {
+    id,
+    name,
+    status: 'stopped',
+    createdAt: '2024-01-01T00:00:00.000Z',
+    lastAccessedAt: '2024-01-01T00:00:00.000Z',
+    tabConfig,
+  };
 }
 
 describe('REQ-TERM-010: Session presets (saved tab configurations)', () => {
@@ -148,7 +147,7 @@ describe('REQ-TERM-010: Session presets (saved tab configurations)', () => {
   describe('AC4: applyPresetToSession populates session.tabConfig from preset.tabs', () => {
     function setupState(sessionId: string, presetId: string, presetTabs: TabConfig[]): void {
       state.sessions = [
-        { id: sessionId, name: 'Test Session', tabConfig: [{ id: '1', command: 'claude', label: 'Claude' }] },
+        makeSession(sessionId, 'Test Session', [{ id: '1', command: 'claude', label: 'Claude' }]),
       ];
       state.presets = [
         { id: presetId, name: 'Test Preset', tabs: presetTabs, createdAt: '2024-01-01T00:00:00.000Z' },
@@ -158,6 +157,7 @@ describe('REQ-TERM-010: Session presets (saved tab configurations)', () => {
           tabs: [{ id: '1', createdAt: '2024-01-01T00:00:00.000Z' }],
           tabOrder: ['1'],
           activeTabId: '1',
+          tiling: { enabled: false, layout: 'tabbed' },
         },
       };
     }
@@ -219,7 +219,7 @@ describe('REQ-TERM-010: Session presets (saved tab configurations)', () => {
     });
 
     it('REQ-TERM-010 AC4: returns false when preset is not found', async () => {
-      state.sessions = [{ id: 'sess-abc123de', name: 'S', tabConfig: [] }];
+      state.sessions = [makeSession('sess-abc123de', 'S', [])];
       state.presets = [];
 
       const ok = await applyPresetToSession('sess-abc123de', 'nonexistent-preset');
@@ -238,6 +238,7 @@ describe('REQ-TERM-010: Session presets (saved tab configurations)', () => {
           tabs: [],
           tabOrder: [],
           activeTabId: '1',
+          tiling: { enabled: false, layout: 'tabbed' },
         },
       };
 
