@@ -54,7 +54,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -86,7 +86,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -153,7 +153,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -221,7 +221,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -256,7 +256,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -326,7 +326,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -503,7 +503,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -591,7 +591,7 @@ None.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
