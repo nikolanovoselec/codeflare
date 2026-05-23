@@ -240,38 +240,64 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-### REQ-OPS-005: Weekly pentest and fuzz testing
+### REQ-OPS-005: Weekly pentest
 
 <!-- @impl: .github/workflows/pentest.yml -->
-<!-- @impl: .github/workflows/fuzz.yml -->
 
-**Intent:** Automated security testing runs on a weekly schedule to detect regressions in security posture and identify edge-case bugs.
+**Intent:** Automated external pentest probes run on a weekly schedule to detect regressions in production security posture.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. The pentest workflow runs weekly (Monday 05:00 UTC) and on `workflow_dispatch` against the `PENTEST_TARGET` URL in the production environment.
-2. Pentest runs 6 parallel jobs using lightweight external probes (`curl` and `openssl` only):
+2. Pentest runs 6 parallel jobs using lightweight external probes restricted to `curl` and `openssl` invocations.
+3. Probe coverage spans response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling (per-probe checks enumerated in Constraints).
+
+**Constraints:**
+
+- Pentest requires `PENTEST_TARGET` variable set in the `production` GitHub environment.
+- Pentest uses only `curl` and `openssl` (no heavy scanning tools) to minimize CI resource usage.
+- Per-probe checks:
    - `security-headers`: Verifies HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy present; `X-Powered-By` absent.
    - `tls`: Confirms TLS 1.3 works, TLS 1.0/1.1 rejected, HSTS preload enabled, certificate >= 14 days validity.
    - `auth-gate`: Verifies 7 API endpoints require authentication (302/401/403). Tests email header injection bypass.
    - `info-disclosure`: Probes `/.env`, `/.git/config`, `/api/debug` for sensitive data. Confirms no stack traces in responses.
    - `injection`: Tests host header injection, `X-Forwarded-Host` effect, CL/TE request smuggling, path traversal payloads.
    - `http-methods`: Verifies TRACE returns 405, WebSocket upgrade without auth returns 302.
-3. The fuzz workflow runs on PRs to `main`, weekly (Sunday 04:00 UTC), and on `workflow_dispatch`.
-4. Fuzz testing uses fast-check with 50,000 iterations for property-based testing.
-
-**Constraints:**
-
-- Pentest requires `PENTEST_TARGET` variable set in the `production` GitHub environment.
-- Pentest uses only `curl` and `openssl` (no heavy scanning tools) to minimize CI resource usage.
 
 **Priority:** P1
 
 **Dependencies:** REQ-SEC-008, REQ-SEC-009, REQ-SEC-010
 
-**Verification:** Automated test (pentest.yml and fuzz.yml scheduled runs)
+**Verification:** Automated test (pentest.yml scheduled runs)
+
+**Status:** Partial
+
+---
+
+### REQ-OPS-009: Weekly fuzz testing
+
+<!-- @impl: .github/workflows/fuzz.yml -->
+
+**Intent:** Property-based fuzz testing runs on a weekly schedule and on every PR to `main` to identify edge-case bugs in input parsing and state transitions.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The fuzz workflow runs on PRs to `main`, weekly (Sunday 04:00 UTC), and on `workflow_dispatch`.
+2. Fuzz testing uses fast-check with 50,000 iterations for property-based testing.
+
+**Constraints:**
+
+- Fuzz iteration count is calibrated to keep PR-blocking jobs under the 10-minute CI budget; weekly runs are unbounded.
+
+**Priority:** P1
+
+**Dependencies:** REQ-SEC-008, REQ-SEC-009, REQ-SEC-010
+
+**Verification:** Automated test (fuzz.yml scheduled and PR runs)
 
 **Status:** Partial
 
