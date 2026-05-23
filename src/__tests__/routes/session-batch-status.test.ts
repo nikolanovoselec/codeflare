@@ -9,13 +9,12 @@
  *              AC7 (frontend disposal on stopped transition - structural)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Env, Session } from '../../types';
+import type { Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 import {
   buildSessionMetadata,
   expandSessionMetadata,
-  putSessionWithMetadata,
   type SessionListMetadata,
 } from '../../lib/kv-keys';
 

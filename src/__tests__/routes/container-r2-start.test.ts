@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Env, Session } from '../../types';
+import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 
@@ -29,7 +29,7 @@ const testState = vi.hoisted(() => ({
     startAndWaitForPorts: ReturnType<typeof vi.fn>;
   } | null,
   createBucketResult: { success: true, created: false } as { success: boolean; error?: string; created?: boolean },
-  seedResult: { written: string[], skipped: string[] } as { written: string[]; skipped: string[] },
+  seedResult: { written: [], skipped: [] } as { written: string[]; skipped: string[] },
 }));
 
 vi.mock('@cloudflare/containers', () => ({

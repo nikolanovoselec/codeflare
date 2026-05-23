@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { AppError, RateLimitError } from '../../lib/error-types';
+import { AppError } from '../../lib/error-types';
 import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { createMockKV } from '../helpers/mock-kv';

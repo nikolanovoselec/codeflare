@@ -10,7 +10,7 @@
  * Deleting the contact-team route or removing sendAccessRequestNotification wiring breaks
  * the AC2 test; removing the rate limiter breaks AC4.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Env, AccessUser } from '../../types';
