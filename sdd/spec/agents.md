@@ -1194,23 +1194,20 @@ None.
 
 **Acceptance Criteria:**
 
-1. The `graphifyy` Python package is installed in every container image at build time with `[mcp,sql,pdf]` extras, pinned to the version recorded in `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` `.version`; Dependabot bumps to that file rebuild the image with the new version in lockstep.
-2. The `graphify` MCP server is registered in `~/.claude.json` `mcpServers` for every session (default and advanced modes) and exposes the graphify tool set (`query_graph`, `get_node`, `get_neighbors`, `get_community`, `god_nodes`, `graph_stats`, `shortest_path`).
-3. AC1 and AC2 hold across all paid tiers (standard, advanced, max, unlimited); the capability functions in sessions without context-mode preseeded because the agent-orchestrated `/graphify` skill relies on upstream graphify's subagent chunking model to keep the main agent's context bounded when context-mode is not present.
-4. The MCP server tolerates a missing `graphify-out/graph.json` at startup via a wrapper (`graphify-mcp-lazy.py`) that presents a `LazyGraph` to `graphify.serve`, so the server starts with an empty graph and rebinds within `GRAPHIFY_POLL_SECONDS` (default 2 seconds) of a graph file appearing or changing on disk; sessions that begin with an empty workspace and clone a repo mid-session do not require a Claude Code restart.
-5. In advanced session mode only, a PostToolUse hook (`graphify-active-repo.sh`) writes the current repo root to a sentinel file at `~/.cache/codeflare-hooks/graphify-active-cwd`, firing on the matcher set `Bash | Edit | Write | Read | NotebookEdit | mcp__context-mode__ctx_execute | mcp__context-mode__ctx_execute_file | mcp__context-mode__ctx_batch_execute`; resolution walks up from the candidate dir to the nearest ancestor containing `.git/` or `graphify-out/`.
-6. The MCP wrapper reads this sentinel to rebind its in-memory graph; when the sentinel is absent or stale, the wrapper falls back to the freshest `CODEFLARE_WORKSPACE/*/graphify-out/graph.json` by mtime.
+1. The `graphifyy` Python package is installed in every container image at build time with the MCP, SQL, and PDF extras, pinned to a single version Dependabot tracks; version bumps rebuild the image in lockstep.
+2. The graphify MCP server is registered as a session-level capability in every session (default and advanced modes) and exposes the standard graphify tool surface for querying nodes, neighbours, communities, paths, and aggregate stats.
+3. AC1 and AC2 hold across all paid tiers; the capability functions in sessions without context-mode preseeded because the agent-orchestrated `/graphify` skill keeps the main agent's context bounded via subagent chunking.
+4. The MCP server tolerates a missing graph artefact at startup, presents an empty graph initially, and rebinds within a short polling interval after a graph appears or changes on disk; sessions that clone a repo mid-session do not require a restart.
+5. In advanced session mode only, the user's current active repository is tracked so the MCP server scopes its bind to that repo; resolution walks up to the nearest ancestor containing a Git repository or a graph artefact.
+6. When the active-repo signal is absent or stale, the MCP server falls back to the most recently updated graph artefact in the user's workspace.
 
 **Constraints:**
 
-- Graphify is the upstream `graphifyy` package on PyPI (Apache-2.0). No Codeflare fork.
-- MCP server registration + the `graphify-mcp-lazy.py` wrapper are unconditional on session mode (capability is ambient). The disciplines in REQ-AGENT-024 and the active-repo hook (AC5) are mode-gated to advanced.
-- Per-branch graphs are not supported. The wrapper reads `<repo>/.git/HEAD` only for log identification; graphify upstream models snapshots not branches, so users run `graphify update` after a checkout and the wrapper picks up the new mtime.
-- `[office]`, `[google]`, `[video]`, `[neo4j]`, and external-provider backend extras (`[ollama]`, `[bedrock]`, `[gemini]`, `[openai]`) are not installed. Users who need them can `uv tool install --upgrade graphifyy[all]` manually.
+- The codeflare image uses the upstream graphify package without a fork.
+- The ambient MCP capability is available in every session mode; the graph-first agent discipline (REQ-AGENT-024) and active-repo tracking (AC5) are mode-gated to advanced.
+- Per-branch graphs are not supported; users refresh the graph after a branch checkout.
+- Optional backend-provider and office extras are not installed by default; users who need them install upstream extras manually.
 - Preseed surfaces that invoke `graphify update` (prompts, skills, commands, hooks) call the bounded wrapper rather than the bare CLI, so a runaway rebuild cannot OOM-kill the container session.
-
-<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh -->
-<!-- @test: host/__tests__/safe-graphify-update.test.js -->
 
 **Priority:** P1
 

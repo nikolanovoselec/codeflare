@@ -13,6 +13,6 @@ When `graphify-out/graph.json` exists in the project root, prefer `mcp__graphify
 - Code written or modified this session (graph is eventually-consistent)
 - Pure repo-state questions (`git status`, `git log`, `gh pr list`)
 
-After source edits, run `graphify update .` before answering further structural questions.
+After source edits, run `bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .` before answering further structural questions.
 
 **Route:** invoke the `graphify` skill for mechanics, build/refresh commands, large-repo flags, persistence, and the codeflare PreToolUse enforcement gate.
