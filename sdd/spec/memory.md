@@ -33,7 +33,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh -->
 
-**Intent:** Important conversation context (decisions, debugging insights, observations) must be extracted from the transcript and persisted to the vault without manual intervention.
+**Intent:** Important conversation context (decisions, debugging insights, observations) must be extracted from the transcript and persisted to the vault without manual intervention. This REQ covers the hook trigger, message-counting filter, and the capture pipeline. Hook plumbing (tilde expansion, vars file shape, first-message graphify hint, timezone resolution) is split into [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing).
 
 **Applies To:** User
 
@@ -41,13 +41,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. The `memory-capture.sh` script runs as a `UserPromptSubmit` hook, injecting a short instruction into the main agent's context via `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0`.
 2. The hook counts real user messages in the JSONL transcript using a two-layer grep filter that excludes tool-result wrappers (content is an array, not a string) and synthetic messages (slash commands, task notifications -- content starts with `<`).
-3. When triggered, a background sonnet agent runs the three-stage capture pipeline (prefilter transcript noise, chunk and accumulate per-chunk observations into a scratchpad, synthesise the final note) and writes the capture file to `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md`. The agent is sonnet per AD58 (pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model). Timestamps reflect the user's local timezone, resolved per AC9 below.
+3. When triggered, a background sonnet agent runs the three-stage capture pipeline (prefilter transcript noise, chunk and accumulate per-chunk observations into a scratchpad, synthesise the final note) and writes the capture file to `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md`. The agent is sonnet per AD58 (pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model). Timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4.
 4. The capture file uses a YAML frontmatter template with `session_id`, `captured_at`, and `captured_from_range` fields followed by Context / Decisions / Observations / References sections.
 5. The capture agent extracts chunk nodes/edges from the rendered markdown via inline graph construction (sonnet itself emits the chunk JSON matching graphify's schema, then a short Python step calls `graphify.build` / `graphify.cluster` / `graphify.export.to_json` to materialise the per-extraction graph), then runs `graphify global add ... --as user_vault` under `flock -w 5 /tmp/graphify-global.lock` so the new content is queryable on the same turn it is written. The headless `graphify extract` CLI is intentionally bypassed: codeflare ships no LLM provider key for graphify, and the capture agent IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit.
-6. The hook handles tilde expansion in `transcript_path` (Claude Code may send tilde-prefixed paths).
-7. All variables (transcript path, line offset, date, counts, counter file path) are written to a `.vars` JSON file to keep the context string short.
-8. On the first message of a session (no counter file exists), the hook injects a `mcp__graphify__query_graph` directive into `additionalContext` instructing the agent to query the unified graph before responding.
-9. The hook resolves the capture timestamp from `$USER_TIMEZONE`, falling back to `$TZ`, then `/etc/timezone`, then UTC. The endpoint and persistence contract that puts a value into `$USER_TIMEZONE` are specified by REQ-SESSION-016.
 
 **Constraints:**
 
@@ -59,6 +55,35 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), REQ-VAULT-002, REQ-SESSION-016
 
 **Verification:** Integration test (E2E verifies a capture file appears under `Raw/Sessions/` after 15 messages and its nodes show up in `mcp__graphify__query_graph`).
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-010: Memory capture hook plumbing
+
+<!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
+
+**Intent:** Operational glue around the capture hook: tilde expansion in transcript paths, the shared `.vars` carrier file that keeps `additionalContext` strings short, a first-message graphify-query directive that primes the agent with prior-session knowledge, and a timezone resolution chain so captured timestamps reflect the user's local clock instead of UTC.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The hook handles tilde expansion in `transcript_path` (Claude Code may send tilde-prefixed paths).
+2. All variables (transcript path, line offset, date, counts, counter file path) are written to a `.vars` JSON file to keep the context string short.
+3. On the first message of a session (no counter file exists), the hook injects a `mcp__graphify__query_graph` directive into `additionalContext` instructing the agent to query the unified graph before responding.
+4. The hook resolves the capture timestamp from `$USER_TIMEZONE`, falling back to `$TZ`, then `/etc/timezone`, then UTC. The endpoint and persistence contract that puts a value into `$USER_TIMEZONE` are specified by REQ-SESSION-016.
+
+**Constraints:**
+
+- The `.vars` file is the dedup gate: the capture subagent must delete it as its first step; absence on subsequent hook fires short-circuits trigger emission.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), REQ-SESSION-016
+
+**Verification:** Automated test (unit tests for tilde expansion, .vars schema, timezone fallback chain)
 
 **Status:** Implemented
 
@@ -133,11 +158,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-006: Memory available only in Pro (Advanced) mode
 
-<!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
-<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 <!-- @impl: preseed/agents/claude/manifest.json -->
 
-**Intent:** Vault persistence and automatic capture are gated behind the advanced session mode to control feature exposure and resource usage.
+**Intent:** Vault persistence and automatic capture are user-facing features gated behind the advanced session mode. This REQ specifies the observable behavior (what works in each mode) and the preseed delta (which files differ between modes). The storage/resolution/propagation of the mode value lives in [REQ-MEM-011](#req-mem-011-session-mode-storage-resolution-and-propagation).
 
 **Applies To:** User
 
@@ -147,22 +170,48 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. In default mode, the capture hook still runs the in-session counter logic but vault writes are local-only.
 3. The memory plugin, memory rule (`rules/memory.md`, which carries the folded vault trigger/route content), vault plugin, and `rules/vault-note-capture.md` are preseeded only in advanced mode.
 4. Pro mode seeds a strict superset of Standard's preseed files; the memory and vault plugins/rules are part of the Pro-only delta.
-5. `entrypoint.sh` merges hook registrations (PreToolUse and UserPromptSubmit) into `settings.json` only in advanced mode. Default mode gets only `skipDangerousModePermissionPrompt`.
-6. `sessionMode` is stored as `'default' | 'advanced'` in `UserPreferences` (KV). Undefined defaults to `'default'` via `resolveSessionMode()`.
-7. Mode changes take effect only on explicit "Recreate AI agent skills & rules" click or new bucket creation.
-8. `reconcileAgentConfigs()` seeds mode-appropriate files and deletes preseed-managed files not in the current mode. It never touches user-created files.
 
 **Constraints:**
 
 - Plugin enablement in `.claude.json` is permanent (not mode-gated) because missing plugin files are silently skipped by Claude Code.
-- Existing users are unaffected by mode changes until they explicitly recreate.
-- `resolveSessionMode` result is clamped against the billing-resolved effective tier (a canceled user with stale `advanced` preference gets `default`).
 
 **Priority:** P1
 
 **Dependencies:** REQ-SUB-014
 
 **Verification:** Integration test (E2E verifies the vault subtree is absent in default mode after recreate, present in advanced).
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-011: Session-mode storage, resolution, and propagation
+
+<!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
+<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+<!-- @impl: entrypoint.sh -->
+
+**Intent:** The mechanics behind the user-observable behavior in REQ-MEM-006: how the mode value is stored, defaulted, clamped against the billing tier, propagated into `settings.json`, and reconciled into the preseed file set without trampling user content.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `entrypoint.sh` merges hook registrations (PreToolUse and UserPromptSubmit) into `settings.json` only in advanced mode. Default mode gets only `skipDangerousModePermissionPrompt`.
+2. `sessionMode` is stored as `'default' | 'advanced'` in `UserPreferences` (KV). Undefined defaults to `'default'` via `resolveSessionMode()`.
+3. Mode changes take effect only on explicit "Recreate AI agent skills & rules" click or new bucket creation.
+4. `reconcileAgentConfigs()` seeds mode-appropriate files and deletes preseed-managed files not in the current mode. It never touches user-created files.
+
+**Constraints:**
+
+- Existing users are unaffected by mode changes until they explicitly recreate.
+- `resolveSessionMode` result is clamped against the billing-resolved effective tier (a canceled user with stale `advanced` preference gets `default`).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), REQ-SUB-014
+
+**Verification:** Integration test (E2E verifies settings.json hook block presence per mode and the reconciliation behavior on mode switch).
 
 **Status:** Implemented
 
