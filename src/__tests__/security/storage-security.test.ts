@@ -85,42 +85,76 @@ describe('REQ-SEC-010 AC4: validateKey returns decoded key for callers', () => {
 
 // ── REQ-SEC-013: Content-Disposition hardening ────────────────────────────────
 //
-// buildContentDisposition() is not exported from download.ts (module-private).
-// We verify its behavior via a structural audit reading the production source.
-// This satisfies REQ-SEC-013 AC2/AC3 without redefining the function locally.
+// Behavioral tests for buildContentDisposition() — imported directly from the
+// download route module. Inputs are crafted attack vectors (CRLF injection,
+// quote-break, encoded smuggling); outputs are asserted against the exact
+// header value the browser will receive.
 
-describe('REQ-SEC-013: Content-Disposition structural audit', () => {
-  it('REQ-SEC-013 AC3: download.ts uses "attachment" disposition type in buildContentDisposition', async () => {
-    const { readFileSync } = await import('node:fs');
-    const src = readFileSync(
-      new URL('../../../../routes/storage/download.ts', import.meta.url).pathname,
-      'utf-8'
-    );
-    // Must contain `attachment` as the disposition type
-    expect(src).toMatch(/attachment/);
-    // Must contain the buildContentDisposition function definition
-    expect(src).toMatch(/function buildContentDisposition/);
+import { buildContentDisposition } from '../../routes/storage/download';
+
+describe('REQ-SEC-013: Content-Disposition is built safely', () => {
+  it('REQ-SEC-013 AC3: emits attachment disposition type', () => {
+    const header = buildContentDisposition('report.pdf');
+    expect(header.startsWith('attachment;')).toBe(true);
   });
 
-  it('REQ-SEC-013 AC2: buildContentDisposition strips CRLF characters from filename', async () => {
-    const { readFileSync } = await import('node:fs');
-    const src = readFileSync(
-      new URL('../../../../routes/storage/download.ts', import.meta.url).pathname,
-      'utf-8'
-    );
-    // CRLF stripping must be present — regex or replace covering \r and \n
-    expect(src).toMatch(/\\r\\n|\\r|\\n/);
-    // The replace call must target CR and LF inside buildContentDisposition
-    expect(src).toMatch(/replace[\s\S]{1,200}\\r\\n/);
+  it('REQ-SEC-013 AC3: preserves both filename and filename* parameters', () => {
+    const header = buildContentDisposition('report.pdf');
+    expect(header).toContain('filename="report.pdf"');
+    expect(header).toContain("filename*=UTF-8''report.pdf");
   });
 
-  it('REQ-SEC-013 AC2: buildContentDisposition strips quotes and backslashes for ASCII fallback', async () => {
-    const { readFileSync } = await import('node:fs');
-    const src = readFileSync(
-      new URL('../../../../routes/storage/download.ts', import.meta.url).pathname,
-      'utf-8'
-    );
-    // Must strip quote chars (") and backslashes (\) from the ASCII filename
-    expect(src).toMatch(/["\\\\]/);
+  it('REQ-SEC-013 AC2: replaces CR with underscore (prevents header injection)', () => {
+    const header = buildContentDisposition('evil\rname.txt');
+    expect(header).not.toContain('\r');
+    expect(header).toContain('filename="evil_name.txt"');
+  });
+
+  it('REQ-SEC-013 AC2: replaces LF with underscore (prevents header injection)', () => {
+    const header = buildContentDisposition('evil\nname.txt');
+    expect(header).not.toContain('\n');
+    expect(header).toContain('filename="evil_name.txt"');
+  });
+
+  it('REQ-SEC-013 AC2: replaces CRLF in both ASCII fallback and RFC 5987 filename*', () => {
+    const header = buildContentDisposition('a\r\nb.txt');
+    expect(header).not.toMatch(/[\r\n]/);
+    expect(header).toContain('filename="a__b.txt"');
+    expect(header).toContain("filename*=UTF-8''a__b.txt");
+  });
+
+  it('REQ-SEC-013 AC2: replaces embedded double quotes (prevents ASCII filename break-out)', () => {
+    const header = buildContentDisposition('evil"; X-Injected: yes; filename="oops.txt');
+    const asciiPart = header.match(/filename="([^"]*)"/);
+    expect(asciiPart).not.toBeNull();
+    expect(asciiPart![1]).not.toContain('"');
+    expect(header).not.toContain('X-Injected: yes');
+  });
+
+  it('REQ-SEC-013 AC2: replaces backslashes (prevents ASCII filename quoted-string escape)', () => {
+    const header = buildContentDisposition('evil\\.txt');
+    const asciiPart = header.match(/filename="([^"]*)"/);
+    expect(asciiPart).not.toBeNull();
+    expect(asciiPart![1]).not.toContain('\\');
+    expect(asciiPart![1]).toBe('evil_.txt');
+  });
+
+  it('REQ-SEC-013 AC2: keeps a literal single quote out of filename* by percent-encoding it', () => {
+    const header = buildContentDisposition("o'clock.txt");
+    const rfc5987 = header.split("filename*=UTF-8''")[1];
+    expect(rfc5987).toBeDefined();
+    expect(rfc5987).not.toContain("'");
+    expect(rfc5987).toContain('%27');
+  });
+
+  it('REQ-SEC-013 AC2: percent-encodes Unicode characters in filename*', () => {
+    const header = buildContentDisposition('café.txt');
+    expect(header).toContain('filename="café.txt"');
+    expect(header).toMatch(/filename\*=UTF-8''caf%C3%A9\.txt/);
+  });
+
+  it('REQ-SEC-013 AC2: leaves a plain ASCII filename completely unchanged', () => {
+    const header = buildContentDisposition('plain.txt');
+    expect(header).toBe(`attachment; filename="plain.txt"; filename*=UTF-8''plain.txt`);
   });
 });

@@ -368,7 +368,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-<!-- @test: src/__tests__/routes/session-shutdown-sync.test.ts (REQ-SESSION-011 describe -> entrypoint traps SIGINT/SIGTERM + shutdown_handler + /tmp/sync-daemon.pid + --ignore-checksum --max-delete 100 + bisync-initialized flag + Dockerfile STOPSIGNAL SIGINT + destroy SIGTERM+poll+super.destroy + collectMetrics stop(SIGTERM) -> AC1..AC7) -->
+<!-- @test: src/__tests__/routes/session-shutdown-sync.test.ts (REQ-SESSION-011 describe -> entrypoint traps SIGINT/SIGTERM + shutdown_handler + /tmp/sync-daemon.pid + --ignore-checksum --max-delete 100 + bisync-initialized flag + Dockerfile STOPSIGNAL SIGINT -> AC1..AC5 declarative) -->
+<!-- @test: src/__tests__/container/index.test.ts (destroy describe -> SIGTERM via stop() + poll ctx.container.running + super.destroy fallback + skip-when-not-running -> AC6) -->
+<!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution describe -> collectMetrics calls stop('SIGTERM') when idleMs exceeds idleTimeoutPref -> AC7) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior (real) describe -> bisync cadence + SIGUSR1 coalesce + failure recovery + --resync fallback -> AC2/AC3 daemon-side runtime behavior) -->
 ### REQ-SESSION-011: Graceful shutdown with final sync
 
 <!-- @impl: entrypoint.sh::shutdown_handler -->
@@ -405,7 +408,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-<!-- @test: src/__tests__/container/wake-loop-prevention.test.ts (REQ-SESSION-012 describe -> web-ui disposeSession + stopped transition + container DO fetch 503 gate + close(4503 WS close code -> AC1,3) -->
+<!-- @test: web-ui/src/__tests__/stores/session.test.ts (disposeSession on server-side stop describe -> calls disposeSession on running->stopped + no-op when stays running -> AC3) -->
 ### REQ-SESSION-012: Wake-loop prevention
 
 <!-- @impl: src/container/index.ts -->
