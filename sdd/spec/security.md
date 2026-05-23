@@ -130,6 +130,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<!-- @test: src/__tests__/security/kv-crypto-security.test.ts (REQ-SEC-004 describe -> AAD key-name binding (ciphertext non-portable) + non-secret entries stay plaintext + warnIfNoEncryptionKey CRITICAL log -> AC4,7,8) -->
 ### REQ-SEC-004: Credential encryption-at-rest cryptographic contract
 
 <!-- @impl: src/lib/kv-crypto.ts::importEncryptionKey -->
@@ -233,6 +234,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<!-- @test: src/__tests__/security/kv-crypto-security.test.ts (REQ-SEC-006 write-back failure describe -> returns correct data when migration write-back put() rejects + does not propagate as thrown error -> AC5) -->
 ### REQ-SEC-006: Transparent KV encryption migration
 
 <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
@@ -269,6 +271,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<!-- @test: src/__tests__/security/rate-limit-security.test.ts (REQ-SEC-007 describe -> 429 with RATE_LIMIT_ERROR code in body + fail-closed=true+KV throws=429 + fail-open=false (default)+KV throws=200 -> AC3,7,8) -->
 ### REQ-SEC-007: Rate-limiting infrastructure
 
 <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
@@ -365,6 +368,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008 describe -> real worker.fetch against /health asserts Strict-Transport-Security + Content-Security-Policy + X-Content-Type-Options nosniff + X-Frame-Options DENY + Referrer-Policy + Permissions-Policy + X-Powered-By absent + HSTS on redirects -> AC1..AC7) -->
 ### REQ-SEC-008: Security headers on every response
 
 <!-- @impl: src/index.ts -->
@@ -464,6 +468,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 describe -> validateKey decodes URI before traversal check + %2E%2E rejected + lone % throws ValidationError + decoded key returned -> AC1..AC4) -->
 ### REQ-SEC-010: Path traversal prevention on storage endpoints
 
 <!-- @impl: src/routes/storage/validation.ts::validateKey -->
@@ -561,6 +566,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013 describe -> download.ts uses attachment disposition type + CRLF stripping in buildContentDisposition + quotes/backslashes stripped (structural audit; buildContentDisposition not exported) -> AC2,3) -->
 ### REQ-SEC-013: Content-Disposition hardening on downloads
 
 <!-- @impl: src/routes/storage/download.ts -->
@@ -590,6 +596,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<!-- @test: src/__tests__/security/access-security.test.ts (REQ-SEC-014 describe -> cf-access-client-id trusted only when !SAAS_MODE + SaaS mode ignores attacker-controlled cf-access-client-id (no email/auth produced) -> AC1,2) -->
 ### REQ-SEC-014: SaaS service-token header not trusted in SaaS mode
 
 <!-- @impl: src/lib/access.ts::getUserFromRequest -->
@@ -651,6 +658,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<!-- @test: src/__tests__/security/access-security.test.ts (REQ-SEC-016 describe -> two concurrent getUserFromRequest issue exactly one setup:auth_domain KV read + sequential warm-cache no re-read + resetAuthConfigCache forces re-read -> AC1,2,3) -->
 ### REQ-SEC-016: Concurrent cache deduplication for auth config
 
 <!-- @impl: src/lib/access.ts::resetAuthConfigCache -->
