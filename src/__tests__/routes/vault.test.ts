@@ -199,7 +199,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
-  // REQ-VAULT-012 AC3 (browser-initiated SW registration short-circuit: method+path+Service-Worker header+no-Cookie selector, defence-in-depth)
+  // REQ-VAULT-013 AC5-AC7 (browser-initiated SW registration short-circuit: method+path+Service-Worker header+no-Cookie selector, defence-in-depth)
   describe('isServiceWorkerRegistration', () => {
     function swRequest(
       method: string,
