@@ -90,7 +90,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-<!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-SESSION-003 describe -> createBucketIfNotExists called + scoped R2 token injected into setBucketName body + entrypoint rclone sync 120s timeout + start_sync_daemon bisync 900s SIGUSR1 + seedGettingStartedDocs on new bucket -> AC1..AC5) -->
+<!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-SESSION-003 describe -> createBucketIfNotExists called + scoped R2 token injected into setBucketName body + seedGettingStartedDocs on new bucket -> AC1, AC2, AC5) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior (real) describe -> initial rclone sync from R2 (REQ-STOR-004) + bisync cadence + SIGUSR1 + final shutdown sync -> AC3 initial sync, AC4 bisync daemon + SIGUSR1) -->
 ### REQ-SESSION-003: R2 bucket mounted and synced on start
 
 <!-- @impl: src/container/index.ts -->
