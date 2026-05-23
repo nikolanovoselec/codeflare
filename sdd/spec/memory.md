@@ -34,8 +34,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh -->
 <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - user-message counting describe -> counts only real user prompts excluding tool_results and command wrappers -> AC2) -->
 <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh describe -> AC3 strips tool I/O and chunks remainder -> AC3) -->
-<!-- @test-triage: AC6 (inline graph construction via graphify.build/cluster/export.to_json) -- E2E only; unit-level text-grep of prompt prose was deleted as theater per tdd-discipline (see pipeline test comment). Verified at runtime when capture lands in Vault/Raw/Sessions/ and shows up via mcp__graphify__query_graph. -->
-<!-- @test-triage: AC7 (flock -w 5 /tmp/graphify-global.lock + graphify global add --as user_vault) -- E2E only; same rationale as AC6 (prompt-text regex theater deleted). Runtime verification: capture is queryable on the same turn it is written. -->
+<!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> inline graph construction Python step -> AC6) -->
+<!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> flock + graphify global add merge step -> AC7) -->
 
 **Intent:** Important conversation context (decisions, debugging insights, observations) must be extracted from the transcript and persisted to the vault without manual intervention. This REQ covers the hook trigger, message-counting filter, and the capture pipeline. Hook plumbing (tilde expansion, vars file shape, first-message graphify hint, timezone resolution) is split into [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing).
 
@@ -177,8 +177,6 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/claude/manifest.json -->
 <!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (REQ-MEM-006 AC3 describe -> memory + vault rules and plugins are advanced-only -> AC3) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json describe -> "advanced" is a superset of "default" -> AC4) -->
-<!-- @test-triage: AC1 (vault not preserved across recreations in default mode) -- behavioral/E2E; requires a real container boot with rclone and R2. Documented in pro-mode-gating.test.ts header. -->
-<!-- @test-triage: AC2 (default-mode capture hook runs counter but vault writes are local-only) -- behavioral/E2E; requires container boot to verify R2 sync absence. Documented in pro-mode-gating.test.ts header. -->
 
 **Intent:** Vault persistence and automatic capture are user-facing features gated behind the advanced session mode. This REQ specifies the observable behavior (what works in each mode) and the preseed delta (which files differ between modes). The storage/resolution/propagation of the mode value lives in [REQ-MEM-011](#req-mem-011-session-mode-storage-resolution-and-propagation).
 
