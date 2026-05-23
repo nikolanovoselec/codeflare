@@ -125,14 +125,13 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
-### REQ-SEC-004: Credential encryption at rest when ENCRYPTION_KEY configured
+### REQ-SEC-004: Credential encryption-at-rest cryptographic contract
 
 <!-- @impl: src/lib/kv-crypto.ts::importEncryptionKey -->
 <!-- @impl: src/lib/kv-crypto.ts::encryptForKV -->
 <!-- @impl: src/lib/kv-crypto.ts::decryptFromKV -->
-<!-- @impl: src/lib/kv-crypto.ts::warnIfNoEncryptionKey -->
 
-**Intent:** When an operator provides an encryption key, all user secrets stored in KV must be encrypted at rest using AES-256-GCM.
+**Intent:** When an operator provides an encryption key, the cryptographic contract for encryption-at-rest (key import shape, algorithm, ciphertext format, AAD binding, isolate caching) is fixed and pentest-verifiable.
 
 **Applies To:** User
 
@@ -143,20 +142,46 @@ Security requirements for authentication enforcement, credential isolation, encr
 3. Ciphertext format is `v1:` + base64(12-byte random IV + ciphertext + 16-byte auth tag).
 4. The KV key name is bound as AAD (Additional Authenticated Data), preventing ciphertext from being copied between KV keys.
 5. The CryptoKey is imported once per Worker isolate lifetime and cached.
-6. API responses always return masked values (`****` + last 4 chars), never plaintext keys.
-7. When `ENCRYPTION_KEY` is absent, `warnIfNoEncryptionKey()` emits a CRITICAL structured log on the first request.
-8. Non-secret KV entries (`user-prefs:*`, `session:*`, `user:*`, `setup:*`, `storage-stats:*`) remain plaintext.
 
 **Constraints:**
 
 - Key is generated via `openssl rand -base64 32` and stored as a GitHub Actions secret.
 - Key pipeline: GitHub Secret -> `wrangler secret put` -> Worker env -> CryptoKey import.
+- The operational masking + missing-key warning + non-secret allowlist live in [REQ-SEC-018](#req-sec-018-credential-encryption-operational-policy).
 
 **Priority:** P0
 
 **Dependencies:** None.
 
 **Verification:** Automated test (unit tests for kv-crypto.ts encrypt/decrypt round-trip)
+
+**Status:** Partial
+
+---
+
+### REQ-SEC-018: Credential encryption operational policy
+
+<!-- @impl: src/lib/kv-crypto.ts::warnIfNoEncryptionKey -->
+
+**Intent:** The encryption-at-rest contract needs operational hardening at the API and observability layers: responses always mask secrets, missing-key configuration is loud enough to catch in production logs, and the plaintext-allowlist is explicit so future KV keys are categorised on purpose, not by accident.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. API responses always return masked values (`****` + last 4 chars), never plaintext keys.
+2. When `ENCRYPTION_KEY` is absent, `warnIfNoEncryptionKey()` emits a CRITICAL structured log on the first request.
+3. Non-secret KV entries (`user-prefs:*`, `session:*`, `user:*`, `setup:*`, `storage-stats:*`) remain plaintext.
+
+**Constraints:**
+
+- The plaintext allowlist is explicit. New KV namespaces are encrypted by default; adding to the plaintext allowlist requires a security-review sign-off.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
+
+**Verification:** Automated test (unit tests for masking + warn-if-no-key + allowlist)
 
 **Status:** Partial
 
@@ -231,11 +256,11 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
-### REQ-SEC-007: Rate limiting on all mutation endpoints
+### REQ-SEC-007: Rate-limiting infrastructure
 
 <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
 
-**Intent:** Every endpoint that creates, modifies, or deletes resources must be rate-limited to prevent abuse and resource exhaustion.
+**Intent:** The general rate-limit infrastructure (factory, key derivation, KV-with-in-memory-fallback storage, 429 response shape, advisory headers) underpins every per-endpoint policy in the system.
 
 **Applies To:** User
 
@@ -245,24 +270,74 @@ Security requirements for authentication enforcement, credential isolation, encr
 2. Primary storage is Cloudflare KV with automatic TTL expiry (window + 60s buffer). Fallback is an in-memory `Map` with periodic cleanup every 100 requests.
 3. Exceeded limits return HTTP 429 with `{ code: "RATE_LIMIT_ERROR", message: "Rate limit exceeded. Try again in N seconds." }`.
 4. All rate-limited responses include `X-RateLimit-Limit` and `X-RateLimit-Remaining` headers.
-5. WebSocket connections are rate-limited at 30 per 60-second window per user.
-6. Per-user concurrent session caps are enforced: `MAX_SESSIONS_USER` (default 3), `MAX_SESSIONS_ADMIN` (default 10).
-7. Security-critical endpoints (`request-access`, Turnstile verification) use fail-closed rate limiting (KV failure returns 503 instead of allowing the request).
-8. General resource-protection endpoints use fail-open rate limiting (per AD6).
-9. When `STRESS_TEST_MODE=active`, all rate limits are bypassed with a one-time warning per isolate.
-10. WebSocket upgrade requests for sessions with KV status `stopped` are rejected via close code 4503 BEFORE the WS rate-limit check runs, so a reconnect storm against a hibernated container does not consume the user's 30/60s budget.
-11. WebSocket upgrade requests are rejected via close code 1013 (reason `container-warming-up`) BEFORE the WS rate-limit check when the worker observes `terminalServiceReady=false` in the container `/health` probe response, so a reconnect storm during container warm-up does not consume the user's 30/60s budget. The `/health` probe is best-effort: any probe error or missing field falls through to the normal rate-limit + forward path.
 
 **Constraints:**
 
 - KV key prefixes must not collide with application cache keys (use `rl-` prefix where collision exists).
-- `STRESS_TEST_MODE` must not be active alongside `SAAS_MODE` (global middleware returns 503).
+- Per-endpoint policy + fail-closed/fail-open semantics + stress-test bypass live in [REQ-SEC-019](#req-sec-019-per-endpoint-rate-limit-policy); WS-upgrade pre-rate-limit short-circuits live in [REQ-SEC-020](#req-sec-020-ws-upgrade-rate-limit-short-circuits).
 
 **Priority:** P0
 
 **Dependencies:** None.
 
-**Verification:** Automated test (unit tests for rate limiter + pentest.yml injection job)
+**Verification:** Automated test (unit tests for rate limiter)
+
+**Status:** Partial
+
+---
+
+### REQ-SEC-019: Per-endpoint rate-limit policy
+
+<!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
+
+**Intent:** Specific endpoint families have specific limits (WebSocket, session caps), and security-critical endpoints fail closed while resource-protection endpoints fail open. Stress-test mode bypasses everything with a warning so load testing can saturate without changing code.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. WebSocket connections are rate-limited at 30 per 60-second window per user.
+2. Per-user concurrent session caps are enforced: `MAX_SESSIONS_USER` (default 3), `MAX_SESSIONS_ADMIN` (default 10).
+3. Security-critical endpoints (`request-access`, Turnstile verification) use fail-closed rate limiting (KV failure returns 503 instead of allowing the request).
+4. General resource-protection endpoints use fail-open rate limiting (per AD6).
+5. When `STRESS_TEST_MODE=active`, all rate limits are bypassed with a one-time warning per isolate.
+
+**Constraints:**
+
+- `STRESS_TEST_MODE` must not be active alongside `SAAS_MODE` (global middleware returns 503).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure)
+
+**Verification:** Automated test (pentest.yml injection job + unit tests for fail-closed/open behaviour)
+
+**Status:** Partial
+
+---
+
+### REQ-SEC-020: WS-upgrade rate-limit short-circuits
+
+<!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
+
+**Intent:** WebSocket reconnect storms during container hibernation or warm-up must not exhaust the user's 30/60s WS budget. Two pre-rate-limit gates short-circuit the upgrade with explicit close codes so the client can back off without losing its budget.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. WebSocket upgrade requests for sessions with KV status `stopped` are rejected via close code 4503 BEFORE the WS rate-limit check runs, so a reconnect storm against a hibernated container does not consume the user's 30/60s budget.
+2. WebSocket upgrade requests are rejected via close code 1013 (reason `container-warming-up`) BEFORE the WS rate-limit check when the worker observes `terminalServiceReady=false` in the container `/health` probe response, so a reconnect storm during container warm-up does not consume the user's 30/60s budget. The `/health` probe is best-effort: any probe error or missing field falls through to the normal rate-limit + forward path.
+
+**Constraints:**
+
+- The order is load-bearing: the short-circuits run BEFORE the rate limiter so the user budget is preserved across hibernation/warm-up.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure), [REQ-SEC-019](#req-sec-019-per-endpoint-rate-limit-policy)
+
+**Verification:** Automated test (unit tests for 4503 + 1013 short-circuit paths)
 
 **Status:** Partial
 
@@ -272,7 +347,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 <!-- @impl: src/index.ts -->
 
-**Intent:** Every HTTP response must include standard security headers to prevent common web attacks.
+**Intent:** Every HTTP response must include standard security headers to prevent common web attacks (clickjacking, MIME sniffing, mixed content, leaked referrer, fingerprintable server software).
 
 **Applies To:** User
 
@@ -285,19 +360,44 @@ Security requirements for authentication enforcement, credential isolation, encr
 5. `Referrer-Policy: strict-origin-when-cross-origin` is set.
 6. `Permissions-Policy` is set.
 7. `X-Powered-By` header is absent.
-8. HSTS is applied on redirect responses via `redirectWithHeaders()` helper, including root redirect and setup redirect.
-9. Automated pentest (`pentest.yml` security-headers job) verifies all header presence and `X-Powered-By` absence.
 
 **Constraints:**
 
 - Headers are applied in `src/index.ts` global middleware.
 - Preflight (OPTIONS) responses receive HSTS directly in the CORS middleware.
+- Coverage of non-standard response paths (redirect responses, helper-emitted responses) lives in [REQ-SEC-021](#req-sec-021-hsts-coverage-on-redirect-response-paths).
 
 **Priority:** P0
 
 **Dependencies:** None.
 
-**Verification:** Automated test (pentest.yml security-headers job)
+**Verification:** Automated test (pentest.yml security-headers job verifies all header presence and `X-Powered-By` absence)
+
+**Status:** Partial
+
+---
+
+### REQ-SEC-021: HSTS coverage on redirect response paths
+
+<!-- @impl: src/lib/redirect-with-headers.ts -->
+
+**Intent:** The HSTS header coverage in REQ-SEC-008 AC1 must extend to every redirect emission path. Without a dedicated helper, redirects emitted from `Response.redirect()` or middleware shortcuts would drop the security header set the global middleware applies.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. HSTS is applied on redirect responses via `redirectWithHeaders()` helper, including root redirect and setup redirect.
+
+**Constraints:**
+
+- Every code path that issues a redirect MUST route through `redirectWithHeaders()`; bare `Response.redirect()` is an anti-pattern (caught by spec-reviewer when found in source).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SEC-008](#req-sec-008-security-headers-on-every-response)
+
+**Verification:** Automated test (pentest.yml security-headers job exercises redirect paths)
 
 **Status:** Partial
 
