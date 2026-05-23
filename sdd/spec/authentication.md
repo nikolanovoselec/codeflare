@@ -36,15 +36,15 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. When `OAUTH_CLIENT_ID` is NOT set: authentication is handled by Cloudflare Access. The Worker verifies `CF_Authorization` cookies or `cf-access-jwt-assertion` headers using RS256 JWTs validated against the CF Access JWKS endpoint (`https://{authDomain}/cdn-cgi/access/certs`).
-2. When `SAAS_MODE=active` AND `OAUTH_CLIENT_ID` is set: authentication is handled by Direct GitHub OAuth. The Worker manages the entire OAuth flow and issues `codeflare_session` cookies (HMAC-SHA256 JWTs verified against `OAUTH_JWT_SECRET`).
+1. When GitHub OAuth is not configured, authentication is handled by Cloudflare Access; the Worker verifies CF Access JWTs against the deployment's CF Access JWKS endpoint.
+2. When the deployment is configured as SaaS with GitHub OAuth, the Worker manages the entire OAuth flow and issues its own session cookies signed against an operator-provided JWT secret.
 3. The two modes are mutually exclusive at runtime: when the Direct GitHub OAuth branch is entered, CF Access is never checked.
-4. The frontend always calls `/auth/logout`; the backend dispatches to the correct logout flow based on mode.
+4. The frontend always calls a single logout endpoint; the backend dispatches to the correct logout flow based on mode.
 
 **Constraints:**
 
-- Missing `OAUTH_JWT_SECRET` in SaaS mode throws `AuthError` (fail-loud; never silently falls through to CF Access).
-- `cf-access-client-id` header is only trusted when `!isSaasModeActive()` to prevent header spoofing in SaaS mode.
+- Missing SaaS credentials cause a fail-loud authentication error; there is no silent fallback to CF Access.
+- CF Access identity headers are not trusted in SaaS mode.
 
 **Priority:** P0
 
@@ -62,24 +62,26 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @impl: src/routes/github-auth.ts -->
 <!-- @impl: src/lib/oauth-state.ts -->
 
-**Intent:** When `SAAS_MODE=active` and `OAUTH_CLIENT_ID` is configured, Codeflare presents a branded login page and handles GitHub OAuth directly, with no Cloudflare Access involvement.
+**Intent:** When the deployment is configured as SaaS with GitHub OAuth, Codeflare presents a branded login page and handles the OAuth flow directly, with no Cloudflare Access involvement.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Visiting `/` in SaaS mode shows the Codeflare login page with a "Sign in with GitHub" button.
-2. `GET /auth/github/login` redirects to `github.com/login/oauth/authorize` with `client_id`, `scope=user:email`, and a self-contained signed `state` parameter (no cookie set).
-3. `GET /auth/github/callback` validates the `state` query parameter (rejecting any state not issued by this Worker, issued more than 30 minutes ago, or already redeemed once), exchanges the code for an access token via GitHub API, fetches the user's verified primary email, signs an HMAC-SHA256 JWT, and sets a `codeflare_session` cookie (HttpOnly, Secure, SameSite=Lax, Max-Age=3600); successful validation redirects to `/app/` for users with an active subscription tier or `/app/subscribe` for pending/blocked users, while state-validation failure redirects to `/?error=session-expired`.
-4. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes.
-5. Only `primary: true, verified: true` emails from the GitHub API are accepted.
-6. The GitHub access token is used ephemerally during the callback and then discarded (not stored).
-7. Callback endpoint is rate-limited (10/min per IP).
+1. Visiting the root URL in SaaS mode shows the Codeflare login page with a "Sign in with GitHub" button.
+2. The login endpoint initiates a GitHub OAuth flow with a signed, self-contained state token (no cookie required during the redirect).
+3. The OAuth callback validates the state token, rejecting tokens not issued by this server, issued more than 30 minutes ago, or already redeemed.
+4. Successful callback validation creates an authenticated session and redirects the user to their workspace if their subscription is active, or to the subscription page if pending or blocked.
+5. State-validation failure redirects to the login page with an error indicator.
+6. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes.
+7. Only verified primary GitHub emails are accepted.
+8. The GitHub access token is used ephemerally during the callback and then discarded (not stored).
+9. The callback endpoint is rate-limited (10/min per IP).
 
 **Constraints:**
 
-- OAuth error codes are allowlisted: `access_denied`, `redirect_uri_mismatch`, `application_suspended`.
-- No CF Access resources (apps, groups, policies) are created when `OAUTH_CLIENT_ID` is set.
+- User-initiated OAuth rejections (e.g. access denied) are handled gracefully; unexpected errors surface as system errors.
+- No CF Access resources (apps, groups, policies) are created when SaaS OAuth is active.
 
 **Priority:** P0
 
@@ -99,23 +101,23 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @impl: src/lib/jwt.ts::resetJWKSCache -->
 <!-- @impl: src/routes/setup/access.ts -->
 
-**Intent:** When `OAUTH_CLIENT_ID` is not set, Cloudflare Access provides the authentication layer, supporting multiple identity providers (GitHub, Google, etc.) managed through the CF Access dashboard.
+**Intent:** When the deployment is not configured for SaaS, Cloudflare Access provides the authentication layer, supporting multiple identity providers managed through the CF Access dashboard.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Visiting a protected URL (`/app`, `/api/*`, `/setup`) is intercepted by CF Access and redirected to the CF Access login page.
-2. After IdP authentication, CF Access issues a `CF_Authorization` cookie (RS256 JWT).
-3. The Worker verifies the JWT signature against the CF Access JWKS endpoint.
-4. User email is extracted from JWT claims, normalized, and resolved from KV.
-5. The setup wizard creates an Access Application with five destinations (`/app`, `/app/*`, `/api/*`, `/setup`, `/setup/*`) and per-worker Access Groups (`<worker-name>-admins`, `<worker-name>-users`).
+1. Accessing protected application pages or API endpoints triggers a CF Access redirect to the configured identity provider.
+2. After IdP authentication, CF Access issues a session credential that the Worker validates on every request.
+3. The Worker verifies the credential signature against the CF Access JWKS endpoint.
+4. User email is extracted from the credential claims, normalized, and resolved from persistent storage.
+5. The setup wizard provisions a CF Access Application covering all protected paths and creates Access Groups scoped to admin and regular user roles.
 
 **Constraints:**
 
-- JWKS is cached per Worker isolate with TTL; `resetJWKSCache()` clears it.
-- Concurrent cold-start JWKS fetches are deduplicated via `pendingJWKSFetch` Promise sentinel.
-- Admin-only deployments (0 regular users) are supported: the users group is skipped.
+- JWKS responses are cached per Worker isolate with a TTL and can be invalidated for testing.
+- Concurrent cold-start JWKS fetches are deduplicated.
+- Admin-only deployments (no regular users) are supported.
 
 **Priority:** P0
 
@@ -139,11 +141,11 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. `X-Service-Auth` header is checked first in `getUserFromRequest()` across all auth modes.
-2. The header value is compared against `SERVICE_AUTH_SECRET` using constant-time comparison.
-3. Successful service token auth returns an admin user mapped to the email configured in `SERVICE_TOKEN_EMAIL`.
-4. In CF Access mode, the secret originates from `CF_ACCESS_CLIENT_SECRET`; in Direct GitHub OAuth mode, from `OAUTH_E2E_TEST_SECRET`. Both are deployed as `SERVICE_AUTH_SECRET`.
-5. When neither secret is set, service auth is disabled (no fallback).
+1. The service-token header is checked first, before any other authentication method, regardless of deployment mode.
+2. The header value is compared against the configured service-auth secret using constant-time comparison.
+3. Successful service-token auth returns an admin user with a preconfigured test identity.
+4. The secret source varies by deployment mode but is unified under a single shared secret name at runtime.
+5. When no service-token secret is configured, service auth is disabled (no fallback).
 
 **Constraints:**
 
@@ -174,15 +176,14 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. **`requireIdentity`** resolves the user from the appropriate auth mechanism; if the user is not in KV (SaaS mode) it auto-provisions with `pending` tier via `resolveOrProvisionUser()`, sets `c.get('user')` with email, role, subscriptionTier, and accessTier, and is used for subscribe-page endpoints.
-2. **`requireActiveUser`** authenticates (same as `requireIdentity`) then checks that `subscriptionTier ?? accessTier` is an active tier (free/trial/standard/advanced/max/unlimited); pending users receive 403 with code `'PENDING'`, blocked users receive 403 with code `'BLOCKED'`, and when `SAAS_MODE` is not active the middleware behaves identically to `requireIdentity` (no tier checking).
-3. **`requireAdmin`** checks `role === 'admin'` and must be composed after `requireIdentity` or `requireActiveUser`; used for `/admin/*` and user management.
-4. `requireActiveUser` is also exported as `authMiddleware` for backward compatibility.
+1. The identity middleware resolves the authenticated user from the active auth mechanism and auto-provisions first-time SaaS users with a pending subscription tier.
+2. The active-user middleware additionally verifies the user holds an active subscription tier; pending users are rejected with code PENDING, blocked users with code BLOCKED; tier checking is skipped outside SaaS mode for backward compatibility.
+3. The admin middleware restricts access to users with the admin role and must be composed after one of the user-identity middlewares.
 
 **Constraints:**
 
-- In non-SaaS mode, `requireActiveUser` does not enforce tier checking (backward compatibility with pre-subscription deployments).
-- `isActiveTier(undefined)` returns `true` for backward compatibility with users who have no tier field.
+- Outside SaaS mode, the active-user check does not enforce tier (backward compatibility with pre-subscription deployments).
+- Users with no tier field are treated as active for backward compatibility.
 
 **Priority:** P0
 
@@ -208,11 +209,11 @@ None. Authentication is foundational; other domains depend on it.
 
 1. All email addresses are trimmed (leading/trailing whitespace removed) and lowercased before use.
 2. Normalization is applied before KV lookup, role resolution, bucket name derivation, and CF Access group membership operations.
-3. Bucket name derivation from email produces deterministic, sanitized names (max 63 chars): `user@example.com` -> `codeflare-user-example-com`.
+3. User storage resources are named deterministically from the normalized email address.
 
 **Constraints:**
 
-- Normalization must be applied consistently across all code paths that handle email (Worker auth, setup wizard, user management API).
+- Normalization is applied consistently wherever email addresses are processed.
 
 **Priority:** P0
 
@@ -237,16 +238,16 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. When `requireIdentity` resolves a user not found in KV and SaaS mode is active, `resolveOrProvisionUser()` creates a new KV record at `user:{email}` with `pending` tier.
-2. Pending users can access `/api/auth/status` and `/api/auth/subscribe` (identity-only routes) but are blocked from IDE access by `requireActiveUser` with 403 code `'PENDING'`.
-3. Frontend catches the `PENDING` 403 and redirects to `/app/subscribe`.
+1. A new user record is created with a pending subscription tier on first SaaS login.
+2. Pending users can access identity-only endpoints but are blocked from the IDE.
+3. The frontend detects the pending state and redirects the user to the subscription page.
 4. After subscription (self-service or admin approval), the user record is updated with an active tier.
-5. First-time active users are redirected to `/app/onboarding` for guided setup.
+5. First-time active users are redirected to onboarding for guided setup.
 
 **Constraints:**
 
 - Non-SaaS mode does not perform JIT provisioning; users must be allowlisted via the setup wizard or admin API.
-- Blocked users with valid OIDC sessions cannot self-upgrade to free tier (subscribe handler checks `getEffectiveTier` at top).
+- Blocked users cannot self-upgrade to a free tier.
 
 **Priority:** P1
 
@@ -265,21 +266,21 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @impl: src/routes/github-auth.ts -->
 <!-- @test: src/__tests__/lib/session-jwt.test.ts (shouldRefreshJWT describe → 15-min threshold + transparent refresh → AC1/AC2) -->
 
-**Intent:** The `codeflare_session` cookie (Direct GitHub OAuth mode) is automatically refreshed before expiry to prevent session interruption during active use.
+**Intent:** SaaS-mode session credentials are automatically refreshed before expiry so users do not experience session interruption during active use.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Global middleware checks the `codeflare_session` JWT expiry on every response.
-2. When less than 15 minutes remain on the 1-hour TTL, a new JWT is signed with a fresh 1-hour expiry and set as a replacement cookie on the response.
+1. Global middleware checks the SaaS session credential's remaining lifetime on every response.
+2. When less than 15 minutes remain on the 1-hour TTL, a fresh credential is issued with a new 1-hour expiry and returned on the response.
 3. The refresh is transparent to the user (no redirect, no re-authentication).
 4. The refresh occurs on any response, not just specific routes.
 
 **Constraints:**
 
-- Only applies in Direct GitHub OAuth mode (`codeflare_session` cookie).
-- CF Access mode sessions are managed by CF Access's own policy and are not refreshed by the Worker.
+- Only applies to SaaS-mode session credentials.
+- CF Access sessions are managed by CF Access's own policy and are not refreshed by the Worker.
 
 **Priority:** P1
 
@@ -303,21 +304,23 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. Frontend navigates to `/auth/logout` via `window.location.href` for all modes.
-2. In Direct GitHub OAuth mode: backend redirects to `/auth/github/logout`, which clears the `codeflare_session` cookie and redirects to the login page.
-3. In CF Access mode: backend redirects to `https://{authDomain}/cdn-cgi/access/logout?returnTo=https://{customDomain}/`, which clears the `CF_Authorization` cookie via CF Access's system endpoint.
+1. The frontend triggers logout via a single endpoint, irrespective of deployment mode.
+2. In SaaS mode, the backend clears the session credential and redirects the user to the login page.
+3. In CF Access mode, the backend redirects through CF Access's system logout endpoint so CF Access clears its own credential.
 4. The dispatch decision is made by the backend based on the current deployment configuration, not by the frontend.
 
 **Constraints:**
 
-- Logout redirect responses include HSTS headers via `redirectWithHeaders()`.
-- After logout in SaaS mode, the user lands on the `/login` page. After logout in CF Access mode, the user lands on the CF Access login page.
+- Logout redirect responses carry the full security header set.
+- After logout, the user always lands on the appropriate login page for the deployment mode.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Manual check
+**Verification:** Automated test
+
+**Notes:** Logout dispatch is covered by automated tests at `src/__tests__/routes/auth-redirects.test.ts`.
 
 **Status:** Implemented
 
@@ -336,15 +339,15 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. An `authConfigFetched` boolean sentinel is set to `true` once KV auth config has been successfully fetched with real data (auth domain + audience).
-2. Once the sentinel is set, the pre-setup fallback that trusts `cf-access-authenticated-user-email` headers is permanently disabled for the isolate's lifetime.
-3. Subsequent KV read failures do not revert the sentinel.
-4. `resetAuthConfigCache()` clears the sentinel (used in tests).
+1. Once auth configuration has been successfully fetched from persistent storage at least once, the isolate records that fact for its lifetime.
+2. Once that flag is set, the pre-setup header-trust fallback is permanently disabled for the isolate.
+3. Subsequent transient storage failures do not revert the flag.
+4. The cached state can be explicitly invalidated for test purposes.
 
 **Constraints:**
 
-- This is a per-isolate sentinel; new isolates must fetch auth config at least once before the fallback is disabled.
-- Concurrent cold-start auth config fetches are deduplicated via `pendingAuthConfigFetch` Promise sentinel.
+- This is a per-isolate flag; new isolates must complete the initial auth-config fetch before the pre-setup fallback is disabled.
+- Concurrent cold-start auth-config fetches are deduplicated; no redundant storage reads are issued.
 
 **Priority:** P0
 
@@ -368,13 +371,13 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. `getUserFromRequest()` checks in this order: (a) Service token (`X-Service-Auth` header), (b) Direct GitHub OAuth (`codeflare_session` cookie, only when SaaS + OIDC), (c) Cloudflare Access (`cf-access-jwt-assertion` header or `CF_Authorization` cookie), (d) Pre-setup fallback (`cf-access-authenticated-user-email` header, only before setup completes).
+1. Authentication is resolved in strict priority order: (a) service token, (b) SaaS session credential, (c) CF Access JWT, (d) pre-setup header fallback.
 2. Once a method succeeds, subsequent methods are not checked.
-3. Once a method's branch is entered (e.g., SaaS + OIDC), it does not fall through to the next method on failure.
+3. Once a method's branch is entered, it does not fall through to the next method on failure.
 
 **Constraints:**
 
-- Pre-setup fallback is disabled permanently once `authConfigFetched` sentinel is set (REQ-AUTH-010).
+- Pre-setup fallback is permanently disabled once auth configuration has been successfully loaded ([REQ-AUTH-010](#req-auth-010-auth-bypass-prevention)).
 - The resolution order is the same for all routes; individual routes choose which middleware layer (identity, active user, admin) they require.
 
 **Priority:** P0
@@ -400,15 +403,15 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. When a user is JIT-provisioned on first login, a welcome email is sent via Resend
-2. Email is fire-and-forget - delivery failure does not block login
-3. Email is sent only once per user (dedup via KV flag)
-4. When RESEND_API_KEY is not configured, the email is silently skipped
+1. When a user is JIT-provisioned on first login, a welcome email is sent.
+2. Email sending is fire-and-forget; delivery failure does not block login.
+3. Email is sent only once per user (deduplicated via a per-user flag in storage).
+4. When the email provider is not configured, the send is silently skipped.
 
 **Constraints:**
 
-- Must comply with CON-REL-001 (non-blocking)
-- Email content must not expose internal system details
+- Must comply with [CON-REL-001](constraints.md#con-rel-001-non-blocking) (non-blocking).
+- Email content must not expose internal system details.
 
 **Priority:** P2
 
@@ -431,7 +434,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. Login page at `/login` shows Codeflare branding with animated logo.
+1. The SaaS login page shows Codeflare branding with an animated logo.
 2. "Sign in with GitHub" button is displayed.
 3. Available auth providers are listed.
 
@@ -491,10 +494,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. `/app/onboarding` shows four steps: idle timeout selector, GitHub PAT, Cloudflare API token, and agent subscription.
+1. The onboarding page shows four steps: idle timeout selector, GitHub PAT, Cloudflare API token, and agent subscription.
 2. The idle timeout step explains compute usage and lets users choose their auto-sleep duration. Free-tier users see a locked 15m selector with upgrade hint; paying users can select 5m-2h.
 3. First-time users are auto-redirected to onboarding.
-4. `onboardingComplete` flag prevents re-redirect.
+4. Once onboarding has been completed, the user is not redirected there again.
 
 **Constraints:**
 
@@ -533,7 +536,9 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Automated test
+
+**Notes:** Dropdown items, mobile sheet, and desktop positioning are covered by `web-ui/src/__tests__/components/Header.test.tsx`.
 
 **Status:** Implemented
 
@@ -554,7 +559,7 @@ None.
 
 1. User avatar from Gravatar displayed in header and dashboard.
 2. Falls back to outline icon when no Gravatar exists.
-3. MD5 hash of email used for lookup.
+3. The hashed normalized email is used for the Gravatar lookup.
 
 **Constraints:**
 
@@ -564,7 +569,9 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Automated test
+
+**Notes:** Lookup contract is covered by `web-ui/src/__tests__/lib/gravatar.test.ts`; fallback rendering is covered by `web-ui/src/__tests__/components/Header.test.tsx`.
 
 **Status:** Implemented
 
