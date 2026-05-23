@@ -244,6 +244,43 @@ describe('Preferences Routes', () => {
       expect(body.sessionMode).toBe('advanced');
     });
 
+    // REQ-SEC-015 AC2 (preferences-save side): in SaaS mode a non-Pro,
+    // non-admin user PATCHing sessionMode='advanced' is rejected at validation
+    // time so the stale preference can never be written to KV. The container
+    // start path uses clampSessionModeToTier as a second defense; this test
+    // covers the first one.
+    it('REQ-SEC-015 AC2 (preferences save): SaaS-mode non-Pro user gets 400 trying to PATCH sessionMode=advanced', async () => {
+      const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      app.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          SAAS_MODE: 'active',
+        } as Env;
+        return next();
+      });
+      app.route('/preferences', preferencesRoutes);
+      app.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { code?: string; message?: string };
+      expect(body.code).toBe('VALIDATION_ERROR');
+
+      // AC2 guarantee: KV must NOT contain the rejected sessionMode.
+      const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as { sessionMode?: string } | null;
+      expect(stored?.sessionMode).toBeUndefined();
+    });
+
     it('returns 400 for invalid sessionMode "expert"', async () => {
       const app = createTestApp();
 
