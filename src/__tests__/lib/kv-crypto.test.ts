@@ -19,8 +19,8 @@ async function generateTestKeyBase64(): Promise<string> {
   return btoa(String.fromCharCode(...rawKey));
 }
 
-describe('kv-crypto', () => {
-  describe('importEncryptionKey', () => {
+describe('kv-crypto / REQ-SEC-004 (credential encryption-at-rest cryptographic contract) / REQ-SEC-006 (transparent KV encryption migration)', () => {
+  describe('importEncryptionKey / REQ-SEC-004 AC1 (base64 32-byte key validation) / REQ-SEC-004 AC2 (AES-256-GCM via Web Crypto)', () => {
     it('converts base64 string to AES-256-GCM CryptoKey', async () => {
       const base64Key = await generateTestKeyBase64();
       const cryptoKey = await importEncryptionKey(base64Key);
@@ -46,7 +46,7 @@ describe('kv-crypto', () => {
     });
   });
 
-  describe('encryptForKV / decryptFromKV', () => {
+  describe('encryptForKV / decryptFromKV / REQ-SEC-004 AC3 (v1: prefix ciphertext format) / REQ-SEC-004 AC4 (AAD binding to KV key)', () => {
     it('produces a v1: prefixed string different from input', async () => {
       const base64Key = await generateTestKeyBase64();
       const key = await importEncryptionKey(base64Key);
@@ -106,7 +106,7 @@ describe('kv-crypto', () => {
     });
   });
 
-  describe('getAndDecrypt', () => {
+  describe('getAndDecrypt / REQ-SEC-006 AC1 (v1: detection) / REQ-SEC-006 AC2 (plaintext legacy parse) / REQ-SEC-006 AC3 (fire-and-forget re-encrypt) / REQ-SEC-006 AC5 (write-back failure resilience)', () => {
     let mockKV: ReturnType<typeof createMockKV>;
 
     beforeEach(() => {
@@ -219,7 +219,7 @@ describe('kv-crypto', () => {
     });
   });
 
-  describe('encryptAndStore', () => {
+  describe('encryptAndStore / REQ-SEC-006 AC7 (real updates always encrypt directly)', () => {
     let mockKV: ReturnType<typeof createMockKV>;
 
     beforeEach(() => {
@@ -261,7 +261,7 @@ describe('kv-crypto', () => {
     });
   });
 
-  describe('getOrImportKey', () => {
+  describe('getOrImportKey / REQ-SEC-004 AC5 (CryptoKey imported once per isolate and cached)', () => {
     it('returns null when ENCRYPTION_KEY not set', async () => {
       const result = await getOrImportKey({});
       expect(result).toBeNull();

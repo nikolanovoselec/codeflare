@@ -1,4 +1,4 @@
-// REQ-VAULT-008 AC8+AC9: dashboard-side cleanup for the per-session
+// REQ-VAULT-015 AC3+AC4: dashboard-side cleanup for the per-session
 // SilverBullet vault.
 //
 // What this file owns:
@@ -140,7 +140,7 @@ function deleteRecordedIdbs(idb: IDBFactory, names: string[]): void {
 }
 
 /**
- * REQ-VAULT-008 AC8: remove all per-session vault artefacts on session
+ * REQ-VAULT-015 AC3: remove all per-session vault artefacts on session
  * DELETE. Deletes the recorded IDBs, the `vault-session-<sid>-idbs`
  * mapping, the `vault-session-<sid>` marker, and the per-session SW
  * registration.
@@ -180,7 +180,7 @@ export async function cleanupSessionVaultCache(sid: string): Promise<void> {
 }
 
 /**
- * REQ-VAULT-008 AC9: remove vault artefacts for sessions that are no
+ * REQ-VAULT-015 AC4: remove vault artefacts for sessions that are no
  * longer in `activeSessionIds`. Called on Dashboard mount; catches
  * sessions deleted from another tab or after a browser crash. Deletes
  * the recorded IDBs for orphan sids and drops both the marker and

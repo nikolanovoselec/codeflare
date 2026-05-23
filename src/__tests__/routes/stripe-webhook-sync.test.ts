@@ -168,6 +168,60 @@ describe('syncSubscriptionState', () => {
     expect(user.lastSyncedAt).toBeUndefined();
   });
 
+  // REQ-SUB-005 AC6: trialUsed is set to true when the subscription transitions
+  // away from 'trialing', preventing unlimited free trials via
+  // subscribe → cancel → resubscribe. The production write happens in
+  // syncSubscriptionState (status !== 'trialing' branch).
+  it('REQ-SUB-005 AC6: sets trialUsed=true when status transitions away from trialing (active)', async () => {
+    mockKV._store.set('stripe-customer:cus_sync_1', 'sync@example.com');
+    // User WAS trialing and never had trialUsed set.
+    mockKV._set('user:sync@example.com', {
+      subscriptionTier: 'standard',
+      accessTier: 'standard',
+      billingStatus: 'trialing',
+    });
+    // Stripe now reports active (trial paid for, transitioned).
+    vi.mocked(fetchSubscription).mockResolvedValue(makeSnapshot({ status: 'active', tier: 'standard' }));
+
+    await syncSubscriptionState('cus_sync_1', 'sub_sync_1', env);
+
+    const user = JSON.parse(mockKV._store.get('user:sync@example.com')!);
+    expect(user.billingStatus).toBe('active');
+    expect(user.trialUsed).toBe(true);
+  });
+
+  it('REQ-SUB-005 AC6: sets trialUsed=true when status transitions away from trialing (canceled)', async () => {
+    mockKV._store.set('stripe-customer:cus_sync_1', 'sync@example.com');
+    mockKV._set('user:sync@example.com', {
+      subscriptionTier: 'standard',
+      accessTier: 'standard',
+      billingStatus: 'trialing',
+    });
+    vi.mocked(fetchSubscription).mockResolvedValue(makeSnapshot({ status: 'canceled' }));
+
+    await syncSubscriptionState('cus_sync_1', 'sub_sync_1', env);
+
+    const user = JSON.parse(mockKV._store.get('user:sync@example.com')!);
+    expect(user.trialUsed).toBe(true);
+  });
+
+  it('REQ-SUB-005 AC6: leaves trialUsed unset while user is still trialing (no false transition)', async () => {
+    mockKV._store.set('stripe-customer:cus_sync_1', 'sync@example.com');
+    mockKV._set('user:sync@example.com', {
+      subscriptionTier: 'standard',
+      accessTier: 'standard',
+      billingStatus: 'pending',
+    });
+    vi.mocked(fetchSubscription).mockResolvedValue(makeSnapshot({ status: 'trialing' }));
+
+    await syncSubscriptionState('cus_sync_1', 'sub_sync_1', env);
+
+    const user = JSON.parse(mockKV._store.get('user:sync@example.com')!);
+    expect(user.billingStatus).toBe('trialing');
+    // Production only sets trialUsed=true when status !== 'trialing'.
+    expect(user.trialUsed).toBeUndefined();
+  });
+
   it('preserves existing KV fields (addedBy, onboardingComplete, etc.)', async () => {
     mockKV._store.set('stripe-customer:cus_sync_1', 'sync@example.com');
     mockKV._set('user:sync@example.com', {

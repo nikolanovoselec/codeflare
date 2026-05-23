@@ -9,6 +9,7 @@ const testState = vi.hoisted(() => ({
   storedSessionId: 'testsession123456' as string | undefined,
   storedBucketName: 'test-bucket' as string | null,
   storedSleepAfter: undefined as string | undefined,
+  storedUserEmail: undefined as string | undefined,
   containerRunning: true,
   activityResult: {
     hasActiveConnections: true,
@@ -64,6 +65,7 @@ vi.mock('@cloudflare/containers', () => {
             if (key === '_sessionId') return testState.storedSessionId as T;
             if (key === 'bucketName') return testState.storedBucketName as T;
             if (key === 'sleepAfter') return testState.storedSleepAfter as T;
+            if (key === 'userEmail') return testState.storedUserEmail as T;
             return undefined;
           },
           put: vi.fn(),
@@ -108,7 +110,7 @@ vi.mock('../lib/logger', () => ({
 // Import AFTER mocks are set up
 import { container } from '../container/index';
 
-describe('Container Metrics', () => {
+describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)', () => {
   let mockKV: MockKV;
   let containerInstance: InstanceType<typeof container>;
 
@@ -132,6 +134,7 @@ describe('Container Metrics', () => {
     testState.scheduleCalls = [];
     testState.stopCalls = 0;
     testState.storedSleepAfter = undefined;
+    testState.storedUserEmail = undefined;
     testState.kvRef = mockKV;
 
     // Create a container instance with mock env
@@ -235,6 +238,128 @@ describe('Container Metrics', () => {
 
       // Should not throw
       await expect(containerInstance.collectMetrics()).resolves.toBeUndefined();
+    });
+
+    // REQ-SUB-008 AC1+AC2+AC3: when Timekeeper /ping returns quotaExceeded=true,
+    // collectMetrics must call stop('SIGTERM') (NOT SIGKILL) so the entrypoint
+    // trap runs the final rclone bisync before the container exits. AC3 is the
+    // shape of the ping response; AC1+AC2 are the DO-side consequence.
+    it('REQ-SUB-008 AC1: calls stop("SIGTERM") when Timekeeper /ping returns quotaExceeded=true', async () => {
+      // Build a fresh container with SAAS_MODE active + a TIMEKEEPER stub that
+      // unconditionally returns quotaExceeded:true. Seed bucketName + userEmail
+      // in storage so the Timekeeper-ping branch is reachable.
+      // CRITICAL: Container constructor kicks off blockConcurrencyWhile that
+      // re-reads _userEmail/_bucketName/_sessionId from storage AFTER the
+      // constructor returns. Manual post-construction field overrides get
+      // clobbered when the microtask queue drains during the next `await`.
+      // Seed storage BEFORE construction so the constructor reads the right
+      // values; do not rely on field-level overrides for fields the
+      // constructor reads.
+      testState.storedBucketName = 'test-bucket';
+      testState.storedSessionId = 'testsession123456';
+      testState.storedUserEmail = 'quota@example.com';
+
+      const timekeeperStub = {
+        fetch: vi.fn(async () =>
+          new Response(JSON.stringify({ quotaExceeded: true, totalMonthlySeconds: 9999 }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        ),
+      };
+      const TIMEKEEPER = {
+        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
+        get: vi.fn(() => timekeeperStub),
+      };
+
+      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+        {},
+        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+      );
+      // The MockContainer constructor in vi.mock('@cloudflare/containers')
+      // resets this.env to { KV: null } and ignores the constructor env arg,
+      // so SAAS_MODE and TIMEKEEPER must be assigned post-construction.
+      const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
+      instanceEnv.KV = mockKV;
+      instanceEnv.SAAS_MODE = 'active';
+      instanceEnv.TIMEKEEPER = TIMEKEEPER;
+
+      const stopSpy = vi.spyOn(instance, 'stop');
+
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+
+      // Wait for the constructor's blockConcurrencyWhile to settle so the
+      // storage-driven _userEmail/_bucketName/_sessionId are in place.
+      await vi.waitFor(
+        () => expect((instance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
+        { timeout: 1000 },
+      );
+
+      testState.scheduleCalls = [];
+      await instance.collectMetrics();
+
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
+      // Returns early after stop — must NOT re-arm the schedule.
+      expect(testState.scheduleCalls).toEqual([]);
+    });
+
+    it('REQ-SUB-008 AC1: does NOT stop when Timekeeper /ping returns quotaExceeded=false', async () => {
+      testState.storedBucketName = 'test-bucket';
+      testState.storedSessionId = 'testsession123456';
+      testState.storedUserEmail = 'under-quota@example.com';
+
+      const timekeeperStub = {
+        fetch: vi.fn(async () =>
+          new Response(JSON.stringify({ quotaExceeded: false, totalMonthlySeconds: 100 }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        ),
+      };
+      const TIMEKEEPER = {
+        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
+        get: vi.fn(() => timekeeperStub),
+      };
+
+      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+        {},
+        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+      );
+      const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
+      instanceEnv.KV = mockKV;
+      instanceEnv.SAAS_MODE = 'active';
+      instanceEnv.TIMEKEEPER = TIMEKEEPER;
+
+      const stopSpy = vi.spyOn(instance, 'stop');
+
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+
+      await vi.waitFor(
+        () => expect((instance as unknown as { _userEmail: string | null })._userEmail).toBe('under-quota@example.com'),
+        { timeout: 1000 },
+      );
+
+      await instance.collectMetrics();
+
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      expect(stopSpy).not.toHaveBeenCalled();
     });
 
     it('should not write to KV when session is not found', async () => {

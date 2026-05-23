@@ -25,7 +25,7 @@ vi.stubGlobal('fetch', mockGlobalFetch);
 
 import deployKeysRoutes from '../../routes/deploy-keys';
 
-describe('Deploy Keys routes', () => {
+describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   function createTestApp() {

@@ -19,9 +19,10 @@ import { createLogger } from '../lib/logger';
 const logger = createLogger('preferences');
 
 /**
- * REQ-MEM-001 AC9: validate an IANA timezone string for the
- * `PATCH /api/preferences` `userTimezone` field. (AC3 covers how the
- * capture agent uses `$USER_TIMEZONE` at capture time; AC9 is the
+ * REQ-MEM-010 AC4: validate an IANA timezone string for the
+ * `PATCH /api/preferences` `userTimezone` field. (REQ-MEM-001 AC4
+ * covers how the capture agent uses `$USER_TIMEZONE` at capture time;
+ * REQ-MEM-010 AC4 is the
  * preference-endpoint contract that gets the value there.) Browsers
  * throw RangeError on unsupported zones; valid zones round-trip
  * cleanly. This avoids shipping a 400+ entry static zone list while

@@ -11,7 +11,9 @@ import {
 // StorageBrowser + FileList + entrypoint.sh + RCLONE_FILTERS_COMMON all
 // rely on staying in sync.
 
-describe('SPECIAL_FOLDERS registry', () => {
+// REQ-VAULT-001 AC6 (R2 storage panel surfaces Workspace/Vault/Uploads/Temporary as special folders with container-path tooltip)
+describe('SPECIAL_FOLDERS registry / REQ-VAULT-001 AC6 (R2 panel surfaces special folders)', () => {
+  // REQ-VAULT-001 AC6 (four special-folder entries surfaced at bucket root)
   it('covers the four expected prefixes in canonical order', () => {
     // Prefix order is load-bearing: the Storage panel relies on
     // ALWAYS_VISIBLE_SPECIAL_PREFIXES.filter() preserving registry
@@ -25,6 +27,7 @@ describe('SPECIAL_FOLDERS registry', () => {
     ]);
   });
 
+  // REQ-VAULT-001 AC6 (tooltip surfaces in-container path; must match where entrypoint mkdirs the folder)
   it('every entry carries an in-container path under /home/user/', () => {
     // Container paths are surfaced in the tooltip body. The auto-create
     // logic in entrypoint.sh init_user_vault() and the bisync filters in
@@ -35,6 +38,7 @@ describe('SPECIAL_FOLDERS registry', () => {
     }
   });
 
+  // REQ-VAULT-001 AC6 (registry consistency: prefix label and container path must agree)
   it('container path basename matches the prefix label semantically', () => {
     // Catches a future entry that disagrees between its R2 prefix and
     // the container directory it claims to materialise at.
@@ -45,6 +49,7 @@ describe('SPECIAL_FOLDERS registry', () => {
     }
   });
 
+  // REQ-VAULT-001 AC6 (Workspace gated by workspace-sync preference; other three appear unconditionally)
   it('always-visible set excludes workspace (gated by sync preference)', () => {
     // Workspace is only shown when the user has enabled "Sync workspace
     // folder" in settings; the other three appear unconditionally.
@@ -54,6 +59,7 @@ describe('SPECIAL_FOLDERS registry', () => {
     expect(ALWAYS_VISIBLE_SPECIAL_PREFIXES).toContain('Temporary/');
   });
 
+  // REQ-VAULT-001 AC6 (lookup helper for caller code: null on non-match, exact case)
   it('getSpecialFolder returns null for non-special prefixes', () => {
     expect(getSpecialFolder('docs/')).toBeNull();
     expect(getSpecialFolder('')).toBeNull();
@@ -62,6 +68,7 @@ describe('SPECIAL_FOLDERS registry', () => {
     expect(getSpecialFolder('vault/')).toBeNull();
   });
 
+  // REQ-VAULT-001 AC6 (lookup helper returns the populated registry entry)
   it('getSpecialFolder returns the registry entry for an exact prefix match', () => {
     const vault = getSpecialFolder('Vault/');
     expect(vault).not.toBeNull();
@@ -69,6 +76,7 @@ describe('SPECIAL_FOLDERS registry', () => {
     expect(vault!.containerPath).toBe('/home/user/Vault');
   });
 
+  // Project-wide no-em-dash rule (enforced globally; this test is a tooltip-content guard)
   it('descriptions are non-empty and ASCII-safe (no em-dashes)', () => {
     // Project rule: no em-dashes anywhere. Catch a future tooltip edit
     // that drops one in.

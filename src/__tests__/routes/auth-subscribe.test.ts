@@ -284,6 +284,102 @@ describe('POST /auth/subscribe', () => {
     expect(res.status).toBe(400);
   });
 
+  // -------------------------------------------------------------------------
+  // REQ-SEC-015 AC1 — Blocked user cannot self-upgrade via /auth/subscribe.
+  // The handler resolves the user's effective tier via getEffectiveTier and
+  // throws ForbiddenError before touching the requested tier, so even a valid
+  // input (tier: 'standard') is rejected when the caller's accessTier is
+  // 'blocked'. Distinct from the existing input-validation test at line ~224
+  // ('rejects tier=blocked') which guards the *input* tier value.
+  // -------------------------------------------------------------------------
+  it('REQ-SEC-015 AC1: blocked user gets 403 even when requesting a valid subscribable tier', async () => {
+    mockTurnstileSuccess();
+    mockAuthResult.user = {
+      email: 'blocked@example.com',
+      authenticated: true,
+      role: 'user',
+      accessTier: 'blocked',
+      subscriptionTier: 'blocked',
+    };
+    mockAuthResult.bucketName = 'codeflare-blocked';
+    mockKV._set('user:blocked@example.com', {
+      addedBy: 'jit',
+      addedAt: '2025-01-01T00:00:00Z',
+      role: 'user',
+      accessTier: 'blocked',
+      subscriptionTier: 'blocked',
+    });
+
+    const app = createApp();
+    const res = await postSubscribe(app, { turnstileToken: 'valid-token', tier: 'standard' });
+
+    expect(res.status).toBe(403);
+    const body = await res.json() as { code: string; message?: string };
+    expect(body.code).toBe('FORBIDDEN');
+  });
+
+  it('REQ-SEC-015 AC1: blocked user gets 403 even requesting the free tier (no escape via downgrade)', async () => {
+    mockTurnstileSuccess();
+    mockAuthResult.user = {
+      email: 'blocked@example.com',
+      authenticated: true,
+      role: 'user',
+      accessTier: 'blocked',
+      subscriptionTier: 'blocked',
+    };
+    mockAuthResult.bucketName = 'codeflare-blocked';
+    mockKV._set('user:blocked@example.com', {
+      addedBy: 'jit',
+      addedAt: '2025-01-01T00:00:00Z',
+      role: 'user',
+      accessTier: 'blocked',
+      subscriptionTier: 'blocked',
+    });
+
+    const app = createApp();
+    const res = await postSubscribe(app, { turnstileToken: 'valid-token', tier: 'free' });
+
+    expect(res.status).toBe(403);
+    const body = await res.json() as { code: string };
+    expect(body.code).toBe('FORBIDDEN');
+
+    // AC1 guarantee: the user record was NOT mutated to 'free'
+    const userData = await mockKV.get('user:blocked@example.com', 'json') as Record<string, unknown>;
+    expect(userData.subscriptionTier).toBe('blocked');
+    expect(userData.subscribedAt).toBeUndefined();
+  });
+
+  // REQ-SEC-015 AC4: handler uses getEffectiveTier (not raw JWT subscriptionTier).
+  // When subscriptionTier is undefined the ?? chain falls through to accessTier;
+  // an undefined-subscriptionTier + accessTier='blocked' user is still rejected,
+  // proving the handler honors accessTier through getEffectiveTier rather than
+  // gating only on the (here-absent) subscriptionTier claim.
+  it('REQ-SEC-015 AC4: user with undefined subscriptionTier but accessTier=blocked is rejected', async () => {
+    mockTurnstileSuccess();
+    mockAuthResult.user = {
+      email: 'compromised@example.com',
+      authenticated: true,
+      role: 'user',
+      accessTier: 'blocked',
+      // subscriptionTier intentionally omitted — getEffectiveTier must fall
+      // through to accessTier and still return 'blocked'.
+    };
+    mockAuthResult.bucketName = 'codeflare-compromised';
+    mockKV._set('user:compromised@example.com', {
+      addedBy: 'jit',
+      addedAt: '2025-01-01T00:00:00Z',
+      role: 'user',
+      accessTier: 'blocked',
+    });
+
+    const app = createApp();
+    const res = await postSubscribe(app, { turnstileToken: 'valid-token', tier: 'advanced' });
+
+    expect(res.status).toBe(403);
+    const body = await res.json() as { code: string };
+    expect(body.code).toBe('FORBIDDEN');
+  });
+
   it('rejects an unknown tier value', async () => {
     mockTurnstileSuccess();
     mockKV._set('user:pending@example.com', {

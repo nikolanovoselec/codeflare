@@ -12,8 +12,10 @@ import { loadSettings } from '../../lib/settings';
 // We need to control module-level state, so we use vi.resetModules() per describe block
 // and re-import. For tests that don't need module reset, we import once here.
 
-describe('mobile.ts', () => {
+describe('mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)', () => {
   describe('resetKeyboardStateIfStale', () => {
+    // REQ-MOB-001 AC4: resetKeyboardStateIfStale re-syncs layout state on terminal re-entry
+    // REQ-MOB-002 AC1: state is clean so enableVirtualKeyboardOverlay starts from a known baseline
     // These tests validate the enhanced resetKeyboardStateIfStale that handles
     // both keyboard-closed and keyboard-still-open cases on visibility return.
 
@@ -39,7 +41,7 @@ describe('mobile.ts', () => {
       vi.restoreAllMocks();
     });
 
-    it('should reset signals and re-sync baseline when keyboard is closed (boundingRect.height=0)', async () => {
+    it('REQ-MOB-001 AC4: should reset signals and re-sync baseline when keyboard is closed (boundingRect.height=0)', async () => {
       // Set up navigator.virtualKeyboard before module loads
       Object.defineProperty(navigator, 'virtualKeyboard', {
         value: mockVirtualKeyboard,
@@ -64,7 +66,7 @@ describe('mobile.ts', () => {
       delete (navigator as any).virtualKeyboard;
     });
 
-    it('should be a no-op when virtualKeyboard API is not available', async () => {
+    it('REQ-MOB-001 AC6: should be a no-op when virtualKeyboard API is not available (guard: no API, no throw)', async () => {
       // Ensure no virtualKeyboard
       delete (navigator as any).virtualKeyboard;
 
@@ -77,11 +79,13 @@ describe('mobile.ts', () => {
   });
 
   describe('getKeyboardHeight - Samsung compensation', () => {
+    // REQ-MOB-002 AC4: getKeyboardHeight returns the compensated keyboard height
+    // REQ-MOB-001 AC5: height drives FitAddon refit via reactive signal
     // These tests verify the Samsung address bar position compensation logic.
     // Samsung Internet has a bug where the bottom address bar causes viewport growth
     // that inflates the reported keyboard height.
 
-    it('should return raw keyboardHeight when address bar is at top (default)', async () => {
+    it('REQ-MOB-002 AC4: should return raw keyboardHeight when address bar is at top (default)', async () => {
       // With samsungAddressBarTop: true (default), no subtraction occurs
       vi.mocked(loadSettings).mockReturnValue({ samsungAddressBarTop: true });
 
@@ -95,7 +99,7 @@ describe('mobile.ts', () => {
       expect(mobile.getKeyboardHeight()).toBe(0);
     });
 
-    it('should return raw keyboardHeight on wide screens (>600px) regardless of bar position', async () => {
+    it('REQ-MOB-002 AC4: should return raw keyboardHeight on wide screens (>600px) regardless of bar position', async () => {
       // Samsung on wide screen (unfolded Fold) should not subtract
       vi.mocked(loadSettings).mockReturnValue({ samsungAddressBarTop: false });
 
@@ -111,7 +115,7 @@ describe('mobile.ts', () => {
   });
 
   describe('forceResetKeyboardState', () => {
-    it('should unconditionally zero all signals', async () => {
+    it('REQ-MOB-001 AC4 + REQ-MOB-002 AC2: should unconditionally zero all signals', async () => {
       vi.resetModules();
       const mobile = await import('../../lib/mobile');
 
@@ -123,6 +127,7 @@ describe('mobile.ts', () => {
   });
 
   describe('stale geometrychange ignore window (Fix 2)', () => {
+    // REQ-MOB-002 AC1 constraint: 50ms ignore window applies only to genuine toggles
     let mockVirtualKeyboard: {
       overlaysContent: boolean;
       boundingRect: { height: number; width: number; x: number; y: number; top: number; right: number; bottom: number; left: number; toJSON: () => any };
@@ -146,7 +151,7 @@ describe('mobile.ts', () => {
       delete (navigator as any).virtualKeyboard;
     });
 
-    it('should ignore geometrychange events within 50ms of enableVirtualKeyboardOverlay', async () => {
+    it('REQ-MOB-002 AC1: should ignore geometrychange events within 50ms of enableVirtualKeyboardOverlay', async () => {
       // Start with overlaysContent false to simulate the actual toggle scenario
       // (Samsung fires stale geometrychange when overlaysContent goes false→true)
       mockVirtualKeyboard.overlaysContent = false;
@@ -171,7 +176,7 @@ describe('mobile.ts', () => {
       expect(mobile.isVirtualKeyboardOpen()).toBe(false);
     });
 
-    it('should accept geometrychange events after 50ms grace period', async () => {
+    it('REQ-MOB-002 AC3: should accept geometrychange events after 50ms grace period', async () => {
       // Start with overlaysContent false to simulate the actual toggle scenario
       mockVirtualKeyboard.overlaysContent = false;
       Object.defineProperty(navigator, 'virtualKeyboard', {
@@ -200,6 +205,7 @@ describe('mobile.ts', () => {
   });
 
   describe('baselineInnerHeight stability on keyboard close', () => {
+    // REQ-MOB-002 AC4: height stays consistent across close/reopen (baseline not corrupted)
     let mockVirtualKeyboard: {
       overlaysContent: boolean;
       boundingRect: { height: number; width: number; x: number; y: number; top: number; right: number; bottom: number; left: number; toJSON: () => any };
@@ -223,7 +229,7 @@ describe('mobile.ts', () => {
       delete (navigator as any).virtualKeyboard;
     });
 
-    it('should report consistent keyboard height across close/reopen cycles', async () => {
+    it('REQ-MOB-002 AC4: should report consistent keyboard height across close/reopen cycles', async () => {
       Object.defineProperty(navigator, 'virtualKeyboard', {
         value: mockVirtualKeyboard,
         configurable: true,
@@ -257,6 +263,8 @@ describe('mobile.ts', () => {
   });
 
   describe('visualViewport fallback (iOS Safari, Firefox)', () => {
+    // REQ-MOB-001 AC5: FitAddon recalculates on viewport changes via visualViewport events
+    // REQ-MOB-002 AC3: geometrychange fallback - visualViewport resize/scroll used when VK API absent
     // Tests for Strategy 2: when VirtualKeyboard API is NOT available,
     // keyboard detection falls back to visualViewport resize events.
     // Calculates: clientHeight - visualViewport.height > 100px threshold.
@@ -288,7 +296,7 @@ describe('mobile.ts', () => {
       delete (navigator as any).virtualKeyboard;
     });
 
-    it('should detect keyboard open when clientHeight - visualViewport.height > 100px', async () => {
+    it('REQ-MOB-001 AC5 + REQ-MOB-002 AC3: should detect keyboard open when clientHeight - visualViewport.height > 100px', async () => {
       // No VirtualKeyboard API — forces fallback path
       delete (navigator as any).virtualKeyboard;
 
@@ -314,7 +322,7 @@ describe('mobile.ts', () => {
       expect(mobile.getKeyboardHeight()).toBe(400);
     });
 
-    it('should NOT detect keyboard when diff is below 100px threshold', async () => {
+    it('REQ-MOB-001 AC5: should NOT detect keyboard when diff is below 100px threshold (address bar change, not keyboard)', async () => {
       delete (navigator as any).virtualKeyboard;
 
       Object.defineProperty(window, 'visualViewport', {
@@ -338,7 +346,7 @@ describe('mobile.ts', () => {
       expect(mobile.getKeyboardHeight()).toBe(0);
     });
 
-    it('should detect keyboard close when visualViewport grows back', async () => {
+    it('REQ-MOB-001 AC4: should detect keyboard close when visualViewport grows back', async () => {
       delete (navigator as any).virtualKeyboard;
 
       Object.defineProperty(window, 'visualViewport', {
@@ -366,7 +374,7 @@ describe('mobile.ts', () => {
       expect(mobile.getKeyboardHeight()).toBe(0);
     });
 
-    it('should also respond to scroll events on visualViewport', async () => {
+    it('REQ-MOB-001 AC5: should also respond to scroll events on visualViewport (iOS fires scroll, not just resize)', async () => {
       delete (navigator as any).virtualKeyboard;
 
       Object.defineProperty(window, 'visualViewport', {
@@ -390,7 +398,7 @@ describe('mobile.ts', () => {
       expect(mobile.getKeyboardHeight()).toBe(450);
     });
 
-    it('should register both resize and scroll listeners on visualViewport', async () => {
+    it('REQ-MOB-001 AC5 + REQ-MOB-002 AC3: should register both resize and scroll listeners on visualViewport', async () => {
       delete (navigator as any).virtualKeyboard;
 
       Object.defineProperty(window, 'visualViewport', {
@@ -408,6 +416,8 @@ describe('mobile.ts', () => {
   });
 
   describe('enableVirtualKeyboardOverlay / disableVirtualKeyboardOverlay', () => {
+    // REQ-MOB-002 AC1: overlaysContent enabled before focus
+    // REQ-MOB-002 AC2: overlaysContent disabled on terminal exit
     let mockVirtualKeyboard: {
       overlaysContent: boolean;
       boundingRect: { height: number; width: number; x: number; y: number; top: number; right: number; bottom: number; left: number; toJSON: () => any };
@@ -430,7 +440,7 @@ describe('mobile.ts', () => {
       delete (navigator as any).virtualKeyboard;
     });
 
-    it('enableVirtualKeyboardOverlay sets overlaysContent to true', async () => {
+    it('REQ-MOB-002 AC1: enableVirtualKeyboardOverlay sets overlaysContent to true', async () => {
       Object.defineProperty(navigator, 'virtualKeyboard', {
         value: mockVirtualKeyboard,
         configurable: true,
@@ -444,7 +454,7 @@ describe('mobile.ts', () => {
       expect(mockVirtualKeyboard.overlaysContent).toBe(true);
     });
 
-    it('disableVirtualKeyboardOverlay sets overlaysContent to false', async () => {
+    it('REQ-MOB-002 AC2: disableVirtualKeyboardOverlay sets overlaysContent to false', async () => {
       Object.defineProperty(navigator, 'virtualKeyboard', {
         value: mockVirtualKeyboard,
         configurable: true,

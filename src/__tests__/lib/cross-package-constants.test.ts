@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { MAX_TABS, SESSION_ID_PATTERN } from '../../lib/constants';
+import {
+  MAX_TABS,
+  SESSION_ID_PATTERN,
+  WS_RATE_LIMIT_MAX_CONNECTIONS,
+  WS_RATE_LIMIT_WINDOW_MS,
+} from '../../lib/constants';
 import { AgentTypeSchema } from '../../types';
 import { TabConfigSchema } from '../../lib/schemas';
 
@@ -18,7 +23,7 @@ import { TabConfigSchema } from '../../lib/schemas';
  *   - TabConfigSchema (backend) <-> TabConfigSchema (frontend)
  *   - StorageObject shape (backend types.ts) <-> StorageObjectSchema (frontend schemas.ts)
  */
-describe('Cross-Package Constants', () => {
+describe('Cross-Package Constants / REQ-TERM-001 AC1 (MAX_TABS=6 enforced session-wide, shared backend<->frontend constant)', () => {
   // ========================================================================
   // MAX_TABS / MAX_TERMINALS_PER_SESSION
   // ========================================================================
@@ -51,6 +56,15 @@ describe('Cross-Package Constants', () => {
     expect(SESSION_ID_PATTERN.test('ABC12345')).toBe(false);      // uppercase
     expect(SESSION_ID_PATTERN.test('abc-1234')).toBe(false);      // dashes
     expect(SESSION_ID_PATTERN.test('abcdef01234567890abcdef012')).toBe(false); // too long (25)
+  });
+
+  // ========================================================================
+  // WS rate limit budget / REQ-SEC-019 AC1 (WS 30 per 60s per user)
+  // ========================================================================
+
+  it('REQ-SEC-019 AC1: WebSocket rate limit is 30 connections per 60 second window per user', () => {
+    expect(WS_RATE_LIMIT_MAX_CONNECTIONS).toBe(30);
+    expect(WS_RATE_LIMIT_WINDOW_MS).toBe(60_000);
   });
 
   // ========================================================================

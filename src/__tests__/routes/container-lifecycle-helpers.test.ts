@@ -98,7 +98,7 @@ import {
   startOrRestartContainer,
 } from '../../routes/container/lifecycle';
 
-describe('Container lifecycle extracted helpers', () => {
+describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   const mockLogger = {
     info: vi.fn(),

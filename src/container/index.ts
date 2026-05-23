@@ -120,7 +120,7 @@ export class container extends Container<Env> {
   private _vaultKey: string | null = null;
   private _sessionId: string | null = null;
   private _userEmail: string | null = null;
-  /** REQ-MEM-001 AC3: user's IANA timezone (e.g. "Europe/Zurich"). */
+  /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   private _userTimezone: string | null = null;
   /**
    * Timestamp captured at the start of destroy(); read by onStop() to
@@ -163,7 +163,7 @@ export class container extends Container<Env> {
       this._sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY) || null;
       this._usageSeconds = await this.ctx.storage.get<number>('usageSeconds') || 0;
       this._userEmail = await this.ctx.storage.get<string>('userEmail') || null;
-      // REQ-MEM-001 AC3: restore the user's IANA timezone so the capture
+      // REQ-MEM-001 AC4: restore the user's IANA timezone so the capture
       // pipeline's TZ resolution produces wall-clock filenames after a
       // DO wake (matches the pattern for sessionId / userEmail above).
       this._userTimezone = await this.ctx.storage.get<string>('userTimezone') || null;
@@ -268,7 +268,7 @@ export class container extends Container<Env> {
    * everywhere and the browser's IDB ciphertext is unrecoverable.
    *
    * Worker callers reach this method via a DO RPC from the /.config
-   * proxy handler (REQ-VAULT-008 AC2).
+   * proxy handler (REQ-VAULT-008 AC3).
    */
   async ensureVaultKey(): Promise<string> {
     if (this._vaultKey) return this._vaultKey;
@@ -412,7 +412,7 @@ export class container extends Container<Env> {
           cloudflareAccountId?: string;
           encryptionKey?: string;
           sessionMode?: string;
-          // REQ-MEM-001 AC3: user's IANA timezone forwarded by the Worker
+          // REQ-MEM-001 AC4: user's IANA timezone forwarded by the Worker
           // from preferences.userTimezone. applyBucketName persists it and
           // buildEnvVars surfaces it to the container as USER_TIMEZONE;
           // entrypoint.sh applies the three-artifact contract (export TZ,

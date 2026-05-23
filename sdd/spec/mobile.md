@@ -1,0 +1,463 @@
+# Mobile Terminal
+
+Touch input, virtual keyboard, scroll stability, and terminal rendering on mobile browsers (phones and tablets).
+
+**Domain owner:** Frontend (SolidJS + xterm.js), mobile.ts, touch-gestures.ts, terminal-mobile-input.ts
+
+### Key Concepts
+
+- **VirtualKeyboard API** -- The browser API (`navigator.virtualKeyboard`) used to detect keyboard geometry changes and control `overlaysContent` behavior.
+- **Touch Gesture** -- Swipe-based input on touchscreens, translated to arrow keys (horizontal) or terminal scroll (vertical).
+- **Scroll Stability** -- The set of mechanisms (viewport overflow hidden, scroll-drop detection, programmatic suppression) that prevent the terminal from jumping during output bursts or keyboard transitions.
+
+### Out of Scope
+
+- Native mobile app (Codeflare runs entirely in the mobile browser)
+- Offline mobile support (requires active WebSocket connection to container)
+
+### Domain Dependencies
+
+- **Terminal** (xterm.js integration) -- Mobile features extend the terminal rendering and input layer.
+- **Session Lifecycle** (container connection) -- Mobile terminals require a running container, same as desktop.
+
+---
+
+### REQ-MOB-001: Terminal fully usable on mobile devices
+
+<!-- @impl: web-ui/src/lib/mobile.ts -->
+<!-- @impl: web-ui/src/hooks/useTerminal.ts -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-001 describe -> AC4, AC5, AC6) -->
+<!-- @test: e2e/ui/mobile-specific.test.ts (Mobile-specific UI describe -> session-switcher mobile icon + bottom-sheet dropdown + mobile tap behavior, gated on IS_MOBILE viewport so the test confirms terminal renders + responds on the mobile viewport -> AC1) -->
+<!-- @test: .github/workflows/e2e.yml (e2e-ui-mobile job runs the mobile-specific E2E suite against the deployed worker with E2E_MOBILE=1 -> AC3) -->
+
+**Intent:** The terminal must be fully functional on phones and tablets, providing a usable coding experience without requiring a desktop browser.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The terminal renders correctly on mobile viewports (phones and tablets) using xterm.js with SolidJS.
+2. Text input, command execution, and output display work identically to desktop except where touch interaction necessarily differs.
+3. E2E UI mobile tests (`e2e-ui-mobile` job with `E2E_MOBILE=1`) pass against the deployed worker.
+4. The terminal adjusts layout when the virtual keyboard opens or closes without visual corruption.
+5. FitAddon recalculates terminal dimensions on viewport changes (keyboard open/close, orientation change, resize).
+6. All `fit()` call sites guard against zero-height containers (`containerEl.clientHeight === 0`) to prevent row calculation corruption on inactive terminals.
+
+**Constraints:**
+
+- Mobile-specific code paths are gated behind touch detection (`pointer: coarse` media query or VirtualKeyboard API availability).
+- No polling or timers for state verification; all fixes are event-driven on top of the stable `df1dcfc` baseline.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-002: Virtual keyboard opens reliably on tap
+
+<!-- @impl: web-ui/src/lib/mobile.ts::enableVirtualKeyboardOverlay -->
+<!-- @impl: web-ui/src/lib/mobile.ts::disableVirtualKeyboardOverlay -->
+<!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe -> enableVirtualKeyboardOverlay / disableVirtualKeyboardOverlay -> AC1, AC2; stale geometrychange ignore window -> AC1, AC3; baselineInnerHeight stability -> AC4; visualViewport fallback -> AC3) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-002 describe -> AC1, AC2, AC3, AC4, AC6) -->
+
+**Intent:** Tapping the terminal must reliably open the device's virtual keyboard, and the terminal must resize correctly to accommodate it.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The VirtualKeyboard API `overlaysContent` flag is enabled BEFORE focus to beat the keyboard/layout race condition.
+2. `overlaysContent` is disabled on terminal exit (`disableVirtualKeyboardOverlay`) so other inputs receive normal browser resizing.
+3. The `geometrychange` event from the VirtualKeyboard API is used to detect keyboard height changes.
+4. Terminal height is reduced by the keyboard height so content is not obscured.
+5. An iframe compositor jail provides a separate compositor context for Android IME caret containment.
+6. A `createElement` monkey-patch (scoped to `terminal.open()`) uses `input[type=password]` instead of textarea to suppress autocorrect at the OS level.
+7. The `isFocused` getter uses a live reference via `iframe.contentDocument?.hasFocus()` to avoid stale focus state.
+
+**Constraints:**
+
+- `overlaysContent` must be toggled only on actual state changes (false-to-true or true-to-false); redundant no-op calls must NOT restamp the ignore window timestamp.
+- The 50ms stale-event ignore window must apply only to genuine toggles.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices)
+
+**Verification:** Integration test
+
+**Status:** Implemented
+
+---
+
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (stale geometrychange ignore window (Fix 2) describe -> ignores geometrychange within 50ms of enableVirtualKeyboardOverlay + accepts after 50ms grace -> AC1, AC2) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (getKeyboardHeight - Samsung compensation describe -> raw height when address bar at top + raw on wide screens -> AC3 Samsung bottom-bar viewport-inflation compensation) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (baselineInnerHeight stability on keyboard close describe -> consistent keyboard height across close/reopen cycles -> AC4 baseline immutable, AC5 not updated on keyboard close) -->
+### REQ-MOB-003: Samsung Internet keyboard viewport state
+
+<!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight -->
+
+**Intent:** Samsung Internet's `geometrychange` event is unreliable (stale-event cache, viewport inflation from bottom nav bar). Viewport state must be filtered and compensated so the terminal lays out correctly under Samsung devices.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Stale `geometrychange` events (cached from previous toggle) are ignored within a 50ms window after `overlaysContent` changes value.
+2. The stale-event ignore window timestamp (`overlaysContentChangedAt`) is stamped ONLY when `overlaysContent` actually changes value; no-op calls do not restamp.
+3. Samsung's bottom navigation bar viewport inflation is compensated: `baselineInnerHeight` captures pre-keyboard `window.innerHeight`, and `viewportGrowth` is subtracted from `boundingRect.height` in `getKeyboardHeight()`.
+4. `baselineInnerHeight` is immutable after module initialization, except for Galaxy Fold screen-switch events (delta > 200px with keyboard closed).
+5. `baselineInnerHeight` is never updated during keyboard close, `forceResetKeyboardState()`, or `resetKeyboardStateIfStale()`.
+
+**Constraints:**
+
+- Samsung detection uses `isSamsungBrowser` flag.
+- State recovery + UI configuration concerns live in [REQ-MOB-011](#req-mob-011-samsung-internet-keyboard-state-recovery).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (forceResetKeyboardState describe -> unconditionally zeros keyboardHeight + vkOpen + viewportGrowth (used by Samsung focusout/dashboard-bounce/visibility recovery) -> AC1 Samsung focusout fallback, AC2 dashboard-bounce reset) -->
+<!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (settings describe -> samsungAddressBarTop preference toggle wired to mobile.ts samsung-address-bar position -> AC3 user-settings toggle for address bar position) -->
+### REQ-MOB-011: Samsung Internet keyboard state recovery
+
+<!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState -->
+
+**Intent:** Samsung's back-button dismiss and browser-resume paths leave the VirtualKeyboard compositor in stale states. State must be force-reset on those edges, and the user must be able to tell codeflare where Samsung's address bar sits (the API does not expose it).
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Samsung's `focusout` event (back button keyboard dismiss) triggers `forceResetKeyboardState()` to zero all keyboard state signals.
+2. Samsung browser resume uses an automatic "dashboard bounce" (deactivate then reactivate session after 50ms) to reset the unreliable VirtualKeyboard compositor state.
+3. Samsung-specific address bar position is configured via a user settings toggle (`samsungAddressBarTop`) since no API exists to detect it.
+
+**Constraints:**
+
+- The 50ms dashboard bounce delay gives SolidJS time to process null state and run cleanup effects before re-initialization.
+- Samsung-specific input resume does NOT auto-focus (prevents stale `geometrychange` events); keyboard stays closed for user tap.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-004: Scroll-drop detection during burst output
+
+<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/hooks/useTerminal.ts::isAtBottom -->
+<!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-004 describe -> AC3, AC4, AC5) -->
+
+**Intent:** The terminal viewport must not lose its scroll position when burst output trims the scrollback buffer or when the browser silently resets `ydisp` to 0 on focus changes.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `.xterm .xterm-viewport` has `overflow: hidden !important` on all devices, preventing native scroll interference with xterm 6.0.0's `SmoothScrollableElement`.
+2. `_syncTextArea` remains active (not frozen) so the browser's focus-scroll targets the cursor position at the bottom, not `(0,0)`.
+3. A synchronous post-write scroll guard in `flushWriteBuffer()` checks `viewportY < baseY` both synchronously and in `requestAnimationFrame`.
+4. A scroll-drop detector in `useTerminal` monitors for sudden `ydisp` drops to 0 when `ybase` is high, correcting via `queueMicrotask(() => scrollToBottom())`.
+5. Distance-based detection (not absolute `ydisp === 0`) distinguishes browser focus resets from normal scrollback trimming. Detection requires: `previousYdisp > 20`, `ybase > 20`, and `distanceDrift > 20`.
+
+**Constraints:**
+
+- The `isCorrectingScroll` flag prevents recursion when `scrollToBottom()` inside corrections triggers synchronous `onScroll` events.
+- Scrollback is limited to 1000 lines (frontend and headless). Virtual scroll is disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`).
+- The keyboard-transition correction + user-anchoring behavior live in [REQ-MOB-012](#req-mob-012-scroll-anchoring-during-keyboard-transitions).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
+
+**Verification:** Integration test
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-012: Scroll anchoring during keyboard transitions
+
+<!-- @impl: web-ui/src/stores/terminal.ts::beginProgrammaticScroll -->
+<!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-012 describe -> AC1, AC2, AC3, AC4) -->
+
+**Intent:** Programmatic scroll corrections must not be misidentified by the scroll-reset detector, and the visible scroll anchor (bottom for following users, relative position for scrolled-up users) must be preserved across keyboard open/close and scrollback trimming.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Programmatic scroll corrections are wrapped in a suppression counter (`beginProgrammaticScroll`/`endProgrammaticScroll`) to prevent the scroll-reset detector from misidentifying them.
+2. When the keyboard is open, the scroll-reset detector is skipped (browser focus resets cannot happen in keyboard-open mode).
+3. Bottom-following users see zero flicker: correction is applied in the `onScroll` handler (before the canvas paints) rather than in the async write callback.
+4. Scrolled-up users have their relative position preserved across scrollback trimming via distance-based restoration (`targetY = currentBaseY - savedDistanceFromBottom`).
+
+**Constraints:**
+
+- Recent user intent (wheel/pointerdown/keydown) is checked before forcing bottom-following users to the bottom.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MOB-004](#req-mob-004-scroll-drop-detection-during-burst-output)
+
+**Verification:** Integration test
+
+**Status:** Implemented
+
+---
+
+<!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touch-gestures describe -> sendTerminalKey sequences via triggerDataEvent + attachSwipeGestures sends left/right arrows above threshold + repeat timer fires every 80ms + cleared on touchend + vertical swipe scrolls when keyboard closed + capture-phase listeners -> AC1, AC2, AC3, AC4, AC5) -->
+### REQ-MOB-005: Swipe gestures send arrow keys or scroll
+
+<!-- @impl: web-ui/src/lib/touch-gestures.ts -->
+
+**Intent:** Horizontal swipe gestures simulate arrow key presses for command-line navigation, while vertical swipes scroll the terminal buffer when the keyboard is closed.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Horizontal swipe gestures (left/right) send arrow key escape sequences to the terminal.
+2. A `setInterval` repeat timer fires every 80ms while the finger is held, sending repeated arrow keys.
+3. `touchstart`, `touchmove`, `touchend`, and `touchcancel` are all registered in capture phase (`{ capture: true }`) to guarantee cleanup before xterm's internal Gesture handler calls `stopPropagation()`.
+4. The repeat timer is always cleared on `touchend` or `touchcancel`.
+5. When the keyboard is closed, vertical swipes scroll the terminal buffer via `terminal.scrollLines()`.
+6. The gesture handler accumulates pixel deltas and converts to line-granularity scroll, with sensitivity derived from terminal font metrics (`fontSize * lineHeight`).
+7. When the keyboard is open, vertical swipes do NOT scroll (touch events are blocked); horizontal swipes send arrow keys.
+
+**Constraints:**
+
+- xterm 6.0.0's `SmoothScrollableElement` uses JS-based scrolling that does not support native touch; `.xterm-viewport` no longer has scrollable content.
+- Touch scroll must use `terminal.scrollLines()` for direct buffer scrolling.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+<!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (resolveKeyAction Ctrl+C describe + Ctrl+V + other Ctrl+letter combos describes -> SIGINT (Ctrl+C = 0x03) + Ctrl+D = EOT (0x04) + Ctrl+L = FF (0x0c) + Ctrl+A = SOH (0x01) + Ctrl+Z = SUB (0x1a) -> AC3 common Ctrl sequences work) -->
+<!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (resolveKeyAction describe -> returns none for regular character without Ctrl + functional keys resolve regardless of Ctrl state -> AC4 sticky single-use, AC5 no interference with normal input) -->
+<!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (FloatingTerminalButtons describe -> Ctrl button rendered + Label Visibility + Conditional Rendering of mobile-only buttons -> AC1, AC2) -->
+### REQ-MOB-006: Sticky Ctrl button for mobile
+
+<!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx -->
+<!-- @impl: web-ui/src/lib/terminal-mobile-input.ts -->
+
+**Intent:** Mobile users can send Ctrl-modified key sequences (Ctrl+C, Ctrl+D, etc.) without a physical keyboard by using a persistent on-screen Ctrl button.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A floating Ctrl button is visible on mobile when the terminal is active.
+2. Tapping the Ctrl button enters a "sticky" state where the next key press is sent as a Ctrl-modified sequence.
+3. Common sequences (Ctrl+C for interrupt, Ctrl+D for EOF) work correctly via the sticky Ctrl mechanism.
+4. The Ctrl button state resets after one modified key press (single-use sticky behavior).
+5. The Ctrl button does not interfere with normal text input when not activated.
+
+**Constraints:**
+
+- The button must be positioned to avoid overlapping with the virtual keyboard or terminal content.
+- The button is part of the floating button UI layer alongside other mobile controls.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+<!-- @test: web-ui/src/__tests__/lib/speech-input.test.ts (speech-input describe -> uses Web Speech API (SpeechRecognition / webkitSpeechRecognition) + isSpeechSupported reflects availability + startListening calls recognition.start with continuous=false interimResults=false + onresult sends final text to callback + onresult ignores non-final/empty + onend resets state -> AC1, AC2, AC4, AC5) -->
+<!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (Desktop Voice Button describe + Label Content describe -> mobile floating mic button + desktop bottom-right icon + Ctrl+Space title attribute hint -> AC3 mobile mic + desktop shortcut) -->
+### REQ-MOB-007: Voice input via Web Speech API
+
+<!-- @impl: web-ui/src/lib/speech-input.ts -->
+
+**Intent:** Users can dictate text into the terminal using the device microphone, providing an alternative input method on mobile (and desktop).
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Voice input uses the Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`).
+2. Voice input is completely decoupled from the keyboard/iframe input system.
+3. On mobile, a floating microphone button starts recognition. On desktop, a small mic icon in the bottom-right corner and `Ctrl+Space` keyboard shortcut toggle voice input.
+4. Each activation captures one utterance: tap/shortcut, speak, pause, text sent, auto-deactivates (`continuous=false`, `interimResults=false`).
+5. Final transcribed text is sent directly to `terminal.input()`.
+6. The mic button is hidden on browsers that do not support the Web Speech API.
+
+**Constraints:**
+
+- Reliability over features: one utterance per activation, no interim results.
+- The first-use permission-prompt pattern and IME composition compatibility live in [REQ-MOB-013](#req-mob-013-mobile-input-system-platform-compatibility).
+
+**Priority:** P2
+
+**Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+<!-- @test: web-ui/src/__tests__/lib/speech-input.test.ts (speech-input describe -> getMicPermissionState returns state from navigator.permissions.query for 'prompt'/'granted' + 'unknown' fallback when API throws -> AC1 caller can blur iframe before recognition.start when state is 'prompt') -->
+### REQ-MOB-013: Mobile input-system platform compatibility
+
+<!-- @impl: web-ui/src/lib/speech-input.ts -->
+<!-- @impl: web-ui/src/lib/terminal-mobile-input.ts -->
+
+**Intent:** Mobile browsers stack the virtual keyboard above the permission prompt and route swipe-typed text as IME composition events. The input system must blur the iframe before triggering permission prompts (so the user sees the prompt) and buffer composition events until commit (so swipe typing arrives as whole words).
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On first use, if `navigator.permissions.query({name: 'microphone'})` returns state `'prompt'`, the iframe input is blurred (dismissing the keyboard) before calling `recognition.start()` so the user can see the browser permission prompt.
+2. The same blur-before-permission pattern applies to clipboard paste (`clipboard-read` permission).
+3. Composition events (`compositionstart`/`compositionend`) buffer swipe typing text until the IME commits.
+
+**Constraints:**
+
+- Permission prompt handling is critical on mobile where the prompt appears behind the virtual keyboard if the iframe still holds focus.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-MOB-007](#req-mob-007-voice-input-via-web-speech-api)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (extracted functions describe -> initializeTerminal creates Terminal with cursorBlink:true + cursorStyle:'bar' -> AC1 cursor enabled) -->
+<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (named constants describe -> DECTCEM_CURSOR_PARAM equals 25 so applyCursorVisibility only honors DECTCEM hide sequences (parameter 25) from the agent + does not hide in alternate buffer -> AC4 alternate-buffer guard) -->
+### REQ-MOB-008: Cursor visible for all supported agents
+
+<!-- @impl: web-ui/src/hooks/useTerminal.ts::applyCursorVisibility -->
+<!-- @impl: web-ui/src/lib/terminal-config.ts -->
+
+**Intent:** The terminal cursor must be visible and correctly rendered for all supported CLI agents (Claude Code, Copilot, etc.) without duplication or visual artifacts.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. xterm cursor is enabled with `cursorBlink: true` and `cursorStyle: 'bar'`.
+2. Cursor colors are set: cursor `#e4e4f0`, cursor accent `#1a2332`.
+3. CSS rules that previously hid cursor elements (`.xterm-cursor-block`, `.xterm-cursor-outline`, `.xterm-cursor-bar`, `.xterm-cursor-underline`) are removed.
+4. `applyCursorVisibility()` does not hide the cursor in alternate buffer mode; it only honors DECTCEM hide sequences from the agent.
+5. No "orange square" duplication where both the DOM cursor and CLI's ANSI cursor are visible (newer CLI versions rely on xterm's native cursor layer).
+6. The iframe compositor jail code remains as a precaution for the Android IME native caret problem (separate from xterm's DOM cursor).
+
+**Constraints:**
+
+- Cursor visibility depends on CLI agent version (Copilot 1.0.12+, Claude Code) using xterm's native cursor layer rather than rendering their own via ANSI escape sequences.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Visibility Return Keyboard Reset describe -> calls forceResetKeyboardState on visibility return in terminal view -> AC2 document-visibility handler fallback) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (forceResetKeyboardState describe -> unconditionally zeros keyboardHeight + vkOpen + viewportGrowth (boundingRect.height returns stale cached values on browser resume) -> AC3 unconditional reset) -->
+### REQ-MOB-009: Visibility return recovers keyboard state
+
+<!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::restoreFocusIfNeeded -->
+<!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState -->
+<!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn -->
+<!-- @impl: web-ui/src/components/Layout.tsx -->
+
+**Intent:** When the browser is backgrounded and returned to, keyboard state signals must be reset so the terminal functions correctly without manual intervention.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On visibility return (Chrome), `restoreFocusIfNeeded()` calls `forceResetKeyboardState()` + `enableVirtualKeyboardOverlay()` BEFORE refocusing the input.
+2. A document-visibility handler in the layout shell calls `forceResetKeyboardState()` as a fallback for when focus restore does not fire.
+3. `forceResetKeyboardState()` unconditionally zeros all signals (`keyboardHeight`, `vkOpen`, `viewportGrowth`) because `boundingRect.height` returns stale cached values on browser resume.
+4. On Samsung, the dashboard bounce (REQ-MOB-003) replaces focus-based recovery.
+5. On Samsung, `enableVirtualKeyboardOverlay()` is delayed by 300ms after visibility return so stale `geometrychange` events (arriving up to ~200ms after toggle) are caught by the 50ms ignore window.
+6. `reconnectOnVisibilityReturn()` reconnects any dropped WebSockets after visibility return.
+
+**Constraints:**
+
+- `resetKeyboardStateIfStale()` is not used for visibility return because `boundingRect.height` is stale at that point.
+- Chrome and Samsung paths are separate; Samsung requires full session deactivation/reactivation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-010: FitAddon fit calls are coordinated
+
+<!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminals -->
+<!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe -> visualViewport resize/keyboard show-hide triggers terminal refit cadence) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-010 describe -> AC1, AC2, AC3, AC4, AC5, AC6) -->
+
+**Intent:** Multiple code paths that trigger `fitAddon.fit()` must not conflict with each other or cause visual artifacts.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Three code paths can trigger `fitAddon.fit()`: keyboard refit (debounced 150ms), active-state effect (immediate `requestAnimationFrame`), and ResizeObserver (immediate `requestAnimationFrame`).
+2. A `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver during keyboard refit. The ResizeObserver skips `fit()` when `kbDebounceTimer !== null`.
+3. Mobile with keyboard open: `scrollToBottom()` is called after every `fit()`.
+4. Desktop or mobile without keyboard: `isAtBottom()` is checked before `fit()`; scroll position is preserved for users scrolled into scrollback.
+5. When keyboard is open, ResizeObserver does not call `scrollToBottom()` (the keyboard height change effect handles it).
+6. `refitAllTerminals()` skips the resize WebSocket message if dimensions did not change.
+
+**Constraints:**
+
+- Using the timer ID (not a boolean flag) for `kbDebounceTimer` prevents a race condition where cleanup does not properly clear the gate.
+- The write callback's `scrollToBottom()` is the single source of truth for bottom-anchoring during keyboard-open output.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
+
+**Verification:** Automated test
+
+**Status:** Implemented

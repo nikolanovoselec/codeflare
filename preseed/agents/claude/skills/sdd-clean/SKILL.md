@@ -40,7 +40,7 @@ When unleashed mode encounters a JUDGMENT call, it never picks a winner that ove
 | JUDGMENT type | Conservative resolution |
 |---|---|
 | Doc-vs-spec conflict | Mark BOTH the REQ and the related doc as `Status: Partial` with `Notes:` describing the conflict. Log to `sdd/spec/.review-queue.md` (nested) / `sdd/.review-needed.md` (flat). **Never overwrite either side.** |
-| Oversized REQ refactor | Shrink in place — extract implementation prose to the relevant lane file (`documentation/lanes/{file}.md` nested, `documentation/{file}.md` flat), leave Intent + AC verbatim. **Never split into multiple REQs.** |
+| Oversized REQ by **line count** (>50 lines, bloated by implementation prose) | Shrink in place — extract implementation prose to the relevant lane file (`documentation/lanes/{file}.md` nested, `documentation/{file}.md` flat), leave Intent + AC verbatim. **This row does NOT cover oversize-by-AC-count.** REQs with >7 ACs are handled deterministically by `spec-enforce-ac` § Splitting by sub-feature (which DOES auto-split in `auto`/`unleashed`); they never enter the JUDGMENT path. |
 | Fake-Deprecated REQ (no Replaced By) | Move REQ definition to README's `## Out of Scope` section, remove from domain file. Content preserved. |
 | Truly ambiguous content | Mark `Partial` with `Notes:`, log to triage file. |
 | CQ-SOURCE Truth findings (anchor orphaned, value drift) | NEVER auto-resolve. Always escalate to triage with the searched anchor + actual source state. Truth is JUDGMENT by construction. |
@@ -92,13 +92,48 @@ If `LAYOUT=nested`, no migration needed; layout migration is a no-op. If `LAYOUT
 
 ## What gets cleaned
 
+**Cleanup order (binding).** Categories run in this fixed order; later passes consume earlier passes' output. Each pass commits independently with subject `[sdd-clean] <category>` so individual passes are revertable.
+
+1. Layout migration (flat → nested, when applicable).
+2. Shape rewrite (heading level, blank lines, field order, numbered ACs, anchor-linked cross-refs) — `spec-enforce` row 3 mechanics.
+3. AC-cap split (>7 ACs) — `spec-enforce-ac` § Splitting by sub-feature.
+4. **REQ anchor backfill** (legacy-spec @impl injection) — described below. Outputs feed pass 5.
+5. **Test-anchor backfill** (REQ-ID comments on the test `describe`/`it` blocks of every annotated symbol) — described below.
+6. Status revaluation — CQ-TEST runs on the now-anchored spec + now-annotated tests. Implemented REQs whose tests now reference the REQ ID pass; the residual flows to Coverage gaps triage. Status drift caught here is the TRUE coverage gap, not an artefact of the legacy anchor-less shape.
+7. Implementation leakage extraction, false-positive ADR reclassification, changelog archival, doc backlink generation, fake-Deprecated cleanup.
+
+Passes 4 and 5 are the legacy-import bridge. On a project where every REQ already carries `@impl` anchors and every test already mentions its REQ IDs they are both inert no-ops.
+
+### Per-category mechanics
+
 - **Strikethrough text** → stripped (git history is the strikethrough).
 - **Prose Status fields** (multi-line status notes) → truncated to one word, prose moved to `pending.md` or `Notes:` field for `Partial` status.
 - **Implementation leakage** (hex codes, CSS classes, file paths, function names, env vars) → moved to appropriate `documentation/` files.
 - **Fake-Deprecated REQs** (Deprecated without `Replaced By:`) → moved to `## Out of Scope` in domain README (per the escalation rules above).
-- **Oversized REQs** (>50 lines) → flagged; in unleashed, implementation prose extracted to docs while Intent + AC stay verbatim.
+- **Oversized REQs by line count** (>50 lines, typically bloated by implementation prose) → flagged; in `unleashed`, implementation prose extracted to `documentation/` while Intent + AC stay verbatim. This rule fires on body size only.
+- **Oversized REQs by AC count** (>7 ACs) → handled deterministically by `spec-enforce-ac` § Splitting by sub-feature, invoked from row 5 of the spec-enforce manifest. In `auto`/`unleashed`: 8-10 ACs are MEDIUM with auto-fix (attempt sibling merge, else split by sub-feature); >10 ACs are HIGH with mandatory auto-split. Split mechanics: Jaccard-cluster ACs by first-12-content-word overlap (≥0.25), dominant cluster keeps the original REQ ID, remaining clusters become sibling REQs with the next free IDs. Cross-refs in `documentation/` and `sdd/changes.md` rewrite in the same commit. Tests are NOT renamed (substring matching keeps coverage green).
 - **Bloated `changes.md`** (verification log entries, commit SHAs, multi-paragraph entries) → archived to `sdd/changes-archive-YYYY-MM.md`, new file with user-facing entries only.
-- **Status: Implemented REQs without test coverage** → if `enforce_tdd: true`, demoted to `Partial` with `Notes:`; if `enforce_tdd: false`, written to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) under `## Coverage gaps` only.
+- **REQs missing `@impl` source anchors** (legacy specs that predate the anchor convention) → backfill from source in `auto`/`unleashed`. Mechanics:
+  1. For each AC bullet without a trailing `<!-- @impl: ... -->` comment, extract candidate symbols from the bullet body: PascalCase identifiers, camelCase identifiers, `backtick`-quoted tokens, and explicit file path mentions.
+  2. For each candidate, grep the source globs from `sdd/config.yml` `src_globs:` (defaults to `src/** lib/** app/** pkg/** cmd/** internal/**` minus test/build dirs) for declaration patterns: `class X`, `function X`, `def X`, `const X =`, `interface X`, `export function X`, `func X(`, `fn X(`, etc. (language-aware by file extension).
+  3. If exactly one declaration site matches: emit `<!-- @impl: <repo-relative-path>::<symbol> -->`. For ACs asserting a concrete numeric/string value, additionally grep the symbol body for the literal value pattern; on match, emit the `= <value-pattern>` tail.
+  4. If multiple sites match: rank by Jaccard overlap (≥0.25) between the AC's first 12 content-words and each candidate's surrounding 50-token window. Pick the highest scorer. If a tie remains, defer to triage rather than guess.
+  5. If zero sites match: leave the AC anchorless and emit MEDIUM `ac-anchor-unresolvable` to the layout-resolved triage file with Context = AC text + candidate symbols tried + globs scanned, Recommendation = "rewrite AC against the actual implementing symbol OR confirm the AC describes intent that no current code satisfies (Status -> Partial)".
+  6. ADR `Context:` blocks get the same treatment.
+
+  Severity: MEDIUM `req-missing-impl-anchors` per anchorless AC. Auto-fix in `auto`/`unleashed`: the backfill above. Interactive prompts per REQ before writing. Runs BEFORE test-anchor backfill below — the @impl anchors are that pass's input.
+
+- **REQs missing REQ-ID test references** (CQ-TEST flags after @impl anchors exist) → backfill in `auto`/`unleashed`. Mechanics:
+  1. For each REQ with at least one resolved `@impl` anchor, collect every `path::symbol` from its ACs and ADR `Context:` blocks.
+  2. Grep `test_globs` (from `sdd/config.yml`) for any test file mentioning any collected symbol (word-bounded match).
+  3. For each matching test file, locate the outermost `describe(...)` / `test(...)` / `it(...)` block whose body references the symbol. If no `describe` wraps the relevant `it`/`test`, target the `it`/`test` directly.
+  4. Insert a comment line immediately preceding the located block: `// REQ-X-NNN: <REQ title>`. If a same-REQ comment already precedes the block, no-op (idempotent).
+  5. For language-specific cases: Dart uses `///`, Python uses `#`, Go uses `//`, Ruby uses `#`. Plain `// REQ-...` is the canonical form for JS/TS.
+  6. Test files are NOT renamed and `describe` titles are NOT mutated; the comment is the contract anchor that CQ-TEST greps. spec-enforce-truth's test-coverage check is a substring match on the REQ-ID literal, not a parser, so comments suffice.
+
+  Severity: MEDIUM `req-test-anchor-missing` per REQ that had matchable symbols but no current REQ-ID mention. Auto-fix in `auto`/`unleashed`: the backfill above. Interactive prompts per test file before writing. REQs with zero matchable symbols in any test fall through to the `Coverage gaps` triage entry below — there is no test to annotate, the spec is genuinely uncovered.
+
+- **Status: Implemented REQs without test coverage** → if `enforce_tdd: true`, demoted to `Partial` with `Notes:`; if `enforce_tdd: false`, written to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) under `## Coverage gaps` only. After the two backfill passes above run, this check fires against the residual — REQs that genuinely have no test, not just REQs that lacked the anchor.
 - **Status: Planned/Partial REQs with source but no test** → if `enforce_tdd: true`, HIGH finding + auto-promote `Planned → Partial` with `Notes:`.
 - **Test quality heuristics** → AC-count vs test-count check, tautology detection, skipped-test detection (run when `enforce_tdd: true`).
 - **Missing doc→spec backlinks** → generated automatically.

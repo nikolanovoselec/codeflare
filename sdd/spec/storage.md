@@ -1,0 +1,554 @@
+# Storage Domain Specification
+
+R2 persistence, rclone bisync, quotas, and file browser.
+
+### Key Concepts
+
+| Concept | Definition |
+|---------|-----------|
+| R2 Bucket | Per-user Cloudflare R2 storage bucket, named deterministically from user email, providing isolated durable file storage |
+| Bisync | Bidirectional rclone sync that reconciles local filesystem and R2 every 15 minutes (plus on user-initiated triggers and at shutdown), using newest-file-wins conflict resolution |
+| Sync Mode | User-configurable scope of what gets synced: `none` (configs only), `full` (entire workspace), or `metadata` (agent configs per repo) |
+| Storage Quota | Per-tier limit on total R2 usage (`maxStorageBytes`), enforced at session start, cached in KV with 60-second TTL |
+
+### Out of Scope
+
+- **Version history** -- R2 stores current file state only. No file versioning, rollback to previous revisions, or change tracking within storage.
+- **File collaboration** -- Storage is single-user. No shared buckets, shared folders, or multi-user access to the same R2 prefix.
+- **Real-time file sync** -- Bisync runs on a 15-minute cadence with one user-driven trigger (Sync-now button) and a final sync at container shutdown. R2-side changes and multi-tab convergence wait up to the 15-minute ceiling unless the user clicks Sync-now. R2 uploads do not auto-fan-out to running containers. Sub-second or event-driven sync between browser and container is not supported.
+- **Corrupted R2 self-healing via nuke** -- Automatic detection and deletion of corrupted or encryption-mismatched R2 objects via a full-bucket scan was considered but not implemented. Transient file errors are handled by the vanishing-file recovery mechanism; encryption mismatches are handled by `--resilient`/`--recover` flags and the resync fallback in the bisync daemon.
+
+### Domain Dependencies
+
+| Domain | Dependency |
+|--------|-----------|
+| Session Lifecycle | Container start triggers initial R2 sync and mounts the user's bucket; container stop triggers final sync |
+| Subscription | Tier config provides `maxStorageBytes` for quota enforcement at session start |
+| Security | SSE-C encryption of R2 objects when `ENCRYPTION_KEY` is configured; scoped R2 tokens per user |
+
+---
+
+### REQ-STOR-001: Dedicated Per-User R2 Bucket
+
+<!-- @impl: src/lib/r2-admin.ts::createBucketIfNotExists -->
+<!-- @impl: src/lib/r2-config.ts -->
+<!-- @test: src/__tests__/lib/r2-config.test.ts (getR2Config describe → AC1/AC2/AC3) -->
+<!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin describe → bucket creation idempotency → AC2 constraints) -->
+
+**Intent:** Each authenticated user must have an isolated R2 bucket so that one user's files are never accessible to another user.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Bucket name is derived deterministically from the user's email (sanitized, max 63 characters).
+2. Bucket is auto-created via Cloudflare API on first container start if it does not already exist.
+3. No API endpoint returns objects from a bucket the authenticated user does not own.
+
+**Constraints:**
+
+- Bucket naming must comply with S3/R2 naming rules (lowercase, no special characters beyond hyphens).
+- `createBucketIfNotExists` must be idempotent (no error on duplicate).
+
+**Priority:** P0
+
+**Dependencies:** None.
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-002: File Persistence Across Sessions
+
+<!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
+<!-- @impl: entrypoint.sh::bisync_with_r2 -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> periodic bisync runs the mechanism behind cross-session persistence -> AC1/AC2/AC3 mechanism) -->
+
+**Intent:** User files must survive container destruction and be available when a new session starts, because containers are ephemeral.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Files written during session N are readable in session N+1 after the container is recreated.
+2. Agent configuration files (`.claude/`, `.config/`, `.gitconfig`) persist across sessions.
+3. Workspace files persist when workspace sync is enabled (`SYNC_MODE=full`).
+
+**Constraints:**
+
+- R2 is the durable store; the local filesystem is ephemeral.
+- Persistence depends on at least one successful sync completing before container shutdown.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
+
+**Verification:** Integration test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-003: Bidirectional Sync Every 15 Minutes (with Manual Triggers)
+
+<!-- @impl: entrypoint.sh::start_sync_daemon -->
+<!-- @impl: entrypoint.sh::bisync_with_r2 -->
+<!-- @impl: entrypoint.sh::recover_vanished_files -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> periodic bisync runs -> AC1) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> SIGUSR1 sleep-interrupt -> AC2) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> SIGUSR1 in-flight coalesce -> AC2) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (bisync constraint flags describe -> --conflict-resolve newer -> AC3) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> daemon retries after transient failure -> AC4) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> vanishing-file recovery retries -> AC5) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> three consecutive failures trigger resync -> AC6) -->
+
+**Intent:** Changes made locally (by the agent or user) and changes in R2 (from the file browser or another session's sync) must converge within a bounded interval, balanced against R2 operation cost. The 15-minute cadence is supplemented by explicit user-driven triggers (REQ-STOR-015) so the user is never blocked waiting for a cycle when they want fresh state.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After bisync baseline is established, a periodic rclone bisync runs every 15 minutes.
+2. The daemon's periodic sleep is interruptible by an external signal: a signal wakes the daemon and skips the remaining sleep, producing an immediate bisync. Signals delivered while a bisync is mid-flight coalesce into exactly one rerun after the current cycle completes (see REQ-STOR-015 AC5).
+3. Conflict resolution uses newest-file-wins (`--conflict-resolve newer`).
+4. The daemon retries on transient failure and continues the 15-minute cycle.
+5. On bisync failure, the daemon attempts vanishing-file recovery (parse error output, exclude transient files, clear locks, retry) before counting the failure.
+6. After 3 consecutive unrecoverable failures (each with 3 internal retries), the daemon falls back to a `--resync` baseline to re-establish clean state.
+
+**Constraints:**
+
+- All bisync commands must use `--ignore-checksum` to prevent false hash-mismatch aborts from files changing mid-transfer.
+- `--max-delete 100` must be set to allow bulk workspace deletions to propagate.
+- `--check-sync=false` must be set to prevent post-sync listing validation failures when R2 changes during sync.
+- `--min-size 1B` must exclude 0-byte files (R2 SSE-C fails on empty objects).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket), [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start)
+
+**Verification:** Integration test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-004: Initial Sync Restores Files on Container Start
+
+<!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
+<!-- @impl: entrypoint.sh::establish_bisync_baseline -->
+<!-- @impl: entrypoint.sh::init_recovery_filters -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> rclone sync R2->local -> AC1) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> 120s timeout -> AC2) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> config writes ordering -> AC3) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> --resync flag -> AC4) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> vanishing-file retry max 3 -> AC5) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> MCP static excludes -> AC6) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> daemon starts unconditionally -> AC7) -->
+
+**Intent:** When a container boots, it must restore the user's persisted files from R2 before the agent or terminal becomes usable.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A one-way `rclone sync` from R2 to local runs as the first initialization step after the terminal server starts listening on port 8080 (blocking).
+2. The sync completes or times out within 120 seconds (`SYNC_TIMEOUT`).
+3. All per-agent config file modifications (Claude config, Gemini settings, Codex version metadata, tab autostart shell config) complete after the initial sync but before bisync baseline, to avoid hash mismatches. The per-agent file enumeration lives in [documentation/lanes/configuration.md](../../documentation/lanes/configuration.md).
+4. A bisync baseline (`--resync`) is established after file modifications complete.
+5. If the initial baseline fails due to a vanishing file (file listed but deleted before copy), the system parses the error output, adds the file to a session-scoped recovery filter (`/tmp/rclone-recovery-filters.txt`), and retries (max 3 attempts). Only non-workspace files are auto-excluded; workspace files trigger a plain retry.
+6. Known ephemeral per-session MCP config files are statically excluded from all sync operations. The full per-path inventory of static excludes is delegated to the sync daemon and [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md).
+7. The bisync daemon starts unconditionally after baseline - even if all baseline attempts fail. A dead daemon means zero sync for the entire session; the daemon has its own recovery (vanishing-file recovery + consecutive failure -> resync fallback).
+
+**Constraints:**
+
+- The bisync-initialized flag (`/tmp/.bisync-initialized`) must be set even on the timeout path to prevent the shutdown trap from skipping the final sync.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
+
+**Verification:** Integration test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-005: Graceful Shutdown Performs Final Sync
+
+<!-- @impl: entrypoint.sh::shutdown_handler -->
+<!-- @impl: src/container/index.ts::destroy -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> SIGTERM trap -> AC1) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> bisync-initialized gate -> AC2) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> 120s watchdog -> AC4) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> 135s destroy budget documented -> AC5) -->
+
+**Intent:** When a container is stopped or evicted, unsaved local changes must be pushed to R2 before the process exits.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A SIGINT/SIGTERM handler triggers a final bisync before exit.
+2. The final bisync only runs if the bisync-initialized flag is set.
+3. Files created during the session are available in R2 after shutdown completes.
+4. The final bisync runs under a 120-second hard watchdog. If it has not completed within 120 seconds, the process is force-killed and the user accepts that the last writes may not have synced.
+5. The container orchestrator's destroy budget is 135 seconds (120s for the final bisync plus 15s for clean process exit) before the SDK tears down the container.
+
+**Constraints:**
+
+- The shutdown handler must complete within 120 seconds; the DO destroy() budget is 135 seconds.
+- Final bisync uses the same flags as periodic bisync (`--ignore-checksum`, `--max-delete 100`, `--check-sync=false`).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
+
+**Verification:** Integration test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-006: Storage Quota Enforced Per Tier at Session Start
+
+<!-- @impl: src/routes/storage/stats.ts -->
+<!-- @impl: src/lib/subscription.ts::getTierConfig -->
+<!-- @test: src/__tests__/routes/storage-stats.test.ts (Storage Stats Routes describe → quota enforcement at session start → AC1-AC5) -->
+
+**Intent:** Users must not be able to start new sessions when their storage usage exceeds their tier's quota, preventing unbounded R2 consumption.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Session creation (`POST /api/sessions`) reads `storage-stats:{bucketName}` from KV and compares `totalSizeBytes` against the user's `maxStorageBytes` tier config value.
+2. If usage exceeds quota, session creation is rejected with a clear error message.
+3. `GET /api/storage/stats` returns both current usage and `maxStorageBytes` so the frontend can display "X / Y".
+4. A `null` value for `maxStorageBytes` means unlimited (no enforcement).
+5. Tier config changes backfill from defaults when the field did not exist in previously saved KV data (`{ ...default, ...stored }` merge).
+
+**Constraints:**
+
+- Quota is checked only at session start; individual file uploads, rclone sync writes, and preseed writes are not blocked mid-session.
+- Users can temporarily exceed quota during an active session; overage is caught on the next session start attempt.
+- Stats are cached in KV with 60-second TTL; the quota value is embedded in the cache so cache hits skip tier config resolution.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-001](subscription.md#req-sub-001-eight-tier-subscription-system), [REQ-STOR-014](#req-stor-014-r2-storage-stats-caching)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-007: Web File Browser
+
+<!-- @impl: src/routes/storage/browse.ts -->
+<!-- @impl: src/routes/storage/upload.ts -->
+<!-- @impl: src/routes/storage/download.ts -->
+<!-- @impl: src/routes/storage/delete.ts -->
+<!-- @impl: src/routes/storage/preview.ts -->
+<!-- @impl: src/routes/storage/validation.ts::validateKey -->
+<!-- @test: src/__tests__/routes/storage-browse.test.ts (Storage Browse Routes describe → AC1) -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (upload endpoint → AC2) -->
+<!-- @test: src/__tests__/routes/storage-download.test.ts (download endpoint → AC3) -->
+<!-- @test: src/__tests__/routes/storage-delete.test.ts (delete endpoint → AC4) -->
+<!-- @test: src/__tests__/routes/storage-preview.test.ts (preview endpoint → AC5) -->
+
+**Intent:** Users must be able to browse, upload, download, delete, and preview files in their R2 storage via HTTP endpoints, without using the terminal.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `GET /api/storage/browse` lists objects in a given R2 prefix with directory-style navigation.
+2. `POST /api/storage/upload` uploads a file to a specified R2 key.
+3. `GET /api/storage/download` returns a file's contents with `Content-Disposition: attachment` and sanitized filename.
+4. `POST /api/storage/delete` deletes objects by key and/or prefix (server-side bulk delete).
+5. `GET /api/storage/preview` returns file content for text files inline and metadata for other types.
+
+**Constraints:**
+
+- All R2 operations use SSE-C headers when `ENCRYPTION_KEY` is set.
+- Each endpoint has its own rate limit (browse: 30/min, upload: 60/min, download: 120/min, preview: 120/min).
+- UI presentation, architectural source-of-truth, and prefix-traversal validation are specified in [REQ-STOR-016](#req-stor-016-file-browser-presentation-and-traversal-safety).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-016: File browser presentation and traversal safety
+
+<!-- @impl: web-ui/src/components/StorageBrowser.tsx -->
+<!-- @impl: src/routes/storage/validation.ts::validateKey -->
+<!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (StorageBrowser describe → drawer/bottom-sheet + R2-source → AC1/AC2) -->
+<!-- @test: src/__tests__/routes/storage-browse.test.ts (Storage Browse Routes describe → prefix traversal rejection → AC3) -->
+
+**Intent:** The web file browser must present consistently across form factors, treat R2 as the single source of truth (not the container filesystem), and reject directory-traversal probes at the prefix-listing endpoint.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The frontend renders as a 400px slide-in drawer on desktop and a bottom-sheet on mobile.
+2. The file browser reads directly from R2 via Worker API (not from the container filesystem).
+3. Browse endpoint validates prefix against directory traversal (`..` rejection).
+
+**Constraints:**
+
+- The file browser and settings panel are mutually exclusive in the UI.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-008: Multipart Upload for Large Files
+
+<!-- @impl: src/routes/storage/upload.ts -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (POST /upload/initiate describe -> returns uploadId -> AC1) -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (POST /upload/part describe -> returns etag -> AC2) -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (POST /upload/complete describe -> succeeds with valid parts -> AC3) -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (POST /upload/abort describe -> succeeds and returns success -> AC4) -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-STOR-008 AC5: shared rate limit across multipart endpoints describe -> exhausting limit on /upload/initiate causes /upload/part to 429 + exhausting limit on /upload/part causes /upload/complete to 429 -> AC5 shared 60/min limiter across all multipart routes) -->
+
+**Intent:** Files larger than the single-request upload limit must be uploadable via chunked multipart upload.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `POST /api/storage/upload/initiate` creates a multipart upload and returns an upload ID.
+2. `POST /api/storage/upload/part` uploads a single part (base64 body) for a given upload ID.
+3. `POST /api/storage/upload/complete` finalizes the multipart upload, assembling parts into the final object.
+4. `POST /api/storage/upload/abort` cancels an in-progress multipart upload.
+5. All multipart upload endpoints share the upload rate limit (60/min).
+
+**Constraints:**
+
+- Each part must include SSE-C headers when encryption is enabled.
+- The upload endpoints are exempt from the 64 KiB body size limit applied to other API routes.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser)
+
+**Verification:** Integration test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-009: Getting-Started Docs Auto-Seeded on First Session
+
+<!-- @impl: src/routes/storage/seed.ts -->
+<!-- @impl: src/lib/r2-seed.ts -->
+<!-- @test: src/__tests__/lib/r2-seed.test.ts (seedGettingStartedDocs describe → AC1) -->
+<!-- @test: src/__tests__/routes/storage-seed.test.ts (seed endpoint → AC2/AC3/AC4) -->
+
+**Intent:** New users must find starter documentation in their storage on first use so they have immediate orientation material.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When a user's R2 bucket is created for the first time, tutorial documents are written to the bucket root.
+2. `POST /api/storage/seed/getting-started` allows manual re-seeding with `overwrite: true`.
+3. After seeding, the `storage-stats:{bucketName}` KV cache is invalidated so the next poll returns fresh data.
+4. The seed endpoint is rate-limited (3/min).
+
+**Constraints:**
+
+- Seeding must be idempotent when called with `overwrite: false` (skip files that already exist).
+- Tutorial source content is maintained in `tutorials/` directory.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-010: Agent Configs Auto-Seeded Based on Session Mode
+
+<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+<!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs -->
+<!-- @impl: src/lib/agent-seed.generated.ts -->
+<!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs describe → AC1-AC6) -->
+<!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (mode-gating → Pro vs Standard superset → AC6) -->
+<!-- @test: src/__tests__/lib/r2-seed-context-mode.test.ts (context-mode preseed mode-gating) -->
+
+**Intent:** Each user's R2 bucket must contain the correct agent configuration files for their session mode (Standard or Pro) so that agents start with the right rules, skills, and tools.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On first bucket creation, `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate preseed files to R2.
+2. `POST /api/storage/seed/agent-configs` triggers `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })`, overwriting existing configs and deleting files not in the current mode.
+3. Cleanup is strictly scoped to keys from `AGENTS_SEEDED_CONFIGS`; user-created files are never deleted.
+4. Variant-per-mode keys (instruction files with different content per mode) are excluded from deletion by `getPreseedKeysNotInMode()`.
+5. Partial delete failures produce warnings but do not fail the overall operation.
+6. Pro mode seeds a strict superset of Standard's preseed files (Pro adds the memory plugin, agent definitions, hooks, slash commands, the discipline triad rules, and additional skills).
+
+**Constraints:**
+
+- Mode takes effect only on explicit "Recreate AI agent skills & rules" or new bucket creation; existing users keep current files until they recreate.
+- No duplicate preseed source files exist on disk; all agent variants are generated from the Claude Code preseed as single source of truth.
+- `getConfigsForMode()` must validate no duplicate keys within a single mode.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-011: Sync Mode Controls Workspace Scope
+
+<!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
+<!-- @impl: entrypoint.sh::create_rclone_config -->
+
+**Intent:** Users must be able to choose how much of their workspace is synced to R2, balancing persistence against sync overhead.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `SYNC_MODE=none` (default): only settings and config directories are synced; `~/workspace/` is excluded entirely.
+2. `SYNC_MODE=full`: entire `~/workspace/` is synced (minus `node_modules/`).
+3. `SYNC_MODE=metadata`: only agent config files (`.claude/` and `CLAUDE.md`) per repo are synced.
+4. All modes exclude these categories (per-path inventory is delegated to the sync daemon and storage-and-sync documentation; the spec governs the categories so future filter changes have something to be verified against): package-manager caches, rclone caches, agent session logs, ephemeral agent data, build artifacts, regenerable XDG tool state (e.g. wrangler state, generic dotfile user-app caches), and vendor credential caches that the agent regenerates on demand.
+
+**Constraints:**
+
+- All rclone commands must use `--filter` flags (not `--include`/`--exclude`).
+- The Container DO currently only maps `workspaceSyncEnabled` to `full` or `none`; `metadata` requires setting `SYNC_MODE` directly.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-012: Session Transcript Cleanup
+
+<!-- @impl: entrypoint.sh::cleanup_old_transcripts -->
+<!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (cleanup_old_transcripts describe → 5-most-recent retention against scratch USER_HOME → AC1-AC5) -->
+
+**Intent:** Old session transcripts must be pruned to prevent unbounded R2 growth from long-lived users.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Before each periodic bisync, `cleanup_old_transcripts()` runs (sequential, no concurrent access).
+2. The 5 most recent session transcripts (per-project JSONL log files) are retained by modification time; older transcripts are deleted. The exact filesystem path lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md).
+3. Session directories are left intact so Claude Code can still resolve project paths.
+4. Deletions propagate to R2 via bisync automatically.
+5. Subagent transcripts are excluded from bisync entirely.
+
+**Constraints:**
+
+- Cleanup functions are wrapped in subshells with `|| true` to prevent `set -euo pipefail` from killing the bisync daemon on benign non-zero exits.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-014: R2 Storage Stats Caching
+
+<!-- @impl: src/routes/storage/stats.ts -->
+<!-- @test: src/__tests__/routes/storage-stats.test.ts (Storage Stats Routes describe → pagination caching + TTL + mutation-driven invalidation → AC1-AC4) -->
+
+**Intent:** Storage statistics must be available quickly without paginating all R2 objects on every request.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `GET /api/storage/stats` paginates all R2 objects and caches results in KV (`storage-stats:{bucketName}`) with 60-second TTL.
+2. `batch-status` piggybacks cached stats without TTL check (relies on cache freshness).
+3. Mutation endpoints (upload, delete, seed) invalidate the KV cache after successful operations.
+4. The quota value (`maxStorageBytes`) is embedded in the cache entry so cache hits skip tier config resolution.
+
+**Constraints:**
+
+- Stats rate limited at its own rate (separate from browse/upload/download).
+- Cache miss triggers full R2 pagination, which may be slow for large buckets.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-015: Explicit Sync Trigger from UI
+
+<!-- @impl: src/routes/session/index.ts -->
+<!-- @impl: src/lib/sync-fanout.ts -->
+<!-- @impl: entrypoint.sh::start_sync_daemon -->
+<!-- @test: src/__tests__/lib/sync-fanout.test.ts (sync-fanout describe → fan-out + concurrency cap + per-session isolation + rate-limit → AC1/AC2/AC3/AC4) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (SIGUSR1 sleep-interrupt branch → AC5; in-flight coalesce branch pending plan) -->
+<!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (Sync-now button disabled-while-syncing → AC6) -->
+
+**Intent:** Because the periodic bisync cadence is 15 minutes (REQ-STOR-003), users must have explicit ways to force convergence between the container filesystem and R2 without waiting for the next cycle.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `POST /api/sessions/sync` fans out a sync trigger to every running session belonging to the authenticated user. Stopped sessions are skipped client-side using `batch-status` output before fan-out.
+2. Fan-out runs in parallel with a concurrency cap of 8; remaining sessions are queued.
+3. Per-session failures are isolated -- one session's bisync failure does not prevent other sessions from completing. The response shape returns the per-session sync status.
+4. `POST /api/sessions/sync` is rate-limited at 6 requests per minute per user (matches the destructive-action rate-limiter pattern).
+5. The trigger is idempotent: a SIGUSR1 sent to the bisync daemon while a bisync is already in flight causes exactly one rerun after the current cycle completes (N concurrent signals coalesce to one rerun, not N).
+6. The frontend Sync-now button is disabled while any of the user's sessions reports `sync.status === 'syncing'` and re-enables once all sessions transition out.
+
+**Constraints:**
+
+- Three triggers only: 15-minute cadence (REQ-STOR-003), Sync-now button (this REQ), and the final shutdown bisync (REQ-STOR-005). R2 uploads do not auto-fan-out to running containers - users click Sync-now to propagate freshly uploaded files immediately, or wait for the next 15-minute cycle. Removing the upload-side auto-trigger avoids bursting Worker subrequest budget on multi-file uploads (each file otherwise enumerates KV and fan-outs to every running session).
+- Multi-session fan-out is safe under the existing `--conflict-resolve newer` bisync semantics: the merge operation is commutative and associative under absolute mtime, so parallel and serial fan-out produce the same final R2 state per file. The same concurrent mode already runs every 15 minutes when a user has multiple sessions (per REQ-STOR-003); manual triggers introduce no new failure mode.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-007](#req-stor-007-web-file-browser), [REQ-STOR-011](#req-stor-011-sync-mode-controls-workspace-scope)
+
+**Verification:** Automated test
+
+**Status:** Implemented

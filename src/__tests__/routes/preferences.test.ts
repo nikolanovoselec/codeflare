@@ -52,7 +52,8 @@ describe('Preferences Routes', () => {
     return app;
   }
 
-  describe('GET /preferences', () => {
+  // REQ-SESSION-014 (preferences endpoint; GET/PATCH for KV-backed user prefs)
+  describe('GET /preferences / REQ-SESSION-014 (user-configurable auto-sleep timeout in settings)', () => {
     it('returns empty object when no preferences are stored', async () => {
       const app = createTestApp();
 
@@ -79,6 +80,7 @@ describe('Preferences Routes', () => {
     });
   });
 
+  // REQ-SESSION-014 (PATCH merges into KV; rejects invalid types with VALIDATION_ERROR)
   describe('PATCH /preferences', () => {
     it('updates workspaceSyncEnabled and keeps existing fields', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
@@ -127,7 +129,8 @@ describe('Preferences Routes', () => {
     });
   });
 
-  describe('fastStartEnabled preference', () => {
+  // REQ-SESSION-008 AC1 (fastStartEnabled persisted across restart; 409 restart path stores it in DO storage)
+  describe('fastStartEnabled preference / REQ-SESSION-008 (fast-start preference persists across restart)', () => {
     it('GET returns stored fastStartEnabled', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
         lastAgentType: 'codex',
@@ -192,7 +195,8 @@ describe('Preferences Routes', () => {
     });
   });
 
-  describe('sessionMode preference', () => {
+  // REQ-MEM-011 AC2 (sessionMode stored as 'default'|'advanced' in UserPreferences; PATCH validates the literal set)
+  describe('sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)', () => {
     it('GET returns stored sessionMode', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
         lastAgentType: 'codex',
@@ -240,6 +244,43 @@ describe('Preferences Routes', () => {
       expect(body.sessionMode).toBe('advanced');
     });
 
+    // REQ-SEC-015 AC2 (preferences-save side): in SaaS mode a non-Pro,
+    // non-admin user PATCHing sessionMode='advanced' is rejected at validation
+    // time so the stale preference can never be written to KV. The container
+    // start path uses clampSessionModeToTier as a second defense; this test
+    // covers the first one.
+    it('REQ-SEC-015 AC2 (preferences save): SaaS-mode non-Pro user gets 400 trying to PATCH sessionMode=advanced', async () => {
+      const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      app.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          SAAS_MODE: 'active',
+        } as Env;
+        return next();
+      });
+      app.route('/preferences', preferencesRoutes);
+      app.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { code?: string; message?: string };
+      expect(body.code).toBe('VALIDATION_ERROR');
+
+      // AC2 guarantee: KV must NOT contain the rejected sessionMode.
+      const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as { sessionMode?: string } | null;
+      expect(stored?.sessionMode).toBeUndefined();
+    });
+
     it('returns 400 for invalid sessionMode "expert"', async () => {
       const app = createTestApp();
 
@@ -283,6 +324,7 @@ describe('Preferences Routes', () => {
     });
   });
 
+  // REQ-SESSION-014 (strict schema validation: malformed JSON or unknown keys return VALIDATION_ERROR)
   describe('malformed JSON and unknown fields', () => {
     it('PATCH with malformed JSON body returns 400', async () => {
       const app = createTestApp();
@@ -333,7 +375,8 @@ describe('Preferences Routes', () => {
   // ---------------------------------------------------------------------------
   // Preseed reconciliation on sessionMode change
   // ---------------------------------------------------------------------------
-  describe('preseed reconciliation on sessionMode change', () => {
+  // REQ-MEM-011 AC3-AC4 (mode change triggers reconcileAgentConfigs to seed/delete mode-appropriate preseed files)
+  describe('preseed reconciliation on sessionMode change / REQ-AGENT-016 (advanced-mode preseed reconciliation)', () => {
     it('calls reconcileAgentConfigs when sessionMode changes from default to advanced', async () => {
       const app = createTestApp();
       const prefsKey = 'user-prefs:codeflare-test-user';
@@ -437,7 +480,8 @@ describe('Preferences Routes', () => {
     });
   });
 
-  describe('userTimezone (REQ-MEM-001 AC3)', () => {
+  // REQ-SESSION-016 AC1 (PATCH /api/preferences accepts userTimezone, validates IANA, max 64 chars; invalid returns ValidationError)
+  describe('userTimezone (REQ-SESSION-016 AC1)', () => {
     it('accepts a valid IANA timezone and persists it', async () => {
       const app = createTestApp();
       const res = await app.request('/preferences', {

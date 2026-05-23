@@ -148,6 +148,43 @@ describe('speech-input', () => {
       expect(onEnd).toHaveBeenCalled();
     });
 
+    // REQ-MOB-013 AC1: detect microphone permission state so the caller can
+    // blur the input BEFORE recognition.start() runs (mobile browsers stack
+    // the permission prompt under the virtual keyboard otherwise).
+    it('REQ-MOB-013 AC1: getMicPermissionState returns the Permissions API state ("prompt" first use)', async () => {
+      const queryMock = vi.fn(async () => ({ state: 'prompt' as PermissionState }));
+      (globalThis as Record<string, unknown>).navigator = {
+        ...(globalThis as { navigator?: unknown }).navigator as object,
+        permissions: { query: queryMock },
+      };
+      vi.resetModules();
+      const freshMod = await import('../../lib/speech-input');
+      const state = await freshMod.getMicPermissionState();
+      expect(state).toBe('prompt');
+      expect(queryMock).toHaveBeenCalledWith({ name: 'microphone' });
+    });
+
+    it('REQ-MOB-013 AC1: getMicPermissionState returns "granted" once user has approved (no prompt-blur needed)', async () => {
+      const queryMock = vi.fn(async () => ({ state: 'granted' as PermissionState }));
+      (globalThis as Record<string, unknown>).navigator = {
+        ...(globalThis as { navigator?: unknown }).navigator as object,
+        permissions: { query: queryMock },
+      };
+      vi.resetModules();
+      const freshMod = await import('../../lib/speech-input');
+      expect(await freshMod.getMicPermissionState()).toBe('granted');
+    });
+
+    it('REQ-MOB-013 AC1: getMicPermissionState returns "unknown" when Permissions API throws (Safari/Firefox fallback)', async () => {
+      (globalThis as Record<string, unknown>).navigator = {
+        ...(globalThis as { navigator?: unknown }).navigator as object,
+        permissions: { query: vi.fn(async () => { throw new Error('not supported'); }) },
+      };
+      vi.resetModules();
+      const freshMod = await import('../../lib/speech-input');
+      expect(await freshMod.getMicPermissionState()).toBe('unknown');
+    });
+
     it('startListening returns false if recognition.start() throws', async () => {
       (globalThis as Record<string, unknown>).webkitSpeechRecognition = class {
         continuous = false;

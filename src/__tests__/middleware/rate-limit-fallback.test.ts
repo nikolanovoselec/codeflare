@@ -41,7 +41,7 @@ function createMockContext(kvOverride?: Partial<KVNamespace>) {
   return c;
 }
 
-describe('rate-limit fallback on KV failure', () => {
+describe('rate-limit fallback on KV failure / REQ-SEC-007 AC2 (KV primary, in-memory fallback with periodic cleanup) / REQ-SEC-019 AC4 (general resource-protection endpoints fail open)', () => {
   const config = { windowMs: 60_000, maxRequests: 3, keyPrefix: 'test' };
 
   beforeEach(() => {
@@ -100,5 +100,46 @@ describe('rate-limit fallback on KV failure', () => {
 
     await limiter(c as any, next);
     expect(next).toHaveBeenCalled();
+  });
+});
+
+describe('checkRateLimit failClosed semantics / REQ-SEC-019 AC3 (security-critical endpoints fail closed when KV is unavailable instead of fail-open)', () => {
+  it('failClosed=true: KV failure returns allowed=false with retryAfter=60', async () => {
+    const { checkRateLimit } = await import('../../lib/rate-limit-core');
+    const failingKv = {
+      get: vi.fn().mockRejectedValue(new Error('KV unavailable')),
+      put: vi.fn().mockRejectedValue(new Error('KV unavailable')),
+    } as unknown as KVNamespace;
+
+    const result = await checkRateLimit({
+      kv: failingKv,
+      key: 'critical-endpoint:test-user',
+      limit: 10,
+      windowMs: 60_000,
+      ttlSeconds: 120,
+      failClosed: true,
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.retryAfterSec).toBe(60);
+  });
+
+  it('failClosed=false (default): KV failure falls back to in-memory (allowed=true on first call)', async () => {
+    const { checkRateLimit } = await import('../../lib/rate-limit-core');
+    const failingKv = {
+      get: vi.fn().mockRejectedValue(new Error('KV unavailable')),
+      put: vi.fn().mockRejectedValue(new Error('KV unavailable')),
+    } as unknown as KVNamespace;
+
+    const result = await checkRateLimit({
+      kv: failingKv,
+      key: 'general-endpoint:test-user-fail-open',
+      limit: 10,
+      windowMs: 60_000,
+      ttlSeconds: 120,
+      // failClosed omitted -> defaults to false
+    });
+
+    expect(result.allowed).toBe(true);
   });
 });

@@ -17,7 +17,7 @@ const EXPECTED_COMMANDS: Record<AgentType, { command: string; label: string }> =
   'bash': { command: '', label: 'Terminal 1' },
 };
 
-describe('AGENT_COMMANDS exhaustiveness', () => {
+describe('AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (six agent types: claude-code, codex, copilot, gemini, opencode, bash; enforced via AgentTypeSchema)', () => {
   const allAgentTypes = AgentTypeSchema.options;
 
   it('every AgentType in the schema has a valid tab config (no runtime error)', () => {
@@ -41,7 +41,7 @@ describe('AGENT_COMMANDS exhaustiveness', () => {
   );
 });
 
-describe('getDefaultTabConfig', () => {
+describe('getDefaultTabConfig / REQ-AGENT-002 AC1/AC2/AC5 (POST /api/sessions accepts agentType field, validated against AgentTypeSchema, defaults to claude-code)', () => {
   it('returns MAX_TABS tabs', () => {
     const tabs = getDefaultTabConfig('claude-code');
     expect(tabs).toHaveLength(MAX_TABS);

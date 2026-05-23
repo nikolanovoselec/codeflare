@@ -24,7 +24,7 @@ function claudeDocs() {
   return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.startsWith('.claude/'));
 }
 
-describe('agent-seed manifest.json', () => {
+describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)', () => {
   it('generated configs array is non-empty', () => {
     expect(AGENTS_SEEDED_CONFIGS.length).toBeGreaterThan(0);
   });
@@ -48,6 +48,8 @@ describe('agent-seed manifest.json', () => {
     }
   });
 
+  // REQ-MEM-006 AC4: Pro mode seeds a strict superset of Standard's preseed files;
+  // the memory and vault plugins/rules are part of the Pro-only delta.
   it('"advanced" is a superset of "default" -- all default keys also appear in advanced', () => {
     const defaultKeys = new Set(
       AGENTS_SEEDED_CONFIGS.filter((doc) => doc.modes.includes('default')).map((doc) => doc.key)
@@ -102,7 +104,7 @@ describe('agent-seed manifest.json', () => {
   });
 });
 
-describe('multi-agent documents', () => {
+describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)', () => {
   it('each non-Claude agent has an instructions file', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
     expect(keys.has('.codex/AGENTS.md')).toBe(true);
@@ -161,11 +163,16 @@ describe('multi-agent documents', () => {
     }
   });
 
+  // REQ-MEM-008 AC2 (manifest declares the memory plugin files) + AC3 (all advanced-only).
+  // memory-capture-block.sh is the PreToolUse hard-block companion to memory-capture.sh
+  // (UserPromptSubmit) — it prevents the assistant from skipping the deferred capture
+  // by hard-blocking all other tool calls while .vars is undrained.
   it('codeflare-memory plugin files are advanced-only', () => {
     const pluginDocs = claudeDocs().filter((d) => d.key.includes('codeflare-memory'));
     const fileNames = pluginDocs.map((d) => d.key.split('/').pop()).sort();
     expect(fileNames).toEqual([
       'memory-agent-prompt.md',
+      'memory-capture-block.sh',
       'memory-capture.sh',
       'plugin.json',
       'prefilter-transcript.sh',
@@ -175,6 +182,7 @@ describe('multi-agent documents', () => {
     }
   });
 
+  // REQ-MEM-008 AC7 (memory plugin files excluded from non-CC agents; no Codex/Gemini/Copilot/OpenCode equivalents)
   it('codeflare-memory plugin is excluded from non-Claude agents', () => {
     const nonClaude = AGENTS_SEEDED_CONFIGS.filter((d) => !d.key.startsWith('.claude/'));
     for (const doc of nonClaude) {
@@ -182,6 +190,7 @@ describe('multi-agent documents', () => {
     }
   });
 
+  // REQ-MEM-008 AC4 (hook script delivered via plugin, NOT via hooks/ - registered via settings.json merge)
   it('no standalone memory hook files remain in hooks/ directory', () => {
     const memoryHooks = claudeDocs().filter(
       (d) => d.key.startsWith('.claude/hooks/memory')

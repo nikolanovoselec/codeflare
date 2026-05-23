@@ -52,7 +52,7 @@ async function openTierView() {
   });
 }
 
-describe('SubscribePage', () => {
+describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending users) / REQ-SUB-017 (tier selection UI)', () => {
   let mockLocation: { href: string };
   let originalLocation: Location;
   let mockActiveSubscription: (tier?: string) => void;
@@ -491,6 +491,147 @@ describe('SubscribePage', () => {
       await waitFor(() => {
         expect(screen.queryByText(/log\s*out/i)).not.toBeInTheDocument();
       });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // REQ-SETUP-009: Subscribe page with tier selection
+  // -------------------------------------------------------------------------
+
+  describe('REQ-SETUP-009 AC coverage', () => {
+    it('REQ-SETUP-009 AC1: /app/subscribe shows available tiers with features, hours, sessions, and pricing', async () => {
+      await openTierView();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('lifeline-stop-free')).toBeInTheDocument();
+        expect(screen.getByTestId('lifeline-stop-standard')).toBeInTheDocument();
+        expect(screen.getByTestId('lifeline-stop-advanced')).toBeInTheDocument();
+        expect(screen.getByTestId('lifeline-stop-max')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('lifeline-stop-free'));
+      await waitFor(() => {
+        const panel = screen.getByTestId('tier-detail-panel');
+        expect(panel.textContent?.length).toBeGreaterThan(0);
+        expect(panel.querySelector('.subscribe-detail-name')?.textContent).toBe('Free');
+      });
+    });
+
+    it('REQ-SETUP-009 AC2: three-phase wizard - home, plan selection, checkout phases exist', async () => {
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByText(/See subscription plans/i)).toBeInTheDocument();
+        expect(screen.queryByTestId('lifeline-rail')).not.toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText(/See subscription plans/i));
+      await waitFor(() => {
+        expect(screen.getByTestId('mode-chooser')).toBeInTheDocument();
+        expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Back'));
+      await waitFor(() => {
+        expect(screen.queryByTestId('lifeline-rail')).not.toBeInTheDocument();
+        expect(screen.getByText(/See subscription plans/i)).toBeInTheDocument();
+      });
+    });
+
+    it('REQ-SETUP-009 AC3: Turnstile CAPTCHA is initialized for pending users when turnstileSiteKey is provided', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'pending@example.com',
+        accessTier: 'pending',
+        subscriptionTier: 'pending',
+        role: 'user',
+        turnstileSiteKey: '0x4AAA-test-site-key',
+        requestedAt: null,
+        onboardingComplete: false,
+      });
+
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByText(/See subscription plans/i)).toBeInTheDocument();
+      });
+    });
+
+    it('REQ-SETUP-009 AC3: Turnstile is not required when turnstileSiteKey is absent', async () => {
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByText(/See subscription plans/i)).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText(/See subscription plans/i));
+      await waitFor(() => {
+        expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
+      });
+    });
+
+    it('REQ-SETUP-009 AC4: mode toggle exists with Standard and Pro options', async () => {
+      await openTierView();
+
+      expect(screen.getByTestId('mode-card-standard')).toBeInTheDocument();
+      expect(screen.getByTestId('mode-card-pro')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('mode-card-pro'));
+      await waitFor(() => {
+        const expand = screen.getByTestId('mode-chooser').querySelector('.subscribe-pro-expand');
+        expect(expand?.classList.contains('subscribe-pro-expand--open')).toBe(true);
+      });
+
+      fireEvent.click(screen.getByTestId('mode-card-standard'));
+      await waitFor(() => {
+        const expand = screen.getByTestId('mode-chooser').querySelector('.subscribe-pro-expand');
+        expect(expand?.classList.contains('subscribe-pro-expand--open')).toBe(false);
+      });
+    });
+
+    it('REQ-SETUP-009 AC5: free tier activates immediately via subscribe API call (no Stripe checkout)', async () => {
+      await openTierView();
+
+      fireEvent.click(screen.getByTestId('lifeline-stop-free'));
+      await waitFor(() => expect(screen.getByText('Get Started')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByText('Get Started'));
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(async () => {
+        expect(mockedSubscribe).toHaveBeenCalledWith('free', '', 'default');
+        const { createCheckoutSession } = vi.mocked(
+          await import('../../api/client')
+        );
+        expect(createCheckoutSession).not.toHaveBeenCalled();
+      });
+    });
+
+    it('REQ-SETUP-009 AC5: free tier redirects to /app/onboarding after activation (not Stripe)', async () => {
+      await openTierView();
+
+      fireEvent.click(screen.getByTestId('lifeline-stop-free'));
+      await waitFor(() => expect(screen.getByText('Get Started')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByText('Get Started'));
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(mockLocation.href).toBe('/app/onboarding');
+        expect(mockLocation.href).not.toContain('stripe');
+      });
+    });
+
+    it('REQ-SETUP-009 AC6: paid tiers show "Start Trial" CTA indicating Stripe checkout path', async () => {
+      await openTierView();
+
+      await waitFor(() => {
+        expect(screen.getByText('Start Trial')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText('Get Started')).not.toBeInTheDocument();
     });
   });
 });

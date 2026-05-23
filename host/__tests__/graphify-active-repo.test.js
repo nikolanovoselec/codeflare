@@ -44,7 +44,7 @@ function makeRepo(parent, name) {
   return repo;
 }
 
-describe('graphify-active-repo.sh', () => {
+describe('graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges vault + active repos)', () => {
   let baseTmp, sentinelDir, workspace;
 
   before(() => {
@@ -328,10 +328,11 @@ describe('graphify-active-repo.sh', () => {
     assert.equal(sentinel(sentinelDir), repoB);
   });
 
-  // REQ-VAULT-004 AC4: vault skip. Entrypoint init seeds the vault under
+  // REQ-VAULT-004 AC3: vault skip. Entrypoint init seeds the vault under
   // tag `user_vault`; a tool call inside the vault must NOT re-tag it
   // with the directory basename (`Vault`) and the prune-on-switch
-  // logic must never get a chance to remove the entrypoint snapshot.
+  // logic (REQ-VAULT-014 AC1) must never get a chance to remove the
+  // entrypoint snapshot.
   it('vault skip: candidate at $HOME/Vault exits without sentinel write', () => {
     const fakeHome = mkdtempSync(join(baseTmp, 'home-'));
     const vault = join(fakeHome, 'Vault');
@@ -466,7 +467,7 @@ function runHookNoGraphify(input, sentinelDir) {
   return { stdout: result.stdout.trim(), stderr: result.stderr, status: result.status };
 }
 
-describe('graphify-active-repo.sh single-active-repo maintenance', () => {
+describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014 (graphify active-repo invariant + lock serialisation)', () => {
   let baseTmp, sentinelDir, workspace;
   before(() => { baseTmp = mkdtempSync(join(tmpdir(), 'gf-maint-')); });
   after(() => { rmSync(baseTmp, { recursive: true, force: true }); });

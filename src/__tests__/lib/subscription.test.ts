@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   SubscriptionTierSchema,
   UsageRecordSchema,
@@ -18,7 +18,7 @@ import {
 } from '../../lib/subscription';
 import { createMockKV } from '../helpers/mock-kv';
 
-describe('SubscriptionTierSchema', () => {
+describe('SubscriptionTierSchema / REQ-SUB-001 AC1 (8 tier identifiers) / REQ-SUB-002 AC1..AC4 (tier properties shape)', () => {
   const validTiers = ['blocked', 'pending', 'free', 'trial', 'standard', 'advanced', 'max', 'unlimited'];
 
   it('accepts all 8 valid tier values', () => {
@@ -78,7 +78,7 @@ describe('UsageRecordSchema', () => {
   });
 });
 
-describe('SubscriptionTierConfig interface', () => {
+describe('SubscriptionTierConfig interface / REQ-SUB-002 (tier property definitions including unlimited=null monthlySeconds and non-purchasable null priceMonthly)', () => {
   it('type-checks a valid tier config object', () => {
     const config: SubscriptionTierConfig = {
       id: 'standard',
@@ -134,7 +134,7 @@ describe('SubscriptionTierConfig interface', () => {
   });
 });
 
-describe('getDefaultTiers', () => {
+describe('getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)', () => {
   it('returns 8 tiers', () => {
     const tiers = getDefaultTiers();
     expect(tiers).toHaveLength(8);
@@ -375,7 +375,7 @@ describe('getAllowedSessionModes', () => {
   });
 });
 
-describe('getTierConfig', () => {
+describe('getTierConfig / REQ-SUB-010 (tier config cached with 60-second TTL; KV-fallback-to-defaults; resetTierConfigCache busts the cache)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
@@ -399,9 +399,28 @@ describe('getTierConfig', () => {
     const free = config.find((t) => t.id === 'free')!;
     expect(free.monthlySeconds).toBe(14400);
   });
+
+  it('caches the config: second call within TTL does not re-read KV', async () => {
+    const kvGetSpy = vi.spyOn(mockKV, 'get');
+    await getTierConfig(mockKV as unknown as KVNamespace);
+    await getTierConfig(mockKV as unknown as KVNamespace);
+    await getTierConfig(mockKV as unknown as KVNamespace);
+    // First call reads KV; subsequent calls inside the TTL window do not.
+    expect(kvGetSpy).toHaveBeenCalledTimes(1);
+    kvGetSpy.mockRestore();
+  });
+
+  it('resetTierConfigCache() forces the next call to re-read KV', async () => {
+    const kvGetSpy = vi.spyOn(mockKV, 'get');
+    await getTierConfig(mockKV as unknown as KVNamespace);
+    resetTierConfigCache();
+    await getTierConfig(mockKV as unknown as KVNamespace);
+    expect(kvGetSpy).toHaveBeenCalledTimes(2);
+    kvGetSpy.mockRestore();
+  });
 });
 
-describe('getEffectiveTier', () => {
+describe('getEffectiveTier / REQ-SUB-012 (billing status enforcement: subscriptionTier clamped by billingStatus, canceled/past_due demotes paid to free)', () => {
   it('returns paid tier when billing is active', () => {
     expect(getEffectiveTier('standard', undefined, 'active')).toBe('standard');
   });

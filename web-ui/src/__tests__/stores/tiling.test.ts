@@ -40,7 +40,7 @@ import {
   getTabOrder,
 } from '../../stores/tiling';
 
-describe('Tiling Module - Pure Helpers', () => {
+describe('Tiling Module - Pure Helpers / REQ-TERM-007 (tiling layout selection, compatibility check, best-fit-for-tab-count, setTilingLayout)', () => {
   describe('LAYOUT_MIN_TABS', () => {
     it('should define minimum tab counts for each layout', () => {
       expect(LAYOUT_MIN_TABS['tabbed']).toBe(1);

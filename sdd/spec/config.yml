@@ -1,0 +1,75 @@
+# SDD configuration for codeflare.
+# Bootstrapped 2026-04-08 — Option A: visibility-only, no auto-demote.
+# Read by spec-reviewer and doc-updater at the start of every run.
+
+# Mode: interactive | auto | unleashed
+#
+# interactive: confirm every fix before applying. Safe for new SDD users.
+# auto:        apply SAFE+RISKY fixes silently on the current branch.
+#              Escalate JUDGMENT calls to the layout-resolved triage file
+#              (sdd/spec/.review-queue.md nested, sdd/.review-needed.md flat-legacy).
+# unleashed:   apply everything (including JUDGMENT) on the current branch.
+#              Conservative defaults preserve information without overwriting intent.
+#              Walk-away autopilot - come back to per-category commits, git revert
+#              any unwanted change. No PR, no branch creation.
+mode: auto
+
+# enforce_tdd: true for codeflare (flipped 2026-05-22).
+#
+# Flipped in preparation for the /sdd clean legacy-import bridge run on
+# the sdd-clean branch. The new sdd-clean skill carries two backfill
+# passes (pass 4 @impl source-anchor inference, pass 5 REQ-ID test
+# annotation) that consume src_globs + test_globs to anchor the
+# previously-unanchored 170-REQ spec to its implementing symbols and
+# existing tests. After those passes run, pass 6 (Status revaluation)
+# is the truthful CQ-TEST: REQs whose @impl symbol has a test that
+# now mentions the REQ ID stay Implemented; the residual demotes to
+# Partial with concrete coverage-gap triage entries. This avoids the
+# prior fear (mass false demotion) by only demoting after the
+# backfill has had a chance to anchor real coverage.
+#
+# Historical context: codeflare predates the SDD overhaul. The
+# Implemented REQs were authored before the `REQ-X-NNN: ...` test-name
+# convention, and the spec lacked @impl anchors entirely. Codeflare
+# HAS heavy test coverage (1620 backend + 1529 frontend + 140 E2E
+# tests) — the gap was annotation, not behaviour. The /sdd clean run
+# closes the annotation gap mechanically; the residual is the true
+# coverage gap and gets triaged manually.
+enforce_tdd: true
+
+# Test discovery globs — where spec-reviewer looks for REQ ID references.
+# Codeflare-specific layout: tests live in src/__tests__, host/__tests__,
+# web-ui/src/__tests__, and tests/e2e for Playwright.
+test_globs:
+  - "src/__tests__/**/*.test.{ts,js,tsx,jsx,mjs}"
+  - "src/__tests__/**/*.spec.{ts,js,tsx,jsx,mjs}"
+  - "host/__tests__/**/*.test.{js,mjs}"
+  - "web-ui/src/__tests__/**/*.test.{ts,tsx,jsx}"
+  - "web-ui/src/__tests__/**/*.spec.{ts,tsx,jsx}"
+  - "tests/e2e/**/*.spec.{ts,js}"
+
+# Source discovery globs (optional override) — where spec-reviewer scans
+# for REQ-ID references in source code. Codeflare uses the standard
+# layout, so the built-in defaults (src/**, lib/**, app/**, etc.) cover
+# the Worker code. host/src is the in-container Node code.
+src_globs:
+  - "src/**"
+  - "host/src/**"
+  - "web-ui/src/**"
+
+# Forbidden content allowlist — which categories are acceptable inside REQs.
+forbidden_content_allowlist:
+  protocols: true        # OAuth, JWT, WebSocket, SSE, etc.
+  vendors: true          # Cloudflare, Stripe, Resend, etc.
+  http_codes_in_api_reqs: true  # HTTP codes when documenting an API contract REQ
+  performance_numbers: true  # "p95 < 200ms", "LCP < 2.5s"
+  user_facing_strings: true  # quoted text the user actually sees
+
+# Per-REQ overrides — REQ IDs that opt out of forbidden-content checks entirely.
+forbidden_content_overrides: []
+
+# REQ length thresholds (lines) — soft warnings only, never auto-fix.
+req_length:
+  warn: 25
+  medium: 50
+  high: 100

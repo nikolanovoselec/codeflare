@@ -62,7 +62,7 @@ function createLifecycleApp(mockKV: ReturnType<typeof createMockKV>, bucketName 
   return app;
 }
 
-describe('Session Lifecycle Routes', () => {
+describe('Session Lifecycle Routes / REQ-SESSION-006 (user can stop, restart, delete sessions)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

@@ -21,7 +21,7 @@ vi.mock('../../lib/access', () => ({
 
 import llmKeysRoutes from '../../routes/llm-keys';
 
-describe('LLM Keys routes', () => {
+describe('LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   function createTestApp() {

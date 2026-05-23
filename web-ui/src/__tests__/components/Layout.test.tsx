@@ -115,7 +115,7 @@ function createMockSession(overrides: Partial<any> = {}) {
   };
 }
 
-describe('Layout Component', () => {
+describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSessions = [];

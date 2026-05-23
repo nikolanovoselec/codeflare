@@ -19,7 +19,7 @@ vi.mock('../../lib/r2-config', () => ({
 
 import uploadRoutes from '../../routes/storage/upload';
 
-describe('Storage Upload Routes', () => {
+describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
@@ -206,6 +206,7 @@ describe('Storage Upload Routes', () => {
   });
 
   // ── Multipart initiate ─────────────────────────────────────────────
+  // REQ-STOR-008 AC1: POST /api/storage/upload/initiate creates a multipart upload and returns an upload ID
 
   describe('POST /upload/initiate (multipart initiate)', () => {
     it('returns uploadId on success', async () => {
@@ -258,6 +259,7 @@ describe('Storage Upload Routes', () => {
   });
 
   // ── Multipart part upload ──────────────────────────────────────────
+  // REQ-STOR-008 AC2: POST /api/storage/upload/part uploads a single part (base64 body) for a given upload ID
 
   describe('POST /upload/part (multipart part)', () => {
     it('returns etag on success', async () => {
@@ -349,6 +351,7 @@ describe('Storage Upload Routes', () => {
   });
 
   // ── Multipart complete ─────────────────────────────────────────────
+  // REQ-STOR-008 AC3: POST /api/storage/upload/complete finalizes the multipart upload
 
   describe('POST /upload/complete (multipart complete)', () => {
     it('succeeds with valid parts', async () => {
@@ -417,6 +420,7 @@ describe('Storage Upload Routes', () => {
   });
 
   // ── Multipart abort ────────────────────────────────────────────────
+  // REQ-STOR-008 AC4: POST /api/storage/upload/abort cancels an in-progress multipart upload
 
   describe('POST /upload/abort (multipart abort)', () => {
     it('succeeds and returns { success: true }', async () => {
@@ -469,6 +473,82 @@ describe('Storage Upload Routes', () => {
       const [url, opts] = mockFetch.mock.calls[0];
       expect(url).toContain('uploadId=uid-99');
       expect(opts.method).toBe('DELETE');
+    });
+  });
+
+  // ── Rate limit shared by all multipart endpoints ────────────────────────
+  // REQ-STOR-008 AC5: all multipart upload endpoints share the upload rate
+  // limit (60/min). The upload router registers storageUploadRateLimiter via
+  // app.use('*', ...) so a single KV-backed limiter covers /, /initiate,
+  // /part, /complete, and /abort.
+  describe('REQ-STOR-008 AC5: shared rate limit across multipart endpoints', () => {
+    it('exhausting limit on /upload/initiate causes a subsequent /upload/part to 429', async () => {
+      const app = createApp();
+      // Each /upload/initiate hits R2 once and consumes the response body via
+      // response.text(). A single shared Response would have its body locked
+      // after the first call, so use mockImplementation to build a fresh one
+      // per invocation.
+      mockFetch.mockImplementation(async () => new Response('<xml/>', { status: 200 }));
+
+      // Exhaust the 60/min limit by making 60 successful /upload/initiate calls.
+      for (let i = 0; i < 60; i++) {
+        const res = await app.request('/upload/initiate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: `workspace/file-${i}.ts` }),
+        });
+        expect(res.status, `initiate call ${i + 1} should succeed`).toBe(200);
+      }
+
+      // 61st call to a DIFFERENT endpoint must 429 — proving the limiter is
+      // shared, not per-route. If each endpoint had its own bucket this would
+      // return 200 (or its normal failure code, not 429).
+      const res = await app.request('/upload/part', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'workspace/file.ts',
+          uploadId: 'upload-id-123',
+          partNumber: 1,
+          content: btoa('chunk'),
+        }),
+      });
+      expect(res.status).toBe(429);
+    });
+
+    it('exhausting limit on /upload/part causes /upload/complete to 429', async () => {
+      const app = createApp();
+      // Fresh Response per call (same reasoning as the test above; /upload/part
+      // reads response.headers and the body slot is implicitly tied to the
+      // single Response instance).
+      mockFetch.mockImplementation(async () =>
+        new Response('', { status: 200, headers: { etag: '"e"' } })
+      );
+
+      for (let i = 0; i < 60; i++) {
+        const res = await app.request('/upload/part', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key: 'workspace/file.ts',
+            uploadId: 'upload-id-123',
+            partNumber: i + 1,
+            content: btoa('x'),
+          }),
+        });
+        expect(res.status, `part call ${i + 1} should succeed`).toBe(200);
+      }
+
+      const res = await app.request('/upload/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'workspace/file.ts',
+          uploadId: 'upload-id-123',
+          parts: [{ partNumber: 1, etag: 'e' }],
+        }),
+      });
+      expect(res.status).toBe(429);
     });
   });
 

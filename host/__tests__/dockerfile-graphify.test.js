@@ -18,7 +18,7 @@ const pluginJson = JSON.parse(
   )
 );
 
-describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026)', () => {
+describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-011 (container base image: Debian bookworm-slim)', () => {
   it('REQ-AGENT-023 AC1: copies plugin.json into image and reads the version from it', () => {
     assert.ok(
       dockerfile.includes('COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json'),
@@ -76,6 +76,46 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026)', () => {
     assert.ok(
       !/SESSION_MODE\s*[!=]=/.test(surrounding),
       'merge-driver registration must not be conditional on SESSION_MODE'
+    );
+  });
+
+  it('REQ-AGENT-017 (bubblewrap installed in container image so Codex can sandbox its execution)', () => {
+    assert.ok(
+      /\bbubblewrap\b/.test(dockerfile),
+      'Dockerfile must install bubblewrap (apt package providing /usr/bin/bwrap)'
+    );
+  });
+
+  it('REQ-AGENT-001 AC3 (Node-based agent CLIs pre-installed globally via npm)', () => {
+    // Three Node-based agents: Codex, Gemini, Copilot. Claude Code is a
+    // native binary and OpenCode is Go-based; only the Node trio is
+    // installed via npm at image build time.
+    const installLine = dockerfile.match(/npm install -g[^\n]+/);
+    assert.ok(installLine, 'Dockerfile must `npm install -g ...` at least one agent CLI');
+    assert.ok(
+      /@openai\/codex/.test(dockerfile) || /codex/.test(installLine[0]),
+      'Dockerfile must install the Codex CLI'
+    );
+    assert.ok(
+      /@google\/gemini-cli/.test(dockerfile) || /gemini/.test(installLine[0]),
+      'Dockerfile must install the Gemini CLI'
+    );
+    assert.ok(
+      /@github\/copilot/.test(dockerfile) || /copilot/.test(installLine[0]),
+      'Dockerfile must install the Copilot CLI'
+    );
+  });
+
+  it('REQ-AGENT-001 AC4 (Node CLIs warm V8 compile-cache via NODE_COMPILE_CACHE + --version invocations at build)', () => {
+    assert.ok(
+      /NODE_COMPILE_CACHE/.test(dockerfile),
+      'Dockerfile must set NODE_COMPILE_CACHE env so the warm-up populates a cache'
+    );
+    // Invoke --version on at least one of the three Node CLIs to trigger
+    // the warm-up; the matching agent binary names are codex/gemini/copilot.
+    assert.ok(
+      /(codex|gemini|copilot)\s+(?:[a-z]+\s+)?--version/.test(dockerfile),
+      'Dockerfile must run at least one Node-based agent CLI with --version at build to trigger the V8 compile cache'
     );
   });
 

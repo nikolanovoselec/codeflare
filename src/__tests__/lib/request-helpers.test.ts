@@ -37,7 +37,7 @@ describe('validateSessionId', () => {
   });
 });
 
-describe('maskSecret', () => {
+describe('maskSecret / REQ-SEC-018 AC1 (API responses always return masked values)', () => {
   it('returns undefined for undefined', () => {
     expect(maskSecret(undefined)).toBeUndefined();
   });

@@ -35,7 +35,7 @@ vi.mock('../../lib/stripe', async (importOriginal) => {
 // Import after mock
 import authRoutes from '../../routes/auth';
 
-describe('Auth routes', () => {
+describe('Auth routes / REQ-SEC-015 (auth-bypass prevention on public endpoints)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

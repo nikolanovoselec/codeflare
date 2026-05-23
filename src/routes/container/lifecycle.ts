@@ -7,13 +7,13 @@ import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, SessionMode, UserPreferences, LlmKeys, DeployKeys, ContainerConfigPayload } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin } from '../../lib/r2-seed';
-import { resolveSessionMode } from '../../lib/session-mode';
+import { resolveSessionMode, clampSessionModeToTier } from '../../lib/session-mode';
 import { getR2Config } from '../../lib/r2-config';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { AppError, ContainerError, NotFoundError, QuotaExceededError, toError, toErrorMessage } from '../../lib/error-types';
-import { getTierConfig, getUserTier, getEffectiveTier, getAllowedSessionModes } from '../../lib/subscription';
+import { getTierConfig, getUserTier, getEffectiveTier } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, putSessionWithMetadata, type SessionListMetadata } from '../../lib/kv-keys';
@@ -27,6 +27,26 @@ import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 // ---------------------------------------------------------------------------
 // Extracted helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Resolve the effective per-session idle-timeout value from the user's tier
+ * and stored preference.
+ *
+ * REQ-SESSION-014 AC2: the "free" tier is locked to 15m regardless of any
+ * stored preference; all other tiers honor the stored sleepAfter (or default
+ * to 30m when no preference was ever set).
+ *
+ * Exported so the spec-anchored unit test in
+ * src/__tests__/routes/session-sleep-timeout.test.ts can call it directly
+ * without spinning up the full /api/container/start integration harness.
+ */
+export function resolveEffectiveSleepAfter(
+  effectiveTier: string,
+  storedSleepAfter: string | undefined,
+): string {
+  if (effectiveTier === 'free') return '15m';
+  return storedSleepAfter || '30m';
+}
 
 /**
  * Build the JSON body for /_internal/setBucketName requests.
@@ -65,7 +85,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     sessionMode: params.sessionMode,
     sleepAfter: params.sleepAfter,
-    // REQ-MEM-001 AC3: forward the user's IANA timezone so the capture
+    // REQ-MEM-001 AC4: forward the user's IANA timezone so the capture
     // pipeline's TZ resolution produces wall-clock filenames matching
     // the user's location instead of UTC.
     ...(params.userTimezone && { userTimezone: params.userTimezone }),
@@ -463,16 +483,15 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     let sessionMode = resolveSessionMode(preferences);
     // Free tier: locked to 15m idle timeout. All other tiers: user preference or 30m default.
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
-    // Clamp session mode against effective tier — canceled users can't use advanced (SaaS only)
+    // REQ-SEC-015 AC2/AC3: clamp session mode against effective tier —
+    // canceled users can't use advanced (SaaS only)
     if (isSaasModeActive(c.env.SAAS_MODE) && sessionMode === 'advanced') {
       try {
         const tiers = await getTierConfig(c.env.KV);
-        if (!getAllowedSessionModes(effectiveTier, tiers).includes('advanced')) {
-          sessionMode = 'default';
-        }
+        sessionMode = clampSessionModeToTier(sessionMode, effectiveTier, tiers);
       } catch { /* non-SaaS or KV unavailable — allow the stored mode */ }
     }
-    const sleepAfter = effectiveTier === 'free' ? '15m' : (preferences.sleepAfter || '30m');
+    const sleepAfter = resolveEffectiveSleepAfter(effectiveTier, preferences.sleepAfter);
     // context-mode preseed plugin: hard-gated to the unlimited (Custom) tier
     // in Pro session mode. Any other combination strips the context-mode
     // subtree from the R2 seed before bisync touches the bucket, so the
@@ -522,7 +541,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       encryptionKey: c.env.ENCRYPTION_KEY,
       llmKeys: llmKeys ?? undefined,
       deployKeys: deployKeys ?? undefined,
-      // REQ-MEM-001 AC3: forward the browser's IANA timezone (captured
+      // REQ-MEM-001 AC4: forward the browser's IANA timezone (captured
       // on createSession) into the container so capture filenames reflect
       // the user's wall-clock instead of UTC.
       userTimezone: preferences.userTimezone,

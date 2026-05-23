@@ -129,6 +129,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-memory/scripts/memory-capture-block.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-memory/scripts/prefilter-transcript.sh": {
     "modes": [
       "advanced"
@@ -519,6 +524,11 @@
     ]
   },
   "skills/spec-driven-development/references/templates/documentation-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/req-shape-example.md": {
     "modes": [
       "advanced"
     ]

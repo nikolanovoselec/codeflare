@@ -73,7 +73,7 @@ vi.mock('@cloudflare/containers', () => ({
 // Now import the container class after mocks are set up
 import { container as ContainerClass, validateBucketNameInput } from '../../container/index';
 
-describe('container DO class', () => {
+describe('container DO class / REQ-SESSION-002 (one container per session)', () => {
   let mockStorage: {
     get: ReturnType<typeof vi.fn>;
     put: ReturnType<typeof vi.fn>;
@@ -454,7 +454,7 @@ describe('container DO class', () => {
       expect(response.status).toBe(400);
     });
 
-    // REQ-MEM-001 AC3 / REQ-SESSION-016: the previous regression coverage
+    // REQ-MEM-001 AC4 / REQ-SESSION-016: the previous regression coverage
     // exercised applyBucketName and applyPrefsOnRestart in isolation with
     // userTimezone already in the input arg, which would stay green even if
     // the handleSetBucketName destructure were reverted to the PR #390 bug
@@ -505,7 +505,7 @@ describe('container DO class', () => {
       expect(instance.envVars?.USER_TIMEZONE).toBe('America/New_York');
     });
 
-    // REQ-MEM-001 AC3: malformed IANA shapes (path traversal, junk) must
+    // REQ-MEM-001 AC4: malformed IANA shapes (path traversal, junk) must
     // not reach storage or the env var. entrypoint.sh uses USER_TIMEZONE
     // to build the /etc/localtime symlink target, so a value like
     // '../../etc/shadow' would otherwise be an unbounded-path injection vector.
@@ -582,7 +582,7 @@ describe('container DO class', () => {
     });
   });
 
-  describe('fetch gate — 503 when container not running', () => {
+  describe('fetch gate — 503 when container not running / REQ-SESSION-009 (DO fetch gates on container.running, returns 503 for non-internal routes) / REQ-SESSION-012 (wake-loop prevention: 503 on HTTP + 4503 close code on WS prevent client reconnect storms from waking hibernated containers)', () => {
     it('should return 503 for non-internal routes when container is not running', async () => {
       mockContainerRuntime.running = false;
 
@@ -616,22 +616,38 @@ describe('container DO class', () => {
       expect(body).toHaveProperty('bucketName');
     });
 
-    it('should proxy non-internal routes via super.fetch when container is running', async () => {
+    it('REQ-SEC-012 AC2: proxied non-internal request gets Authorization: Bearer <containerAuthToken> injected before super.fetch', async () => {
       mockContainerRuntime.running = true;
+      const PRIOR_TOKEN = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return PRIOR_TOKEN;
         return null;
       });
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-
-      const request = new Request('http://container/some-route', {
-        method: 'GET',
+      // Wait for constructor's blockConcurrencyWhile body to finish restoring
+      // containerAuthToken from storage, so the fetch override sees it.
+      await vi.waitFor(() => {
+        expect(instance.envVars?.CONTAINER_AUTH_TOKEN).toBe(PRIOR_TOKEN);
       });
 
-      const response = await instance.fetch(request);
-      // super.fetch() handles proxying — SDK manages container networking
-      expect(response).toBeDefined();
+      // Spy on the MockContainer (super) prototype's fetch and capture the
+      // Request the DO override forwards.
+      const proto = Object.getPrototypeOf(Object.getPrototypeOf(instance));
+      const superFetchSpy = vi.spyOn(proto, 'fetch')
+        .mockResolvedValue(new Response('proxied', { status: 200 }));
+
+      try {
+        const request = new Request('http://container/some-route', { method: 'GET' });
+        await instance.fetch(request);
+
+        expect(superFetchSpy).toHaveBeenCalledTimes(1);
+        const forwarded = superFetchSpy.mock.calls[0][0] as Request;
+        expect(forwarded.headers.get('Authorization')).toBe(`Bearer ${PRIOR_TOKEN}`);
+      } finally {
+        superFetchSpy.mockRestore();
+      }
     });
 
     it('should return JSON error body with correct Content-Type', async () => {
@@ -685,6 +701,28 @@ describe('container DO class', () => {
 
       expect(mockStorage.delete).toHaveBeenCalledWith('_sessionId');
       expect(mockStorage.delete).toHaveBeenCalledWith('bucketName');
+    });
+
+    it('REQ-SEC-012 AC6: destroy() clears persisted containerAuthToken so next session under same DO ID starts fresh', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'old-token-uuid';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('containerAuthToken');
+      });
+
+      await instance.destroy();
+
+      // Persisted token must be deleted so a fresh DO incarnation does not
+      // inherit it (cross-lifecycle reuse would defeat REQ-SEC-012 AC1).
+      expect(mockStorage.delete).toHaveBeenCalledWith('containerAuthToken');
+      // And the in-memory copy is nulled so any racing fetch() does not
+      // continue to inject the now-revoked token.
+      expect((instance as unknown as { _containerAuthToken: string | null })._containerAuthToken).toBeNull();
     });
 
     it('nulls _bucketName so onStop memory fallback fails', async () => {

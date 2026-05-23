@@ -1,4 +1,4 @@
-// Verifies REQ-AGENT-024 AC3: SKILL.md instructs the agent on the
+// Verifies REQ-AGENT-024 AC4-AC6: SKILL.md instructs the agent on the
 // codeflare-specific git-persistence model and large-repo flag. Failing
 // any of these means the agent will not be told to set up `.gitignore` /
 // `.gitattributes` properly on first build, which breaks REQ-AGENT-026.
@@ -14,7 +14,7 @@ const skill = readFileSync(
   'utf8'
 );
 
-describe('graphify SKILL.md content (REQ-AGENT-024 AC3, REQ-AGENT-026)', () => {
+describe('graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)', () => {
   it('directs the agent to add graphify-out/.cache/ to .gitignore', () => {
     assert.ok(
       skill.includes('graphify-out/.cache/'),

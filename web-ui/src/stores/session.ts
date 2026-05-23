@@ -350,9 +350,9 @@ async function deleteSession(id: string): Promise<void> {
     await api.deleteSession(id);
     sessionMissCounters.delete(id);
     cleanupTerminalsForSession(id);
-    // REQ-VAULT-008 AC8: drop the per-session SilverBullet IDB cache,
+    // REQ-VAULT-015 AC3: drop the per-session SilverBullet IDB cache,
     // localStorage marker, and SW registration. Best-effort and async
-    // — we do not block the UI on it.
+    // -- we do not block the UI on it.
     void cleanupSessionVaultCache(id).catch((err) =>
       logger.warn('vault cache cleanup failed', { id, error: err instanceof Error ? err.message : String(err) }),
     );

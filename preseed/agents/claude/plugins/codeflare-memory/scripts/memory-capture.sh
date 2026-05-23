@@ -100,7 +100,7 @@ jq -n \
 printf '%s\n%s\n' "$CURRENT_COUNT" "$TOTAL_LINES" > "$COUNTER_FILE"
 
 # UserPromptSubmit: exit 0 with additionalContext (no blocking)
-CONTEXT="Check if ${VARS_FILE} exists. If it does, spawn the **memory-capture** subagent (Task tool with subagent_type=\"memory-capture\") in the background. Pass PROMPT_FILE=${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and VARS_FILE=${VARS_FILE}; the subagent reads both and executes the contract documented in the prompt file. The subagent's frontmatter pins the model to sonnet (AD58); do not pass a model override. If the .vars file does not exist, do nothing - capture was already completed."
+CONTEXT="MANDATORY MEMORY CAPTURE: A .vars file at ${VARS_FILE} has just been written by the UserPromptSubmit hook. You MUST spawn the **memory-capture** subagent NOW (Task tool with subagent_type=\"memory-capture\", run_in_background=true) before doing any other work. Pass PROMPT_FILE=${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and VARS_FILE=${VARS_FILE}; the subagent reads both and executes the contract in the prompt file. Frontmatter pins model to sonnet (AD58); do NOT pass a model override. This is not optional and not conditional. The companion PreToolUse hook (memory-capture-block.sh) will hard-block all tool calls until the subagent is spawned."
 
 # Append memory scan directive if set (first message)
 if [[ -n "$MEMORY_SCAN" ]]; then

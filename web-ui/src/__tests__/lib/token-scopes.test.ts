@@ -6,7 +6,7 @@ import {
   CLOUDFLARE_TOKEN_PAGE,
 } from '../../lib/token-scopes';
 
-describe('GITHUB_TIERS', () => {
+describe('GITHUB_TIERS / REQ-AGENT-010 (deploy credential token scope tiers)', () => {
   it('has exactly 3 tiers', () => {
     expect(Object.keys(GITHUB_TIERS)).toHaveLength(3);
   });

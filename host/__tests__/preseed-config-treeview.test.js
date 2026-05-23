@@ -1,4 +1,4 @@
-// REQ-VAULT-008 AC7: preseed CONFIG.md declares treeview exclusions
+// REQ-VAULT-015 AC2: preseed CONFIG.md declares treeview exclusions
 // that hide agent-derived / system entries from the SB tree pane:
 // Library/, graphify-out/, and the top-level preseed pages CONFIG,
 // Index, README, STYLES. `.silverbullet/` is dotted and SB hides
@@ -80,13 +80,13 @@ function matchesAny(rules, candidate) {
   return false;
 }
 
-test('CONFIG.md has a treeview.exclusions block with the upstream schema (REQ-VAULT-008 AC7)', () => {
+test('CONFIG.md has a treeview.exclusions block with the upstream schema (REQ-VAULT-015 AC2 / REQ-VAULT-010 preseeded codeflare-authoritative file)', () => {
   const lua = loadSpaceLuaBlock();
   const rules = extractTreeviewRegexRules(lua);
   assert.ok(rules.length >= 1, 'must declare at least one exclusion rule');
 });
 
-test('treeview rules hide every entry that should be hidden (REQ-VAULT-008 AC7)', () => {
+test('treeview rules hide every entry that should be hidden (REQ-VAULT-015 AC2)', () => {
   const rules = extractTreeviewRegexRules(loadSpaceLuaBlock());
   for (const hidden of [
     'CONFIG',
@@ -104,7 +104,7 @@ test('treeview rules hide every entry that should be hidden (REQ-VAULT-008 AC7)'
   }
 });
 
-test('treeview rules do NOT hide entries the user should see (REQ-VAULT-008 AC7)', () => {
+test('treeview rules do NOT hide entries the user should see (REQ-VAULT-015 AC2)', () => {
   const rules = extractTreeviewRegexRules(loadSpaceLuaBlock());
   for (const visible of [
     'Notes/MyNote',

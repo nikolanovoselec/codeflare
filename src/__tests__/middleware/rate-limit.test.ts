@@ -6,7 +6,7 @@ import type { AuthVariables } from '../../middleware/auth';
 import { RateLimitError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 
-describe('createRateLimiter', () => {
+describe('createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with CF-Connecting-IP fallback) / REQ-SEC-007 AC2 (KV primary + in-memory fallback with TTL) / REQ-SEC-007 AC3 (429 with RATE_LIMIT_ERROR) / REQ-SEC-007 AC4 (X-RateLimit headers) / REQ-SEC-019 AC5 (STRESS_TEST_MODE bypass)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
@@ -365,6 +365,92 @@ describe('createRateLimiter', () => {
 
       const second = await app.request('/test');
       expect(second.status).toBe(429);
+    });
+
+    // REQ-OPS-008 AC5: the bypass logs ONE warning per isolate (worker) the
+    // first time STRESS_TEST_MODE is observed active. The module-scoped
+    // `stressTestWarningLogged` flag is the sole gate. We use vi.resetModules
+    // + a freshly-mocked logger to observe the side-effect cleanly without
+    // contaminating other tests that already tripped the flag.
+    describe('REQ-OPS-008 AC5: one-time warning per isolate', () => {
+      it('logs exactly one warning across many bypassed requests', async () => {
+        // Reset the module graph so the freshly-imported rate-limit.ts has a
+        // fresh stressTestWarningLogged=false flag.
+        vi.resetModules();
+        const warnSpy = vi.fn();
+        vi.doMock('../../lib/logger', () => ({
+          createLogger: () => ({
+            info: vi.fn(),
+            warn: warnSpy,
+            error: vi.fn(),
+            debug: vi.fn(),
+          }),
+        }));
+        // Re-import AFTER the doMock so the factory binds to the spy.
+        const { createRateLimiter: freshCreateRateLimiter } = await import('../../middleware/rate-limit');
+
+        const app = new Hono<{ Bindings: Env; Variables: Partial<AuthVariables> }>();
+        app.use('*', async (c, next) => {
+          c.env = {
+            KV: mockKV as unknown as KVNamespace,
+            STRESS_TEST_MODE: 'active',
+          } as Env;
+          c.set('bucketName', 'stress-user');
+          return next();
+        });
+        app.use('/test', freshCreateRateLimiter({ windowMs: 60000, maxRequests: 1 }));
+        app.get('/test', (c) => c.json({ ok: true }));
+
+        for (let i = 0; i < 7; i++) {
+          const res = await app.request('/test');
+          expect(res.status).toBe(200);
+        }
+
+        // AC5: exactly one warning across all 7 requests.
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        const [msg] = warnSpy.mock.calls[0] as [string];
+        expect(msg).toMatch(/STRESS_TEST_MODE/);
+        expect(msg).toMatch(/bypass/i);
+
+        vi.doUnmock('../../lib/logger');
+        vi.resetModules();
+      });
+
+      it('does NOT log a warning when STRESS_TEST_MODE is unset (no false-positive on normal traffic)', async () => {
+        vi.resetModules();
+        const warnSpy = vi.fn();
+        vi.doMock('../../lib/logger', () => ({
+          createLogger: () => ({
+            info: vi.fn(),
+            warn: warnSpy,
+            error: vi.fn(),
+            debug: vi.fn(),
+          }),
+        }));
+        const { createRateLimiter: freshCreateRateLimiter } = await import('../../middleware/rate-limit');
+
+        const app = new Hono<{ Bindings: Env; Variables: Partial<AuthVariables> }>();
+        app.use('*', async (c, next) => {
+          c.env = { KV: mockKV as unknown as KVNamespace } as Env;
+          c.set('bucketName', 'normal-user');
+          return next();
+        });
+        app.use('/test', freshCreateRateLimiter({ windowMs: 60000, maxRequests: 5 }));
+        app.get('/test', (c) => c.json({ ok: true }));
+
+        for (let i = 0; i < 3; i++) {
+          await app.request('/test');
+        }
+
+        // No STRESS_TEST_MODE bypass message should ever be logged.
+        const stressCalls = warnSpy.mock.calls.filter(
+          ([msg]: unknown[]) => typeof msg === 'string' && msg.includes('STRESS_TEST_MODE')
+        );
+        expect(stressCalls).toHaveLength(0);
+
+        vi.doUnmock('../../lib/logger');
+        vi.resetModules();
+      });
     });
   });
 });

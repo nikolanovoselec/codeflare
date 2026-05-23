@@ -25,7 +25,7 @@ import { AuthError, ForbiddenError } from '../../lib/error-types';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 
-describe('access.ts', () => {
+describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
@@ -162,7 +162,7 @@ describe('access.ts', () => {
     });
   });
 
-  describe('getBucketName', () => {
+  describe('getBucketName / REQ-AUTH-006 AC3 (bucket name derivation max 63 chars, sanitized)', () => {
     it('generates bucket name with codeflare- prefix by default', () => {
       const name = getBucketName('user@example.com');
       expect(name).toMatch(/^codeflare-/);
@@ -193,7 +193,7 @@ describe('access.ts', () => {
   // ===========================================================================
   // authenticateRequest() tests (Q23)
   // ===========================================================================
-  describe('authenticateRequest()', () => {
+  describe('authenticateRequest() / REQ-AUTH-006 AC1/AC2 (trim+lowercase email before KV lookup, role resolution, bucket derivation)', () => {
     function makeEnv(overrides: Partial<Env> = {}): Env {
       return {
         KV: mockKV as unknown as KVNamespace,
@@ -306,7 +306,7 @@ describe('access.ts', () => {
   // ===========================================================================
   // getUserFromRequest() tests
   // ===========================================================================
-  describe('getUserFromRequest()', () => {
+  describe('getUserFromRequest() / REQ-AUTH-010 AC1/AC2/AC3/AC4 (authConfigFetched sentinel disables pre-setup header trust after first KV success) / REQ-AUTH-011 AC1/AC2 (resolution order: service token, cookie, JWT, pre-setup header)', () => {
     function makeEnv(overrides: Partial<Env> = {}): Env {
       return {
         KV: mockKV as unknown as KVNamespace,

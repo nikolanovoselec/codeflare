@@ -60,7 +60,7 @@ function metaLine() {
   return JSON.stringify({ type: 'user', isMeta: true, message: { role: 'user', content: 'meta' } });
 }
 
-describe('prefilter-transcript.sh (REQ-MEM-001 AC3)', () => {
+describe('prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)', () => {
   it('AC3: strips tool_use, tool_result, and synthetic markers; keeps real prompts + assistant text', () => {
     const out = mkdtempSync(join(tmpdir(), 'prefilter-strip-'));
     const transcript = join(out, 'transcript.jsonl');
@@ -155,7 +155,7 @@ describe('prefilter-transcript.sh (REQ-MEM-001 AC3)', () => {
   });
 });
 
-// REQ-MEM-001 AC4 (YAML frontmatter shape) and AC5 (graphify global add
+// REQ-MEM-001 AC5 (YAML frontmatter shape) and AC7 (graphify global add
 // under flock) were previously covered by four prompt-text-grep tests.
 // Per tdd-discipline they were text-matching theater: the regexes would
 // still pass if the surrounding prompt prose was replaced with a no-op

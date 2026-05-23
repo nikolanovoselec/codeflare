@@ -73,10 +73,44 @@ describe('settings.json configuration', () => {
     );
   });
 
+  // REQ-MEM-011 AC1: hooks (PreToolUse and UserPromptSubmit) are merged into
+  // settings.json ONLY in advanced mode. Default mode gets only
+  // skipDangerousModePermissionPrompt -- no hook registrations.
   it('SESSION_MODE gates hook registration', () => {
     assert.ok(
       entrypoint.includes('SESSION_MODE:-default') && entrypoint.includes('"hooks"'),
       'hook registration should be gated on SESSION_MODE'
+    );
+  });
+
+  // REQ-MEM-011 AC1: default mode must not inject the hooks block.
+  // Verify that the hook registration JSON (PreToolUse + UserPromptSubmit) is
+  // inside the advanced-mode branch only -- the SETTINGS_CONFIG variable
+  // containing "hooks" must be defined inside the advanced conditional, NOT
+  // at the top level that runs regardless of mode.
+  it('default mode emits only skipDangerousModePermissionPrompt, not hook registrations', () => {
+    // Locate the else/default-mode branch of the SESSION_MODE conditional.
+    // The advanced branch assigns SETTINGS_CONFIG with hooks; the default
+    // branch must produce a config with ONLY skipDangerousModePermissionPrompt.
+    // Strategy: find the block that sets skipDangerousModePermissionPrompt
+    // and verify it is not co-located with "PreToolUse" or "UserPromptSubmit"
+    // on the same conditional line / assignment.
+    const skipIdx = entrypoint.indexOf('skipDangerousModePermissionPrompt');
+    assert.notEqual(skipIdx, -1, 'skipDangerousModePermissionPrompt must exist');
+
+    // Extract ~200 chars around the first occurrence to inspect context.
+    const context = entrypoint.slice(Math.max(0, skipIdx - 50), skipIdx + 200);
+
+    // The default-mode SETTINGS_CONFIG must not embed hook registrations.
+    // If PreToolUse appears within the same assignment block it means hooks
+    // are being merged unconditionally -- that violates AC1.
+    assert.ok(
+      !context.includes('PreToolUse'),
+      'skipDangerousModePermissionPrompt assignment must not include PreToolUse (default mode must be hook-free)'
+    );
+    assert.ok(
+      !context.includes('UserPromptSubmit'),
+      'skipDangerousModePermissionPrompt assignment must not include UserPromptSubmit (default mode must be hook-free)'
     );
   });
 

@@ -75,7 +75,7 @@ Exclusions:
 - `Raw/Sessions/` - agent-owned, already merged by the capture agent.
 - `graphify-out/` - derived output, would create a feedback loop.
 - `.silverbullet/` - editor config + plug cache, no semantic content.
-- `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` - codeflare-authoritative preseed pages (REQ-VAULT-001 AC7); never user-edits.
+- `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` - codeflare-authoritative preseed pages (REQ-VAULT-010 AC1); never user-edits.
 
 If the find returns zero files, skip to step 7 (touch the marker so we
 do not keep re-running on the same empty result).

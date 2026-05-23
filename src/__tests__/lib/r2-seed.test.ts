@@ -59,7 +59,7 @@ vi.mock('../../lib/agent-seed.generated', () => ({
 
 import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
 
-describe('seedGettingStartedDocs', () => {
+describe('seedGettingStartedDocs / REQ-STOR-009 (per-user R2 bucket seeded with getting-started docs on first access)', () => {
   const env = {
     R2_ACCESS_KEY_ID: 'test-key',
     R2_SECRET_ACCESS_KEY: 'test-secret',
@@ -140,7 +140,7 @@ describe('seedGettingStartedDocs', () => {
   });
 });
 
-describe('seedAgentConfigs', () => {
+describe('seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on start) / REQ-STOR-010 (reconcileAgentConfigs deletes orphaned seed entries on tier change)', () => {
   const env = {
     R2_ACCESS_KEY_ID: 'test-key',
     R2_SECRET_ACCESS_KEY: 'test-secret',
