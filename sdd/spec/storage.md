@@ -64,10 +64,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 <!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
 <!-- @impl: entrypoint.sh::bisync_with_r2 -->
-<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> periodic bisync runs -> AC1 structural; E2E candidates for cross-session file reads -> AC1/AC2/AC3) -->
-<!-- @e2e-candidate: AC1 "files written in session N readable in session N+1" requires real container restart and R2 round-trip -->
-<!-- @e2e-candidate: AC2 "agent config files persist" requires real container restart and R2 round-trip -->
-<!-- @e2e-candidate: AC3 "workspace files persist with SYNC_MODE=full" requires real container restart and R2 round-trip -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> periodic bisync runs the mechanism behind cross-session persistence -> AC1/AC2/AC3 mechanism) -->
 
 **Intent:** User files must survive container destruction and be available when a new session starts, because containers are ephemeral.
 
@@ -184,7 +181,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 <!-- @impl: src/container/index.ts::destroy -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> SIGTERM trap -> AC1) -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> bisync-initialized gate -> AC2) -->
-<!-- @e2e-candidate: AC3 "files created during session available in R2 after shutdown" requires real container and R2 -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> 120s watchdog -> AC4) -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> 135s destroy budget documented -> AC5) -->
 

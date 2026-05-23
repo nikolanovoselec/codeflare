@@ -28,6 +28,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 <!-- @impl: web-ui/src/hooks/useTerminal.ts -->
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe) -->
 <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-001 describe -> AC4, AC5, AC6) -->
+<!-- @test: e2e/ui/mobile-specific.test.ts (Mobile-specific UI describe -> session-switcher mobile icon + bottom-sheet dropdown + mobile tap behavior, gated on IS_MOBILE viewport so the test confirms terminal renders + responds on the mobile viewport -> AC1) -->
+<!-- @test: .github/workflows/e2e.yml (e2e-ui-mobile job runs the mobile-specific E2E suite against the deployed worker with E2E_MOBILE=1 -> AC3) -->
 
 **Intent:** The terminal must be fully functional on phones and tablets, providing a usable coding experience without requiring a desktop browser.
 
