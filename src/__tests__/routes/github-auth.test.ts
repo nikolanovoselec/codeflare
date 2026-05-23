@@ -40,7 +40,7 @@ function createApp(envOverrides: Partial<Env> = {}) {
   return app;
 }
 
-describe('GitHub OAuth Routes', () => {
+describe('GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)', () => {
   beforeEach(() => {
     mockKV = createMockKV();
     originalFetch = globalThis.fetch;

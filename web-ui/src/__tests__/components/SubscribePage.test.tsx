@@ -52,7 +52,7 @@ async function openTierView() {
   });
 }
 
-describe('SubscribePage', () => {
+describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending users) / REQ-SUB-017 (tier selection UI)', () => {
   let mockLocation: { href: string };
   let originalLocation: Location;
   let mockActiveSubscription: (tier?: string) => void;

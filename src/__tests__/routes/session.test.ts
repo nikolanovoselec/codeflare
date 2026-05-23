@@ -35,7 +35,7 @@ vi.mock('@cloudflare/containers', () => ({
   getContainer: vi.fn(() => testState.container ?? createMockContainer()),
 }));
 
-describe('Session CRUD Routes', () => {
+describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + agent type) / REQ-SESSION-010 (session-status polling)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

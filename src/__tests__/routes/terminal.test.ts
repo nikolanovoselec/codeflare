@@ -8,7 +8,7 @@ import { validateWebSocketRoute } from '../../routes/terminal';
  * (authenticateRequest, getContainer, KV) which is too coupled for unit testing.
  * We focus on the pure routing/validation logic that can be tested in isolation.
  */
-describe('validateWebSocketRoute', () => {
+describe('validateWebSocketRoute / REQ-TERM-002 (terminal WebSocket connection to container PTY)', () => {
 
   function createRequest(path: string, headers: Record<string, string> = {}): Request {
     return new Request(`https://example.com${path}`, {

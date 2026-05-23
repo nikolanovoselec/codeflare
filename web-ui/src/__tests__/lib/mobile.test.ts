@@ -12,7 +12,7 @@ import { loadSettings } from '../../lib/settings';
 // We need to control module-level state, so we use vi.resetModules() per describe block
 // and re-import. For tests that don't need module reset, we import once here.
 
-describe('mobile.ts', () => {
+describe('mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap)', () => {
   describe('resetKeyboardStateIfStale', () => {
     // These tests validate the enhanced resetKeyboardStateIfStale that handles
     // both keyboard-closed and keyboard-still-open cases on visibility return.

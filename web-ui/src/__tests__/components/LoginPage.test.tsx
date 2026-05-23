@@ -13,7 +13,7 @@ import { getAuthProviders, getAuthStatus } from '../../api/client';
 const mockedGetAuthProviders = vi.mocked(getAuthProviders);
 const mockedGetAuthStatus = vi.mocked(getAuthStatus);
 
-describe('LoginPage', () => {
+describe('LoginPage / REQ-AUTH-013 (branded SaaS login page)', () => {
   let mockLocation: { href: string };
   let originalLocation: Location;
 

@@ -19,7 +19,7 @@ vi.mock('../../lib/r2-config', () => ({
 
 import uploadRoutes from '../../routes/storage/upload';
 
-describe('Storage Upload Routes', () => {
+describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

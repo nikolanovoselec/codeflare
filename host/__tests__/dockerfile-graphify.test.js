@@ -18,7 +18,7 @@ const pluginJson = JSON.parse(
   )
 );
 
-describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026)', () => {
+describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-011 (container base image: Debian bookworm-slim)', () => {
   it('REQ-AGENT-023 AC1: copies plugin.json into image and reads the version from it', () => {
     assert.ok(
       dockerfile.includes('COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json'),

@@ -14,7 +14,7 @@ const SRC_DIR = path.join(HOST_DIR, 'src');
  * Source inspection reads .ts files from src/; dynamic imports use dist/.
  */
 
-describe('Security hardening', () => {
+describe('Security hardening / REQ-SEC-012 (container auth token per DO lifecycle)', () => {
   // L16: PREWARM_SESSION_ID constant
   it('defines PREWARM_SESSION_ID constant and uses it consistently', () => {
     // After extraction, session-manager.ts should define the constant

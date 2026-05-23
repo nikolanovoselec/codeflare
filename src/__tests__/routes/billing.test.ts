@@ -87,7 +87,7 @@ function createApp(envOverrides: Partial<Env> = {}) {
 // ---------------------------------------------------------------------------
 // POST /billing/checkout
 // ---------------------------------------------------------------------------
-describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-IPCountry)', () => {
+describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-IPCountry) / REQ-SUB-004 (Stripe checkout session creation)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuthShouldReject = false;
@@ -584,7 +584,7 @@ describe('POST /public/stripe/webhook', () => {
 // ---------------------------------------------------------------------------
 // POST /billing/portal
 // ---------------------------------------------------------------------------
-describe('POST /billing/portal', () => {
+describe('POST /billing/portal / REQ-SUB-016 (Stripe customer portal for cancel/payment-method)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuthShouldReject = false;

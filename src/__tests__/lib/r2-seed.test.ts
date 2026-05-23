@@ -140,7 +140,7 @@ describe('seedGettingStartedDocs', () => {
   });
 });
 
-describe('seedAgentConfigs', () => {
+describe('seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on start)', () => {
   const env = {
     R2_ACCESS_KEY_ID: 'test-key',
     R2_SECRET_ACCESS_KEY: 'test-secret',

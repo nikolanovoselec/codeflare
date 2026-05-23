@@ -3,7 +3,7 @@ import { isAllowedOrigin, resetCorsOriginsCache } from '../../lib/cors-cache';
 import { createMockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
 
-describe('cors-cache', () => {
+describe('cors-cache / REQ-SETUP-007 (custom-domain CORS cache invalidation)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   function createEnv(overrides: Partial<Env> = {}): Env {

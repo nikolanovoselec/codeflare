@@ -34,7 +34,7 @@ import { getDeployKeys, updateDeployKeys } from '../../api/client';
 const mockedGetDeployKeys = vi.mocked(getDeployKeys);
 const mockedUpdateDeployKeys = vi.mocked(updateDeployKeys);
 
-describe('OnboardingPage', () => {
+describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', () => {
   let mockLocation: { href: string };
   let originalLocation: Location;
 

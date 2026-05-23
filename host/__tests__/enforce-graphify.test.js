@@ -93,7 +93,7 @@ function runHook(cwd, { toolName, toolInput, transcriptPath, envHome }) {
   });
 }
 
-describe('enforce-graphify.sh - gating', () => {
+describe('enforce-graphify.sh - gating / REQ-AGENT-042 (graphify hard-block enforcement)', () => {
   it('exits 0 silently when graphify-out/graph.json is absent (vibe repo)', () => {
     const cwd = makeFixture({ withGraph: false });
     const t = makeTranscript(cwd, { count: 5 });

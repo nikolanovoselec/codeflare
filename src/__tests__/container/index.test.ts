@@ -73,7 +73,7 @@ vi.mock('@cloudflare/containers', () => ({
 // Now import the container class after mocks are set up
 import { container as ContainerClass, validateBucketNameInput } from '../../container/index';
 
-describe('container DO class', () => {
+describe('container DO class / REQ-SESSION-002 (one container per session)', () => {
   let mockStorage: {
     get: ReturnType<typeof vi.fn>;
     put: ReturnType<typeof vi.fn>;

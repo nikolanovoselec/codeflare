@@ -60,7 +60,7 @@ function metaLine() {
   return JSON.stringify({ type: 'user', isMeta: true, message: { role: 'user', content: 'meta' } });
 }
 
-describe('prefilter-transcript.sh (REQ-MEM-001 AC3)', () => {
+describe('prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)', () => {
   it('AC3: strips tool_use, tool_result, and synthetic markers; keeps real prompts + assistant text', () => {
     const out = mkdtempSync(join(tmpdir(), 'prefilter-strip-'));
     const transcript = join(out, 'transcript.jsonl');

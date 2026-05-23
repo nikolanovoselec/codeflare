@@ -139,7 +139,7 @@ const TEST_WORKER_NAME = new URL(TEST_WORKER_BASE_URL).hostname.split('.')[0] ??
 const TEST_ADMIN_GROUP_NAME = `${TEST_WORKER_NAME}-admins`;
 const TEST_USER_GROUP_NAME = `${TEST_WORKER_NAME}-users`;
 
-describe('Setup Routes', () => {
+describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   let originalFetch: typeof globalThis.fetch;
   const _TEST_EMAIL = 'test@example.com';

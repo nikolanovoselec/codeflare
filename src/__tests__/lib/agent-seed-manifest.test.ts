@@ -24,7 +24,7 @@ function claudeDocs() {
   return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.startsWith('.claude/'));
 }
 
-describe('agent-seed manifest.json', () => {
+describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session)', () => {
   it('generated configs array is non-empty', () => {
     expect(AGENTS_SEEDED_CONFIGS.length).toBeGreaterThan(0);
   });
