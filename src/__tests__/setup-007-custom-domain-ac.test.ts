@@ -209,11 +209,16 @@ describe('REQ-SETUP-007: Custom domain with DNS validation', () => {
       ...baseFlowMocks(),
       '/zones?name=': (url: string) => {
         zoneQueryUrls.push(url);
-        // Return empty for first attempt, zone found on second
-        if (url.includes('api.myapp.co.uk') || url.includes('co.uk') || url.includes('name=uk')) {
+        // Anchor on full name= to avoid 'myapp.co.uk' matching 'co.uk'.
+        // Order of attempts: api.myapp.co.uk, myapp.co.uk, co.uk, uk.
+        if (
+          url.includes('name=api.myapp.co.uk') ||
+          url.includes('name=co.uk') ||
+          url.includes('name=uk')
+        ) {
           return mockResponses.zoneNotFound();
         }
-        // myapp.co.uk matches
+        // name=myapp.co.uk hits this branch.
         return mockResponses.zoneLookup();
       },
       '/workers/subdomain': mockResponses.subdomainLookup,

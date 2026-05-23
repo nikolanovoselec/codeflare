@@ -149,7 +149,9 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         'test-token',
         'test-bucket',
         expect.anything(), // KV namespace
-        expect.anything(), // cryptoKey (may be null/undefined)
+        // cryptoKey: null when ENCRYPTION_KEY env var is absent (test env);
+        // expect.anything() rejects null, so be explicit.
+        null,
       );
     });
 
