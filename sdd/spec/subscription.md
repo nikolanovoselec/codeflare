@@ -134,6 +134,13 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: src/__tests__/routes/auth-subscribe.test.ts (POST /auth/subscribe describe -> accepts tier=free, rejects paid tiers when STRIPE_SECRET_KEY set + 'Paid subscriptions require checkout' -> AC1) -->
+<!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/checkout / REQ-SUB-004 describe -> creates Stripe Checkout Session with customer_email + tier/mode metadata + returns Stripe-hosted url -> AC2) -->
+<!-- @test: src/__tests__/lib/stripe.test.ts (createCheckoutSession describe -> POST to Stripe with customer_email/metadata/trial_period_days/success_url/cancel_url + returns session url -> AC2) -->
+<!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 describe -> writes checkout fields and calls syncSubscriptionState -> AC3) -->
+<!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook describe -> handles checkout.session.completed + customer.subscription.updated + customer.subscription.deleted events -> AC5) -->
+<!-- @test: src/__tests__/lib/stripe.test.ts (verifyWebhookSignature describe -> HMAC-SHA256 signature + 5-minute timestamp tolerance + rejects wrong sig + out-of-window -> AC6) -->
+<!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook describe -> deduplication via KV stripe:event:{eventId} with 72-hour TTL -> AC7) -->
 ### REQ-SUB-004: Paid Tiers Integrate with Stripe Checkout
 
 <!-- @impl: src/routes/billing.ts -->
@@ -169,6 +176,12 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: src/__tests__/routes/admin-tiers.test.ts (PUT /admin/tiers describe -> trialQuotaHours editable per tier in tiers:config -> AC1) -->
+<!-- @test: src/__tests__/lib/stripe.test.ts (createCheckoutSession describe -> includes trial_period_days=30 when trialDays is set, excludes when undefined -> AC2) -->
+<!-- @test: src/__tests__/timekeeper/index.test.ts (trial quota enforcement describe -> returns quotaExceeded=true when trialing user exceeds trialQuotaHours -> AC3) -->
+<!-- @test: src/__tests__/lib/stripe.test.ts (endTrialNow describe -> POST to Stripe with trial_end=now + throws on unknown subscription id -> AC4) -->
+<!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleSubscriptionUpdated describe -> trialing->active flips billingStatus + unlocks monthlySeconds + past_due downgrades to free -> AC5) -->
+<!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> sets trialUsed=true when transitioning away from trialing, prevents re-trial loop -> AC6) -->
 ### REQ-SUB-005: Trial Is Compute-Based, Not Time-Based
 
 <!-- @impl: src/timekeeper/index.ts -->
@@ -271,6 +284,8 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: src/__tests__/container-metrics.test.ts (REQ-SUB-008 AC1: calls stop("SIGTERM") when Timekeeper /ping returns quotaExceeded=true + does NOT stop when quotaExceeded=false -> AC1 graceful stop via SIGTERM, AC2 entrypoint trap runs final sync) -->
+<!-- @test: src/__tests__/timekeeper/index.test.ts (POST /ping describe -> returns { quotaExceeded, totalMonthlySeconds } shape + trial quota enforcement returns quotaExceeded=true when over trialQuotaHours -> AC3 ping response shape) -->
 ### REQ-SUB-008: Mid-Session Quota Enforcement (Graceful Stop)
 
 <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
@@ -504,6 +519,12 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 / REQ-SUB-015 describe -> webhook treated as signal that triggers syncSubscriptionState refetch from Stripe -> AC1, AC2) -->
+<!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> skips write when KV lastSyncedAt is newer than current timestamp -> AC3 stale-webhook guard) -->
+<!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> writes complete state from snapshot + preserves tier when metadata is null -> AC4 patch from fetched snapshot) -->
+<!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> preserves existing KV fields (addedBy, onboardingComplete, etc.) via updateUserRecord atomic merge -> AC5) -->
+<!-- @test: src/__tests__/routes/stripe-webhook.test.ts (auto-recreate on downgrade describe -> mode-change triggers reconcileAgentConfigs with new mode -> AC6) -->
+<!-- @test: src/__tests__/routes/stripe-webhook.test.ts (auto-reconcile on subscription.deleted describe -> calls reconcileAgentConfigs with default mode after KV reset to free -> AC7) -->
 ### REQ-SUB-015: Stripe Webhook Signal-and-Sync Pattern
 
 <!-- @impl: src/routes/stripe-webhook.ts -->
@@ -539,6 +560,11 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/portal / REQ-SUB-016 describe -> creates portal session via createPortalSession and returns { portalUrl } -> AC1) -->
+<!-- @test: src/__tests__/lib/stripe.test.ts (createPortalSession describe -> POST to Stripe billing_portal/sessions with customer_id + return_url + flow_data subscription_update_confirm for switch flow -> AC2) -->
+<!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/switch describe -> requires subscriptionItemId from fetchSubscription + cleans up stale KV when subscription no longer exists on Stripe -> AC3, AC4) -->
+<!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleSubscriptionUpdated describe -> customer.subscription.updated picked up by syncSubscriptionState propagates plan change to KV -> AC5) -->
+<!-- @test: src/__tests__/routes/rate-limits.test.ts (POST /billing/portal rate-limit describe -> blocks after 5 requests in 60s window -> AC6 5/min rate-limit) -->
 ### REQ-SUB-016: Customer Portal and Plan Switching
 
 <!-- @impl: src/lib/stripe.ts::createPortalSession -->
@@ -604,6 +630,8 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: src/__tests__/routes/usage.test.ts (GET /api/usage / REQ-SUB-018 AC2 describe -> Timekeeper live data when binding present and 200, KV fallback on TK 500 or missing binding, zero seconds on UTC month rollover, billing-aware effective tier for monthlyQuotaSeconds -> AC2 poll + KV fallback) -->
+<!-- @test: web-ui/src/__tests__/stores/session-usage.test.ts (session-usage dismissed quota level / REQ-SUB-018 describe -> persists 80/95 dismissals to localStorage under month-scoped keys + ignores dismissal from previous UTC month + clears on month advance + no throw without localStorage -> AC4 dismiss per UTC month, AC5 95-dismiss-implies-80) -->
 ### REQ-SUB-018: Usage dashboard page
 
 <!-- @impl: web-ui/src/components/UsagePage.tsx -->
@@ -635,6 +663,7 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 describe -> session limit popup explains tier limit + lists running sessions with stop buttons + New Session button disabled when running+initializing >= maxSessions -> AC1, AC2, AC3) -->
 ### REQ-SUB-019: Session limit popup in frontend
 
 <!-- @impl: web-ui/src/components/Dashboard.tsx -->

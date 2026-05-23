@@ -640,6 +640,27 @@ describe('POST /billing/portal / REQ-SUB-016 (Stripe customer portal for cancel/
 
     expect(res.status).toBe(400);
   });
+
+  // REQ-SUB-016 AC6: portal endpoint is rate-limited 5/min per user.
+  // Exhaust the 5-slot bucket and assert the 6th request 429s.
+  it('REQ-SUB-016 AC6: portal endpoint is rate-limited to 5 requests per minute per user', async () => {
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', { stripeCustomerId: 'cus_123' });
+
+    for (let i = 0; i < 5; i++) {
+      const ok = await app.request('/billing/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      expect(ok.status, `portal call ${i + 1} should succeed`).toBe(200);
+    }
+
+    const blocked = await app.request('/billing/portal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(blocked.status).toBe(429);
+  });
 });
 
 // ---------------------------------------------------------------------------
