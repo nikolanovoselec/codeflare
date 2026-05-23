@@ -482,66 +482,47 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
   // KV-backed limiter covers /, /initiate, /part, /complete, and /abort.
 
   describe('rate limit shared across multipart endpoints (REQ-STOR-008 AC5)', () => {
-    it('all upload sub-paths consume from the same KV rate-limit key', async () => {
-      // Verify that each sub-path triggers a KV get (rate-limit check) with the same
-      // key prefix, confirming the shared app.use('*') limiter is active on all routes.
-      // We call each endpoint once; each must hit KV for the rate-limit check.
-      const app = createApp();
-      mockFetch.mockResolvedValue(new Response('', { status: 200 }));
+    it('all upload sub-paths register the same shared rate-limit middleware (not per-endpoint limiters)', async () => {
+      // REQ-STOR-008 AC5: structural audit. The previous version of this test
+      // self-admitted that its main assertion "passes vacuously when the
+      // test-app KV mock doesn't track key-specific calls", so its real
+      // assertion reduced to "5 requests don't return 429" - which doesn't
+      // prove a SHARED limiter (could be 5 per-endpoint limiters each with
+      // cap >= 1). Replaced with a structural read of the upload router
+      // source to prove a single app.use('*') middleware is the shared
+      // rate-limit registration.
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const here = path.dirname(new URL(import.meta.url).pathname);
+      const uploadRouterSrc = fs.readFileSync(
+        path.resolve(here, '../../routes/storage/upload.ts'),
+        'utf8',
+      );
 
-      await app.request('/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'f.txt', content: btoa('x') }),
-      });
-      await app.request('/upload/initiate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'f.zip' }),
-      });
-      await app.request('/upload/part', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'f.zip', uploadId: 'uid', partNumber: 1, content: btoa('x') }),
-      });
-      await app.request('/upload/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'f.zip', uploadId: 'uid', parts: [{ partNumber: 1, etag: 'a' }] }),
-      });
-      await app.request('/upload/abort', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'f.zip', uploadId: 'uid' }),
-      });
+      // The router must register a rate-limit middleware with app.use('*',
+      // ...) so it applies to every sub-path uniformly. A per-route
+      // registration (e.g., app.post('/upload', rateLimit, ...)) would be a
+      // regression.
+      const useAllMatch = uploadRouterSrc.match(
+        /\.use\(\s*['"`]\*['"`]\s*,[\s\S]{0,400}/,
+      );
+      expect(useAllMatch).not.toBeNull();
+      // The middleware in the use('*') block must invoke a rate-limit
+      // helper (createRateLimiter / storageUploadRateLimiter / similar).
+      expect(useAllMatch![0]).toMatch(/[Rr]ate[Ll]imit/);
 
-      // Each request checks the rate-limit bucket in KV. All 5 sub-paths must have
-      // triggered at least one KV get (the rate-limit window read).
-      // mockKV.get is called per request for rate-limit + any other KV reads.
-      expect(mockKV.get).toHaveBeenCalled();
-
-      // The rate-limit key is derived from the route prefix + user email.
-      // All calls must share the same key pattern (upload:test@example.com or similar),
-      // confirming a single shared limiter rather than per-route limiters.
-      const rlCalls = (mockKV.get as ReturnType<typeof vi.fn>).mock.calls
-        .map((args: unknown[]) => args[0] as string)
-        .filter((k: string) => k.includes('upload') || k.includes('rate'));
-      // If the shared limiter is active, all 5 routes use the same key family.
-      // This assertion passes vacuously when the test-app KV mock doesn't
-      // track key-specific calls - the important thing is that none of the
-      // 5 requests returned 429 (which would indicate an isolated per-route
-      // limiter that counted them separately against a tighter cap).
-      // The above requests would return 429 only if 5 requests > the cap,
-      // which means 60/min > 5 - verifying cap is not per-endpoint.
-      const responses = await Promise.all([
-        app.request('/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'g.txt', content: btoa('y') }),
-        }),
-      ]);
-      // With a shared 60/min limiter and only 6 total calls, none should be 429.
-      expect(responses[0].status).not.toBe(429);
+      // None of the per-route handlers should attach their own rate-limit
+      // middleware. The router mounts at /upload elsewhere, so internal
+      // paths are /, /initiate, /part, /complete, /abort. Each is a bare
+      // app.post(path, handler) - if a middleware tuple appears between
+      // path and the async handler, it would shadow the shared use('*').
+      const perRouteHandlers = uploadRouterSrc.match(
+        /app\.post\(\s*['"`]\/(initiate|part|complete|abort|)['"`][\s\S]{0,200}/g,
+      ) ?? [];
+      expect(perRouteHandlers.length).toBeGreaterThanOrEqual(5);
+      for (const h of perRouteHandlers) {
+        expect(h).not.toMatch(/[Rr]ate[Ll]imit/);
+      }
     });
   });
 
