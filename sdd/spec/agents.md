@@ -75,9 +75,9 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. `POST /api/sessions` accepts an optional `agentType` field in the request body.
-2. `agentType` is validated against `AgentTypeSchema`.
+2. Invalid agent types are rejected at session creation.
 3. The selected agent type is persisted in the session record.
-4. `lastAgentType` is stored in `UserPreferences` so the UI can default to the user's last selection.
+4. The UI defaults to the agent type used in the user's most recent session.
 5. When `agentType` is not specified, it defaults to `claude-code`.
 
 **Constraints:**
@@ -107,17 +107,17 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. The container entrypoint writes the agent's launch command into `.bashrc` for tab 1.
-2. The agent starts with `--dangerously-skip-permissions` flag (for Claude Code via `claude`). The container sets `IS_SANDBOX=1` to allow this flag when running as root.
-3. Auto-start only runs for tab 1; user-created tabs (where `MANUAL_TAB=1`) skip autostart.
-4. The `.bashrc` autostart block sets `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"` so PTY sessions find globally installed CLI tools.
+1. The container entrypoint configures the selected agent's launch command to run automatically when tab 1's shell starts.
+2. Claude Code starts in permissions-bypass mode appropriate for an isolated sandbox container.
+3. User-opened tabs beyond tab 1 do not auto-start an agent.
+4. The agent CLI is findable on the system PATH in all terminal sessions.
 5. Pre-warm readiness is detected by first PTY output (any terminal output means the agent is ready).
 6. A 20-second hard timeout exists as a safety net if the PTY produces no output.
 
 **Constraints:**
 
-- Auto-updates are disabled by default via `FAST_CLI_START=true` to avoid 5-30s startup delay.
-- Each agent has a different auto-update disable mechanism (env var or config file).
+- Auto-update checks for agent CLIs are suppressed at session start to keep startup latency low.
+- Each agent has its own mechanism for suppressing auto-updates.
 - The autostart command must complete after the initial R2 sync but before bisync baseline to avoid hash mismatches.
 
 **Priority:** P0
@@ -214,17 +214,17 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Source files live in `preseed/agents/claude/` organized by type: `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`.
-2. `preseed/agents/claude/manifest.json` maps each file to its applicable modes (`default`, `advanced`, or both).
-3. A build-time seed generator reads the manifest and source files, producing the runtime `AGENTS_SEEDED_CONFIGS` array that the Worker ships to the container.
+1. All preseed source files live in a single source tree organized by type (rules, agents, commands, skills, plugins).
+2. A declarative manifest maps each preseed file to its applicable session modes (default, advanced, or both).
+3. A build-time seed generator reads the manifest and source files, producing the runtime payload the Worker ships to the container.
 4. The generator is manifest-driven; files not in the manifest are ignored.
 5. No duplicate preseed source files exist on disk.
 6. The generator produces output for all supported agents (Claude Code as the source-of-truth lane plus adapted lanes for Codex, Gemini, Copilot, OpenCode).
 
 **Constraints:**
 
-- The generator must be re-run when preseed source files or the manifest change.
-- Generated TypeScript file must not be manually edited.
+- The generated output must stay in sync with the manifest and sources; the build pipeline enforces this.
+- The generated output is never hand-edited; updates go through the source tree and the generator.
 
 **Priority:** P1
 
@@ -320,17 +320,17 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. `PUT /api/llm-keys` accepts `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`.
-2. String value sets the key; `null` deletes it; omitted/undefined means no change.
-3. Keys are stored in KV at `llm-keys:{bucketName}`.
-4. When `ENCRYPTION_KEY` is set, values are encrypted with AES-256-GCM before KV storage.
-5. `GET /api/llm-keys` returns masked keys (`****` + last 4 chars), never full keys.
+1. `PUT /api/llm-keys` accepts an OpenAI key, a Gemini key, or both.
+2. A string value sets the key; `null` deletes it; omitted/undefined means no change.
+3. Keys are stored in KV under a per-bucket namespace.
+4. When platform-level credential encryption is configured, values are encrypted before KV storage.
+5. `GET /api/llm-keys` returns masked values (last 4 characters only); the full key is never returned.
 
 **Constraints:**
 
-- Encryption uses Web Crypto API AES-256-GCM with random 12-byte IV and KV key name as AAD.
-- The ciphertext format is `v1:` + base64 for forward compatibility.
-- Transparent upgrade: plaintext values are auto-encrypted on read when `ENCRYPTION_KEY` is present.
+- Encryption follows the cryptographic contract in [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract).
+- The ciphertext carries a version prefix so future schemes can be added without breaking reads.
+- Plaintext values are transparently upgraded to encrypted on read when encryption is configured.
 - Propagation to the container env + MCP wiring live in [REQ-AGENT-031](#req-agent-031-llm-api-key-propagation-to-container).
 
 **Priority:** P1
@@ -359,7 +359,7 @@ Multi-agent support, preseed system, and session modes.
 1. `PUT /api/deploy-keys` validates tokens against provider APIs before storing.
 2. `GET /api/deploy-keys` returns masked tokens, never full values.
 3. `DELETE /api/deploy-keys` clears all stored deploy credentials.
-4. Keys are stored in KV at `deploy-keys:{bucketName}`, encrypted with AES-256-GCM when `ENCRYPTION_KEY` is set.
+4. Deploy credentials are stored in KV under a per-bucket namespace, encrypted at rest when platform-level credential encryption is configured.
 
 **Constraints:**
 
@@ -390,7 +390,7 @@ Multi-agent support, preseed system, and session modes.
 2. The endpoint calls `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })`.
 3. Overwrite mode replaces all preseed-managed files with current defaults.
 4. Cleanup mode deletes preseed-managed files that are not in the user's current session mode.
-5. User-created files (not in `AGENTS_SEEDED_CONFIGS`) are never touched.
+5. User-created files (files not generated by the preseed pipeline) are never overwritten or deleted.
 6. The endpoint is rate-limited (3/min).
 7. After seeding, the storage stats KV cache is invalidated.
 
@@ -492,18 +492,18 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. `preseed/agents/claude/manifest.json` is the single declaration of all preseed files and their mode assignments.
+1. A single declarative manifest is the source of truth for all preseed files and their session-mode assignments.
 2. The manifest organizes entries by type: rules (including the discipline triad: spec-discipline, documentation-discipline, tdd-discipline), agents, commands, skills (including SDD scaffolding templates), and plugins (memory and hook plugins).
-3. Each entry specifies `"modes"` as an array of `"default"`, `"advanced"`, or both.
+3. Each entry declares the session modes (default, advanced, or both) it applies to.
 4. The seed generator is manifest-driven and ignores files not in the manifest.
-5. The generated output contains the `AGENTS_SEEDED_CONFIGS` array used at runtime.
-6. `getConfigsForMode()` validates that no duplicate R2 keys exist within a single mode.
-7. Variant-per-mode keys (same R2 key, different content per mode) are handled correctly by `getPreseedKeysNotInMode()`.
+5. The generator produces a runtime payload the Worker consumes at session start.
+6. Within a single mode, no two preseed entries may share the same storage key.
+7. Variant-per-mode keys (same storage key, different content per mode) are excluded from cleanup when the mode changes.
 
 **Constraints:**
 
-- The manifest must be updated when adding, removing, or re-categorizing preseed files.
-- The generated TypeScript file is a build artifact, not manually maintained.
+- All preseed file additions, removals, and re-categorizations flow through the manifest.
+- The generated output is a build artifact and is never hand-edited.
 
 **Priority:** P1
 
@@ -930,7 +930,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Layer 1 lane classification uses a shared helper (`scripts/lib/lane-classifier.sh`, relative to the hooks plugin `scripts/` directory) sourced by both `enforce-review-spawn.sh` and `git-push-review-reminder.sh` so the in-turn nudge and turn-end gate agree on which agents the diff requires.
+1. Layer 1 lane classification uses a single shared helper so the in-turn nudge and the turn-end gate agree on which review agents the diff requires.
 2. Lane mapping: docs-only (no sdd, no source) → `doc-updater`; `sdd/` touched without source (with or without docs) → `spec-reviewer` then `doc-updater`; any source touch → all three agents.
 3. Conservative branches (empty diff, missing prior ack, divergent merge-base) and a missing or unsourceable helper both fall back to all-three-lanes (`code-reviewer spec-reviewer doc-updater`), so a partially-deployed install never disables enforcement.
 4. On trigger, `spec-reviewer` runs first then `doc-updater` (sequential, never parallel) on any project containing `sdd/`.
@@ -1237,13 +1237,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. In advanced session mode only, a SessionStart hook (matcher: startup) inspects the current working directory and injects an `additionalContext` system reminder when `graphify-out/graph.json` exists, pointing the agent at `GRAPH_REPORT.md` and the MCP tools; when the graph is absent but the cwd looks like a code repo, the hook instead injects a build-suggestion reminder.
-2. In advanced session mode only, `~/.claude/rules/graph-first.md` is preseeded; it is authoritative, short (target ~100 tokens), states MUST / MUST NOT bullets for graph vs Grep, and references `~/.claude/skills/graphify/SKILL.md` for mechanics rather than restating them.
-3. In advanced session mode only, `~/.claude/skills/graphify/SKILL.md` is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, and OpenCode by the seed generator.
-4. The SKILL documents `graphify cluster-only . --no-viz` as the safe path for repos with more than 2000 files.
-5. The SKILL instructs the agent on first build to add the canonical `.gitignore` block defined in SKILL note 3 (covering regenerable build outputs under `graphify-out/`, working-tree intermediates, and per-machine markers) plus `graphify-out/graph.json merge=graphify` to `.gitattributes`.
-6. The committed graphify surface is `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and optional `wiki/`.
-7. In advanced session mode only, a PreToolUse soft-nudge hook fires on `Grep`, `Glob`, `mcp__context-mode__ctx_search`, and `mcp__context-mode__ctx_batch_execute` matchers, emits an `additionalContext` reminder to prefer `mcp__graphify__*` when a `graphify-out/graph.json` exists in the agent's cwd, and never blocks (exit 0 with `hookSpecificOutput.additionalContext` only).
+1. In advanced session mode only, a SessionStart hook injects a graph-context reminder when the cwd already has a knowledge graph (pointing the agent at the human-readable report and MCP tools); when the cwd looks like a code repo without a graph, the hook instead injects a build-suggestion reminder.
+2. In advanced session mode only, a short authoritative graph-first rule is preseeded, stating MUST / MUST NOT bullets for graph vs grep and routing to the graphify skill for mechanics rather than restating them.
+3. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, and OpenCode by the seed generator.
+4. The skill documents the safe build path for large repos (more than 2000 files).
+5. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control.
+6. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, and an optional wiki tree.
+7. In advanced session mode only, a soft-nudge hook fires on grep-class tool calls and emits a reminder to prefer the graph MCP tools when a graph exists for the cwd; the hook never blocks.
 
 **Constraints:**
 
@@ -1367,14 +1367,14 @@ None.
 
 **Acceptance Criteria:**
 
-1. The container's rclone bisync filter excludes `**/graphify-out/**` from R2 sync. No graphify artifact ever round-trips through R2.
-2. The container image registers the graphify semantic merge driver globally via `git config --global merge.graphify.driver "graphify merge-driver %O %A %B"` and `merge.graphify.name`. The configuration is tier-independent and lands regardless of session mode.
-3. Repo owners with push permission commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `graph.html`, and optionally `wiki/` to git so contributors get the graph and a browser-openable interactive visualization on clone; concurrent edits to `graph.json` in repos that wire `graphify-out/graph.json merge=graphify` in `.gitattributes` are auto-resolved on `git merge` / `git pull` without manual JSON intervention.
+1. Knowledge-graph artefacts are excluded from R2 sync, so they never round-trip through user-bucket storage.
+2. The container image registers the graphify semantic merge driver globally, independent of session mode.
+3. Repo owners with push permission commit the knowledge-graph artefacts to git so contributors inherit the graph and the visualization on clone; concurrent edits to the graph artefact are auto-resolved by the registered merge driver without manual JSON conflict resolution.
 4. For repos without push permission, the graph lives in the working tree only and is ephemeral.
 
 **Constraints:**
 
-- SKILL guidance (REQ-AGENT-024 AC5) carries the per-repo `.gitignore` / `.gitattributes` instructions; this REQ specifies the platform-level pieces (bisync exclude, global merge-driver registration).
+- Per-repo ignore and merge-attribute wiring is the responsibility of the graphify skill (REQ-AGENT-024 AC5); this REQ covers only the platform-level pieces (sync exclusion, global merge-driver registration).
 
 **Priority:** P1
 
@@ -1516,14 +1516,14 @@ None.
 
 **Acceptance Criteria:**
 
-1. Deploy keys are injected as container environment variables: `GH_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
-2. Keys are sent as explicit `null` when absent (not omitted) to ensure revocation propagates on session restart.
-3. When `GH_TOKEN` is present, the container entrypoint configures `git config --global credential.helper` for HTTPS auth.
-4. `CLOUDFLARE_ACCOUNT_ID` is auto-fetched from the Cloudflare API when a Cloudflare API token is stored.
+1. Stored GitHub and Cloudflare deploy credentials are injected into the container as environment variables on session start.
+2. Credentials are sent as explicit `null` when absent (not omitted) so revocation propagates on session restart.
+3. When a GitHub credential is present, the container configures git for authenticated HTTPS access.
+4. The Cloudflare account ID is resolved automatically from the API token when one is stored, so users need not supply it separately.
 
 **Constraints:**
 
-- Copilot CLI checks env vars in order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`; auth fails silently if the token lacks Copilot scope - requires Advanced tier (see [REQ-AGENT-028](#req-agent-028-deploy-credential-token-creation-ux)).
+- Misconfigured Copilot scope can cause silent agent auth failure; full Copilot support requires the Advanced tier (see [REQ-AGENT-028](#req-agent-028-deploy-credential-token-creation-ux)).
 
 **Priority:** P1
 
