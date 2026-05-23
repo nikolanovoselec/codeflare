@@ -77,15 +77,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 1. The request body includes `customDomain` (valid domain), `allowedUsers` (non-empty email array), `adminUsers` (non-empty email array, subset of `allowedUsers`), and optional `allowedOrigins` (domain suffix patterns starting with `.`).
 2. All fields are validated by Zod schemas before streaming starts.
-3. Setup executes 7 sequential steps, streaming progress via NDJSON:
-   - Step 1 (`get_account`): Retrieves account ID from the API token.
-   - Step 2 (`derive_r2_credentials`): Derives S3-compatible R2 credentials from the API token (Access Key ID = token ID, Secret = SHA-256 of token value).
-   - Step 3 (`set_secrets`): Sets `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` as Worker secrets.
-   - Step 3a (`cleanup_stale_users`): Conditional -- runs on reconfigure when users are removed from the allowlist.
-   - Step 4 (`configure_custom_domain`): Resolves zone, creates/updates CNAME DNS record and Worker route.
-   - Step 5 (`create_access_app`): Creates/updates CF Access application, groups, and policies (or skips in GitHub OIDC mode).
-   - Step 6 (`configure_turnstile`): Conditional -- creates Turnstile widget when onboarding or SaaS mode is active.
-   - Step 7 (`finalize`): Writes final KV state and marks setup as complete.
+3. Setup executes 7 sequential steps and streams per-step progress via NDJSON; the per-step contract for each step name and its observable effect lives in [REQ-SETUP-012](#req-setup-012-setup-wizard-step-sequence).
 4. All KV keys written by setup use the `setup:` prefix.
 5. The response stream ends with exactly one completion object containing `done: true`.
 
@@ -97,6 +89,38 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Priority:** P0
 
 **Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration)
+
+**Verification:** Integration test
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-012: Setup wizard step sequence
+
+<!-- @impl: src/routes/setup/handlers.ts -->
+
+**Intent:** The setup wizard's 7-step pipeline must run in a fixed order, each step has a stable identifier the NDJSON stream emits, and the per-step observable effect is enforced as a separate contract so a regression in one step does not silently break the next.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Step 1 (`get_account`) retrieves the account ID from the API token.
+2. Step 2 (`derive_r2_credentials`) derives S3-compatible R2 credentials from the API token, using the token ID as the Access Key ID and the SHA-256 of the token value as the Secret.
+3. Step 3 (`set_secrets`) sets `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` as Worker secrets.
+4. Step 3a (`cleanup_stale_users`) runs only on reconfigure when users have been removed from the allowlist.
+5. Step 4 (`configure_custom_domain`) resolves the zone and creates or updates the CNAME DNS record and Worker route.
+6. Step 5 (`create_access_app`) creates or updates the CF Access application, groups, and policies, and is skipped entirely in GitHub OIDC mode.
+7. Step 6 (`configure_turnstile`) runs only when onboarding or SaaS mode is active and creates a Turnstile widget; Step 7 (`finalize`) writes final KV state and marks setup complete.
+
+**Constraints:**
+
+- Step ordering is fixed; steps may not be reordered without a spec change because downstream steps assume their predecessors' writes.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
 **Verification:** Integration test
 
