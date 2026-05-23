@@ -24,7 +24,7 @@ function claudeDocs() {
   return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.startsWith('.claude/'));
 }
 
-describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session)', () => {
+describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)', () => {
   it('generated configs array is non-empty', () => {
     expect(AGENTS_SEEDED_CONFIGS.length).toBeGreaterThan(0);
   });
@@ -102,7 +102,7 @@ describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin prese
   });
 });
 
-describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only)', () => {
+describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)', () => {
   it('each non-Claude agent has an instructions file', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
     expect(keys.has('.codex/AGENTS.md')).toBe(true);

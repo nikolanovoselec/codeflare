@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolveSessionMode } from '../../lib/session-mode';
 
-describe('resolveSessionMode', () => {
+describe('resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)', () => {
   it('returns "default" when prefs is null', () => {
     expect(resolveSessionMode(null)).toBe('default');
   });

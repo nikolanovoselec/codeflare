@@ -52,9 +52,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/agent-config.test.ts` `AGENT_COMMANDS exhaustiveness` describe annotated `REQ-AGENT-001 AC1/AC2`; `host/__tests__/dockerfile-graphify.test.js` annotated `REQ-AGENT-001 AC3/AC4` for npm install + V8 warm-up)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -84,9 +84,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/agent-config.test.ts` `getDefaultTabConfig` describe annotated `REQ-AGENT-002 AC1/AC2/AC5`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -151,9 +151,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/session-mode.test.ts` `resolveSessionMode` describe annotated `REQ-AGENT-004`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -219,9 +219,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/agent-seed-manifest.test.ts` `agent-seed manifest.json` describe annotated `REQ-AGENT-006`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -251,9 +251,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/agent-seed-manifest.test.ts` `multi-agent documents` describe annotated `REQ-AGENT-007`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -319,9 +319,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/routes/llm-keys.test.ts` `LLM Keys routes` describe annotated `REQ-AGENT-009`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -487,9 +487,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/agent-seed-manifest.test.ts` `agent-seed manifest.json` describe annotated `REQ-AGENT-014`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -575,9 +575,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Automated test
+**Verification:** Automated test (`host/__tests__/dockerfile-graphify.test.js` `Dockerfile graphify install` describe annotated `REQ-AGENT-017` - asserts bubblewrap is apt-installed in image)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -1420,9 +1420,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/container/container-env.test.ts` `buildEnvVars` describe annotated `REQ-AGENT-031`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
