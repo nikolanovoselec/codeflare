@@ -161,7 +161,7 @@ describe('vault skeleton + daemons (REQ-VAULT-001, REQ-VAULT-003, REQ-VAULT-005)
       'silverbullet must bind to localhost (Worker proxy is the auth boundary)');
   });
 
-  // REQ-VAULT-012 AC4, REQ-VAULT-001 Constraint
+  // REQ-VAULT-012 AC2, REQ-VAULT-001 Constraint
   it('exports SB_INDEX_PAGE=Index in the supervisor (TitleCase index page)', () => {
     // SilverBullet 2.x hardcodes IndexPage to lowercase "index" in
     // server/cmd/server.go:29; the only override is the SB_INDEX_PAGE

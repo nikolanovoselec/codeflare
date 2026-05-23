@@ -262,32 +262,64 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
-### REQ-VAULT-012: Vault editor UX integration and subpath adapter
+### REQ-VAULT-012: Vault button render and readiness gating
 
-<!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 <!-- @impl: web-ui/src/components/Header.tsx -->
 
-**Intent:** The Vault button only appears when usable, opens to a sensible landing page, and the SilverBullet assets it loads address themselves through the per-session proxy subpath. Service-worker registration and a per-session readiness probe close the two known fail-modes (Chrome credentialless SW fetch returning 401; cold-boot before the editor binds its localhost port).
+**Intent:** The Vault button only appears when usable and only enables after a per-session probe confirms the in-container editor is actually reachable, so users never land on `VAULT_UPSTREAM_UNREACHABLE`. SilverBullet's landing page is the codeflare dashboard. SilverBullet subpath asset adaptation lives in [REQ-VAULT-013](#req-vault-013-silverbullet-subpath-adapter).
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. The Vault button in `Header.tsx` renders only when an active session exists and the parent passes `onVaultOpen` (gated to terminal view, between Bookmarks and Storage).
-2. `handleVaultRequest` rewrites `<base href="/" />` to `<base href="/api/vault/<sid>/" />` on every `text/html` response (not gated to `/` or `/index.html`), so SilverBullet's relative asset references (e.g. `.client/client.js`, `.fs/<page>.md` writes) resolve back through the subpath proxy regardless of which page the user reloaded onto. Non-HTML responses (JS bundles, PNG icons, manifest JSON, `text/markdown` page bodies, `application/json` API replies, binary assets) pass through unchanged. The text/html guard alone is sufficient because SilverBullet's API endpoints (`.fs/`, `index.json`, `.attachment/`) return non-HTML content types - the rewriter never sees an API payload. When the body is rewritten, both `content-length` and `content-encoding` headers are dropped (`response.text()` auto-decompresses gzip/br upstream, so the original encoding header would otherwise trigger a browser decoding failure). A warning is logged when the rewrite runs but the body did not contain the bare `<base href="/" />` (no-op rewrite), so a future SilverBullet template change surfaces as a logged signal instead of a silent white-screen regression.
-3. Browser-initiated Service Worker registration GETs at `/api/vault/<sid>/service_worker.js` short-circuit the auth chain and receive a static no-op SW from the Worker. Selector requires all of: method `GET`, exact path `/service_worker.js`, request header `Service-Worker: script` (a Fetch-spec forbidden header name, not settable from page JavaScript), and no `Cookie` header. Chrome 76+ omits credentials on `navigator.serviceWorker.register()` script fetches even for same-origin same-site URLs, so the normal cookie-auth path returned 401 and registration failed permanently. The static SW JS contains zero user data and is identical across sessions; the cookie-absent gate is defence-in-depth so that any future browser path that carries credentials falls through to the normal auth chain (returning the real upstream SW or 401) instead of the static-noop shortcut.
-4. SilverBullet opens to the `Index` page (the codeflare dashboard) on every Vault button click, via `SB_INDEX_PAGE=Index` exported in the supervisor before launching the binary (`server/cmd/server.go:56`). The README page is reachable from the dashboard via a link at the top.
-5. The Vault button is rendered disabled with tooltip "Vault initializing..." until a per-session ground-truth probe against the vault proxy responds 200. The probe retries on a short interval until the first success, then enables the button; the readiness state is keyed per session so switching active sessions resets it. This guards both the cold-boot race (the editor supervisor binds its localhost port later than terminal readiness flips) and the crashed-editor scenario (container up, editor process dead); both would otherwise surface `VAULT_UPSTREAM_UNREACHABLE` to the user.
+2. SilverBullet opens to the `Index` page (the codeflare dashboard) on every Vault button click, via `SB_INDEX_PAGE=Index` exported in the supervisor before launching the binary.
+3. The README page is reachable from the dashboard via a link at the top.
+4. The Vault button is rendered disabled with tooltip "Vault initializing..." until a per-session ground-truth probe against the vault proxy responds 200.
+5. The probe retries on a short interval until the first success, then enables the button; the readiness state is keyed per session so switching active sessions resets it.
 
 **Constraints:**
 
-- SilverBullet 2.8.0 honours `SB_URL_PREFIX` to render the base tag with a prefix, but the prefix is per-session (the worker knows `:sid`, the container does not); baking it in at supervisor start is not viable. The per-response Worker rewrite is the per-session adapter.
+- The readiness probe guards both the cold-boot race (the editor supervisor binds its localhost port later than terminal readiness flips) and the crashed-editor scenario (container up, editor process dead); both would otherwise surface `VAULT_UPSTREAM_UNREACHABLE` to the user.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated test (`src/__tests__/routes/vault.test.ts` AC: base-href rewrite, service-worker shortcut, readiness probe state machine); E2E (cold-boot a session, confirm button is disabled until the probe flips, open Vault, confirm Index page renders and assets load)
+**Verification:** Automated test (`src/__tests__/routes/vault.test.ts` AC: readiness probe state machine); E2E (cold-boot a session, confirm button is disabled until the probe flips, open Vault, confirm Index page renders)
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-013: SilverBullet subpath adapter
+
+<!-- @impl: src/routes/vault.ts::handleVaultRequest -->
+
+**Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response and short-circuits Service Worker registration so Chrome's credentialless SW fetch does not return 401.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `handleVaultRequest` rewrites `<base href="/" />` to `<base href="/api/vault/<sid>/" />` on every `text/html` response (not gated to `/` or `/index.html`), so SilverBullet's relative asset references resolve back through the subpath proxy regardless of which page the user reloaded onto.
+2. Non-HTML responses (JS bundles, PNG icons, manifest JSON, `text/markdown` page bodies, `application/json` API replies, binary assets) pass through unchanged; the text/html guard alone is sufficient because SilverBullet's API endpoints return non-HTML content types.
+3. When the body is rewritten, both `content-length` and `content-encoding` headers are dropped because `response.text()` auto-decompresses gzip/br upstream and the original headers would otherwise trigger a browser decoding failure.
+4. When the rewrite runs but the body did not contain the bare `<base href="/" />` (no-op rewrite), a warning is logged so a future SilverBullet template change surfaces as a logged signal instead of a silent white-screen regression.
+5. Browser-initiated Service Worker registration GETs at `/api/vault/<sid>/service_worker.js` short-circuit the auth chain and receive a static no-op SW from the Worker.
+6. The short-circuit selector requires all of: method `GET`, exact path `/service_worker.js`, request header `Service-Worker: script` (a Fetch-spec forbidden header name, not settable from page JavaScript), and no `Cookie` header.
+7. The static SW JS contains zero user data and is identical across sessions; the cookie-absent gate is defence-in-depth so that any future browser path that carries credentials falls through to the normal auth chain instead of the static-noop shortcut.
+
+**Constraints:**
+
+- SilverBullet 2.8.0 honours `SB_URL_PREFIX` to render the base tag with a prefix, but the prefix is per-session (the worker knows `:sid`, the container does not); baking it in at supervisor start is not viable, so the per-response Worker rewrite is the per-session adapter.
+- Chrome 76+ omits credentials on `navigator.serviceWorker.register()` script fetches even for same-origin same-site URLs, so the normal cookie-auth path would return 401 and SW registration would fail permanently without this short-circuit.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
+
+**Verification:** Automated test (`src/__tests__/routes/vault.test.ts` AC: base-href rewrite + service-worker shortcut)
 
 **Status:** Implemented
 
