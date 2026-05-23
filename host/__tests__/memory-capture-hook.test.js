@@ -107,7 +107,7 @@ describe('memory-capture.sh - input gating', () => {
 
 // REQ-MEM-002 AC2 (no counter -> write baseline + emit graphify-query directive)
 describe('memory-capture.sh - first-run baseline', () => {
-  // REQ-MEM-002 AC2 + REQ-MEM-001 AC8 (first-run emits memory-scan directive)
+  // REQ-MEM-002 AC2 + REQ-MEM-010 AC3 (first-run emits memory-scan directive)
   it('first run creates counter file and emits memory-scan directive', () => {
     const home = makeFixture();
     const t = writeTranscript(home, [realUserLine('first message')]);

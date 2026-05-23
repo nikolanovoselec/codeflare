@@ -1,5 +1,5 @@
 // REQ-SESSION-016 AC3: buildEnvVars must propagate the per-session
-// USER_TIMEZONE into the container env-var pipeline so REQ-MEM-001 AC9
+// USER_TIMEZONE into the container env-var pipeline so REQ-MEM-010 AC4
 // (capture pipeline consumes $USER_TIMEZONE) gets a non-empty value.
 // Without this, every vault capture filename gets a +0000 suffix
 // regardless of where the user actually is.

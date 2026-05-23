@@ -195,7 +195,7 @@ describe('Preferences Routes', () => {
     });
   });
 
-  // REQ-MEM-006 AC6 (sessionMode stored as 'default'|'advanced' in UserPreferences; PATCH validates the literal set)
+  // REQ-MEM-011 AC2 (sessionMode stored as 'default'|'advanced' in UserPreferences; PATCH validates the literal set)
   describe('sessionMode preference', () => {
     it('GET returns stored sessionMode', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
@@ -338,7 +338,7 @@ describe('Preferences Routes', () => {
   // ---------------------------------------------------------------------------
   // Preseed reconciliation on sessionMode change
   // ---------------------------------------------------------------------------
-  // REQ-MEM-006 AC7-AC8 (mode change triggers reconcileAgentConfigs to seed/delete mode-appropriate preseed files)
+  // REQ-MEM-011 AC3-AC4 (mode change triggers reconcileAgentConfigs to seed/delete mode-appropriate preseed files)
   describe('preseed reconciliation on sessionMode change', () => {
     it('calls reconcileAgentConfigs when sessionMode changes from default to advanced', async () => {
       const app = createTestApp();

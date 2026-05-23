@@ -56,7 +56,7 @@ The agent writes the file under the right `Notes/<Category>/` subfolder (`Remind
 
 ### Drop a PDF or screenshot
 
-Drag the file into the SilverBullet window. SB writes it next to the note you are editing (e.g. dragging into a Quick Note at `Inbox/2026-05-18/16-59-59.md` produces `Inbox/2026-05-18/<filename>`) and inserts an embed. The PDF plug renders it inline; images render as previews. The vault-extract agent ingests the PDF on its next pass (REQ-VAULT-003 AC7).
+Drag the file into the SilverBullet window. SB writes it next to the note you are editing (e.g. dragging into a Quick Note at `Inbox/2026-05-18/16-59-59.md` produces `Inbox/2026-05-18/<filename>`) and inserts an embed. The PDF plug renders it inline; images render as previews. The vault-extract agent ingests the PDF on its next pass (REQ-VAULT-011 AC1).
 
 ### Use the agent's memory
 
