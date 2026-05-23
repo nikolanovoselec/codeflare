@@ -26,6 +26,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 <!-- @impl: web-ui/src/lib/mobile.ts -->
 <!-- @impl: web-ui/src/hooks/useTerminal.ts -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe) -->
 
 **Intent:** The terminal must be fully functional on phones and tablets, providing a usable coding experience without requiring a desktop browser.
 
@@ -49,7 +50,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test (`web-ui/src/__tests__/lib/mobile.test.ts` `mobile.ts` describe annotated `REQ-MOB-001`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -177,9 +178,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
 
-**Verification:** Automated test
+**Verification:** Integration test (Playwright; plan in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#scroll-stability-integration-test-plan))
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -206,9 +207,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-MOB-004](#req-mob-004-scroll-drop-detection-during-burst-output)
 
-**Verification:** Automated test
+**Verification:** Integration test (Playwright; plan in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#scroll-stability-integration-test-plan))
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -409,6 +410,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminals -->
 <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe → visualViewport resize/keyboard show-hide triggers terminal refit cadence) -->
 
 **Intent:** Multiple code paths that trigger `fitAddon.fit()` must not conflict with each other or cause visual artifacts.
 
@@ -432,6 +434,6 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
 
-**Verification:** Automated test (`web-ui/src/__tests__/lib/mobile.test.ts` `mobile.ts` describe annotated `REQ-MOB-010` - visualViewport resize/keyboard show-hide triggers terminal refit cadence)
+**Verification:** Automated test
 
 **Status:** Implemented

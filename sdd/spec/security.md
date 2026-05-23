@@ -30,6 +30,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 <!-- @impl: src/lib/access.ts::getUserFromRequest -->
 <!-- @impl: src/lib/access.ts::authenticateRequest -->
+<!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe) -->
+<!-- @test: src/__tests__/lib/access.test.ts (authenticateRequest describe) -->
+<!-- @test: src/__tests__/lib/access.test.ts (getUserFromRequest describe) -->
 
 **Intent:** All protected surfaces (`/app`, `/api`, `/setup` post-first-configure) must deny access to unauthenticated users with an appropriate HTTP response.
 
@@ -54,7 +57,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes), [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-001`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -64,6 +67,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 <!-- @impl: src/container/container-env.ts -->
 <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token -->
+<!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → info-disclosure job) -->
+<!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin describe) -->
 
 **Intent:** The master Cloudflare API token must never be exposed inside container environments. Containers receive only scoped, per-user credentials.
 
@@ -84,7 +89,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-003](#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-002`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -130,6 +135,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @impl: src/lib/kv-crypto.ts::importEncryptionKey -->
 <!-- @impl: src/lib/kv-crypto.ts::encryptForKV -->
 <!-- @impl: src/lib/kv-crypto.ts::decryptFromKV -->
+<!-- @test: src/__tests__/lib/kv-crypto.test.ts (importEncryptionKey describe → AC1/AC2) -->
+<!-- @test: src/__tests__/lib/kv-crypto.test.ts (encryptForKV / decryptFromKV describe → AC3/AC4) -->
+<!-- @test: src/__tests__/lib/kv-crypto.test.ts (getOrImportKey describe → AC5) -->
 
 **Intent:** When an operator provides an encryption key, the cryptographic contract for encryption-at-rest (key import shape, algorithm, ciphertext format, AAD binding, isolate caching) is fixed and pentest-verifiable.
 
@@ -153,7 +161,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`src/__tests__/lib/kv-crypto.test.ts` describe blocks annotated `REQ-SEC-004 AC1..AC5`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -162,6 +170,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 ### REQ-SEC-018: Credential encryption operational policy
 
 <!-- @impl: src/lib/kv-crypto.ts::warnIfNoEncryptionKey -->
+<!-- @test: src/__tests__/lib/request-helpers.test.ts (maskSecret describe → AC1) -->
+<!-- @test: src/__tests__/lib/warn-if-no-encryption-key.test.ts (warnIfNoEncryptionKey describe → AC2) -->
+<!-- @test: src/__tests__/lib/warn-if-no-encryption-key.test.ts (plaintext KV allowlist describe → AC3) -->
 
 **Intent:** The encryption-at-rest contract needs operational hardening at the API and observability layers: responses always mask secrets, missing-key configuration is loud enough to catch in production logs, and the plaintext-allowlist is explicit so future KV keys are categorised on purpose, not by accident.
 
@@ -181,7 +192,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test (AC1 masking covered by `src/__tests__/lib/request-helpers.test.ts` `maskSecret` describe annotated `REQ-SEC-018 AC1`; AC2 warn-if-no-key covered by `src/__tests__/lib/warn-if-no-encryption-key.test.ts` annotated `REQ-SEC-018 AC2`; AC3 allowlist covered by same file annotated `REQ-SEC-018 AC3`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -226,6 +237,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
 <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore -->
+<!-- @test: src/__tests__/lib/kv-crypto.test.ts (getAndDecrypt describe → AC1/AC2/AC3/AC5) -->
+<!-- @test: src/__tests__/lib/kv-crypto.test.ts (encryptAndStore describe → AC7) -->
 
 **Intent:** Enabling encryption on an existing deployment with plaintext KV data must be seamless, with no downtime and no data loss.
 
@@ -250,7 +263,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-when-encryption_key-configured)
 
-**Verification:** Automated test (`src/__tests__/lib/kv-crypto.test.ts` describe blocks annotated `REQ-SEC-006 AC1/AC2/AC3/AC5/AC7`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -259,6 +272,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 ### REQ-SEC-007: Rate-limiting infrastructure
 
 <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
+<!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter describe → AC1/AC3/AC4) -->
+<!-- @test: src/__tests__/middleware/rate-limit-fallback.test.ts (rate-limit fallback describe → AC2) -->
 
 **Intent:** The general rate-limit infrastructure (factory, key derivation, KV-with-in-memory-fallback storage, 429 response shape, advisory headers) underpins every per-endpoint policy in the system.
 
@@ -280,7 +295,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`src/__tests__/middleware/rate-limit.test.ts`, `src/__tests__/middleware/rate-limit-fallback.test.ts` describe blocks annotated `REQ-SEC-007 AC1/AC2/AC3/AC4`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -289,6 +304,11 @@ Security requirements for authentication enforcement, credential isolation, encr
 ### REQ-SEC-019: Per-endpoint rate-limit policy
 
 <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
+<!-- @test: src/__tests__/lib/cross-package-constants.test.ts (Cross-Package Constants describe → AC1 WS 30/60s budget) -->
+<!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits describe → AC2 MAX_SESSIONS) -->
+<!-- @test: src/__tests__/middleware/rate-limit-fallback.test.ts (checkRateLimit failClosed semantics describe → AC3 fail-closed) -->
+<!-- @test: src/__tests__/middleware/rate-limit-fallback.test.ts (rate-limit fallback describe → AC4 fail-open) -->
+<!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter describe → AC5 STRESS_TEST_MODE bypass) -->
 
 **Intent:** Specific endpoint families have specific limits (WebSocket, session caps), and security-critical endpoints fail closed while resource-protection endpoints fail open. Stress-test mode bypasses everything with a warning so load testing can saturate without changing code.
 
@@ -310,7 +330,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure)
 
-**Verification:** Automated test (AC1 WS 30/60s budget verified by `src/__tests__/lib/cross-package-constants.test.ts` `Cross-Package Constants` describe annotated `REQ-SEC-019 AC1`; AC3 fail-closed semantics verified by `src/__tests__/middleware/rate-limit-fallback.test.ts` `checkRateLimit failClosed semantics` describe annotated `REQ-SEC-019 AC3`; AC2 + AC5 already covered via `rate-limit.test.ts` + `container-lifecycle.test.ts`; AC4 fail-open verified by `rate-limit-fallback.test.ts` `rate-limit fallback on KV failure` describe annotated `REQ-SEC-019 AC4`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -319,6 +339,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 ### REQ-SEC-020: WS-upgrade rate-limit short-circuits
 
 <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
+<!-- @test: src/__tests__/routes/terminal-ws.test.ts (CF-015 Stopped session returns 4503 describe → AC1) -->
+<!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up gate describe → AC2) -->
 
 **Intent:** WebSocket reconnect storms during container hibernation or warm-up must not exhaust the user's 30/60s WS budget. Two pre-rate-limit gates short-circuit the upgrade with explicit close codes so the client can back off without losing its budget.
 
@@ -337,7 +359,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure), [REQ-SEC-019](#req-sec-019-per-endpoint-rate-limit-policy)
 
-**Verification:** Automated test (`src/__tests__/routes/terminal-ws.test.ts` describe blocks annotated `REQ-SEC-020 AC1/AC2`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -346,6 +368,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 ### REQ-SEC-008: Security headers on every response
 
 <!-- @impl: src/index.ts -->
+<!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → security-headers job verifies all headers) -->
 
 **Intent:** Every HTTP response must include standard security headers to prevent common web attacks (clickjacking, MIME sniffing, mixed content, leaked referrer, fingerprintable server software).
 
@@ -371,7 +394,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-008`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -380,6 +403,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 ### REQ-SEC-021: HSTS coverage on redirect response paths
 
 <!-- @impl: src/index.ts::redirectWithHeaders -->
+<!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → security-headers job exercises redirect paths) -->
+<!-- @test: src/__tests__/redirect-with-headers.test.ts (helper round-trip) -->
 
 **Intent:** The HSTS header coverage in REQ-SEC-008 AC1 must extend to every redirect emission path. Without a dedicated helper, redirects emitted from `Response.redirect()` or middleware shortcuts would drop the security header set the global middleware applies.
 
@@ -397,7 +422,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-008](#req-sec-008-security-headers-on-every-response)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-021`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -408,6 +433,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @impl: src/lib/schemas.ts -->
 <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN -->
 <!-- @impl: src/lib/access.ts::getBucketName -->
+<!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → injection job) -->
+<!-- @test: host/__tests__/workflow-files.test.js (fuzz workflow describe → property-based input validation) -->
 
 **Intent:** All external input (user requests, API parameters, file paths) must be validated before processing to prevent injection, traversal, and corruption.
 
@@ -431,7 +458,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` + `fuzz workflow` describes annotated `REQ-SEC-009`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -440,6 +467,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 ### REQ-SEC-010: Path traversal prevention on storage endpoints
 
 <!-- @impl: src/routes/storage/validation.ts::validateKey -->
+<!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → injection job, path-traversal payloads → AC6) -->
 
 **Intent:** Storage API endpoints must prevent directory traversal attacks that could access files outside the user's bucket scope.
 
@@ -462,7 +490,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-010`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -472,6 +500,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 <!-- @impl: .github/workflows/deploy.yml -->
 <!-- @impl: .trivyignore -->
+<!-- @test: host/__tests__/workflow-files.test.js (container image pipeline describe → trivy scan job → AC1/AC2/AC3/AC4) -->
 
 **Intent:** Every container image must be scanned for known vulnerabilities before being deployed to production.
 
@@ -493,7 +522,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-OPS-001](operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `container image pipeline` describe annotated `REQ-SEC-011`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -535,6 +564,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 ### REQ-SEC-013: Content-Disposition hardening on downloads
 
 <!-- @impl: src/routes/storage/download.ts -->
+<!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → header-injection job, filename sanitization → AC1/AC2/AC3) -->
 
 **Intent:** File download responses must prevent header injection attacks via sanitized filenames.
 
@@ -554,7 +584,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-009](#req-sec-009-input-validation-at-system-boundaries)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-013`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -564,6 +594,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 <!-- @impl: src/lib/access.ts::getUserFromRequest -->
 <!-- @impl: src/lib/onboarding.ts::isSaasModeActive -->
+<!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → cf-access-client-id spoofing in SaaS mode → AC1/AC2) -->
 
 **Intent:** The `cf-access-client-id` header must not be trusted as an authentication mechanism in SaaS mode where no CF Access edge validates it.
 
@@ -582,7 +613,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-014`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -624,6 +655,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 <!-- @impl: src/lib/access.ts::resetAuthConfigCache -->
 <!-- @impl: src/lib/jwt.ts -->
+<!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (10 concurrent requests → single KV read round → AC1/AC2/AC3) -->
 
 **Intent:** Multiple concurrent cold-start requests must not issue redundant KV reads for authentication configuration.
 
@@ -644,7 +676,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
 
-**Verification:** Automated test (`src/__tests__/lib/auth-config-fetch-dedup.test.ts` describe annotated `REQ-SEC-016 AC1/AC2/AC3` - 10 concurrent requests issue exactly one round of setup:* KV reads; resetAuthConfigCache forces re-fetch)
+**Verification:** Automated test
 
 **Status:** Implemented
 

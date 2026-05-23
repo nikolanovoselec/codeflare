@@ -27,6 +27,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ### REQ-OPS-001: Deploy workflow trigger and pre-deploy pipeline
 
 <!-- @impl: .github/workflows/deploy.yml -->
+<!-- @test: host/__tests__/workflow-files.test.js (deploy workflow describe → trigger + pre-deploy job graph → AC1-AC5) -->
 
 **Intent:** Production deployments are triggered automatically on every push to the `main` branch, with manual dispatch as fallback. The pre-deploy stage installs dependencies, builds, and runs tests before any artifact reaches Cloudflare.
 
@@ -50,7 +51,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `deploy workflow` describe annotated `REQ-OPS-001`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -59,6 +60,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ### REQ-OPS-013: Deploy command and post-deploy hooks
 
 <!-- @impl: .github/workflows/deploy.yml -->
+<!-- @test: host/__tests__/workflow-files.test.js (deploy workflow describe → wrangler deploy + secrets + E2E seed → AC1-AC4) -->
 
 **Intent:** After the pre-deploy pipeline succeeds, the workflow applies the worker name, runs `wrangler deploy`, sets worker secrets, and seeds the E2E service user in KV so the deployed worker is fully configured and reachable.
 
@@ -79,7 +81,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `deploy workflow` describe annotated `REQ-OPS-013`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -90,6 +92,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 <!-- @impl: .github/workflows/deploy.yml -->
 <!-- @impl: Dockerfile -->
 <!-- @impl: .trivyignore -->
+<!-- @test: host/__tests__/workflow-files.test.js (container image pipeline describe → build + trivy + push → AC1-AC5) -->
 
 **Intent:** Every deploy builds a Docker image, scans it for HIGH/CRITICAL vulnerabilities with allowlisted exceptions, and pushes the resulting artifact to the Cloudflare container registry. The pipeline fails before push on any unexcepted finding.
 
@@ -111,7 +114,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `container image pipeline` describe annotated `REQ-OPS-002`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -120,6 +123,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ### REQ-OPS-014: Container binding and scaling from image
 
 <!-- @impl: .github/workflows/deploy.yml -->
+<!-- @test: host/__tests__/workflow-files.test.js (container image pipeline describe → wrangler.toml patch + tier + max-instances + cache-buster → AC1-AC4) -->
 
 **Intent:** After the image is pushed, the deploy workflow patches the registry URI into `wrangler.toml`, applies the resource tier and max-instance count, and offers cache-buster control over the AI agent layer. The bound Durable Object container is what user sessions land on.
 
@@ -141,7 +145,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `container image pipeline` describe annotated `REQ-OPS-014`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -152,6 +156,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 <!-- @impl: .github/workflows/test.yml -->
 <!-- @impl: .github/workflows/codeql.yml -->
 <!-- @impl: .github/workflows/scorecard.yml -->
+<!-- @test: host/__tests__/workflow-files.test.js (PR Checks workflow describe → lint + test + typecheck + audit + dependency-review + codeql + scorecard jobs → AC1-AC6) -->
 
 **Intent:** Every pull request to `main` must pass comprehensive quality checks before merge.
 
@@ -175,7 +180,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `PR Checks workflow` describe annotated `REQ-OPS-003`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -243,6 +248,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ### REQ-OPS-005: Weekly pentest
 
 <!-- @impl: .github/workflows/pentest.yml -->
+<!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → 6-probe job graph + cron + dispatch → AC1-AC3) -->
 
 **Intent:** Automated external pentest probes run on a weekly schedule to detect regressions in production security posture.
 
@@ -270,7 +276,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-OPS-005`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -279,6 +285,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ### REQ-OPS-018: Weekly fuzz testing
 
 <!-- @impl: .github/workflows/fuzz.yml -->
+<!-- @test: host/__tests__/workflow-files.test.js (fuzz workflow describe → fast-check 50000 iterations + cron + PR trigger → AC1-AC2) -->
 
 **Intent:** Property-based fuzz testing runs on a weekly schedule and on every PR to `main` to identify edge-case bugs in input parsing and state transitions.
 
@@ -297,7 +304,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `fuzz workflow` describe annotated `REQ-OPS-018`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -397,6 +404,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 <!-- @impl: .github/workflows/deploy.yml -->
 <!-- @impl: wrangler.toml -->
+<!-- @test: host/__tests__/workflow-files.test.js (deploy workflow describe → RESSOURCE_TIER + MAX_INSTANCES + MAX_SESSIONS_USER/ADMIN patching → AC1-AC5) -->
 
 **Intent:** Container resource allocation (CPU, memory, disk) must be configurable per deployment environment to balance cost and performance.
 
@@ -424,7 +432,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `deploy workflow` describe annotated `REQ-OPS-007`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -467,6 +475,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 <!-- @impl: .github/workflows/scorecard.yml -->
 <!-- @impl: .github/workflows/test.yml -->
+<!-- @test: host/__tests__/workflow-files.test.js (PR Checks workflow describe → scorecard cron + npm audit + dependency-review jobs → AC1-AC6) -->
 
 **Intent:** The project's open-source supply chain security posture must be continuously monitored and reported.
 
@@ -490,7 +499,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `PR Checks workflow` describe annotated `REQ-OPS-009`)
+**Verification:** Automated test
 
 **Status:** Implemented
 

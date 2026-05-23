@@ -251,6 +251,26 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 
 ---
 
+## Scroll-Stability Integration Test Plan
+
+REQ-MOB-004 (scroll-drop detection during burst output) and REQ-MOB-012 (scroll anchoring during keyboard transitions) describe xterm.js scroll behaviour wired through module-internal helpers in `web-ui/src/stores/terminal.ts` and `web-ui/src/hooks/useTerminal.ts`. The right verification surface is a Playwright E2E suite running under `E2E_MOBILE=1` in the `e2e-ui-mobile` workflow job (extension to `e2e/ui/mobile-specific.test.ts`).
+
+### REQ-MOB-004 test scenarios
+
+1. **Burst output retains bottom anchor.** Start a session, open a terminal tab, send `for i in {1..2000}; do echo "line $i"; done` via the WS, wait for output to settle. Assert `page.evaluate(() => terminal.buffer.active.viewportY >= terminal.buffer.active.baseY)` returns true (no scroll drop).
+2. **Focus loss/regain does not reset viewport.** Defocus the terminal, refocus via `page.evaluate(() => document.body.click())`, assert viewport remains at bottom (no `ydisp` drop to 0).
+3. **Viewport overflow style.** Inspect computed style of `.xterm .xterm-viewport`, assert `overflow: hidden` is present (xterm 6.0.0 `SmoothScrollableElement` invariant).
+
+### REQ-MOB-012 test scenarios
+
+1. **Keyboard-open burst pins to bottom.** Tap terminal to open the virtual keyboard, send a burst, assert viewport remains pinned to bottom with no flicker (scroll-reset detector is silent because the keyboard-open branch is taken).
+2. **Scrolled-up users keep relative position across keyboard.** Scroll up by ~100 lines, open keyboard, assert relative-position is preserved (`savedDistanceFromBottom` restored after scrollback trims).
+3. **No extra paints during programmatic scroll suppression.** Record `window.performance.getEntriesByType('paint')` during keyboard transitions and assert no extra paints occur between programmatic scroll suppression and the next user-driven scroll event.
+
+The Verification fields in `sdd/spec/mobile.md` point at this plan; CQ-1 truth check resolves on test file annotation once the Playwright suite is written.
+
+---
+
 ## Related Documentation
 - [Architecture](architecture.md#frontend-solidjs--xtermjs) - Frontend architecture
 - [Architecture](architecture.md#terminal-server-node-pty) - Terminal server

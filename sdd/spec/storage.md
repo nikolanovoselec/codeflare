@@ -138,10 +138,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. A one-way `rclone sync` from R2 to local runs as the first initialization step after the terminal server starts listening on port 8080 (blocking).
 2. The sync completes or times out within 120 seconds (`SYNC_TIMEOUT`).
-3. All file modifications (`.claude.json`, `.gemini/settings.json`, `.codex/version.json`, tab autostart) complete after the initial sync but before bisync baseline, to avoid hash mismatches.
+3. All per-agent config file modifications (Claude config, Gemini settings, Codex version metadata, tab autostart shell config) complete after the initial sync but before bisync baseline, to avoid hash mismatches. The per-agent file enumeration lives in [documentation/lanes/configuration.md](../../documentation/lanes/configuration.md).
 4. A bisync baseline (`--resync`) is established after file modifications complete.
 5. If the initial baseline fails due to a vanishing file (file listed but deleted before copy), the system parses the error output, adds the file to a session-scoped recovery filter (`/tmp/rclone-recovery-filters.txt`), and retries (max 3 attempts). Only non-workspace files are auto-excluded; workspace files trigger a plain retry.
-6. Known ephemeral files (`.claude/mcp-*.json`) are statically excluded from all sync operations.
+6. Known ephemeral per-session MCP config files are statically excluded from all sync operations. The full per-path inventory of static excludes is delegated to the sync daemon and [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md).
 7. The bisync daemon starts unconditionally after baseline - even if all baseline attempts fail. A dead daemon means zero sync for the entire session; the daemon has its own recovery (vanishing-file recovery + consecutive failure -> resync fallback).
 
 **Constraints:**
@@ -428,7 +428,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. Before each periodic bisync, `cleanup_old_transcripts()` runs (sequential, no concurrent access).
-2. The 5 most recent session transcripts (`.claude/projects/**/*.jsonl` by mtime) are retained; older `.jsonl` files are deleted.
+2. The 5 most recent session transcripts (per-project JSONL log files) are retained by modification time; older transcripts are deleted. The exact filesystem path lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md).
 3. Session directories are left intact so Claude Code can still resolve project paths.
 4. Deletions propagate to R2 via bisync automatically.
 5. Subagent transcripts are excluded from bisync entirely.
