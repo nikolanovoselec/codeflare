@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { validateKey } from '../../routes/storage/validation';
 import { ValidationError } from '../../lib/error-types';
+import { buildContentDisposition } from '../../routes/storage/download';
 
 // ── REQ-SEC-010: Path traversal prevention ────────────────────────────────────
 
@@ -89,8 +90,6 @@ describe('REQ-SEC-010 AC4: validateKey returns decoded key for callers', () => {
 // download route module. Inputs are crafted attack vectors (CRLF injection,
 // quote-break, encoded smuggling); outputs are asserted against the exact
 // header value the browser will receive.
-
-import { buildContentDisposition } from '../../routes/storage/download';
 
 describe('REQ-SEC-013: Content-Disposition is built safely', () => {
   it('REQ-SEC-013 AC3: emits attachment disposition type', () => {
