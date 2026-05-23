@@ -272,7 +272,14 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       (instance as unknown as { _userEmail: string | null })._userEmail = 'quota@example.com';
       (instance as unknown as { _bucketName: string | null })._bucketName = 'test-bucket';
       (instance as unknown as { _sessionId: string | null })._sessionId = 'testsession123456';
-      (instance as unknown as { env: Record<string, unknown> }).env.KV = mockKV;
+      // The MockContainer constructor (vi.mock('@cloudflare/containers')) resets
+      // env to { KV: null } and ignores the constructor's env arg, so SAAS_MODE
+      // and TIMEKEEPER must be assigned post-construction or the Timekeeper-ping
+      // branch in collectMetrics is silently skipped (isSaasModeActive returns false).
+      const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
+      instanceEnv.KV = mockKV;
+      instanceEnv.SAAS_MODE = 'active';
+      instanceEnv.TIMEKEEPER = TIMEKEEPER;
 
       const stopSpy = vi.spyOn(instance, 'stop');
 
@@ -319,7 +326,10 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       (instance as unknown as { _userEmail: string | null })._userEmail = 'under-quota@example.com';
       (instance as unknown as { _bucketName: string | null })._bucketName = 'test-bucket';
       (instance as unknown as { _sessionId: string | null })._sessionId = 'testsession123456';
-      (instance as unknown as { env: Record<string, unknown> }).env.KV = mockKV;
+      const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
+      instanceEnv.KV = mockKV;
+      instanceEnv.SAAS_MODE = 'active';
+      instanceEnv.TIMEKEEPER = TIMEKEEPER;
 
       const stopSpy = vi.spyOn(instance, 'stop');
 
