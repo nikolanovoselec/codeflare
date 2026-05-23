@@ -96,6 +96,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (stale geometrychange ignore window (Fix 2) describe -> ignores geometrychange within 50ms of enableVirtualKeyboardOverlay + accepts after 50ms grace -> AC1, AC2) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (getKeyboardHeight - Samsung compensation describe -> raw height when address bar at top + raw on wide screens -> AC3 Samsung bottom-bar viewport-inflation compensation) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (baselineInnerHeight stability on keyboard close describe -> consistent keyboard height across close/reopen cycles -> AC4 baseline immutable, AC5 not updated on keyboard close) -->
 ### REQ-MOB-003: Samsung Internet keyboard viewport state
 
 <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight -->
@@ -127,6 +130,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (forceResetKeyboardState describe -> unconditionally zeros keyboardHeight + vkOpen + viewportGrowth (used by Samsung focusout/dashboard-bounce/visibility recovery) -> AC1 Samsung focusout fallback, AC2 dashboard-bounce reset) -->
+<!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (settings describe -> samsungAddressBarTop preference toggle wired to mobile.ts samsung-address-bar position -> AC3 user-settings toggle for address bar position) -->
 ### REQ-MOB-011: Samsung Internet keyboard state recovery
 
 <!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState -->
@@ -220,6 +225,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
+<!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touch-gestures describe -> sendTerminalKey sequences via triggerDataEvent + attachSwipeGestures sends left/right arrows above threshold + repeat timer fires every 80ms + cleared on touchend + vertical swipe scrolls when keyboard closed + capture-phase listeners -> AC1, AC2, AC3, AC4, AC5) -->
 ### REQ-MOB-005: Swipe gestures send arrow keys or scroll
 
 <!-- @impl: web-ui/src/lib/touch-gestures.ts -->
@@ -253,6 +259,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
+<!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (resolveKeyAction Ctrl+C describe + Ctrl+V + other Ctrl+letter combos describes -> SIGINT (Ctrl+C = 0x03) + Ctrl+D = EOT (0x04) + Ctrl+L = FF (0x0c) + Ctrl+A = SOH (0x01) + Ctrl+Z = SUB (0x1a) -> AC3 common Ctrl sequences work) -->
+<!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (resolveKeyAction describe -> returns none for regular character without Ctrl + functional keys resolve regardless of Ctrl state -> AC4 sticky single-use, AC5 no interference with normal input) -->
+<!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (FloatingTerminalButtons describe -> Ctrl button rendered + Label Visibility + Conditional Rendering of mobile-only buttons -> AC1, AC2) -->
 ### REQ-MOB-006: Sticky Ctrl button for mobile
 
 <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx -->
@@ -285,6 +294,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
+<!-- @test: web-ui/src/__tests__/lib/speech-input.test.ts (speech-input describe -> uses Web Speech API (SpeechRecognition / webkitSpeechRecognition) + isSpeechSupported reflects availability + startListening calls recognition.start with continuous=false interimResults=false + onresult sends final text to callback + onresult ignores non-final/empty + onend resets state -> AC1, AC2, AC4, AC5) -->
+<!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (Desktop Voice Button describe + Label Content describe -> mobile floating mic button + desktop bottom-right icon + Ctrl+Space title attribute hint -> AC3 mobile mic + desktop shortcut) -->
 ### REQ-MOB-007: Voice input via Web Speech API
 
 <!-- @impl: web-ui/src/lib/speech-input.ts -->
@@ -317,6 +328,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
+<!-- @test: web-ui/src/__tests__/lib/speech-input.test.ts (speech-input describe -> getMicPermissionState returns state from navigator.permissions.query for 'prompt'/'granted' + 'unknown' fallback when API throws -> AC1 caller can blur iframe before recognition.start when state is 'prompt') -->
 ### REQ-MOB-013: Mobile input-system platform compatibility
 
 <!-- @impl: web-ui/src/lib/speech-input.ts -->
@@ -346,6 +358,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
+<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (extracted functions describe -> initializeTerminal creates Terminal with cursorBlink:true + cursorStyle:'bar' -> AC1 cursor enabled) -->
+<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (named constants describe -> DECTCEM_CURSOR_PARAM equals 25 so applyCursorVisibility only honors DECTCEM hide sequences (parameter 25) from the agent + does not hide in alternate buffer -> AC4 alternate-buffer guard) -->
 ### REQ-MOB-008: Cursor visible for all supported agents
 
 <!-- @impl: web-ui/src/hooks/useTerminal.ts::applyCursorVisibility -->
@@ -378,6 +392,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
+<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Visibility Return Keyboard Reset describe -> calls forceResetKeyboardState on visibility return in terminal view -> AC2 document-visibility handler fallback) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (forceResetKeyboardState describe -> unconditionally zeros keyboardHeight + vkOpen + viewportGrowth (boundingRect.height returns stale cached values on browser resume) -> AC3 unconditional reset) -->
 ### REQ-MOB-009: Visibility return recovers keyboard state
 
 <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::restoreFocusIfNeeded -->
