@@ -130,7 +130,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 - The dedup gate (`.vars` marker delete as the agent's first step) is unchanged from the pre-vault flow.
 - Compaction is not automated; the user prunes `Raw/Sessions/` manually via SilverBullet when the directory becomes unwieldy.
-- The headless `graphify extract` CLI is intentionally bypassed per [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC6: codeflare ships no LLM provider key for graphify and the capture agent IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit.
+- The headless `graphify extract` CLI is intentionally bypassed per [REQ-MEM-001](memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC6: codeflare ships no LLM provider key for graphify and the capture agent IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit.
 
 **Priority:** P0
 
@@ -208,7 +208,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
-### REQ-VAULT-004: Unified global graph merges vault + active repos
+### REQ-VAULT-004: Unified global graph merges vault and active repos
 
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::_resolve_active -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
@@ -249,7 +249,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
 <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute boundary cases describe → AC3/AC5) -->
 
-**Intent:** Clicking the Vault button in the codeflare UI opens SilverBullet in a new tab, behind the same auth + rate-limit boundary as every other tier-gated session feature. This REQ covers the in-container server, the auth/rate-limit proxy plumbing, and the host-side HTTP+WS branch; UX integration and SilverBullet subpath adaptation live in [REQ-VAULT-012](#req-vault-012-vault-editor-ux-integration-and-subpath-adapter).
+**Intent:** Clicking the Vault button in the codeflare UI opens SilverBullet in a new tab, behind the same auth + rate-limit boundary as every other tier-gated session feature. This REQ covers the in-container server, the auth/rate-limit proxy plumbing, and the host-side HTTP+WS branch; UX integration and SilverBullet subpath adaptation live in [REQ-VAULT-012](#req-vault-012-vault-button-render-and-readiness-gating).
 
 **Applies To:** User
 
@@ -353,7 +353,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. When the resolved active repo's basename differs from the previously-recorded basename and the previous basename is still present in `~/.graphify/global-manifest.json`, the hook runs `flock -w 5 /tmp/graphify-global.lock graphify global remove <previous-basename>` before performing the add specified in [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault--active-repos) AC2.
+1. When the resolved active repo's basename differs from the previously-recorded basename and the previous basename is still present in `~/.graphify/global-manifest.json`, the hook runs `flock -w 5 /tmp/graphify-global.lock graphify global remove <previous-basename>` before performing the add specified in [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC2.
 2. End state after a switch: the global graph contains the vault entry plus exactly one per-repo entry (the user's currently active repo).
 3. Same-basename transitions (two clones with identical directory names, or branch switches within the same repo) skip the explicit remove because `graphify global add --as <tag>` replaces the existing entry via graphify's source_hash dedup.
 4. All write sites (capture agent, vault-extract agent, active-repo hook, `/graphify` skill) serialise via `flock -w 5 /tmp/graphify-global.lock` to prevent corrupted writes when multiple workflows race; the 5s timeout ensures a crashed lock holder cannot wedge the queue indefinitely.
@@ -365,7 +365,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault--active-repos)
+**Dependencies:** [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
 
 **Verification:** Structural audit
 
@@ -507,7 +507,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption--per-session-idb-lifecycle), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
+**Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
 **Verification:** Automated test
 

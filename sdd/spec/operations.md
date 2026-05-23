@@ -585,7 +585,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P1
 
-**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-triggered-by-push-to-main)
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
 **Verification:** Integration test
 

@@ -127,7 +127,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-### REQ-AGENT-004: Two Session Modes - Standard and Pro
+### REQ-AGENT-004: Two Session Modes: Standard and Pro
 
 <!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
 <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
@@ -683,7 +683,7 @@ None.
 
 ---
 
-### REQ-AGENT-021: Pro-Mode SDD Workflow Preseed & Tool-Surface Portability
+### REQ-AGENT-021: Pro-Mode SDD Workflow Preseed and Tool-Surface Portability
 
 <!-- @impl: preseed/agents/claude/skills/spec-driven-development -->
 <!-- @impl: preseed/agents/claude/rules/spec-discipline.md -->
@@ -702,7 +702,7 @@ None.
 
 **Constraints:**
 
-- The `/sdd init` scaffolding contract lives in [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render); the enrichment pass with graphify queries lives in [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify); the Phase 7a source-anchor verifier gate lives in [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate) and the Phase 7b enumeration-coverage verifier gate lives in [REQ-AGENT-039](#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate); the PR-boundary review pipeline lives in [REQ-AGENT-036](#req-agent-036-pr-boundary-review-pipeline); the `/sdd clean` rescue and autonomy modes + discipline enforcement live in [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes).
+- The `/sdd init` scaffolding contract lives in [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render); the enrichment pass with graphify queries lives in [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify); the Phase 7a source-anchor verifier gate lives in [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate) and the Phase 7b enumeration-coverage verifier gate lives in [REQ-AGENT-039](#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate); the PR-boundary review pipeline lives in [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions); the `/sdd clean` rescue and autonomy modes + discipline enforcement live in [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes).
 
 **Priority:** P1
 
@@ -1268,7 +1268,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault--active-repos)
+**Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-VAULT-004](vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
 
 **Verification:** Automated test
 
@@ -1418,7 +1418,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-STOR-009](#req-stor-009-getting-started-docs-auto-seeded-on-first-session)
+**Dependencies:** [REQ-STOR-009](storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session)
 
 **Verification:** Manual check
 

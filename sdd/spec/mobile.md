@@ -398,7 +398,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Priority:** P1
 
-**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-quirks-handled)
+**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state)
 
 **Verification:** Manual check
 

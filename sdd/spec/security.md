@@ -122,7 +122,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-when-encryption_key-configured)
+**Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
 **Verification:** Integration test
 
@@ -261,7 +261,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-when-encryption_key-configured)
+**Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
 **Verification:** Automated test
 
