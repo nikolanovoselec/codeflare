@@ -493,8 +493,11 @@ describe('REQ-AUTH-010: Auth bypass prevention sentinel', () => {
     // Now reset — removes cache AND sentinel
     resetAuthConfigCache();
 
-    // After reset, with no KV config, pre-setup header trust is restored
-    const env2 = makeEnv(); // fresh env with empty KV
+    // After reset, with no KV config, pre-setup header trust is restored.
+    // makeEnv() reuses the outer mockKV reference; we need an actually-empty
+    // KV to assert pre-setup fallback re-engages.
+    const freshKV = createMockKV();
+    const env2 = { KV: freshKV as unknown as KVNamespace } as Env;
     const req2 = new Request('http://localhost/b', {
       headers: { 'cf-access-authenticated-user-email': 'fresh@example.com' },
     });
