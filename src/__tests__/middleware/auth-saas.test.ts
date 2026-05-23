@@ -21,7 +21,7 @@ import { authenticateRequest } from '../../lib/access';
 
 const mockedAuth = vi.mocked(authenticateRequest);
 
-describe('Three-tier auth middleware (SaaS mode)', () => {
+describe('Three-tier auth middleware (SaaS mode) / REQ-AUTH-005 (requireIdentity + requireActiveUser + requireAdmin layered stack)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
@@ -107,7 +107,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
   // ===========================================================================
   // requireIdentity
   // ===========================================================================
-  describe('requireIdentity', () => {
+  describe('requireIdentity / REQ-AUTH-005 AC1 (resolves user + auto-provisions pending in SaaS + sets c.user)', () => {
     it('sets user and bucketName on context', async () => {
       const app = createApp(requireIdentity);
       const res = await app.request('/test', {
@@ -154,7 +154,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
   // ===========================================================================
   // requireActiveUser
   // ===========================================================================
-  describe('requireActiveUser', () => {
+  describe('requireActiveUser / REQ-AUTH-005 AC2 (active-tier check, 403 PENDING/BLOCKED, no-op outside SaaS) / REQ-AUTH-005 AC4 (also exported as authMiddleware for backcompat)', () => {
     it('allows standard tier through when SAAS_MODE=active', async () => {
       mockAuthResult.user = {
         email: 'std@example.com',
@@ -304,7 +304,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
   // ===========================================================================
   // requireAdmin
   // ===========================================================================
-  describe('requireAdmin', () => {
+  describe('requireAdmin / REQ-AUTH-005 AC3 (role === admin, composed after requireIdentity)', () => {
     it('allows admin through', async () => {
       mockAuthResult.user = {
         email: 'admin@example.com',

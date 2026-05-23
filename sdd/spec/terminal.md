@@ -51,9 +51,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/cross-package-constants.test.ts` `Cross-Package Constants` describe annotated `REQ-TERM-001 AC1`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -119,9 +119,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test
+**Verification:** Automated test (`web-ui/src/__tests__/stores/terminal.test.ts` `Terminal Store` describe annotated `REQ-TERM-003`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -152,9 +152,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-SESSION-012](session-lifecycle.md#req-session-012-wake-loop-prevention)
 
-**Verification:** Automated test
+**Verification:** Automated test (`web-ui/src/__tests__/stores/terminal.test.ts` `Terminal Store` describe annotated `REQ-TERM-004`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -219,9 +219,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session)
 
-**Verification:** Automated test
+**Verification:** Automated test (`web-ui/src/__tests__/lib/terminal-config.test.ts` describe annotated `REQ-TERM-006`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -254,9 +254,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session)
 
-**Verification:** Automated test
+**Verification:** Automated test (`web-ui/src/__tests__/stores/tiling.test.ts` `Tiling Module - Pure Helpers` describe annotated `REQ-TERM-007`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -287,9 +287,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test
+**Verification:** Automated test (`web-ui/src/__tests__/stores/terminal.test.ts` `Terminal Store` describe annotated `REQ-TERM-008`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -321,9 +321,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test
+**Verification:** Automated test (`web-ui/src/__tests__/lib/terminal-config.test.ts` describe annotated `REQ-TERM-009` - exercises PROCESS_ICON_MAP, AGENT_ICON_MAP, getTabIcon, getTabDisplayName)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

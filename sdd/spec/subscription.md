@@ -51,9 +51,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/subscription.test.ts` `SubscriptionTierSchema` + `getDefaultTiers` describes annotated `REQ-SUB-001 AC1/AC2`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -91,9 +91,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/subscription.test.ts` `SubscriptionTierConfig interface` + `getDefaultTiers` describes annotated `REQ-SUB-002 AC1..AC3`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -122,9 +122,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/subscription.test.ts` `getDefaultTiers` describe annotated `REQ-SUB-003` - free tier `priceMonthly=0`, `canLogin=true`, single session limit; complementary route-level coverage in `src/__tests__/routes/auth.test.ts`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

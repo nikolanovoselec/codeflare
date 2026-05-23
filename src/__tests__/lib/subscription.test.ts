@@ -18,7 +18,7 @@ import {
 } from '../../lib/subscription';
 import { createMockKV } from '../helpers/mock-kv';
 
-describe('SubscriptionTierSchema', () => {
+describe('SubscriptionTierSchema / REQ-SUB-001 AC1 (8 tier identifiers) / REQ-SUB-002 AC1..AC4 (tier properties shape)', () => {
   const validTiers = ['blocked', 'pending', 'free', 'trial', 'standard', 'advanced', 'max', 'unlimited'];
 
   it('accepts all 8 valid tier values', () => {
@@ -78,7 +78,7 @@ describe('UsageRecordSchema', () => {
   });
 });
 
-describe('SubscriptionTierConfig interface', () => {
+describe('SubscriptionTierConfig interface / REQ-SUB-002 (tier property definitions including unlimited=null monthlySeconds and non-purchasable null priceMonthly)', () => {
   it('type-checks a valid tier config object', () => {
     const config: SubscriptionTierConfig = {
       id: 'standard',
@@ -134,7 +134,7 @@ describe('SubscriptionTierConfig interface', () => {
   });
 });
 
-describe('getDefaultTiers', () => {
+describe('getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)', () => {
   it('returns 8 tiers', () => {
     const tiers = getDefaultTiers();
     expect(tiers).toHaveLength(8);

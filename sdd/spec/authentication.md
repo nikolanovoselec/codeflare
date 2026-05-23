@@ -181,9 +181,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/middleware/auth-saas.test.ts` describe blocks annotated `REQ-AUTH-005 AC1/AC2/AC3/AC4`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -210,9 +210,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/access.test.ts` `getBucketName` + `authenticateRequest()` describes annotated `REQ-AUTH-006 AC1/AC2/AC3`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -335,9 +335,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-003](#req-auth-003-cf-access-mode-for-all-other-deployments)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/access.test.ts` `getUserFromRequest()` describe annotated `REQ-AUTH-010 AC1/AC2/AC3/AC4` — exercises pre-setup-header-trust gate and `resetAuthConfigCache()`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -364,9 +364,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes), [REQ-AUTH-010](#req-auth-010-auth-bypass-prevention)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/access.test.ts` `getUserFromRequest()` describe annotated `REQ-AUTH-011 AC1/AC2`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getR2Config } from '../../lib/r2-config';
 import { createMockKV } from '../helpers/mock-kv';
 
-describe('getR2Config', () => {
+describe('getR2Config / REQ-STOR-001 AC1/AC2/AC3 (dedicated per-user R2 bucket: account/jurisdiction-aware config, bucket naming derivation)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

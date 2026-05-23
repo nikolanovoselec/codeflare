@@ -35,7 +35,7 @@ vi.mock('../../lib/r2-config', () => ({
 // Import after mocks are set up
 import statsRoutes from '../../routes/storage/stats';
 
-describe('Storage Stats Routes', () => {
+describe('Storage Stats Routes / REQ-STOR-006 (storage stats endpoint reports bytes + object counts per tier quota) / REQ-STOR-014 (R2 object listing pagination via continuationToken)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

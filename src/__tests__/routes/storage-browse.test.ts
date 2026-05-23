@@ -50,7 +50,7 @@ vi.mock('../../lib/r2-seed', () => ({
 // Import after mocks are set up
 import browseRoutes from '../../routes/storage/browse';
 
-describe('Storage Browse Routes', () => {
+describe('Storage Browse Routes / REQ-STOR-007 (web file browser: browse endpoint with prefix validation, rate-limited)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
