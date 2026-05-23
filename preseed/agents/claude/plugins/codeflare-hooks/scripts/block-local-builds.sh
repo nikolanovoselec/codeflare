@@ -101,9 +101,14 @@ PATTERNS=(
   "${CMDPOS}playwright[[:space:]]+test"
   "${CMDPOS}node[[:space:]]+--test"
   "${CMDPOS}bun[[:space:]]+test"
-  # npm / npx wrappers
-  "${CMDPOS}npx[[:space:]]+(vitest|jest|mocha|tsc|oxlint|eslint|prettier|playwright)"
-  "${CMDPOS}npx[[:space:]]+wrangler[[:space:]]+(dev|build|deploy)"
+  # npm / npx wrappers. The `npx` form must permit arbitrary flags
+  # between `npx` and the tool name (e.g. `npx -y oxlint@1.66.0`,
+  # `npx -p pkg vitest`) — earlier the pattern required `npx <tool>`
+  # immediately adjacent and a `-y` slipped past, letting the assistant
+  # run oxlint locally. Match the tool name word-boundary anywhere
+  # after `npx ` on the same line.
+  "${CMDPOS}npx[[:space:]]+([^\n]*[[:space:]])?(vitest|jest|mocha|tsc|oxlint|eslint|prettier|playwright)([[:space:]@]|$)"
+  "${CMDPOS}npx[[:space:]]+([^\n]*[[:space:]])?wrangler[[:space:]]+(dev|build|deploy)"
   "${CMDPOS}npm[[:space:]]+test([[:space:]]|$)"
   "${CMDPOS}npm[[:space:]]+run[[:space:]]+(test|build|dev|typecheck|lint|knip|check|e2e)"
   "${CMDPOS}pnpm[[:space:]]+test"
