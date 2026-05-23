@@ -26,6 +26,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ---
 
+<!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-001 describe -> publicly accessible when setup:complete unset + only CLOUDFLARE_API_TOKEN required + token from env not body + R2/DNS/Access app resources created + status shape -> AC1..AC5) -->
 ### REQ-SETUP-001: First-time setup requires zero pre-configuration
 
 <!-- @impl: src/routes/setup/index.ts -->
@@ -58,6 +59,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ---
 
+<!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-002 describe -> Zod validation 400 sync + NDJSON Content-Type + per-step progress + setup: KV prefix + single done:true terminal -> AC1..AC5) -->
 ### REQ-SETUP-002: Setup wizard configures domain, auth, R2 credentials, and Turnstile
 
 <!-- @impl: src/routes/setup/handlers.ts -->
@@ -96,6 +98,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ---
 
+<!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-012 describe -> get_account + derive_r2_credentials + set_secrets PUT R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY + cleanup_stale_users + configure_custom_domain CNAME+route + create_access_app + finalize setup:complete -> AC1..AC7) -->
 ### REQ-SETUP-012: Setup wizard step sequence
 
 <!-- @impl: src/routes/setup/handlers.ts -->
@@ -128,6 +131,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ---
 
+<!-- @test: src/__tests__/lib/onboarding.test.ts (isSaasModeActive describe + deployment mode helpers describe -> SAAS_MODE=active case-insensitive + undefined defaults to CF Access + independence from ONBOARDING_LANDING_PAGE -> AC1..AC4) -->
 ### REQ-SETUP-003: Three deployment modes
 
 <!-- @impl: src/lib/onboarding.ts -->
@@ -160,6 +164,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ---
 
+<!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-004 describe -> same token deterministic R2 creds + retry from step 1 with partial KV + setup:complete NOT written on failure + 10020 route-already-exists handled + 10215 secret write auto-deploy retry -> AC1..AC5) -->
 ### REQ-SETUP-004: Setup is idempotent
 
 <!-- @impl: src/routes/setup/handlers.ts -->
@@ -287,6 +292,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ---
 
+<!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 describe -> ccTLD zone suffix walk + proxied CNAME + Worker route pattern + 10020 update path + lowercased KV write + cors-cache TTL + workersDevUrl/customDomainUrl in summary -> AC1..AC7) -->
 ### REQ-SETUP-007: Custom domain with DNS validation
 
 <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
@@ -353,6 +359,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ---
 
+<!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC coverage describe -> all 5 tiers visible + three-phase navigation + Turnstile init + Standard/Pro mode toggle + free tier no-Stripe direct subscribe + paid tier Start Trial CTA -> AC1..AC6) -->
 ### REQ-SETUP-009: Subscribe page with tier selection
 
 <!-- @impl: web-ui/src/components/SubscribePage.tsx -->
