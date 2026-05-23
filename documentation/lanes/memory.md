@@ -74,10 +74,12 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
 5. **Counter update** -- writes current count + total lines back to the
    counter before emitting so subsequent invocations see delta `< 15`.
 6. **JSON output** -- emits `{hookSpecificOutput:{...,additionalContext}}`
-   instructing the main agent to dispatch the **memory-capture** named subagent
-   (Task tool with `subagent_type="memory-capture"`). The subagent's frontmatter
-   pins `model: sonnet`; the directive instructs the main agent not to pass a
-   model override.
+   with a mandatory directive: the main agent MUST spawn the **memory-capture**
+   subagent (Task tool, `subagent_type="memory-capture"`, `run_in_background=true`)
+   before any other work. The companion `memory-capture-block.sh` PreToolUse hook
+   hard-blocks all tool calls until the subagent is spawned. The subagent's
+   frontmatter pins `model: sonnet` (AD58); the main agent must not pass a model
+   override.
 
 The capture agent deletes the `.vars` file as its first step (dedup
 gate), runs `prefilter-transcript.sh` (jq filter that strips tool I/O,

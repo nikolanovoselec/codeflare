@@ -22,15 +22,13 @@ You will also derive:
 - `SESSION_ID`: the segment of `COUNTER_FILE` after the last `/`
   (the file is `~/.memory/counter/{SESSION_ID}`)
 - `SID_SHORT`: first 8 characters of `SESSION_ID`
-- `ISO_TS`: current local time formatted as `YYYY-MM-DDTHH-MM-SS%z`
-  (colons replaced with hyphens so the filename is safe on all
-  filesystems). You MUST derive this by running the exact Bash block in
-  step 1.5 below and using its stdout verbatim. Do NOT construct this
-  string yourself, do NOT reuse `TODAY` with a suffix, and do NOT guess
-  a clock component. Past failures (issue #416) traced to the agent
-  confabulating `T00-00-00+0000`, `T12-00-00+0000`, or `T23-30-00+0000`
-  instead of executing `date`. The exact bytes printed by `date` are
-  the only acceptable source for ISO_TS.
+- `ISO_TS`: derived in **Step 1.5** below by the mandatory Bash block.
+  Do NOT construct this string yourself, do NOT reuse `TODAY` with a
+  suffix, do NOT guess a clock component. The exact bytes printed by
+  `date` in Step 1.5 are the only acceptable source for `ISO_TS`.
+  Past failures (issue #416) traced to the agent confabulating
+  `T00-00-00+0000`, `T12-00-00+0000`, or `T23-30-00+0000` instead of
+  executing `date`.
 - `WORK_DIR`: a temp dir at `/tmp/memory-capture-{SID_SHORT}`
 
 ## Steps
@@ -70,16 +68,9 @@ else
   RESOLVED="UTC"
 fi
 ISO_TS="$(TZ="$RESOLVED" date '+%Y-%m-%dT%H-%M-%S%z')"
-# Assertion: reject confabulation fingerprints. A real `date` invocation
-# cannot return T00-00-00, T12-00-00, or any HH-30-00 / HH-00-00 on every
-# call. If this fires, the LLM bypassed the command above.
-case "$ISO_TS" in
-  *T00-00-00*|*T12-00-00*|*T23-30-00*|*T15-30-00*|*T16-30-00*)
-    echo "ISO_TS_ASSERTION_FAILED: suspicious clock component in $ISO_TS" >&2
-    exit 1
-    ;;
-esac
-# Assertion: must end with a real offset like +0200 or -0500 or +0000.
+EXPECTED_OFFSET="$(TZ="$RESOLVED" date '+%z')"
+
+# Assertion 1: must end with a real offset like +0200, -0500, +0000.
 case "$ISO_TS" in
   *[+-][0-9][0-9][0-9][0-9]) ;;
   *)
@@ -87,6 +78,37 @@ case "$ISO_TS" in
     exit 1
     ;;
 esac
+
+# Assertion 2: offset must match what TZ="$RESOLVED" produces. Catches
+# the original #416 symptom (Europe/Zurich host emitting +0000 because
+# the LLM dropped the TZ wrapper) without rejecting legitimately UTC
+# hosts. A wrong-TZ output fails here even though it has a "real" offset.
+ACTUAL_OFFSET="${ISO_TS: -5}"
+if [ "$ACTUAL_OFFSET" != "$EXPECTED_OFFSET" ]; then
+  echo "ISO_TS_ASSERTION_FAILED: offset $ACTUAL_OFFSET does not match TZ=$RESOLVED expected $EXPECTED_OFFSET" >&2
+  exit 1
+fi
+
+# Assertion 3: a freshness check that proves `date` actually executed in
+# this Bash invocation (vs the LLM fabricating a plausible value and
+# skipping the call). Reconstruct ISO_TS into a date-parsable form by
+# converting only the time-portion hyphens after `T` back into colons,
+# then compare its epoch against the wall clock. >5s drift = fabricated.
+DATE_PART="${ISO_TS%T*}"
+REST="${ISO_TS#*T}"
+TIME_PART="${REST%[+-]*}"
+TZ_PART="${REST#$TIME_PART}"
+TIME_COLONS="${TIME_PART//-/:}"
+ISO_TS_PARSEABLE="${DATE_PART}T${TIME_COLONS}${TZ_PART}"
+EPOCH_NOW=$(date +%s)
+ISO_TS_EPOCH=$(date -d "$ISO_TS_PARSEABLE" +%s 2>/dev/null || echo 0)
+DRIFT=$(( EPOCH_NOW - ISO_TS_EPOCH ))
+ABS_DRIFT=${DRIFT#-}
+if [ "$ISO_TS_EPOCH" -eq 0 ] || [ "$ABS_DRIFT" -gt 5 ]; then
+  echo "ISO_TS_ASSERTION_FAILED: $ISO_TS drifts ${DRIFT}s from current clock; agent likely fabricated" >&2
+  exit 1
+fi
+
 echo "ISO_TS=$ISO_TS"
 echo "RESOLVED_TZ=$RESOLVED"
 ```
