@@ -155,7 +155,7 @@ describe('prefilter-transcript.sh (REQ-MEM-001 AC3)', () => {
   });
 });
 
-// REQ-MEM-001 AC4 (YAML frontmatter shape) and AC5 (graphify global add
+// REQ-MEM-001 AC5 (YAML frontmatter shape) and AC7 (graphify global add
 // under flock) were previously covered by four prompt-text-grep tests.
 // Per tdd-discipline they were text-matching theater: the regexes would
 // still pass if the surrounding prompt prose was replaced with a no-op

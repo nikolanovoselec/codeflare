@@ -117,14 +117,16 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 1. `memory-agent-prompt.md` Step 4 writes the capture file at `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter + Context/Decisions/Observations/References template.
 2. Concept references use `[[wikilinks]]`; file paths, code symbols, and PR/issue references stay as prose.
-3. The capture agent builds the vault graph inline (sonnet emits chunk JSON matching graphify's schema, then a `flock -w 5 /tmp/graphify-global.lock` Python step calls `graphify.build` / `graphify.cluster` / `graphify.export.to_json` to materialise it), then merges it into the unified graph via `flock -w 5 /tmp/graphify-global.lock graphify global add ... --as user_vault`. The headless `graphify extract` CLI is intentionally bypassed per REQ-MEM-001 AC5: codeflare ships no LLM provider key for graphify and the capture agent IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit.
-4. If extraction fails, the markdown file stays on disk and the next vault-monitor tick will re-discover it via the high-water marker comparison.
-5. The MCP `server-memory` subsystem (`mcp__memory__*`) has been removed entirely; the capture agent does not invoke it, and no historical JSONL graph is read.
+3. The capture agent builds the vault graph inline: sonnet emits chunk JSON matching graphify's schema, then a Python step calls `graphify.build` / `graphify.cluster` / `graphify.export.to_json` to materialise the per-extraction graph.
+4. The agent merges the per-extraction graph into the unified graph via `flock -w 5 /tmp/graphify-global.lock graphify global add ... --as user_vault`.
+5. If extraction fails, the markdown file stays on disk and the next vault-monitor tick will re-discover it via the high-water marker comparison.
+6. The MCP `server-memory` subsystem (`mcp__memory__*`) has been removed entirely; the capture agent does not invoke it, and no historical JSONL graph is read.
 
 **Constraints:**
 
 - The dedup gate (`.vars` marker delete as the agent's first step) is unchanged from the pre-vault flow.
 - Compaction is not automated; the user prunes `Raw/Sessions/` manually via SilverBullet when the directory becomes unwieldy.
+- The headless `graphify extract` CLI is intentionally bypassed per [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC6: codeflare ships no LLM provider key for graphify and the capture agent IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit.
 
 **Priority:** P0
 

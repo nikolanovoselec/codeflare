@@ -454,7 +454,7 @@ describe('container DO class', () => {
       expect(response.status).toBe(400);
     });
 
-    // REQ-MEM-001 AC3 / REQ-SESSION-016: the previous regression coverage
+    // REQ-MEM-001 AC4 / REQ-SESSION-016: the previous regression coverage
     // exercised applyBucketName and applyPrefsOnRestart in isolation with
     // userTimezone already in the input arg, which would stay green even if
     // the handleSetBucketName destructure were reverted to the PR #390 bug
@@ -505,7 +505,7 @@ describe('container DO class', () => {
       expect(instance.envVars?.USER_TIMEZONE).toBe('America/New_York');
     });
 
-    // REQ-MEM-001 AC3: malformed IANA shapes (path traversal, junk) must
+    // REQ-MEM-001 AC4: malformed IANA shapes (path traversal, junk) must
     // not reach storage or the env var. entrypoint.sh uses USER_TIMEZONE
     // to build the /etc/localtime symlink target, so a value like
     // '../../etc/shadow' would otherwise be an unbounded-path injection vector.

@@ -1,4 +1,4 @@
-// REQ-MEM-001 AC3: capture the browser's IANA timezone via
+// REQ-MEM-001 AC4: capture the browser's IANA timezone via
 // Intl.DateTimeFormat().resolvedOptions().timeZone and sync it to the
 // user's preferences when it differs from the stored value. The
 // container's capture pipeline reads USER_TIMEZONE from env on the
