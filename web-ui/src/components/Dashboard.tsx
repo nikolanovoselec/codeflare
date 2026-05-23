@@ -62,7 +62,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
       // Best-effort; never block dashboard mount on cache sweep.
     });
 
-    // REQ-MEM-001 AC3: capture the browser's IANA timezone and sync it
+    // REQ-MEM-001 AC4: capture the browser's IANA timezone and sync it
     // to the user's preferences so the next session start propagates
     // USER_TIMEZONE into the container env. Best-effort; never blocks.
     if (typeof sessionStore.updatePreferences === 'function') {

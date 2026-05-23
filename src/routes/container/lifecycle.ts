@@ -65,7 +65,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     sessionMode: params.sessionMode,
     sleepAfter: params.sleepAfter,
-    // REQ-MEM-001 AC3: forward the user's IANA timezone so the capture
+    // REQ-MEM-001 AC4: forward the user's IANA timezone so the capture
     // pipeline's TZ resolution produces wall-clock filenames matching
     // the user's location instead of UTC.
     ...(params.userTimezone && { userTimezone: params.userTimezone }),
@@ -522,7 +522,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       encryptionKey: c.env.ENCRYPTION_KEY,
       llmKeys: llmKeys ?? undefined,
       deployKeys: deployKeys ?? undefined,
-      // REQ-MEM-001 AC3: forward the browser's IANA timezone (captured
+      // REQ-MEM-001 AC4: forward the browser's IANA timezone (captured
       // on createSession) into the container so capture filenames reflect
       // the user's wall-clock instead of UTC.
       userTimezone: preferences.userTimezone,

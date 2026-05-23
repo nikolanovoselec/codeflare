@@ -235,7 +235,7 @@ export interface UserPreferences {
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
   sleepAfter?: SleepAfterOption;
-  /** REQ-MEM-001 AC3: user's IANA timezone, captured from the browser. */
+  /** REQ-MEM-001 AC4: user's IANA timezone, captured from the browser. */
   userTimezone?: string;
 }
 
@@ -273,7 +273,7 @@ export interface ContainerConfigPayload {
   encryptionKey?: string;
   llmKeys?: LlmKeys;
   deployKeys?: DeployKeys;
-  /** REQ-MEM-001 AC3: user's IANA timezone forwarded to the container. */
+  /** REQ-MEM-001 AC4: user's IANA timezone forwarded to the container. */
   userTimezone?: string;
 }
 

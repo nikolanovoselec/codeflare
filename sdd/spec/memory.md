@@ -41,14 +41,18 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. The memory-capture hook script runs as a `UserPromptSubmit` hook, injecting a short instruction into the main agent's context via `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0`.
 2. The hook counts real user messages in the JSONL transcript using a two-layer grep filter that excludes tool-result wrappers (content is an array, not a string) and synthetic messages (slash commands, task notifications -- content starts with `<`).
-3. When triggered, a background sonnet agent runs the three-stage capture pipeline (prefilter transcript noise, chunk and accumulate per-chunk observations into a scratchpad, synthesise the final note) and writes the capture file to `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md`. The agent is sonnet per AD58 (pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model). Timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4.
-4. The capture file uses a YAML frontmatter template with `session_id`, `captured_at`, and `captured_from_range` fields followed by Context / Decisions / Observations / References sections.
-5. The capture agent extracts chunk nodes/edges from the rendered markdown via inline graph construction (sonnet itself emits the chunk JSON matching graphify's schema, then a short Python step calls `graphify.build` / `graphify.cluster` / `graphify.export.to_json` to materialise the per-extraction graph), then runs `graphify global add ... --as user_vault` under `flock -w 5 /tmp/graphify-global.lock` so the new content is queryable on the same turn it is written. The headless `graphify extract` CLI is intentionally bypassed: codeflare ships no LLM provider key for graphify, and the capture agent IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit.
+3. When triggered, a background sonnet agent runs the three-stage capture pipeline (prefilter transcript noise, chunk and accumulate per-chunk observations into a scratchpad, synthesise the final note) and writes the capture file to `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md`.
+4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4.
+5. The capture file uses a YAML frontmatter template with `session_id`, `captured_at`, and `captured_from_range` fields followed by Context / Decisions / Observations / References sections.
+6. The capture agent extracts chunk nodes/edges from the rendered markdown via inline graph construction: sonnet emits chunk JSON matching graphify's schema, and a short Python step calls `graphify.build` / `graphify.cluster` / `graphify.export.to_json` to materialise the per-extraction graph.
+7. The agent runs `graphify global add ... --as user_vault` under `flock -w 5 /tmp/graphify-global.lock` so the new content is queryable on the same turn it is written.
 
 **Constraints:**
 
 - The hook runs in approximately 150ms (lightweight shell script, no heavy processing).
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
+- The capture agent is sonnet per AD58, pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model.
+- The headless `graphify extract` CLI is intentionally bypassed in AC6: codeflare ships no LLM provider key for graphify, and the capture agent IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit.
 
 **Priority:** P0
 
@@ -265,7 +269,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. Each extraction merges the new chunk's nodes/edges into the persistent graph using a hash-keyed union (existing IDs dedupe, new IDs append).
 3. The persistent vault graph is what `graphify global add ... --as user_vault` consumes, so the global graph's `user_vault` repo tag always reflects the cumulative vault content rather than only the most recent extraction.
 4. If the persistent vault graph file is missing or unreadable, the pass starts a fresh one (rather than crashing) and writes it at the end of the run.
-5. The merge step runs under `flock -w 5 /tmp/graphify-global.lock` so it serialises with capture-pipeline writes and active-repo hooks; the 5s timeout prevents indefinite block if the lock holder crashes, matching REQ-MEM-001 AC5.
+5. The merge step runs under `flock -w 5 /tmp/graphify-global.lock` so it serialises with capture-pipeline writes and active-repo hooks; the 5s timeout prevents indefinite block if the lock holder crashes, matching REQ-MEM-001 AC7.
 
 **Constraints:**
 

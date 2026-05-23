@@ -20,7 +20,7 @@ const logger = createLogger('preferences');
 
 /**
  * REQ-MEM-010 AC4: validate an IANA timezone string for the
- * `PATCH /api/preferences` `userTimezone` field. (REQ-MEM-001 AC3
+ * `PATCH /api/preferences` `userTimezone` field. (REQ-MEM-001 AC4
  * covers how the capture agent uses `$USER_TIMEZONE` at capture time;
  * REQ-MEM-010 AC4 is the
  * preference-endpoint contract that gets the value there.) Browsers

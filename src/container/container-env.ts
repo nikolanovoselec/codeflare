@@ -36,7 +36,7 @@ export interface ContainerEnvState {
   _containerAuthToken: string | null;
   _sessionId: string | null;
   _userEmail: string | null;
-  /** REQ-MEM-001 AC3: user's IANA timezone (e.g. "Europe/Zurich"). */
+  /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null;
 }
 
@@ -54,7 +54,7 @@ interface RestartPrefsInput {
   cloudflareAccountId?: string;
   encryptionKey?: string;
   sessionMode?: string;
-  /** REQ-MEM-001 AC3: user's IANA timezone. Updated on subsequent DO wakes
+  /** REQ-MEM-001 AC4: user's IANA timezone. Updated on subsequent DO wakes
    * when preferences.userTimezone changes between sessions. */
   userTimezone?: string;
 }
@@ -74,7 +74,7 @@ export interface SetBucketNameCreds {
   cloudflareAccountId?: string;
   encryptionKey?: string;
   sessionMode?: string;
-  /** REQ-MEM-001 AC3: user's IANA timezone forwarded from /start. */
+  /** REQ-MEM-001 AC4: user's IANA timezone forwarded from /start. */
   userTimezone?: string;
 }
 
@@ -205,7 +205,7 @@ export function buildEnvVars(
     ...(state._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: state._cloudflareAccountId }),
     // Session mode (controls memory persistence in entrypoint.sh)
     SESSION_MODE: state._sessionMode,
-    // REQ-MEM-001 AC3: user's IANA timezone. The capture haiku resolves
+    // REQ-MEM-001 AC4: user's IANA timezone. The capture haiku resolves
     // wall-clock time as TZ="$USER_TIMEZONE" date '+%Y-%m-%dT...'; only
     // emit when set so the entrypoint's existing fallback chain ($TZ ->
     // /etc/timezone -> UTC) handles the unset case.
@@ -260,7 +260,7 @@ export async function applyBucketName(
   // Store session mode in instance memory only (not persisted to DO storage; re-sent on each container start)
   if (r2Creds?.sessionMode) state._sessionMode = r2Creds.sessionMode;
 
-  // REQ-MEM-001 AC3: persist userTimezone so the capture pipeline sees
+  // REQ-MEM-001 AC4: persist userTimezone so the capture pipeline sees
   // the user's IANA zone on subsequent DO wakes too (the env var flows
   // through buildEnvVars to the container's entrypoint). Persist BEFORE
   // mutating state so a storage failure does not split-brain (in-memory
@@ -336,7 +336,7 @@ export async function applyPrefsOnRestart(
     changed = true;
   }
 
-  // REQ-MEM-001 AC3: userTimezone may change between sessions if the
+  // REQ-MEM-001 AC4: userTimezone may change between sessions if the
   // user travels or fixes a wrong value via the Dashboard auto-sync.
   // Update state + storage when the new value differs from the cached
   // one so the next container start emits the correct USER_TIMEZONE.
