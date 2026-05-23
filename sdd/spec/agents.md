@@ -345,19 +345,10 @@ Multi-agent support, preseed system, and session modes.
 2. `GET /api/deploy-keys` returns masked tokens, never full values.
 3. `DELETE /api/deploy-keys` clears all stored deploy credentials.
 4. Keys are stored in KV at `deploy-keys:{bucketName}`, encrypted with AES-256-GCM when `ENCRYPTION_KEY` is set.
-5. Deploy keys are injected as container environment variables: `GH_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
-6. Keys are sent as explicit `null` when absent (not omitted) to ensure revocation propagates on session restart.
-7. When `GH_TOKEN` is present, `entrypoint.sh` configures `git config --global credential.helper` for HTTPS auth.
-8. `CLOUDFLARE_ACCOUNT_ID` is auto-fetched from the Cloudflare API when a Cloudflare API token is stored.
-9. GitHub token creation offers three scope tiers (Minimal, Recommended, Advanced) via a selector in the connect flow. Recommended is pre-selected. The URL pre-fills the correct scopes per tier.
-10. Cloudflare token creation directs users to use the "Edit Cloudflare Workers" template with account and zone selection. No scope pre-fill (Cloudflare template URLs are broken).
-11. A documentation page lists all scopes per tier with explanations of why each is needed, linked from the UI via "See all scopes".
 
 **Constraints:**
 
-- GitHub Minimal: 1 scope (contents). Recommended: 6 scopes (contents, PRs, actions, workflows, administration, secrets). Advanced: all 19 scopes including Copilot.
-- Cloudflare: "Edit Cloudflare Workers" template covers Workers, KV, R2, Pages, Containers, Routes. Users add extra scopes (D1, DNS, Access, Turnstile) when their agent requests them.
-- Copilot CLI checks env vars in order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`; auth fails silently if the token lacks Copilot scope - requires Advanced tier.
+- The CRUD surface validates against provider APIs (REQ-AGENT-001 multi-agent guarantees) before writing to KV; an unreachable provider returns 502, not a stored credential of unknown validity.
 
 **Priority:** P1
 
@@ -927,3 +918,63 @@ None.
 **Verification:** Automated test (`host/__tests__/enforce-ctx-mode-graphify.test.js`, `host/__tests__/graph-first-nudge.test.js`)
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-029: Deploy Credential Propagation to Container
+
+<!-- @impl: src/container/container-env.ts -->
+<!-- @impl: entrypoint.sh -->
+
+**Intent:** Stored deploy credentials must reach the container as environment variables and be consumed by git, wrangler, and the Cloudflare API auto-fetch step, so the in-container agent can push code and deploy without re-authentication.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Deploy keys are injected as container environment variables: `GH_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
+2. Keys are sent as explicit `null` when absent (not omitted) to ensure revocation propagates on session restart.
+3. When `GH_TOKEN` is present, `entrypoint.sh` configures `git config --global credential.helper` for HTTPS auth.
+4. `CLOUDFLARE_ACCOUNT_ID` is auto-fetched from the Cloudflare API when a Cloudflare API token is stored.
+
+**Constraints:**
+
+- Copilot CLI checks env vars in order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`; auth fails silently if the token lacks Copilot scope - requires Advanced tier (see [REQ-AGENT-028](#req-agent-028-deploy-credential-token-creation-ux)).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-028: Deploy Credential Token-Creation UX
+
+<!-- @impl: web-ui/src/lib/token-scopes.ts -->
+<!-- @impl: web-ui/src/components/settings/ProviderRow.tsx -->
+
+**Intent:** Token creation for GitHub and Cloudflare must guide users through scope selection so they create the smallest token that still unlocks the features they need, without copy-pasting raw scope strings.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. GitHub token creation offers three scope tiers (Minimal, Recommended, Advanced) via a selector in the connect flow. Recommended is pre-selected. The URL pre-fills the correct scopes per tier.
+2. Cloudflare token creation directs users to use the "Edit Cloudflare Workers" template with account and zone selection. No scope pre-fill (Cloudflare template URLs are broken).
+3. A documentation page lists all scopes per tier with explanations of why each is needed, linked from the UI via "See all scopes".
+
+**Constraints:**
+
+- GitHub Minimal: 1 scope (contents). Recommended: 6 scopes (contents, PRs, actions, workflows, administration, secrets). Advanced: all 19 scopes including Copilot.
+- Cloudflare: "Edit Cloudflare Workers" template covers Workers, KV, R2, Pages, Containers, Routes. Users add extra scopes (D1, DNS, Access, Turnstile) when their agent requests them.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-019](#req-agent-019-branded-settings-ui)
+
+**Verification:** Manual check
+
+**Status:** Partial
