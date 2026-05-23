@@ -305,13 +305,13 @@ Base64-encoded inputs are validated with try/catch around `atob()`. Invalid base
 
 **Check order in `handleWebSocketUpgrade`** (three pre-rate-limit gates, executed in this sequence):
 
-1. **Session-stopped gate:** WebSocket upgrade requests for sessions whose KV status is `stopped` are rejected immediately with close code 4503 (`container-stopped`) before the rate-limit counter is consulted. A browser reconnect storm against a hibernated or crashed container does not consume the user's 30-connection budget.
+1. **Session-stopped gate (REQ-SEC-020 AC1):** WebSocket upgrade requests for sessions whose KV status is `stopped` are rejected immediately with close code 4503 (`container-stopped`) before the rate-limit counter is consulted. A browser reconnect storm against a hibernated or crashed container does not consume the user's 30-connection budget.
 
-2. **Warm-up gate:** After the stopped check, the worker peeks the container `/health` endpoint. If the container is up but still initializing (port 8080 bound but R2 sync and `.bashrc` autostart writes not yet complete), the host sets `terminalServiceReady=false` in the health response. The worker rejects the upgrade with close code 1013 (`container-warming-up`) before the rate-limit counter is consulted. This prevents reconnect storms during the ~10s cold-start window from consuming rate-limit budget and from spawning PTYs against pre-sync state (bare bash, no agent autostart). The `/health` probe is fail-open: any probe error or missing `terminalServiceReady` field falls through to the normal rate-limit path. The host server applies the same gate directly at the WebSocket accept layer (REQ-STOR-004).
+2. **Warm-up gate (REQ-SEC-020 AC2):** After the stopped check, the worker peeks the container `/health` endpoint. If the container is up but still initializing (port 8080 bound but R2 sync and `.bashrc` autostart writes not yet complete), the host sets `terminalServiceReady=false` in the health response. The worker rejects the upgrade with close code 1013 (`container-warming-up`) before the rate-limit counter is consulted. This prevents reconnect storms during the ~10s cold-start window from consuming rate-limit budget and from spawning PTYs against pre-sync state (bare bash, no agent autostart). The `/health` probe is fail-open: any probe error or missing `terminalServiceReady` field falls through to the normal rate-limit path. The host server applies the same gate directly at the WebSocket accept layer (REQ-SESSION-015 AC2).
 
-3. **Rate-limit check:** The 30 connections/60s window counter is only consulted after both gates above pass.
+3. **Rate-limit check (REQ-SEC-007):** The 30 connections/60s window counter is only consulted after both gates above pass.
 
-Implements [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-on-all-mutation-endpoints).
+Implements [REQ-SEC-020](../../sdd/spec/security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits) (with [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) providing the underlying rate-limit infrastructure).
 
 ### Vault Editor Rate Limit (REQ-VAULT-005)
 
