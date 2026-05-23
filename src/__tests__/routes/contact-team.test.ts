@@ -45,7 +45,12 @@ vi.mock('../../lib/access', () => ({
 // ---------------------------------------------------------------------------
 // Email mock — track calls without sending real email
 // ---------------------------------------------------------------------------
-const mockSendAccessRequestNotification = vi.fn(async () => true);
+// vi.mock() factories are hoisted ABOVE all top-level code, so any
+// referenced helpers must also be hoisted via vi.hoisted(); otherwise
+// the factory hits a ReferenceError at module-init time.
+const { mockSendAccessRequestNotification } = vi.hoisted(() => ({
+  mockSendAccessRequestNotification: vi.fn(async () => true),
+}));
 vi.mock('../../lib/email', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/email')>();
   return {

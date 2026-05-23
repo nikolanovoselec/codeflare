@@ -516,9 +516,15 @@ describe('Setup AC Coverage', () => {
 
       await readNdjson(res);
 
-      // Every KV key written by setup must start with 'setup:'
+      // Every KV key written by setup-domain code must start with 'setup:'.
+      // Filter out user:/preferences: (separate domains) and 'setup-configure:'
+      // (rate-limit middleware bookkeeping, not a setup-domain write).
       const kvPutCalls = mockKV.put.mock.calls as [string, string][];
-      const setupPuts = kvPutCalls.filter(([key]) => !key.startsWith('user:') && !key.startsWith('preferences:'));
+      const setupPuts = kvPutCalls.filter(([key]) =>
+        !key.startsWith('user:') &&
+        !key.startsWith('preferences:') &&
+        !key.startsWith('setup-configure:')
+      );
       expect(setupPuts.length).toBeGreaterThan(0);
       for (const [key] of setupPuts) {
         expect(key).toMatch(/^setup:/);
