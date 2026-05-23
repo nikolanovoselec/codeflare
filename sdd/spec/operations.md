@@ -34,7 +34,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. `deploy.yml` triggers on push to `main` and `workflow_dispatch` (with environment selection: production or integration).
+1. The deploy workflow triggers on push to `main` and `workflow_dispatch` (with environment selection: production or integration).
 2. The deploy pipeline runs end-to-end: install dependencies, build, test, typecheck, Docker build, scan, push, deploy, set secrets.
 3. Dependencies are cached via `actions/cache` for faster runs.
 4. Frontend is built, and both backend and frontend tests and typechecks run before any deployment steps.
@@ -159,12 +159,12 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. `test.yml` triggers on PRs to `main` and `workflow_dispatch`.
+1. The PR-check workflow triggers on PRs to `main` and `workflow_dispatch`.
 2. Two parallel jobs run: `test` and `dependency-review`.
 3. The `test` job runs: lint (oxlint), build frontend, run backend + frontend tests, typecheck both, dead code check (knip), and `npm audit --audit-level=high --omit=dev` for backend and frontend.
 4. The `dependency-review` job runs `actions/dependency-review-action` to block PRs introducing dependencies with known vulnerabilities.
-5. `codeql.yml` runs CodeQL static analysis for JavaScript/TypeScript on pushes to `main`, PRs to `main`, and weekly (Monday 06:00 UTC). Results are uploaded as SARIF to GitHub Security.
-6. `scorecard.yml` runs OSSF Scorecard security posture assessment on push to `main` and weekly (Monday 06:00 UTC).
+5. A CodeQL static-analysis workflow runs for JavaScript/TypeScript on pushes to `main`, PRs to `main`, and weekly (Monday 06:00 UTC). Results are uploaded as SARIF to GitHub Security.
+6. An OSSF Scorecard workflow runs security-posture assessment on push to `main` and weekly (Monday 06:00 UTC).
 
 **Constraints:**
 
@@ -191,7 +191,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. `e2e.yml` triggers on `workflow_dispatch` with environment selection (integration or production).
+1. The E2E workflow triggers on `workflow_dispatch` with environment selection (integration or production).
 2. Four sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile`.
 3. The `setup` job sets `SERVICE_AUTH_SECRET` on the target worker, seeds the E2E service user in KV, and smoke-tests auth with a retry loop (handles KV eventual consistency ~60s).
 4. `E2E_BASE_URL` variable is set per environment to target the correct deployed worker.
@@ -251,7 +251,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. `pentest.yml` runs weekly (Monday 05:00 UTC) and on `workflow_dispatch` against the `PENTEST_TARGET` URL in the production environment.
+1. The pentest workflow runs weekly (Monday 05:00 UTC) and on `workflow_dispatch` against the `PENTEST_TARGET` URL in the production environment.
 2. Pentest runs 6 parallel jobs using lightweight external probes (`curl` and `openssl` only):
    - `security-headers`: Verifies HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy present; `X-Powered-By` absent.
    - `tls`: Confirms TLS 1.3 works, TLS 1.0/1.1 rejected, HSTS preload enabled, certificate >= 14 days validity.
@@ -259,7 +259,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
    - `info-disclosure`: Probes `/.env`, `/.git/config`, `/api/debug` for sensitive data. Confirms no stack traces in responses.
    - `injection`: Tests host header injection, `X-Forwarded-Host` effect, CL/TE request smuggling, path traversal payloads.
    - `http-methods`: Verifies TRACE returns 405, WebSocket upgrade without auth returns 302.
-3. `fuzz.yml` runs on PRs to `main`, weekly (Sunday 04:00 UTC), and on `workflow_dispatch`.
+3. The fuzz workflow runs on PRs to `main`, weekly (Sunday 04:00 UTC), and on `workflow_dispatch`.
 4. Fuzz testing uses fast-check with 50,000 iterations for property-based testing.
 
 **Constraints:**
@@ -415,7 +415,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. `stress-test.yml` triggers on `workflow_dispatch` against the integration environment.
+1. The stress-test workflow triggers on `workflow_dispatch` against the integration environment.
 2. k6 stress tests cover API throughput, session lifecycle, storage operations, and WebSocket concurrency.
 3. `STRESS_TEST_CONCURRENCY` variable (default 0 = disabled) scales virtual user targets proportionally and loosens latency thresholds when set above 0.
 4. When `STRESS_TEST_MODE=active` on the target worker, all HTTP and WebSocket rate limits are bypassed to allow high VU counts through a single service token identity.
@@ -448,7 +448,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. `scorecard.yml` runs OSSF Scorecard on push to `main` and weekly (Monday 06:00 UTC).
+1. The Scorecard workflow runs OSSF Scorecard on push to `main` and weekly (Monday 06:00 UTC).
 2. Results are published and uploaded as SARIF to GitHub Security.
 3. GitHub's built-in secret scanning (with push protection) is enabled at the repository level.
 4. Dependabot security updates are enabled at the repository level.
@@ -482,8 +482,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. `STOPSIGNAL SIGINT` is set in the Dockerfile.
-2. The `entrypoint.sh` trap handler catches SIGINT/SIGTERM signals.
+1. The container image declares `STOPSIGNAL SIGINT`.
+2. The container entrypoint's trap handler catches SIGINT/SIGTERM signals.
 3. The trap handler kills the sync daemon via PID file at `/tmp/sync-daemon.pid` (PID file is the sole mechanism).
 4. A final `rclone bisync` (with `--ignore-checksum --max-delete 100`) runs to R2 before exit.
 5. The bisync-initialized flag is touched on the timeout path to ensure the final bisync runs even when initial sync timed out.
@@ -514,7 +514,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Dockerfile uses `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror) as base image.
+1. The container base image is `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror).
 2. All agent CLIs (Claude Code, Codex, Gemini CLI, Copilot, OpenCode) start without crashes.
 3. System packages include essential tools (git, gh, ripgrep, fd, neovim, tmux, fzf, yazi, lazygit).
 
