@@ -9,7 +9,7 @@ Add custom config in the block below:
 -- overwritten on every container boot. See preseed/silverbullet/CONFIG.md
 -- in the codeflare repo to make changes that persist across releases.
 
--- REQ-VAULT-008 AC7: treeview exclude patterns. Hidden because they
+-- REQ-VAULT-015 AC2: treeview exclude patterns. Hidden because they
 -- are either derived/agent-owned (graphify-out, Library), editor
 -- state (.silverbullet, dotted - SB hides by default), SB's own
 -- library-manager mirror (Repositories), or top-level preseed pages

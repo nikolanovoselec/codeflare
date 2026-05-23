@@ -267,7 +267,7 @@ describe('validateVaultRoute', () => {
       expect(VAULT_KEY_SHIM_SERVICE_WORKER_JS).toContain('activate');
     });
 
-    it('VAULT_KEY_SHIM_SERVICE_WORKER_JS handles set-encryption-key and get-encryption-key (REQ-VAULT-008 AC3)', () => {
+    it('VAULT_KEY_SHIM_SERVICE_WORKER_JS handles set-encryption-key and get-encryption-key (REQ-VAULT-008 AC5)', () => {
       // The shim is what makes SilverBullet client-side encryption work:
       // boot.ts posts get-encryption-key and uses the reply as the IDB
       // AES-CTR key. Without these handlers, SB silently falls back to
@@ -430,7 +430,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
-  describe('injectVaultEncryptionConfig (REQ-VAULT-008 AC2)', () => {
+  describe('injectVaultEncryptionConfig (REQ-VAULT-008 AC3)', () => {
     it('adds vaultEncryptionKey and enableClientEncryption=true to a JSON BootConfig body', () => {
       const original = JSON.stringify({ spaceFolderPath: '/Vault', readOnly: false });
       const result = injectVaultEncryptionConfig(original, 'AAAA-base64-key-AAAA');
@@ -464,7 +464,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
-  describe('injectVaultBootScript (REQ-VAULT-008 AC3 sid plumbing)', () => {
+  describe('injectVaultBootScript (REQ-VAULT-008 AC5 sid plumbing)', () => {
     it('injects a <script> exposing window.__codeflareVaultBoot.sessionId before </head>', () => {
       const html = '<!DOCTYPE html><html><head><title>SB</title></head><body></body></html>';
       const out = injectVaultBootScript(html, { sessionId: 'abcdef12' });
@@ -527,7 +527,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
-  describe('injectVaultIdbRecorder (REQ-VAULT-008 AC6 boot recording)', () => {
+  describe('injectVaultIdbRecorder (REQ-VAULT-015 AC3 boot recording)', () => {
     it('injects a recorder <script> before </head>', () => {
       const html = '<html><head></head><body></body></html>';
       const out = injectVaultIdbRecorder(html);
@@ -572,7 +572,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
-  describe('injectVaultBootstrapHopHtml (REQ-VAULT-008 AC3)', () => {
+  describe('injectVaultBootstrapHopHtml (REQ-VAULT-008 AC5)', () => {
     it('produces an HTML page that registers the SW, posts the key, sets the cookie, then redirects', () => {
       const out = injectVaultBootstrapHopHtml('abcdef12', 'AAAA-base64-key-AAAA');
       // Page shape
@@ -609,7 +609,7 @@ describe('validateVaultRoute', () => {
       expect(out).toContain('; Secure');
     });
 
-    it('guards cookie+redirect inside the SW-success branch — failure must NOT proceed (REQ-VAULT-008 AC3 fail-loud)', () => {
+    it('guards cookie+redirect inside the SW-success branch -- failure must NOT proceed (REQ-VAULT-008 AC5 fail-loud)', () => {
       // The function's own docstring promises "never silently degrades
       // to plaintext IDB". The previous implementation set the cookie
       // and called location.replace unconditionally — a SW registration
@@ -700,7 +700,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
-  // REQ-VAULT-008 AC3 (codeflare_vault_bootstrap cookie selector: subsequent shell-path requests bypass the hop via the cookie)
+  // REQ-VAULT-008 AC6 (codeflare_vault_bootstrap cookie selector: subsequent shell-path requests bypass the hop via the cookie)
   describe('hasVaultBootstrapCookie', () => {
     function reqWithCookie(value: string | undefined): Request {
       const headers = new Headers();
@@ -734,7 +734,7 @@ describe('validateVaultRoute', () => {
     });
   });
 
-  describe('filterVaultFsListing (REQ-VAULT-008 AC6)', () => {
+  describe('filterVaultFsListing (REQ-VAULT-015 AC1)', () => {
     it('removes entries with names starting with graphify-out/', () => {
       const body = JSON.stringify([
         { name: 'Notes/foo.md', size: 10 },
