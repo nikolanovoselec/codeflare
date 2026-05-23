@@ -28,6 +28,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 <!-- @impl: src/lib/constants.ts::MAX_TABS -->
 <!-- @impl: host/src/session-manager.ts -->
 <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade -->
+<!-- @test: src/__tests__/lib/cross-package-constants.test.ts (Cross-Package Constants describe → MAX_TABS == MAX_TERMINALS_PER_SESSION → AC1) -->
 
 **Intent:** Each session supports multiple concurrent terminal instances (up to 6) so users can run an agent in one tab and auxiliary commands in others.
 
@@ -51,7 +52,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Automated test (`src/__tests__/lib/cross-package-constants.test.ts` `Cross-Package Constants` describe annotated `REQ-TERM-001 AC1`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -96,6 +97,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 <!-- @impl: web-ui/src/lib/constants.ts::WS_RETRY_DELAY_MS -->
 <!-- @impl: web-ui/src/stores/terminal.ts -->
+<!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store describe → retryable code set + 1s delay + AbortController cancellation + inputDisposable lifecycle → AC1-AC6) -->
 
 **Intent:** Transient network failures (connection drops, server restarts) trigger automatic reconnection so the user does not need to manually refresh.
 
@@ -119,7 +121,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test (`web-ui/src/__tests__/stores/terminal.test.ts` `Terminal Store` describe annotated `REQ-TERM-003`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -130,6 +132,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 <!-- @impl: src/container/index.ts -->
 <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade -->
 <!-- @impl: web-ui/src/stores/terminal.ts -->
+<!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store describe → 4503 stops retry + disconnected state → AC1-AC5) -->
 
 **Intent:** The custom WebSocket close code 4503 is a server-authoritative signal that the container is not running. The client must stop retrying and display a "Session stopped" message.
 
@@ -152,7 +155,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-SESSION-012](session-lifecycle.md#req-session-012-wake-loop-prevention)
 
-**Verification:** Automated test (`web-ui/src/__tests__/stores/terminal.test.ts` `Terminal Store` describe annotated `REQ-TERM-004`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -197,6 +200,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 <!-- @impl: host/src/session.ts -->
 <!-- @impl: entrypoint.sh::configure_tab_autostart -->
+<!-- @test: web-ui/src/__tests__/lib/terminal-config.test.ts (terminal-config describe → manual flag + ?manual=1 query → MANUAL_TAB env → AC1-AC5) -->
 
 **Intent:** Tabs created by the user (clicking "+") start a plain bash shell without auto-launching an agent, giving the user a general-purpose terminal.
 
@@ -219,7 +223,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session)
 
-**Verification:** Automated test (`web-ui/src/__tests__/lib/terminal-config.test.ts` describe annotated `REQ-TERM-006`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -230,6 +234,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 <!-- @impl: web-ui/src/stores/tiling.ts::setTilingLayout -->
 <!-- @impl: web-ui/src/stores/tiling.ts::isLayoutCompatible -->
 <!-- @impl: web-ui/src/stores/tiling.ts::getBestLayoutForTabCount -->
+<!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (Tiling Module - Pure Helpers describe → 4 layout modes + min tab count + upgrade order → AC1-AC7) -->
 
 **Intent:** Users can arrange terminal tabs in tiled layouts for simultaneous visibility of multiple terminals, in addition to the default tabbed view.
 
@@ -254,7 +259,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session)
 
-**Verification:** Automated test (`web-ui/src/__tests__/stores/tiling.test.ts` `Tiling Module - Pure Helpers` describe annotated `REQ-TERM-007`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -264,6 +269,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
 <!-- @impl: web-ui/src/stores/terminal.ts -->
+<!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store describe → 33ms flush + buffer coalescing + per-key cancellation → AC1-AC6) -->
 
 **Intent:** Rapid WebSocket messages are coalesced into batched `terminal.write()` calls at 30fps to reduce rendering overhead without perceptible latency increase.
 
@@ -287,7 +293,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test (`web-ui/src/__tests__/stores/terminal.test.ts` `Terminal Store` describe annotated `REQ-TERM-008`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -297,6 +303,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 <!-- @impl: host/src/session.ts -->
 <!-- @impl: web-ui/src/lib/terminal-config.ts::PROCESS_ICON_MAP -->
+<!-- @test: web-ui/src/__tests__/lib/terminal-config.test.ts (terminal-config describe → PROCESS_ICON_MAP + AGENT_ICON_MAP + getTabIcon + getTabDisplayName → AC3/AC5) -->
 
 **Intent:** The terminal server detects the foreground process running in each PTY and sends the process name to the frontend for display in tab labels and session cards.
 
@@ -321,7 +328,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test (`web-ui/src/__tests__/lib/terminal-config.test.ts` describe annotated `REQ-TERM-009` - exercises PROCESS_ICON_MAP, AGENT_ICON_MAP, getTabIcon, getTabDisplayName)
+**Verification:** Automated test
 
 **Status:** Implemented
 

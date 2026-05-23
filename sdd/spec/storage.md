@@ -32,6 +32,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 <!-- @impl: src/lib/r2-admin.ts::createBucketIfNotExists -->
 <!-- @impl: src/lib/r2-config.ts -->
+<!-- @test: src/__tests__/lib/r2-config.test.ts (getR2Config describe → AC1/AC2/AC3) -->
+<!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin describe → bucket creation idempotency → AC2 constraints) -->
 
 **Intent:** Each authenticated user must have an isolated R2 bucket so that one user's files are never accessible to another user.
 
@@ -52,7 +54,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`src/__tests__/lib/r2-config.test.ts` `getR2Config` describe annotated `REQ-STOR-001 AC1/AC2/AC3`; `src/__tests__/lib/r2-admin.test.ts` `r2-admin` describe annotated `REQ-STOR-001 AC4/AC5`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -194,6 +196,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 <!-- @impl: src/routes/storage/stats.ts -->
 <!-- @impl: src/lib/subscription.ts::getTierConfig -->
+<!-- @test: src/__tests__/routes/storage-stats.test.ts (Storage Stats Routes describe → quota enforcement at session start → AC1-AC5) -->
 
 **Intent:** Users must not be able to start new sessions when their storage usage exceeds their tier's quota, preventing unbounded R2 consumption.
 
@@ -217,7 +220,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-SUB-001](subscription.md#req-sub-001-eight-tier-subscription-system), [REQ-STOR-014](#req-stor-014-r2-storage-stats-caching)
 
-**Verification:** Automated test (`src/__tests__/routes/storage-stats.test.ts` `Storage Stats Routes` describe annotated `REQ-STOR-006`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -231,6 +234,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 <!-- @impl: src/routes/storage/delete.ts -->
 <!-- @impl: src/routes/storage/preview.ts -->
 <!-- @impl: src/routes/storage/validation.ts::validateKey -->
+<!-- @test: src/__tests__/routes/storage-browse.test.ts (Storage Browse Routes describe → AC1) -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (upload endpoint → AC2) -->
+<!-- @test: src/__tests__/routes/storage-download.test.ts (download endpoint → AC3) -->
+<!-- @test: src/__tests__/routes/storage-delete.test.ts (delete endpoint → AC4) -->
+<!-- @test: src/__tests__/routes/storage-preview.test.ts (preview endpoint → AC5) -->
 
 **Intent:** Users must be able to browse, upload, download, delete, and preview files in their R2 storage via HTTP endpoints, without using the terminal.
 
@@ -254,7 +262,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated test (`src/__tests__/routes/storage-browse.test.ts` `Storage Browse Routes` describe annotated `REQ-STOR-007`; complementary endpoint-level coverage in `src/__tests__/routes/storage-upload.test.ts`, `storage-download.test.ts`, `storage-delete.test.ts`, `storage-preview.test.ts`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -264,6 +272,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 <!-- @impl: web-ui/src/components/StorageBrowser.tsx -->
 <!-- @impl: src/routes/storage/validation.ts::validateKey -->
+<!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (StorageBrowser describe → drawer/bottom-sheet + R2-source → AC1/AC2) -->
+<!-- @test: src/__tests__/routes/storage-browse.test.ts (Storage Browse Routes describe → prefix traversal rejection → AC3) -->
 
 **Intent:** The web file browser must present consistently across form factors, treat R2 as the single source of truth (not the container filesystem), and reject directory-traversal probes at the prefix-listing endpoint.
 
@@ -283,7 +293,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser)
 
-**Verification:** Automated test (`web-ui/src/__tests__/components/StorageBrowser.test.tsx` describe annotated `REQ-STOR-016 AC1/AC2`; AC3 traversal rejection covered by `src/__tests__/routes/storage-browse.test.ts` annotated `REQ-STOR-007`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -324,6 +334,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 <!-- @impl: src/routes/storage/seed.ts -->
 <!-- @impl: src/lib/r2-seed.ts -->
+<!-- @test: src/__tests__/lib/r2-seed.test.ts (seedGettingStartedDocs describe → AC1) -->
+<!-- @test: src/__tests__/routes/storage-seed.test.ts (seed endpoint → AC2/AC3/AC4) -->
 
 **Intent:** New users must find starter documentation in their storage on first use so they have immediate orientation material.
 
@@ -345,7 +357,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated test (`src/__tests__/lib/r2-seed.test.ts` `seedGettingStartedDocs` describe annotated `REQ-STOR-009`; endpoint coverage in `src/__tests__/routes/storage-seed.test.ts`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -356,6 +368,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 <!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs -->
 <!-- @impl: src/lib/agent-seed.generated.ts -->
+<!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs describe → AC1-AC6) -->
+<!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (mode-gating → Pro vs Standard superset → AC6) -->
+<!-- @test: src/__tests__/lib/r2-seed-context-mode.test.ts (context-mode preseed mode-gating) -->
 
 **Intent:** Each user's R2 bucket must contain the correct agent configuration files for their session mode (Standard or Pro) so that agents start with the right rules, skills, and tools.
 
@@ -380,7 +395,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated test (`src/__tests__/lib/r2-seed.test.ts` `seedAgentConfigs` describe annotated `REQ-STOR-010`; mode-gating coverage in `src/__tests__/lib/r2-seed-mode.test.ts`, `r2-seed-context-mode.test.ts`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -420,6 +435,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ### REQ-STOR-012: Session Transcript Cleanup
 
 <!-- @impl: entrypoint.sh::cleanup_old_transcripts -->
+<!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (cleanup_old_transcripts describe → 5-most-recent retention against scratch USER_HOME → AC1-AC5) -->
 
 **Intent:** Old session transcripts must be pruned to prevent unbounded R2 growth from long-lived users.
 
@@ -441,11 +457,16 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
 
-**Verification:** Automated test (`host/__tests__/entrypoint-transcript-cleanup.test.js` `cleanup_old_transcripts` describe annotated `REQ-STOR-012` - exercises the extracted entrypoint.sh function against a scratch USER_HOME)
+**Verification:** Automated test
 
 **Status:** Implemented
 
+---
+
+### REQ-STOR-014: R2 Storage Stats Caching
+
 <!-- @impl: src/routes/storage/stats.ts -->
+<!-- @test: src/__tests__/routes/storage-stats.test.ts (Storage Stats Routes describe → pagination caching + TTL + mutation-driven invalidation → AC1-AC4) -->
 
 **Intent:** Storage statistics must be available quickly without paginating all R2 objects on every request.
 
@@ -467,7 +488,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated test (`src/__tests__/routes/storage-stats.test.ts` `Storage Stats Routes` describe annotated `REQ-STOR-014` - exercises pagination caching, TTL, mutation-driven invalidation)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -478,6 +499,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 <!-- @impl: src/routes/session/index.ts -->
 <!-- @impl: src/lib/sync-fanout.ts -->
 <!-- @impl: entrypoint.sh::start_sync_daemon -->
+<!-- @test: src/__tests__/lib/sync-fanout.test.ts (sync-fanout describe → fan-out + concurrency cap + per-session isolation + rate-limit → AC1/AC2/AC3/AC4) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (SIGUSR1 sleep-interrupt branch → AC5; in-flight coalesce branch pending plan) -->
+<!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (Sync-now button disabled-while-syncing → AC6) -->
 
 **Intent:** Because the periodic bisync cadence is 15 minutes (REQ-STOR-003), users must have explicit ways to force convergence between the container filesystem and R2 without waiting for the next cycle.
 
@@ -501,6 +525,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-007](#req-stor-007-web-file-browser), [REQ-STOR-011](#req-stor-011-sync-mode-controls-workspace-scope)
 
-**Verification:** Automated test (`src/__tests__/lib/sync-fanout.test.ts` for AC1-AC4 fan-out + concurrency + isolation + rate-limit; `host/__tests__/entrypoint-bisync-behavior.test.js` for AC5 - both the SIGUSR1 sleep-interrupt branch and the in-flight N-signals-coalesce-to-one-rerun branch; `web-ui/src/__tests__/components/StorageBrowser.test.tsx` for AC6 Sync-now button disabled-while-syncing).
+**Verification:** Automated test
 
 **Status:** Implemented

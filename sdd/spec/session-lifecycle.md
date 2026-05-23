@@ -126,6 +126,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
 <!-- @impl: src/container/index.ts -->
 <!-- @impl: host/src/server.ts -->
+<!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics describe → sleepAfter enforcement + 24h sentinel + free-tier lock → AC1-AC6) -->
 
 **Intent:** Containers that receive no user input for a configurable duration are automatically stopped to conserve resources and reduce cost.
 
@@ -151,7 +152,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-005](#req-session-005-input-based-idle-detection)
 
-**Verification:** Automated test (`src/__tests__/container-metrics.test.ts` `Container Metrics` describe annotated `REQ-SESSION-004`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -162,6 +163,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 <!-- @impl: host/src/activity-tracker.ts -->
 <!-- @impl: host/src/session.ts -->
 <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+<!-- @test: host/__tests__/activity-tracker.test.js (activity-tracker describe → containsUserInput whitelist + protocol response stripping → AC1-AC4) -->
+<!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics describe → /activity polling + idle computation → AC5/AC6) -->
 
 **Intent:** Idle detection is based on actual user input (keystrokes, control keys, mouse clicks), not on WebSocket connection activity or heartbeat pings.
 
@@ -185,7 +188,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`host/__tests__/activity-tracker.test.js` `activity-tracker` describe annotated `REQ-SESSION-005`; `src/__tests__/container-metrics.test.ts` annotated `REQ-SESSION-005`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -231,6 +234,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 <!-- @impl: src/routes/container/lifecycle.ts::validateSessionAndCheckLimits -->
 <!-- @impl: src/lib/subscription.ts::getMaxSessionsForTier -->
 <!-- @impl: src/lib/constants.ts::getMaxSessions -->
+<!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers describe → kv.list metadata count + tier comparison + non-SaaS fallback → AC1-AC5) -->
 
 **Intent:** The number of concurrently running sessions is capped per subscription tier to enforce fair usage and plan differentiation.
 
@@ -253,7 +257,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Automated test (`src/__tests__/routes/container-lifecycle-helpers.test.ts` `Container lifecycle extracted helpers` describe annotated `REQ-SESSION-007`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -294,6 +298,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 ### REQ-SESSION-009: Container destroy wipes session state
 
 <!-- @impl: src/container/index.ts -->
+<!-- @test: src/__tests__/container/index.test.ts (fetch gate - 503 when container not running describe → destroy() clears DO storage + memory + onStop schedule → AC1-AC6) -->
 
 **Intent:** Destroying a container clears all transient session state from the Durable Object, leaving only the persistent KV record and R2 bucket.
 
@@ -316,7 +321,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** Automated test (`src/__tests__/container/index.test.ts` `fetch gate - 503 when container not running` describe annotated `REQ-SESSION-009`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -398,6 +403,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 <!-- @impl: src/container/index.ts -->
 <!-- @impl: src/routes/terminal.ts -->
 <!-- @impl: web-ui/src/stores/terminal.ts -->
+<!-- @test: src/__tests__/container/index.test.ts (fetch gate - 503 when container not running describe → DO fetch gate + 4503 → AC1/AC4) -->
+<!-- @test: src/__tests__/routes/terminal-ws.test.ts (terminal route describe → WS upgrade 503 when stopped → AC2/AC5) -->
 
 **Intent:** A browser's automatic WebSocket reconnect must not wake a hibernated container in an infinite stop/start cycle.
 
@@ -420,7 +427,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** Automated test (`src/__tests__/container/index.test.ts` `fetch gate - 503 when container not running` describe annotated `REQ-SESSION-012`; complementary WS-close coverage in `src/__tests__/routes/terminal-ws.test.ts` annotated `REQ-SEC-020`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -492,6 +499,8 @@ None.
 <!-- @impl: host/src/server.ts -->
 <!-- @impl: host/src/prewarm-config.ts -->
 <!-- @impl: entrypoint.sh -->
+<!-- @test: host/__tests__/prewarm-readiness.test.js (1013 reject + init-flag gate → AC2) -->
+<!-- @test: src/__tests__/container/index.test.ts (DO-side prewarm contract → AC1) -->
 
 **Intent:** A new container must bind its serving port quickly so Cloudflare's port-wait check succeeds, yet must refuse real terminal traffic until initial state restore and pre-warm are complete; the readiness gate sits between the port bind and the first accepted WebSocket upgrade.
 
@@ -511,7 +520,7 @@ None.
 
 **Dependencies:** [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated test (`host/__tests__/prewarm-readiness.test.js` for the 1013 reject + init-flag gate; `src/__tests__/container/index.test.ts` for the DO-side prewarm contract).
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -522,6 +531,9 @@ None.
 <!-- @impl: src/routes/preferences.ts -->
 <!-- @impl: src/container/container-env.ts -->
 <!-- @impl: web-ui/src/components/Dashboard.tsx -->
+<!-- @test: src/__tests__/routes/preferences.test.ts (preferences endpoint describe → userTimezone validation + persistence → AC1/AC2) -->
+<!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars describe → USER_TIMEZONE injection on restart → AC3/AC4) -->
+<!-- @test: web-ui/src/__tests__/lib/timezone-sync.test.ts (browser-side resolution + best-effort PATCH → AC5) -->
 
 **Intent:** The capture pipeline and any other consumer of `$USER_TIMEZONE` inside the container must receive the user's IANA timezone choice without manual env-var configuration; the preference is set via the preferences API and persists across restarts.
 
@@ -544,6 +556,6 @@ None.
 
 **Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings) (preferences flow), [REQ-MEM-010](memory.md#req-mem-010-memory-capture-hook-plumbing) AC4 (the capture pipeline consumes the resulting env var)
 
-**Verification:** Automated test (`src/__tests__/routes/preferences.test.ts` for endpoint + validation; `src/__tests__/container/container-env.test.ts` for env-var injection on restart; `web-ui/src/__tests__/lib/timezone-sync.test.ts` for the browser-side resolution).
+**Verification:** Automated test
 
 **Status:** Implemented
