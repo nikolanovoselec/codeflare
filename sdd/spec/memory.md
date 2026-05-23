@@ -286,3 +286,36 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Verification:** Automated test
 
 **Status:** Implemented
+
+---
+
+### REQ-MEM-012: Hard-block tool calls while memory-capture is deferred
+
+<!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh -->
+<!-- @impl: entrypoint.sh -->
+<!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh describe blocks → AC1-AC5) -->
+
+**Intent:** The UserPromptSubmit hook in REQ-MEM-001 emits an `additionalContext` directive instructing the agent to spawn the memory-capture subagent, but `additionalContext` is advisory: an agent that ignores it leaves the `.vars` dedup-gate file undrained, and because the 15-message delta logic in REQ-MEM-002 only fires fresh directives on threshold crossings, an entire long-running session can silently pass with zero captures. A companion PreToolUse hook closes this gap by hard-blocking every tool call except the memory-capture subagent itself while `.vars` exists, forcing the agent to drain the deferred work before doing anything else.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. The hook is registered as PreToolUse with matcher `""` (matches every tool call) in advanced session mode only. When no `.vars` file exists for the current session (the common case), the hook exits 0 and the tool call proceeds without delay or instrumentation.
+2. When the `session_id` field is missing from the hook input (defensive guard for malformed envelopes), the hook exits 0 silently rather than blocking.
+3. When `.vars` exists at the session-scoped path AND the tool call is anything other than the allowed surface in AC4, the hook exits 2 with a stderr message that contains the literal string `HARD BLOCK`, the path to the persisted prompt file, the path to the `.vars` file, the directive `subagent_type: "memory-capture"`, `run_in_background: true`, and the literal `sonnet` (so the agent cannot downgrade the model). Exit 2 prevents the tool call from being delivered to its handler.
+4. When `.vars` exists AND the tool call is `Task` with `tool_input.subagent_type == "memory-capture"`, the hook exits 0 and the call is delivered. Any other `subagent_type` (including absent) is blocked under AC3.
+5. A one-shot bypass surface at `/tmp/memory-capture-bypass` lets a user manually unblock when `.vars` is stale beyond recovery (e.g., transcript path moved). When the file exists, the hook deletes it and exits 0; the next call without the bypass re-blocks if `.vars` is still present.
+
+**Constraints:**
+
+- The bypass is user-only (the assistant must never create `/tmp/memory-capture-bypass` itself); it exists for genuine recovery cases where the deferred capture cannot complete (e.g., the referenced transcript file was moved or deleted between fires).
+- The block applies in advanced session mode only because the entire memory-capture pipeline is gated to advanced (see REQ-MEM-006).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)
+
+**Verification:** Automated test
+
+**Status:** Implemented

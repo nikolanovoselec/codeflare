@@ -129,6 +129,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-memory/scripts/memory-capture-block.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-memory/scripts/prefilter-transcript.sh": {
     "modes": [
       "advanced"
