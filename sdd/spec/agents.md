@@ -670,52 +670,25 @@ None.
 
 ---
 
-### REQ-AGENT-021: Spec-Driven Development Workflow (Pro)
+### REQ-AGENT-021: Pro-Mode SDD Workflow Preseed & Tool-Surface Portability
 
 <!-- @impl: preseed/agents/claude/skills/spec-driven-development -->
-<!-- @impl: preseed/agents/claude/skills/sdd-init -->
-<!-- @impl: preseed/agents/claude/skills/sdd-clean -->
-<!-- @impl: preseed/agents/claude/commands/sdd.md -->
 <!-- @impl: preseed/agents/claude/rules/spec-discipline.md -->
 <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md -->
 <!-- @impl: preseed/agents/claude/rules/tdd-discipline.md -->
 
-**Intent:** Pro users need a workflow that keeps a product specification in lockstep with their codebase without manual maintenance, so the spec remains a trustworthy single source of truth even when development happens at high velocity.
+**Intent:** Pro users need the spec-driven-development workflow available out of the box, with every sub-command working identically across Bash and context-mode MCP tool surfaces so the workflow does not silently behave differently across container environments.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
+
 1. Pro mode preseeds the `spec-driven-development` skill, the `sdd-init` and `sdd-clean` sub-command skills, the `vault-operations` skill, the `/sdd` command, the `spec-discipline`, `documentation-discipline`, and `tdd-discipline` rules (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
-2. `/sdd init` scaffolds a new `sdd/` from templates for greenfield projects.
-3. In import mode, `/sdd init` derives a spec from existing source code rather than scaffolding from templates.
-4. When `/sdd init` generates a package manifest, top-level dependency versions are resolved at scaffold time via the ecosystem's registry (npm, Cargo, pip, Go) rather than emitted from memory. The Cloudflare Workers stack pins `wrangler`, `@cloudflare/workers-types`, `@cloudflare/vitest-pool-workers`, and `vitest` as a single co-resolved cohort.
-5. Lockfile generation during `/sdd init` is a scoped carveout to the no-local-builds rule (resolution only, with `--ignore-scripts` on npm; no installs, tests, or builds).
-6. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via the layout-resolved config file (`sdd/spec/config.yml` on the nested layout, `sdd/config.yml` on the flat-legacy layout). Interactive and auto modes apply fixes on the current branch (auto silently, interactive after confirmation). Unleashed mode is the walk-away autopilot: it applies SAFE + RISKY + JUDGMENT fixes on the current branch via per-category `[sdd-clean]` commits, refuses to run when `enforce_tdd: false` (preserves the per-project opt-out; user flips manually or uses `auto` instead), and uses conservative JUDGMENT auto-resolution that never overwrites intent. Unleashed does not create a new branch and does not open a pull request; `git revert <sha>` on a per-category commit is the rollback surface, and the per-category commit messages carry the full audit log.
-7. PR-boundary review fires only for PRs targeting `main` or `master` (a new PR opens with that target via `gh pr create`, or a push lands on a branch with an open PR to that target). PUSH_LINE detection in `enforce-review-spawn.sh` recognises both `git push` and `gh pr merge` across all three tool surfaces (Bash, `mcp__*__ctx_batch_execute`, `mcp__*__ctx_execute` with `language=shell`); the `gh pr merge` surface is required because a server-side merge into `develop` advances the develop->main PR HEAD without producing a local `git push` line. Layer 1 lane classification uses a shared helper (`scripts/lib/lane-classifier.sh`, relative to the hooks plugin `scripts/` directory) sourced by both `enforce-review-spawn.sh` and `git-push-review-reminder.sh` so the in-turn nudge and turn-end gate agree on which agents the diff requires: docs-only (no sdd, no source) -> `doc-updater`; sdd/ touched without source (with or without docs) -> `spec-reviewer` then `doc-updater`; any source touch -> all three. Conservative branches (empty diff, missing prior ack, divergent merge-base) and a missing or unsourceable helper both fall back to all-three-lanes (`code-reviewer spec-reviewer doc-updater`), so a partially-deployed install never disables enforcement. Layer 2 (`gh pr view` HEAD SHA comparison) filters false positives. On trigger, `spec-reviewer` runs first then `doc-updater` (sequential, never parallel) on any project containing `sdd/`. In a fix-push cascade (multiple pushes inside one turn), the gate advances the ack pointer through each push whose review window completed all lanes required by that push's diff; AC16-bypassed pushes (no spawns in window) are absorbed into the next complete window's cumulative review.
-8. PRs into intermediate integration branches (`develop`, `staging`, etc.) do NOT trigger reviews. The case is deferred until the integration branch's own PR-to-`main` opens or syncs, where the cumulative review covers everything that landed.
-9. A plain push to a branch with no open PR does NOT trigger reviews.
-10. Direct pushes to `main` are expected to be prevented by GitHub branch protection (require PR before merge); the review pipeline is not engineered to compensate for a bypass that the upstream platform already blocks.
-11. On non-SDD projects (no `sdd/` folder) no review agents run at all. Every hook exits silently and the workflow proceeds friction-free (vibe-coding mode).
-12. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place).
-13. The workflow is project-agnostic. Each review agent self-limits to 2 fix rounds per commit cycle scoped to its own lane (spec-reviewer counts only commits touching `sdd/**`; doc-updater counts only commits touching `documentation/**`) to prevent micro-fix spirals without cross-contaminating lanes.
-14. In `auto` and `unleashed` modes, spec-reviewer and doc-updater push to whatever branch is currently checked out; the user is responsible for checking out the right branch before invoking.
-15. The three review-agent disciplines (doc, spec, tdd) each enforce structural compliance plus content-quality. doc-updater runs structural passes (shape, budgets, lane) and content-quality passes (verification truth-check, Implements-vs-AC cross-walk, stale code-block detection against source, content-preservation on trims, stranger cold-read usability). spec-reviewer runs the spec analogs (REQ-test truth-check beyond literal ID match, vendor/protocol drift, content-preservation on shrink). code-reviewer flags tests whose name claims behavior the assertions don't verify (the test-name-lies antipattern in tdd-discipline). Auto-fixes derive concrete content from source/REQ when possible. Load-bearing clauses that would be lost to a word-cap trim are promoted to surrounding prose or the trim is reverted with a finding.
-16. The Stop-hook review enforcement (`enforce-review-spawn.sh`) exposes three USER-only bypass surfaces: (a) a one-shot sentinel file at `/tmp/review-bypass` (overridable via `REVIEW_BYPASS_FILE` for hermetic tests) which is auto-deleted on use, never committed, and never survives container restart; (b) a magic phrase `skip review` or `skip verification` (case-insensitive, word-bounded) in any user message after the candidate push line in the transcript; (c) a 3-strike circuit breaker that exits silently after blocking the same un-acked PR HEAD SHA three times, sticky until the SHA changes. The assistant must NEVER create the sentinel or write the magic phrase in its own output; both are explicitly user-only escape hatches.
-17. `/sdd init` (both greenfield and Import Mode) runs as a lean two-confirm flow: the agent asks one vision question (or accepts `$ARGUMENTS`), drafts the entire spec in memory (actors, domains, design principles, REQs in canonical shape, CON-* constraints, founding ADRs, glossary terms), presents the full draft as one review surface, and applies user edits in place until the user accepts. The 10-15-turn one-domain-at-a-time confirmation chain is not used.
-18. After the full draft is accepted, an enrichment pass runs before files are written: (a) cross-link pass — every REQ that references another REQ concept by name also lists it in `Dependencies:` as an anchor link `[REQ-X-NNN](#req-x-nnn-title-slug)`; (b) ADR-seed pass — 3-8 founding ADRs covering the non-obvious technology choices (tech stack, framework, deployment target, auth pattern, data store, key middleware) are drafted and written to `documentation/decisions/README.md` with an index table at the top and per-ADR sections below; (c) glossary-seed pass — every product noun, vendor name, and protocol mentioned in any REQ Intent or AC body is extracted and given a one-line definition in `sdd/glossary.md`. The three passes run in one in-memory cycle with no additional user prompts.
-19. Every REQ written by `/sdd init` renders in the canonical shape defined by the `spec-driven-development` skill: ACs numbered (`1.`, `2.`, `3.`), each labeled field on its own line with blank-line separators between trailing fields (`Constraints`, `Priority`, `Dependencies`, `Verification`, `Status`), and `**Constraints:**` + `**Dependencies:**` always present (rendered as the literal string `None.` when empty). Cross-references render as markdown anchor links, not plain text.
-20. `/sdd init` pre-creates the verification-queue file `sdd/spec/.review-queue.md` at scaffold time with the placeholder `_Awaiting first finding._` so the file ships discoverable. After scaffold, the layout-resolved review queue (`sdd/spec/.review-queue.md` on the nested layout, `sdd/.review-needed.md` on the flat-legacy layout) accumulates findings appended by spec-reviewer, `/sdd clean`, or `/sdd init` Import-Mode triage. The doc-lane audit accumulator `documentation/.doc-coverage.md` is lazy-created by doc-updater on first substantive finding. The `/sdd clean` execution audit lives in per-category commit bodies (recoverable via `git log --grep='\[sdd-clean\]'`), not in a dotfile.
-21. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works under both Bash and the context-mode MCP tool family (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_search`). Discovery commands that produce more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) route through context-mode's ctx_execute family in context-mode environments and through Bash in plain environments. The behavioural contract in this REQ is tool-agnostic; the agent selects the right wrapper for its environment.
-22. The enrichment pass (cross-link / ADR-seed / glossary-seed described in AC18) queries the project's `graphify-out/graph.json` via the `mcp__graphify__*` MCP tool family: `get_neighbors` drives the cross-link Dependencies pass, `god_nodes` surfaces ADR-seed candidates, `query_graph` extracts glossary concept-tagged nodes, and `shortest_path` validates non-obvious dependency edges.
-23. The graph is expected to exist at `/sdd init` time because the post-clone PostToolUse hook (REQ-AGENT-025) prompts the user to build one immediately after `git clone` or `gh repo clone`. When the graph is missing at enrichment time, `/sdd init` prompts the user once with a `/graphify cluster-only` (AST-only, free) build offer; on decline, enrichment falls back to an in-memory heuristic (literal-string matching across drafted REQs) and appends a one-line notice to `sdd/changes.md` recording reduced cross-link density.
-24. Graphify MCP tools are tool-agnostic across Bash and context-mode surfaces; the enrichment-pass contract is identical regardless of which tool surface is active.
-25. `/sdd init` runs Phase 7a (programmatic source-anchor verification) as a CRITICAL non-skippable gate BEFORE invoking `spec-enforce` and `doc-enforce`. Phase 7a executes `verify-source-anchors.py` which walks every `<!-- @impl: <path>::<symbol>[ = <value>] -->` anchor across `sdd/**/*.md` and `documentation/**/*.md`, resolves the path on disk, confirms the symbol's word-bounded presence in source, validates any literal value pattern within the symbol's local region, and counts malformed `@impl`-shaped comments and unreadable files. The verifier emits a JSON report `{parsed, resolved, orphaned, drifted, malformed, unreadable, failures, malformed_entries, unreadable_entries, exit_code}` to `.verify-anchors.json` and a verbatim summary line which the `[sdd-init]` commit body MUST include: `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`. A non-zero `exit_code` blocks the commit until every failure is fixed in source or escalated to `sdd/spec/.review-queue.md`. Substituting a structural sanity check or agent self-attestation for the verifier output is CRITICAL `phase-7a-self-attestation`; partial coverage is CRITICAL `phase-7a-incomplete-coverage`; running the verifier AFTER the enforcement skills is `phase-7a-pipeline-inversion`; bypassing the verifier on a missing-tool error is `phase-7a-tooling-bypass`; committing without the summary line in the body is `phase-7a-evidence-missing`. After `/sdd init`, steady-state CQ-SOURCE (`spec-enforce-truth`) and Pass 15 (`doc-enforce-truth`) consume Phase 7a's JSON when available rather than re-deriving.
-26. `/sdd init` runs Phase 7b (programmatic enumeration-coverage verification) as a second CRITICAL non-skippable gate AFTER Phase 7a and BEFORE iterate-to-clean. Phase 7b executes `verify-enumeration-coverage.py --root . --json-out .phase-7b.json` which walks the working tree, identifies load-bearing source files (under `services/`, `handlers/`, `controllers/`, `providers/`, `models/`, `domain/`, `core/`, `commands/`, `usecases/`, `workers/` OR source-line-count >= 100), and checks each file's repo-relative path against (a) the `<path>` portion of every `<!-- @impl: <path>::<symbol> -->` anchor in `sdd/**/*.md` + `documentation/**/*.md`, AND (b) literal mentions in the layout-appropriate triage files (nested: `sdd/spec/.init-triage.md` + `sdd/spec/.review-queue.md`; flat-layout legacy: `sdd/.init-triage.md` + `sdd/.review-needed.md`). The verifier emits a JSON report `{enumerated, accounted, unaccounted, coverage_pct, accounted_via, unaccounted_entries, exit_code}` and a verbatim summary line which the `[sdd-init]` step-10 commit body MUST include alongside the Phase 7a line: `Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1`. The two gates close the Validation-Equals-Generation gap: Phase 7a verifies every claim the agent wrote is anchored; Phase 7b verifies the agent did not silently drop entire source files from the enumeration. An empty triage queue on Import Mode with `unaccounted > 0` (the agent drafted only around the cleanly-anchorable subset of source) is CRITICAL `import-mode-narrowed-scope`. Agent self-attestation without the verifier output is CRITICAL `phase-7b-self-attestation`; sampling is CRITICAL `phase-7b-incomplete-coverage`; running `spec-enforce` first without Phase 7b is CRITICAL `phase-7b-pipeline-inversion`; committing without the summary line is CRITICAL `phase-7b-evidence-missing`. Per-project waiver: `sdd/spec/.phase-7b-waiver.txt` (one repo-relative path per line) excludes specific framework-boilerplate files from coverage; entries require a one-line justification. Phase 7b is advisory for greenfield (`enumerated=0` and `coverage_pct=100.0` are the expected outcome with no source on disk yet; the commit body line is still required so the audit-trail format stays uniform across modes).
+2. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works under both Bash and the context-mode MCP tool family (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_search`). Discovery commands that produce more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) route through context-mode's ctx_execute family in context-mode environments and through Bash in plain environments. The behavioural contract in this REQ is tool-agnostic; the agent selects the right wrapper for its environment.
 
 **Constraints:**
 
-- Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the `enforce_tdd` test-coverage rule follow `rules/spec-discipline.md`.
-- The structural-vs-content-quality split, per-pass severity and auto-fix behavior, and the cold-read task registry follow `rules/documentation-discipline.md`.
+- The `/sdd init` scaffolding contract lives in [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render); the enrichment pass with graphify queries lives in [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify); the Phase 7a/7b verifier gates live in [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-and-7b-verifier-gates); the PR-boundary review pipeline lives in [REQ-AGENT-036](#req-agent-036-pr-boundary-review-pipeline); the `/sdd clean` rescue and autonomy modes + discipline enforcement live in [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes).
 
 **Priority:** P1
 
@@ -724,6 +697,166 @@ None.
 **Verification:** Manual check
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-033: `/sdd init` Scaffolding and Canonical Render
+
+<!-- @impl: preseed/agents/claude/skills/sdd-init -->
+<!-- @impl: preseed/agents/claude/commands/sdd.md -->
+
+**Intent:** `/sdd init` must bootstrap a working spec in a single coherent flow whether the project is greenfield or import-mode, with every drafted REQ rendered in the canonical shape and the supporting scaffold (lockfile, review queue file) created in the same pass.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `/sdd init` scaffolds a new `sdd/` from templates for greenfield projects.
+2. In import mode, `/sdd init` derives a spec from existing source code rather than scaffolding from templates.
+3. When `/sdd init` generates a package manifest, top-level dependency versions are resolved at scaffold time via the ecosystem's registry (npm, Cargo, pip, Go) rather than emitted from memory. The Cloudflare Workers stack pins `wrangler`, `@cloudflare/workers-types`, `@cloudflare/vitest-pool-workers`, and `vitest` as a single co-resolved cohort.
+4. Lockfile generation during `/sdd init` is a scoped carveout to the no-local-builds rule (resolution only, with `--ignore-scripts` on npm; no installs, tests, or builds).
+5. `/sdd init` (both greenfield and Import Mode) runs as a lean two-confirm flow: the agent asks one vision question (or accepts `$ARGUMENTS`), drafts the entire spec in memory (actors, domains, design principles, REQs in canonical shape, CON-* constraints, founding ADRs, glossary terms), presents the full draft as one review surface, and applies user edits in place until the user accepts. The 10-15-turn one-domain-at-a-time confirmation chain is not used.
+6. Every REQ written by `/sdd init` renders in the canonical shape defined by the `spec-driven-development` skill: ACs numbered (`1.`, `2.`, `3.`), each labeled field on its own line with blank-line separators between trailing fields (`Constraints`, `Priority`, `Dependencies`, `Verification`, `Status`), and `**Constraints:**` + `**Dependencies:**` always present (rendered as the literal string `None.` when empty). Cross-references render as markdown anchor links, not plain text.
+7. `/sdd init` pre-creates the verification-queue file `sdd/spec/.review-queue.md` at scaffold time with the placeholder `_Awaiting first finding._` so the file ships discoverable. After scaffold, the layout-resolved review queue (`sdd/spec/.review-queue.md` on the nested layout, `sdd/.review-needed.md` on the flat-legacy layout) accumulates findings appended by spec-reviewer, `/sdd clean`, or `/sdd init` Import-Mode triage. The doc-lane audit accumulator `documentation/.doc-coverage.md` is lazy-created by doc-updater on first substantive finding. The `/sdd clean` execution audit lives in per-category commit bodies (recoverable via `git log --grep='\[sdd-clean\]'`), not in a dotfile.
+
+**Constraints:**
+
+- The enrichment pass that runs after the draft is accepted lives in [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify).
+- The Phase 7a / 7b verifier gates that run after enrichment live in [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-and-7b-verifier-gates).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-034: `/sdd init` Enrichment Pass with Graphify
+
+<!-- @impl: preseed/agents/claude/skills/sdd-init -->
+
+**Intent:** After `/sdd init` accepts the user's draft, an enrichment pass tightens the spec by walking the project's knowledge graph: cross-link dependencies, seed ADRs from architecturally-central nodes, seed glossary terms from concept nodes.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After the full draft is accepted, an enrichment pass runs before files are written: (a) cross-link pass — every REQ that references another REQ concept by name also lists it in `Dependencies:` as an anchor link `[REQ-X-NNN](#req-x-nnn-title-slug)`; (b) ADR-seed pass — 3-8 founding ADRs covering the non-obvious technology choices (tech stack, framework, deployment target, auth pattern, data store, key middleware) are drafted and written to `documentation/decisions/README.md` with an index table at the top and per-ADR sections below; (c) glossary-seed pass — every product noun, vendor name, and protocol mentioned in any REQ Intent or AC body is extracted and given a one-line definition in `sdd/glossary.md`. The three passes run in one in-memory cycle with no additional user prompts.
+2. The enrichment pass queries the project's `graphify-out/graph.json` via the `mcp__graphify__*` MCP tool family: `get_neighbors` drives the cross-link Dependencies pass, `god_nodes` surfaces ADR-seed candidates, `query_graph` extracts glossary concept-tagged nodes, and `shortest_path` validates non-obvious dependency edges.
+3. The graph is expected to exist at `/sdd init` time because the post-clone PostToolUse hook (REQ-AGENT-025) prompts the user to build one immediately after `git clone` or `gh repo clone`. When the graph is missing at enrichment time, `/sdd init` prompts the user once with a `/graphify cluster-only` (AST-only, free) build offer; on decline, enrichment falls back to an in-memory heuristic (literal-string matching across drafted REQs) and appends a one-line notice to `sdd/changes.md` recording reduced cross-link density.
+4. Graphify MCP tools are tool-agnostic across Bash and context-mode surfaces; the enrichment-pass contract is identical regardless of which tool surface is active.
+
+**Constraints:**
+
+- Backlink density drops materially when the graph is absent; the changes.md notice exists so future readers can correlate spec quality with the build state at init time.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-035: `/sdd init` Phase 7a and 7b Verifier Gates
+
+<!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-source-anchors.py -->
+<!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-enumeration-coverage.py -->
+
+**Intent:** `/sdd init` must not declare success on a spec that contains unanchored claims or that silently elided whole source files from enumeration. Two programmatic verifier gates run before iterate-to-clean to close both halves of the Validation-Equals-Generation gap.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `/sdd init` runs Phase 7a (programmatic source-anchor verification) as a CRITICAL non-skippable gate BEFORE invoking `spec-enforce` and `doc-enforce`. Phase 7a executes `verify-source-anchors.py` which walks every `<!-- @impl: <path>::<symbol>[ = <value>] -->` anchor across `sdd/**/*.md` and `documentation/**/*.md`, resolves the path on disk, confirms the symbol's word-bounded presence in source, validates any literal value pattern within the symbol's local region, and counts malformed `@impl`-shaped comments and unreadable files. The verifier emits a JSON report `{parsed, resolved, orphaned, drifted, malformed, unreadable, failures, malformed_entries, unreadable_entries, exit_code}` to `.verify-anchors.json` and a verbatim summary line which the `[sdd-init]` commit body MUST include: `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`. A non-zero `exit_code` blocks the commit until every failure is fixed in source or escalated to `sdd/spec/.review-queue.md`. Substituting a structural sanity check or agent self-attestation for the verifier output is CRITICAL `phase-7a-self-attestation`; partial coverage is CRITICAL `phase-7a-incomplete-coverage`; running the verifier AFTER the enforcement skills is `phase-7a-pipeline-inversion`; bypassing the verifier on a missing-tool error is `phase-7a-tooling-bypass`; committing without the summary line in the body is `phase-7a-evidence-missing`. After `/sdd init`, steady-state CQ-SOURCE (`spec-enforce-truth`) and Pass 15 (`doc-enforce-truth`) consume Phase 7a's JSON when available rather than re-deriving.
+2. `/sdd init` runs Phase 7b (programmatic enumeration-coverage verification) as a second CRITICAL non-skippable gate AFTER Phase 7a and BEFORE iterate-to-clean. Phase 7b executes `verify-enumeration-coverage.py --root . --json-out .phase-7b.json` which walks the working tree, identifies load-bearing source files (under `services/`, `handlers/`, `controllers/`, `providers/`, `models/`, `domain/`, `core/`, `commands/`, `usecases/`, `workers/` OR source-line-count >= 100), and checks each file's repo-relative path against (a) the `<path>` portion of every `<!-- @impl: <path>::<symbol> -->` anchor in `sdd/**/*.md` + `documentation/**/*.md`, AND (b) literal mentions in the layout-appropriate triage files (nested: `sdd/spec/.init-triage.md` + `sdd/spec/.review-queue.md`; flat-layout legacy: `sdd/.init-triage.md` + `sdd/.review-needed.md`). The verifier emits a JSON report `{enumerated, accounted, unaccounted, coverage_pct, accounted_via, unaccounted_entries, exit_code}` and a verbatim summary line which the `[sdd-init]` step-10 commit body MUST include alongside the Phase 7a line: `Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1`. The two gates close the Validation-Equals-Generation gap: Phase 7a verifies every claim the agent wrote is anchored; Phase 7b verifies the agent did not silently drop entire source files from the enumeration. An empty triage queue on Import Mode with `unaccounted > 0` (the agent drafted only around the cleanly-anchorable subset of source) is CRITICAL `import-mode-narrowed-scope`. Agent self-attestation without the verifier output is CRITICAL `phase-7b-self-attestation`; sampling is CRITICAL `phase-7b-incomplete-coverage`; running `spec-enforce` first without Phase 7b is CRITICAL `phase-7b-pipeline-inversion`; committing without the summary line is CRITICAL `phase-7b-evidence-missing`. Per-project waiver: `sdd/spec/.phase-7b-waiver.txt` (one repo-relative path per line) excludes specific framework-boilerplate files from coverage; entries require a one-line justification. Phase 7b is advisory for greenfield (`enumerated=0` and `coverage_pct=100.0` are the expected outcome with no source on disk yet; the commit body line is still required so the audit-trail format stays uniform across modes).
+
+**Constraints:**
+
+- The two verifiers are programmatic Python scripts shipping with the `sdd-init` skill; agent self-attestation MUST NOT be substituted for the verifier output.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-036: PR-Boundary Review Pipeline
+
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh -->
+
+**Intent:** When the user opens or syncs a PR to `main`, the right review agents fire automatically on the right lanes - and nowhere else - so vibe-coding mode and integration-branch development stay friction-free while changes that actually target shipping code get reviewed.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. PR-boundary review fires only for PRs targeting `main` or `master` (a new PR opens with that target via `gh pr create`, or a push lands on a branch with an open PR to that target). PUSH_LINE detection in `enforce-review-spawn.sh` recognises both `git push` and `gh pr merge` across all three tool surfaces (Bash, `mcp__*__ctx_batch_execute`, `mcp__*__ctx_execute` with `language=shell`); the `gh pr merge` surface is required because a server-side merge into `develop` advances the develop->main PR HEAD without producing a local `git push` line. Layer 1 lane classification uses a shared helper (`scripts/lib/lane-classifier.sh`, relative to the hooks plugin `scripts/` directory) sourced by both `enforce-review-spawn.sh` and `git-push-review-reminder.sh` so the in-turn nudge and turn-end gate agree on which agents the diff requires: docs-only (no sdd, no source) -> `doc-updater`; sdd/ touched without source (with or without docs) -> `spec-reviewer` then `doc-updater`; any source touch -> all three. Conservative branches (empty diff, missing prior ack, divergent merge-base) and a missing or unsourceable helper both fall back to all-three-lanes (`code-reviewer spec-reviewer doc-updater`), so a partially-deployed install never disables enforcement. Layer 2 (`gh pr view` HEAD SHA comparison) filters false positives. On trigger, `spec-reviewer` runs first then `doc-updater` (sequential, never parallel) on any project containing `sdd/`. In a fix-push cascade (multiple pushes inside one turn), the gate advances the ack pointer through each push whose review window completed all lanes required by that push's diff; AC16-bypassed pushes (no spawns in window) are absorbed into the next complete window's cumulative review.
+2. PRs into intermediate integration branches (`develop`, `staging`, etc.) do NOT trigger reviews. The case is deferred until the integration branch's own PR-to-`main` opens or syncs, where the cumulative review covers everything that landed.
+3. A plain push to a branch with no open PR does NOT trigger reviews.
+4. Direct pushes to `main` are expected to be prevented by GitHub branch protection (require PR before merge); the review pipeline is not engineered to compensate for a bypass that the upstream platform already blocks.
+5. On non-SDD projects (no `sdd/` folder) no review agents run at all. Every hook exits silently and the workflow proceeds friction-free (vibe-coding mode).
+6. The Stop-hook review enforcement (`enforce-review-spawn.sh`) exposes three USER-only bypass surfaces: (a) a one-shot sentinel file at `/tmp/review-bypass` (overridable via `REVIEW_BYPASS_FILE` for hermetic tests) which is auto-deleted on use, never committed, and never survives container restart; (b) a magic phrase `skip review` or `skip verification` (case-insensitive, word-bounded) in any user message after the candidate push line in the transcript; (c) a 3-strike circuit breaker that exits silently after blocking the same un-acked PR HEAD SHA three times, sticky until the SHA changes. The assistant must NEVER create the sentinel or write the magic phrase in its own output; both are explicitly user-only escape hatches.
+
+**Constraints:**
+
+- The three bypass surfaces in AC6 are explicitly USER-only escape hatches. The assistant never creates or invokes them in its own output.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-037: `/sdd clean` Rescue and Autonomy Modes
+
+<!-- @impl: preseed/agents/claude/skills/sdd-clean -->
+<!-- @impl: preseed/agents/claude/rules/spec-discipline.md -->
+<!-- @impl: preseed/agents/claude/rules/documentation-discipline.md -->
+<!-- @impl: preseed/agents/claude/rules/tdd-discipline.md -->
+
+**Intent:** Three autonomy modes (interactive, auto, unleashed) give the user a knob between hand-holding and walk-away autopilot, and the `/sdd clean` rescue pass restores rotted specs to canonical shape without overwriting intent. The three review-agent disciplines apply content-quality enforcement beyond structural checks.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via the layout-resolved config file (`sdd/spec/config.yml` on the nested layout, `sdd/config.yml` on the flat-legacy layout). Interactive and auto modes apply fixes on the current branch (auto silently, interactive after confirmation). Unleashed mode is the walk-away autopilot: it applies SAFE + RISKY + JUDGMENT fixes on the current branch via per-category `[sdd-clean]` commits, refuses to run when `enforce_tdd: false` (preserves the per-project opt-out; user flips manually or uses `auto` instead), and uses conservative JUDGMENT auto-resolution that never overwrites intent. Unleashed does not create a new branch and does not open a pull request; `git revert <sha>` on a per-category commit is the rollback surface, and the per-category commit messages carry the full audit log.
+2. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place).
+3. The workflow is project-agnostic. Each review agent self-limits to 2 fix rounds per commit cycle scoped to its own lane (spec-reviewer counts only commits touching `sdd/**`; doc-updater counts only commits touching `documentation/**`) to prevent micro-fix spirals without cross-contaminating lanes.
+4. In `auto` and `unleashed` modes, spec-reviewer and doc-updater push to whatever branch is currently checked out; the user is responsible for checking out the right branch before invoking.
+5. The three review-agent disciplines (doc, spec, tdd) each enforce structural compliance plus content-quality. doc-updater runs structural passes (shape, budgets, lane) and content-quality passes (verification truth-check, Implements-vs-AC cross-walk, stale code-block detection against source, content-preservation on trims, stranger cold-read usability). spec-reviewer runs the spec analogs (REQ-test truth-check beyond literal ID match, vendor/protocol drift, content-preservation on shrink). code-reviewer flags tests whose name claims behavior the assertions don't verify (the test-name-lies antipattern in tdd-discipline). Auto-fixes derive concrete content from source/REQ when possible. Load-bearing clauses that would be lost to a word-cap trim are promoted to surrounding prose or the trim is reverted with a finding.
+
+**Constraints:**
+
+- Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the `enforce_tdd` test-coverage rule follow `rules/spec-discipline.md`.
+- The structural-vs-content-quality split, per-pass severity and auto-fix behavior, and the cold-read task registry follow `rules/documentation-discipline.md`.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-pipeline)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
 
 ### REQ-AGENT-022: Legacy-codebase transition to SDD via init triage
 
