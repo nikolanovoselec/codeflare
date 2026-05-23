@@ -125,7 +125,10 @@ describe('memory-capture-block.sh - hard block / REQ-MEM-012 AC3', () => {
     });
     assert.equal(r.status, 2);
     assert.match(r.stderr, /PROMPT_FILE=/);
-    assert.match(r.stderr, new RegExp(`VARS_FILE=${varsPath.replace(/[/.]/g, '\\$&')}`));
+    // Escape every regex metacharacter (including backslash) so a path with
+    // any special char in it is matched literally. CodeQL alert #54
+    // (js/incomplete-sanitization) caught the prior 2-char class missing \\.
+    assert.match(r.stderr, new RegExp(`VARS_FILE=${varsPath.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}`));
     assert.match(r.stderr, /subagent_type:\s*"memory-capture"/);
     assert.match(r.stderr, /run_in_background:\s*true/);
     assert.match(r.stderr, /sonnet/);
