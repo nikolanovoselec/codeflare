@@ -150,7 +150,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -183,7 +183,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -212,7 +212,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -275,7 +275,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -337,7 +337,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -366,7 +366,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
