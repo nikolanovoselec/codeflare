@@ -6,7 +6,7 @@ import type { AuthVariables } from '../../middleware/auth';
 import { RateLimitError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 
-describe('createRateLimiter', () => {
+describe('createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with CF-Connecting-IP fallback) / REQ-SEC-007 AC2 (KV primary + in-memory fallback with TTL) / REQ-SEC-007 AC3 (429 with RATE_LIMIT_ERROR) / REQ-SEC-007 AC4 (X-RateLimit headers) / REQ-SEC-019 AC5 (STRESS_TEST_MODE bypass)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

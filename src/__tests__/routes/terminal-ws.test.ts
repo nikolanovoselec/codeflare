@@ -325,7 +325,7 @@ describe('handleWebSocketUpgrade', () => {
     });
   });
 
-  describe('CF-015: Stopped session returns 4503 close code', () => {
+  describe('CF-015: Stopped session returns 4503 close code / REQ-SEC-020 AC1 (4503 short-circuit BEFORE WS rate-limit check)', () => {
     it('returns WebSocket upgrade with 4503 close for stopped session', async () => {
       const sessionId = 'abcdef1234567890';
       mockKV._set(`session:test-bucket:${sessionId}`, {
@@ -398,7 +398,7 @@ describe('handleWebSocketUpgrade', () => {
     });
   });
 
-  describe('container-warming-up gate (PR #365)', () => {
+  describe('container-warming-up gate (PR #365) / REQ-SEC-020 AC2 (1013 close BEFORE WS rate-limit when terminalServiceReady=false; /health probe error falls through)', () => {
     it('returns 1013 close without burning rate-limit when /health reports terminalServiceReady=false', async () => {
       // PR #364 regression: port 8080 binds at ~1.5s but .bashrc autostart
       // isn't written until ~10s. Worker peeks /health and short-circuits

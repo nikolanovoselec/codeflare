@@ -34,7 +34,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The deploy workflow triggers on push to `main` and `workflow_dispatch` (with environment selection: production or integration).
+1. The deploy workflow triggers on `workflow_run` completion of the `PR Checks` workflow (restricted to `branches: [main]`, gated on `conclusion == success`) and on `workflow_dispatch` (with environment selection: production or integration).
 2. The deploy pipeline runs end-to-end: install dependencies, build, test, typecheck, Docker build, scan, push, deploy, set secrets.
 3. Dependencies are cached via `actions/cache` for faster runs.
 4. Frontend is built, and both backend and frontend tests and typechecks run before any deployment steps.
@@ -50,9 +50,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated test (deploy.yml pre-deploy job success on push to main)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `deploy workflow` describe annotated `REQ-OPS-001`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -79,9 +79,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test (deploy.yml deploy + post-deploy steps success on push to main)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `deploy workflow` describe annotated `REQ-OPS-013`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -111,9 +111,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
 
-**Verification:** Automated test (deploy.yml Trivy scan + container push steps)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `container image pipeline` describe annotated `REQ-OPS-002`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -141,9 +141,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)
 
-**Verification:** Automated test (deploy.yml image-patch and resource-tier steps succeed)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `container image pipeline` describe annotated `REQ-OPS-014`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -175,9 +175,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated test (test.yml runs on every PR to main)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `PR Checks workflow` describe annotated `REQ-OPS-003`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -270,9 +270,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Automated test (pentest.yml scheduled runs)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-OPS-005`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -297,9 +297,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Automated test (fuzz.yml scheduled and PR runs)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `fuzz workflow` describe annotated `REQ-OPS-018`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -422,11 +422,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P1
 
-**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-triggered-by-push-to-main)
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test (deploy.yml verifies wrangler.toml patching)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `deploy workflow` describe annotated `REQ-OPS-007`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -490,9 +490,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated test (scorecard.yml and dependency-review in test.yml)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `PR Checks workflow` describe annotated `REQ-OPS-009`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
