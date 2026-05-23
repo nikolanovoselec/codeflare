@@ -39,7 +39,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The `memory-capture.sh` script runs as a `UserPromptSubmit` hook, injecting a short instruction into the main agent's context via `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0`.
+1. The memory-capture hook script runs as a `UserPromptSubmit` hook, injecting a short instruction into the main agent's context via `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0`.
 2. The hook counts real user messages in the JSONL transcript using a two-layer grep filter that excludes tool-result wrappers (content is an array, not a string) and synthetic messages (slash commands, task notifications -- content starts with `<`).
 3. When triggered, a background sonnet agent runs the three-stage capture pipeline (prefilter transcript noise, chunk and accumulate per-chunk observations into a scratchpad, synthesise the final note) and writes the capture file to `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md`. The agent is sonnet per AD58 (pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model). Timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4.
 4. The capture file uses a YAML frontmatter template with `session_id`, `captured_at`, and `captured_from_range` fields followed by Context / Decisions / Observations / References sections.
@@ -197,7 +197,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. `entrypoint.sh` merges hook registrations (PreToolUse and UserPromptSubmit) into `settings.json` only in advanced mode. Default mode gets only `skipDangerousModePermissionPrompt`.
+1. The container entrypoint merges hook registrations (PreToolUse and UserPromptSubmit) into `settings.json` only in advanced mode. Default mode gets only `skipDangerousModePermissionPrompt`.
 2. `sessionMode` is stored as `'default' | 'advanced'` in `UserPreferences` (KV). Undefined defaults to `'default'` via `resolveSessionMode()`.
 3. Mode changes take effect only on explicit "Recreate AI agent skills & rules" click or new bucket creation.
 4. `reconcileAgentConfigs()` seeds mode-appropriate files and deletes preseed-managed files not in the current mode. It never touches user-created files.
@@ -233,7 +233,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 3. All plugin files are marked as advanced-only in the manifest (`"modes": ["advanced"]`).
 4. The hook script (`memory-capture.sh`) is delivered via the plugin but registered via `settings.json` merge (not the plugin system).
 5. The manifest pipeline source files are in `preseed/agents/claude/plugins/`.
-6. `scripts/generate-agent-seed.mjs` reads the manifest and generates `src/lib/agent-seed.generated.ts` with the files included in `AGENTS_SEEDED_CONFIGS`.
+6. A build-time seed generator reads the manifest and emits the runtime `AGENTS_SEEDED_CONFIGS` module that the Worker consumes; memory plugin files appear in that output.
 7. Memory-related files are excluded from non-CC agents (no Codex, Gemini, Copilot, or OpenCode equivalents) because they depend on CC-specific MCP and hook systems.
 
 **Constraints:**
