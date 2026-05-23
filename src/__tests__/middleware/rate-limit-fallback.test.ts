@@ -41,7 +41,7 @@ function createMockContext(kvOverride?: Partial<KVNamespace>) {
   return c;
 }
 
-describe('rate-limit fallback on KV failure', () => {
+describe('rate-limit fallback on KV failure / REQ-SEC-007 AC2 (KV primary, in-memory fallback with periodic cleanup) / REQ-SEC-019 AC4 (general resource-protection endpoints fail open)', () => {
   const config = { windowMs: 60_000, maxRequests: 3, keyPrefix: 'test' };
 
   beforeEach(() => {

@@ -54,9 +54,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes), [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
 
-**Verification:** Automated test (pentest.yml auth-gate job)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-001`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -84,9 +84,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-003](#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket)
 
-**Verification:** Automated test (pentest.yml info-disclosure job)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-002`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -153,9 +153,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test (unit tests for kv-crypto.ts encrypt/decrypt round-trip)
+**Verification:** Automated test (`src/__tests__/lib/kv-crypto.test.ts` describe blocks annotated `REQ-SEC-004 AC1..AC5`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -250,9 +250,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-when-encryption_key-configured)
 
-**Verification:** Automated test (unit tests for plaintext-to-encrypted migration path)
+**Verification:** Automated test (`src/__tests__/lib/kv-crypto.test.ts` describe blocks annotated `REQ-SEC-006 AC1/AC2/AC3/AC5/AC7`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -280,9 +280,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test (unit tests for rate limiter)
+**Verification:** Automated test (`src/__tests__/middleware/rate-limit.test.ts`, `src/__tests__/middleware/rate-limit-fallback.test.ts` describe blocks annotated `REQ-SEC-007 AC1/AC2/AC3/AC4`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -337,9 +337,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure), [REQ-SEC-019](#req-sec-019-per-endpoint-rate-limit-policy)
 
-**Verification:** Automated test (unit tests for 4503 + 1013 short-circuit paths)
+**Verification:** Automated test (`src/__tests__/routes/terminal-ws.test.ts` describe blocks annotated `REQ-SEC-020 AC1/AC2`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -371,9 +371,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test (pentest.yml security-headers job verifies all header presence and `X-Powered-By` absence)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-008`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -397,9 +397,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-008](#req-sec-008-security-headers-on-every-response)
 
-**Verification:** Automated test (pentest.yml security-headers job exercises redirect paths)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-021`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -431,9 +431,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test (fuzz.yml property-based tests + pentest.yml injection job)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` + `fuzz workflow` describes annotated `REQ-SEC-009`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -462,9 +462,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Automated test (pentest.yml injection job)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-010`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -493,9 +493,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-OPS-001](operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test (deploy.yml Trivy scan step)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `container image pipeline` describe annotated `REQ-SEC-011`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -554,9 +554,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-009](#req-sec-009-input-validation-at-system-boundaries)
 
-**Verification:** Automated test (pentest.yml injection job)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-013`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -582,9 +582,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test (pentest.yml auth-gate job)
+**Verification:** Automated test (`host/__tests__/workflow-files.test.js` `pentest workflow` describe annotated `REQ-SEC-014`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
