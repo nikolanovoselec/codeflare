@@ -1449,9 +1449,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/agent-seed-manifest.test.ts` `multi-agent documents` describe annotated `REQ-AGENT-030` - covers per-agent frontmatter, model-field removal, path rewrites, .agent.md extension)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -1509,6 +1509,6 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-019](#req-agent-019-branded-settings-ui)
 
-**Verification:** Manual check
+**Verification:** Manual check (UI flow exercised manually; token-scopes constants verified by reading; no Playwright coverage planned)
 
-**Status:** Partial
+**Status:** Implemented

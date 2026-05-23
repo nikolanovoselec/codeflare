@@ -441,13 +441,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
 
-**Verification:** Automated test
+**Verification:** Automated test (`host/__tests__/entrypoint-transcript-cleanup.test.js` `cleanup_old_transcripts` describe annotated `REQ-STOR-012` - exercises the extracted entrypoint.sh function against a scratch USER_HOME)
 
-**Status:** Partial
-
----
-
-### REQ-STOR-014: R2 Storage Stats Caching
+**Status:** Implemented
 
 <!-- @impl: src/routes/storage/stats.ts -->
 
