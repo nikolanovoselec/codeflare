@@ -342,7 +342,7 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     try {
       // Wait for at least two BISYNC_CALLED entries to confirm the daemon
       // looped rather than exiting after the first failure.
-      const log = await waitFor(h.logFile, (s) => /BISYNC_CALLED args=.*\nBISYNC_CALLED args=/.test(s), 6000);
+      const log = await waitFor(h.logFile, (s) => (s.match(/BISYNC_CALLED args=/g) || []).length >= 2, 6000);
       const callCount = (log.match(/BISYNC_CALLED args=/g) || []).length;
       assert.ok(
         callCount >= 2,

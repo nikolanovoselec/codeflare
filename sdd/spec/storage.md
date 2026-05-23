@@ -64,6 +64,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 <!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
 <!-- @impl: entrypoint.sh::bisync_with_r2 -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> periodic bisync runs -> AC1 structural; E2E candidates for cross-session file reads -> AC1/AC2/AC3) -->
+<!-- @e2e-candidate: AC1 "files written in session N readable in session N+1" requires real container restart and R2 round-trip -->
+<!-- @e2e-candidate: AC2 "agent config files persist" requires real container restart and R2 round-trip -->
+<!-- @e2e-candidate: AC3 "workspace files persist with SYNC_MODE=full" requires real container restart and R2 round-trip -->
 
 **Intent:** User files must survive container destruction and be available when a new session starts, because containers are ephemeral.
 
@@ -95,6 +99,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 <!-- @impl: entrypoint.sh::start_sync_daemon -->
 <!-- @impl: entrypoint.sh::bisync_with_r2 -->
 <!-- @impl: entrypoint.sh::recover_vanished_files -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> periodic bisync runs -> AC1) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> SIGUSR1 sleep-interrupt -> AC2) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> SIGUSR1 in-flight coalesce -> AC2) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (bisync constraint flags describe -> --conflict-resolve newer -> AC3) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> daemon retries after transient failure -> AC4) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> vanishing-file recovery retries -> AC5) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> three consecutive failures trigger resync -> AC6) -->
 
 **Intent:** Changes made locally (by the agent or user) and changes in R2 (from the file browser or another session's sync) must converge within a bounded interval, balanced against R2 operation cost. The 15-minute cadence is supplemented by explicit user-driven triggers (REQ-STOR-015) so the user is never blocked waiting for a cycle when they want fresh state.
 
@@ -131,6 +142,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 <!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
 <!-- @impl: entrypoint.sh::establish_bisync_baseline -->
 <!-- @impl: entrypoint.sh::init_recovery_filters -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> rclone sync R2->local -> AC1) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> 120s timeout -> AC2) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> config writes ordering -> AC3) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> --resync flag -> AC4) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> vanishing-file retry max 3 -> AC5) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> MCP static excludes -> AC6) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> daemon starts unconditionally -> AC7) -->
 
 **Intent:** When a container boots, it must restore the user's persisted files from R2 before the agent or terminal becomes usable.
 
@@ -164,6 +182,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 <!-- @impl: entrypoint.sh::shutdown_handler -->
 <!-- @impl: src/container/index.ts::destroy -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> SIGTERM trap -> AC1) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> bisync-initialized gate -> AC2) -->
+<!-- @e2e-candidate: AC3 "files created during session available in R2 after shutdown" requires real container and R2 -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> 120s watchdog -> AC4) -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> 135s destroy budget documented -> AC5) -->
 
 **Intent:** When a container is stopped or evicted, unsaved local changes must be pushed to R2 before the process exits.
 
@@ -302,6 +325,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ### REQ-STOR-008: Multipart Upload for Large Files
 
 <!-- @impl: src/routes/storage/upload.ts -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (POST /upload/initiate describe -> returns uploadId -> AC1) -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (POST /upload/part describe -> returns etag -> AC2) -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (POST /upload/complete describe -> succeeds with valid parts -> AC3) -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (POST /upload/abort describe -> succeeds and returns success -> AC4) -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (rate limit shared across multipart endpoints describe -> shared limiter -> AC5) -->
 
 **Intent:** Files larger than the single-request upload limit must be uploadable via chunked multipart upload.
 
