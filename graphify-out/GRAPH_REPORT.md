@@ -1,16 +1,16 @@
 # Graph Report - codeflare  (2026-05-23)
 
 ## Corpus Check
-- 624 files · ~1,420,861 words
+- 624 files · ~1,426,456 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 11109 nodes · 17090 edges · 703 communities (521 shown, 182 thin omitted)
+- 11162 nodes · 17143 edges · 715 communities (536 shown, 179 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 397 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `7a71c639`
+- Built from commit: `5151896d`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -711,6 +711,18 @@
 - [[_COMMUNITY_Community 700|Community 700]]
 - [[_COMMUNITY_Community 701|Community 701]]
 - [[_COMMUNITY_Community 702|Community 702]]
+- [[_COMMUNITY_Community 703|Community 703]]
+- [[_COMMUNITY_Community 704|Community 704]]
+- [[_COMMUNITY_Community 705|Community 705]]
+- [[_COMMUNITY_Community 706|Community 706]]
+- [[_COMMUNITY_Community 707|Community 707]]
+- [[_COMMUNITY_Community 708|Community 708]]
+- [[_COMMUNITY_Community 709|Community 709]]
+- [[_COMMUNITY_Community 710|Community 710]]
+- [[_COMMUNITY_Community 711|Community 711]]
+- [[_COMMUNITY_Community 712|Community 712]]
+- [[_COMMUNITY_Community 713|Community 713]]
+- [[_COMMUNITY_Community 714|Community 714]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `Env` - 91 edges
@@ -720,9 +732,9 @@
 5. `Decisions` - 60 edges
 6. `d()` - 55 edges
 7. `createMockKV()` - 52 edges
-8. `F()` - 48 edges
-9. `I()` - 47 edges
-10. `#p()` - 47 edges
+8. `Agents Domain Specification` - 52 edges
+9. `F()` - 48 edges
+10. `I()` - 47 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `frontend Session interface (mirrors backend)` --semantically_similar_to--> `Session class (PTY lifecycle)`  [INFERRED] [semantically similar]
@@ -838,31 +850,31 @@
 - **Living spec circular workflow with three review agents** — concept_living_specification, concept_circular_workflow, concept_three_review_agents, agent_code_reviewer, agent_spec_reviewer, agent_doc_updater, concept_persistent_knowledge_graph [EXTRACTED 0.95]
 - **Enterprise agentic control plane (gateway + identity + MCP portal + isolation)** — concept_zero_trust, concept_control_plane, product_cloudflare_ai_gateway, concept_identity_lineage, concept_managed_oauth, concept_mcp_server_portal, concept_codemode, concept_hypervisor_isolation, concept_secure_web_gateway [EXTRACTED 0.95]
 
-## Communities (703 total, 182 thin omitted)
+## Communities (715 total, 179 thin omitted)
 
 ### Community 0 - "Community 0"
-Cohesion: 0.02
-Nodes (115): ContainerError, err, error, json, ValidationError, emptyR2Bucket(), extractTag(), getR2Url() (+107 more)
+Cohesion: 0.03
+Nodes (70): getContainerId(), getDeployKeysKey(), getLlmKeysKey(), getPresetsKey(), deleteScopedR2Token(), emptyR2Bucket(), extractTag(), getR2Url() (+62 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.03
-Nodes (116): validateSessionAndCheckLimits(), getContainerId(), NotFoundError, getOrImportKey(), expandSessionMetadata(), generateSessionId(), getDeployKeysKey(), getIsoWeekStart() (+108 more)
+Nodes (85): NotFoundError, buildSessionMetadata(), emailFromKvKey(), expandSessionMetadata(), generateSessionId(), getIsoWeekStart(), getNextUtcMonthStart(), getSessionOrThrow() (+77 more)
 
 ### Community 2 - "Community 2"
 Cohesion: 0.02
-Nodes (78): adminResult, afterProtocol, beforeBucket, cacheCommands, CacheModel, CacheReal, cb, CBModel (+70 more)
+Nodes (93): adminResult, afterProtocol, beforeBucket, cacheCommands, CacheModel, CacheReal, cb, CBModel (+85 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.07
-Nodes (30): applyBucketName(), applyPrefsOnRestart(), buildEnvVars(), ContainerEnvState, logger, normalizeIanaTz(), RestartPrefsInput, SetBucketNameCreds (+22 more)
+Cohesion: 0.04
+Nodes (68): addAltText(), addButton(), addComment(), addCommentButton(), addEditSignatureButton(), addEditToolbar(), addHighlightArea(), addLinkAnnotations() (+60 more)
 
 ### Community 4 - "Community 4"
 Cohesion: 0.03
 Nodes (60): AD10: Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation, AD11: Suffix-pattern CORS with credentials, AD12: KV-based setup lock (non-atomic), AD13: Per-user scoped R2 tokens, AD14: Never auto-`--resync` on bisync failure, AD15: TabConfigSchema allows arbitrary command strings, AD16: entrypoint.sh ~1090 lines complexity, AD17: Merged into AD6 (+52 more)
 
 ### Community 5 - "Community 5"
-Cohesion: 0.05
-Nodes (59): ResolvedUser, SECTION_LABELS, TIER_ORDER, UserManagement(), UserManagementProps, BillingStatusSchema, CheckoutResponseSchema, createSession() (+51 more)
+Cohesion: 0.04
+Nodes (65): ResolvedUser, SECTION_LABELS, TIER_ORDER, UserManagement(), UserManagementProps, BillingStatusSchema, CheckoutResponseSchema, createSession() (+57 more)
 
 ### Community 6 - "Community 6"
 Cohesion: 0.03
@@ -873,12 +885,12 @@ Cohesion: 0.04
 Nodes (44): 2026-02-22, 2026-02-25, 2026-02-26, 2026-02-28, 2026-03-01, 2026-03-05, 2026-03-08, 2026-03-09 (+36 more)
 
 ### Community 8 - "Community 8"
-Cohesion: 0.03
-Nodes (99): FloatingTerminalButtons(), FloatingTerminalButtonsProps, Terminal(), TerminalProps, [connState, setConnState], container, defaultProps, FitAddonClass (+91 more)
+Cohesion: 0.05
+Nodes (62): FloatingTerminalButtons(), FloatingTerminalButtonsProps, Terminal(), TerminalProps, [connState, setConnState], container, defaultProps, FitAddonClass (+54 more)
 
 ### Community 9 - "Community 9"
-Cohesion: 0.02
-Nodes (100): AGENT_OPTIONS, AgentOption, CreateSessionDialogProps, IconProps, InitProgressComponent(), InitProgressProps, stageIcons, stages (+92 more)
+Cohesion: 0.04
+Nodes (50): SessionDropdownProps, STATUS_ORDER, card, cards, defaultProps, dialog, dialogAfter, dialogBefore (+42 more)
 
 ### Community 10 - "Community 10"
 Cohesion: 0.06
@@ -897,16 +909,16 @@ Cohesion: 0.05
 Nodes (50): backendResponse, body, invalidStatus, minimal, missingDetails, mockFetch, noBucket, noEmail (+42 more)
 
 ### Community 14 - "Community 14"
-Cohesion: 0.03
-Nodes (67): setupR2Credentials(), BreakerEntry, cfApiCB, cleanupStaleBreakers(), containerHealthMap, containerInternalMap, containerSessionsMap, getContainerHealthCB() (+59 more)
+Cohesion: 0.09
+Nodes (29): BreakerEntry, cfApiCB, cleanupStaleBreakers(), containerHealthMap, containerInternalMap, containerSessionsMap, getContainerHealthCB(), getContainerInternalCB() (+21 more)
 
 ### Community 15 - "Community 15"
 Cohesion: 0.14
 Nodes (17): Frontend API Client, Deploy Keys API surface, fetchApi private wrapper, getTerminalWebSocketUrl compound id, LLM Keys API surface, SESSION_ID_RE format guard, startSession progress polling, Compound session-terminal id (sessionId-terminalId) (+9 more)
 
 ### Community 16 - "Community 16"
-Cohesion: 0.05
-Nodes (41): createCheckoutSession(), createPortalSession(), createSwitchSession(), getAuthStatus(), getBillingStatus(), getPublicTiers(), subscribe(), LoginPage() (+33 more)
+Cohesion: 0.04
+Nodes (45): createCheckoutSession(), createPortalSession(), createSwitchSession(), getAuthProviders(), getAuthStatus(), getBillingStatus(), getPublicTiers(), subscribe() (+37 more)
 
 ### Community 17 - "Community 17"
 Cohesion: 0.14
@@ -925,8 +937,8 @@ Cohesion: 0.08
 Nodes (23): advancedKeys, agents, codexDocs, copilotAgents, copilotDocs, defaultKeys, docs, entries (+15 more)
 
 ### Community 21 - "Community 21"
-Cohesion: 0.16
-Nodes (13): loadPreferences(), PreferencesApi, PreferencesLogger, registerPreferencesDeps(), mockGetPreferences, mockLogger, mockSetPreferences, mockUpdatePreferences (+5 more)
+Cohesion: 0.15
+Nodes (15): getPreferences(), getCurrentPreferences(), loadPreferences(), PreferencesApi, PreferencesLogger, registerPreferencesDeps(), mockGetPreferences, mockLogger (+7 more)
 
 ### Community 22 - "Community 22"
 Cohesion: 0.05
@@ -934,15 +946,15 @@ Nodes (45): Cloudflare cohort pinning (wrangler/types/vitest-pool/vitest), Disco
 
 ### Community 23 - "Community 23"
 Cohesion: 0.05
-Nodes (33): createMockR2Config(), createTestApp(), RouteRegistration, TestAppOptions, app, healthData, passThroughCB, testState (+25 more)
+Nodes (31): createMockR2Config(), createTestApp(), app, content, mockR2Fetch, mockSign, app, longName (+23 more)
 
 ### Community 24 - "Community 24"
 Cohesion: 0.05
 Nodes (38): accessAppFlowMocks(), accessAppUpdateCall, app, appUpdateBody, appUpdateCall, baseFlowMocks(), createBody, createCalls (+30 more)
 
 ### Community 25 - "Community 25"
-Cohesion: 0.09
-Nodes (21): ARROW, attachSwipeGestures(), Direction, getScrollPxPerLine(), sendTerminalKey(), cleanup, enterEvent, enterSpy (+13 more)
+Cohesion: 0.06
+Nodes (35): ARROW, attachSwipeGestures(), Direction, getScrollPxPerLine(), sendTerminalKey(), cleanup, enterEvent, enterSpy (+27 more)
 
 ### Community 26 - "Community 26"
 Cohesion: 0.05
@@ -950,11 +962,11 @@ Nodes (42): Avoided Stack (Python, Go, Docker, Postgres, MySQL, Node-only APIs),
 
 ### Community 27 - "Community 27"
 Cohesion: 0.04
-Nodes (60): ACCORDION_SUBTITLES, AccordionGroup, AccordionSectionProps, SettingsPanelProps, adminHeader, advancedOpt, advancedRadio, appearanceChevron (+52 more)
+Nodes (59): ACCORDION_SUBTITLES, AccordionGroup, AccordionSectionProps, SettingsPanelProps, adminHeader, advancedOpt, advancedRadio, appearanceChevron (+51 more)
 
 ### Community 28 - "Community 28"
-Cohesion: 0.04
-Nodes (73): LayoutProps, header, layout, mockSessions, settingsPanel, splashCursor, storagePanel, ACTIONABLE_URL_PATTERNS (+65 more)
+Cohesion: 0.05
+Nodes (60): counters, getCounters(), overlay, PerKeyCounters, recordFlush(), recordFrame(), recordRestore(), abortControllers (+52 more)
 
 ### Community 29 - "Community 29"
 Cohesion: 0.05
@@ -965,16 +977,16 @@ Cohesion: 0.05
 Nodes (40): Preset CRUD via /api/presets, Saved bookmark captures tab layout, CF-001 (STRESS_TEST_MODE forbidden in SaaS prod), CF-020 (delta clamp + alarm retry + trial quota), collectMetrics fetches /health TCP port and writes to KV, Container metrics unit suite, sleepAfter fail-safe 2h fallback, Create dialog agent type options (+32 more)
 
 ### Community 31 - "Community 31"
-Cohesion: 0.03
-Nodes (100): getAdminEmails(), getPreferencesKey(), CachedPrice, CheckoutSessionOptions, CheckoutSessionResult, createCheckoutSession(), createPortalSession(), createSwitchPortalSession() (+92 more)
+Cohesion: 0.02
+Nodes (134): CfAccessAppsResponse, CfAccessGroupsResponse, CfAccessPoliciesResponse, getAdminEmails(), logger, UserEntry, isActiveUser(), values (+126 more)
 
 ### Community 32 - "Community 32"
 Cohesion: 0.05
 Nodes (48): A note on cycle counts, Agent Prompt Template, Arguments, Batching Rules, code:block1 (review — comprehensive multi-perspective codebase review), code:block10 (List the existing review files at [REVIEW_DIR]/0*.md (use Gl), code:block11 (You are filtering codebase review findings against documente), code:block12 (You are the REALITY FILTER stage of a multi-cycle codebase r) (+40 more)
 
 ### Community 33 - "Community 33"
-Cohesion: 0.13
-Nodes (17): getStartupStatus(), extractFilesFromDrop(), fileToBase64(), FileWithPath, readAllEntries(), shouldUseMultipart(), splitIntoParts(), traverseDirectory() (+9 more)
+Cohesion: 0.04
+Nodes (45): extractFilesFromDrop(), fileToBase64(), FileWithPath, readAllEntries(), shouldUseMultipart(), splitIntoParts(), dirFile, dt (+37 more)
 
 ### Community 34 - "Community 34"
 Cohesion: 0.09
@@ -989,20 +1001,20 @@ Cohesion: 0.17
 Nodes (16): Auth Mode: Cloudflare Access (RS256 JWT), Auth Mode: Direct GitHub OAuth (HMAC JWT), Documentation: Authentication & Billing, Documentation: Billing & Subscriptions, E2E Service Auth (X-Service-Auth), getUserFromRequest() Resolution Order, Paygate Enforcement (validateSessionAndCheckLimits), Per-User Bucket Naming (+8 more)
 
 ### Community 37 - "Community 37"
-Cohesion: 0.04
-Nodes (55): defaultIds, inputIds, parsed, PutTiersBodySchema, TierConfigSchema, cryptoLogger, decodeBase64Key(), decryptFromKV() (+47 more)
+Cohesion: 0.02
+Nodes (97): defaultIds, inputIds, parsed, PutTiersBodySchema, TierConfigSchema, ValidationError, cryptoLogger, decodeBase64Key() (+89 more)
 
 ### Community 38 - "Community 38"
 Cohesion: 0.01
-Nodes (147): altTextFinish(), annotationStorage(), applyInverseTransform(), applyTransform(), B(), Ba(), beginText(), capPixels() (+139 more)
+Nodes (144): altTextFinish(), annotationStorage(), applyInverseTransform(), applyTransform(), B(), Ba(), beginText(), capPixels() (+136 more)
 
 ### Community 39 - "Community 39"
 Cohesion: 0.06
 Nodes (49): abort(), _abortOperatorList(), abortRequest(), bboxToClipBoxDropOperation(), bezierBoundingBox(), cancel(), cancelAllRequests(), cleanup() (+41 more)
 
 ### Community 40 - "Community 40"
-Cohesion: 0.09
-Nodes (15): FilePreviewProps, PreviewFile, backBtn, binary, binaryFile, dlBtn, errorEl, img (+7 more)
+Cohesion: 0.06
+Nodes (24): FilePreviewProps, PreviewFile, backBtn, binary, binaryFile, dlBtn, errorEl, img (+16 more)
 
 ### Community 41 - "Community 41"
 Cohesion: 0.04
@@ -1010,11 +1022,11 @@ Nodes (31): ack, ackFile, binDir, bypassFile, chainedLine, cwd, { cwd, baseSha }
 
 ### Community 42 - "Community 42"
 Cohesion: 0.02
-Nodes (138): authenticateRequest(), getBucketName(), getCookieValue(), getUserFromRequest(), logger, normalizeEmail(), resolveOrProvisionUser(), resolveUserFromKV() (+130 more)
+Nodes (137): applyBucketName(), applyPrefsOnRestart(), buildEnvVars(), ContainerEnvState, logger, normalizeIanaTz(), RestartPrefsInput, SetBucketNameCreds (+129 more)
 
 ### Community 43 - "Community 43"
-Cohesion: 0.03
-Nodes (95): SessionTerminals, TabPreset, TilingState, [authExpired, setAuthExpired], BatchStatusEntry, deleteSession(), loadSessions(), AuthExpiredSetter (+87 more)
+Cohesion: 0.06
+Nodes (30): [authExpired, setAuthExpired], BatchStatusEntry, deleteSession(), loadSessions(), AuthExpiredSetter, clearSessionStartedGuard(), InitChecker, isWithinStartupGuard() (+22 more)
 
 ### Community 44 - "Community 44"
 Cohesion: 0.06
@@ -1041,16 +1053,16 @@ Cohesion: 0.11
 Nodes (12): assistantTexts, chunkMd, clean, __dirname, lines, out, parsed, PREFILTER (+4 more)
 
 ### Community 50 - "Community 50"
-Cohesion: 0.11
-Nodes (28): AccessApp, AccessAppResult, AccessGroup, AccessGroupResult, deleteAccessApp(), getAccessGroupNames(), getLegacyManagedDomains(), getManagedAppDomain() (+20 more)
+Cohesion: 0.18
+Nodes (21): AccessApp, AccessAppResult, AccessGroup, AccessGroupResult, getAccessGroupNames(), getLegacyManagedDomains(), getManagedAppDomain(), getManagedAppName() (+13 more)
 
 ### Community 51 - "Community 51"
-Cohesion: 0.07
-Nodes (42): getAuthProviders(), ApiError, baseFetch(), BaseFetchOptions, apiErr, errorBody, mockFetch, TestSchema (+34 more)
+Cohesion: 0.08
+Nodes (34): ApiError, baseFetch(), BaseFetchOptions, apiErr, errorBody, mockFetch, TestSchema, abortMultipartUpload() (+26 more)
 
 ### Community 52 - "Community 52"
-Cohesion: 0.06
-Nodes (33): getDefaultTabConfig(), expected, EXPECTED_COMMANDS, ids, tabs, DEFAULT_ALLOWED_ORIGINS, getMaxSessions(), MAX_TABS (+25 more)
+Cohesion: 0.08
+Nodes (26): InitProgressComponent(), InitProgressProps, stageIcons, stages, errorBox, errorMessages, handleOpen, heroIcon (+18 more)
 
 ### Community 53 - "Community 53"
 Cohesion: 0.04
@@ -1062,15 +1074,15 @@ Nodes (30): handleCreateAccessApp - Step 5: provision Access app/groups/policy, 
 
 ### Community 55 - "Community 55"
 Cohesion: 0.02
-Nodes (104): app, { bucketName, containerId, container }, buildReadyResponse(), buildSyncingResponse(), { containerId, container }, DEFAULTS, healthData, healthRequest (+96 more)
+Nodes (100): app, { bucketName, containerId, container }, buildReadyResponse(), buildSyncingResponse(), { containerId, container }, DEFAULTS, healthData, healthRequest (+92 more)
 
 ### Community 56 - "Community 56"
 Cohesion: 0.07
-Nodes (28): adminPrefsWrites, adminSet, allowedSet, combinedOrigins, ConfigureBodySchema, currentUser, email, encoder (+20 more)
+Nodes (27): adminPrefsWrites, adminSet, allowedSet, combinedOrigins, ConfigureBodySchema, currentUser, email, encoder (+19 more)
 
 ### Community 57 - "Community 57"
-Cohesion: 0.11
-Nodes (17): brandIcon, card, { container }, emailInput, form, heading, kittScanner, label (+9 more)
+Cohesion: 0.1
+Nodes (23): createMockKV helper, authenticateRequest(), mockKV, request, getBucketName(), getCookieValue(), getUserFromRequest(), logger (+15 more)
 
 ### Community 58 - "Community 58"
 Cohesion: 0.07
@@ -1085,20 +1097,20 @@ Cohesion: 0.08
 Nodes (23): app, mockContainerStub, mockCreateBucketIfNotExists, mockExecutionCtx, mockGetContainer, mockGetOrCreateScopedR2Token, mockGetR2Config, mockGetStoredBucketName (+15 more)
 
 ### Community 61 - "Community 61"
-Cohesion: 0.04
-Nodes (47): createMockKV helper, CfAccessAppsResponse, CfAccessGroupsResponse, CfAccessPoliciesResponse, getAllUsers(), logger, syncAccessPolicy(), adminGroupUpdate (+39 more)
+Cohesion: 0.06
+Nodes (35): getAllUsers(), syncAccessPolicy(), adminGroupUpdate, body, emails, groupPutBodies, policyPutBodies, userGroupIncludeBodies (+27 more)
 
 ### Community 62 - "Community 62"
-Cohesion: 0.13
-Nodes (23): AD13 Per-user scoped R2 tokens, AD32 ENCRYPTION_KEY is optional, KV AES-256-GCM Encryption, Path Traversal Validation, Per-user Scoped R2 Token, Security Headers Bundle, R2 SSE-C Encryption, Penetration Test Report (+15 more)
+Cohesion: 0.11
+Nodes (28): AD13 Per-user scoped R2 tokens, AD32 ENCRYPTION_KEY is optional, WS close code 1013 container-warming-up, WS close code 4503 container-stopped, KV AES-256-GCM Encryption, Cloudflare KV Store, Path Traversal Validation, Per-user Rate Limiter (+20 more)
 
 ### Community 63 - "Community 63"
 Cohesion: 0.05
 Nodes (36): assertRateLimited(), between, body, catchBody, catchOpenIdx, clientsClaim, cookieIdx, evilReplies (+28 more)
 
 ### Community 64 - "Community 64"
-Cohesion: 0.1
-Nodes (12): LayoutOption, layoutOptions, backdrop, gridOption, mockOnClose, mockOnSelectLayout, option, overlay (+4 more)
+Cohesion: 0.07
+Nodes (18): { container }, defaultProps, dismissBtn, errorDiv, mockSessions, terminalContainer, LayoutOption, layoutOptions (+10 more)
 
 ### Community 65 - "Community 65"
 Cohesion: 0.06
@@ -1110,7 +1122,7 @@ Nodes (27): AgentTypeSchema enum (claude-code, codex, copilot, gemini, opencode,
 
 ### Community 67 - "Community 67"
 Cohesion: 0.04
-Nodes (118): #_(), add(), addChangedExistingAnnotation(), addCommands(), addDeleteButton(), addDeletedAnnotationElement(), addEditListeners(), addEditor() (+110 more)
+Nodes (122): #_(), add(), addChangedExistingAnnotation(), addCommands(), addDeleteButton(), addDeletedAnnotationElement(), addEditListeners(), addEditor() (+114 more)
 
 ### Community 68 - "Community 68"
 Cohesion: 0.05
@@ -1125,24 +1137,24 @@ Cohesion: 0.11
 Nodes (16): backdrop, buttons, claudeCode, claudeCodeBtn, codexBtn, copilot, dialog, icon (+8 more)
 
 ### Community 71 - "Community 71"
-Cohesion: 0.15
-Nodes (18): parseCfResponse(), createZoneMockFetch(), fn, mockFetch, promise, result, steps, zoneCalls (+10 more)
+Cohesion: 0.14
+Nodes (19): parseCfResponse(), body, parsed, response, createZoneMockFetch(), fn, mockFetch, promise (+11 more)
 
 ### Community 72 - "Community 72"
 Cohesion: 0.17
 Nodes (10): base64Key, copyHeaders, expectedMd5, h1, h2, headers, key, rawKey (+2 more)
 
 ### Community 73 - "Community 73"
-Cohesion: 0.06
-Nodes (31): Header(), HeaderProps, authBtn, bookmarksButton, defaultSessionProps, handleLogoClick, handleSettingsClick, handleToggle (+23 more)
+Cohesion: 0.08
+Nodes (20): authBtn, bookmarksButton, defaultSessionProps, handleLogoClick, handleSettingsClick, handleToggle, icon, input (+12 more)
 
 ### Community 74 - "Community 74"
 Cohesion: 0.13
 Nodes (22): adaptAgentFrontmatter(), adaptPaths(), adaptSkillContent(), AGENT_CONFIGS, classifyFile(), CLAUDE_ONLY_CATEGORIES, CLAUDE_ONLY_FILES, CLAUDE_ONLY_SKILLS (+14 more)
 
 ### Community 75 - "Community 75"
-Cohesion: 0.22
-Nodes (7): getUsage(), Phase, Props, UsageInlineBadge(), UsagePage(), formatDuration(), getUsageState()
+Cohesion: 0.21
+Nodes (9): getUsage(), UsageInlineBadge(), UsagePage(), formatDuration(), formatSize(), lastYear, thirtyDaysAgo, trimTrailingZero() (+1 more)
 
 ### Community 76 - "Community 76"
 Cohesion: 0.09
@@ -1161,12 +1173,12 @@ Cohesion: 0.05
 Nodes (40): Admin, API Reference, Auth (SaaS Mode), Authentication, Billing, code:json ({ "error": "User-friendly message", "code": "ERROR_CODE" }), code:json ({), code:block2 (POST /api/setup/configure) (+32 more)
 
 ### Community 80 - "Community 80"
-Cohesion: 0.05
-Nodes (81): $(), ae(), apiCall(), at(), B(), be(), bt(), C() (+73 more)
+Cohesion: 0.06
+Nodes (73): $(), ae(), apiCall(), at(), B(), be(), bt(), C() (+65 more)
 
 ### Community 81 - "Community 81"
-Cohesion: 0.15
-Nodes (18): AD10 (CSRF-gated bootstrap window), AD14 Never auto --resync on bisync failure, AD43 Vanishing-file recovery, AD52 graphify decision, AD53 graphify lazy MCP architecture decision, AD6 KV RMW races + collectMetrics atomicity, AD7 Pre-setup public endpoints (merged into AD10), graph-first.md advanced-only (REQ-AGENT-023, AD52) (+10 more)
+Cohesion: 0.12
+Nodes (22): AD10 (CSRF-gated bootstrap window), AD14 Never auto --resync on bisync failure, AD43 Vanishing-file recovery, AD52 graphify decision, AD53 graphify lazy MCP architecture decision, AD6 KV RMW races + collectMetrics atomicity, AD7 Pre-setup public endpoints (merged into AD10), graph-first.md advanced-only (REQ-AGENT-023, AD52) (+14 more)
 
 ### Community 82 - "Community 82"
 Cohesion: 0.13
@@ -1181,8 +1193,8 @@ Cohesion: 0.1
 Nodes (18): EDITABLE_TIERS, SubManagementProps, checkboxes, freeAdvancedCheckbox, freeSessionsInput, hasFourHours, hasUnlimited, MOCK_TIERS (+10 more)
 
 ### Community 85 - "Community 85"
-Cohesion: 0.07
-Nodes (27): btn, dashboard, defaultProps, dialog, icon, kittScanner, left, logo (+19 more)
+Cohesion: 0.1
+Nodes (16): btn, dashboard, defaultProps, dialog, icon, kittScanner, left, logo (+8 more)
 
 ### Community 86 - "Community 86"
 Cohesion: 0.1
@@ -1190,11 +1202,11 @@ Nodes (21): IS_MOBILE flag (E2E_MOBILE=1), checkSetupComplete (/api/setup/status
 
 ### Community 87 - "Community 87"
 Cohesion: 0.02
-Nodes (101): app, bucketName, buildSetBucketNameBody(), configureContainerDO(), container, containerId, { containerId, container }, containerStartRateLimiter (+93 more)
+Nodes (128): app, bucketName, buildSetBucketNameBody(), configureContainerDO(), container, containerId, { containerId, container }, containerStartRateLimiter (+120 more)
 
 ### Community 88 - "Community 88"
-Cohesion: 0.14
-Nodes (21): SetupError, handleGetAccount(), mockFetch, steps, addStep(), logger, SetupStep, withSetupRetry() (+13 more)
+Cohesion: 0.15
+Nodes (21): handleGetAccount(), mockFetch, steps, addStep(), logger, setupRateLimiter, SetupStep, withSetupRetry() (+13 more)
 
 ### Community 89 - "Community 89"
 Cohesion: 0.06
@@ -1213,8 +1225,8 @@ Cohesion: 0.12
 Nodes (16): base64UrlDecode(), getPublicKeys(), JWK, JWKS, JWTHeader, JWTPayload, base64UrlEncode(), createTestJWT() (+8 more)
 
 ### Community 93 - "Community 93"
-Cohesion: 0.03
-Nodes (95): addAlphaFilter(), addAltText(), addButton(), addComment(), addCommentButton(), addEditSignatureButton(), addEditToolbar(), addHighlightArea() (+87 more)
+Cohesion: 0.04
+Nodes (61): addAlphaFilter(), As(), beginMarkedContent(), beginMarkedContentProps(), _bindResetFormAction(), cachedPageNumber(), commentButtonColor(), computeTelemetryFinalData() (+53 more)
 
 ### Community 94 - "Community 94"
 Cohesion: 0.11
@@ -1222,23 +1234,23 @@ Nodes (20): REQ-AGENT-008 Preseed Deployed to Container on Start, Cloud icon, Fo
 
 ### Community 95 - "Community 95"
 Cohesion: 0.03
-Nodes (7): a, b, g, _getCached(), refinement(), _regex(), shape()
+Nodes (11): OnboardingLanding(), a, b, bt(), fr(), g, message(), refinement() (+3 more)
 
 ### Community 96 - "Community 96"
 Cohesion: 0.1
 Nodes (15): cleanup, disposeFn, errorSpy, map, mockFitAddon, _MockWebSocket, pongMsg, result (+7 more)
 
 ### Community 97 - "Community 97"
-Cohesion: 0.05
-Nodes (36): Agents Domain Specification, Domain Dependencies, Key Concepts, Out of Scope, REQ-AGENT-001: Support Multiple AI Coding Agents, REQ-AGENT-002: Agent Selection at Session Creation, REQ-AGENT-003: Agent CLI Auto-Started in Tab 1, REQ-AGENT-004: Two Session Modes - Standard and Pro (+28 more)
+Cohesion: 0.04
+Nodes (52): Agents Domain Specification, Domain Dependencies, Key Concepts, Out of Scope, REQ-AGENT-001: Support Multiple AI Coding Agents, REQ-AGENT-002: Agent Selection at Session Creation, REQ-AGENT-003: Agent CLI Auto-Started in Tab 1, REQ-AGENT-004: Two Session Modes - Standard and Pro (+44 more)
 
 ### Community 98 - "Community 98"
 Cohesion: 0.14
 Nodes (19): Article: The Code is a Side Effect (SDD intro), Article: The Spec Grew Up (SDD update), Acceptance Criteria (AC) per requirement, Architecture Decision Records (ADRs), Circular SDD Workflow (idea -> spec -> plan delta -> TDD -> spec update), Context is the bottleneck, not intelligence, Defensive Specification (must-never-do constraints), Living Specification (single source of truth) (+11 more)
 
 ### Community 99 - "Community 99"
-Cohesion: 0.06
-Nodes (41): Code Quality Checklist, Common Coding Style, Documentation Integrity (update docs with API/config/CI/arch changes), Error Handling at Every Level, File Organization (many small files, 200-400 lines), Immutability Principle (no mutation, no undefined in JSON), Input Validation at System Boundaries, decisions/README.md ADR Ledger (+33 more)
+Cohesion: 0.12
+Nodes (19): Code Quality Checklist, Common Coding Style, Error Handling at Every Level, File Organization (many small files, 200-400 lines), Immutability Principle (no mutation, no undefined in JSON), Input Validation at System Boundaries, Go Coding Style, Go Error Wrapping with fmt.Errorf %w (+11 more)
 
 ### Community 100 - "Community 100"
 Cohesion: 0.19
@@ -1261,8 +1273,8 @@ Cohesion: 0.18
 Nodes (19): AD49 context-mode delivered as preseed plugin, chat-{TODAY} memory entity, context-mode third-party plugin, memory-capture.sh UserPromptSubmit hook, Two-phase Memory Compact (opus), Preseed Manifest Pipeline, reconcileAgentConfigs(), Session Mode (default/advanced) (+11 more)
 
 ### Community 105 - "Community 105"
-Cohesion: 0.13
-Nodes (23): AD48 OAuth state HMAC-signed token, Direct GitHub OAuth (OIDC), JIT User Provisioning (SaaS), CF Access login_method policy (SaaS), HMAC-signed OAuth state token, Service Token (X-Service-Auth), codeflare_session cookie, Self-service Subscription Flow (+15 more)
+Cohesion: 0.16
+Nodes (19): AD48 OAuth state HMAC-signed token, Cloudflare Access, HMAC-signed OAuth state token, Service Token (X-Service-Auth), codeflare_session cookie, REQ-AUTH-001 Two authentication modes, REQ-AUTH-002 SaaS mode uses Direct GitHub OAuth, REQ-AUTH-003 CF Access mode (+11 more)
 
 ### Community 106 - "Community 106"
 Cohesion: 0.12
@@ -1273,12 +1285,12 @@ Cohesion: 0.13
 Nodes (15): findLogicalLineStart(), isLikelyUrlContinuation(), registerMultiLineLinkProvider(), createMockBuffer(), createMockTerminal(), disposable, line0, line1 (+7 more)
 
 ### Community 108 - "Community 108"
-Cohesion: 0.1
-Nodes (26): getTabType(), resolveTabIcon(), resolveTabLabel(), SortableTab(), StaticTab(), TerminalTabsProps, activeTab, addButton (+18 more)
+Cohesion: 0.2
+Nodes (15): getTabType(), resolveTabIcon(), resolveTabLabel(), SortableTab(), StaticTab(), TerminalTabsProps, AGENT_ICON_MAP, getTabDisplayName() (+7 more)
 
 ### Community 109 - "Community 109"
-Cohesion: 0.09
-Nodes (26): authUrls, expectedRemovals, hash, map, normalUrls, NUM_RUNS, pathological, prefix (+18 more)
+Cohesion: 0.14
+Nodes (18): ACTIONABLE_URL_PATTERNS, WS_RETRYABLE_CLOSE_CODES, getBufferActive(), getLastUrlFromBuffer(), isActionableUrl(), isLikelyUrlContinuation(), registerUrlDetectionDeps(), setAuthUrlFn() (+10 more)
 
 ### Community 110 - "Community 110"
 Cohesion: 0.12
@@ -1310,11 +1322,11 @@ Nodes (26): Architecture, Architecture Overview, code:mermaid (graph TD), code:t
 
 ### Community 117 - "Community 117"
 Cohesion: 0.07
-Nodes (26): Attachment Cost Caveat (REQ-VAULT-003 AC7), Capture Path (REQ-VAULT-002), code:block1 (/home/user/), CONFIG.md and Library/Std (base_fs), Contents, Directory Layout, First-session Expectations, Overview (REQ-VAULT-001) (+18 more)
+Nodes (29): Attachment Cost Caveat (REQ-VAULT-003 AC7), Attachment Cost Caveat (REQ-VAULT-011 AC1), Capture Path (REQ-VAULT-002), code:block1 (/home/user/), CONFIG.md and Library/Std (base_fs), Contents, Directory Layout, First-session Expectations (+21 more)
 
 ### Community 118 - "Community 118"
-Cohesion: 0.06
-Nodes (28): buttons, desktopBtn, labels, labelTexts, mic, mobileButtons, mobileMock, mockBuffer (+20 more)
+Cohesion: 0.11
+Nodes (15): buttons, desktopBtn, labels, labelTexts, mic, mobileButtons, mobileMock, mockBuffer (+7 more)
 
 ### Community 119 - "Community 119"
 Cohesion: 0.1
@@ -1322,7 +1334,7 @@ Nodes (23): authenticateRequest (AuthError 401 / ForbiddenError 403), getBucketN
 
 ### Community 120 - "Community 120"
 Cohesion: 0.1
-Nodes (15): getDownloadUrl(), ALWAYS_VISIBLE_SPECIAL_PREFIXES, getSpecialFolder(), SPECIAL_FOLDERS, SPECIAL_FOLDERS_BY_PREFIX, SpecialFolder, containerBase, prefixBase (+7 more)
+Nodes (20): DEFAULT_ICON, EXTENSION_MAP, FileIcon, FOLDER_ICON, getFileIcon(), lower, mixed, result (+12 more)
 
 ### Community 121 - "Community 121"
 Cohesion: 0.12
@@ -1357,8 +1369,8 @@ Cohesion: 0.12
 Nodes (12): adopted, alive, capped, dead, FakeSession, first, fourth, hasClients (+4 more)
 
 ### Community 129 - "Community 129"
-Cohesion: 0.15
-Nodes (13): Dashboard(), Layout(), ViewState, DismissedLevel, [dismissedSignal, setDismissedSignal], getDismissedKey(), getDismissedQuotaLevel(), isAtUsageQuota() (+5 more)
+Cohesion: 0.18
+Nodes (11): Dashboard(), DismissedLevel, [dismissedSignal, setDismissedSignal], getDismissedKey(), getDismissedQuotaLevel(), isAtUsageQuota(), loadDismissedLevel(), setDismissedQuotaLevel() (+3 more)
 
 ### Community 130 - "Community 130"
 Cohesion: 0.05
@@ -1386,7 +1398,7 @@ Nodes (34): 1. Text-matching theater, 2. Tautology, 3. Mock-only theater, 4. Imp
 
 ### Community 136 - "Community 136"
 Cohesion: 0.2
-Nodes (16): AD47 PTY keepalive as safety net only, AD8 Root container no internal auth, Cloudflare Access, collectMetrics() idle policy, Container Durable Object, Durable Object, JSON Web Token (JWT), Per-user R2 Bucket (+8 more)
+Nodes (16): AD47 PTY keepalive as safety net only, AD8 Root container no internal auth, collectMetrics() idle policy, Container Durable Object, Durable Object, JSON Web Token (JWT), Per-user R2 Bucket, rclone bisync daemon (+8 more)
 
 ### Community 137 - "Community 137"
 Cohesion: 0.12
@@ -1409,8 +1421,8 @@ Cohesion: 0.17
 Nodes (15): REQ-MOB-001 Terminal usable on mobile, REQ-MOB-002 Virtual keyboard opens on tap, REQ-MOB-003 Samsung Internet keyboard quirks, REQ-MOB-004 Scroll stability during output and keyboard transitions, REQ-MOB-005 Swipe gestures send arrow keys or scroll, REQ-MOB-006 Sticky Ctrl button for mobile, REQ-MOB-007 Voice input via Web Speech API, REQ-MOB-008 Cursor visible for all agents (+7 more)
 
 ### Community 142 - "Community 142"
-Cohesion: 0.12
-Nodes (17): context-mode-cache-heal.mjs (SessionStart hook with matcher:null), entrypoint context-mode preseed gate tests, entrypoint settings.json + plugin enablement tests, entrypoint settings.json hooks-merge matcher-null guard, entrypoint chmod .mjs hooks tests, entrypoint.sh, git-push-review-reminder PostToolUse hook (issue #243), graphify-out/ artifact directory (+9 more)
+Cohesion: 0.14
+Nodes (15): context-mode-cache-heal.mjs (SessionStart hook with matcher:null), entrypoint context-mode preseed gate tests, entrypoint settings.json + plugin enablement tests, entrypoint settings.json hooks-merge matcher-null guard, entrypoint chmod .mjs hooks tests, entrypoint.sh, git-push-review-reminder PostToolUse hook (issue #243), jq settings.json hooks recursive-merge filter (+7 more)
 
 ### Community 143 - "Community 143"
 Cohesion: 0.08
@@ -1453,8 +1465,8 @@ Cohesion: 0.06
 Nodes (36): Auto-detection — when SDD enforcement runs without /sdd, code:block1 (sdd/), code:block2 (README.md          # Links to sdd/ and documentation/), code:block3 (<!-- @impl: <path>::<symbol> -->), code:block4 (<!-- @impl: lib/services/auth_service.dart::login -->), code:bash (/sdd mode interactive   # default; agent asks before every f), code:typescript (test('REQ-AUTH-001: rejects expired JWT tokens', () => {), Conservative JUDGMENT auto-resolution (unleashed only) (+28 more)
 
 ### Community 153 - "Community 153"
-Cohesion: 0.12
-Nodes (18): block-attributed-commits.sh PreToolUse hook (codeflare-hooks), block-attributed-commits.sh tests, /tmp/ctx-bypass sentinel file, ctx_fetch_and_index (network replacement), enforce-ctx-mode graphify whitelist test, enforce-ctx-mode.sh PreToolUse hook (context-mode plugin), enforce-ctx-mode.sh tests, entrypoint settings.json ctx-mode dedup test (+10 more)
+Cohesion: 0.15
+Nodes (14): block-attributed-commits.sh PreToolUse hook (codeflare-hooks), block-attributed-commits.sh tests, /tmp/ctx-bypass sentinel file, ctx_fetch_and_index (network replacement), enforce-ctx-mode graphify whitelist test, enforce-ctx-mode.sh PreToolUse hook (context-mode plugin), enforce-ctx-mode.sh tests, entrypoint settings.json ctx-mode dedup test (+6 more)
 
 ### Community 154 - "Community 154"
 Cohesion: 0.18
@@ -1513,8 +1525,8 @@ Cohesion: 0.07
 Nodes (30): Allowlist (acceptable in REQs), Backlog re-triage, Changelog discipline, Changelog drift, code:block1 (**Finding ID:** {category}-{N}  ({YYYY-MM-DD})), code:block2 (CONFIG=$(test -f sdd/spec/config.yml && echo sdd/spec/config), code:bash (git diff origin/main...HEAD), code:bash (git diff origin/main...HEAD) (+22 more)
 
 ### Community 168 - "Community 168"
-Cohesion: 0.17
-Nodes (12): ALL_TIPS, DashboardCardProps, filterTips(), shuffle(), card, content, icon, Tip (+4 more)
+Cohesion: 0.15
+Nodes (15): ALL_TIPS, DashboardCard(), DashboardCardProps, filterTips(), shuffle(), card, content, icon (+7 more)
 
 ### Community 169 - "Community 169"
 Cohesion: 0.15
@@ -1553,12 +1565,12 @@ Cohesion: 0.06
 Nodes (37): code:bash (test -d sdd && test -f sdd/README.md), code:markdown (## {Section title}), code:bash (SPEC_LAYOUT="nested"), code:bash (CONFIG=$(test -f sdd/spec/config.yml && echo sdd/spec/config), code:bash (test -f documentation/README.md), code:bash (git log -3 --format="%H %s" 2>/dev/null), code:bash (git log -5 --format="%H%n%s%n%b%n--END--"), code:bash (git diff origin/main...HEAD 2>/dev/null || git diff HEAD~1..) (+29 more)
 
 ### Community 178 - "Community 178"
-Cohesion: 0.12
-Nodes (16): AD11 Suffix-pattern CORS with credentials, Trivy Container Image Scan, Configuration Reference, ALLOWED_ORIGINS env var, CLOUDFLARE_API_TOKEN env var, CONTAINER_AUTH_TOKEN env var, MAX_SESSIONS_ADMIN env var, MAX_SESSIONS_USER env var (+8 more)
+Cohesion: 0.17
+Nodes (12): AD11 Suffix-pattern CORS with credentials, Configuration Reference, ALLOWED_ORIGINS env var, CONTAINER_AUTH_TOKEN env var, MAX_SESSIONS_ADMIN env var, MAX_SESSIONS_USER env var, R2_ACCESS_KEY_ID env var, R2_SECRET_ACCESS_KEY env var (+4 more)
 
 ### Community 179 - "Community 179"
-Cohesion: 0.16
-Nodes (15): AD26 STRESS_TEST_MODE integration-only, CI/CD and Testing, Development and Deployment, Mobile Terminal Reference, Documentation Index, Stress Testing Guide, Stress Test Results, STRESS_TEST_MODE env var (+7 more)
+Cohesion: 0.17
+Nodes (12): Trivy Container Image Scan, CI/CD and Testing, CLOUDFLARE_API_TOKEN env var, REQ-SEC-011 Trivy CVE scan before deploy, codeql.yml workflow, deploy.yml workflow, e2e.yml workflow, fuzz.yml workflow (+4 more)
 
 ### Community 180 - "Community 180"
 Cohesion: 0.21
@@ -1677,16 +1689,16 @@ Cohesion: 0.04
 Nodes (47): an(), ar(), bn(), cn(), cr(), d(), dn(), dr() (+39 more)
 
 ### Community 210 - "Community 210"
-Cohesion: 0.2
-Nodes (10): Per-container Circuit Breaker, WS close code 1013 container-warming-up, WS close code 4503 container-stopped, CORS Origin Cache (5min), JWKS Cache (per-isolate), Cloudflare KV Store, Per-user Rate Limiter, WebSocket Rate Limit (+2 more)
+Cohesion: 0.24
+Nodes (10): AD26 STRESS_TEST_MODE integration-only, Per-container Circuit Breaker, CORS Origin Cache (5min), JWKS Cache (per-isolate), Architecture Internals, Development and Deployment, Documentation Index, Stress Testing Guide (+2 more)
 
 ### Community 211 - "Community 211"
 Cohesion: 0.27
 Nodes (9): collectRelativeFilePaths(), __dirname, __filename, generate(), inferContentType(), outputFile, rootDir, toGeneratedModuleSource() (+1 more)
 
 ### Community 212 - "Community 212"
-Cohesion: 0.19
-Nodes (13): ctx_search (Grep replacement), entrypoint graphify hooks wiring test, entrypoint graphify preseed gate tests (REQ-AGENT-023 AC2), graph-first-nudge.sh (PreToolUse hook), graph-first-nudge.sh tests (REQ-AGENT-023 AC10), graphify-out/GRAPH_REPORT.md sentinel, ~/.cache/codeflare-hooks/graphify-active-cwd sentinel, graphify-active-repo.sh (PostToolUse hook) (+5 more)
+Cohesion: 0.24
+Nodes (10): ctx_search (Grep replacement), entrypoint graphify hooks wiring test, entrypoint graphify preseed gate tests (REQ-AGENT-023 AC2), graph-first-nudge.sh (PreToolUse hook), graph-first-nudge.sh tests (REQ-AGENT-023 AC10), graphify-out/GRAPH_REPORT.md sentinel, graphify-session-start.sh (SessionStart hook), graphify-session-start.sh tests (+2 more)
 
 ### Community 213 - "Community 213"
 Cohesion: 0.2
@@ -1737,8 +1749,8 @@ Cohesion: 0.25
 Nodes (9): CloudflareIcon SVG component, GeminiIcon SVG component, GitHubIcon SVG component, OpenAIIcon SVG component, Cloudflare multi-account selector, DeployKeysSection — GitHub + Cloudflare token management, LlmKeysSection — manage OpenAI + Gemini keys, ProviderRow — connect/disconnect token UI with tier selector (+1 more)
 
 ### Community 225 - "Community 225"
-Cohesion: 0.15
-Nodes (18): REQ-AGENT-004 Two Session Modes (Standard/Pro), REQ-AGENT-005 Pro Mode preseed bundle, REQ-AGENT-006 Preseed Configs Generated from Single Source, REQ-AGENT-007 Multi-Agent Adaptation Pipeline, REQ-AGENT-011 Agent Configs Recreatable from Settings, REQ-AGENT-014 Manifest-Driven Preseed Pipeline, REQ-AGENT-021 SDD Workflow (Pro), REQ-AGENT-022 Legacy-codebase transition via init triage (+10 more)
+Cohesion: 0.28
+Nodes (9): REQ-AGENT-004 Two Session Modes (Standard/Pro), REQ-AGENT-023 Knowledge-Graph Capability (Graphify), REQ-AGENT-024 Advanced-mode Graph-First Discipline, REQ-AGENT-025 Post-Clone Graph Triage, REQ-AGENT-026 Knowledge-Graph Persistence via Git, REQ-AGENT-027 Context-Mode Interoperability, AD52 discipline-vs-capability tier split, AD53 graphify hot-reload tolerance + active-repo hook (+1 more)
 
 ### Community 226 - "Community 226"
 Cohesion: 0.09
@@ -1758,7 +1770,7 @@ Nodes (27): 1. Fork this repo, 2. Set secrets, 3. Deploy, 4. Run the setup wizar
 
 ### Community 230 - "Community 230"
 Cohesion: 0.12
-Nodes (13): adminApp, app, metrics, running, session, session1, session2, sessionPutCall (+5 more)
+Nodes (25): applyPresetToSession(), addTerminalTab(), createTabOne(), getTerminalsForSession(), initializeTerminalsForSession(), loadTerminalsFromStorage(), normalizeSessionTerminals(), registerTabsDeps() (+17 more)
 
 ### Community 231 - "Community 231"
 Cohesion: 0.25
@@ -1813,8 +1825,8 @@ Cohesion: 0.07
 Nodes (27): Architecture, Architecture Overview, code:mermaid (graph TD), code:typescript (// See: https://github.com/cloudflare/workerd/issues/2319), code:mermaid (flowchart TD), code:mermaid (sequenceDiagram), code:mermaid (sequenceDiagram), code:mermaid (stateDiagram-v2) (+19 more)
 
 ### Community 244 - "Community 244"
-Cohesion: 0.25
-Nodes (5): StoragePanelProps, backdrop, closeButton, handleClose, panel
+Cohesion: 0.09
+Nodes (21): checkContainerHealth(), ContainerHealthResult, ContainerStubWithState, ContainerVariables, getContainerContext(), getSessionIdFromQuery(), HealthData, container-helpers module (+13 more)
 
 ### Community 245 - "Community 245"
 Cohesion: 0.29
@@ -1877,12 +1889,12 @@ Cohesion: 0.29
 Nodes (7): CF-020 mobile keyboard key dispatch, FUNCTIONAL_KEY_MAP ANSI sequence tests (CF-020), resolveKeyAction Ctrl+letter / copy / paste tests, long press gesture cancellation tests, vertical swipe scroll mode (keyboard closed), sendTerminalKey triggerDataEvent tests, attachSwipeGestures horizontal/vertical swipe tests
 
 ### Community 260 - "Community 260"
-Cohesion: 0.32
-Nodes (8): commentSelection(), #ee(), getSelectionBoxes(), hasTextLayer(), highlightSelection(), onEditingAction(), #re(), #Z()
+Cohesion: 0.22
+Nodes (11): commentSelection(), #ee(), getSelectionBoxes(), hasTextLayer(), highlightSelection(), on(), onEditingAction(), #re() (+3 more)
 
 ### Community 261 - "Community 261"
-Cohesion: 0.09
-Nodes (21): Domain Dependencies, Key Concepts, Out of Scope, REQ-SEC-001: Authenticated endpoints reject unauthenticated requests, REQ-SEC-002: API tokens never enter containers, REQ-SEC-003: Per-user R2 tokens scoped to user bucket, REQ-SEC-004: Credential encryption at rest when ENCRYPTION_KEY configured, REQ-SEC-005: R2 files encrypted via SSE-C when ENCRYPTION_KEY configured (+13 more)
+Cohesion: 0.07
+Nodes (27): Domain Dependencies, Key Concepts, Out of Scope, REQ-SEC-001: Authenticated endpoints reject unauthenticated requests, REQ-SEC-002: API tokens never enter containers, REQ-SEC-003: Per-user R2 tokens scoped to user bucket, REQ-SEC-004: Credential encryption-at-rest cryptographic contract, REQ-SEC-004: Credential encryption at rest when ENCRYPTION_KEY configured (+19 more)
 
 ### Community 262 - "Community 262"
 Cohesion: 0.33
@@ -1934,7 +1946,7 @@ Nodes (6): ci-monitoring Skill (referenced), git-review-pipeline Skill (referenc
 
 ### Community 274 - "Community 274"
 Cohesion: 0.08
-Nodes (31): c(), dirty(), endsWith(), _getOrReturnCtx(), _getType(), implement(), includes(), isFinite() (+23 more)
+Nodes (33): c(), dirty(), endsWith(), _getCached(), _getOrReturnCtx(), _getType(), implement(), includes() (+25 more)
 
 ### Community 275 - "Community 275"
 Cohesion: 0.33
@@ -1945,8 +1957,8 @@ Cohesion: 0.33
 Nodes (4): Admin/regular user role promotion pattern, configure() — POST /api/setup/configure NDJSON stream, SetupState interface, Setup Store (Cloudflare setup wizard)
 
 ### Community 277 - "Community 277"
-Cohesion: 0.07
-Nodes (25): getOnboardingConfig(), getSetupStatus(), getUser(), getOnboardingConfigMock, getSetupStatusMock, getUserMock, Window, container (+17 more)
+Cohesion: 0.05
+Nodes (39): getOnboardingConfig(), getSetupStatus(), getUser(), getOnboardingConfigMock, getSetupStatusMock, getUserMock, brandIcon, card (+31 more)
 
 ### Community 278 - "Community 278"
 Cohesion: 0.08
@@ -2037,16 +2049,16 @@ Cohesion: 0.5
 Nodes (4): MAX_TABS = 6 (terminal tabs per session), SESSION_ID_PATTERN regex (/^[a-z0-9]{8,24}$/), Backend/frontend constant parity tests (MAX_TABS, SESSION_ID_PATTERN), generateSessionId (96-bit hex via crypto.getRandomValues)
 
 ### Community 300 - "Community 300"
-Cohesion: 0.09
-Nodes (23): DashboardProps, SessionLimitPopupProps, getBrowserTimezone(), syncBrowserTimezone(), SyncBrowserTimezoneInput, tz, updatePrefs, cleanupSessionVaultCache() (+15 more)
+Cohesion: 0.15
+Nodes (16): cleanupSessionVaultCache(), deleteRecordedIdbs(), getIDB(), getLS(), getSW(), listSessionMarkers(), readRecordedIdbNames(), sweepOrphanVaultCaches() (+8 more)
 
 ### Community 301 - "Community 301"
 Cohesion: 0.19
 Nodes (12): SplashCursorProps, createSplashSimulation(), SplashConfig, SplashSimulation, correctDeltaX(), correctDeltaY(), correctRadius(), getResolution() (+4 more)
 
 ### Community 302 - "Community 302"
-Cohesion: 0.15
-Nodes (21): At(), bt(), e(), Ee(), error(), flatten(), formErrors(), fr() (+13 more)
+Cohesion: 0.2
+Nodes (17): At(), e(), Ee(), error(), flatten(), formErrors(), get(), gt() (+9 more)
 
 ### Community 303 - "Community 303"
 Cohesion: 0.2
@@ -2229,8 +2241,8 @@ Cohesion: 0.1
 Nodes (19): 10. Endpoint Fuzzing, 11. HTTP Methods, 12. Technology Stack, 13. Rate Limiting, 1. Authentication Gate, 2. Header Spoofing, 3. Path Traversal, 4. CORS Configuration (+11 more)
 
 ### Community 517 - "Community 517"
-Cohesion: 0.12
-Nodes (13): StatCardsProps, StorageStats, card, filesMetric, foldersMetric, sizeMetric, skeleton, formatRelativeTime() (+5 more)
+Cohesion: 0.05
+Nodes (28): getDownloadUrl(), AGENT_OPTIONS, AgentOption, CreateSessionDialogProps, DashboardProps, IconProps, SessionContextMenuProps, SessionLimitPopupProps (+20 more)
 
 ### Community 518 - "Community 518"
 Cohesion: 0.11
@@ -2297,8 +2309,8 @@ Cohesion: 0.06
 Nodes (31): Attachment Cost Caveat (REQ-VAULT-003 AC7), Capture Path (REQ-VAULT-002), code:block1 (/home/user/), CONFIG.md and Library/Std (base_fs), CONFIG.md and Library/Std federation, Contents, Directory Layout, First-session Expectations (+23 more)
 
 ### Community 534 - "Community 534"
-Cohesion: 0.11
-Nodes (19): code:bash (mkdir -p graphify-out), code:bash (python3 -c "), code:bash (python3 -c "), code:bash (python3 -c "), code:bash (python3 -c "), code:bash (python3 -c "), code:block26 (Graph complete. Outputs are in a hidden folder called graphi), code:bash (python3 -c "import graphify" 2>/dev/null || pip install grap) (+11 more)
+Cohesion: 0.12
+Nodes (16): code:bash (mkdir -p graphify-out), code:bash (python3 -c "), code:bash (python3 -c "), code:bash (python3 -c "), code:bash (python3 -c "), code:bash (python3 -c "), code:block26 (Graph complete. Outputs are in a hidden folder called graphi), code:bash (python3 -c "import graphify" 2>/dev/null || pip install grap) (+8 more)
 
 ### Community 535 - "Community 535"
 Cohesion: 0.1
@@ -2709,8 +2721,8 @@ Cohesion: 0.17
 Nodes (12): brand(), catch(), ct(), default(), Et(), keyof(), nt(), _t() (+4 more)
 
 ### Community 644 - "Community 644"
-Cohesion: 0.22
-Nodes (6): { container }, defaultProps, dismissBtn, errorDiv, mockSessions, terminalContainer
+Cohesion: 0.1
+Nodes (21): Header(), HeaderProps, authUrls, expectedRemovals, hash, map, normalUrls, NUM_RUNS (+13 more)
 
 ### Community 645 - "Community 645"
 Cohesion: 0.11
@@ -2718,11 +2730,11 @@ Nodes (18): `/api/*` Returns HTML (SPA Swallow), Auth Error After Successful Acc
 
 ### Community 646 - "Community 646"
 Cohesion: 0.03
-Nodes (140): #a(), a11yAlert(), addColorPicker(), addLinkAnnotations(), addLuminosityFilter(), addMissingCanvas(), addNativeFontFace(), _addOutlines() (+132 more)
+Nodes (153): #a(), a11yAlert(), addColorPicker(), addContainer(), addFilter(), addHCMFilter(), addHighlightHCMFilter(), addLuminosityFilter() (+145 more)
 
 ### Community 647 - "Community 647"
-Cohesion: 0.11
-Nodes (11): dirFile, dt, file, file1, file2, MockEntry, MockFileReader, nestedFile (+3 more)
+Cohesion: 0.1
+Nodes (22): TabPreset, deletePreset(), ErrorSetter, formatCommandForTerminal(), loadPresets(), registerPresetsDeps(), renamePreset(), saveBookmarkForSession() (+14 more)
 
 ### Community 648 - "Community 648"
 Cohesion: 0.18
@@ -2745,8 +2757,8 @@ Cohesion: 0.33
 Nodes (5): Adding a top bar toggle icon, code:lua (config.set {), code:lua (actionButton.define {), Configuration, SilverBullet TreeView plug
 
 ### Community 653 - "Community 653"
-Cohesion: 0.05
-Nodes (63): addContainer(), addFilter(), addHCMFilter(), addHighlightHCMFilter(), center(), copy(), copyCanvas(), cut() (+55 more)
+Cohesion: 0.17
+Nodes (12): copy(), cut(), getNonHCMColor(), getPDFRect(), getRect(), hasBeenModified(), modifiedIds(), _rescaleAndSwap() (+4 more)
 
 ### Community 654 - "Community 654"
 Cohesion: 0.5
@@ -2761,12 +2773,12 @@ Cohesion: 0.25
 Nodes (8): WS close code 4503 container-stopped, Frontend property/fuzz tests (md5, isActionableUrl, cleanupMapByPrefix), Session tabs store test, Vitest test setup (mocks for localStorage/WebSocket/ResizeObserver), MockWebSocket fixture, Test infrastructure smoke suite, Terminal layout test, Terminal store test (WS retry/restore)
 
 ### Community 659 - "Community 659"
-Cohesion: 0.11
-Nodes (18): Domain Dependencies, Key Concepts, Out of Scope, REQ-STOR-001: Dedicated Per-User R2 Bucket, REQ-STOR-002: File Persistence Across Sessions, REQ-STOR-003: Bidirectional Sync Every 15 Minutes (with Manual Triggers), REQ-STOR-004: Initial Sync Restores Files on Container Start, REQ-STOR-005: Graceful Shutdown Performs Final Sync (+10 more)
+Cohesion: 0.1
+Nodes (19): Domain Dependencies, Key Concepts, Out of Scope, REQ-STOR-001: Dedicated Per-User R2 Bucket, REQ-STOR-002: File Persistence Across Sessions, REQ-STOR-003: Bidirectional Sync Every 15 Minutes (with Manual Triggers), REQ-STOR-004: Initial Sync Restores Files on Container Start, REQ-STOR-005: Graceful Shutdown Performs Final Sync (+11 more)
 
 ### Community 662 - "Community 662"
-Cohesion: 0.22
-Nodes (9): UserInfo, callback, div, observer, session, userInfo, ws, createMockSession() (+1 more)
+Cohesion: 0.08
+Nodes (25): addEventSpy, defaultProps, dispose, event, FitAddonClass, focusoutCalls, getKeyboardHeightMock, isTouchDeviceMock (+17 more)
 
 ### Community 663 - "Community 663"
 Cohesion: 0.4
@@ -2794,23 +2806,23 @@ Nodes (7): dashboardCss, designTokens, match, onboardingCss, readCss(), setupCss
 
 ### Community 671 - "Community 671"
 Cohesion: 0.11
-Nodes (18): blob1, blob2, browsePromise, file, files, largeContent, mockBrowseStorage, mockCompleteMultipartUpload (+10 more)
+Nodes (13): Layout(), LayoutProps, header, layout, mockSessions, settingsPanel, splashCursor, storagePanel (+5 more)
 
 ### Community 672 - "Community 672"
 Cohesion: 0.29
 Nodes (5): body, configurePromise, detectPromise, errorSteps, mockFetch
 
 ### Community 673 - "Community 673"
-Cohesion: 0.12
-Nodes (16): Domain Dependencies, Key Concepts, Operations, Out of Scope, REQ-OPS-001: Deploy triggered by push to main, REQ-OPS-002: Docker image built, scanned, and deployed to Cloudflare, REQ-OPS-003: PR checks run lint, test, typecheck, and security audit, REQ-OPS-004: E2E tests on deployed worker (+8 more)
+Cohesion: 0.07
+Nodes (27): Domain Dependencies, Key Concepts, Operations, Out of Scope, REQ-OPS-001: Deploy triggered by push to main, REQ-OPS-001: Deploy workflow trigger and pre-deploy pipeline, REQ-OPS-002: Docker image build, vulnerability scan, and registry push, REQ-OPS-002: Docker image built, scanned, and deployed to Cloudflare (+19 more)
 
 ### Community 674 - "Community 674"
-Cohesion: 0.13
-Nodes (14): Domain Dependencies, Key Concepts, Mobile Terminal, Out of Scope, REQ-MOB-001: Terminal fully usable on mobile devices, REQ-MOB-002: Virtual keyboard opens reliably on tap, REQ-MOB-003: Samsung Internet keyboard quirks handled, REQ-MOB-004: Scroll position stable during output and keyboard transitions (+6 more)
+Cohesion: 0.1
+Nodes (19): Domain Dependencies, Key Concepts, Mobile Terminal, Out of Scope, REQ-MOB-001: Terminal fully usable on mobile devices, REQ-MOB-002: Virtual keyboard opens reliably on tap, REQ-MOB-003: Samsung Internet keyboard quirks handled, REQ-MOB-003: Samsung Internet keyboard viewport state (+11 more)
 
 ### Community 675 - "Community 675"
-Cohesion: 0.13
-Nodes (14): Domain Dependencies, Key Concepts, Out of Scope, REQ-SETUP-001: First-time setup requires zero pre-configuration, REQ-SETUP-002: Setup wizard configures domain, auth, R2 credentials, and Turnstile, REQ-SETUP-003: Three deployment modes, REQ-SETUP-004: Setup is idempotent, REQ-SETUP-005: Post-setup reconfiguration requires admin auth (+6 more)
+Cohesion: 0.12
+Nodes (16): Domain Dependencies, Key Concepts, Out of Scope, REQ-SETUP-001: First-time setup requires zero pre-configuration, REQ-SETUP-002: Setup wizard configures domain, auth, R2 credentials, and Turnstile, REQ-SETUP-003: Three deployment modes, REQ-SETUP-004: Setup is idempotent, REQ-SETUP-005: Post-setup reconfiguration requires admin auth (+8 more)
 
 ### Community 676 - "Community 676"
 Cohesion: 0.5
@@ -2822,11 +2834,11 @@ Nodes (14): Domain Dependencies, Key Concepts, Out of Scope, REQ-TERM-001: Up to
 
 ### Community 678 - "Community 678"
 Cohesion: 0.14
-Nodes (12): containerState, deleteIdx, getIdx, kvCallOrder, mockCreateR2Client, mockDeleteScopedR2Token, mockEmptyR2Bucket, mockFetch (+4 more)
+Nodes (18): SessionTerminals, TilingState, getBestLayoutForTabCount(), getTabOrder(), getTilingForSession(), isLayoutCompatible(), LAYOUT_MIN_TABS, LAYOUT_UPGRADE_ORDER (+10 more)
 
 ### Community 679 - "Community 679"
-Cohesion: 0.14
-Nodes (13): Domain Dependencies, Key Concepts, Out of Scope, REQ-VAULT-001: Persistent vault directory survives across sessions, REQ-VAULT-002: Conversation captures land in the vault as markdown, REQ-VAULT-003: User-curated edits are detected and ingested within ~60s, REQ-VAULT-004: Unified global graph merges vault + active repos, REQ-VAULT-005: Worker proxy exposes the in-container vault editor (+5 more)
+Cohesion: 0.1
+Nodes (20): Domain Dependencies, Key Concepts, Out of Scope, REQ-VAULT-001: Persistent vault directory survives across sessions, REQ-VAULT-002: Conversation captures land in the vault as markdown, REQ-VAULT-003: User-curated edits are detected and ingested within ~60s, REQ-VAULT-004: Unified global graph merges vault + active repos, REQ-VAULT-005: Worker proxy exposes the in-container vault editor (+12 more)
 
 ### Community 680 - "Community 680"
 Cohesion: 0.15
@@ -2857,12 +2869,12 @@ Cohesion: 0.18
 Nodes (10): code:bash (npm install && cd web-ui && npm install && cd ..), code:block2 (codeflare/), Cost Analysis, Critical Paths Inside Container, Development, Development & Deployment, File Structure, Intentional Schema Duplication (Bundle Boundary) (+2 more)
 
 ### Community 687 - "Community 687"
-Cohesion: 0.2
-Nodes (9): DEFAULT_ICON, EXTENSION_MAP, FileIcon, FOLDER_ICON, getFileIcon(), lower, mixed, result (+1 more)
+Cohesion: 0.11
+Nodes (15): resetUserRecordCache(), lastPendingWrite, mockKV, mockStorage, NOW, record, THIS_MONTH, THIS_WEEK_START (+7 more)
 
 ### Community 688 - "Community 688"
-Cohesion: 0.18
-Nodes (10): Domain Dependencies, Key Concepts, Memory, Out of Scope, REQ-MEM-001: Conversation context automatically captured to vault, REQ-MEM-002: Capture triggers every 15 user messages, REQ-MEM-004: Vault contents synced to R2 across sessions, REQ-MEM-006: Memory available only in Pro (Advanced) mode (+2 more)
+Cohesion: 0.15
+Nodes (12): Domain Dependencies, Key Concepts, Memory, Out of Scope, REQ-MEM-001: Conversation context automatically captured to vault, REQ-MEM-002: Capture triggers every 15 user messages, REQ-MEM-004: Vault contents synced to R2 across sessions, REQ-MEM-006: Memory available only in Pro (Advanced) mode (+4 more)
 
 ### Community 689 - "Community 689"
 Cohesion: 0.2
@@ -2872,17 +2884,21 @@ Nodes (9): Automatic Memory Capture, code:block1 (~/.memory/counter/), Contents,
 Cohesion: 0.22
 Nodes (7): child1, child2, childLogger, entry, logger, rawOutput, testError
 
+### Community 691 - "Community 691"
+Cohesion: 0.14
+Nodes (3): ExecuteFailCommand, ExecuteSuccessCommand, ResetCommand
+
 ### Community 692 - "Community 692"
 Cohesion: 0.29
 Nodes (6): Appendix: CF-NNN Code Index, Architecture Internals, Backend Libraries, Code Structure (Pre-Launch Refactoring), Related Documentation, Setup Wizard Resilience
 
 ### Community 693 - "Community 693"
-Cohesion: 0.29
-Nodes (5): CfApiBaseSchema, CfApiResponse, body, parsed, response
+Cohesion: 0.13
+Nodes (14): getLayoutClass(), LAYOUT_SLOTS, activeSlot, container, emptySlot, inactiveSlot, mockOnTileClick, slot1 (+6 more)
 
 ### Community 694 - "Community 694"
-Cohesion: 0.29
-Nodes (5): c, config, consoleSpy, isolatedConfig, limiter
+Cohesion: 0.05
+Nodes (45): PROTECTED_PATHS, computeKeyMd5(), getSseCopyHeaders(), getSseHeaders(), createRateLimiter(), c, config, consoleSpy (+37 more)
 
 ### Community 695 - "Community 695"
 Cohesion: 0.33
@@ -2896,24 +2912,80 @@ Nodes (5): code:bash (rm .git/sdd-last-ack-pr-head .git/sdd-review-block-count),
 Cohesion: 0.33
 Nodes (4): longId, request, result, sessionId
 
+### Community 699 - "Community 699"
+Cohesion: 0.12
+Nodes (16): Documentation Integrity (update docs with API/config/CI/arch changes), decisions/README.md ADR Ledger, Documentation Discipline (Core), doc-enforce-lanes Skill, doc-enforce Skill (spine), doc-enforce-truth Skill, Documentation Lane Separation Table, REQ Backlinks in documentation/ (+8 more)
+
+### Community 700 - "Community 700"
+Cohesion: 0.12
+Nodes (10): SetupError, mockFetch, mockIdpList, names, policyBody, policyCall, steps, mockFetch (+2 more)
+
+### Community 703 - "Community 703"
+Cohesion: 0.27
+Nodes (11): r2Ready(), checkR2Status(), isR2Ready(), R2Api, [r2Ready, setR2Ready], registerR2ReadinessDeps(), _resetR2Ready(), startR2Polling() (+3 more)
+
+### Community 704 - "Community 704"
+Cohesion: 0.17
+Nodes (11): activeTab, addButton, closeBtn, closeButton, inactiveTab, isMobileMock, rafCallbacks, tab1 (+3 more)
+
+### Community 705 - "Community 705"
+Cohesion: 0.22
+Nodes (8): mapStartupDetailsToProgress(), container, result, status, sync, terminal, user, StartupStatusResponse
+
+### Community 706 - "Community 706"
+Cohesion: 0.2
+Nodes (7): body, cached, calledUrl, mockFetch, mockParseCfResponse, mockR2AdminCB, staleToken
+
+### Community 707 - "Community 707"
+Cohesion: 0.31
+Nodes (9): REQ-AGENT-005 Pro Mode preseed bundle, REQ-AGENT-006 Preseed Configs Generated from Single Source, REQ-AGENT-007 Multi-Agent Adaptation Pipeline, REQ-AGENT-011 Agent Configs Recreatable from Settings, REQ-AGENT-014 Manifest-Driven Preseed Pipeline, REQ-AGENT-021 SDD Workflow (Pro), REQ-AGENT-022 Legacy-codebase transition via init triage, Refresh (recreate/regenerate) icon (+1 more)
+
+### Community 708 - "Community 708"
+Cohesion: 0.25
+Nodes (7): newTabId, order, parsed, result, stored, terminals, tiling
+
+### Community 709 - "Community 709"
+Cohesion: 0.29
+Nodes (5): button, handleClick, icon, TilingButton(), TilingButtonProps
+
+### Community 710 - "Community 710"
+Cohesion: 0.4
+Nodes (6): Direct GitHub OAuth (OIDC), JIT User Provisioning (SaaS), CF Access login_method policy (SaaS), Self-service Subscription Flow, Turnstile CAPTCHA, User Provisioning Reference
+
+### Community 711 - "Community 711"
+Cohesion: 0.53
+Nodes (6): Index-Table Link Rule, Jump-TOC at File Top Rule, Pass 5 - Format-Template Field Presence, Pass 6 - File-Level Shape Consistency, doc-enforce-shape Skill, TOC Content Rule (no REQ/CON in TOC)
+
+### Community 712 - "Community 712"
+Cohesion: 0.33
+Nodes (5): loaded, mockGetBatchSessionStatus, mockGetSessions, session, terminals
+
+### Community 713 - "Community 713"
+Cohesion: 0.4
+Nodes (5): ~/.cache/codeflare-hooks/graphify-active-cwd sentinel, graphify-active-repo.sh (PostToolUse hook), graphify-active-repo.sh tests (REQ-AGENT-023 AC5), graphify-out/ artifact directory, RCLONE_FILTERS_COMMON array (bisync filters)
+
+### Community 714 - "Community 714"
+Cohesion: 0.67
+Nodes (3): code:bash (python3 -c "), code:block6 (Corpus: X files · ~Y words), Step 2 - Detect files
+
 ## Knowledge Gaps
-- **5779 isolated node(s):** `__dirname`, `repoRoot`, `entrypoint`, `dockerfile`, `manifest` (+5774 more)
+- **5832 isolated node(s):** `__dirname`, `repoRoot`, `entrypoint`, `dockerfile`, `manifest` (+5827 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **182 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **179 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `SubscribePage()` connect `Community 16` to `Community 168`?**
-  _High betweenness centrality (0.062) - this node is a cross-community bridge._
+- **Why does `SubscribePage()` connect `Community 16` to `Community 168`, `Community 57`?**
+  _High betweenness centrality (0.061) - this node is a cross-community bridge._
 - **Why does `isActive()` connect `Community 16` to `Community 38`?**
-  _High betweenness centrality (0.062) - this node is a cross-community bridge._
-- **Why does `BillingStatus` connect `Community 16` to `Community 42`, `Community 55`?**
+  _High betweenness centrality (0.061) - this node is a cross-community bridge._
+- **Why does `BillingStatus` connect `Community 57` to `Community 16`, `Community 31`?**
   _High betweenness centrality (0.042) - this node is a cross-community bridge._
 - **What connects `__dirname`, `repoRoot`, `entrypoint` to the rest of the system?**
-  _5779 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _5832 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.02 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.03 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.03 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**
