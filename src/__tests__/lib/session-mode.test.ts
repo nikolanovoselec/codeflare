@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveSessionMode, clampSessionModeToTier } from '../../lib/session-mode';
-import type { SubscriptionTierConfig } from '../../lib/subscription';
+import type { SubscriptionTierConfig } from '../../types';
 
 describe('resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)', () => {
   it('returns "default" when prefs is null', () => {
