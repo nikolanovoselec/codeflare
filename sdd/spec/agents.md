@@ -688,7 +688,7 @@ None.
 
 **Constraints:**
 
-- The `/sdd init` scaffolding contract lives in [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render); the enrichment pass with graphify queries lives in [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify); the Phase 7a/7b verifier gates live in [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-and-7b-verifier-gates); the PR-boundary review pipeline lives in [REQ-AGENT-036](#req-agent-036-pr-boundary-review-pipeline); the `/sdd clean` rescue and autonomy modes + discipline enforcement live in [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes).
+- The `/sdd init` scaffolding contract lives in [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render); the enrichment pass with graphify queries lives in [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify); the Phase 7a source-anchor verifier gate lives in [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate) and the Phase 7b enumeration-coverage verifier gate lives in [REQ-AGENT-039](#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate); the PR-boundary review pipeline lives in [REQ-AGENT-036](#req-agent-036-pr-boundary-review-pipeline); the `/sdd clean` rescue and autonomy modes + discipline enforcement live in [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes).
 
 **Priority:** P1
 
@@ -722,7 +722,7 @@ None.
 **Constraints:**
 
 - The enrichment pass that runs after the draft is accepted lives in [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify).
-- The Phase 7a / 7b verifier gates that run after enrichment live in [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-and-7b-verifier-gates).
+- The Phase 7a verifier gate that runs after enrichment lives in [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate); the Phase 7b enumeration-coverage verifier gate lives in [REQ-AGENT-039](#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate).
 
 **Priority:** P1
 
@@ -763,27 +763,63 @@ None.
 
 ---
 
-### REQ-AGENT-035: `/sdd init` Phase 7a and 7b Verifier Gates
+### REQ-AGENT-035: `/sdd init` Phase 7a Source-Anchor Verifier Gate
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-source-anchors.py -->
-<!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-enumeration-coverage.py -->
 
-**Intent:** `/sdd init` must not declare success on a spec that contains unanchored claims or that silently elided whole source files from enumeration. Two programmatic verifier gates run before iterate-to-clean to close both halves of the Validation-Equals-Generation gap.
+**Intent:** `/sdd init` must not declare success on a spec that contains unanchored claims. A programmatic source-anchor verifier runs before iterate-to-clean so every `<!-- @impl -->` claim is proven against the source tree, closing the "agent wrote what isn't there" half of the Validation-Equals-Generation gap. Phase 7b (enumeration coverage) is split into [REQ-AGENT-039](#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate).
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. `/sdd init` runs Phase 7a (programmatic source-anchor verification) as a CRITICAL non-skippable gate BEFORE invoking `spec-enforce` and `doc-enforce`. Phase 7a executes `verify-source-anchors.py` which walks every `<!-- @impl: <path>::<symbol>[ = <value>] -->` anchor across `sdd/**/*.md` and `documentation/**/*.md`, resolves the path on disk, confirms the symbol's word-bounded presence in source, validates any literal value pattern within the symbol's local region, and counts malformed `@impl`-shaped comments and unreadable files. The verifier emits a JSON report `{parsed, resolved, orphaned, drifted, malformed, unreadable, failures, malformed_entries, unreadable_entries, exit_code}` to `.verify-anchors.json` and a verbatim summary line which the `[sdd-init]` commit body MUST include: `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`. A non-zero `exit_code` blocks the commit until every failure is fixed in source or escalated to `sdd/spec/.review-queue.md`. Substituting a structural sanity check or agent self-attestation for the verifier output is CRITICAL `phase-7a-self-attestation`; partial coverage is CRITICAL `phase-7a-incomplete-coverage`; running the verifier AFTER the enforcement skills is `phase-7a-pipeline-inversion`; bypassing the verifier on a missing-tool error is `phase-7a-tooling-bypass`; committing without the summary line in the body is `phase-7a-evidence-missing`. After `/sdd init`, steady-state CQ-SOURCE (`spec-enforce-truth`) and Pass 15 (`doc-enforce-truth`) consume Phase 7a's JSON when available rather than re-deriving.
-2. `/sdd init` runs Phase 7b (programmatic enumeration-coverage verification) as a second CRITICAL non-skippable gate AFTER Phase 7a and BEFORE iterate-to-clean. Phase 7b executes `verify-enumeration-coverage.py --root . --json-out .phase-7b.json` which walks the working tree, identifies load-bearing source files (under `services/`, `handlers/`, `controllers/`, `providers/`, `models/`, `domain/`, `core/`, `commands/`, `usecases/`, `workers/` OR source-line-count >= 100), and checks each file's repo-relative path against (a) the `<path>` portion of every `<!-- @impl: <path>::<symbol> -->` anchor in `sdd/**/*.md` + `documentation/**/*.md`, AND (b) literal mentions in the layout-appropriate triage files (nested: `sdd/spec/.init-triage.md` + `sdd/spec/.review-queue.md`; flat-layout legacy: `sdd/.init-triage.md` + `sdd/.review-needed.md`). The verifier emits a JSON report `{enumerated, accounted, unaccounted, coverage_pct, accounted_via, unaccounted_entries, exit_code}` and a verbatim summary line which the `[sdd-init]` step-10 commit body MUST include alongside the Phase 7a line: `Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1`. The two gates close the Validation-Equals-Generation gap: Phase 7a verifies every claim the agent wrote is anchored; Phase 7b verifies the agent did not silently drop entire source files from the enumeration. An empty triage queue on Import Mode with `unaccounted > 0` (the agent drafted only around the cleanly-anchorable subset of source) is CRITICAL `import-mode-narrowed-scope`. Agent self-attestation without the verifier output is CRITICAL `phase-7b-self-attestation`; sampling is CRITICAL `phase-7b-incomplete-coverage`; running `spec-enforce` first without Phase 7b is CRITICAL `phase-7b-pipeline-inversion`; committing without the summary line is CRITICAL `phase-7b-evidence-missing`. Per-project waiver: `sdd/spec/.phase-7b-waiver.txt` (one repo-relative path per line) excludes specific framework-boilerplate files from coverage; entries require a one-line justification. Phase 7b is advisory for greenfield (`enumerated=0` and `coverage_pct=100.0` are the expected outcome with no source on disk yet; the commit body line is still required so the audit-trail format stays uniform across modes).
+1. `/sdd init` runs Phase 7a as a CRITICAL non-skippable gate BEFORE invoking `spec-enforce` and `doc-enforce`.
+2. The verifier walks every `<!-- @impl: <path>::<symbol>[ = <value>] -->` anchor across `sdd/**/*.md` and `documentation/**/*.md`, resolves the path on disk, confirms the symbol's word-bounded presence in source, validates any literal value pattern within the symbol's local region, and counts malformed `@impl`-shaped comments and unreadable files.
+3. The verifier emits a JSON report `{parsed, resolved, orphaned, drifted, malformed, unreadable, failures, malformed_entries, unreadable_entries, exit_code}` to `.verify-anchors.json`.
+4. The `[sdd-init]` commit body MUST include the verbatim summary line `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`.
+5. A non-zero `exit_code` blocks the commit until every failure is fixed in source or escalated to `sdd/spec/.review-queue.md`.
+6. Substituting a structural sanity check or agent self-attestation, partial coverage, running the verifier AFTER the enforcement skills, bypassing on a missing-tool error, or committing without the summary line each carry a CRITICAL severity (`phase-7a-self-attestation`, `phase-7a-incomplete-coverage`, `phase-7a-pipeline-inversion`, `phase-7a-tooling-bypass`, `phase-7a-evidence-missing`).
+7. After `/sdd init`, steady-state CQ-SOURCE (`spec-enforce-truth`) and Pass 15 (`doc-enforce-truth`) consume Phase 7a's JSON when available rather than re-deriving.
 
 **Constraints:**
 
-- The two verifiers are programmatic Python scripts shipping with the `sdd-init` skill; agent self-attestation MUST NOT be substituted for the verifier output.
+- The verifier is a programmatic Python script shipping with the `sdd-init` skill; agent self-attestation MUST NOT be substituted for the verifier output.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-039: `/sdd init` Phase 7b Enumeration-Coverage Verifier Gate
+
+<!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-enumeration-coverage.py -->
+
+**Intent:** Phase 7a verifies that every claim the agent wrote is anchored; Phase 7b closes the second half of the Validation-Equals-Generation gap by verifying the agent did not silently drop entire source files from the enumeration. The verifier runs after Phase 7a and before iterate-to-clean so unenumerated load-bearing source surfaces as a CRITICAL gate failure rather than a silent omission.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `/sdd init` runs Phase 7b as a second CRITICAL non-skippable gate AFTER Phase 7a and BEFORE iterate-to-clean.
+2. The verifier walks the working tree, identifies load-bearing source files (under `services/`, `handlers/`, `controllers/`, `providers/`, `models/`, `domain/`, `core/`, `commands/`, `usecases/`, `workers/` OR source-line-count >= 100), and checks each file's repo-relative path against (a) the `<path>` portion of every `<!-- @impl: <path>::<symbol> -->` anchor in `sdd/**/*.md` + `documentation/**/*.md`, AND (b) literal mentions in the layout-appropriate triage files (nested: `sdd/spec/.init-triage.md` + `sdd/spec/.review-queue.md`; flat-layout legacy: `sdd/.init-triage.md` + `sdd/.review-needed.md`).
+3. The verifier emits a JSON report `{enumerated, accounted, unaccounted, coverage_pct, accounted_via, unaccounted_entries, exit_code}`.
+4. The `[sdd-init]` step-10 commit body MUST include the verbatim summary line `Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1` alongside the Phase 7a line.
+5. An empty triage queue on Import Mode with `unaccounted > 0` is CRITICAL `import-mode-narrowed-scope`.
+6. Agent self-attestation, sampling, running `spec-enforce` first without Phase 7b, or committing without the summary line each carry a CRITICAL severity (`phase-7b-self-attestation`, `phase-7b-incomplete-coverage`, `phase-7b-pipeline-inversion`, `phase-7b-evidence-missing`).
+7. A per-project waiver file `sdd/spec/.phase-7b-waiver.txt` (one repo-relative path per line, each with a one-line justification) excludes framework-boilerplate files from coverage; greenfield runs that produce `enumerated=0` and `coverage_pct=100.0` are advisory but still emit the commit body line so the audit-trail format stays uniform across modes.
+
+**Constraints:**
+
+- The verifier is a programmatic Python script shipping with the `sdd-init` skill; agent self-attestation MUST NOT be substituted for the verifier output.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate)
 
 **Verification:** Manual check
 
