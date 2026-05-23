@@ -171,6 +171,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const pluginDocs = claudeDocs().filter((d) => d.key.includes('codeflare-memory'));
     const fileNames = pluginDocs.map((d) => d.key.split('/').pop()).sort();
     expect(fileNames).toEqual([
+      'assert-iso-ts.sh',
       'memory-agent-prompt.md',
       'memory-capture-block.sh',
       'memory-capture.sh',
