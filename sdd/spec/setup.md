@@ -139,9 +139,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. **Default mode** (no `SAAS_MODE`): Uses Cloudflare Access JWT authentication. Users are manually allowlisted via the setup wizard. CF Access policies + KV allowlist control access.
-2. **Onboarding mode** (`ONBOARDING_LANDING_PAGE=active`): Uses CF Access authentication. Adds a public waitlist landing page at `/` for unauthenticated visitors. Authenticated users are routed to `/app/`. Turnstile widget is provisioned for the landing page.
-3. **SaaS mode** (`SAAS_MODE=active`): Replaces the CF Access interstitial with a branded login page. When `OAUTH_CLIENT_ID` is configured, uses Direct GitHub OAuth (Worker-managed HMAC-SHA256 session cookies). New users are auto-provisioned with `pending` tier. CF Access groups/policies are not created; the Worker handles user management via KV.
+1. **Default mode** (no `SAAS_MODE`) uses Cloudflare Access JWT authentication with manually allowlisted users via the setup wizard, gated by CF Access policies and a KV allowlist.
+2. **Onboarding mode** (`ONBOARDING_LANDING_PAGE=active`) uses CF Access authentication with a public waitlist landing page at `/` for unauthenticated visitors (Turnstile widget provisioned), routing authenticated users to `/app/`.
+3. **SaaS mode** (`SAAS_MODE=active`) replaces the CF Access interstitial with a branded login page; when `OAUTH_CLIENT_ID` is configured it uses Direct GitHub OAuth with Worker-managed HMAC-SHA256 session cookies, auto-provisions new users with `pending` tier, and the Worker handles user management via KV (no CF Access groups/policies created).
 4. `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are injected at deploy time as Worker plaintext bindings.
 5. The frontend detects the mode: if `/public/auth/providers` returns providers, show LoginPage (SaaS); if setup incomplete, show setup; otherwise redirect to `/app/` (default with CF Access).
 
