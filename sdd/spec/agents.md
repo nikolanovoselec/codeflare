@@ -1177,7 +1177,7 @@ None.
 2. After 3 SEARCH-classified tool calls in one turn with no intervening `mcp__graphify__*` call (or `graphify query|path|explain` CLI invocation), the next SEARCH call is denied.
 3. SEARCH classification matches `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, and `awk` with `/regex/` body.
 4. The shell parser reuses the context-mode enforcement hook's `extract_subs` / `normalize_command` / chain-op splitter so substitution, heredocs, quoted regions, and pipeline segments cannot slip past.
-5. Active-repo resolution reads the sentinel at `~/.cache/codeflare-hooks/graphify-active-cwd` (REQ-VAULT-004 AC3) and gates on `<active-repo>/graphify-out/graph.json` existing, falling back to the tool-call envelope `.cwd` when the sentinel is absent.
+5. Active-repo resolution reads the sentinel at `~/.cache/codeflare-hooks/graphify-active-cwd` (REQ-VAULT-004 AC1) and gates on `<active-repo>/graphify-out/graph.json` existing, falling back to the tool-call envelope `.cwd` when the sentinel is absent.
 6. The vault entry in `~/.graphify/global-graph.json` is NOT enforcement-eligible: a session whose active repo has no graph does not trigger the hard-block, so the user can grep freely in repos they have not yet graphified.
 7. Two user-only bypass surfaces are available: `touch /tmp/graphify-bypass` (one-shot, auto-deleted) and the magic phrase `skip graph` in a user message; any unexpected error inside the hook returns exit 0 so the user is never locked out.
 
