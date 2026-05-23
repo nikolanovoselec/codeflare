@@ -7,13 +7,13 @@ import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, SessionMode, UserPreferences, LlmKeys, DeployKeys, ContainerConfigPayload } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin } from '../../lib/r2-seed';
-import { resolveSessionMode } from '../../lib/session-mode';
+import { resolveSessionMode, clampSessionModeToTier } from '../../lib/session-mode';
 import { getR2Config } from '../../lib/r2-config';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { AppError, ContainerError, NotFoundError, QuotaExceededError, toError, toErrorMessage } from '../../lib/error-types';
-import { getTierConfig, getUserTier, getEffectiveTier, getAllowedSessionModes } from '../../lib/subscription';
+import { getTierConfig, getUserTier, getEffectiveTier } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, putSessionWithMetadata, type SessionListMetadata } from '../../lib/kv-keys';
@@ -483,13 +483,12 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     let sessionMode = resolveSessionMode(preferences);
     // Free tier: locked to 15m idle timeout. All other tiers: user preference or 30m default.
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
-    // Clamp session mode against effective tier — canceled users can't use advanced (SaaS only)
+    // REQ-SEC-015 AC2/AC3: clamp session mode against effective tier —
+    // canceled users can't use advanced (SaaS only)
     if (isSaasModeActive(c.env.SAAS_MODE) && sessionMode === 'advanced') {
       try {
         const tiers = await getTierConfig(c.env.KV);
-        if (!getAllowedSessionModes(effectiveTier, tiers).includes('advanced')) {
-          sessionMode = 'default';
-        }
+        sessionMode = clampSessionModeToTier(sessionMode, effectiveTier, tiers);
       } catch { /* non-SaaS or KV unavailable — allow the stored mode */ }
     }
     const sleepAfter = resolveEffectiveSleepAfter(effectiveTier, preferences.sleepAfter);

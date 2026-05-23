@@ -641,10 +641,18 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ---
 
+<!-- @test: src/__tests__/routes/auth-subscribe.test.ts (REQ-SEC-015 AC1 -> blocked user gets 403 even when requesting a valid subscribable tier -> AC1 handler-entry getEffectiveTier check) -->
+<!-- @test: src/__tests__/routes/auth-subscribe.test.ts (REQ-SEC-015 AC1 -> blocked user gets 403 even requesting the free tier (no escape via downgrade) -> AC1 KV state preserved) -->
+<!-- @test: src/__tests__/routes/auth-subscribe.test.ts (REQ-SEC-015 AC4 -> user with undefined subscriptionTier but accessTier=blocked is rejected -> AC4 getEffectiveTier fallback path) -->
+<!-- @test: src/__tests__/lib/session-mode.test.ts (clampSessionModeToTier describe -> AC3 canceled user with stale sessionMode=advanced is clamped to default -> AC3 canceled-user stale-advanced downgrade) -->
+<!-- @test: src/__tests__/lib/session-mode.test.ts (clampSessionModeToTier describe -> AC2 blocked/pending/standard tiers strip advanced + advanced/unlimited tiers preserve advanced -> AC2 container-start clamp behavior matrix) -->
+<!-- @test: src/__tests__/routes/preferences.test.ts (sessionMode preference describe -> REQ-SEC-015 AC2 (preferences save) SaaS-mode non-Pro user gets 400 trying to PATCH sessionMode=advanced -> AC2 preferences-save rejection + KV-not-mutated assertion) -->
 ### REQ-SEC-015: Blocked user cannot self-upgrade subscription
 
 <!-- @impl: src/routes/auth.ts -->
 <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
+<!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier -->
+<!-- @impl: src/routes/container/lifecycle.ts -->
 <!-- @impl: src/routes/preferences.ts -->
 
 **Intent:** Users with a blocked subscription tier must not be able to bypass the block by accessing subscription endpoints.
