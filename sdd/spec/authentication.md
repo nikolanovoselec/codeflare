@@ -24,6 +24,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
+<!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-001 SaaS mode mutual exclusivity describe -> AuthError when OAUTH_JWT_SECRET missing + no fallthrough to CF Access + valid SaaS cookie authenticates -> AC2,3) -->
 ### REQ-AUTH-001: Two authentication modes
 
 <!-- @impl: src/lib/access.ts::getUserFromRequest -->
@@ -123,6 +124,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
+<!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-004 Service token describe -> X-Service-Auth checked first beats SaaS + constant-time comparison rejects wrong/length-mismatch + admin role + SERVICE_TOKEN_EMAIL normalization + AC5 ignored when secret unset -> AC1..AC3,AC5) -->
 ### REQ-AUTH-004: Service token authentication for E2E testing
 
 <!-- @impl: src/lib/access.ts::getUserFromRequest -->
@@ -251,6 +253,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
+<!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-008 Session cookie auto-refresh describe -> shouldRefreshJWT true at 14min + false at 16min + boundary at exactly 15min + refresh produces 3600s TTL + expired token returns false -> AC1,2,4) -->
 ### REQ-AUTH-008: Session cookie auto-refresh
 
 <!-- @impl: src/index.ts -->
@@ -314,6 +317,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
+<!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-010 Auth bypass prevention sentinel describe -> pre-setup header trust before config fetched + header trust permanently disabled once authConfigFetched=true + resetAuthConfigCache restores pre-setup -> AC1,2,4) -->
 ### REQ-AUTH-010: Auth bypass prevention
 
 <!-- @impl: src/lib/access.ts::resetAuthConfigCache -->
@@ -346,6 +350,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
+<!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-011 Auth resolution order describe -> service token beats SaaS OIDC + SaaS beats CF Access + service-token early-return skips SaaS branch (no AuthError thrown without OAUTH_JWT_SECRET) + pre-setup fallback is last + SaaS no-fallthrough on bad cookie -> AC1,2,3) -->
 ### REQ-AUTH-011: Auth resolution order
 
 <!-- @impl: src/lib/access.ts::getUserFromRequest -->
