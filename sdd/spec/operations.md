@@ -186,6 +186,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<!-- @test: host/__tests__/workflow-e2e.test.js (REQ-OPS-004 describe -> workflow_dispatch+job-graph+SERVICE_AUTH_SECRET+E2E_BASE_URL -> AC1..AC4) -->
 ### REQ-OPS-004: E2E test workflow setup and job graph
 
 <!-- @impl: .github/workflows/e2e.yml -->
@@ -216,6 +217,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<!-- @test: host/__tests__/workflow-e2e.test.js (REQ-OPS-015 describe -> per-suite npm scripts+E2E_MOBILE=1+failure-only artifact upload+5-day retention -> AC1..AC4) -->
 ### REQ-OPS-015: E2E per-suite execution and artifact handling
 
 <!-- @impl: .github/workflows/e2e.yml -->
@@ -438,6 +440,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<!-- @test: host/__tests__/workflow-stress-test.test.js (REQ-OPS-008 describe -> workflow_dispatch+k6 suites+STRESS_TEST_MODE bypass+one-time warning+SAAS conflict 503 -> AC1..AC6) -->
 ### REQ-OPS-008: Stress testing validates rate limits and concurrency
 
 <!-- @impl: .github/workflows/stress-test.yml -->
@@ -505,6 +508,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 describe -> STOPSIGNAL SIGINT+trap shutdown_handler+pidfile kill+final bisync flags+bisync-initialized flag+TERMINAL_PID kill -> AC1..AC6) -->
 ### REQ-OPS-010: Graceful container shutdown preserves data
 
 <!-- @impl: Dockerfile -->
@@ -539,6 +543,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<!-- @test: host/__tests__/dockerfile-base-image.test.js (REQ-OPS-011 describe -> FROM bookworm-slim+npm global installs+system packages+fd-find symlink -> AC1..AC3) -->
 ### REQ-OPS-011: Container base image is Debian bookworm-slim
 
 <!-- @impl: Dockerfile -->
@@ -565,6 +570,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+<!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012 describe -> MAX_INSTANCES_OVERRIDE+tier-independence+positive-integer regex+wrangler.toml patching -> AC1..AC4) -->
 ### REQ-OPS-012: Per-environment container concurrency limit
 
 <!-- @impl: .github/workflows/deploy.yml -->
