@@ -181,9 +181,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test (unit tests for masking + warn-if-no-key + allowlist)
+**Verification:** Automated test (AC1 masking covered by `src/__tests__/lib/request-helpers.test.ts` `maskSecret` describe annotated `REQ-SEC-018 AC1`; AC2 warn-if-no-key covered by `src/__tests__/lib/warn-if-no-encryption-key.test.ts` annotated `REQ-SEC-018 AC2`; AC3 allowlist covered by same file annotated `REQ-SEC-018 AC3`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
