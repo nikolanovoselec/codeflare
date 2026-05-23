@@ -24,11 +24,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-### REQ-OPS-001: Deploy triggered by push to main
+### REQ-OPS-001: Deploy workflow trigger and pre-deploy pipeline
 
 <!-- @impl: .github/workflows/deploy.yml -->
 
-**Intent:** Production deployments are triggered automatically on every push to the `main` branch, with manual dispatch as fallback for both production and integration environments.
+**Intent:** Production deployments are triggered automatically on every push to the `main` branch, with manual dispatch as fallback. The pre-deploy stage installs dependencies, builds, and runs tests before any artifact reaches Cloudflare.
 
 **Applies To:** User
 
@@ -39,33 +39,59 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Dependencies are cached via `actions/cache` for faster runs.
 4. Frontend is built, and both backend and frontend tests and typechecks run before any deployment steps.
 5. KV namespace is resolved or created and patched into `wrangler.toml`.
-6. Worker name is applied from the `CLOUDFLARE_WORKER_NAME` variable.
-7. Final deployment uses `npx wrangler deploy` with `--var` for runtime configuration.
-8. Worker secrets (`CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET`, optional `RESEND_API_KEY`) are set after deploy.
-9. E2E service user is seeded in KV allowlist when `CF_ACCESS_CLIENT_SECRET` is present.
 
 **Constraints:**
 
 - Two GitHub environments: `production` (auto on push to main) and `integration` (manual dispatch only).
 - `RUNNER` variable controls the GitHub Actions runner label (supports self-hosted runners).
+- The deploy command, secret-setting, and post-deploy seed steps live in [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks).
 
 **Priority:** P0
 
 **Dependencies:** None.
 
-**Verification:** Automated test (deploy.yml pipeline success on push to main)
+**Verification:** Automated test (deploy.yml pre-deploy job success on push to main)
 
 **Status:** Partial
 
 ---
 
-### REQ-OPS-002: Docker image built, scanned, and deployed to Cloudflare
+### REQ-OPS-013: Deploy command and post-deploy hooks
+
+<!-- @impl: .github/workflows/deploy.yml -->
+
+**Intent:** After the pre-deploy pipeline succeeds, the workflow applies the worker name, runs `wrangler deploy`, sets worker secrets, and seeds the E2E service user in KV so the deployed worker is fully configured and reachable.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Worker name is applied from the `CLOUDFLARE_WORKER_NAME` variable.
+2. Final deployment uses `npx wrangler deploy` with `--var` for runtime configuration.
+3. Worker secrets (`CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET`, optional `RESEND_API_KEY`) are set after deploy.
+4. E2E service user is seeded in KV allowlist when `CF_ACCESS_CLIENT_SECRET` is present.
+
+**Constraints:**
+
+- Secret setting runs AFTER `wrangler deploy` because secret writes are a no-op on workers that don't yet exist.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
+
+**Verification:** Automated test (deploy.yml deploy + post-deploy steps success on push to main)
+
+**Status:** Partial
+
+---
+
+### REQ-OPS-002: Docker image build, vulnerability scan, and registry push
 
 <!-- @impl: .github/workflows/deploy.yml -->
 <!-- @impl: Dockerfile -->
 <!-- @impl: .trivyignore -->
 
-**Intent:** Every deploy builds a Docker image, scans it for vulnerabilities, and pushes it to the Cloudflare container registry before deploying the Worker.
+**Intent:** Every deploy builds a Docker image, scans it for HIGH/CRITICAL vulnerabilities with allowlisted exceptions, and pushes the resulting artifact to the Cloudflare container registry. The pipeline fails before push on any unexcepted finding.
 
 **Applies To:** User
 
@@ -76,10 +102,35 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Known exceptions are tracked in `.trivyignore`.
 4. If Trivy finds unexcepted vulnerabilities, the pipeline fails before push.
 5. Image is pushed to Cloudflare registry via `wrangler containers push`, and the registry URI is extracted.
-6. `wrangler.toml` `image` field is patched to the registry URI (avoids Docker rebuild on deploy).
-7. Container resource tier is applied from `RESSOURCE_TIER` variable: low (0.25 vCPU / 1 GiB / 4 GB), default/saas (1 vCPU / 3 GiB / 6 GB), high (2 vCPU / 6 GiB / 8 GB).
-8. All tiers default to 10 max instances; `MAX_INSTANCES` variable overrides if set.
-9. Optional cache busting for the AI agent layer via `CLAUDE_CODE_CACHE_BUSTER` variable.
+
+**Constraints:**
+
+- The container-binding and scaling steps consume the registry URI from this REQ; see [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), REQ-SEC-011
+
+**Verification:** Automated test (deploy.yml Trivy scan + container push steps)
+
+**Status:** Partial
+
+---
+
+### REQ-OPS-014: Container binding and scaling from image
+
+<!-- @impl: .github/workflows/deploy.yml -->
+
+**Intent:** After the image is pushed, the deploy workflow patches the registry URI into `wrangler.toml`, applies the resource tier and max-instance count, and offers cache-buster control over the AI agent layer. The bound Durable Object container is what user sessions land on.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `wrangler.toml` `image` field is patched to the registry URI (avoids Docker rebuild on deploy).
+2. Container resource tier is applied from `RESSOURCE_TIER` variable: low (0.25 vCPU / 1 GiB / 4 GB), default/saas (1 vCPU / 3 GiB / 6 GB), high (2 vCPU / 6 GiB / 8 GB).
+3. All tiers default to 10 max instances; `MAX_INSTANCES` variable overrides if set.
+4. Optional cache busting for the AI agent layer via `CLAUDE_CODE_CACHE_BUSTER` variable.
 
 **Constraints:**
 
@@ -88,9 +139,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-triggered-by-push-to-main), REQ-SEC-011
+**Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)
 
-**Verification:** Automated test (deploy.yml Trivy scan + container push steps)
+**Verification:** Automated test (deploy.yml image-patch and resource-tier steps succeed)
 
 **Status:** Partial
 
@@ -130,11 +181,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-### REQ-OPS-004: E2E tests on deployed worker
+### REQ-OPS-004: E2E test workflow setup and job graph
 
 <!-- @impl: .github/workflows/e2e.yml -->
 
-**Intent:** End-to-end tests verify the deployed worker functions correctly for API operations, desktop UI, and mobile UI.
+**Intent:** The e2e workflow runs end-to-end tests against a deployed environment. The setup stage primes the worker for service-token auth and the job graph sequences setup before the per-suite test jobs.
 
 **Applies To:** User
 
@@ -143,22 +194,47 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. `e2e.yml` triggers on `workflow_dispatch` with environment selection (integration or production).
 2. Four sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile`.
 3. The `setup` job sets `SERVICE_AUTH_SECRET` on the target worker, seeds the E2E service user in KV, and smoke-tests auth with a retry loop (handles KV eventual consistency ~60s).
-4. The `e2e-api` job runs the API test suite (~55 tests across 12 files).
-5. The `e2e-ui-desktop` job runs UI desktop tests (~75 tests across 10 files, Puppeteer with Chrome).
-6. The `e2e-ui-mobile` job runs UI mobile tests with `E2E_MOBILE=1`.
-7. Failed UI test runs upload screenshots and HTML as artifacts (5-day retention).
-8. `E2E_BASE_URL` variable is set per environment to target the correct deployed worker.
+4. `E2E_BASE_URL` variable is set per environment to target the correct deployed worker.
 
 **Constraints:**
 
 - E2E tests authenticate via `X-Service-Auth` header (service token), not browser-based auth flows.
+- The per-suite test execution + artifact handling live in [REQ-OPS-015](#req-ops-015-e2e-per-suite-execution-and-artifact-handling).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), REQ-SEC-012
+
+**Verification:** Integration test (e2e.yml setup job + auth smoke)
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-015: E2E per-suite execution and artifact handling
+
+<!-- @impl: .github/workflows/e2e.yml -->
+
+**Intent:** Each E2E suite (API, desktop UI, mobile UI) runs as its own job in the e2e workflow. Failed UI runs persist screenshots and HTML so the user can diagnose what the deployed worker actually rendered.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The `e2e-api` job runs the API test suite (~55 tests across 12 files).
+2. The `e2e-ui-desktop` job runs UI desktop tests (~75 tests across 10 files, Puppeteer with Chrome).
+3. The `e2e-ui-mobile` job runs UI mobile tests with `E2E_MOBILE=1`.
+4. Failed UI test runs upload screenshots and HTML as artifacts (5-day retention).
+
+**Constraints:**
+
 - UI tests require Chrome installation via `npx puppeteer browsers install chrome` + system shared libraries.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-triggered-by-push-to-main), REQ-SEC-012
+**Dependencies:** [REQ-OPS-004](#req-ops-004-e2e-test-workflow-setup-and-job-graph)
 
-**Verification:** Integration test (e2e.yml workflow dispatch against deployed worker)
+**Verification:** Integration test (e2e.yml per-suite jobs against deployed worker)
 
 **Status:** Implemented
 
@@ -201,12 +277,12 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-### REQ-OPS-006: Idle containers cost zero
+### REQ-OPS-006: Idle containers hibernate and cost zero
 
 <!-- @impl: src/container/index.ts -->
 <!-- @impl: src/container/container-metrics.ts -->
 
-**Intent:** Containers that are not actively in use must hibernate and incur zero compute cost.
+**Intent:** Containers that are not actively in use must hibernate and incur zero compute cost. The cost model anchors the entire pricing strategy, so the hibernation guarantee is operator-facing.
 
 **Applies To:** Admin
 
@@ -214,27 +290,78 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Containers hibernate after `sleepAfter` duration of no user input (default 30 minutes, configurable 5 minutes to 2 hours).
 2. Hibernated containers consume zero CPU, memory, and disk cost.
-3. The `sleepAfter` preference is persisted to Durable Object storage to survive DO resets.
-4. Both `setBucketName` paths (initial and subsequent) persist `sleepAfter` to storage.
-5. The DO constructor loads `sleepAfter` from storage with validation on startup.
-6. `destroy()` cleans up the persisted `sleepAfter` value.
-7. Cost per active container (default tier: 1 vCPU, 3 GiB, 6 GB) at 160h/month active usage with 20% average CPU is approximately $11.14/user/month including the Workers Paid plan.
-8. The idle-detection layer fails safe in the direction of preserving user work, not minimizing compute. When the configured `sleepAfter` cannot be resolved (storage corrupted, schema-validated value missing, parser fed garbage, code path skipped the user-pref resolution), the system falls back to the maximum supported value (2h) rather than the minimum.
-9. A change to the persisted `sleepAfter` preference takes effect within one 60-second idle-check cycle, regardless of which code path wrote it. Stale in-memory copies of the preference cannot outlive a single cycle.
-10. Any code path that hands the resolved `sleepAfter` to the container init must fail loudly when the value is missing, rather than substituting a fallback. The user's configured timer (e.g., 2h) is never silently replaced by a shorter default.
+3. Cost per active container (default tier: 1 vCPU, 3 GiB, 6 GB) at 160h/month active usage with 20% average CPU is approximately $11.14/user/month including the Workers Paid plan.
 
 **Constraints:**
 
 - CPU is billed on active usage only. Memory and disk are billed on provisioned resources during active time.
 - R2 storage: first 10 GB free, $0.015/GB/month after.
 - Cost scales per active session, not per user. Each session = one container; a session has up to 6 terminal tabs sharing a single container.
-- Fail-safe defaults trade billing efficiency for user-trust: a container that lives slightly longer than configured costs the operator a few cents; a container that dies before configured destroys an hour of unpushed user work and breaks the product's core promise.
+- The sleepAfter persistence + lifecycle mechanics live in [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle).
+- The fail-safe invariants (fail-to-max, 60s propagation, fail-loud-on-missing) live in [REQ-OPS-017](#req-ops-017-sleepafter-fail-safe-invariants).
 
 **Priority:** P0
 
 **Dependencies:** None.
 
 **Verification:** Manual check (cost monitoring via Cloudflare dashboard)
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-016: sleepAfter preference persistence and lifecycle
+
+<!-- @impl: src/container/index.ts -->
+
+**Intent:** The user-configurable `sleepAfter` preference must survive Durable Object resets, both initial and subsequent setBucketName paths must persist it, the constructor must reload it with validation, and destroy must clean it up. Without persistence the preference would silently snap back to default on every DO restart.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The `sleepAfter` preference is persisted to Durable Object storage to survive DO resets.
+2. Both `setBucketName` paths (initial and subsequent) persist `sleepAfter` to storage.
+3. The DO constructor loads `sleepAfter` from storage with validation on startup.
+4. `destroy()` cleans up the persisted `sleepAfter` value.
+
+**Constraints:**
+
+- Persisted preference values are schema-validated on load; invalid values are treated as missing and trigger the fail-safe fallback in REQ-OPS-017.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero)
+
+**Verification:** Manual check (DO restart preserves the user-set timeout)
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-017: sleepAfter fail-safe invariants
+
+<!-- @impl: src/container/index.ts -->
+
+**Intent:** Three invariants protect user work from a misconfigured or silently broken idle-detection layer: fail to the maximum (not minimum) on corruption, propagate preference changes within one cycle, and fail loudly rather than substituting a default. A container that dies before its configured timer destroys an hour of unpushed work and breaks the product's core promise.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The idle-detection layer fails safe in the direction of preserving user work, not minimizing compute. When the configured `sleepAfter` cannot be resolved (storage corrupted, schema-validated value missing, parser fed garbage, code path skipped the user-pref resolution), the system falls back to the maximum supported value (2h) rather than the minimum.
+2. A change to the persisted `sleepAfter` preference takes effect within one 60-second idle-check cycle, regardless of which code path wrote it. Stale in-memory copies of the preference cannot outlive a single cycle.
+3. Any code path that hands the resolved `sleepAfter` to the container init must fail loudly when the value is missing, rather than substituting a fallback. The user's configured timer (e.g., 2h) is never silently replaced by a shorter default.
+
+**Constraints:**
+
+- Fail-safe defaults trade billing efficiency for user-trust: a container that lives slightly longer than configured costs the operator a few cents; a container that dies before configured destroys an hour of unpushed user work and breaks the product's core promise.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero), [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle)
+
+**Verification:** Manual check
 
 **Status:** Implemented
 
