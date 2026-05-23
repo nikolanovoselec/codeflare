@@ -93,7 +93,9 @@ fi
 # this Bash invocation (vs the LLM fabricating a plausible value and
 # skipping the call). Reconstruct ISO_TS into a date-parsable form by
 # converting only the time-portion hyphens after `T` back into colons,
-# then compare its epoch against the wall clock. >5s drift = fabricated.
+# then compare its epoch against the wall clock. >30s drift = fabricated.
+# (30s threshold accommodates cold-container Bash tool latency without
+# weakening detection of fabricated values, which typically drift hours.)
 DATE_PART="${ISO_TS%T*}"
 REST="${ISO_TS#*T}"
 TIME_PART="${REST%[+-]*}"
@@ -104,7 +106,7 @@ EPOCH_NOW=$(date +%s)
 ISO_TS_EPOCH=$(date -d "$ISO_TS_PARSEABLE" +%s 2>/dev/null || echo 0)
 DRIFT=$(( EPOCH_NOW - ISO_TS_EPOCH ))
 ABS_DRIFT=${DRIFT#-}
-if [ "$ISO_TS_EPOCH" -eq 0 ] || [ "$ABS_DRIFT" -gt 5 ]; then
+if [ "$ISO_TS_EPOCH" -eq 0 ] || [ "$ABS_DRIFT" -gt 30 ]; then
   echo "ISO_TS_ASSERTION_FAILED: $ISO_TS drifts ${DRIFT}s from current clock; agent likely fabricated" >&2
   exit 1
 fi
