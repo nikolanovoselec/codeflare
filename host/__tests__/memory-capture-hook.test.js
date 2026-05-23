@@ -127,6 +127,8 @@ describe('memory-capture.sh - first-run baseline / REQ-MEM-010 (memory capture h
 
 // REQ-MEM-002 AC3/AC4/AC5 (delta logic: <15 silent, >=15 fires, counter advances)
 describe('memory-capture.sh - user-message counting', () => {
+  // REQ-MEM-001 AC2: two-layer grep filter excludes tool-result wrappers (array content)
+  // and synthetic messages (content starts with `<`); only real user prompts are counted.
   // REQ-MEM-002 AC3 (delta calculation counts only real user prompts; delta<15 -> silent)
   it('counts only real user prompts, excluding tool_results and command wrappers', () => {
     const home = makeFixture();

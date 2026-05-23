@@ -48,6 +48,8 @@ describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin prese
     }
   });
 
+  // REQ-MEM-006 AC4: Pro mode seeds a strict superset of Standard's preseed files;
+  // the memory and vault plugins/rules are part of the Pro-only delta.
   it('"advanced" is a superset of "default" -- all default keys also appear in advanced', () => {
     const defaultKeys = new Set(
       AGENTS_SEEDED_CONFIGS.filter((doc) => doc.modes.includes('default')).map((doc) => doc.key)

@@ -222,7 +222,12 @@ describe('deleteNonModeConfigs', () => {
   });
 });
 
-describe('reconcileAgentConfigs', () => {
+// REQ-MEM-011 AC4: reconcileAgentConfigs seeds mode-appropriate files and
+// deletes preseed-managed files not in the current mode. It never touches
+// user-created files because deleteNonModeConfigs only operates on keys
+// declared in AGENTS_SEEDED_CONFIGS (the manifest-generated set), which
+// excludes arbitrary user-uploaded paths by construction.
+describe('reconcileAgentConfigs / REQ-MEM-011 AC4', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
