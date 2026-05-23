@@ -139,6 +139,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-memory/scripts/assert-iso-ts.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-vault/.claude-plugin/plugin.json": {
     "modes": [
       "advanced"
