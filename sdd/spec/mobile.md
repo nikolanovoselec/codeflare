@@ -178,7 +178,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
 
-**Verification:** Integration test (Playwright; plan in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#scroll-stability-integration-test-plan))
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -207,7 +207,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-MOB-004](#req-mob-004-scroll-drop-detection-during-burst-output)
 
-**Verification:** Integration test (Playwright; plan in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#scroll-stability-integration-test-plan))
+**Verification:** Integration test
 
 **Status:** Implemented
 

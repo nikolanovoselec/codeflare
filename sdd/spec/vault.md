@@ -40,6 +40,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @impl: entrypoint.sh::init_user_vault -->
 <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (filter order + init function presence + Uploads/Temporary mkdir + supervisor uses $HOME/Vault → AC1-AC5) -->
+<!-- @test: web-ui/src/__tests__/lib/special-folders.test.ts (special-folders registry describe → Workspace/Vault/Uploads/Temporary entries + tooltips → AC6) -->
 
 **Intent:** A user opens a new session and finds their previous notes, captures, and pasted assets intact -- the same way the rest of `/home/user/` survives. This REQ covers the directory skeleton, rclone filter coverage, and storage-panel surfacing of the special folders; codeflare-authoritative file preseeding is in [REQ-VAULT-010](#req-vault-010-codeflare-authoritative-files-preseeded-into-the-vault-on-every-boot).
 
@@ -64,7 +66,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-STOR-002](storage.md#req-stor-002-file-persistence-across-sessions) (file persistence across sessions), [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) (15-min bisync), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start) (initial sync restores files on container start)
 
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: filter order, init function presence, Uploads/Temporary mkdir, supervisor uses `$HOME/Vault`); special-folder registry unit test (`web-ui/src/__tests__/lib/special-folders.test.ts`); E2E (fresh session, `ls /home/user/{Vault,Uploads,Temporary}`, storage panel shows the four special folders with tooltips containing their container paths)
+**Verification:** Structural audit
 
 **Status:** Implemented
 
@@ -73,6 +75,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-010: Codeflare-authoritative files preseeded into the vault on every boot
 
 <!-- @impl: entrypoint.sh::init_user_vault -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (per-boot preseed-page sync loop + graph.json recreate-if-missing guard + preseed-page existence on disk → AC1-AC5) -->
 
 **Intent:** A defined set of vault files are codeflare-authoritative: SilverBullet widgets, wikilink handlers, theming, and the graph build all depend on their contents being current at boot. User edits to these files are intentionally not preserved, and stale build artefacts that mislead the user must be cleared on every boot.
 
@@ -98,7 +101,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: per-boot preseed-page sync loop, graph.json recreate-if-missing guard, preseed-page existence on disk); E2E (delete each preseed page individually and confirm recreation on next session boot, populate `graphify-out/graph.json` and confirm not overwritten)
+**Verification:** Structural audit
 
 **Status:** Implemented
 
@@ -108,6 +111,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (vault-monitor and capture script structure → AC1-AC6) -->
 
 **Intent:** The capture agent writes one markdown file per 15-prompt batch into `Raw/Sessions/`, replacing the previous MCP-memory write path. Captures appear in `mcp__graphify__*` queries the same turn they are written.
 
@@ -132,7 +136,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: vault-monitor and capture script structure); E2E (drive 15+ prompts and grep `Raw/Sessions/`)
+**Verification:** Structural audit
 
 **Status:** Implemented
 
@@ -143,6 +147,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: entrypoint.sh::start_vault_monitor_daemon -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (three-marker pattern presence → AC2/AC6) -->
 
 **Intent:** A user adds a note in SilverBullet (or any other editor) and within roughly one daemon tick the new content shows up in `mcp__graphify__*` query results.
 
@@ -167,7 +172,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: three-marker pattern presence); E2E (edit `Notes/foo.md`, wait 60s, send prompt, confirm extraction)
+**Verification:** Structural audit
 
 **Status:** Implemented
 
@@ -176,6 +181,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-011: Vault-extract ingests PDF files
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md -->
+<!-- @test: documentation/lanes/vault.md (PDF-ingestion E2E plan → drop .pdf into Raw/Pasted, daemon tick, document node in global graph + corrupt-PDF bare-node path → AC1-AC4) -->
 
 **Intent:** PDFs dropped into the vault (typically under `Raw/Pasted/`) must be ingested into the global graph as first-class content, not skipped as binary. The agent reads each PDF, emits a `document` node plus extracted `concept` nodes, and links to sibling notes that wikilink the same file. Corrupt or unreadable PDFs must not block ingestion of healthy files.
 
@@ -196,7 +202,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s)
 
-**Verification:** PDF-ingestion E2E (drop a `.pdf` into `Raw/Pasted/`, wait for the next daemon tick, confirm a `document` node for the PDF appears in the global graph and a corrupt PDF emits a bare document node without blocking the high-water marker)
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -206,6 +212,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::_resolve_active -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (mcp-lazy resolution chain + active-repo hook structure + vault basename exclusion + fast-path skip → AC1-AC4) -->
 
 **Intent:** A single `mcp__graphify__*` call returns nodes from the vault and from every per-repo graphify-out the session has touched, so cross-cutting questions ("did we ever discuss X with respect to Y") work without manually selecting a graph.
 
@@ -229,7 +236,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions), [REQ-VAULT-002](#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s)
 
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: mcp-lazy resolution chain, active-repo hook structure); E2E (clone two repos, query, confirm cross-source results)
+**Verification:** Structural audit
 
 **Status:** Implemented
 
@@ -240,6 +247,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 <!-- @impl: src/routes/vault.ts::validateVaultRoute -->
 <!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
+<!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute boundary cases describe → AC3/AC5) -->
 
 **Intent:** Clicking the Vault button in the codeflare UI opens SilverBullet in a new tab, behind the same auth + rate-limit boundary as every other tier-gated session feature. This REQ covers the in-container server, the auth/rate-limit proxy plumbing, and the host-side HTTP+WS branch; UX integration and SilverBullet subpath adaptation live in [REQ-VAULT-012](#req-vault-012-vault-editor-ux-integration-and-subpath-adapter).
 
@@ -263,7 +271,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Automated test (`src/__tests__/routes/vault.test.ts` AC: validateVaultRoute boundary cases); E2E (open Vault button, edit, confirm sync over WS)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -272,6 +280,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-012: Vault button render and readiness gating
 
 <!-- @impl: web-ui/src/components/Header.tsx -->
+<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header describe → Vault button gating + readiness probe state machine → AC1-AC5) -->
 
 **Intent:** The Vault button only appears when usable and only enables after a per-session probe confirms the in-container editor is actually reachable, so users never land on `VAULT_UPSTREAM_UNREACHABLE`. SilverBullet's landing page is the codeflare dashboard. SilverBullet subpath asset adaptation lives in [REQ-VAULT-013](#req-vault-013-silverbullet-subpath-adapter).
 
@@ -293,7 +302,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated test (`src/__tests__/routes/vault.test.ts` AC: readiness probe state machine); E2E (cold-boot a session, confirm button is disabled until the probe flips, open Vault, confirm Index page renders)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -302,6 +311,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-013: SilverBullet subpath adapter
 
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
+<!-- @test: src/__tests__/routes/vault.test.ts (base-href rewrite + service-worker shortcut describe → AC1-AC7) -->
 
 **Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response and short-circuits Service Worker registration so Chrome's credentialless SW fetch does not return 401.
 
@@ -326,7 +336,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated test (`src/__tests__/routes/vault.test.ts` AC: base-href rewrite + service-worker shortcut)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -335,6 +345,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-014: Graphify active-repo invariant and lock serialisation
 
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (single-active-repo invariant + lock serialisation across write sites → AC1-AC4) -->
 
 **Intent:** Concurrent agent flows must not corrupt the global graph, and the global graph must never accumulate stale per-repo entries when the user switches between repos. This REQ specifies the single-active-repo invariant and the cross-writer lock serialisation that keep the global graph well-formed under contention.
 
@@ -356,7 +367,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault--active-repos)
 
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: single-active-repo invariant, lock serialisation across write sites)
+**Verification:** Structural audit
 
 **Status:** Implemented
 
@@ -366,6 +377,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @impl: entrypoint.sh::shutdown_handler -->
 <!-- @impl: src/container/index.ts::destroy -->
+<!-- @test: src/__tests__/container/index.test.ts (135s SIGKILL fallback + shutdownElapsedMs telemetry describe → AC4/AC5) -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (120s watchdog + vault-monitor and SilverBullet PID kill in shutdown handler → AC1-AC3) -->
 
 **Intent:** A user who stops a session and closes their browser within seconds finds their latest vault edits intact on the next session, instead of losing them to a mid-bisync SIGKILL.
 
@@ -388,7 +401,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-SESSION-009](session-lifecycle.md#req-session-009-container-destroy-wipes-session-state) (container destroy wipes session state), [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) (graceful shutdown with final sync), [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync) (graceful shutdown performs final sync)
 
-**Verification:** Automated test (`src/__tests__/container/index.test.ts` AC: 135s SIGKILL fallback + shutdownElapsedMs telemetry); structural audit (`host/__audits__/entrypoint-vault.audit.js`); E2E (edit vault, click Stop, close tab, reopen, confirm edit persisted)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -398,6 +411,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @impl: preseed/agents/claude/manifest.json -->
 <!-- @impl: scripts/generate-agent-seed.mjs -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (preseed manifest entries + file presence + Library/Codeflare plug copy → AC1-AC5) -->
 
 **Intent:** A fresh advanced-mode session ships with the codeflare-vault plugin (hook + extraction prompt + plugin descriptor) and the memory rule (which carries the folded vault trigger/route content) already in place -- no per-session install step.
 
@@ -421,7 +435,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) (preseed configs from single source), [REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start) (preseed deployed to container on start), [REQ-AGENT-014](agents.md#req-agent-014-manifest-driven-preseed-pipeline) (manifest-driven preseed pipeline)
 
-**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: preseed manifest entries + file presence); plug manifest presence (`preseed/silverbullet/plugs/MANIFEST.md` lists the shipped plugs); E2E (fresh session, confirm `~/.claude/plugins/codeflare-vault/` exists and `~/Vault/Library/Codeflare/*.plug.js` populates)
+**Verification:** Structural audit
 
 **Status:** Implemented
 
@@ -434,6 +448,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault.ts::injectVaultIdbRecorder -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
+<!-- @test: src/__tests__/container/index.test.ts (ensureVaultKey persistence + idempotency describe → AC1/AC2) -->
+<!-- @test: src/__tests__/routes/vault.test.ts (/.config merge + bootstrap-hop HTML render + SW shim message handlers describe → AC3/AC4/AC5/AC6) -->
 
 **Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. This REQ covers encryption-at-rest with a per-session key generated and stored by the Container DO (no user passphrase prompt); IDB lifecycle cleanup on session DELETE and dashboard-mount sweeping lives in [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters). The threat model is BitLocker-grade: defeats offline disk attacks (profile theft, backup leak, ransomware scan), does NOT defeat anyone with an authenticated browser tab. The key dies with `container.destroy()` so deletion is forward-secret.
 
@@ -459,7 +475,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions) (vault directory survives sessions), [REQ-MEM-006](memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode) (Pro mode gating)
 
-**Verification:** Unit tests (DO `ensureVaultKey()` persistence + idempotency in `src/__tests__/container/index.test.ts`; Worker `/.config` merge, bootstrap-hop HTML render, SW shim message handlers in `src/__tests__/routes/vault.test.ts`); manual smoke (open SB tab, confirm `sb_data_*` IDB bytes are AES ciphertext).
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -469,6 +485,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @impl: src/routes/vault.ts -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts -->
+<!-- @test: src/__tests__/routes/vault.test.ts (/.fs filter + IDB-recorder injection describe → AC1/AC3) -->
+<!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache + sweepOrphanVaultCaches real IDB deletion describe → AC3/AC4) -->
+<!-- @test: host/__tests__/preseed-config-treeview.test.js (CONFIG.md treeview exclusions describe → AC2) -->
 
 **Intent:** SilverBullet's IndexedDB caches and on-disk listings would otherwise persist across deletion and expose derived/internal directories to the user. This REQ covers cleanup on session DELETE, dashboard-mount sweeping for orphaned IDBs, and the listing filters that keep derived output and internal preseed pages out of the vault tree.
 
@@ -490,7 +509,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption--per-session-idb-lifecycle), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Unit tests (`/.fs` filter and IDB-recorder injection in `src/__tests__/routes/vault.test.ts`; `cleanupSessionVaultCache` + `sweepOrphanVaultCaches` real IDB deletion in `web-ui/src/__tests__/lib/vault-cache.test.ts`; CONFIG.md treeview exclude in `host/__tests__/preseed-config-treeview.test.js`); manual smoke (delete a session, confirm `sb_data_*` IDB is gone from DevTools).
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -500,6 +519,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @impl: src/routes/vault.ts::maybeSynthesizeCsrfHeader -->
 <!-- @impl: src/routes/vault.ts::inferOriginValidated -->
+<!-- @test: src/__tests__/routes/vault.test.ts (missing-Origin PUT path describe → AC1-AC4) -->
 
 **Intent:** SilverBullet's drag-drop attachment upload (PUT `/api/vault/<sid>/Inbox/<file>`) must succeed when the user is authenticated, regardless of whether the browser's fetch implementation set the Origin header. The previous code path required Origin to be present and allowlisted before synthesising the CSRF guard header, so a service-worker-controlled fetch or a same-origin fetch that omitted Origin landed at the auth chain without X-Requested-With and was rejected. PDF uploads from the SB Inbox plug repeatedly surfaced this as a 401 to the user.
 
@@ -520,7 +540,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor)
 
-**Verification:** Unit (`src/__tests__/routes/vault.test.ts` regression for missing-Origin PUT path).
+**Verification:** Automated test
 
 **Status:** Implemented
 

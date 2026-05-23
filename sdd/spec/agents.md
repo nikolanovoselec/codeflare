@@ -166,6 +166,7 @@ Multi-agent support, preseed system, and session modes.
 <!-- @impl: preseed/agents/claude/manifest.json -->
 <!-- @impl: src/lib/agent-seed.generated.ts -->
 <!-- @impl: entrypoint.sh -->
+<!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint-context-mode describe → mode-gated context-mode preseed + hooks → AC4/AC5/AC6) -->
 
 **Intent:** Pro mode must provide a significantly enhanced agent experience over Standard - more rules, skills, agent definitions, commands, hooks, and persistent memory. The context-mode helper tools are universally available to every user on demand, while context-mode's automatic context-window-reduction behavior is reserved for the Custom subscription tier.
 
@@ -276,7 +277,7 @@ Multi-agent support, preseed system, and session modes.
 
 1. On first bucket creation, `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate files to R2.
 2. During container startup, initial `rclone sync` from R2 restores preseed files to the container's config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`).
-3. The container entrypoint merges settings into `~/.claude/settings.json` using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks and replacing managed hooks with the current platform version. The managed-hook detector matches `plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/` (anchored on the literal `plugins/` segment so unrelated workspace tools with the same basenames are not falsely managed), references to the legacy and current context-mode enforcement hook paths, and `context-mode hook claude-code` CLI invocations (bare, `bunx`, and `npx -y` forms).
+3. The container entrypoint merges settings into `~/.claude/settings.json` using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks and replacing managed hooks with the current platform version. The managed-hook detector matches `plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/`, references to legacy and current context-mode enforcement hook paths, and `context-mode hook claude-code` CLI invocations (bare, `bunx`, and `npx -y` forms).
 4. In advanced mode, settings merge includes hook registrations (PreToolUse, PostToolUse, UserPromptSubmit).
 5. The container entrypoint merges `enabledPlugins` into `~/.claude/.claude.json` to enable codeflare-memory and codeflare-hooks plugins (permanent, not mode-gated; missing plugin files are silently skipped).
 6. Settings merge handles three cases: file doesn't exist (create), file exists (recursive merge), file malformed (skip with warning).
@@ -285,6 +286,7 @@ Multi-agent support, preseed system, and session modes.
 
 - All file modifications must complete after initial sync but before bisync baseline to avoid hash mismatches.
 - Plugin enablement is permanent because Claude Code silently skips missing plugins.
+- The managed-hook regex is anchored on the literal `plugins/` segment so unrelated workspace tools with the same script basenames are not falsely flagged as managed.
 - Any new managed-hook surface added to `entrypoint.sh:MANAGED_HOOKS_REGEX` must also be reflected in AC3 above; otherwise prior copies accumulate on every container boot instead of being replaced. The regex enumeration in AC3 is the spec-side single source of truth for what counts as managed.
 
 **Priority:** P0
@@ -336,6 +338,8 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: src/routes/deploy-keys.ts -->
 <!-- @impl: src/lib/kv-crypto.ts -->
+<!-- @test: src/__tests__/routes/deploy-keys.test.ts (deploy-keys routes describe → AC1-AC4) -->
+<!-- @test: web-ui/src/__tests__/lib/token-scopes.test.ts (token-scopes describe → scope tier definitions → AC1 contract) -->
 
 **Intent:** Users must be able to store GitHub and Cloudflare credentials so that git push, repository management, and Cloudflare deployments work without re-authenticating each session.
 
@@ -1486,6 +1490,7 @@ None.
 
 <!-- @impl: src/container/container-env.ts -->
 <!-- @impl: entrypoint.sh -->
+<!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars describe → GH_TOKEN + CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID injection → AC1-AC4) -->
 
 **Intent:** Stored deploy credentials must reach the container as environment variables and be consumed by git, wrangler, and the Cloudflare API auto-fetch step, so the in-container agent can push code and deploy without re-authentication.
 
@@ -1536,6 +1541,6 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-019](#req-agent-019-branded-settings-ui)
 
-**Verification:** Manual check (UI flow exercised manually; token-scopes constants verified by reading; no Playwright coverage planned)
+**Verification:** Manual check
 
 **Status:** Implemented

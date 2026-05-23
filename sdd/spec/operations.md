@@ -210,7 +210,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-012](security.md#req-sec-012-container-auth-token-per-do-lifecycle)
 
-**Verification:** Integration test (e2e.yml setup job + auth smoke)
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -239,7 +239,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-004](#req-ops-004-e2e-test-workflow-setup-and-job-graph)
 
-**Verification:** Integration test (e2e.yml per-suite jobs against deployed worker)
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -337,7 +337,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check (cost monitoring via Cloudflare dashboard)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -366,7 +366,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero)
 
-**Verification:** Manual check (DO restart preserves the user-set timeout)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -465,7 +465,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-007](security.md#req-sec-007-rate-limiting-infrastructure), [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Integration test (stress-test.yml manual dispatch against integration)
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -533,7 +533,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Integration test (E2E verifies data persists across session restart)
+**Verification:** Integration test
 
 **Status:** Implemented
 

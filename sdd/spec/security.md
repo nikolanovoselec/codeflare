@@ -124,7 +124,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-004](#req-sec-004-credential-encryption-at-rest-when-encryption_key-configured)
 
-**Verification:** Integration test (E2E session start verifies container receives scoped credentials)
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -227,7 +227,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Integration test (E2E storage operations verify encrypted round-trip)
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -555,7 +555,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** None.
 
-**Verification:** Integration test (E2E verifies container rejects requests without valid token)
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -645,7 +645,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SUB-012](subscription.md#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Integration test (E2E verifies blocked user receives 403 on subscribe)
+**Verification:** Integration test
 
 **Status:** Implemented
 

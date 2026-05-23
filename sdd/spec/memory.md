@@ -97,7 +97,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ### REQ-MEM-002: Capture triggers every 15 user messages
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
-<!-- @test: host/__tests__/memory-capture-pipeline.test.js (memory-capture-pipeline describe → counter delta 15-msg threshold + .vars writeback + baseline init → AC1-AC6) -->
+<!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh describe → counter delta 15-msg threshold + .vars writeback + baseline init → AC1-AC6) -->
 
 **Intent:** Memory capture must fire at a regular interval to balance context freshness against overhead.
 

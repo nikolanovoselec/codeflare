@@ -658,6 +658,9 @@ Tiers, billing, usage tracking, and quotas.
 
 <!-- @impl: src/lib/currency.ts -->
 <!-- @impl: src/lib/stripe.ts -->
+<!-- @test: src/__tests__/lib/stripe.test.ts (multi-currency describe → currency_options + Checkout currency passthrough → AC1/AC3) -->
+<!-- @test: src/__tests__/routes/auth.test.ts (auth tiers route → CF-IPCountry detection → AC2/AC4) -->
+<!-- @test: src/__tests__/routes/billing.test.ts (billing checkout route → currency passthrough → AC3/AC5) -->
 
 **Intent:** Visitors must see subscription prices in their local currency (CHF, USD, EUR, GBP) with Stripe charging the exact displayed amount -- no surprise FX conversion on the bank statement.
 
@@ -690,6 +693,7 @@ Tiers, billing, usage tracking, and quotas.
 
 <!-- @impl: src/routes/stripe-webhook.ts -->
 <!-- @impl: src/timekeeper/index.ts -->
+<!-- @test: src/__tests__/routes/billing.test.ts (billing-cycle-anchor describe → 1st-of-UTC-month anchor + proration + trial-end anchor → AC1-AC6) -->
 
 **Intent:** New paid subscriptions are billed on the 1st of each UTC calendar month so that recurring charges and monthly quota resets happen on the same date, eliminating the mid-cycle quota refresh that previously gave users roughly twice the paid quota between two billing charges.
 
