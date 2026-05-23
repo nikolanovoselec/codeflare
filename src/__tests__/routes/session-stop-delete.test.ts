@@ -153,40 +153,8 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
     });
   });
 
-  // AC2: destroy() override clears SESSION_ID_KEY, bucketName, and other identifiers
-  //      from DO storage before graceful shutdown (tested in container DO unit tests)
-  describe('REQ-SESSION-006 AC2: destroy() clears DO storage identifiers (structural audit)', () => {
-    it('container DO destroy() deletes SESSION_ID_KEY from storage', async () => {
-      // This is verified by reading the production source directly.
-      // If the deletion is removed, this test fails.
-      const { readFileSync } = await import('node:fs');
-      const src = readFileSync(
-        new URL('../../container/index.ts', import.meta.url).pathname,
-        'utf8'
-      );
-      // The destroy() override must delete the session ID key
-      expect(src).toMatch(/storage\.delete\([^)]*SESSION_ID_KEY\)/);
-      // The destroy() override must delete the bucket name
-      expect(src).toMatch(/storage\.delete\([^)]*['"]bucketName['"]\)/);
-    });
-  });
-
-  // AC3: 25s SIGTERM poll then super.destroy() SIGKILL fallback (structural audit)
-  describe('REQ-SESSION-006 AC3: 25s SIGTERM poll then SIGKILL fallback (structural audit)', () => {
-    it('container DO destroy() sends SIGTERM and polls ctx.container.running', async () => {
-      const { readFileSync } = await import('node:fs');
-      const src = readFileSync(
-        new URL('../../container/index.ts', import.meta.url).pathname,
-        'utf8'
-      );
-      // Must call stop with SIGTERM
-      expect(src).toMatch(/stop\(['"]SIGTERM['"]\)/);
-      // Must poll ctx.container.running
-      expect(src).toMatch(/ctx\.container\?\.running/);
-      // Must call super.destroy() as fallback
-      expect(src).toMatch(/super\.destroy\(\)/);
-    });
-  });
+  // AC2 (destroy clears DO storage identifiers) and AC3 (SIGTERM poll + super.destroy):
+  //   covered behaviorally by src/__tests__/container/index.test.ts (destroy describe).
 
   // AC5: DELETE /api/sessions/:id calls container.destroy() then removes KV record
   describe('REQ-SESSION-006 AC5: delete calls container.destroy then removes KV record', () => {
@@ -217,20 +185,7 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
     });
   });
 
-  // AC6: Frontend transition vocabulary (structural: source contains these state names)
-  describe('REQ-SESSION-006 AC6: frontend transition vocabulary defined', () => {
-    it('frontend constants define initializing, stopping, error ephemeral states', async () => {
-      // These states are documented in the AC but are frontend-only (never persisted).
-      // Verify the web-ui source or session lifecycle route source mentions these.
-      // Searching the lifecycle route source for the state vocabulary.
-      const { readFileSync } = await import('node:fs');
-      const src = readFileSync(
-        new URL('../../routes/session/lifecycle.ts', import.meta.url).pathname,
-        'utf8'
-      );
-      // KV only stores 'running' and 'stopped' - confirmed by the batch-status comment
-      expect(src).toMatch(/['"]running['"]/);
-      expect(src).toMatch(/['"]stopped['"]/);
-    });
-  });
+  // AC6 (frontend transition vocab — initializing/stopping/error ephemeral states):
+  //   frontend-only concern; covered by web-ui/src/__tests__/stores/session.test.ts
+  //   which exercises real status-update mutations against the store.
 });

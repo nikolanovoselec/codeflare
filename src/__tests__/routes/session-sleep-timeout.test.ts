@@ -109,21 +109,10 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
     });
   });
 
-  // AC2: Free tier locked to 15m - enforced at container start (lifecycle route)
-  // The preferences route stores whatever value the user sets; the enforcement
-  // is at container/start where free tier always uses '15m' regardless of pref.
-  describe('REQ-SESSION-014 AC2: free tier locked to 15m (structural audit)', () => {
-    it('container lifecycle route enforces 15m for free tier, overriding user preference', () => {
-      const { readFileSync } = require('node:fs');
-      const { resolve } = require('node:path');
-      const src = readFileSync(
-        resolve(__dirname, '../../routes/container/lifecycle.ts'),
-        'utf8'
-      );
-      // The free-tier sleep override: effectiveTier === 'free' ? '15m' : ...
-      expect(src).toMatch(/free[\s\S]{0,50}15m/);
-    });
-  });
+  // AC2 (free tier 15m override): covered behaviorally by
+  //   src/__tests__/routes/container-lifecycle-helpers.test.ts (tier comparison +
+  //   non-SaaS fallback). Worker runtime cannot readFileSync arbitrary project
+  //   files, so the source-presence audit lived here previously was broken.
 
   // AC3: Admins and paying users can change sleepAfter
   describe('REQ-SESSION-014 AC3: admins and paying users can change sleepAfter', () => {
@@ -189,17 +178,7 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
       expect(body.sleepAfter).toBe('2h');
     });
 
-    it('container start route reads sleepAfter from KV preferences', () => {
-      // Structural audit: lifecycle.ts reads preferences.sleepAfter before building setBucketNameBody
-      const { readFileSync } = require('node:fs');
-      const { resolve } = require('node:path');
-      const src = readFileSync(
-        resolve(__dirname, '../../routes/container/lifecycle.ts'),
-        'utf8'
-      );
-      expect(src).toMatch(/preferences\.sleepAfter/);
-      // buildSetBucketNameBody requires sleepAfter to be passed explicitly
-      expect(src).toMatch(/sleepAfter\s*:/);
-    });
+    // "container start route reads sleepAfter from KV preferences": covered by
+    // container/index.test.ts onStart describe + the GET/PATCH round-trip above.
   });
 });

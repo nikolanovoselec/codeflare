@@ -10,15 +10,9 @@
  * AC1/AC2/AC5 are integration tests against the container start route.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ENTRYPOINT = resolve(__dirname, '../../../entrypoint.sh');
 
 // Hoisted shared test state
 const testState = vi.hoisted(() => ({
@@ -176,43 +170,10 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     });
   });
 
-  // AC3: entrypoint runs initial rclone sync from R2 (structural audit of entrypoint.sh)
-  describe('REQ-SESSION-003 AC3: entrypoint performs initial rclone sync (structural)', () => {
-    it('entrypoint.sh contains initial rclone sync call before terminal server start', () => {
-      const src = readFileSync(ENTRYPOINT, 'utf8');
-      // The entrypoint must contain an initial rclone sync (not bisync) command
-      expect(src).toMatch(/rclone\s+sync/);
-    });
-
-    it('initial rclone sync has a safety timeout (120s)', () => {
-      const src = readFileSync(ENTRYPOINT, 'utf8');
-      // 120-second timeout for the initial sync
-      expect(src).toMatch(/120/);
-    });
-  });
-
-  // AC4: Background bisync daemon runs every 15 minutes with SIGUSR1 manual trigger
-  describe('REQ-SESSION-003 AC4: bisync daemon runs periodically with SIGUSR1 trigger (structural)', () => {
-    it('entrypoint.sh defines a start_sync_daemon function', () => {
-      const src = readFileSync(ENTRYPOINT, 'utf8');
-      expect(src).toMatch(/start_sync_daemon\s*\(\)/);
-    });
-
-    it('sync daemon uses rclone bisync', () => {
-      const src = readFileSync(ENTRYPOINT, 'utf8');
-      expect(src).toMatch(/rclone\s+bisync/);
-    });
-
-    it('sync daemon sleep cadence is 900 seconds (15 minutes)', () => {
-      const src = readFileSync(ENTRYPOINT, 'utf8');
-      expect(src).toMatch(/sleep\s+900/);
-    });
-
-    it('sync daemon handles SIGUSR1 for manual bisync trigger', () => {
-      const src = readFileSync(ENTRYPOINT, 'utf8');
-      expect(src).toMatch(/SIGUSR1/);
-    });
-  });
+  // AC3 (entrypoint initial rclone sync) and AC4 (bisync daemon + SIGUSR1) are
+  // covered by host/__tests__/entrypoint-bisync-behavior.test.js, which spawns
+  // bash with the real entrypoint code. Worker runtime cannot readFileSync
+  // arbitrary repo files, so those structural audits live in host/.
 
   // AC5: New buckets are seeded with getting-started docs and agent configs
   describe('REQ-SESSION-003 AC5: new buckets seeded with getting-started docs', () => {
