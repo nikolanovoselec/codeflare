@@ -101,7 +101,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. `configure_tab_autostart()` in `entrypoint.sh` writes the agent's launch command into `.bashrc` for tab 1.
+1. The container entrypoint writes the agent's launch command into `.bashrc` for tab 1.
 2. The agent starts with `--dangerously-skip-permissions` flag (for Claude Code via `claude`). The container sets `IS_SANDBOX=1` to allow this flag when running as root.
 3. Auto-start only runs for tab 1; user-created tabs (where `MANUAL_TAB=1`) skip autostart.
 4. The `.bashrc` autostart block sets `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"` so PTY sessions find globally installed CLI tools.
@@ -205,7 +205,7 @@ Multi-agent support, preseed system, and session modes.
 
 1. Source files live in `preseed/agents/claude/` organized by type: `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`.
 2. `preseed/agents/claude/manifest.json` maps each file to its applicable modes (`default`, `advanced`, or both).
-3. `scripts/generate-agent-seed.mjs` reads the manifest and source files, generating `src/lib/agent-seed.generated.ts` with an `AGENTS_SEEDED_CONFIGS` array.
+3. A build-time seed generator reads the manifest and source files, producing the runtime `AGENTS_SEEDED_CONFIGS` array that the Worker ships to the container.
 4. The generator is manifest-driven; files not in the manifest are ignored.
 5. No duplicate preseed source files exist on disk.
 6. The generator produces output for all supported agents (Claude Code as the source-of-truth lane plus adapted lanes for Codex, Gemini, Copilot, OpenCode).
@@ -270,9 +270,9 @@ Multi-agent support, preseed system, and session modes.
 
 1. On first bucket creation, `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate files to R2.
 2. During container startup, initial `rclone sync` from R2 restores preseed files to the container's config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`).
-3. `entrypoint.sh` merges settings into `~/.claude/settings.json` using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks and replacing managed hooks with the current platform version. The managed-hook detector matches `plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/` (anchored on the literal `plugins/` segment so unrelated workspace tools with the same basenames are not falsely managed), references to `enforce-ctx-mode.sh` (legacy `~/.claude/hooks/` and current `~/.claude/plugins/context-mode/scripts/` paths), and `context-mode hook claude-code` CLI invocations (bare, `bunx`, and `npx -y` forms).
+3. The container entrypoint merges settings into `~/.claude/settings.json` using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks and replacing managed hooks with the current platform version. The managed-hook detector matches `plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/` (anchored on the literal `plugins/` segment so unrelated workspace tools with the same basenames are not falsely managed), references to the legacy and current context-mode enforcement hook paths, and `context-mode hook claude-code` CLI invocations (bare, `bunx`, and `npx -y` forms).
 4. In advanced mode, settings merge includes hook registrations (PreToolUse, PostToolUse, UserPromptSubmit).
-5. `entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json` to enable codeflare-memory and codeflare-hooks plugins (permanent, not mode-gated; missing plugin files are silently skipped).
+5. The container entrypoint merges `enabledPlugins` into `~/.claude/.claude.json` to enable codeflare-memory and codeflare-hooks plugins (permanent, not mode-gated; missing plugin files are silently skipped).
 6. Settings merge handles three cases: file doesn't exist (create), file exists (recursive merge), file malformed (skip with warning).
 
 **Constraints:**
@@ -473,8 +473,8 @@ Multi-agent support, preseed system, and session modes.
 1. `preseed/agents/claude/manifest.json` is the single declaration of all preseed files and their mode assignments.
 2. The manifest organizes entries by type: rules (including the discipline triad: spec-discipline, documentation-discipline, tdd-discipline), agents, commands, skills (including SDD scaffolding templates), and plugins (memory and hook plugins).
 3. Each entry specifies `"modes"` as an array of `"default"`, `"advanced"`, or both.
-4. The generator script (`scripts/generate-agent-seed.mjs`) is manifest-driven and ignores files not in the manifest.
-5. The generated output (`src/lib/agent-seed.generated.ts`) contains the `AGENTS_SEEDED_CONFIGS` array used at runtime.
+4. The seed generator is manifest-driven and ignores files not in the manifest.
+5. The generated output contains the `AGENTS_SEEDED_CONFIGS` array used at runtime.
 6. `getConfigsForMode()` validates that no duplicate R2 keys exist within a single mode.
 7. Variant-per-mode keys (same R2 key, different content per mode) are handled correctly by `getPreseedKeysNotInMode()`.
 
@@ -977,9 +977,9 @@ None.
 **Acceptance Criteria:**
 1. In advanced session mode only, a SessionStart hook (matcher: startup) inspects the current working directory and injects an `additionalContext` system reminder when `graphify-out/graph.json` exists, pointing the agent at `GRAPH_REPORT.md` and the MCP tools. When the graph is absent but the cwd looks like a code repo, the hook instead injects a build-suggestion reminder.
 2. In advanced session mode only, `~/.claude/rules/graph-first.md` is preseeded. It is authoritative and short (target ~100 tokens), states MUST / MUST NOT bullets for graph vs Grep, and references `~/.claude/skills/graphify/SKILL.md` for mechanics rather than restating them.
-3. In advanced session mode only, `~/.claude/skills/graphify/SKILL.md` is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, and OpenCode by `scripts/generate-agent-seed.mjs`. The SKILL documents `graphify cluster-only . --no-viz` as the safe path for repos with more than 2000 files and instructs the agent on first build to add the canonical `.gitignore` block defined in SKILL note 3 (covering regenerable build outputs under `graphify-out/`, working-tree intermediates, and per-machine markers) plus `graphify-out/graph.json merge=graphify` to `.gitattributes`. The committed surface is `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and optional `wiki/`.
-4. In advanced session mode only, a PreToolUse hook (`graph-first-nudge.sh`) fires on `Grep`, `Glob`, `mcp__context-mode__ctx_search`, and `mcp__context-mode__ctx_batch_execute` tool calls. When a `graphify-out/graph.json` exists in the agent's cwd, the hook emits an `additionalContext` system reminder suggesting the agent prefer `mcp__graphify__*` for structural questions. The hook is non-blocking (exit 0 with `hookSpecificOutput.additionalContext` only). Both matcher sets are required because `enforce-ctx-mode.sh` denies `Grep`/`Glob`/`Read` in custom-tier sessions, redirecting the agent to the ctx grep-equivalents.
-5. In advanced session mode only, a PreToolUse hook (`enforce-graphify.sh`) hard-blocks structural searches after 3 grep-class tool calls in the same turn when no `mcp__graphify__*` call (or `graphify query|path|explain` CLI) has been made. Matchers: `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_execute_file`. The shell parser reuses the `extract_subs` / `normalize_command` / chain-op splitter from `enforce-ctx-mode.sh` so substitution, heredocs, quoted regions, and pipeline segments cannot slip past. SEARCH classification: `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, `awk` with `/regex/` body. Active-repo resolution: the hook reads `~/.cache/codeflare-hooks/graphify-active-cwd` (the sentinel `graphify-active-repo.sh` maintains, see REQ-VAULT-004 AC3) and gates on `<active-repo>/graphify-out/graph.json` existing, falling back to the tool-call envelope `.cwd` when the sentinel is absent. The codeflare session layout (every agent session has `cwd=~/workspace`, never inside a sub-repo) makes the sentinel the load-bearing signal; the envelope-cwd fallback exists for vanilla graphify usage outside codeflare. The vault entry in `~/.graphify/global-graph.json` is intentionally NOT enforcement-eligible: a session whose active repo has no graph (vault-only-in-global) does not trigger the hard-block, so the user can grep freely in repos they have not yet graphified. User-only bypass: `touch /tmp/graphify-bypass` (one-shot, auto-deleted) or `skip graph` in user message. Any unexpected error returns exit 0 (never locks the user out).
+3. In advanced session mode only, `~/.claude/skills/graphify/SKILL.md` is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, and OpenCode by the seed generator. The SKILL documents `graphify cluster-only . --no-viz` as the safe path for repos with more than 2000 files and instructs the agent on first build to add the canonical `.gitignore` block defined in SKILL note 3 (covering regenerable build outputs under `graphify-out/`, working-tree intermediates, and per-machine markers) plus `graphify-out/graph.json merge=graphify` to `.gitattributes`. The committed surface is `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and optional `wiki/`.
+4. In advanced session mode only, a PreToolUse soft-nudge hook fires on `Grep`, `Glob`, `mcp__context-mode__ctx_search`, and `mcp__context-mode__ctx_batch_execute` tool calls. When a `graphify-out/graph.json` exists in the agent's cwd, the hook emits an `additionalContext` system reminder suggesting the agent prefer `mcp__graphify__*` for structural questions. The hook is non-blocking (exit 0 with `hookSpecificOutput.additionalContext` only). Both matcher sets are required because the context-mode enforcement hook denies `Grep`/`Glob`/`Read` in custom-tier sessions, redirecting the agent to the ctx grep-equivalents.
+5. In advanced session mode only, a PreToolUse hard-block hook denies structural searches after 3 grep-class tool calls in the same turn when no `mcp__graphify__*` call (or `graphify query|path|explain` CLI) has been made. Matchers: `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_execute_file`. The shell parser reuses the `extract_subs` / `normalize_command` / chain-op splitter from the context-mode enforcement hook so substitution, heredocs, quoted regions, and pipeline segments cannot slip past. SEARCH classification: `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, `awk` with `/regex/` body. Active-repo resolution: the hook reads `~/.cache/codeflare-hooks/graphify-active-cwd` (the sentinel `graphify-active-repo.sh` maintains, see REQ-VAULT-004 AC3) and gates on `<active-repo>/graphify-out/graph.json` existing, falling back to the tool-call envelope `.cwd` when the sentinel is absent. The codeflare session layout (every agent session has `cwd=~/workspace`, never inside a sub-repo) makes the sentinel the load-bearing signal; the envelope-cwd fallback exists for vanilla graphify usage outside codeflare. The vault entry in `~/.graphify/global-graph.json` is intentionally NOT enforcement-eligible: a session whose active repo has no graph (vault-only-in-global) does not trigger the hard-block, so the user can grep freely in repos they have not yet graphified. User-only bypass: `touch /tmp/graphify-bypass` (one-shot, auto-deleted) or `skip graph` in user message. Any unexpected error returns exit 0 (never locks the user out).
 6. In advanced session mode only, before dispatching semantic-extraction subagents in a `/graphify` build (Step B2 of the upstream protocol), the agent presents an `AskUserQuestion` with exactly two modes - AST-only (free, structural edges only) and Full (AST plus parallel Haiku subagents extracting concepts from docs / papers / images) - and includes both the actual subagent count and a wall-time estimate. The question is skipped only when the corpus contains zero docs/papers/images (code-only repos go straight to Part C with nothing for Part B to do).
 7. In advanced session mode only, Part B semantic subagents are dispatched with `model: "haiku"` so per-build cost matches vault-extract economics (~1/8 of opus, ~1/3 of sonnet). Escalation to Sonnet is permitted only when `--mode deep` was explicitly passed on the `/graphify` command; Opus is never used from this skill.
 
@@ -1031,7 +1031,7 @@ None.
 **Intent:** Graphify artifacts persist with the repository, not with the user, so contributors on a clone inherit the graph for free and Codeflare's R2 bisync does not carry per-repo graph data.
 
 **Acceptance Criteria:**
-1. The rclone bisync filter in `entrypoint.sh` excludes `**/graphify-out/**` from R2 sync. No graphify artifact ever round-trips through R2.
+1. The container's rclone bisync filter excludes `**/graphify-out/**` from R2 sync. No graphify artifact ever round-trips through R2.
 2. The container image registers the graphify semantic merge driver globally via `git config --global merge.graphify.driver "graphify merge-driver %O %A %B"` and `merge.graphify.name`. The configuration is tier-independent and lands regardless of session mode.
 3. Repo owners with push permission commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `graph.html`, and optionally `wiki/` to git. Contributors get the graph and a browser-openable interactive visualization on clone. Concurrent edits to `graph.json` in repos that wire `graphify-out/graph.json merge=graphify` in `.gitattributes` are auto-resolved on `git merge` / `git pull` without manual JSON intervention.
 4. For repos without push permission, the graph lives in the working tree only and is ephemeral.
@@ -1058,7 +1058,7 @@ None.
 **Intent:** When the context-mode plugin is preseeded, the graphify CLI must coexist with the enforce-ctx-mode Bash whitelist and the graph-first soft-nudge must reach the agent through context-mode's redirected tool-call path.
 
 **Acceptance Criteria:**
-1. When the context-mode plugin is preseeded (effectiveTier `unlimited` plus advanced session mode), `graphify` is in the `enforce-ctx-mode.sh` Bash whitelist so `graphify update .` and `graphify query ...` are not denied.
+1. When the context-mode plugin is preseeded (effectiveTier `unlimited` plus advanced session mode), `graphify` is in the context-mode Bash whitelist so `graphify update .` and `graphify query ...` are not denied.
 2. The REQ-AGENT-024 AC4 PreToolUse soft-nudge hook registers both the non-ctx matchers (`Grep`, `Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`, `mcp__context-mode__ctx_batch_execute`) so the nudge fires in both tier paths.
 
 **Applies To:** Agent
@@ -1117,7 +1117,7 @@ None.
 **Acceptance Criteria:**
 
 1. Keys are injected as container environment variables (`OPENAI_API_KEY`, `GEMINI_API_KEY`) during `setBucketName()`.
-2. When keys are present, `entrypoint.sh` configures the `consult-llm-mcp` MCP server in `~/.claude.json`.
+2. When keys are present, the container entrypoint configures the `consult-llm-mcp` MCP server in `~/.claude.json`.
 3. Keys are NOT persisted in DO storage; they are read fresh from KV on each container start.
 
 **Constraints:**
@@ -1176,7 +1176,7 @@ None.
 
 1. Deploy keys are injected as container environment variables: `GH_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
 2. Keys are sent as explicit `null` when absent (not omitted) to ensure revocation propagates on session restart.
-3. When `GH_TOKEN` is present, `entrypoint.sh` configures `git config --global credential.helper` for HTTPS auth.
+3. When `GH_TOKEN` is present, the container entrypoint configures `git config --global credential.helper` for HTTPS auth.
 4. `CLOUDFLARE_ACCOUNT_ID` is auto-fetched from the Cloudflare API when a Cloudflare API token is stored.
 
 **Constraints:**
