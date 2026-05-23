@@ -166,7 +166,7 @@ if [ -f "$PROJECT_ROOT/graphify-out/graph.json" ]; then
   # If the refresh fails, the on-disk graph may be stale relative to HEAD — Q6 graph-orphan
   # would then false-positive-DROP real findings. Set the no-graph marker on failure so
   # downstream phases use the safer grep-style fallback instead of trusting stale state.
-  if ! (cd "$PROJECT_ROOT" && timeout 180 graphify update . 2>>"$REVIEW_DIR/.graphify-update.log"); then
+  if ! (cd "$PROJECT_ROOT" && timeout 180 bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh . 2>>"$REVIEW_DIR/.graphify-update.log"); then
     echo "Note: graphify update . failed or timed out at $(date -Iseconds). Graph at $PROJECT_ROOT/graphify-out/graph.json may be stale; treating as no-graph to avoid stale-orphan false positives. See .graphify-update.log for details." > "$REVIEW_DIR/.no-graph.notice"
   fi
 else

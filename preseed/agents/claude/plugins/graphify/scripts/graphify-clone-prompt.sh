@@ -203,7 +203,7 @@ if [ "$EXISTING_GRAPH" = "yes" ]; then
   jq -n --arg dir "$TARGET_DIR" '{
     hookSpecificOutput: {
       hookEventName: "PostToolUse",
-      additionalContext: ("The user just cloned `" + $dir + "`, and a graphify knowledge graph already exists at " + $dir + "/graphify-out/graph.json. Do NOT prompt the user about building one - the SessionStart hook will surface it on the next session, and you can use the mcp__graphify__* tools against the existing graph right now. If the clone is recent enough that source files may have changed since the graph was built, run `graphify update .` from `" + $dir + "` to refresh the AST portion (free, no LLM cost). Do not run a full `/graphify` rebuild unless the user explicitly asks for one.")
+      additionalContext: ("The user just cloned `" + $dir + "`, and a graphify knowledge graph already exists at " + $dir + "/graphify-out/graph.json. Do NOT prompt the user about building one - the SessionStart hook will surface it on the next session, and you can use the mcp__graphify__* tools against the existing graph right now. If the clone is recent enough that source files may have changed since the graph was built, run `bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .` from `" + $dir + "` to refresh the AST portion (free, no LLM cost; the wrapper caps memory so a runaway rebuild cannot OOM the session). Do not run a full `/graphify` rebuild unless the user explicitly asks for one.")
     }
   }' 2>/dev/null || true
 else

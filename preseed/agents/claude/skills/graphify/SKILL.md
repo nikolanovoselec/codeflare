@@ -56,7 +56,7 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
    When two sessions both run `graphify update .` and produce conflicting `graph.json`, the merge driver auto-resolves on `git merge` / `git pull`. No manual JSON wrangling.
 
 4. **Bias toward `--update` and `cluster-only` for repeat runs.** Full LLM extraction is expensive. After the first build:
- - For source changes: `graphify update .` (AST-only, free, no token cost).
+ - For source changes: `bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .` (AST-only, free, no token cost; wraps `graphify update` with `GRAPHIFY_MAX_WORKERS=1` + `ulimit -v 2500000` so a runaway rebuild on a large repo cannot OOM-kill the codeflare session).
  - For repos larger than 2000 files: `graphify cluster-only . --no-viz` (AST-only first build).
 
 5. **Context-mode coexistence.** When context-mode is active (custom tier), subagent Read/Grep calls during extraction route through `mcp__context-mode__ctx_execute` automatically. When it is not, graphify's own subagent-chunking model still bounds your main context. Both regimes work; no per-tier branching needed in this skill.

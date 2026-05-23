@@ -40,7 +40,7 @@ emit_reminder() {
 }
 
 if [ -f "$GRAPH" ] && [ -f "$REPORT" ]; then
-  emit_reminder "A graphify knowledge graph exists for this project at graphify-out/. Before answering architecture, dependency, or call-flow questions, read graphify-out/GRAPH_REPORT.md and use the graphify MCP tools (mcp__graphify__query_graph, mcp__graphify__get_node, mcp__graphify__get_neighbors, mcp__graphify__shortest_path) for focused lookups. Prefer focused MCP queries over broad Grep when the question is structural. If you have modified source files, run \`graphify update .\` to refresh the AST portion of the graph (free, no LLM cost) before answering."
+  emit_reminder "A graphify knowledge graph exists for this project at graphify-out/. Before answering architecture, dependency, or call-flow questions, read graphify-out/GRAPH_REPORT.md and use the graphify MCP tools (mcp__graphify__query_graph, mcp__graphify__get_node, mcp__graphify__get_neighbors, mcp__graphify__shortest_path) for focused lookups. Prefer focused MCP queries over broad Grep when the question is structural. If you have modified source files, run \`bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .\` to refresh the AST portion of the graph (free, no LLM cost; the wrapper caps memory so a runaway rebuild cannot OOM the session) before answering."
   exit 0
 fi
 

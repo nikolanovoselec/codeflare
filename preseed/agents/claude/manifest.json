@@ -222,6 +222,11 @@
       "advanced"
     ]
   },
+  "plugins/graphify/scripts/safe-graphify-update.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/known_marketplaces.json": {
     "modes": [
       "default",
