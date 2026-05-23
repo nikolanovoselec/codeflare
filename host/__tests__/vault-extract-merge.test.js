@@ -41,20 +41,31 @@ test('REQ-MEM-009 setup: merge-vault-graph.py exists and is valid Python', () =>
   assert.equal(compile.status, 0, `py_compile failed: ${compile.stderr}`);
 });
 
-test('REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path', () => {
+test('REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path as the to_json path argument', () => {
+  // The graphify export signature is to_json(graph, communities, path).
+  // The persistence target is therefore the THIRD positional arg
+  // (index 2). Pin it: the test must fail if vault_graph_path moves
+  // out of args[2] (e.g. someone wires it as the communities arg by
+  // mistake) and must also fail if BOTH to_json calls target out_path
+  // only (the per-extraction artifact) instead of vault_graph_path.
   const r = pyAst(`
 calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == 'to_json']
-targets = []
+ok = False
 for c in calls:
-    for a in c.args:
-        if isinstance(a, ast.Call) and getattr(a.func, 'id', '') == 'str':
-            inner = a.args[0] if a.args else None
-            if isinstance(inner, ast.Name):
-                targets.append(inner.id)
-print(' '.join(targets))
+    if len(c.args) < 3:
+        continue
+    path_arg = c.args[2]
+    if (isinstance(path_arg, ast.Call)
+        and getattr(path_arg.func, 'id', '') == 'str'
+        and path_arg.args
+        and isinstance(path_arg.args[0], ast.Name)
+        and path_arg.args[0].id == 'vault_graph_path'):
+        ok = True
+        break
+print('OK' if ok else 'MISSING')
 `);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /\bvault_graph_path\b/, 'to_json must be called with str(vault_graph_path) so the cumulative graph is persisted');
+  assert.equal(r.stdout.trim(), 'OK', 'merge-vault-graph.py must call to_json(..., ..., str(vault_graph_path)) so the cumulative graph is persisted at the right path');
 });
 
 test('REQ-MEM-009 AC2: script unions the prior + new graphs via nx.compose (hash-keyed dedup)', () => {
