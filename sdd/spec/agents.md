@@ -307,15 +307,13 @@ Multi-agent support, preseed system, and session modes.
 3. Keys are stored in KV at `llm-keys:{bucketName}`.
 4. When `ENCRYPTION_KEY` is set, values are encrypted with AES-256-GCM before KV storage.
 5. `GET /api/llm-keys` returns masked keys (`****` + last 4 chars), never full keys.
-6. Keys are injected as container environment variables (`OPENAI_API_KEY`, `GEMINI_API_KEY`) during `setBucketName()`.
-7. When keys are present, `entrypoint.sh` configures the `consult-llm-mcp` MCP server in `~/.claude.json`.
-8. Keys are NOT persisted in DO storage; they are read fresh from KV on each container start.
 
 **Constraints:**
 
 - Encryption uses Web Crypto API AES-256-GCM with random 12-byte IV and KV key name as AAD.
 - The ciphertext format is `v1:` + base64 for forward compatibility.
 - Transparent upgrade: plaintext values are auto-encrypted on read when `ENCRYPTION_KEY` is present.
+- Propagation to the container env + MCP wiring live in [REQ-AGENT-031](#req-agent-031-llm-api-key-propagation-to-container).
 
 **Priority:** P1
 
@@ -915,6 +913,35 @@ None.
 **Verification:** Automated test (`host/__tests__/enforce-ctx-mode-graphify.test.js`, `host/__tests__/graph-first-nudge.test.js`)
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-031: LLM API Key Propagation to Container
+
+<!-- @impl: src/container/container-env.ts -->
+<!-- @impl: entrypoint.sh -->
+
+**Intent:** Stored LLM API keys must reach the container as environment variables and trigger the consult-llm MCP server wiring, so the in-container agent can call OpenAI or Gemini without re-authentication.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Keys are injected as container environment variables (`OPENAI_API_KEY`, `GEMINI_API_KEY`) during `setBucketName()`.
+2. When keys are present, `entrypoint.sh` configures the `consult-llm-mcp` MCP server in `~/.claude.json`.
+3. Keys are NOT persisted in DO storage; they are read fresh from KV on each container start.
+
+**Constraints:**
+
+- The container reads keys at start and on restart; mid-session key changes take effect only after the next session start.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
+
+**Verification:** Automated test
+
+**Status:** Partial
 
 ---
 
