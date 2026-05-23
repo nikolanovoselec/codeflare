@@ -827,32 +827,93 @@ None.
 
 ---
 
-### REQ-AGENT-036: PR-Boundary Review Pipeline
+### REQ-AGENT-036: PR-Boundary Review Trigger Conditions
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
-<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh -->
 
-**Intent:** When the user opens or syncs a PR to `main`, the right review agents fire automatically on the right lanes - and nowhere else - so vibe-coding mode and integration-branch development stay friction-free while changes that actually target shipping code get reviewed.
+**Intent:** Review agents must fire only on PR-boundary events that actually target shipping code. Trigger detection runs across every tool surface that can move HEAD, ignores intermediate-branch and no-PR pushes so vibe-coding mode and integration-branch development stay friction-free, and assumes upstream branch protection guards direct pushes to `main`. Lane classification + agent dispatch live in [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch); bypass surfaces live in [REQ-AGENT-041](#req-agent-041-pr-boundary-review-bypass-surfaces).
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. PR-boundary review fires only for PRs targeting `main` or `master` (a new PR opens with that target via `gh pr create`, or a push lands on a branch with an open PR to that target). PUSH_LINE detection in `enforce-review-spawn.sh` recognises both `git push` and `gh pr merge` across all three tool surfaces (Bash, `mcp__*__ctx_batch_execute`, `mcp__*__ctx_execute` with `language=shell`); the `gh pr merge` surface is required because a server-side merge into `develop` advances the develop->main PR HEAD without producing a local `git push` line. Layer 1 lane classification uses a shared helper (`scripts/lib/lane-classifier.sh`, relative to the hooks plugin `scripts/` directory) sourced by both `enforce-review-spawn.sh` and `git-push-review-reminder.sh` so the in-turn nudge and turn-end gate agree on which agents the diff requires: docs-only (no sdd, no source) -> `doc-updater`; sdd/ touched without source (with or without docs) -> `spec-reviewer` then `doc-updater`; any source touch -> all three. Conservative branches (empty diff, missing prior ack, divergent merge-base) and a missing or unsourceable helper both fall back to all-three-lanes (`code-reviewer spec-reviewer doc-updater`), so a partially-deployed install never disables enforcement. Layer 2 (`gh pr view` HEAD SHA comparison) filters false positives. On trigger, `spec-reviewer` runs first then `doc-updater` (sequential, never parallel) on any project containing `sdd/`. In a fix-push cascade (multiple pushes inside one turn), the gate advances the ack pointer through each push whose review window completed all lanes required by that push's diff; AC16-bypassed pushes (no spawns in window) are absorbed into the next complete window's cumulative review.
-2. PRs into intermediate integration branches (`develop`, `staging`, etc.) do NOT trigger reviews. The case is deferred until the integration branch's own PR-to-`main` opens or syncs, where the cumulative review covers everything that landed.
-3. A plain push to a branch with no open PR does NOT trigger reviews.
-4. Direct pushes to `main` are expected to be prevented by GitHub branch protection (require PR before merge); the review pipeline is not engineered to compensate for a bypass that the upstream platform already blocks.
-5. On non-SDD projects (no `sdd/` folder) no review agents run at all. Every hook exits silently and the workflow proceeds friction-free (vibe-coding mode).
-6. The Stop-hook review enforcement (`enforce-review-spawn.sh`) exposes three USER-only bypass surfaces: (a) a one-shot sentinel file at `/tmp/review-bypass` (overridable via `REVIEW_BYPASS_FILE` for hermetic tests) which is auto-deleted on use, never committed, and never survives container restart; (b) a magic phrase `skip review` or `skip verification` (case-insensitive, word-bounded) in any user message after the candidate push line in the transcript; (c) a 3-strike circuit breaker that exits silently after blocking the same un-acked PR HEAD SHA three times, sticky until the SHA changes. The assistant must NEVER create the sentinel or write the magic phrase in its own output; both are explicitly user-only escape hatches.
+1. PR-boundary review fires only for PRs targeting `main` or `master` (a new PR opens with that target via `gh pr create`, or a push lands on a branch with an open PR to that target).
+2. PUSH_LINE detection recognises both `git push` and `gh pr merge` across all three tool surfaces (Bash, `mcp__*__ctx_batch_execute`, `mcp__*__ctx_execute` with `language=shell`); the `gh pr merge` surface is required because a server-side merge into `develop` advances the develop->main PR HEAD without producing a local `git push` line.
+3. PRs into intermediate integration branches (`develop`, `staging`, etc.) do NOT trigger reviews; the case is deferred until the integration branch's own PR-to-`main` opens or syncs, where the cumulative review covers everything that landed.
+4. A plain push to a branch with no open PR does NOT trigger reviews.
+5. Direct pushes to `main` are expected to be prevented by GitHub branch protection (require PR before merge); the review pipeline is not engineered to compensate for a bypass that the upstream platform already blocks.
+6. Layer 2 false-positive filtering compares the candidate push's HEAD SHA against `gh pr view`'s reported HEAD before any agent is spawned.
+7. On non-SDD projects (no `sdd/` folder) no review agents run at all; every hook exits silently and the workflow proceeds friction-free (vibe-coding mode).
 
 **Constraints:**
 
-- The three bypass surfaces in AC6 are explicitly USER-only escape hatches. The assistant never creates or invokes them in its own output.
+None.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-040: PR-Boundary Lane Classification and Agent Dispatch
+
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh -->
+
+**Intent:** Once a PR-boundary trigger fires (REQ-AGENT-036), a shared lane classifier picks the minimal correct set of review agents from the diff so the in-turn nudge and turn-end gate agree, and a fix-push cascade can advance the ack pointer without losing review coverage.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Layer 1 lane classification uses a shared helper (`scripts/lib/lane-classifier.sh`, relative to the hooks plugin `scripts/` directory) sourced by both `enforce-review-spawn.sh` and `git-push-review-reminder.sh` so the in-turn nudge and turn-end gate agree on which agents the diff requires.
+2. Lane mapping: docs-only (no sdd, no source) → `doc-updater`; `sdd/` touched without source (with or without docs) → `spec-reviewer` then `doc-updater`; any source touch → all three agents.
+3. Conservative branches (empty diff, missing prior ack, divergent merge-base) and a missing or unsourceable helper both fall back to all-three-lanes (`code-reviewer spec-reviewer doc-updater`), so a partially-deployed install never disables enforcement.
+4. On trigger, `spec-reviewer` runs first then `doc-updater` (sequential, never parallel) on any project containing `sdd/`.
+5. In a fix-push cascade (multiple pushes inside one turn), the gate advances the ack pointer through each push whose review window completed all lanes required by that push's diff; bypassed pushes (no spawns in window, per REQ-AGENT-041) are absorbed into the next complete window's cumulative review.
+
+**Constraints:**
+
+None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-041: PR-Boundary Review Bypass Surfaces
+
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
+
+**Intent:** The user needs a small set of explicit, user-only escape hatches when a turn-end review gate would otherwise block legitimate work (hermetic tests, deliberate skip, repeated false-block). The assistant MUST NEVER trip these surfaces in its own output.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A one-shot sentinel file at `/tmp/review-bypass` (overridable via `REVIEW_BYPASS_FILE` for hermetic tests) bypasses the Stop-hook gate once; the file is auto-deleted on use, never committed, and never survives container restart.
+2. A magic phrase `skip review` or `skip verification` (case-insensitive, word-bounded) in any user message after the candidate push line in the transcript bypasses the gate for that push.
+3. A 3-strike circuit breaker exits silently after blocking the same un-acked PR HEAD SHA three times, sticky until the SHA changes.
+4. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output; both are explicitly user-only escape hatches.
+
+**Constraints:**
+
+- These bypass surfaces apply only to the turn-end gate (Stop hook); the in-turn nudge and trigger detection in REQ-AGENT-036 are unaffected.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
 **Verification:** Manual check
 
