@@ -215,7 +215,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Priority:** P1
 
-**Dependencies:** REQ-SUB-001, [REQ-STOR-014](#req-stor-014-r2-storage-stats-caching)
+**Dependencies:** [REQ-SUB-001](subscription.md#req-sub-001-eight-tier-subscription-system), [REQ-STOR-014](#req-stor-014-r2-storage-stats-caching)
 
 **Verification:** Automated test
 
@@ -378,7 +378,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Priority:** P1
 
-**Dependencies:** REQ-AGENT-006, [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
+**Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
 **Verification:** Automated test
 

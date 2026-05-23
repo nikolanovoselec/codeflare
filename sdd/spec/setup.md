@@ -152,7 +152,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Priority:** P0
 
-**Dependencies:** REQ-AUTH-001
+**Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes)
 
 **Verification:** Integration test
 
@@ -216,7 +216,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration), REQ-AUTH-005
+**Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
 **Verification:** Automated test
 
@@ -370,7 +370,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Priority:** P1
 
-**Dependencies:** REQ-SUB-001
+**Dependencies:** [REQ-SUB-001](subscription.md#req-sub-001-eight-tier-subscription-system)
 
 **Verification:** Integration test
 

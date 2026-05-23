@@ -109,7 +109,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P0
 
-**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), REQ-SEC-011
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
 
 **Verification:** Automated test (deploy.yml Trivy scan + container push steps)
 
@@ -203,7 +203,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P1
 
-**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), REQ-SEC-012
+**Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-012](security.md#req-sec-012-container-auth-token-per-do-lifecycle)
 
 **Verification:** Integration test (e2e.yml setup job + auth smoke)
 
@@ -268,7 +268,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P1
 
-**Dependencies:** REQ-SEC-008, REQ-SEC-009, REQ-SEC-010
+**Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
 **Verification:** Automated test (pentest.yml scheduled runs)
 
@@ -295,7 +295,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P1
 
-**Dependencies:** REQ-SEC-008, REQ-SEC-009, REQ-SEC-010
+**Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
 **Verification:** Automated test (fuzz.yml scheduled and PR runs)
 
@@ -455,7 +455,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P2
 
-**Dependencies:** REQ-SEC-007, [REQ-OPS-001](#req-ops-001-deploy-triggered-by-push-to-main)
+**Dependencies:** [REQ-SEC-007](security.md#req-sec-007-rate-limiting-infrastructure), [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
 **Verification:** Integration test (stress-test.yml manual dispatch against integration)
 
@@ -522,7 +522,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Priority:** P0
 
-**Dependencies:** REQ-STOR-001
+**Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
 **Verification:** Integration test (E2E verifies data persists across session restart)
 

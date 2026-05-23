@@ -56,7 +56,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P0
 
-**Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), REQ-VAULT-002, REQ-SESSION-016
+**Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
 **Verification:** Integration test (E2E verifies a capture file appears under `Raw/Sessions/` after 15 messages and its nodes show up in `mcp__graphify__query_graph`).
 
@@ -85,7 +85,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P0
 
-**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), REQ-SESSION-016
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
 **Verification:** Automated test (unit tests for tilde expansion, .vars schema, timezone fallback chain)
 
@@ -152,7 +152,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P0
 
-**Dependencies:** REQ-STOR-001, [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), REQ-VAULT-001
+**Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-001](vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
 **Verification:** Integration test (E2E verifies vault content persists across session restart).
 
@@ -181,7 +181,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P1
 
-**Dependencies:** REQ-SUB-014
+**Dependencies:** [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
 **Verification:** Integration test (E2E verifies the vault subtree is absent in default mode after recreate, present in advanced).
 
@@ -213,7 +213,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P1
 
-**Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), REQ-SUB-014
+**Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
 **Verification:** Integration test (E2E verifies settings.json hook block presence per mode and the reconciliation behavior on mode switch).
 
@@ -247,7 +247,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P1
 
-**Dependencies:** REQ-AGENT-003
+**Dependencies:** [REQ-AGENT-003](agents.md#req-agent-003-agent-cli-auto-started-in-tab-1)
 
 **Verification:** Automated test (`generate-agent-seed.mjs` output includes memory plugin files).
 
@@ -277,7 +277,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P0
 
-**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) (capture pipeline contract), REQ-VAULT-002 (vault is always-on in the global graph)
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) (capture pipeline contract), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown) (vault is always-on in the global graph)
 
 **Verification:** Automated test (`host/__tests__/vault-extract-merge.test.js` patterns the prompt for load + merge + persist + flock; integration smoke via running the vault-extract agent twice in a row and confirming the global graph's user_vault node count grows monotonically). The non-fatal `graphify cluster-only` HTML re-render that follows the merge (documented in `documentation/vault.md` as the step between the global-add and the high-water-mark advance) is intentionally outside the test envelope: it is bounded to cosmetic output and a failed render is recoverable on the next extraction.
 

@@ -47,7 +47,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Priority:** P0
 
-**Dependencies:** REQ-TERM-002
+**Dependencies:** [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
 
 **Verification:** Automated test
 
@@ -175,7 +175,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Priority:** P0
 
-**Dependencies:** REQ-TERM-008
+**Dependencies:** [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
 
 **Verification:** Automated test
 
@@ -237,7 +237,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Priority:** P1
 
-**Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices), REQ-TERM-002
+**Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
 
 **Verification:** Manual check
 
@@ -362,7 +362,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Priority:** P1
 
-**Dependencies:** REQ-TERM-002
+**Dependencies:** [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
 
 **Verification:** Manual check
 
@@ -430,7 +430,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Priority:** P1
 
-**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), REQ-TERM-008
+**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
 
 **Verification:** Automated test
 

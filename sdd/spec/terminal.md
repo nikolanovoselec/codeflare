@@ -49,7 +49,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Priority:** P0
 
-**Dependencies:** REQ-SESSION-002
+**Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation)
 
 **Verification:** Automated test
 
@@ -84,7 +84,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Priority:** P0
 
-**Dependencies:** REQ-SESSION-002, REQ-AUTH-005
+**Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
 **Verification:** Integration test
 
@@ -150,7 +150,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Priority:** P0
 
-**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), REQ-SESSION-012
+**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-SESSION-012](session-lifecycle.md#req-session-012-wake-loop-prevention)
 
 **Verification:** Automated test
 
@@ -185,7 +185,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Priority:** P0
 
-**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), REQ-SESSION-003, REQ-STOR-004
+**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-SESSION-003](session-lifecycle.md#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
 **Verification:** Integration test
 

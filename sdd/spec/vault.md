@@ -62,7 +62,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** REQ-STOR-002 (file persistence across sessions), REQ-STOR-003 (15-min bisync), REQ-STOR-004 (initial sync restores files on container start)
+**Dependencies:** [REQ-STOR-002](storage.md#req-stor-002-file-persistence-across-sessions) (file persistence across sessions), [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) (15-min bisync), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start) (initial sync restores files on container start)
 
 **Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: filter order, init function presence, Uploads/Temporary mkdir, supervisor uses `$HOME/Vault`); special-folder registry unit test (`web-ui/src/__tests__/lib/special-folders.test.ts`); E2E (fresh session, `ls /home/user/{Vault,Uploads,Temporary}`, storage panel shows the four special folders with tooltips containing their container paths)
 
@@ -386,7 +386,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** REQ-SESSION-009 (container destroy wipes session state), REQ-SESSION-011 (graceful shutdown with final sync), REQ-STOR-005 (graceful shutdown performs final sync)
+**Dependencies:** [REQ-SESSION-009](session-lifecycle.md#req-session-009-container-destroy-wipes-session-state) (container destroy wipes session state), [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) (graceful shutdown with final sync), [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync) (graceful shutdown performs final sync)
 
 **Verification:** Automated test (`src/__tests__/container/index.test.ts` AC: 135s SIGKILL fallback + shutdownElapsedMs telemetry); structural audit (`host/__audits__/entrypoint-vault.audit.js`); E2E (edit vault, click Stop, close tab, reopen, confirm edit persisted)
 
@@ -419,7 +419,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** REQ-AGENT-006 (preseed configs from single source), REQ-AGENT-008 (preseed deployed to container on start), REQ-AGENT-014 (manifest-driven preseed pipeline)
+**Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) (preseed configs from single source), [REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start) (preseed deployed to container on start), [REQ-AGENT-014](agents.md#req-agent-014-manifest-driven-preseed-pipeline) (manifest-driven preseed pipeline)
 
 **Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: preseed manifest entries + file presence); plug manifest presence (`preseed/silverbullet/plugs/MANIFEST.md` lists the shipped plugs); E2E (fresh session, confirm `~/.claude/plugins/codeflare-vault/` exists and `~/Vault/Library/Codeflare/*.plug.js` populates)
 
@@ -457,7 +457,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions) (vault directory survives sessions), REQ-MEM-006 (Pro mode gating)
+**Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions) (vault directory survives sessions), [REQ-MEM-006](memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode) (Pro mode gating)
 
 **Verification:** Unit tests (DO `ensureVaultKey()` persistence + idempotency in `src/__tests__/container/index.test.ts`; Worker `/.config` merge, bootstrap-hop HTML render, SW shim message handlers in `src/__tests__/routes/vault.test.ts`); manual smoke (open SB tab, confirm `sb_data_*` IDB bytes are AES ciphertext).
 
