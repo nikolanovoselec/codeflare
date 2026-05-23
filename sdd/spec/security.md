@@ -310,9 +310,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-007](#req-sec-007-rate-limiting-infrastructure)
 
-**Verification:** Automated test (pentest.yml injection job + unit tests for fail-closed/open behaviour)
+**Verification:** Automated test (AC1 WS 30/60s budget verified by `src/__tests__/lib/cross-package-constants.test.ts` `Cross-Package Constants` describe annotated `REQ-SEC-019 AC1`; AC3 fail-closed semantics verified by `src/__tests__/middleware/rate-limit-fallback.test.ts` `checkRateLimit failClosed semantics` describe annotated `REQ-SEC-019 AC3`; AC2 + AC5 already covered via `rate-limit.test.ts` + `container-lifecycle.test.ts`; AC4 fail-open verified by `rate-limit-fallback.test.ts` `rate-limit fallback on KV failure` describe annotated `REQ-SEC-019 AC4`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
