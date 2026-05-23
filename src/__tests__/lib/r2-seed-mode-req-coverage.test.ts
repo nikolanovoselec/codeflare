@@ -15,7 +15,7 @@ const { mockFetch, mockCreateR2Client, testState } = vi.hoisted(() => {
   const mockFetch = vi.fn();
   return {
     mockFetch,
-    mockCreateR2Client: vi.fn(() => ({})),
+    mockCreateR2Client: vi.fn(() => ({ fetch: mockFetch })),
     testState: {
       agentDocs: [] as Array<{
         key: string;
@@ -94,7 +94,10 @@ describe('REQ-AGENT-005 + REQ-AGENT-014: getConfigsForMode', () => {
   });
 
   it('REQ-AGENT-005 AC2: getConfigsForMode("advanced") returns docs for both default and advanced modes', () => {
-    const docs = getConfigsForMode('advanced');
+    // contextModeEnabled=true so the context-mode subtree (.claude/plugins/context-mode/)
+    // is included; AC2 is about mode coverage, not the orthogonal tier gate (covered by
+    // the contextModeEnabled-specific tests below).
+    const docs = getConfigsForMode('advanced', true);
     const keys = docs.map((d) => d.key);
     expect(keys).toContain('.claude/rules/env.md');
     expect(keys).toContain('.claude/skills/ship/SKILL.md');
