@@ -232,7 +232,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 <!-- @impl: src/routes/storage/preview.ts -->
 <!-- @impl: src/routes/storage/validation.ts::validateKey -->
 
-**Intent:** Users must be able to browse, upload, download, delete, and preview files in their R2 storage without using the terminal.
+**Intent:** Users must be able to browse, upload, download, delete, and preview files in their R2 storage via HTTP endpoints, without using the terminal.
 
 **Applies To:** User
 
@@ -243,19 +243,45 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. `GET /api/storage/download` returns a file's contents with `Content-Disposition: attachment` and sanitized filename.
 4. `POST /api/storage/delete` deletes objects by key and/or prefix (server-side bulk delete).
 5. `GET /api/storage/preview` returns file content for text files inline and metadata for other types.
-6. The frontend renders as a 400px slide-in drawer on desktop and a bottom-sheet on mobile.
-7. The file browser reads directly from R2 via Worker API (not from the container filesystem).
-8. Browse endpoint validates prefix against directory traversal (`..` rejection).
 
 **Constraints:**
 
 - All R2 operations use SSE-C headers when `ENCRYPTION_KEY` is set.
 - Each endpoint has its own rate limit (browse: 30/min, upload: 60/min, download: 120/min, preview: 120/min).
-- The file browser and settings panel are mutually exclusive in the UI.
+- UI presentation, architectural source-of-truth, and prefix-traversal validation are specified in [REQ-STOR-016](#req-stor-016-file-browser-presentation-and-traversal-safety).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
+
+**Verification:** Automated test
+
+**Status:** Partial
+
+---
+
+### REQ-STOR-016: File browser presentation and traversal safety
+
+<!-- @impl: web-ui/src/components/StorageBrowser.tsx -->
+<!-- @impl: src/routes/storage/validation.ts::validateKey -->
+
+**Intent:** The web file browser must present consistently across form factors, treat R2 as the single source of truth (not the container filesystem), and reject directory-traversal probes at the prefix-listing endpoint.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The frontend renders as a 400px slide-in drawer on desktop and a bottom-sheet on mobile.
+2. The file browser reads directly from R2 via Worker API (not from the container filesystem).
+3. Browse endpoint validates prefix against directory traversal (`..` rejection).
+
+**Constraints:**
+
+- The file browser and settings panel are mutually exclusive in the UI.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser)
 
 **Verification:** Automated test
 
