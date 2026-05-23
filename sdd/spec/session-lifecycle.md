@@ -203,10 +203,12 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. **Stop (user-initiated):** `POST /api/sessions/:id/stop` sets KV status to `'stopped'` and calls `container.destroy()`. The `destroy()` override first clears `SESSION_ID_KEY`, `bucketName` and other identifiers from DO storage (preventing session resurrection via the asynchronous `onStop()` writeback), then performs a graceful shutdown: sends `SIGTERM` to the container, polls `ctx.container.running` for up to 25 s while the entrypoint trap runs the final `rclone bisync`, and only then calls `super.destroy()` to teardown. If the trap does not exit within the timeout the DO falls back to SIGKILL via `super.destroy()` so the route always returns.
-2. **Restart:** `POST /api/container/start` on a stopped session. Same-bucket restart receives 409 from `setBucketName` (bucket already set) but still updates sessionId, preferences, and tab config. Different-bucket restart calls `destroy()` then re-calls `setBucketName`.
-3. **Delete:** `DELETE /api/sessions/:id` calls `container.destroy()` (same graceful-shutdown path as Stop, so the final bisync runs before SDK teardown) and then removes the KV record.
-4. Frontend transitions: `stopped` -> `initializing` -> `running` (start); `running` -> `stopping` -> `stopped` (stop).
+1. **Stop (user-initiated):** `POST /api/sessions/:id/stop` sets KV status to `'stopped'` and calls `container.destroy()`.
+2. The `destroy()` override first clears `SESSION_ID_KEY`, `bucketName` and other identifiers from DO storage (preventing session resurrection via the asynchronous `onStop()` writeback), then performs a graceful shutdown: sends `SIGTERM` to the container, polls `ctx.container.running` for up to 25 s while the entrypoint trap runs the final `rclone bisync`, and only then calls `super.destroy()` to teardown.
+3. If the trap does not exit within the 25 s timeout the DO falls back to SIGKILL via `super.destroy()` so the route always returns.
+4. **Restart:** `POST /api/container/start` on a stopped session. Same-bucket restart receives 409 from `setBucketName` (bucket already set) but still updates sessionId, preferences, and tab config. Different-bucket restart calls `destroy()` then re-calls `setBucketName`.
+5. **Delete:** `DELETE /api/sessions/:id` calls `container.destroy()` (same graceful-shutdown path as Stop, so the final bisync runs before SDK teardown) and then removes the KV record.
+6. Frontend transitions: `stopped` -> `initializing` -> `running` (start); `running` -> `stopping` -> `stopped` (stop).
 
 **Constraints:**
 
