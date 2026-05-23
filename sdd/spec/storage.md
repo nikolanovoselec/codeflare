@@ -54,7 +54,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -219,7 +219,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -259,7 +259,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -321,7 +321,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -356,7 +356,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -417,7 +417,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -447,7 +447,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
