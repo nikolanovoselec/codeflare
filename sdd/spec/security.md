@@ -41,8 +41,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 2. In CF Access mode, requests without a valid `CF_Authorization` cookie or `cf-access-jwt-assertion` header are rejected.
 3. In SaaS (GitHub OIDC) mode, requests without a valid `codeflare_session` cookie are rejected.
 4. Injecting `cf-access-authenticated-user-email` headers does NOT bypass authentication after setup is complete.
-5. The `authConfigFetched` sentinel in `access.ts` prevents KV transient errors from permanently degrading to the pre-setup header-trust model.
-6. Automated pentest (`pentest.yml` auth-gate job) verifies seven API endpoints require authentication.
+5. The `authConfigFetched` sentinel prevents KV transient errors from permanently degrading to the pre-setup header-trust model.
+6. The pentest workflow's auth-gate job verifies seven API endpoints require authentication.
 7. `GET /api/setup/status` is always public (returns only configuration status, no secrets).
 
 **Constraints:**
@@ -102,7 +102,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. `getOrCreateScopedR2Token()` in `r2-admin.ts` creates a per-user token via `POST /accounts/{accountId}/tokens` with a bucket-specific Object Read + Write policy.
+1. `getOrCreateScopedR2Token()` creates a per-user token via `POST /accounts/{accountId}/tokens` with a bucket-specific Object Read + Write policy.
 2. Token ID serves as the S3 Access Key ID; SHA-256 of the token value serves as the S3 Secret Access Key.
 3. Tokens are cached in KV as `r2token:{email}` (encrypted when `ENCRYPTION_KEY` is set).
 4. Cached tokens are validated before use via `verifyTokenExists()` (GET request through circuit breaker). Only a definitive 404 invalidates the cache.
@@ -202,7 +202,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 1. All R2 PutObject, GetObject, HeadObject, and InitiateMultipartUpload operations include SSE-C headers when `ENCRYPTION_KEY` is set.
 2. SSE-C headers include `x-amz-server-side-encryption-customer-algorithm: AES256`, the base64 key, and the base64 MD5 of raw key bytes.
 3. `ENCRYPTION_KEY` is passed from Worker to Durable Object to container as an environment variable.
-4. In containers, `entrypoint.sh` appends `sse_customer_key_base64` and `sse_customer_algorithm = AES256` to `rclone.conf`.
+4. In containers, the entrypoint appends `sse_customer_key_base64` and `sse_customer_algorithm = AES256` to `rclone.conf`.
 5. All rclone bisync operations (initial restore, periodic sync, shutdown sync) transparently encrypt/decrypt.
 6. Files are visible in the R2 dashboard (names, sizes, metadata) but contents are unreadable without the key.
 7. When `ENCRYPTION_KEY` is not set, R2 operations proceed without SSE-C headers (no code path changes).
@@ -447,12 +447,12 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. `validateKey()` in `storage/validation.ts` decodes URI-encoded sequences via `decodeURIComponent` before the `..` traversal check.
+1. `validateKey()` decodes URI-encoded sequences via `decodeURIComponent` before the `..` traversal check.
 2. Double-encoded attacks (`%252E%252E`) and standard encoded attacks (`%2E%2E`) are both caught.
 3. Malformed URI encoding throws `ValidationError`.
 4. The function returns the decoded key so callers use the correct value for R2 operations.
 5. Browse endpoint validates the prefix parameter against `..` rejection.
-6. Automated pentest (`pentest.yml` injection job) tests path traversal payloads (`%2e%2e`, double-encoded, backslash, unicode) and confirms they are blocked.
+6. The pentest workflow's injection job tests path traversal payloads (`%2e%2e`, double-encoded, backslash, unicode) and confirms they are blocked.
 
 **Constraints:**
 
@@ -479,7 +479,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Trivy scans Docker images for HIGH and CRITICAL severity vulnerabilities in the `deploy.yml` workflow.
+1. Trivy scans Docker images for HIGH and CRITICAL severity vulnerabilities in the deploy workflow.
 2. Known exceptions are listed in `.trivyignore`.
 3. The deploy pipeline fails if Trivy finds unexcepted HIGH/CRITICAL vulnerabilities.
 4. Scanning occurs after Docker image build and before push to Cloudflare registry.
@@ -603,7 +603,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 1. `POST /api/auth/subscribe` checks `getEffectiveTier` at handler entry and throws `ForbiddenError` for blocked users.
 2. `resolveSessionMode` result is clamped against the billing-resolved effective tier at both container start and preferences save.
 3. A canceled user with stale `sessionMode: 'advanced'` preference receives `'default'` because the free tier only allows `['default']`.
-4. Both container start (`lifecycle.ts`) and preferences save (`preferences.ts`) use `getEffectiveTier` (not raw JWT `subscriptionTier`).
+4. Both container start and preferences save use `getEffectiveTier` (not raw JWT `subscriptionTier`).
 
 **Constraints:**
 
@@ -631,10 +631,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Auth config fetch in `access.ts` is wrapped in a `pendingAuthConfigFetch` Promise sentinel.
+1. The auth-config fetch is wrapped in a `pendingAuthConfigFetch` Promise sentinel.
 2. Two concurrent cold-start requests reuse the in-flight fetch instead of issuing redundant KV reads.
 3. The sentinel is cleared on TTL expiry and `resetAuthConfigCache()`.
-4. The pattern mirrors `pendingJWKSFetch` in `jwt.ts`.
+4. The pattern mirrors the `pendingJWKSFetch` sentinel used for JWKS cold-start fetches.
 
 **Constraints:**
 
