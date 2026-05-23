@@ -31,6 +31,8 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: Dockerfile -->
 <!-- @impl: src/lib/schemas.ts -->
+<!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness describe → AC1/AC2) -->
+<!-- @test: host/__tests__/dockerfile-graphify.test.js (npm install + V8 warm-up → AC3/AC4) -->
 
 **Intent:** The platform must support multiple AI coding agents so users can choose the tool that fits their workflow.
 
@@ -52,7 +54,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`src/__tests__/lib/agent-config.test.ts` `AGENT_COMMANDS exhaustiveness` describe annotated `REQ-AGENT-001 AC1/AC2`; `host/__tests__/dockerfile-graphify.test.js` annotated `REQ-AGENT-001 AC3/AC4` for npm install + V8 warm-up)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -62,6 +64,7 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: src/routes/session/crud.ts -->
 <!-- @impl: src/lib/schemas.ts -->
+<!-- @test: src/__tests__/lib/agent-config.test.ts (getDefaultTabConfig describe → AC1/AC2/AC5) -->
 
 **Intent:** Users must be able to choose which AI agent to use when creating a session.
 
@@ -84,7 +87,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Automated test (`src/__tests__/lib/agent-config.test.ts` `getDefaultTabConfig` describe annotated `REQ-AGENT-002 AC1/AC2/AC5`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -128,6 +131,7 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
 <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+<!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode describe → AC1/AC2/AC4/AC5/AC6) -->
 
 **Intent:** Users must be able to choose between a Standard mode (essential configs) and a Pro (Advanced) mode (full agent enhancement suite).
 
@@ -151,7 +155,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
-**Verification:** Automated test (`src/__tests__/lib/session-mode.test.ts` `resolveSessionMode` describe annotated `REQ-AGENT-004`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -196,6 +200,7 @@ Multi-agent support, preseed system, and session modes.
 <!-- @impl: preseed/agents/claude/manifest.json -->
 <!-- @impl: scripts/generate-agent-seed.mjs -->
 <!-- @impl: src/lib/agent-seed.generated.ts -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json describe → AC1-AC6) -->
 
 **Intent:** All agent configurations must be derived from the Claude Code preseed to prevent divergence and eliminate duplicate maintenance.
 
@@ -219,7 +224,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`src/__tests__/lib/agent-seed-manifest.test.ts` `agent-seed manifest.json` describe annotated `REQ-AGENT-006`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -228,6 +233,7 @@ Multi-agent support, preseed system, and session modes.
 ### REQ-AGENT-007: Multi-Agent Adaptation Pipeline
 
 <!-- @impl: scripts/generate-agent-seed.mjs -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe → AC1-AC4) -->
 
 **Intent:** Each supported agent must receive properly adapted configurations matching its specific config format, tool names, and file conventions.
 
@@ -251,7 +257,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test (`src/__tests__/lib/agent-seed-manifest.test.ts` `multi-agent documents` describe annotated `REQ-AGENT-007`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -295,6 +301,7 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: src/routes/llm-keys.ts -->
 <!-- @impl: src/lib/kv-crypto.ts -->
+<!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes describe → AC1-AC5) -->
 
 **Intent:** Users must be able to store LLM provider API keys so that cross-model consultation features work without re-entering keys each session.
 
@@ -319,7 +326,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test (`src/__tests__/routes/llm-keys.test.ts` `LLM Keys routes` describe annotated `REQ-AGENT-009`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -463,6 +470,7 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: preseed/agents/claude/manifest.json -->
 <!-- @impl: scripts/generate-agent-seed.mjs -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json describe → AC1-AC7) -->
 
 **Intent:** The preseed system must use a declarative manifest to control which files are included, their mode assignments, and their target agents, ensuring auditable and reproducible builds.
 
@@ -487,7 +495,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test (`src/__tests__/lib/agent-seed-manifest.test.ts` `agent-seed manifest.json` describe annotated `REQ-AGENT-014`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -557,6 +565,7 @@ None.
 ### REQ-AGENT-017: Bubblewrap sandbox for Codex
 
 <!-- @impl: Dockerfile -->
+<!-- @test: host/__tests__/dockerfile-graphify.test.js (Dockerfile graphify install describe → bubblewrap apt-installed → AC1) -->
 
 **Intent:** Codex agent runs in a bubblewrap sandbox for additional isolation within the container.
 
@@ -575,7 +584,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Automated test (`host/__tests__/dockerfile-graphify.test.js` `Dockerfile graphify install` describe annotated `REQ-AGENT-017` - asserts bubblewrap is apt-installed in image)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -1153,6 +1162,10 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
 <!-- @impl: Dockerfile -->
+<!-- @test: host/__tests__/entrypoint-graphify-mcp.test.js (MCP server registration in ~/.claude.json → AC2) -->
+<!-- @test: host/__tests__/dockerfile-graphify.test.js (graphifyy pip install + pinned version → AC1/AC3) -->
+<!-- @test: host/__tests__/graphify-active-repo.test.js (active-repo sentinel writer → AC5) -->
+<!-- @test: host/__tests__/graphify-mcp-lazy.test.js (LazyGraph rebind on graph.json appearance → AC4/AC6) -->
 
 **Intent:** Every container ships the graphify code-knowledge-graph capability as ambient infrastructure, so any session (default or advanced session mode) can query an existing graph or build a new one without per-tier provisioning.
 
@@ -1178,7 +1191,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-008](#req-agent-008-preseed-deployed-to-container-on-start)
 
-**Verification:** Automated test (`host/__tests__/entrypoint-graphify-mcp.test.js`, `host/__tests__/dockerfile-graphify.test.js`, `host/__tests__/graphify-active-repo.test.js`, `host/__tests__/graphify-mcp-lazy.test.js`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -1190,6 +1203,11 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-session-start.sh -->
 <!-- @impl: preseed/agents/claude/rules/graph-first.md -->
 <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md -->
+<!-- @test: host/__tests__/entrypoint-graphify-hooks.test.js (entrypoint hook installation → AC1/AC7) -->
+<!-- @test: host/__tests__/graphify-session-start.test.js (SessionStart graph-context injection → AC1) -->
+<!-- @test: host/__tests__/graph-first-nudge.test.js (PreToolUse soft-nudge matcher set → AC7) -->
+<!-- @test: host/__tests__/preseed-graphify-discipline.test.js (rule + SKILL preseeded in advanced only → AC2/AC3) -->
+<!-- @test: host/__tests__/skill-graphify-content.test.js (SKILL contents → AC4/AC5/AC6) -->
 
 **Intent:** In advanced session mode, the agent is taught to prefer the knowledge graph over Grep-style text search for structural questions, so token cost on architecture, dependency, and call-flow questions is bounded. This REQ covers the SessionStart context injection, the preseeded rule and SKILL surface, and the soft-nudge PreToolUse hook. The hard-block enforcement lives in [REQ-AGENT-042](#req-agent-042-graphify-hard-block-enforcement); the `/graphify` build dispatch lives in [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch).
 
@@ -1215,7 +1233,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Automated test (`host/__tests__/entrypoint-graphify-hooks.test.js`, `host/__tests__/graphify-session-start.test.js`, `host/__tests__/graph-first-nudge.test.js`, `host/__tests__/preseed-graphify-discipline.test.js`, `host/__tests__/skill-graphify-content.test.js`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -1224,6 +1242,7 @@ None.
 ### REQ-AGENT-042: Graphify Hard-Block Enforcement
 
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/enforce-graphify.sh -->
+<!-- @test: host/__tests__/enforce-graphify.test.js (3-call threshold + bypass surfaces + sentinel resolution → AC1-AC7) -->
 
 **Intent:** The graph-first soft-nudge in REQ-AGENT-024 informs but never blocks. When an agent ignores it across multiple calls, a hard-block hook denies further structural searches until a graph query is made, with explicit user-only bypass surfaces for legitimate edge cases.
 
@@ -1247,7 +1266,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault--active-repos)
 
-**Verification:** Automated test (`host/__tests__/enforce-graphify.test.js`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -1256,6 +1275,7 @@ None.
 ### REQ-AGENT-043: Graphify Build Mode Dispatch
 
 <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md -->
+<!-- @test: host/__tests__/skill-graphify-content.test.js (AST-only vs Full mode question + Haiku default → AC1-AC5) -->
 
 **Intent:** Before a `/graphify` build dispatches semantic-extraction subagents, the user must explicitly choose between a free AST-only build and a full build that costs LLM tokens. The dispatched subagents run on Haiku by default so build cost matches vault-extract economics.
 
@@ -1277,7 +1297,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Automated test (`host/__tests__/skill-graphify-content.test.js`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -1286,6 +1306,7 @@ None.
 ### REQ-AGENT-025: Post-Clone Graph Triage
 
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-clone-prompt.sh -->
+<!-- @test: host/__tests__/graphify-clone-prompt.test.js (clone-detect + graph-present/absent branch + idempotency marker → AC1-AC3) -->
 
 **Intent:** After the agent clones a repo, it must triage whether to build (or refresh) a knowledge graph for it before doing other work, so users on unfamiliar repos do not start cold.
 
@@ -1305,7 +1326,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Automated test (`host/__tests__/graphify-clone-prompt.test.js`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -1315,6 +1336,8 @@ None.
 
 <!-- @impl: entrypoint.sh -->
 <!-- @impl: Dockerfile -->
+<!-- @test: host/__tests__/entrypoint-graphify-bisync.test.js (rclone bisync excludes **/graphify-out/** → AC1) -->
+<!-- @test: host/__tests__/dockerfile-graphify.test.js (global merge driver registration → AC2) -->
 
 **Intent:** Graphify artifacts persist with the repository, not with the user, so contributors on a clone inherit the graph for free and Codeflare's R2 bisync does not carry per-repo graph data.
 
@@ -1335,7 +1358,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Automated test (`host/__tests__/entrypoint-graphify-bisync.test.js`, `host/__tests__/dockerfile-graphify.test.js`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -1345,6 +1368,8 @@ None.
 
 <!-- @impl: preseed/agents/claude/plugins/context-mode -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh -->
+<!-- @test: host/__tests__/enforce-ctx-mode-graphify.test.js (graphify in context-mode Bash whitelist → AC1) -->
+<!-- @test: host/__tests__/graph-first-nudge.test.js (soft-nudge fires on ctx_search/ctx_batch_execute → AC2) -->
 
 **Intent:** When the context-mode plugin is preseeded, the graphify CLI must coexist with the enforce-ctx-mode Bash whitelist and the graph-first soft-nudge must reach the agent through context-mode's redirected tool-call path.
 
@@ -1363,7 +1388,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Automated test (`host/__tests__/enforce-ctx-mode-graphify.test.js`, `host/__tests__/graph-first-nudge.test.js`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -1401,6 +1426,7 @@ None.
 
 <!-- @impl: src/container/container-env.ts -->
 <!-- @impl: entrypoint.sh -->
+<!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars describe → OPENAI_API_KEY + GEMINI_API_KEY injection → AC1) -->
 
 **Intent:** Stored LLM API keys must reach the container as environment variables and trigger the consult-llm MCP server wiring, so the in-container agent can call OpenAI or Gemini without re-authentication.
 
@@ -1420,7 +1446,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** Automated test (`src/__tests__/container/container-env.test.ts` `buildEnvVars` describe annotated `REQ-AGENT-031`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -1429,6 +1455,7 @@ None.
 ### REQ-AGENT-030: Multi-Agent Format Transforms
 
 <!-- @impl: scripts/generate-agent-seed.mjs -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe → per-agent frontmatter + model removal + path rewrites + .agent.md → AC1-AC4) -->
 
 **Intent:** Each non-Claude agent has its own config-file conventions (frontmatter shape, model-field presence, path layout, file extensions). The generator must apply the right per-agent transform so the adapted config is valid for the consumer.
 
@@ -1449,7 +1476,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** Automated test (`src/__tests__/lib/agent-seed-manifest.test.ts` `multi-agent documents` describe annotated `REQ-AGENT-030` - covers per-agent frontmatter, model-field removal, path rewrites, .agent.md extension)
+**Verification:** Automated test
 
 **Status:** Implemented
 

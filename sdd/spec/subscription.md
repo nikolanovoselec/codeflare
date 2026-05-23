@@ -30,6 +30,7 @@ Tiers, billing, usage tracking, and quotas.
 ### REQ-SUB-001: Eight-Tier Subscription System
 
 <!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
+<!-- @test: src/__tests__/lib/subscription.test.ts (SubscriptionTierSchema + getDefaultTiers describes → 8 tier IDs + required fields → AC1/AC2) -->
 
 **Intent:** The platform must support a graduated set of subscription tiers that control access levels, compute quotas, session limits, and available features.
 
@@ -51,7 +52,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`src/__tests__/lib/subscription.test.ts` `SubscriptionTierSchema` + `getDefaultTiers` describes annotated `REQ-SUB-001 AC1/AC2`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -60,6 +61,7 @@ Tiers, billing, usage tracking, and quotas.
 ### REQ-SUB-002: Tier Property Definitions
 
 <!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
+<!-- @test: src/__tests__/lib/subscription.test.ts (SubscriptionTierConfig interface + getDefaultTiers describes → AC1-AC3) -->
 
 **Intent:** Each tier must define a complete set of properties that drive quota enforcement, session limits, mode gating, and pricing.
 
@@ -91,7 +93,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test (`src/__tests__/lib/subscription.test.ts` `SubscriptionTierConfig interface` + `getDefaultTiers` describes annotated `REQ-SUB-002 AC1..AC3`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -101,6 +103,8 @@ Tiers, billing, usage tracking, and quotas.
 
 <!-- @impl: src/routes/auth.ts -->
 <!-- @impl: src/routes/billing.ts -->
+<!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers describe → free tier priceMonthly=0 + canLogin=true + single session → AC2/AC4) -->
+<!-- @test: src/__tests__/routes/auth.test.ts (auth route → free tier subscribe path bypasses Stripe → AC1/AC3) -->
 
 **Intent:** Users must be able to use the platform at the free tier without providing payment information.
 
@@ -122,7 +126,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test (`src/__tests__/lib/subscription.test.ts` `getDefaultTiers` describe annotated `REQ-SUB-003` - free tier `priceMonthly=0`, `canLogin=true`, single session limit; complementary route-level coverage in `src/__tests__/routes/auth.test.ts`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -200,6 +204,7 @@ Tiers, billing, usage tracking, and quotas.
 
 <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
 <!-- @impl: src/container/container-metrics.ts -->
+<!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO describe → 60s pings + alarm flush + per-period counters → AC1-AC7) -->
 
 **Intent:** Compute usage must be tracked accurately in real time so that quota enforcement and billing decisions use current data.
 
@@ -224,7 +229,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`src/__tests__/timekeeper/index.test.ts` `Timekeeper DO` describe annotated `REQ-SUB-006`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -234,6 +239,7 @@ Tiers, billing, usage tracking, and quotas.
 
 <!-- @impl: src/routes/container/lifecycle.ts -->
 <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
+<!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO describe → quota gate + 402 + fail-open + non-SaaS skip → AC1-AC6) -->
 
 **Intent:** Users who have consumed their monthly compute quota must be prevented from starting new sessions.
 
@@ -257,7 +263,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test (`src/__tests__/timekeeper/index.test.ts` `Timekeeper DO` describe annotated `REQ-SUB-007`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -297,6 +303,7 @@ Tiers, billing, usage tracking, and quotas.
 
 <!-- @impl: src/routes/admin -->
 <!-- @impl: src/lib/subscription.ts::getTierConfig -->
+<!-- @test: src/__tests__/lib/stripe.test.ts (resolveTierFromPriceId describe → tier resolution from Stripe price metadata → AC1/AC4) -->
 
 **Intent:** Administrators must be able to customize tier properties (quotas, prices, sessions, storage) without code changes.
 
@@ -320,7 +327,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated test (`src/__tests__/lib/stripe.test.ts` `resolveTierFromPriceId` describe annotated `REQ-SUB-009`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -330,6 +337,7 @@ Tiers, billing, usage tracking, and quotas.
 
 <!-- @impl: src/lib/subscription.ts::getTierConfig -->
 <!-- @impl: src/lib/cache-reset.ts -->
+<!-- @test: src/__tests__/lib/subscription.test.ts (getTierConfig describe → KV fallback + module cache single-KV-read + resetTierConfigCache cache-bust → AC1-AC5) -->
 
 **Intent:** Tier configuration reads must be fast (avoid KV round-trip on every request) while still reflecting admin changes within a bounded delay.
 
@@ -352,7 +360,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-009](#req-sub-009-admin-configurable-tiers-via-management-panel)
 
-**Verification:** Automated test (`src/__tests__/lib/subscription.test.ts` `getTierConfig` describe annotated `REQ-SUB-010` - verifies KV-fallback-to-defaults, in-memory cache (single KV read across multiple calls), `resetTierConfigCache()` cache-bust)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -362,6 +370,7 @@ Tiers, billing, usage tracking, and quotas.
 
 <!-- @impl: src/routes/billing.ts -->
 <!-- @impl: src/lib/stripe.ts -->
+<!-- @test: src/__tests__/lib/stripe.test.ts (isStripeConfigured describe → graceful no-Stripe path → AC1/AC2/AC3/AC4) -->
 
 **Intent:** The platform must function without Stripe for development, self-hosted, and non-SaaS deployments.
 
@@ -383,7 +392,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test (`src/__tests__/lib/stripe.test.ts` `isStripeConfigured` describe annotated `REQ-SUB-011`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -393,6 +402,7 @@ Tiers, billing, usage tracking, and quotas.
 
 <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
 <!-- @impl: src/lib/subscription.ts::isActiveTier -->
+<!-- @test: src/__tests__/lib/subscription.test.ts (getEffectiveTier describe → billing-status-driven downgrade matrix → AC1-AC7) -->
 
 **Intent:** A user's effective tier must reflect their current billing state, automatically downgrading when payment lapses.
 
@@ -418,7 +428,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout)
 
-**Verification:** Automated test (`src/__tests__/lib/subscription.test.ts` `getEffectiveTier` describe annotated `REQ-SUB-012`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -428,6 +438,7 @@ Tiers, billing, usage tracking, and quotas.
 
 <!-- @impl: src/lib/subscription.ts::getMaxSessionsForTier -->
 <!-- @impl: src/routes/container/lifecycle.ts::validateSessionAndCheckLimits -->
+<!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits describe → per-tier maxSessions enforcement + STRESS_TEST_MODE bypass → AC1-AC4) -->
 
 **Intent:** Each tier must enforce a maximum number of simultaneously running sessions to control resource consumption.
 
@@ -449,7 +460,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test (`src/__tests__/routes/container-lifecycle.test.ts` `Session limits` describe annotated `REQ-SUB-013`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -459,6 +470,7 @@ Tiers, billing, usage tracking, and quotas.
 
 <!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
 <!-- @impl: src/lib/subscription.ts -->
+<!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (Pro-mode gating describe → per-tier allowed modes + rejection on unsupported → AC1-AC4) -->
 
 **Intent:** Only tiers that include Pro (advanced) mode in their `sessionModes` array may create Pro sessions.
 
@@ -480,7 +492,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Automated test (`src/__tests__/lib/pro-mode-gating.test.ts` describe annotated `REQ-SUB-014`)
+**Verification:** Automated test
 
 **Status:** Implemented
 

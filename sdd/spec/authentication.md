@@ -126,6 +126,7 @@ None. Authentication is foundational; other domains depend on it.
 ### REQ-AUTH-004: Service token authentication for E2E testing
 
 <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+<!-- @test: src/__tests__/lib/service-token-auth.test.ts (service-token-auth describe → X-Service-Auth precedence + constant-time compare + admin mapping → AC1/AC2/AC3/AC5) -->
 
 **Intent:** Automated E2E tests can authenticate without a browser-based OAuth flow by presenting a service token header.
 
@@ -148,7 +149,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-011](#req-auth-011-auth-resolution-order)
 
-**Verification:** Automated test (`src/__tests__/lib/service-token-auth.test.ts` describe annotated `REQ-AUTH-004 AC1/AC2/AC3/AC5`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -160,6 +161,7 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @impl: src/middleware/auth.ts::requireActiveUser -->
 <!-- @impl: src/middleware/auth.ts::requireAdmin -->
 <!-- @impl: src/lib/subscription.ts::isActiveTier -->
+<!-- @test: src/__tests__/middleware/auth-saas.test.ts (SaaS auth middleware describe → identity + active + admin tiers + PENDING/BLOCKED → AC1-AC4) -->
 
 **Intent:** Protected routes use a layered middleware stack that enforces identity verification, active subscription status, and admin role checks independently.
 
@@ -181,7 +183,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test (`src/__tests__/middleware/auth-saas.test.ts` describe blocks annotated `REQ-AUTH-005 AC1/AC2/AC3/AC4`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -191,6 +193,7 @@ None. Authentication is foundational; other domains depend on it.
 
 <!-- @impl: src/lib/access.ts::getBucketName -->
 <!-- @impl: src/lib/access.ts::resolveUserFromKV -->
+<!-- @test: src/__tests__/lib/access.test.ts (getBucketName + authenticateRequest describes → trim + lowercase + deterministic bucket name → AC1/AC2/AC3) -->
 
 **Intent:** User email addresses are normalized before any lookup, comparison, or storage operation to prevent case-sensitive duplicates and whitespace-related mismatches.
 
@@ -210,7 +213,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** None.
 
-**Verification:** Automated test (`src/__tests__/lib/access.test.ts` `getBucketName` + `authenticateRequest()` describes annotated `REQ-AUTH-006 AC1/AC2/AC3`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -252,6 +255,7 @@ None. Authentication is foundational; other domains depend on it.
 
 <!-- @impl: src/index.ts -->
 <!-- @impl: src/routes/github-auth.ts -->
+<!-- @test: src/__tests__/lib/session-jwt.test.ts (shouldRefreshJWT describe → 15-min threshold + transparent refresh → AC1/AC2) -->
 
 **Intent:** The `codeflare_session` cookie (Direct GitHub OAuth mode) is automatically refreshed before expiry to prevent session interruption during active use.
 
@@ -273,7 +277,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
 
-**Verification:** Automated test (`src/__tests__/lib/session-jwt.test.ts` `shouldRefreshJWT` describe annotated `REQ-AUTH-008 AC1/AC2`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -314,6 +318,7 @@ None. Authentication is foundational; other domains depend on it.
 
 <!-- @impl: src/lib/access.ts::resetAuthConfigCache -->
 <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+<!-- @test: src/__tests__/lib/access.test.ts (getUserFromRequest describe → authConfigFetched sentinel + pre-setup-header-trust gate + resetAuthConfigCache → AC1-AC4) -->
 
 **Intent:** A transient KV failure must not permanently degrade a configured deployment to the pre-setup header-trust model, which would allow unauthenticated access.
 
@@ -335,7 +340,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-003](#req-auth-003-cf-access-mode-for-all-other-deployments)
 
-**Verification:** Automated test (`src/__tests__/lib/access.test.ts` `getUserFromRequest()` describe annotated `REQ-AUTH-010 AC1/AC2/AC3/AC4` — exercises pre-setup-header-trust gate and `resetAuthConfigCache()`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -344,6 +349,7 @@ None. Authentication is foundational; other domains depend on it.
 ### REQ-AUTH-011: Auth resolution order
 
 <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+<!-- @test: src/__tests__/lib/access.test.ts (getUserFromRequest describe → strict priority order + no-fall-through-on-failure → AC1/AC2/AC3) -->
 
 **Intent:** Authentication methods are checked in a strict priority order to prevent ambiguity and ensure the most specific credential takes precedence.
 
@@ -364,7 +370,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes), [REQ-AUTH-010](#req-auth-010-auth-bypass-prevention)
 
-**Verification:** Automated test (`src/__tests__/lib/access.test.ts` `getUserFromRequest()` describe annotated `REQ-AUTH-011 AC1/AC2`)
+**Verification:** Automated test
 
 **Status:** Implemented
 

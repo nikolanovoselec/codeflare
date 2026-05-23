@@ -196,6 +196,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 <!-- @impl: src/routes/setup/index.ts -->
 <!-- @impl: src/lib/access.ts::authenticateRequest -->
+<!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers describe → post-setup admin gate + GET status public → AC1-AC5) -->
 
 **Intent:** After initial setup is complete, only authenticated administrators can reconfigure the deployment.
 
@@ -218,7 +219,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated test (`src/__tests__/routes/setup/handlers.test.ts` `Setup Handlers` describe annotated `REQ-SETUP-005`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -227,6 +228,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 ### REQ-SETUP-006: Setup streams progress via NDJSON
 
 <!-- @impl: src/routes/setup/handlers.ts -->
+<!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers describe → NDJSON stream shape + per-step status → AC1-AC5) -->
 
 **Intent:** The setup configure endpoint must stream real-time progress as NDJSON so the client can display step-by-step status updates while the setup runs.
 
@@ -249,7 +251,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated test (`src/__tests__/routes/setup/handlers.test.ts` `Setup Handlers` describe annotated `REQ-SETUP-006`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -258,6 +260,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 ### REQ-SETUP-011: Setup stream completion payload contract
 
 <!-- @impl: src/routes/setup/handlers.ts -->
+<!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers describe → done:true payload + lock-contention path → AC1-AC4) -->
 
 **Intent:** The terminal `done: true` object in the NDJSON stream must carry enough information for the client to render the final outcome and chain into post-setup flows (success URL display, lock-contention retry guidance, error surfacing).
 
@@ -278,7 +281,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson)
 
-**Verification:** Automated test (`src/__tests__/routes/setup/handlers.test.ts` `Setup Handlers` describe annotated `REQ-SETUP-011`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -322,6 +325,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 <!-- @impl: src/routes/setup/handlers.ts -->
 <!-- @impl: src/routes/setup/index.ts -->
+<!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers describe → prefill + detect-token + shared setupRateLimiter → AC1-AC4) -->
 
 **Intent:** The setup UI must be able to pre-populate fields from existing configuration and detect the API token's capabilities.
 
@@ -343,7 +347,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth)
 
-**Verification:** Automated test (`src/__tests__/routes/setup/handlers.test.ts` `Setup Handlers` describe annotated `REQ-SETUP-008`)
+**Verification:** Automated test
 
 **Status:** Implemented
 
