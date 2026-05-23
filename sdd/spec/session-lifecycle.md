@@ -151,9 +151,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-005](#req-session-005-input-based-idle-detection)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/container-metrics.test.ts` `Container Metrics` describe annotated `REQ-SESSION-004`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -185,9 +185,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated test (`host/__tests__/activity-tracker.test.js` `activity-tracker` describe annotated `REQ-SESSION-005`; `src/__tests__/container-metrics.test.ts` annotated `REQ-SESSION-005`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -253,9 +253,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/routes/container-lifecycle-helpers.test.ts` `Container lifecycle extracted helpers` describe annotated `REQ-SESSION-007`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -316,9 +316,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/container/index.test.ts` `fetch gate - 503 when container not running` describe annotated `REQ-SESSION-009`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -420,9 +420,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/container/index.test.ts` `fetch gate - 503 when container not running` describe annotated `REQ-SESSION-012`; complementary WS-close coverage in `src/__tests__/routes/terminal-ws.test.ts` annotated `REQ-SEC-020`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

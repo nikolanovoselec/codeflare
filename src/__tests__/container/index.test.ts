@@ -582,7 +582,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
     });
   });
 
-  describe('fetch gate — 503 when container not running', () => {
+  describe('fetch gate — 503 when container not running / REQ-SESSION-009 (DO fetch gates on container.running, returns 503 for non-internal routes) / REQ-SESSION-012 (wake-loop prevention: 503 on HTTP + 4503 close code on WS prevent client reconnect storms from waking hibernated containers)', () => {
     it('should return 503 for non-internal routes when container is not running', async () => {
       mockContainerRuntime.running = false;
 

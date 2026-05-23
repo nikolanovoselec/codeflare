@@ -14,7 +14,7 @@ vi.mock('../../../lib/circuit-breakers', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-describe('Setup Handlers', () => {
+describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   const _TEST_EMAIL = 'test@example.com';

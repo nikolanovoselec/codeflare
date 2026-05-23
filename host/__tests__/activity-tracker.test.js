@@ -2,7 +2,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createActivityTracker } from '../dist/activity-tracker.js';
 
-describe('activity-tracker', () => {
+describe('activity-tracker / REQ-SESSION-005 (idle/active state transitions with debounced HTTP notify to DO)', () => {
   let tracker;
 
   beforeEach(() => {

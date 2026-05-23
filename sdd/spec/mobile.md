@@ -49,9 +49,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test
+**Verification:** Automated test (`web-ui/src/__tests__/lib/mobile.test.ts` `mobile.ts` describe annotated `REQ-MOB-001`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -432,6 +432,6 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
 
-**Verification:** Automated test
+**Verification:** Automated test (`web-ui/src/__tests__/lib/mobile.test.ts` `mobile.ts` describe annotated `REQ-MOB-010` - visualViewport resize/keyboard show-hide triggers terminal refit cadence)
 
-**Status:** Partial
+**Status:** Implemented

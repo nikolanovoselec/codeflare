@@ -54,7 +54,7 @@ describe('getStripePriceId', () => {
   });
 });
 
-describe('resolveTierFromPriceId', () => {
+describe('resolveTierFromPriceId / REQ-SUB-009 (admin-configurable tiers via management panel: stripePriceId per tier maps back to canonical tier id)', () => {
   const tiers = makeTiers();
 
   it('resolves standard/default from price ID', () => {
@@ -74,7 +74,7 @@ describe('resolveTierFromPriceId', () => {
   });
 });
 
-describe('isStripeConfigured', () => {
+describe('isStripeConfigured / REQ-SUB-011 (graceful degradation without Stripe: when STRIPE_SECRET_KEY unset, free tier remains usable, paid tiers are hidden)', () => {
   it('returns true when STRIPE_SECRET_KEY is set', () => {
     expect(isStripeConfigured({ STRIPE_SECRET_KEY: 'sk_test_123' })).toBe(true);
   });

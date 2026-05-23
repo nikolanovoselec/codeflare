@@ -224,9 +224,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/timekeeper/index.test.ts` `Timekeeper DO` describe annotated `REQ-SUB-006`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -257,9 +257,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/timekeeper/index.test.ts` `Timekeeper DO` describe annotated `REQ-SUB-007`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -320,9 +320,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/stripe.test.ts` `resolveTierFromPriceId` describe annotated `REQ-SUB-009`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -383,9 +383,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/stripe.test.ts` `isStripeConfigured` describe annotated `REQ-SUB-011`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -418,9 +418,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/subscription.test.ts` `getEffectiveTier` describe annotated `REQ-SUB-012`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -449,9 +449,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/routes/container-lifecycle.test.ts` `Session limits` describe annotated `REQ-SUB-013`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -480,9 +480,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/pro-mode-gating.test.ts` describe annotated `REQ-SUB-014`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
