@@ -52,7 +52,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Priority:** P0
 
-**Dependencies:** REQ-AUTH-001, REQ-AUTH-010
+**Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes), [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
 
 **Verification:** Automated test (pentest.yml auth-gate job)
 
@@ -214,7 +214,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Priority:** P0
 
-**Dependencies:** REQ-STOR-001
+**Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
 **Verification:** Integration test (E2E storage operations verify encrypted round-trip)
 
@@ -491,7 +491,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Priority:** P1
 
-**Dependencies:** REQ-OPS-001
+**Dependencies:** [REQ-OPS-001](operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
 **Verification:** Automated test (deploy.yml Trivy scan step)
 
@@ -580,7 +580,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Priority:** P0
 
-**Dependencies:** REQ-AUTH-001
+**Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes)
 
 **Verification:** Automated test (pentest.yml auth-gate job)
 
@@ -612,7 +612,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Priority:** P0
 
-**Dependencies:** REQ-SUB-012
+**Dependencies:** [REQ-SUB-012](subscription.md#req-sub-012-billing-status-enforcement-effective-tier)
 
 **Verification:** Integration test (E2E verifies blocked user receives 403 on subscribe)
 
@@ -642,7 +642,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Priority:** P0
 
-**Dependencies:** REQ-AUTH-010
+**Dependencies:** [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
 
 **Verification:** Automated test (unit test for concurrent fetch deduplication)
 

@@ -318,7 +318,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), REQ-AUTH-005
+**Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
 **Verification:** Automated test
 
@@ -478,7 +478,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), REQ-AGENT-004
+**Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
 **Verification:** Automated test
 

@@ -479,7 +479,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode), REQ-SESSION-014
+**Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode), [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings)
 
 **Verification:** Integration test
 

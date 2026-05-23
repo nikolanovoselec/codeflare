@@ -49,7 +49,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Priority:** P0
 
-**Dependencies:** REQ-AUTH-005 (requireActiveUser middleware)
+**Dependencies:** [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware) (requireActiveUser middleware)
 
 **Verification:** Integration test
 
@@ -509,7 +509,7 @@ None.
 
 **Priority:** P0
 
-**Dependencies:** REQ-STOR-004
+**Dependencies:** [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
 **Verification:** Automated test (`host/__tests__/prewarm-readiness.test.js` for the 1013 reject + init-flag gate; `src/__tests__/container/index.test.ts` for the DO-side prewarm contract).
 
@@ -542,7 +542,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings) (preferences flow), REQ-MEM-010 AC4 (the capture pipeline consumes the resulting env var)
+**Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings) (preferences flow), [REQ-MEM-010](memory.md#req-mem-010-memory-capture-hook-plumbing) AC4 (the capture pipeline consumes the resulting env var)
 
 **Verification:** Automated test (`src/__tests__/routes/preferences.test.ts` for endpoint + validation; `src/__tests__/container/container-env.test.ts` for env-var injection on restart; `web-ui/src/__tests__/lib/timezone-sync.test.ts` for the browser-side resolution).
 
