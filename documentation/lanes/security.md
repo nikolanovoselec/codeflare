@@ -72,7 +72,7 @@ Fixes from 6 rounds of automated code review before 1500-user launch:
 
 **SaaS service-token guard:** `cf-access-client-id` header in `getUserFromRequest` is only trusted when `!isSaasModeActive()`. In SaaS mode there is no CF Access edge to validate this header, making it attacker-controlled.
 
-**Session mode billing enforcement:** `resolveSessionMode` result is clamped against the billing-resolved effective tier at both container start (`lifecycle.ts`) and preferences save (`preferences.ts`). A canceled user with stale `sessionMode: 'advanced'` preference gets `'default'` because the free tier only allows `['default']`. Both paths use `getEffectiveTier` (not raw JWT `subscriptionTier`).
+**Session mode billing enforcement:** The stored `sessionMode` preference is clamped against the billing-resolved effective tier by `clampSessionModeToTier` in `src/lib/session-mode.ts` (implements [REQ-SEC-015](../../sdd/spec/security.md#req-sec-015-blocked-user-cannot-self-upgrade-subscription) AC2/AC3). Applied at container start (`lifecycle.ts`) and preferences save (`preferences.ts`). A canceled user with stale `sessionMode: 'advanced'` preference gets `'default'` because the free tier only allows `['default']`. Both call sites use `getEffectiveTier` (not raw JWT `subscriptionTier`).
 
 **Concurrent cache dedup (CF-002):** Auth config fetch in `access.ts` wrapped in `pendingAuthConfigFetch` Promise sentinel (mirrors `pendingJWKSFetch` pattern from `jwt.ts`). Two concurrent cold-start requests reuse the in-flight fetch instead of issuing redundant KV reads. Sentinel cleared on TTL expiry and `resetAuthConfigCache()`.
 
