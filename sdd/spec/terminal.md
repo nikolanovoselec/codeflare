@@ -53,7 +53,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -121,7 +121,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -154,7 +154,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -221,7 +221,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -256,7 +256,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -289,7 +289,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -323,7 +323,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
