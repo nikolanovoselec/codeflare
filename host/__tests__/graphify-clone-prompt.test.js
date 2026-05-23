@@ -39,7 +39,7 @@ function safeParse(s) {
   try { return JSON.parse(s); } catch { return null; }
 }
 
-describe('graphify-clone-prompt.sh', () => {
+describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', () => {
   let baseTmp;
   before(() => { baseTmp = mkdtempSync(join(tmpdir(), 'gf-clone-')); });
 

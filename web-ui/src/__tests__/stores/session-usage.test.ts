@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Implements REQ-SUB-018
 
-describe('session-usage dismissed quota level', () => {
+describe('session-usage dismissed quota level / REQ-SUB-018 (usage banner dismiss persistence per UTC month)', () => {
   beforeEach(() => {
     vi.resetModules();
     localStorage.clear();

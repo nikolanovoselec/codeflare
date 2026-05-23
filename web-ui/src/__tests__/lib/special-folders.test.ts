@@ -12,7 +12,7 @@ import {
 // rely on staying in sync.
 
 // REQ-VAULT-001 AC6 (R2 storage panel surfaces Workspace/Vault/Uploads/Temporary as special folders with container-path tooltip)
-describe('SPECIAL_FOLDERS registry', () => {
+describe('SPECIAL_FOLDERS registry / REQ-VAULT-001 AC6 (R2 panel surfaces special folders)', () => {
   // REQ-VAULT-001 AC6 (four special-folder entries surfaced at bucket root)
   it('covers the four expected prefixes in canonical order', () => {
     // Prefix order is load-bearing: the Storage panel relies on
