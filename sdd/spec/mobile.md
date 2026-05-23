@@ -51,7 +51,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -160,7 +160,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -359,4 +359,4 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
