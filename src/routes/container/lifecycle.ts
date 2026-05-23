@@ -29,6 +29,26 @@ import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolve the effective per-session idle-timeout value from the user's tier
+ * and stored preference.
+ *
+ * REQ-SESSION-014 AC2: the "free" tier is locked to 15m regardless of any
+ * stored preference; all other tiers honor the stored sleepAfter (or default
+ * to 30m when no preference was ever set).
+ *
+ * Exported so the spec-anchored unit test in
+ * src/__tests__/routes/session-sleep-timeout.test.ts can call it directly
+ * without spinning up the full /api/container/start integration harness.
+ */
+export function resolveEffectiveSleepAfter(
+  effectiveTier: string,
+  storedSleepAfter: string | undefined,
+): string {
+  if (effectiveTier === 'free') return '15m';
+  return storedSleepAfter || '30m';
+}
+
+/**
  * Build the JSON body for /_internal/setBucketName requests.
  * Extracted to avoid duplication between initial set and post-destroy re-set.
  *
@@ -472,7 +492,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
         }
       } catch { /* non-SaaS or KV unavailable — allow the stored mode */ }
     }
-    const sleepAfter = effectiveTier === 'free' ? '15m' : (preferences.sleepAfter || '30m');
+    const sleepAfter = resolveEffectiveSleepAfter(effectiveTier, preferences.sleepAfter);
     // context-mode preseed plugin: hard-gated to the unlimited (Custom) tier
     // in Pro session mode. Any other combination strips the context-mode
     // subtree from the R2 seed before bisync touches the bucket, so the

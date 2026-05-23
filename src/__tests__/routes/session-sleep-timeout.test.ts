@@ -109,10 +109,30 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
     });
   });
 
-  // AC2 (free tier 15m override): covered behaviorally by
-  //   src/__tests__/routes/container-lifecycle-helpers.test.ts (tier comparison +
-  //   non-SaaS fallback). Worker runtime cannot readFileSync arbitrary project
-  //   files, so the source-presence audit lived here previously was broken.
+  // AC2: Free tier locked to 15m regardless of stored preference
+  describe('REQ-SESSION-014 AC2: free tier locked to 15m idle timeout', () => {
+    it('returns 15m for free tier regardless of stored preference', async () => {
+      const { resolveEffectiveSleepAfter } = await import('../../routes/container/lifecycle');
+      expect(resolveEffectiveSleepAfter('free', '2h')).toBe('15m');
+      expect(resolveEffectiveSleepAfter('free', '1h')).toBe('15m');
+      expect(resolveEffectiveSleepAfter('free', '30m')).toBe('15m');
+      expect(resolveEffectiveSleepAfter('free', '5m')).toBe('15m');
+      expect(resolveEffectiveSleepAfter('free', undefined)).toBe('15m');
+    });
+
+    it('returns stored preference for non-free tiers', async () => {
+      const { resolveEffectiveSleepAfter } = await import('../../routes/container/lifecycle');
+      expect(resolveEffectiveSleepAfter('paid', '2h')).toBe('2h');
+      expect(resolveEffectiveSleepAfter('admin', '1h')).toBe('1h');
+      expect(resolveEffectiveSleepAfter('unlimited', '5m')).toBe('5m');
+    });
+
+    it('defaults to 30m for non-free tiers without stored preference', async () => {
+      const { resolveEffectiveSleepAfter } = await import('../../routes/container/lifecycle');
+      expect(resolveEffectiveSleepAfter('paid', undefined)).toBe('30m');
+      expect(resolveEffectiveSleepAfter('unlimited', undefined)).toBe('30m');
+    });
+  });
 
   // AC3: Admins and paying users can change sleepAfter
   describe('REQ-SESSION-014 AC3: admins and paying users can change sleepAfter', () => {

@@ -198,7 +198,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-<!-- @test: src/__tests__/routes/session-stop-delete.test.ts (REQ-SESSION-006 describe -> stop sets KV stopped + container.destroy called + best-effort on destroy failure + storage.delete SESSION_ID_KEY/bucketName + SIGTERM+poll+super.destroy + delete removes KV + running/stopped vocab -> AC1..AC6) -->
+<!-- @test: src/__tests__/routes/session-stop-delete.test.ts (REQ-SESSION-006 describe -> stop sets KV stopped + container.destroy called + best-effort on destroy failure (AC1) + delete calls destroy + removes KV record (AC5) -> AC1, AC5) -->
+<!-- @test: src/__tests__/container/index.test.ts (destroy describe -> super.destroy + cleans up operational storage + deletes SESSION_ID_KEY + nulls _bucketName + SIGTERM poll exits when !running + SIGKILL fallback after 135s timeout + best-effort on stop rejection + skip SIGTERM when already !running -> AC2 storage cleanup, AC3 SIGKILL fallback) -->
+<!-- @test: src/__tests__/container/index.test.ts (internal route dispatch -> setBucketName returns 409 when bucket already set but stores new sessionId + restart path updates USER_TIMEZONE via applyPrefsOnRestart -> AC4 restart 409 path) -->
+<!-- @test: web-ui/src/__tests__/stores/session.test.ts (set status to stopping immediately then stopped after polling -> AC6 frontend transition vocabulary) -->
 ### REQ-SESSION-006: User can stop, restart, and delete sessions
 
 <!-- @impl: src/routes/session/lifecycle.ts -->
@@ -268,7 +271,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-<!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008 describe -> applyPrefsOnRestart updates sessionId/workspaceSyncEnabled/fastStartEnabled/tabConfig + onStart schedule collectMetrics + containerStartedAt + updateEnvVars + entrypoint rclone sync + sleepAfterPref validation -> AC2,3,4,5) -->
+<!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008 describe -> onStart refreshes envVars via updateEnvVars (AC3) + applyPrefsOnRestart updates sessionId/workspaceSyncEnabled/fastStartEnabled/tabConfig on restart (AC5) -> AC3, AC5) -->
+<!-- @test: src/__tests__/container/index.test.ts (internal route dispatch -> setBucketName returns 409 when bucket already set but stores new sessionId + applyPrefsOnRestart on restart branch (AC1) + onStart lifecycle -> re-arms collectMetrics + records containerStartedAt + re-populates envVars from stored bucketName (AC2) -> AC1, AC2) -->
+<!-- @test: src/__tests__/routes/preferences.test.ts (fastStartEnabled persisted across restart via 409 restart path -> AC1) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior describe -> initial rclone sync from R2 on container start = REQ-STOR-004 = REQ-SESSION-008 AC4) -->
 ### REQ-SESSION-008: Container restart preserves R2 bucket
 
 <!-- @impl: src/container/index.ts -->
@@ -369,7 +375,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-<!-- @test: src/__tests__/routes/session-shutdown-sync.test.ts (REQ-SESSION-011 describe -> entrypoint traps SIGINT/SIGTERM + shutdown_handler + /tmp/sync-daemon.pid + --ignore-checksum --max-delete 100 + bisync-initialized flag + Dockerfile STOPSIGNAL SIGINT -> AC1..AC5 declarative) -->
+<!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 describe -> entrypoint trap handler catches SIGINT/SIGTERM (AC1) + trap kills sync daemon via /tmp/sync-daemon.pid (AC2) + final rclone bisync with --ignore-checksum --max-delete 100 before exit (AC3) + bisync-initialized flag touched on timeout path (AC4) + Dockerfile STOPSIGNAL SIGINT (AC5) -> AC1..AC5) -->
+<!-- @test: src/__tests__/container/index.test.ts (destroy describe -> graceful shutdown SIGTERM + poll ctx.container.running for up to 135s + super.destroy fallback when stop rejects -> AC6 user-initiated Stop/Delete reach trap via destroy()) -->
+<!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution describe -> respects 2h pref / 130 minute idle DOES trigger stop via collectMetrics calling stop('SIGTERM') -> AC7 idle-timeout path reaches trap via collectMetrics) -->
 <!-- @test: src/__tests__/container/index.test.ts (destroy describe -> SIGTERM via stop() + poll ctx.container.running + super.destroy fallback + skip-when-not-running -> AC6) -->
 <!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution describe -> collectMetrics calls stop('SIGTERM') when idleMs exceeds idleTimeoutPref -> AC7) -->
 <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior (real) describe -> bisync cadence + SIGUSR1 coalesce + failure recovery + --resync fallback -> AC2/AC3 daemon-side runtime behavior) -->
@@ -476,11 +484,12 @@ None.
 
 ---
 
-<!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 describe -> SleepAfterOptions exactly [5m,15m,30m,1h,2h] + all 5 accepted + invalid rejected + free-tier 15m structural override + KV persist + GET/PATCH round-trip + lifecycle reads preferences.sleepAfter -> AC1..AC4) -->
+<!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 describe -> SleepAfterOptions exactly [5m,15m,30m,1h,2h] + all 5 accepted + invalid rejected (AC1) + resolveEffectiveSleepAfter free->15m, paid/admin/unlimited honor stored, default 30m (AC2) + PATCH /preferences for admins/paying users (AC3) + KV persist + GET/PATCH round-trip (AC4) -> AC1..AC4) -->
 ### REQ-SESSION-014: User-configurable auto-sleep timeout in Settings
 
 <!-- @impl: src/routes/preferences.ts -->
 <!-- @impl: src/container/index.ts -->
+<!-- @impl: src/routes/container/lifecycle.ts::resolveEffectiveSleepAfter -->
 
 **Intent:** Users choose how long their sessions stay alive when idle.
 
