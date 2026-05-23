@@ -418,7 +418,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminals -->
 <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported -->
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe -> visualViewport resize/keyboard show-hide triggers terminal refit cadence) -->
-<!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-010 describe -> AC2, AC3, AC4, AC5, AC6) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-010 describe -> AC1, AC2, AC3, AC4, AC5, AC6) -->
 
 **Intent:** Multiple code paths that trigger `fitAddon.fit()` must not conflict with each other or cause visual artifacts.
 
