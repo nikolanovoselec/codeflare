@@ -325,7 +325,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 <!-- @test: src/__tests__/routes/storage-upload.test.ts (POST /upload/part describe -> returns etag -> AC2) -->
 <!-- @test: src/__tests__/routes/storage-upload.test.ts (POST /upload/complete describe -> succeeds with valid parts -> AC3) -->
 <!-- @test: src/__tests__/routes/storage-upload.test.ts (POST /upload/abort describe -> succeeds and returns success -> AC4) -->
-<!-- @test: src/__tests__/routes/storage-upload.test.ts (rate limit shared across multipart endpoints describe -> shared limiter -> AC5) -->
+<!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-STOR-008 AC5: shared rate limit across multipart endpoints describe -> exhausting limit on /upload/initiate causes /upload/part to 429 + exhausting limit on /upload/part causes /upload/complete to 429 -> AC5 shared 60/min limiter across all multipart routes) -->
 
 **Intent:** Files larger than the single-request upload limit must be uploadable via chunked multipart upload.
 
