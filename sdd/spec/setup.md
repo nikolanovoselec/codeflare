@@ -196,7 +196,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -231,7 +231,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -296,7 +296,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
