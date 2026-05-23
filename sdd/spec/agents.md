@@ -27,6 +27,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<!-- @test: host/__audits__/dockerfile-agents.audit.js (Dockerfile agent CLI pre-install describe -> @anthropic-ai/claude-code + @openai/codex + @google/gemini-cli + @github/copilot + opencode-ai npm installs + NODE_COMPILE_CACHE + V8 warmup --version runs + Go native exclusion -> AC3,4) -->
 ### REQ-AGENT-001: Support Multiple AI Coding Agents
 
 <!-- @impl: Dockerfile -->
@@ -60,6 +61,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 describe -> POST /api/sessions accepts/persists agentType + Zod rejects invalid + all 6 valid types + lastAgentType via PATCH /preferences + default claude-code -> AC1..AC5) -->
 ### REQ-AGENT-002: Agent Selection at Session Creation
 
 <!-- @impl: src/routes/session/crud.ts -->
@@ -127,6 +129,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-004 reconcileAgentConfigs describe -> overwrite:false skips + overwrite:true writes + cleanup:true deletes advanced-only + cleanup:false leaves + DELETE failure non-fatal warnings -> AC4..AC6) -->
 ### REQ-AGENT-004: Two Session Modes: Standard and Pro
 
 <!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
@@ -161,6 +164,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (getConfigsForMode describe -> default filtered + advanced superset + context-mode gate on/off -> AC1,2) -->
 ### REQ-AGENT-005: Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers
 
 <!-- @impl: preseed/agents/claude/manifest.json -->
@@ -470,6 +474,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-014 describe -> getConfigsForMode throws on duplicate within same mode + variant-per-mode allowed + getPreseedKeysNotInMode excludes variant keys + context-mode gating -> AC6,7) -->
 ### REQ-AGENT-014: Manifest-Driven Preseed Pipeline
 
 <!-- @impl: preseed/agents/claude/manifest.json -->
@@ -566,6 +571,7 @@ None.
 
 ---
 
+<!-- @test: host/__audits__/dockerfile-agents.audit.js (Dockerfile bubblewrap install describe -> bubblewrap in apt-get install + Codex sandbox documentation -> AC1,2) -->
 ### REQ-AGENT-017: Bubblewrap sandbox for Codex
 
 <!-- @impl: Dockerfile -->
