@@ -239,16 +239,13 @@ Multi-agent support, preseed system, and session modes.
 2. Tool names are remapped per agent (e.g., `Read` -> `read_file` for Gemini, `Read` -> `read` for Codex).
 3. Instructions are concatenated into a single file for agents that use monolithic config (Codex: `AGENTS.md`, Gemini: `GEMINI.md`, Copilot: `copilot-instructions.md`, OpenCode: `AGENTS.md`).
 4. Claude Code keeps individual rule files in `~/.claude/rules/`.
-5. Agent definitions use correct frontmatter format per agent (e.g., `tools` as record `{read: true}` for OpenCode, as array for others).
-6. `model` field is removed from frontmatter for non-CC agents.
-7. Path references (e.g., `~/.claude/`) are replaced with agent-specific config paths.
-8. File extensions match agent conventions (e.g., `.agent.md` for Copilot agents).
 
 **Constraints:**
 
 - Hooks, commands, and plugins are excluded from non-CC agents (they are CC-specific features).
 - `rules/memory.md` and `consult-llm` skill are excluded from non-CC agents (they depend on CC-specific MCP).
 - Each non-CC agent gets a strictly-smaller config than Claude Code, since CC is the source-of-truth lane and other agents drop CC-specific content (hooks, slash commands, plugins, MCP-dependent rules/skills).
+- The per-agent format transforms (frontmatter shape, removed fields, path rewrites, file extensions) live in [REQ-AGENT-030](#req-agent-030-multi-agent-format-transforms).
 
 **Priority:** P1
 
@@ -918,6 +915,35 @@ None.
 **Verification:** Automated test (`host/__tests__/enforce-ctx-mode-graphify.test.js`, `host/__tests__/graph-first-nudge.test.js`)
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-030: Multi-Agent Format Transforms
+
+<!-- @impl: scripts/generate-agent-seed.mjs -->
+
+**Intent:** Each non-Claude agent has its own config-file conventions (frontmatter shape, model-field presence, path layout, file extensions). The generator must apply the right per-agent transform so the adapted config is valid for the consumer.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Agent definitions use correct frontmatter format per agent (e.g., `tools` as record `{read: true}` for OpenCode, as array for others).
+2. `model` field is removed from frontmatter for non-CC agents.
+3. Path references (e.g., `~/.claude/`) are replaced with agent-specific config paths.
+4. File extensions match agent conventions (e.g., `.agent.md` for Copilot agents).
+
+**Constraints:**
+
+- Format transforms are derived from each agent's documented config schema; missing schema means the agent is unsupported, not silently passed through.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
+
+**Verification:** Automated test
+
+**Status:** Partial
 
 ---
 
