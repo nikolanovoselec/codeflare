@@ -152,7 +152,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -186,7 +186,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -252,7 +252,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -314,7 +314,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -415,7 +415,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
