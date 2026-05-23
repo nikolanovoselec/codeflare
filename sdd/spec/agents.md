@@ -744,10 +744,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. After the full draft is accepted, an enrichment pass runs before files are written: (a) cross-link pass — every REQ that references another REQ concept by name also lists it in `Dependencies:` as an anchor link `[REQ-X-NNN](#req-x-nnn-title-slug)`; (b) ADR-seed pass — 3-8 founding ADRs covering the non-obvious technology choices (tech stack, framework, deployment target, auth pattern, data store, key middleware) are drafted and written to `documentation/decisions/README.md` with an index table at the top and per-ADR sections below; (c) glossary-seed pass — every product noun, vendor name, and protocol mentioned in any REQ Intent or AC body is extracted and given a one-line definition in `sdd/glossary.md`. The three passes run in one in-memory cycle with no additional user prompts.
-2. The enrichment pass queries the project's `graphify-out/graph.json` via the `mcp__graphify__*` MCP tool family: `get_neighbors` drives the cross-link Dependencies pass, `god_nodes` surfaces ADR-seed candidates, `query_graph` extracts glossary concept-tagged nodes, and `shortest_path` validates non-obvious dependency edges.
-3. The graph is expected to exist at `/sdd init` time because the post-clone PostToolUse hook (REQ-AGENT-025) prompts the user to build one immediately after `git clone` or `gh repo clone`. When the graph is missing at enrichment time, `/sdd init` prompts the user once with a `/graphify cluster-only` (AST-only, free) build offer; on decline, enrichment falls back to an in-memory heuristic (literal-string matching across drafted REQs) and appends a one-line notice to `sdd/changes.md` recording reduced cross-link density.
-4. Graphify MCP tools are tool-agnostic across Bash and context-mode surfaces; the enrichment-pass contract is identical regardless of which tool surface is active.
+1. After the full draft is accepted, an enrichment pass runs before files are written, executing three sub-passes (cross-link, ADR-seed, glossary-seed) in one in-memory cycle with no additional user prompts.
+2. The cross-link sub-pass adds every REQ that references another REQ concept by name to the parent's `Dependencies:` as an anchor link `[REQ-X-NNN](#req-x-nnn-title-slug)`.
+3. The ADR-seed sub-pass drafts 3-8 founding ADRs covering non-obvious technology choices (tech stack, framework, deployment target, auth pattern, data store, key middleware) and writes them to `documentation/decisions/README.md` with an index table at the top and per-ADR sections below.
+4. The glossary-seed sub-pass extracts every product noun, vendor name, and protocol mentioned in any REQ Intent or AC body and gives each a one-line definition in `sdd/glossary.md`.
+5. The enrichment pass queries the project's `graphify-out/graph.json` via the `mcp__graphify__*` MCP tool family: `get_neighbors` drives the cross-link pass, `god_nodes` surfaces ADR-seed candidates, `query_graph` extracts glossary concept-tagged nodes, and `shortest_path` validates non-obvious dependency edges.
+6. When the graph is missing at enrichment time, `/sdd init` prompts the user once with a `/graphify cluster-only` (AST-only, free) build offer; on decline, enrichment falls back to an in-memory heuristic (literal-string matching across drafted REQs) and appends a one-line notice to `sdd/changes.md` recording reduced cross-link density.
+7. Graphify MCP tools are tool-agnostic across Bash and context-mode surfaces; the enrichment-pass contract is identical regardless of which tool surface is active.
 
 **Constraints:**
 
@@ -987,35 +990,65 @@ None.
 
 ---
 
-### REQ-AGENT-022: Legacy-codebase Import Mode Discovery and Triage
+### REQ-AGENT-022: Legacy-codebase Import Mode Discovery
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init -->
 
-**Intent:** Enterprises migrating a legacy codebase from manual development to autonomous agentic development need a transition path that converts un-extracted intent into a real spec. `/sdd init` Import Mode runs discovery against the full project history — working tree, git log, pull requests, issues, release notes, wiki — and produces two outputs from the same pass: official REQs for behavior clear from that surface, and a triage queue for everything unclear, with concrete Context and Recommendation populated up front.
+**Intent:** Enterprises migrating a legacy codebase from manual development to autonomous agentic development need a transition path that converts un-extracted intent into a real spec. `/sdd init` Import Mode runs discovery against the full project history and produces two outputs from the same pass: official REQs for behavior clear from that surface, and a triage queue for everything unclear. The triage entry shape, transition gate, and Status semantics live in [REQ-AGENT-045](#req-agent-045-import-mode-triage-queue-and-transition-state).
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. `/sdd init` Import Mode emits two outputs simultaneously: spec REQs in `sdd/{domain}.md` for anything clearly determinable from the full discovery surface, and triage entries in `sdd/.init-triage.md` for anything unclear (magic numbers without rationale, retry policies without context, ambiguous contracts, orphan code, missing Intent, domain-placement guesses).
-2. The discovery surface during Import Mode is the full project history, not just source code. The agent pulls evidence from the working tree (README, configs, source, tests, inline comments, ADR-shaped files), git history (commit messages on entry-point files, tag annotations), and — when a GitHub remote is detected — pull requests with their review comments and inline threads (`gh pr list --state all`, `gh pr view {n} --comments`), issues open and closed with their comments (`gh issue list --state all`, `gh issue view {n} --comments`), release notes (`gh release list`, `gh release view {tag}`), and the wiki via the GitHub API. When one artifact references another ("Closes #142"), the agent follows the chain backward through every linked artifact rather than stopping at the first hit.
-3. Every entry in `sdd/.init-triage.md` carries `**Context:**` (concrete evidence — file path + line range, git author of last meaningful change, commit SHA + subject, related tests, related PR numbers, related issue numbers, related release tags) and `**Recommendation:**` (the agent's specific best-guess answer) with `**Rationale:**` (one line tying the recommendation to specific Context evidence). Vague Context (no refs, no authors, no artifact numbers) and placeholder Recommendations (`TBD`, `(inferred)`, `unknown`) are rejected as malformed triage entries.
-4. Triage entries use `**Status:** open | resolved | lost`. `lost` requires a one-line `**Reason:**` field explaining why the information is genuinely unrecoverable.
-5. While `sdd/.init-triage.md` contains any `Status: open` items, `sdd/config.yml` carries `transition: true` and the project is in SDD transition. During transition the entire review pipeline is suspended: code-reviewer, spec-reviewer, and doc-updater do not fire on any push or PR event (PR-boundary hooks short-circuit to no-op; manually-invoked review agents exit no-op with a one-line notice). `/sdd mode unleashed` is rejected with a message naming the open-item count.
-6. When the GitHub corpus is unreachable during Import Mode discovery (non-GitHub remote, `gh auth status` fails, rate-limited, private repo with insufficient token scope, air-gapped), the agent skips GitHub sources and proceeds with working-tree + git-log evidence only. A one-line notice naming the reason is printed before scaffolding and appended to the `sdd/changes.md` import entry.
-7. Status default for CLEAR REQs derived during Import Mode depends on `enforce_tdd`. When `enforce_tdd: false` (the Import Mode default), CLEAR REQs whose source code implements the AC default to `Status: Implemented` unconditionally — the project has opted out of test-based verification at import time, and demoting every imported REQ to `Partial` because tests don't reference REQ IDs (the imported code predates the convention) would falsely brand the spec as 65%+ incomplete. When `enforce_tdd: true`, Status defaults `Implemented` only if a test file references the REQ ID, `Partial` otherwise.
+2. The discovery surface during Import Mode is the full project history, not just source code.
+3. The agent pulls evidence from the working tree (README, configs, source, tests, inline comments, ADR-shaped files) and git history (commit messages on entry-point files, tag annotations).
+4. When a GitHub remote is detected, the agent additionally pulls pull requests with their review comments and inline threads, issues open and closed with their comments, release notes, and the wiki via the GitHub API.
+5. When one artifact references another ("Closes #142"), the agent follows the chain backward through every linked artifact rather than stopping at the first hit.
+6. When the GitHub corpus is unreachable (non-GitHub remote, `gh auth status` fails, rate-limited, private repo with insufficient token scope, air-gapped), the agent skips GitHub sources and proceeds with working-tree + git-log evidence only; a one-line notice naming the reason is printed before scaffolding and appended to the `sdd/changes.md` import entry.
+
+**Constraints:**
+
+- GitHub-corpus evidence collection uses `gh pr list --state all`, `gh pr view {n} --comments`, `gh issue list --state all`, `gh issue view {n} --comments`, `gh release list`, and `gh release view {tag}`.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-045: Import-Mode Triage Queue and Transition State
+
+<!-- @impl: preseed/agents/claude/skills/sdd-init -->
+
+**Intent:** Every unclear item from Import Mode lands in a typed triage entry with concrete Context evidence so the human resolver can decide without re-investigating, and the transition state suspends the entire review pipeline so legacy code does not trigger reviewers until the spec is real. Status defaults respect the project's TDD opt-out so imported codebases do not get falsely flagged as incomplete.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every entry in `sdd/.init-triage.md` carries `**Context:**` (concrete evidence: file path + line range, git author of last meaningful change, commit SHA + subject, related tests, related PR numbers, related issue numbers, related release tags) and `**Recommendation:**` (the agent's specific best-guess answer) with `**Rationale:**` (one line tying the recommendation to specific Context evidence).
+2. Vague Context (no refs, no authors, no artifact numbers) and placeholder Recommendations (`TBD`, `(inferred)`, `unknown`) are rejected as malformed triage entries.
+3. Triage entries use `**Status:** open | resolved | lost`; `lost` requires a one-line `**Reason:**` field explaining why the information is genuinely unrecoverable.
+4. While `sdd/.init-triage.md` contains any `Status: open` items, `sdd/config.yml` carries `transition: true` and the project is in SDD transition; during transition the entire review pipeline is suspended (code-reviewer, spec-reviewer, and doc-updater do not fire on any push or PR event) and `/sdd mode unleashed` is rejected with a message naming the open-item count.
+5. When `enforce_tdd: false` (the Import Mode default), CLEAR REQs whose source code implements the AC default to `Status: Implemented` unconditionally so the project's opt-out from test-based verification is honored.
+6. When `enforce_tdd: true`, Status defaults `Implemented` only if a test file references the REQ ID, `Partial` otherwise.
 
 **Constraints:**
 
 - Triage items live only in `sdd/.init-triage.md`. No separate state file, no JSON mirror, no machine-readable index. Git history is the audit trail for who resolved which item with what decision.
-- Triage workflow is interactive only. `auto` and `unleashed` modes do not auto-resolve triage items - the entire point is that judgment is required, and triage cannot be bypassed without abandoning the transition guarantees.
+- Triage workflow is interactive only. `auto` and `unleashed` modes do not auto-resolve triage items.
 - `sdd/.init-triage.md` is owned by `/sdd init`. spec-reviewer reads it to determine transition state and to verify resolved items' REQs received the fold-in; doc-updater does not touch it.
 - When `enforce_tdd: false`, each domain `sdd/{domain}.md` file receives one footnote `_Verification: code-only (no automated coverage)._` appended at the bottom. This is the only signal location; per-REQ `Notes:` fields are not used for this signal.
 - The Resume Mode drain workflow that resolves the open items lives in [REQ-AGENT-038](#req-agent-038-resume-mode-drain-workflow).
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
+**Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery)
 
 **Verification:** Manual check
 
@@ -1052,7 +1085,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery-and-triage)
+**Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery)
 
 **Verification:** Manual check
 
