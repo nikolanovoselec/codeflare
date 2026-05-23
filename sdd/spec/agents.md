@@ -1064,34 +1064,97 @@ None.
 ### REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
 
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh -->
-<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/enforce-graphify.sh -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-session-start.sh -->
 <!-- @impl: preseed/agents/claude/rules/graph-first.md -->
 <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md -->
 
-**Intent:** In advanced session mode, the agent is taught to prefer the knowledge graph over Grep-style text search for structural questions, so token cost on architecture, dependency, and call-flow questions is bounded.
+**Intent:** In advanced session mode, the agent is taught to prefer the knowledge graph over Grep-style text search for structural questions, so token cost on architecture, dependency, and call-flow questions is bounded. This REQ covers the SessionStart context injection, the preseeded rule and SKILL surface, and the soft-nudge PreToolUse hook. The hard-block enforcement lives in [REQ-AGENT-042](#req-agent-042-graphify-hard-block-enforcement); the `/graphify` build dispatch lives in [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch).
 
 **Acceptance Criteria:**
-1. In advanced session mode only, a SessionStart hook (matcher: startup) inspects the current working directory and injects an `additionalContext` system reminder when `graphify-out/graph.json` exists, pointing the agent at `GRAPH_REPORT.md` and the MCP tools. When the graph is absent but the cwd looks like a code repo, the hook instead injects a build-suggestion reminder.
-2. In advanced session mode only, `~/.claude/rules/graph-first.md` is preseeded. It is authoritative and short (target ~100 tokens), states MUST / MUST NOT bullets for graph vs Grep, and references `~/.claude/skills/graphify/SKILL.md` for mechanics rather than restating them.
-3. In advanced session mode only, `~/.claude/skills/graphify/SKILL.md` is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, and OpenCode by the seed generator. The SKILL documents `graphify cluster-only . --no-viz` as the safe path for repos with more than 2000 files and instructs the agent on first build to add the canonical `.gitignore` block defined in SKILL note 3 (covering regenerable build outputs under `graphify-out/`, working-tree intermediates, and per-machine markers) plus `graphify-out/graph.json merge=graphify` to `.gitattributes`. The committed surface is `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and optional `wiki/`.
-4. In advanced session mode only, a PreToolUse soft-nudge hook fires on `Grep`, `Glob`, `mcp__context-mode__ctx_search`, and `mcp__context-mode__ctx_batch_execute` tool calls. When a `graphify-out/graph.json` exists in the agent's cwd, the hook emits an `additionalContext` system reminder suggesting the agent prefer `mcp__graphify__*` for structural questions. The hook is non-blocking (exit 0 with `hookSpecificOutput.additionalContext` only). Both matcher sets are required because the context-mode enforcement hook denies `Grep`/`Glob`/`Read` in custom-tier sessions, redirecting the agent to the ctx grep-equivalents.
-5. In advanced session mode only, a PreToolUse hard-block hook denies structural searches after 3 grep-class tool calls in the same turn when no `mcp__graphify__*` call (or `graphify query|path|explain` CLI) has been made. Matchers: `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_execute_file`. The shell parser reuses the `extract_subs` / `normalize_command` / chain-op splitter from the context-mode enforcement hook so substitution, heredocs, quoted regions, and pipeline segments cannot slip past. SEARCH classification: `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, `awk` with `/regex/` body. Active-repo resolution: the hook reads `~/.cache/codeflare-hooks/graphify-active-cwd` (the sentinel `graphify-active-repo.sh` maintains, see REQ-VAULT-004 AC3) and gates on `<active-repo>/graphify-out/graph.json` existing, falling back to the tool-call envelope `.cwd` when the sentinel is absent. The codeflare session layout (every agent session has `cwd=~/workspace`, never inside a sub-repo) makes the sentinel the load-bearing signal; the envelope-cwd fallback exists for vanilla graphify usage outside codeflare. The vault entry in `~/.graphify/global-graph.json` is intentionally NOT enforcement-eligible: a session whose active repo has no graph (vault-only-in-global) does not trigger the hard-block, so the user can grep freely in repos they have not yet graphified. User-only bypass: `touch /tmp/graphify-bypass` (one-shot, auto-deleted) or `skip graph` in user message. Any unexpected error returns exit 0 (never locks the user out).
-6. In advanced session mode only, before dispatching semantic-extraction subagents in a `/graphify` build (Step B2 of the upstream protocol), the agent presents an `AskUserQuestion` with exactly two modes - AST-only (free, structural edges only) and Full (AST plus parallel Haiku subagents extracting concepts from docs / papers / images) - and includes both the actual subagent count and a wall-time estimate. The question is skipped only when the corpus contains zero docs/papers/images (code-only repos go straight to Part C with nothing for Part B to do).
-7. In advanced session mode only, Part B semantic subagents are dispatched with `model: "haiku"` so per-build cost matches vault-extract economics (~1/8 of opus, ~1/3 of sonnet). Escalation to Sonnet is permitted only when `--mode deep` was explicitly passed on the `/graphify` command; Opus is never used from this skill.
+
+1. In advanced session mode only, a SessionStart hook (matcher: startup) inspects the current working directory and injects an `additionalContext` system reminder when `graphify-out/graph.json` exists, pointing the agent at `GRAPH_REPORT.md` and the MCP tools; when the graph is absent but the cwd looks like a code repo, the hook instead injects a build-suggestion reminder.
+2. In advanced session mode only, `~/.claude/rules/graph-first.md` is preseeded; it is authoritative, short (target ~100 tokens), states MUST / MUST NOT bullets for graph vs Grep, and references `~/.claude/skills/graphify/SKILL.md` for mechanics rather than restating them.
+3. In advanced session mode only, `~/.claude/skills/graphify/SKILL.md` is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, and OpenCode by the seed generator.
+4. The SKILL documents `graphify cluster-only . --no-viz` as the safe path for repos with more than 2000 files.
+5. The SKILL instructs the agent on first build to add the canonical `.gitignore` block defined in SKILL note 3 (covering regenerable build outputs under `graphify-out/`, working-tree intermediates, and per-machine markers) plus `graphify-out/graph.json merge=graphify` to `.gitattributes`.
+6. The committed graphify surface is `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and optional `wiki/`.
+7. In advanced session mode only, a PreToolUse soft-nudge hook fires on `Grep`, `Glob`, `mcp__context-mode__ctx_search`, and `mcp__context-mode__ctx_batch_execute` matchers, emits an `additionalContext` reminder to prefer `mcp__graphify__*` when a `graphify-out/graph.json` exists in the agent's cwd, and never blocks (exit 0 with `hookSpecificOutput.additionalContext` only).
 
 **Applies To:** Agent
 
 **Constraints:**
 
 - The SessionStart hook never auto-builds a graph. It only injects context when one exists or a build suggestion when source files are present without one.
-- The AC4 soft-nudge hook never blocks; semantic judgment of whether a single grep is appropriate cannot be reliably made up-front. The AC5 hard-block enforces a quantitative threshold (3 grep-class calls without a graph query) rather than a per-call semantic judgment, so the two layers compose: nudge on every call, block only when the pattern persists.
+- The soft-nudge hook never blocks; semantic judgment of whether a single grep is appropriate cannot be reliably made up-front. The hard-block in [REQ-AGENT-042](#req-agent-042-graphify-hard-block-enforcement) enforces a quantitative threshold (3 grep-class calls without a graph query), so the two layers compose: nudge on every call, block only when the pattern persists.
+- The soft-nudge matcher set covers both the non-ctx tool surface (`Grep`/`Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`/`mcp__context-mode__ctx_batch_execute`) because the context-mode enforcement hook denies `Grep`/`Glob`/`Read` in custom-tier sessions.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Automated test (`host/__tests__/entrypoint-graphify-hooks.test.js`, `host/__tests__/graphify-session-start.test.js`, `host/__tests__/graph-first-nudge.test.js`, `host/__tests__/preseed-graphify-discipline.test.js`, `host/__tests__/skill-graphify-content.test.js`, `host/__tests__/enforce-graphify.test.js`)
+**Verification:** Automated test (`host/__tests__/entrypoint-graphify-hooks.test.js`, `host/__tests__/graphify-session-start.test.js`, `host/__tests__/graph-first-nudge.test.js`, `host/__tests__/preseed-graphify-discipline.test.js`, `host/__tests__/skill-graphify-content.test.js`)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-042: Graphify Hard-Block Enforcement
+
+<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/enforce-graphify.sh -->
+
+**Intent:** The graph-first soft-nudge in REQ-AGENT-024 informs but never blocks. When an agent ignores it across multiple calls, a hard-block hook denies further structural searches until a graph query is made, with explicit user-only bypass surfaces for legitimate edge cases.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. The hard-block hook fires on PreToolUse for `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, and `mcp__context-mode__ctx_execute_file` matchers in advanced session mode only.
+2. After 3 SEARCH-classified tool calls in one turn with no intervening `mcp__graphify__*` call (or `graphify query|path|explain` CLI invocation), the next SEARCH call is denied.
+3. SEARCH classification matches `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, and `awk` with `/regex/` body.
+4. The shell parser reuses the context-mode enforcement hook's `extract_subs` / `normalize_command` / chain-op splitter so substitution, heredocs, quoted regions, and pipeline segments cannot slip past.
+5. Active-repo resolution reads the sentinel at `~/.cache/codeflare-hooks/graphify-active-cwd` (REQ-VAULT-004 AC3) and gates on `<active-repo>/graphify-out/graph.json` existing, falling back to the tool-call envelope `.cwd` when the sentinel is absent.
+6. The vault entry in `~/.graphify/global-graph.json` is NOT enforcement-eligible: a session whose active repo has no graph does not trigger the hard-block, so the user can grep freely in repos they have not yet graphified.
+7. Two user-only bypass surfaces are available: `touch /tmp/graphify-bypass` (one-shot, auto-deleted) and the magic phrase `skip graph` in a user message; any unexpected error inside the hook returns exit 0 so the user is never locked out.
+
+**Constraints:**
+
+- The codeflare session layout (every agent session has `cwd=~/workspace`, never inside a sub-repo) makes the sentinel the load-bearing signal; the envelope-cwd fallback exists for vanilla graphify usage outside codeflare.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault--active-repos)
+
+**Verification:** Automated test (`host/__tests__/enforce-graphify.test.js`)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-043: Graphify Build Mode Dispatch
+
+<!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md -->
+
+**Intent:** Before a `/graphify` build dispatches semantic-extraction subagents, the user must explicitly choose between a free AST-only build and a full build that costs LLM tokens. The dispatched subagents run on Haiku by default so build cost matches vault-extract economics.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Before dispatching semantic-extraction subagents in a `/graphify` build (Step B2 of the upstream protocol), the agent presents an `AskUserQuestion` with exactly two modes: AST-only (free, structural edges only) and Full (AST plus parallel Haiku subagents extracting concepts from docs/papers/images).
+2. The mode question includes both the actual subagent count and a wall-time estimate.
+3. The question is skipped only when the corpus contains zero docs/papers/images (code-only repos go straight to Part C with nothing for Part B to do).
+4. In advanced session mode only, Part B semantic subagents are dispatched with `model: "haiku"` so per-build cost matches vault-extract economics (~1/8 of opus, ~1/3 of sonnet).
+5. Escalation to Sonnet is permitted only when `--mode deep` was explicitly passed on the `/graphify` command; Opus is never used from this skill.
+
+**Constraints:**
+
+None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
+
+**Verification:** Automated test (`host/__tests__/skill-graphify-content.test.js`)
 
 **Status:** Implemented
 
@@ -1137,7 +1200,7 @@ None.
 
 **Constraints:**
 
-- SKILL guidance (REQ-AGENT-024 AC3) carries the per-repo `.gitignore` / `.gitattributes` instructions; this REQ specifies the platform-level pieces (bisync exclude, global merge-driver registration).
+- SKILL guidance (REQ-AGENT-024 AC5) carries the per-repo `.gitignore` / `.gitattributes` instructions; this REQ specifies the platform-level pieces (bisync exclude, global merge-driver registration).
 
 **Priority:** P1
 
@@ -1156,7 +1219,7 @@ None.
 
 **Acceptance Criteria:**
 1. When the context-mode plugin is preseeded (effectiveTier `unlimited` plus advanced session mode), `graphify` is in the context-mode Bash whitelist so `graphify update .` and `graphify query ...` are not denied.
-2. The REQ-AGENT-024 AC4 PreToolUse soft-nudge hook registers both the non-ctx matchers (`Grep`, `Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`, `mcp__context-mode__ctx_batch_execute`) so the nudge fires in both tier paths.
+2. The REQ-AGENT-024 AC7 PreToolUse soft-nudge hook registers both the non-ctx matchers (`Grep`, `Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`, `mcp__context-mode__ctx_batch_execute`) so the nudge fires in both tier paths.
 
 **Applies To:** Agent
 
