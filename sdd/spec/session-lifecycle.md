@@ -535,7 +535,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings) (preferences flow), REQ-MEM-001 AC9 (the capture pipeline consumes the resulting env var)
+**Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings) (preferences flow), REQ-MEM-010 AC4 (the capture pipeline consumes the resulting env var)
 
 **Verification:** Automated test (`src/__tests__/routes/preferences.test.ts` for endpoint + validation; `src/__tests__/container/container-env.test.ts` for env-var injection on restart; `web-ui/src/__tests__/lib/timezone-sync.test.ts` for the browser-side resolution).
 

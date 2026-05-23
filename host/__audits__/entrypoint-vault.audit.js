@@ -132,7 +132,7 @@ describe('vault skeleton + daemons (REQ-VAULT-001, REQ-VAULT-003, REQ-VAULT-005)
     assert.ok(entrypoint.includes('vault-extract.vars'), 'must reference vault-extract.vars (trigger)');
   });
 
-  // REQ-VAULT-003 AC1, REQ-VAULT-001 AC7
+  // REQ-VAULT-003 AC1, REQ-VAULT-010 AC1
   it('excludes all four preseed-managed root pages from the daemon find (REQ-VAULT-003 AC1)', () => {
     for (const page of ['Index.md', 'CONFIG.md', 'README.md', 'STYLES.md']) {
       assert.ok(
@@ -161,7 +161,7 @@ describe('vault skeleton + daemons (REQ-VAULT-001, REQ-VAULT-003, REQ-VAULT-005)
       'silverbullet must bind to localhost (Worker proxy is the auth boundary)');
   });
 
-  // REQ-VAULT-005 AC9, REQ-VAULT-001 Constraint
+  // REQ-VAULT-012 AC4, REQ-VAULT-001 Constraint
   it('exports SB_INDEX_PAGE=Index in the supervisor (TitleCase index page)', () => {
     // SilverBullet 2.x hardcodes IndexPage to lowercase "index" in
     // server/cmd/server.go:29; the only override is the SB_INDEX_PAGE

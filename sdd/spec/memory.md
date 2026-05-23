@@ -100,7 +100,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. The hook reads the counter file at `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset).
-2. If no counter file exists (first run after container start), the hook writes a baseline from the current transcript count and injects the graphify-query directive (REQ-MEM-001 AC8) before exiting.
+2. If no counter file exists (first run after container start), the hook writes a baseline from the current transcript count and injects the graphify-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3) before exiting.
 3. If the delta between the current user message count and the last summarized count is less than 15, the hook exits silently.
 4. When the delta reaches 15, the hook writes the `.vars` file and emits the `additionalContext` instruction.
 5. The counter is updated (current count + total lines) BEFORE emitting, preventing re-triggering on subsequent hook invocations within the same window.
