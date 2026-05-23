@@ -600,7 +600,7 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
       fireEvent.click(screen.getByText('Get Started'));
       await vi.advanceTimersByTimeAsync(0);
 
-      await waitFor(() => {
+      await waitFor(async () => {
         expect(mockedSubscribe).toHaveBeenCalledWith('free', '', 'default');
         const { createCheckoutSession } = vi.mocked(
           await import('../../api/client')

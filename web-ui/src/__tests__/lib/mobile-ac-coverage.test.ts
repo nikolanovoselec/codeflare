@@ -610,7 +610,7 @@ describe('REQ-MOB-010: FitAddon fit calls are coordinated', () => {
     const mockWs = { readyState: WebSocket.OPEN, send: vi.fn() };
 
     // Build a mock terminal where fit() does NOT change dimensions
-    const mockTerminal = {
+    const _mockTerminal = {
       cols: 80,
       rows: 24,
       buffer: { active: { viewportY: 100, baseY: 100 } },
