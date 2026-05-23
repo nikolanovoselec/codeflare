@@ -27,6 +27,7 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-001 describe -> 8 canonical IDs + 11 required fields + isDefault uniqueness + blocked/pending canLogin -> AC1..AC4) -->
 ### REQ-SUB-001: Eight-Tier Subscription System
 
 <!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
@@ -58,6 +59,7 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-002 describe -> exact monthlySeconds + maxSessions + sessionModes + maxStorageBytes per tier from AC table -> AC1..AC4) -->
 ### REQ-SUB-002: Tier Property Definitions
 
 <!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
@@ -299,6 +301,8 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (getTierConfig KV-first with default fallback describe -> KV read + default fallback + merge backfill + Team->Custom migration -> AC3,4) -->
+<!-- @test: src/__tests__/routes/admin-tiers.test.ts (PUT /admin/tiers describe -> writes tiers:config + persists maxStorageBytes + 403 non-admin + Zod rejects 7-tier/bad-id/negative -> AC1,5,6) -->
 ### REQ-SUB-009: Admin-Configurable Tiers via Management Panel
 
 <!-- @impl: src/routes/admin -->
@@ -333,6 +337,7 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-010 describe -> cache hit within 59s + miss after 61s + resetTierConfigCache forces re-read -> AC1..AC4) -->
 ### REQ-SUB-010: Tier Config Cached with 60-Second TTL
 
 <!-- @impl: src/lib/subscription.ts::getTierConfig -->
@@ -366,6 +371,7 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-011 describe -> getEffectiveTier no-downgrade when billingStatus null/undefined + both-undefined defaults to pending -> AC2,3) -->
 ### REQ-SUB-011: Graceful Degradation Without Stripe
 
 <!-- @impl: src/routes/billing.ts -->
@@ -566,6 +572,7 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
+<!-- @test: src/__tests__/routes/contact-team.test.ts (POST /auth/contact-team describe -> sendAccessRequestNotification called with userEmail+adminEmails+plan + defaults to Custom + 429 second-request + email-failure non-fatal + 401 unauth -> AC2,4,5) -->
 ### REQ-SUB-017: Enterprise tier contact flow
 
 <!-- @impl: web-ui/src/components/SubscribePage.tsx -->
