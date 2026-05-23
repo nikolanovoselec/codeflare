@@ -63,18 +63,18 @@ function runWrapper({ args = ['.'], env = {} } = {}) {
   }
 }
 
-test('safe-graphify-update.sh: defaults set GRAPHIFY_MAX_WORKERS=1 and ulimit -v=2500000', () => {
+test('safe-graphify-update.sh: defaults set GRAPHIFY_MAX_WORKERS=1 and ulimit -v=1500000', () => {
   const r = runWrapper({ args: ['.'] });
   assert.equal(r.status, 0, `wrapper exit ${r.status}: ${r.stderr}`);
   assert.match(r.stdout, /^MAX_WORKERS=1$/m);
-  assert.match(r.stdout, /^AS_LIMIT_KB=2500000$/m);
+  assert.match(r.stdout, /^AS_LIMIT_KB=1500000$/m);
 });
 
 test('safe-graphify-update.sh: forwards "update" subcommand + path arg unchanged', () => {
   const r = runWrapper({ args: ['/some/path'] });
   assert.equal(r.status, 0, r.stderr);
   // The stub's $0 was `graphify`, so $* contains everything AFTER `graphify`
-  // — i.e. `update /some/path`. The wrapper's `exec graphify update "$@"`
+  // i.e. `update /some/path`. The wrapper's `exec graphify update "$@"`
   // is what produces this shape.
   assert.match(r.stdout, /^ARGV=update \/some\/path$/m);
   assert.match(r.stdout, /^ARGV_COUNT=2$/m);
@@ -137,7 +137,7 @@ except MemoryError:
     // Either the child caught MemoryError (exit 42, stdout includes the
     // expected message) or the kernel killed it harder (non-zero exit,
     // no ALLOCATED line). Both prove the cap fired. The forbidden state
-    // is "ALLOCATED 200000000" in stdout with exit 0 — that would mean
+    // is "ALLOCATED 200000000" in stdout with exit 0 - that would mean
     // ulimit was a no-op.
     assert.doesNotMatch(r.stdout, /^ALLOCATED 200000000$/m, 'cap did not fire -200 MB allocation succeeded under 100 MB cap');
     assert.notEqual(r.status, 0, 'cap did not fire -wrapper exited 0 on out-of-budget allocation');

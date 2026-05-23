@@ -14,9 +14,11 @@
 #   would still be bounded by RLIMIT_AS rather than crashing the session.
 #
 # Tuning knobs (env overrides, all optional):
-#   GRAPHIFY_SAFE_RLIMIT_KB  default 2500000  (2.5 GB virtual-memory cap;
-#                                              leaves ~700 MB headroom on
-#                                              a 3.2 GB container)
+#   GRAPHIFY_SAFE_RLIMIT_KB  default 1500000  (1.5 GB virtual-memory cap;
+#                                              leaves ~1.7 GB headroom on
+#                                              a 3.2 GB container; measured
+#                                              codeflare peak on 0.8.16 is
+#                                              445 MB, so 3.4x actual headroom)
 #   GRAPHIFY_SAFE_WORKERS    default 1        (AST extraction subprocess
 #                                              count; 1 is safest on a
 #                                              1 vCPU container)
@@ -27,11 +29,15 @@
 # Usage:
 #   safe-graphify-update.sh .                       # equivalent of `graphify update .`
 #   safe-graphify-update.sh . --no-cluster          # forwarded flag
-#   GRAPHIFY_SAFE_RLIMIT_KB=3000000 safe-graphify-update.sh .  # raise cap
+#   GRAPHIFY_SAFE_RLIMIT_KB=2000000 safe-graphify-update.sh .  # raise cap to 2 GB
 
-set -u
+# set -e: fail closed. If `ulimit -v` can't apply the cap (e.g. the
+# parent's existing RLIMIT_AS is lower and bash refuses to raise it),
+# the wrapper aborts BEFORE exec'ing graphify - never silently leave
+# the unsafe path open.
+set -eu
 
-CAP_KB="${GRAPHIFY_SAFE_RLIMIT_KB:-2500000}"
+CAP_KB="${GRAPHIFY_SAFE_RLIMIT_KB:-1500000}"
 WORKERS="${GRAPHIFY_SAFE_WORKERS:-1}"
 
 # RLIMIT_AS cap; inherited by the exec'd graphify child. If graphify
