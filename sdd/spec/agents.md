@@ -355,12 +355,12 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-### REQ-AGENT-011: Agent Configs Manually Recreatable from Settings
+### REQ-AGENT-011: Agent Skills & Rules Manually Recreatable from Settings
 
 <!-- @impl: src/routes/storage/seed.ts -->
 <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 
-**Intent:** Users must be able to reset their agent configurations to the platform defaults at any time, recovering from accidental deletion or corruption.
+**Intent:** Users must be able to reset their agent skills and rules to the platform defaults at any time, recovering from accidental deletion or corruption.
 
 **Applies To:** User
 
@@ -371,15 +371,15 @@ Multi-agent support, preseed system, and session modes.
 3. Overwrite mode replaces all preseed-managed files with current defaults.
 4. Cleanup mode deletes preseed-managed files that are not in the user's current session mode.
 5. User-created files (not in `AGENTS_SEEDED_CONFIGS`) are never touched.
-6. "Recreate starter documentation" button triggers `POST /api/storage/seed/getting-started`.
-7. Both seed endpoints are rate-limited (3/min).
-8. After seeding, the storage stats KV cache is invalidated.
+6. The endpoint is rate-limited (3/min).
+7. After seeding, the storage stats KV cache is invalidated.
 
 **Constraints:**
 
 - Cleanup uses explicit key lists, not bucket listing or prefix scans.
 - Partial delete failures produce warnings but do not fail the overall operation.
 - Container must perform a bisync cycle to pull the updated R2 files into the local filesystem.
+- Starter-documentation recreation lives in [REQ-AGENT-032](#req-agent-032-starter-documentation-manually-recreatable-from-settings).
 
 **Priority:** P1
 
@@ -911,6 +911,34 @@ None.
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
 **Verification:** Automated test (`host/__tests__/enforce-ctx-mode-graphify.test.js`, `host/__tests__/graph-first-nudge.test.js`)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-032: Starter Documentation Manually Recreatable from Settings
+
+<!-- @impl: src/routes/storage/seed.ts -->
+
+**Intent:** Users must be able to reset the starter "getting-started" docs to the platform defaults at any time, in case they deleted them while exploring or want to see updates that shipped after their original session.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. "Recreate starter documentation" button triggers `POST /api/storage/seed/getting-started`.
+2. The endpoint is rate-limited (3/min).
+3. After seeding, the storage stats KV cache is invalidated.
+
+**Constraints:**
+
+- The starter docs are the welcome / getting-started pages; user-authored documentation under other paths is never touched.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-009](#req-stor-009-getting-started-docs-auto-seeded-on-first-session)
+
+**Verification:** Manual check
 
 **Status:** Implemented
 
