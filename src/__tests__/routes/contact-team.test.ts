@@ -49,7 +49,9 @@ vi.mock('../../lib/access', () => ({
 // referenced helpers must also be hoisted via vi.hoisted(); otherwise
 // the factory hits a ReferenceError at module-init time.
 const { mockSendAccessRequestNotification } = vi.hoisted(() => ({
-  mockSendAccessRequestNotification: vi.fn(async () => true),
+  mockSendAccessRequestNotification: vi.fn(
+    async (_opts: Record<string, unknown>): Promise<boolean> => true
+  ),
 }));
 vi.mock('../../lib/email', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/email')>();

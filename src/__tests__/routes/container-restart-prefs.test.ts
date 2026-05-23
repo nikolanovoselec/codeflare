@@ -128,7 +128,7 @@ describe('REQ-SESSION-008: Container restart preserves R2 bucket', () => {
     it('applyPrefsOnRestart updates tabConfig on restart', async () => {
       const state = baseState();
       const { writes, storage } = makeStorage();
-      const newTabConfig = [{ command: 'bash', label: 'Bash' }];
+      const newTabConfig = [{ id: '1', command: 'bash', label: 'Bash' }];
 
       const changed = await applyPrefsOnRestart(state, storage, {
         tabConfig: newTabConfig,
