@@ -339,3 +339,65 @@ describe('X-Request-ID validation', () => {
     expect(response.headers.get('X-Request-ID')).toBe(validId);
   });
 });
+
+// CF-001 + REQ-OPS-008 AC6: STRESS_TEST_MODE must never be active alongside
+// SAAS_MODE. Global middleware blocks the misconfiguration with a 503 before
+// any route runs, so a downstream rate-limit bypass can't accidentally serve
+// real users when both env vars are flipped on.
+describe('REQ-OPS-008 AC6 (SAAS_MODE + STRESS_TEST_MODE conflict guard)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetSetupCache();
+    vi.mocked(validateWebSocketRoute).mockReturnValue({ isWebSocketRoute: false });
+  });
+
+  it('returns 503 with misconfiguration message when both SAAS_MODE and STRESS_TEST_MODE are active', async () => {
+    const { env } = createMockEnv();
+    env.SAAS_MODE = 'active';
+    env.STRESS_TEST_MODE = 'active';
+
+    const request = new Request('https://example.com/api/health');
+    const response = await worker.fetch(request, env, createMockCtx());
+
+    expect(response.status).toBe(503);
+    const body = await response.json() as { error: string };
+    expect(body.error).toMatch(/stress test mode/i);
+    expect(body.error).toMatch(/SaaS production|saas production|cannot be active/i);
+  });
+
+  it('allows the request through when SAAS_MODE is active but STRESS_TEST_MODE is unset (only SaaS)', async () => {
+    const { env, mockKV } = createMockEnv();
+    env.SAAS_MODE = 'active';
+    // STRESS_TEST_MODE intentionally omitted
+    mockKV.get.mockResolvedValue('done');
+
+    const request = new Request('https://example.com/api/health');
+    const response = await worker.fetch(request, env, createMockCtx());
+
+    expect(response.status).not.toBe(503);
+  });
+
+  it('allows the request through when STRESS_TEST_MODE is active but SAAS_MODE is unset (only stress)', async () => {
+    const { env, mockKV } = createMockEnv();
+    env.STRESS_TEST_MODE = 'active';
+    // SAAS_MODE intentionally omitted
+    mockKV.get.mockResolvedValue('done');
+
+    const request = new Request('https://example.com/api/health');
+    const response = await worker.fetch(request, env, createMockCtx());
+
+    expect(response.status).not.toBe(503);
+  });
+
+  it('does NOT block when both env vars are present but neither equals literal "active" (string comparison only)', async () => {
+    const { env, mockKV } = createMockEnv();
+    env.SAAS_MODE = 'true';
+    env.STRESS_TEST_MODE = 'true';
+    mockKV.get.mockResolvedValue('done');
+
+    const request = new Request('https://example.com/api/health');
+    const response = await worker.fetch(request, env, createMockCtx());
+
+    expect(response.status).not.toBe(503);
+  });
+});
