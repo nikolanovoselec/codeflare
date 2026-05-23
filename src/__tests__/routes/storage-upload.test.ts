@@ -484,9 +484,11 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
   describe('REQ-STOR-008 AC5: shared rate limit across multipart endpoints', () => {
     it('exhausting limit on /upload/initiate causes a subsequent /upload/part to 429', async () => {
       const app = createApp();
-      // Each /upload/initiate hits R2 once; respond OK so the request passes
-      // the handler and counts against the limiter.
-      mockFetch.mockResolvedValue(new Response('<xml/>', { status: 200 }));
+      // Each /upload/initiate hits R2 once and consumes the response body via
+      // response.text(). A single shared Response would have its body locked
+      // after the first call, so use mockImplementation to build a fresh one
+      // per invocation.
+      mockFetch.mockImplementation(async () => new Response('<xml/>', { status: 200 }));
 
       // Exhaust the 60/min limit by making 60 successful /upload/initiate calls.
       for (let i = 0; i < 60; i++) {
@@ -516,7 +518,12 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
 
     it('exhausting limit on /upload/part causes /upload/complete to 429', async () => {
       const app = createApp();
-      mockFetch.mockResolvedValue(new Response('', { status: 200, headers: { etag: '"e"' } }));
+      // Fresh Response per call (same reasoning as the test above; /upload/part
+      // reads response.headers and the body slot is implicitly tied to the
+      // single Response instance).
+      mockFetch.mockImplementation(async () =>
+        new Response('', { status: 200, headers: { etag: '"e"' } })
+      );
 
       for (let i = 0; i < 60; i++) {
         const res = await app.request('/upload/part', {
