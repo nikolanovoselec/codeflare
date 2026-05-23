@@ -301,60 +301,40 @@ describe('REQ-MOB-002: Virtual keyboard opens reliably on tap', () => {
     expect(height).toBeGreaterThan(0);
   });
 
-  it('REQ-MOB-002 AC6: createElement monkey-patch substitutes textarea with input[type=password] during terminal.open()', () => {
-    // REQ-MOB-002 AC6: the monkey-patch is applied in useTerminal.ts, scoped to terminal.open().
-    // We verify the patch mechanics directly: if tagName=textarea, must return input[type=password].
-    const origCreateElement = document.createElement.bind(document);
+  it('REQ-MOB-002 AC6: useTerminal.ts contains the createElement textarea-to-password-input monkey-patch scoped to terminal.open()', async () => {
+    // REQ-MOB-002 AC6: structural audit. The previous version of this test
+    // DEFINED its own patchedCreateElement INLINE and asserted on it. The
+    // production monkey-patch in useTerminal could be deleted entirely and
+    // the test would still pass. Replaced with assertions on the actual
+    // useTerminal.ts source so deletion of the patch is caught.
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const useTerminalSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../hooks/useTerminal.ts'),
+      'utf8',
+    );
 
-    // Reproduce the monkey-patch logic from useTerminal.ts
-    const patchedCreateElement = function(tagName: string, options?: ElementCreationOptions) {
-      if (tagName.toLowerCase() === 'textarea') {
-        const input = origCreateElement('input', options);
-        input.setAttribute('type', 'password');
-        return input;
-      }
-      return origCreateElement(tagName, options);
-    };
+    // The monkey-patch must replace document.createElement with a wrapper
+    // that intercepts textarea creation. The literal mention proves the
+    // patch is installed.
+    expect(useTerminalSrc).toMatch(/document\.createElement\s*=/);
 
-    const result = patchedCreateElement('textarea');
-    expect(result.tagName.toLowerCase()).toBe('input');
-    expect((result as HTMLInputElement).type).toBe('password');
+    // The wrapper must inspect tagName and branch on textarea (case-
+    // insensitive in the implementation; test for the literal that the
+    // implementation actually uses).
+    const interceptPattern = useTerminalSrc.match(
+      /document\.createElement\s*=[\s\S]{0,800}textarea[\s\S]{0,300}(input|password)/i,
+    );
+    expect(interceptPattern).not.toBeNull();
 
-    // Non-textarea calls pass through unchanged
-    const div = patchedCreateElement('div');
-    expect(div.tagName.toLowerCase()).toBe('div');
+    // The patch must be scoped to terminal.open() - i.e., the original
+    // createElement must be restored afterward. The presence of a
+    // "restore"/"original"-style assignment proves the patch is bracketed.
+    expect(useTerminalSrc).toMatch(
+      /document\.createElement\s*=\s*(orig|original|prev|previous)/,
+    );
   });
 
-  it('REQ-MOB-002 AC6: monkey-patch is scoped to terminal.open() - original createElement is restored after', () => {
-    // REQ-MOB-002 AC6: patch must be cleaned up in finally block to avoid leaking to other code
-    const origCreateElement = document.createElement.bind(document);
-    let patchActive = false;
-
-    // Simulate the try/finally pattern from useTerminal.ts
-    const savedCreate = document.createElement;
-    document.createElement = function(tagName: string, options?: ElementCreationOptions) {
-      patchActive = true;
-      if (tagName.toLowerCase() === 'textarea') {
-        const input = origCreateElement('input', options);
-        input.setAttribute('type', 'password');
-        return input as any;
-      }
-      return origCreateElement(tagName, options);
-    } as any;
-
-    try {
-      // Simulate what terminal.open() does (creates a textarea)
-      document.createElement('textarea');
-      expect(patchActive).toBe(true);
-    } finally {
-      document.createElement = savedCreate;
-    }
-
-    // After finally: original must be restored
-    patchActive = false;
-    document.createElement('textarea');
-    expect(patchActive).toBe(false);
-  });
 });
 
 // ============================================================================
@@ -387,190 +367,197 @@ describe('REQ-MOB-004: Scroll-drop detection during burst output', () => {
     expect(terminalStore.isProgrammaticScrollSuppressed(sessionId, terminalId)).toBe(false);
   });
 
-  it('REQ-MOB-004 AC5: distance-based detector requires previousYdisp > 20, ybase > 20, distanceDrift > 20', () => {
-    // REQ-MOB-004 AC5: verify the exact three-condition threshold logic in isolation
-    // This is the distanceDrift formula extracted from useScrollCorrection.ts
-    function isSuspiciousReset(params: {
-      ydisp: number;
-      previousYdisp: number;
-      ybase: number;
-      distFromBottom: number;
-      previousDistFromBottom: number;
-      recentUserIntent: boolean;
-    }): boolean {
-      const { ydisp, previousYdisp, ybase, distFromBottom, previousDistFromBottom, recentUserIntent } = params;
-      const distanceDrift = Math.abs(distFromBottom - previousDistFromBottom);
-      return (
-        !recentUserIntent &&
-        ydisp === 0 &&
-        previousYdisp > 20 &&
-        ybase > 20 &&
-        distanceDrift > 20
-      );
-    }
+  it('REQ-MOB-004 AC5: useScrollCorrection.ts contains the exact three-threshold suspiciousReset detector', async () => {
+    // REQ-MOB-004 AC5: structural audit. The previous version DEFINED an
+    // inline `isSuspiciousReset` function and tested it. The production
+    // detector in useScrollCorrection.ts could be deleted and the test
+    // would still pass. Replaced with assertions on the actual source.
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const scrollSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../hooks/useScrollCorrection.ts'),
+      'utf8',
+    );
 
-    // True case: all three thresholds met - browser focus reset pattern
-    expect(isSuspiciousReset({
-      ydisp: 0,
-      previousYdisp: 50,  // was > 20
-      ybase: 200,         // substantial buffer
-      distFromBottom: 200, // ybase - ydisp = 200 - 0
-      previousDistFromBottom: 50, // was following closely
-      recentUserIntent: false,
-    })).toBe(true);
+    // The detector must compute distanceDrift as abs(curr - prev).
+    expect(scrollSrc).toMatch(
+      /const\s+distanceDrift\s*=\s*Math\.abs\(distFromBottom\s*-\s*previousDistFromBottom\)/,
+    );
 
-    // False: previousYdisp not > 20 (was near start of buffer - not a deep position)
-    expect(isSuspiciousReset({
-      ydisp: 0,
-      previousYdisp: 15,
-      ybase: 200,
-      distFromBottom: 200,
-      previousDistFromBottom: 15,
-      recentUserIntent: false,
-    })).toBe(false);
-
-    // False: ybase not > 20 (buffer is small - normal trim, not a reset)
-    expect(isSuspiciousReset({
-      ydisp: 0,
-      previousYdisp: 50,
-      ybase: 10,
-      distFromBottom: 10,
-      previousDistFromBottom: 0,
-      recentUserIntent: false,
-    })).toBe(false);
-
-    // False: distanceDrift not > 20 (both baseY and viewportY shifted together - normal trim)
-    expect(isSuspiciousReset({
-      ydisp: 0,
-      previousYdisp: 50,
-      ybase: 200,
-      distFromBottom: 200,
-      previousDistFromBottom: 195, // barely any drift
-      recentUserIntent: false,
-    })).toBe(false);
-
-    // False: ydisp is not 0 (viewport was not snapped to top)
-    expect(isSuspiciousReset({
-      ydisp: 5,
-      previousYdisp: 50,
-      ybase: 200,
-      distFromBottom: 195,
-      previousDistFromBottom: 150,
-      recentUserIntent: false,
-    })).toBe(false);
-
-    // False: recent user intent suppresses correction
-    expect(isSuspiciousReset({
-      ydisp: 0,
-      previousYdisp: 50,
-      ybase: 200,
-      distFromBottom: 200,
-      previousDistFromBottom: 50,
-      recentUserIntent: true,
-    })).toBe(false);
+    // The suspiciousReset condition must include all five gates: not
+    // recentUserIntent, ydisp === 0, previousYdisp > 20, ybase > 20,
+    // distanceDrift > 20. Removing any one is a regression that allows
+    // false-positive corrections.
+    const suspiciousBlock = scrollSrc.match(
+      /suspiciousReset\s*=[\s\S]{0,300}/,
+    );
+    expect(suspiciousBlock).not.toBeNull();
+    const body = suspiciousBlock![0];
+    expect(body).toMatch(/!recentUserIntent/);
+    expect(body).toMatch(/ydisp\s*===\s*0/);
+    expect(body).toMatch(/previousYdisp\s*>\s*20/);
+    expect(body).toMatch(/ybase\s*>\s*20/);
+    expect(body).toMatch(/distanceDrift\s*>\s*20/);
   });
 
-  it('REQ-MOB-004 AC5: scrolled-up position restore uses distance from bottom not absolute ydisp', () => {
-    // REQ-MOB-004 AC5: distance-based (not absolute) restoration
-    // targetY = currentBaseY - savedDistanceFromBottom, not a fixed ydisp value
-    function computeRestoreTarget(currentBaseY: number, savedDistanceFromBottom: number): number {
-      return Math.max(0, currentBaseY - savedDistanceFromBottom);
-    }
+  it('REQ-MOB-004 AC5: useScrollCorrection.ts restores scrolled-up users via Math.max(0, currentBaseY - restoreDistance)', async () => {
+    // REQ-MOB-004 AC5: structural audit. The previous version DEFINED an
+    // inline computeRestoreTarget. Replaced with assertion on production.
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const scrollSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../hooks/useScrollCorrection.ts'),
+      'utf8',
+    );
 
-    // User was 30 lines from bottom; after trim, base grew by 50
-    // Correct: restore to same relative position
-    expect(computeRestoreTarget(300, 30)).toBe(270);
+    // The restore-target formula uses currentBaseY - restoreDistance,
+    // clamped to 0 via Math.max. A regression that drops the clamp would
+    // let the viewport scroll past the top (negative ydisp).
+    expect(scrollSrc).toMatch(
+      /Math\.max\(0,\s*currentBaseY\s*-\s*restoreDistance\)/,
+    );
 
-    // Bottom-following user: restoreDistance=0, targetY = currentBaseY = scrollToBottom
-    expect(computeRestoreTarget(150, 0)).toBe(150);
-
-    // Guard: never go below 0
-    expect(computeRestoreTarget(5, 100)).toBe(0);
+    // restoreDistance must use previousDistFromBottom when the user was
+    // scrolled up (not following). Bottom-following users restore to 0
+    // (which maps to scrollToBottom).
+    expect(scrollSrc).toMatch(
+      /restoreDistance\s*=\s*wasFollowing\s*\?\s*0\s*:\s*previousDistFromBottom/,
+    );
   });
 });
 
 // ============================================================================
 // REQ-MOB-010: FitAddon fit calls are coordinated
-// ACs covered: AC2, AC3, AC4, AC5, AC6
-// AC1 (three code paths exist) is structural - verified via source review
+// ACs covered: AC1, AC2, AC3, AC4, AC5, AC6
 // ============================================================================
 
 describe('REQ-MOB-010: FitAddon fit calls are coordinated', () => {
-  it('REQ-MOB-010 AC2: kbDebounceTimer is a timer ID (number), not a boolean flag', () => {
-    // REQ-MOB-010 AC2: timer ID semantics - null means idle, non-null means debounce active
-    // Simulate the timer ID gate: setTimeout returns a number in browsers
-    vi.useFakeTimers();
+  it('REQ-MOB-010 AC1: three distinct code paths can trigger fitAddon.fit() (keyboard refit, active-state effect, ResizeObserver)', async () => {
+    // REQ-MOB-010 AC1: structural assertion that the three documented fit()
+    // call paths each exist in useTerminal.ts. Removing any of them would
+    // surface as a missing reactive trigger (terminal stays stuck at old
+    // dimensions on keyboard open / tab switch / container resize). Reading
+    // the source at test time ensures rename-refactors that drop a path are
+    // caught. All three paths live in useTerminal.ts; terminal-layout.ts
+    // exports the cross-tab fan-out used by the storage panel, which is a
+    // SEPARATE trigger surface (REQ-MOB-010 AC6) not one of the AC1 three.
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const useTerminalSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../hooks/useTerminal.ts'),
+      'utf8',
+    );
 
-    let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    // Path 1: keyboard refit (debounced KEYBOARD_REFIT_DEBOUNCE_MS) - uses
+    // kbDebounceTimer + setTimeout(..., KEYBOARD_REFIT_DEBOUNCE_MS). The
+    // constant + the gate variable + the timer assignment together prove
+    // the debounce wrapping is intact.
+    expect(useTerminalSrc).toMatch(/export const KEYBOARD_REFIT_DEBOUNCE_MS\s*=\s*150/);
+    expect(useTerminalSrc).toMatch(/let kbDebounceTimer/);
+    expect(useTerminalSrc).toMatch(/kbDebounceTimer\s*=\s*setTimeout\(/);
 
-    // Initially null - ResizeObserver would proceed
-    expect(kbDebounceTimer).toBeNull();
+    // Path 2: active-state effect - fit() runs inside requestAnimationFrame
+    // triggered by the active-state effect chain. At least one raf+fit
+    // pairing must exist (current source has multiple - the inactive-tab
+    // and the active-state initial paint each contribute).
+    const rafFitMatches = useTerminalSrc.match(/requestAnimationFrame\([\s\S]{0,300}fitAddon\??\.fit\(\)/g) ?? [];
+    expect(rafFitMatches.length).toBeGreaterThanOrEqual(1);
 
-    // After keyboard refit schedules the debounce timer
-    kbDebounceTimer = setTimeout(() => { kbDebounceTimer = null; }, 150);
-
-    // Non-null timer ID: ResizeObserver must skip (kbDebounceTimer !== null)
-    expect(kbDebounceTimer).not.toBeNull();
-    expect(typeof kbDebounceTimer).toBe('number'); // timer ID is a number, not boolean
-
-    // After debounce fires: gate clears
-    vi.advanceTimersByTime(150);
-    expect(kbDebounceTimer).toBeNull();
-
-    vi.useRealTimers();
+    // Path 3: ResizeObserver - the observer callback calls fit() (gated by
+    // kbDebounceTimer per AC2). The literal "ResizeObserver" + a downstream
+    // fit() call inside the same function body proves the path exists.
+    expect(useTerminalSrc).toMatch(/ResizeObserver/);
+    const fitCallCount = (useTerminalSrc.match(/fitAddon\??\.fit\(\)/g) ?? []).length;
+    // useTerminal must have multiple fit() call sites (active-state path +
+    // ResizeObserver path + keyboard-refit path), proving the paths are
+    // distinct. Current source has 8; demand >= 3 (the AC count).
+    expect(fitCallCount).toBeGreaterThanOrEqual(3);
   });
 
-  it('REQ-MOB-010 AC3: scrollToBottom is called after fit() when keyboard is open (via isVirtualKeyboardOpen)', async () => {
-    // REQ-MOB-010 AC3: mobile with keyboard open always scrolls to bottom after fit()
-    // Verifies the signal that the effect reads to decide whether to call scrollToBottom()
-    const mockVirtualKeyboard = {
-      overlaysContent: true,
-      boundingRect: { height: 300, width: 375, x: 0, y: 0, top: 0, right: 375, bottom: 300, left: 0, toJSON: () => ({}) },
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    };
-    Object.defineProperty(navigator, 'virtualKeyboard', {
-      value: mockVirtualKeyboard,
-      configurable: true,
-      writable: true,
-    });
+  it('REQ-MOB-010 AC2: kbDebounceTimer gate is the actual ResizeObserver short-circuit in useTerminal.ts (not a boolean flag)', async () => {
+    // REQ-MOB-010 AC2: structural audit. The previous version of this test
+    // created a LOCAL kbDebounceTimer variable and asserted on its own
+    // setTimeout result - which passed regardless of whether production code
+    // had any debounce logic at all. Replaced with assertions against the
+    // actual useTerminal.ts source so that deleting the production gate
+    // would fail the test.
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const useTerminalSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../hooks/useTerminal.ts'),
+      'utf8',
+    );
 
-    vi.resetModules();
-    vi.useFakeTimers();
-    const mobile = await import('../../lib/mobile');
+    // The gate variable is declared as a timer-ID-or-null, not a boolean.
+    // If a refactor changes it to `let kbDebounceTimer = false`, this fails.
+    expect(useTerminalSrc).toMatch(/let kbDebounceTimer:\s*ReturnType<typeof setTimeout>\s*\|\s*null/);
 
-    // Simulate keyboard open geometrychange arriving after 50ms
-    vi.advanceTimersByTime(60);
-    // Trigger geometrychange via the registered handler - need to get it
-    // Since we can't easily grab the handler here, use the boundingRect directly
-    // and verify isVirtualKeyboardOpen() returns true based on module state:
-    // In this test we verify the condition gate used by useTerminal's effect
-    expect(typeof mobile.isVirtualKeyboardOpen).toBe('function');
-    expect(typeof mobile.getKeyboardHeight).toBe('function');
+    // The ResizeObserver callback must short-circuit when the gate is held.
+    // The callback body lives at `new ResizeObserver(() => { ... })` and the
+    // kbDebounceTimer !== null gate must appear inside that callback. Match
+    // from the `new ResizeObserver` construction through the callback body
+    // (up to the next observe() or ~3000 chars) and confirm the gate.
+    const roCallback = useTerminalSrc.match(/new ResizeObserver\(\(\)\s*=>\s*\{[\s\S]{0,3000}/);
+    expect(roCallback).not.toBeNull();
+    expect(roCallback![0]).toMatch(/kbDebounceTimer\s*!==\s*null/);
 
-    vi.useRealTimers();
-    delete (navigator as any).virtualKeyboard;
+    // The timer assignment is the only thing that flips the gate from null
+    // to non-null; the timeout callback must reset it to null when it fires.
+    expect(useTerminalSrc).toMatch(/kbDebounceTimer\s*=\s*setTimeout\(/);
+    expect(useTerminalSrc).toMatch(/kbDebounceTimer\s*=\s*null/);
   });
 
-  it('REQ-MOB-010 AC4: isAtBottom check logic - preserves position for scrolled-up users', () => {
-    // REQ-MOB-010 AC4: desktop/no-keyboard path checks isAtBottom before calling scrollToBottom
-    // Verify the isAtBottom formula: viewportY >= baseY
-    function isAtBottom(viewportY: number, baseY: number): boolean {
-      return viewportY >= baseY;
-    }
+  it('REQ-MOB-010 AC3: useTerminal.ts calls scrollToBottom after fit() when isVirtualKeyboardOpen() is true', async () => {
+    // REQ-MOB-010 AC3: structural audit. The previous version just asserted
+    // `typeof mobile.isVirtualKeyboardOpen === 'function'`, which passes
+    // even if the entire scroll-on-fit branch in useTerminal is deleted.
+    // Replaced with assertions on the actual call-graph in useTerminal.ts.
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const useTerminalSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../hooks/useTerminal.ts'),
+      'utf8',
+    );
 
-    // Following output: viewportY at baseY
-    expect(isAtBottom(100, 100)).toBe(true);
+    // useTerminal must import isVirtualKeyboardOpen and use it as a gate
+    // for scrollToBottom calls that happen after fit().
+    expect(useTerminalSrc).toMatch(/isVirtualKeyboardOpen/);
+    // A fit() call followed within ~200 chars by scrollToBottom proves the
+    // post-fit scroll path exists. If the path is deleted, this regex
+    // returns null.
+    const fitThenScroll = useTerminalSrc.match(/fitAddon\??\.fit\(\)[\s\S]{0,400}scrollToBottom\(\)/);
+    expect(fitThenScroll).not.toBeNull();
+  });
 
-    // Following output: viewportY ahead of baseY (shouldn't happen but safe)
-    expect(isAtBottom(101, 100)).toBe(true);
+  it('REQ-MOB-010 AC4: useTerminal.ts checks isAtBottom before scrollToBottom on the no-keyboard path', async () => {
+    // REQ-MOB-010 AC4: structural audit. The previous version DEFINED a
+    // LOCAL isAtBottom function inside the test and tested it. Deleting
+    // the production isAtBottom check would not have failed the test.
+    // Replaced with assertions on useTerminal.ts source.
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const useTerminalSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../hooks/useTerminal.ts'),
+      'utf8',
+    );
 
-    // Scrolled up: viewportY < baseY - position must be preserved
-    expect(isAtBottom(50, 100)).toBe(false);
-    expect(isAtBottom(0, 100)).toBe(false);
+    // The isAtBottom formula uses viewportY >= baseY (or equivalent buffer
+    // fields). Production may name it differently (e.g., reading
+    // buffer.active.viewportY and buffer.active.baseY directly); the test
+    // accepts either explicit isAtBottom function or the inline pattern.
+    const inlinePattern = /viewportY\s*[>=<]+\s*baseY/;
+    const namedFn = /isAtBottom\(/;
+    expect(
+      inlinePattern.test(useTerminalSrc) || namedFn.test(useTerminalSrc),
+    ).toBe(true);
 
-    // Fresh terminal with no scrollback
-    expect(isAtBottom(0, 0)).toBe(true);
+    // The desktop/no-keyboard branch must gate scrollToBottom on this
+    // check so scrolled-up users do not get yanked to the bottom on
+    // every fit. The check appears in proximity to a scrollToBottom call.
+    const gateNearScroll = useTerminalSrc.match(
+      /(isAtBottom|viewportY[\s\S]{0,40}baseY)[\s\S]{0,400}scrollToBottom\(\)/,
+    );
+    expect(gateNearScroll).not.toBeNull();
   });
 
   it('REQ-MOB-010 AC5: when keyboard is open, isVirtualKeyboardOpen() returns true so ResizeObserver skips scrollToBottom', async () => {
@@ -675,46 +662,36 @@ describe('REQ-MOB-012: Scroll anchoring during keyboard transitions', () => {
     expect(terminalStore.isProgrammaticScrollSuppressed(sessionId, terminalId)).toBe(false);
   });
 
-  it('REQ-MOB-012 AC1: suppression counter is additive (nested calls stack, not overwrite)', () => {
-    // REQ-MOB-012 AC1: counter semantics - multiple nested corrections don't cancel prematurely
-    // The counter increments on begin and decrements on end.
-    // We verify with a local counter simulation matching the terminal store logic.
-    const counts = new Map<string, number>();
-    const key = 'sess:term';
+  it('REQ-MOB-012 AC1: stores/terminal.ts beginProgrammaticScroll / endProgrammaticScroll implements additive counter semantics', async () => {
+    // REQ-MOB-012 AC1: structural audit. The previous version DEFINED a
+    // local Map + begin/end/isSuppressed functions and tested them. The
+    // production counter could be deleted and the test would still pass.
+    // Replaced with assertions on the actual stores/terminal.ts source.
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const storeSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../stores/terminal.ts'),
+      'utf8',
+    );
 
-    function begin(k: string): void {
-      counts.set(k, (counts.get(k) || 0) + 1);
-    }
+    // begin must use additive semantics (count + 1), NOT a boolean set
+    // pattern. If a refactor changes it to `set(k, true)`, nested calls
+    // get cancelled by the first end and the detector mis-fires.
+    const beginMatch = storeSrc.match(/function beginProgrammaticScroll[\s\S]{0,300}/);
+    expect(beginMatch).not.toBeNull();
+    expect(beginMatch![0]).toMatch(/\+\s*1/);
 
-    function end(k: string): void {
-      const count = counts.get(k) || 0;
-      if (count <= 1) counts.delete(k);
-      else counts.set(k, count - 1);
-    }
+    // end must decrement; the count entry is removed only when it reaches
+    // zero. A boolean flip would lose the nested-call info.
+    const endMatch = storeSrc.match(/function endProgrammaticScroll[\s\S]{0,400}/);
+    expect(endMatch).not.toBeNull();
+    expect(endMatch![0]).toMatch(/-\s*1|count\s*<=\s*1/);
 
-    function isSuppressed(k: string): boolean {
-      return (counts.get(k) || 0) > 0;
-    }
-
-    expect(isSuppressed(key)).toBe(false);
-
-    begin(key);
-    expect(isSuppressed(key)).toBe(true);
-
-    // Nested: second begin
-    begin(key);
-    expect(isSuppressed(key)).toBe(true);
-    expect(counts.get(key)).toBe(2);
-
-    // First end: still suppressed (count=1)
-    end(key);
-    expect(isSuppressed(key)).toBe(true);
-    expect(counts.get(key)).toBe(1);
-
-    // Second end: now clear
-    end(key);
-    expect(isSuppressed(key)).toBe(false);
-    expect(counts.has(key)).toBe(false);
+    // isProgrammaticScrollSuppressed must check count > 0 (the counter
+    // semantic), not just boolean presence.
+    const checkMatch = storeSrc.match(/function isProgrammaticScrollSuppressed[\s\S]{0,200}/);
+    expect(checkMatch).not.toBeNull();
+    expect(checkMatch![0]).toMatch(/>\s*0/);
   });
 
   it('REQ-MOB-012 AC2: when keyboard is open, scroll-reset detector is skipped', async () => {
@@ -754,73 +731,67 @@ describe('REQ-MOB-012: Scroll anchoring during keyboard transitions', () => {
     delete (navigator as any).virtualKeyboard;
   });
 
-  it('REQ-MOB-012 AC3: bottom-following correction fires synchronously in onScroll (before canvas paint)', () => {
-    // REQ-MOB-012 AC3: correction applied in onScroll handler synchronously, not in async callback.
-    // We verify the synchronous correction pattern: isCorrectingScroll guard prevents re-entry.
-    let isCorrectingScroll = false;
-    let scrollToBottomCallCount = 0;
-    let onScrollCallCount = 0;
+  it('REQ-MOB-012 AC3: useScrollCorrection.ts applies bottom-following correction synchronously inside onScroll (before rAF)', async () => {
+    // REQ-MOB-012 AC3: structural audit. The previous version SIMULATED
+    // onScroll with a local function and a local isCorrectingScroll var,
+    // so deleting the production guard would not have failed the test.
+    // Replaced with assertions on useScrollCorrection.ts source.
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const scrollSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../hooks/useScrollCorrection.ts'),
+      'utf8',
+    );
 
-    // Simulate the xterm onScroll handler with the isCorrectingScroll guard
-    function simulateOnScroll(ydisp: number, ybase: number, wasFollowing: boolean): void {
-      onScrollCallCount++;
+    // The hook must declare an isCorrectingScroll flag used as a re-entry
+    // guard. Without it, the scrollToBottom triggered by Strategy 1 fires
+    // another onScroll, which fires another correction, indefinitely.
+    expect(scrollSrc).toMatch(/let\s+isCorrectingScroll\s*=\s*false/);
 
-      // Re-entry guard: while correcting, only update baselines
-      if (isCorrectingScroll) {
-        return;
-      }
+    // Strategy 1 must call scrollToBottom SYNCHRONOUSLY (not queueMicrotask
+    // or requestAnimationFrame), bracketed by isCorrectingScroll = true /
+    // = false in a try/finally so the guard releases even if scrollToBottom
+    // throws. A regression that wraps in rAF would cause visible jitter.
+    const strategy1 = scrollSrc.match(
+      /if\s*\(wasFollowing[\s\S]{0,800}isCorrectingScroll\s*=\s*true[\s\S]{0,400}terminal\.scrollToBottom\(\)[\s\S]{0,200}finally[\s\S]{0,200}isCorrectingScroll\s*=\s*false/,
+    );
+    expect(strategy1).not.toBeNull();
 
-      // Strategy 1: synchronous correction for bottom followers
-      if (wasFollowing && ydisp < ybase) {
-        isCorrectingScroll = true;
-        try {
-          // Synchronous scrollToBottom - fires BEFORE rAF/paint
-          scrollToBottomCallCount++;
-          // If scrollToBottom triggers another onScroll, guard prevents recursion
-          simulateOnScroll(ybase, ybase, true); // would recurse without guard
-        } finally {
-          isCorrectingScroll = false;
-        }
-        return;
-      }
-    }
-
-    // Simulate: user was following, ydisp drops to 0 (focus reset)
-    simulateOnScroll(0, 100, true);
-
-    // scrollToBottom called once synchronously (not deferred)
-    expect(scrollToBottomCallCount).toBe(1);
-    // The recursive call was blocked by the guard
-    expect(onScrollCallCount).toBe(2); // outer + guarded inner
-    // Guard is released after the correction
-    expect(isCorrectingScroll).toBe(false);
+    // The re-entry guard must short-circuit the onScroll body when set.
+    // Pattern: early `if (isCorrectingScroll) { ... return; }` near the
+    // top of the scroll handler.
+    expect(scrollSrc).toMatch(/if\s*\(isCorrectingScroll\)\s*\{[\s\S]{0,200}return/);
   });
 
-  it('REQ-MOB-012 AC4: scrolled-up user position is preserved via distance-based restoration', () => {
-    // REQ-MOB-012 AC4: targetY = currentBaseY - savedDistanceFromBottom
-    // Scrolled-up users keep their relative position, not their absolute ydisp value.
-    function computeRestoreTarget(params: {
-      currentBaseY: number;
-      savedDistanceFromBottom: number;
-    }): number {
-      return Math.max(0, params.currentBaseY - params.savedDistanceFromBottom);
-    }
+  it('REQ-MOB-012 AC4: useScrollCorrection.ts Strategy 2 restores scrolled-up position via Math.max(0, currentBaseY - restoreDistance)', async () => {
+    // REQ-MOB-012 AC4: structural audit. The previous version DEFINED a
+    // local computeRestoreTarget and tested it; production formula in
+    // useScrollCorrection.ts could be deleted with no test failure.
+    // Replaced with assertions on the actual source.
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const scrollSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../hooks/useScrollCorrection.ts'),
+      'utf8',
+    );
 
-    // Scenario: user was 40 lines from bottom. Scrollback trimmed, baseY shifted.
-    // Their relative position (40 from bottom) must be preserved.
-    const savedDistanceFromBottom = 40;
+    // The Strategy 2 restoration path computes targetY using a clamped
+    // subtraction. The clamp to 0 is critical: without it, a buffer that
+    // shrank below the saved distance would scroll to negative ydisp.
+    expect(scrollSrc).toMatch(
+      /const\s+targetY\s*=\s*Math\.max\(0,\s*currentBaseY\s*-\s*restoreDistance\)/,
+    );
 
-    // Before trim: baseY=200, user at ydisp=160
-    // After trim: baseY=180 (trim removed 20 lines from top)
-    const targetY = computeRestoreTarget({ currentBaseY: 180, savedDistanceFromBottom });
-    expect(targetY).toBe(140); // 180 - 40 = preserved distance from bottom
+    // restoreDistance must come from previousDistFromBottom (the recorded
+    // distance from the user's pre-reset position). A regression that
+    // uses absolute ydisp would put scrolled-up users at the wrong row
+    // when scrollback trimming shifts baseY.
+    expect(scrollSrc).toMatch(/restoreDistance\s*=\s*wasFollowing\s*\?\s*0\s*:\s*previousDistFromBottom/);
 
-    // Bottom follower: distance=0, target lands at baseY (scrollToBottom equivalent)
-    const bottomTarget = computeRestoreTarget({ currentBaseY: 180, savedDistanceFromBottom: 0 });
-    expect(bottomTarget).toBe(180);
-
-    // Boundary: saved distance larger than currentBaseY -> clamp to 0
-    const clampedTarget = computeRestoreTarget({ currentBaseY: 10, savedDistanceFromBottom: 50 });
-    expect(clampedTarget).toBe(0);
+    // The actual scroll call goes through terminal.scrollLines(delta) so
+    // xterm's smooth scroll path is used; bottom-following users (delta
+    // === 0 AND restoreDistance === 0) fall back to scrollToBottom.
+    expect(scrollSrc).toMatch(/terminal\.scrollLines\(delta\)/);
+    expect(scrollSrc).toMatch(/restoreDistance\s*===\s*0[\s\S]{0,200}terminal\.scrollToBottom\(\)/);
   });
 });
