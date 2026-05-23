@@ -128,7 +128,7 @@ export function maybeSynthesizeCsrfHeader(request: Request, originValidated: boo
  * The key never leaves the SW process — it is in-memory only, scoped to
  * `/api/vault/<sid>/`, and gone the moment the browser tears the SW down.
  * That matches SilverBullet's upstream contract for `encryptionKeyMemoryStore`
- * (client/service_worker.ts:60 in SB 2.8). Implements REQ-VAULT-008 AC3.
+ * (client/service_worker.ts:60 in SB 2.8). Implements REQ-VAULT-008 AC5.
  */
 export const VAULT_KEY_SHIM_SERVICE_WORKER_JS =
   '// Codeflare vault key-shim service worker - see src/routes/vault.ts.\n' +
@@ -192,7 +192,7 @@ export function isServiceWorkerRegistration(request: Request, remainingPath: str
  * response would still render the SB shell but client-side encryption
  * would fall back to plaintext IDB - a silent data-at-rest regression.
  *
- * Implements REQ-VAULT-008 AC2.
+ * Implements REQ-VAULT-008 AC3.
  */
 export function injectVaultEncryptionConfig(bootConfigJson: string, vaultEncryptionKey: string): string {
   if (!vaultEncryptionKey) {
@@ -224,7 +224,7 @@ export function injectVaultEncryptionConfig(bootConfigJson: string, vaultEncrypt
  * `</head>` is missing (SB error pages and 404 HTML have no head and
  * must not be mutilated).
  *
- * Implements REQ-VAULT-008 AC8/AC9 plumbing (the sid handoff that the
+ * Implements REQ-VAULT-015 AC3 plumbing (the sid handoff that the
  * IDB recorder consumes).
  */
 export interface VaultBootConfig {
@@ -280,7 +280,7 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
  * dashboard's `cleanupSessionVaultCache` / `sweepOrphanVaultCaches`
  * functions read that array and call `indexedDB.deleteDatabase(name)`
  * on session DELETE / dashboard mount \u2014 the real fix for the
- * previously-leaking SB IDBs (REQ-VAULT-008 AC8 + AC9).
+ * previously-leaking SB IDBs (REQ-VAULT-015 AC3 + AC4).
  *
  * Idempotent via `VAULT_IDB_RECORDER_MARKER`. Returns the input
  * unchanged when `</head>` is missing or the script is already present.
@@ -356,7 +356,7 @@ export function injectVaultIdbRecorder(html: string): string {
  *     the registration GET only; the SW's get-encryption-key message
  *     handler returns the key only to same-origin `event.source` clients.
  *
- * Implements REQ-VAULT-008 AC3.
+ * Implements REQ-VAULT-008 AC5.
  */
 export const VAULT_BOOTSTRAP_COOKIE = 'codeflare_vault_bootstrap';
 
@@ -466,7 +466,7 @@ export function hasVaultBootstrapCookie(request: Request): boolean {
  * if the body is not a JSON array — never breaks a 200 response just
  * because the upstream shape drifted.
  *
- * Implements REQ-VAULT-008 AC6.
+ * Implements REQ-VAULT-015 AC1.
  */
 export function filterVaultFsListing(body: string): string {
   try {
@@ -735,7 +735,7 @@ export async function handleVaultRequest(
       }
     })().catch((err) => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
 
-    // REQ-VAULT-008 AC3: the codeflare bootstrap-hop short-circuit. This
+    // REQ-VAULT-008 AC5: the codeflare bootstrap-hop short-circuit. This
     // route is auth-gated by the chain above but never reaches the
     // container — we render the hop HTML with the encryption key embedded
     // and return it directly. The hop registers the key-shim service
@@ -764,12 +764,12 @@ export async function handleVaultRequest(
       }
     }
 
-    // REQ-VAULT-008 AC3: on the SB shell paths (`/` and `/index.html`),
+    // REQ-VAULT-008 AC6: on the SB shell paths (`/` and `/index.html`),
     // redirect to the bootstrap-hop when the per-session bootstrap cookie
     // is absent. The hop sets the cookie before redirecting back here, so
     // subsequent shell-path requests fall straight through to the proxy.
     // Without this redirect SB boots, finds no SW key, and silently runs
-    // unencrypted — the exact regression REQ-VAULT-008 AC3 forbids.
+    // unencrypted -- the exact regression REQ-VAULT-008 AC5 forbids.
     const isShellPathPre =
       remainingPath === '/' || remainingPath === '/index.html';
     if (isShellPathPre && !isWebSocket && !hasVaultBootstrapCookie(request)) {
@@ -848,7 +848,7 @@ export async function handleVaultRequest(
     // of a silent white-screen regression.
     const contentType = response.headers.get('content-type') ?? '';
 
-    // REQ-VAULT-008 AC2: inject the per-session vault encryption key into
+    // REQ-VAULT-008 AC3: inject the per-session vault encryption key into
     // SilverBullet's BootConfig response. The DO is the canonical key
     // source - SB sees the key through this same authenticated channel
     // and uses it as the IDB encryption key without ever showing the
@@ -890,7 +890,7 @@ export async function handleVaultRequest(
       }
     }
 
-    // REQ-VAULT-008 AC6: strip graphify-out/** entries from SB's space
+    // REQ-VAULT-015 AC1: strip graphify-out/** entries from SB's space
     // listing. SB 2.x serves the listing as `index.json` (legacy) and
     // `/.fs/` (newer); both endpoints return a JSON array of file
     // metadata. The filter is a no-op for any other JSON shape.
@@ -918,7 +918,7 @@ export async function handleVaultRequest(
         `<base href="${prefix}/" />`,
       );
 
-      // REQ-VAULT-008 AC8/AC9: on the 200 shell paths, inject the boot
+      // REQ-VAULT-015 AC3: on the 200 shell paths, inject the boot
       // script (exposes sessionId on window) and the IDB-name recorder
       // (records every sb_* IDB SilverBullet opens into localStorage so
       // dashboard cleanup can delete them). Error pages and non-shell

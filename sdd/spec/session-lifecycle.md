@@ -206,7 +206,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. **Stop (user-initiated):** `POST /api/sessions/:id/stop` sets KV status to `'stopped'` and calls `container.destroy()`.
 2. The `destroy()` override first clears `SESSION_ID_KEY`, `bucketName` and other identifiers from DO storage (preventing session resurrection via the asynchronous `onStop()` writeback), then performs a graceful shutdown: sends `SIGTERM` to the container, polls `ctx.container.running` for up to 25 s while the entrypoint trap runs the final `rclone bisync`, and only then calls `super.destroy()` to teardown.
 3. If the trap does not exit within the 25 s timeout the DO falls back to SIGKILL via `super.destroy()` so the route always returns.
-4. **Restart:** `POST /api/container/start` on a stopped session. Same-bucket restart receives 409 from `setBucketName` (bucket already set) but still updates sessionId, preferences, and tab config. Different-bucket restart calls `destroy()` then re-calls `setBucketName`.
+4. **Restart:** `POST /api/container/start` on a stopped session; same-bucket restart receives 409 from `setBucketName` (bucket already set) but still updates sessionId, preferences, and tab config, while different-bucket restart calls `destroy()` then re-calls `setBucketName`.
 5. **Delete:** `DELETE /api/sessions/:id` calls `container.destroy()` (same graceful-shutdown path as Stop, so the final bisync runs before SDK teardown) and then removes the KV record.
 6. Frontend transitions: `stopped` -> `initializing` -> `running` (start); `running` -> `stopping` -> `stopped` (stop).
 
@@ -374,12 +374,14 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 3. A final `rclone bisync` with `--ignore-checksum --max-delete 100` runs before the terminal server is killed.
 4. The bisync-initialized flag is touched on the timeout path to ensure final bisync runs even when initial sync timed out.
 5. The container image declares `STOPSIGNAL SIGINT` so the container runtime sends a trappable signal.
-6. User-initiated Stop and Delete both reach the trap via the DO's `destroy()` override, which sends `SIGTERM` and polls `ctx.container.running` for up to 25 s before falling back to `super.destroy()`'s SIGKILL. Idle-timeout and quota-eviction paths reach the trap via `collectMetrics`'s `stop('SIGTERM')` call. There is no path that goes straight to SIGKILL while the container is still running.
+6. User-initiated Stop and Delete reach the trap via the DO's `destroy()` override, which sends `SIGTERM` and polls `ctx.container.running` for up to 25 s before falling back to `super.destroy()`'s SIGKILL.
+7. Idle-timeout and quota-eviction paths reach the trap via `collectMetrics`'s `stop('SIGTERM')` call.
 
 **Constraints:**
 
 - PID file is the sole mechanism for killing the sync daemon (no in-memory PID variable fallback).
 - The `--max-delete 100` flag prevents catastrophic mass deletion during final sync.
+- No invocation path goes straight to SIGKILL while the container is still running; SIGTERM-then-25s-poll is always the precursor.
 
 **Priority:** P0
 
@@ -406,7 +408,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. **DO fetch gate:** The `fetch()` override returns 503 when `!this.ctx.container?.running` for all non-internal routes, preventing `super.fetch()` from triggering `startIfNotRunning`.
 2. **Terminal route guard:** Rejects WebSocket upgrade requests with 503 when `session.status === 'stopped'` in KV (defense-in-depth).
 3. **Frontend disposal:** Session poller detects running-to-stopped transitions and calls `terminalStore.disposeSession(sessionId)`, killing all WebSocket retry loops.
-4. **Close code 4503:** The DO sends custom WebSocket close code 4503 when the container is not running. The client treats 4503 as authoritative (no retry). Non-4503 codes (1006, 1001, etc.) trigger automatic reconnection.
+4. **Close code 4503 (server):** The DO sends custom WebSocket close code 4503 when the container is not running.
+5. **Close code 4503 (client):** The client treats 4503 as authoritative (no retry); non-4503 codes (1006, 1001, etc.) trigger automatic reconnection.
 
 **Constraints:**
 

@@ -268,7 +268,7 @@ export class container extends Container<Env> {
    * everywhere and the browser's IDB ciphertext is unrecoverable.
    *
    * Worker callers reach this method via a DO RPC from the /.config
-   * proxy handler (REQ-VAULT-008 AC2).
+   * proxy handler (REQ-VAULT-008 AC3).
    */
   async ensureVaultKey(): Promise<string> {
     if (this._vaultKey) return this._vaultKey;

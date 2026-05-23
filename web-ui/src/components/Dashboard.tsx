@@ -53,7 +53,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
     sessionStore.startR2Polling();
     storageStore.fetchStats();
 
-    // REQ-VAULT-008 AC9: sweep orphan SilverBullet IDB caches whose
+    // REQ-VAULT-015 AC4: sweep orphan SilverBullet IDB caches whose
     // sid is not in the user's current session list. Catches the case
     // where a session was deleted via API in another tab or after a
     // browser crash before cleanupSessionVaultCache could run.
