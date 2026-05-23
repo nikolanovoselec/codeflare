@@ -19,10 +19,10 @@ import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { parse as parseUrl } from 'node:url';
 import fs from 'node:fs';
-import crypto from 'node:crypto';
 import { createActivityTracker } from './activity-tracker.js';
 import { getPrewarmConfig } from './prewarm-config.js';
 import { getSyncStatus, getSystemMetrics } from './metrics.js';
+import { checkContainerAuth } from './auth-check.js';
 import { Session } from './session.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
 import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry } from './types.js';
@@ -141,43 +141,22 @@ const sessionOptions = {
 // Initialize session manager
 const sessionManager = new SessionManager(sessionOptions);
 
-/**
- * Timing-safe comparison of bearer tokens.
- * Uses crypto.timingSafeEqual to prevent timing side-channel attacks.
- */
-function safeTokenCompare(provided: string, expected: string): boolean {
-  const h = (s: string): Buffer => crypto.createHash('sha256').update(s).digest();
-  return crypto.timingSafeEqual(h(provided), h(expected));
-}
-
 // Create HTTP server
 const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
   const { pathname } = parseUrl(req.url ?? '');
   const method = req.method;
 
-  // Internal endpoints exempt from auth — used by DO schedule-based callbacks
-  // (collectMetrics, onActivityExpired) via getTcpPort().fetch() which bypasses
-  // the DO's fetch() override that injects auth headers.
-  // These endpoints are behind the container network boundary (no external access).
-  const authExemptPaths = new Set(['/health', '/activity']);
-  if (!authExemptPaths.has(pathname ?? '')) {
-    // Validate container auth token (internal-only service, no CORS needed)
-    const expectedToken = process.env.CONTAINER_AUTH_TOKEN;
-    if (!expectedToken) {
-      // L17: When CONTAINER_AUTH_TOKEN is not set, return 503 (server not ready)
-      // rather than silently skipping auth, which would leave all endpoints unprotected
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Server not configured (missing auth token)' }));
-      return;
-    }
-    const authHeader = req.headers['authorization'];
-    const providedToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    // L18: Use timing-safe comparison to prevent timing side-channel attacks
-    if (!providedToken || !safeTokenCompare(providedToken, expectedToken)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized' }));
-      return;
-    }
+  // REQ-SEC-012: container auth-token check. Logic extracted to
+  // ./auth-check.ts so it can be unit-tested without spawning node-pty.
+  const authOutcome = checkContainerAuth(
+    pathname ?? '',
+    req.headers['authorization'],
+    process.env.CONTAINER_AUTH_TOKEN,
+  );
+  if (!authOutcome.allowed) {
+    res.writeHead(authOutcome.status, { 'Content-Type': 'application/json' });
+    res.end(authOutcome.body);
+    return;
   }
 
   // Health check with full metrics (consolidates separate health server)
