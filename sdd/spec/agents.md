@@ -1205,6 +1205,10 @@ None.
 - MCP server registration + the `graphify-mcp-lazy.py` wrapper are unconditional on session mode (capability is ambient). The disciplines in REQ-AGENT-024 and the active-repo hook (AC5) are mode-gated to advanced.
 - Per-branch graphs are not supported. The wrapper reads `<repo>/.git/HEAD` only for log identification; graphify upstream models snapshots not branches, so users run `graphify update` after a checkout and the wrapper picks up the new mtime.
 - `[office]`, `[google]`, `[video]`, `[neo4j]`, and external-provider backend extras (`[ollama]`, `[bedrock]`, `[gemini]`, `[openai]`) are not installed. Users who need them can `uv tool install --upgrade graphifyy[all]` manually.
+- All in-session invocations of `graphify update` from codeflare preseed surfaces (prompts, skills, commands, hooks) MUST go through `bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh <path>` (preseed source: `preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh`). The wrapper pins `GRAPHIFY_MAX_WORKERS=1` and applies an `RLIMIT_AS` cap (default 1.5 GB, override via `GRAPHIFY_SAFE_RLIMIT_KB` / `GRAPHIFY_SAFE_WORKERS`) so a runaway rebuild dies with ENOMEM in the child rather than OOM-killing the 1 vCPU / 3.2 GB / no-swap container session. Bare `graphify update` from preseed surfaces is forbidden; new prompt fragments referencing graphify update must call the wrapper.
+
+<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh -->
+<!-- @test: host/__tests__/safe-graphify-update.test.js (RLIMIT_AS cap + GRAPHIFY_MAX_WORKERS=1 defaults, env overrides, proof-of-cap OOM kill → safe-wrapper constraint) -->
 
 **Priority:** P1
 
