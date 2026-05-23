@@ -352,9 +352,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-009](#req-sub-009-admin-configurable-tiers-via-management-panel)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/subscription.test.ts` `getTierConfig` describe annotated `REQ-SUB-010` - verifies KV-fallback-to-defaults, in-memory cache (single KV read across multiple calls), `resetTierConfigCache()` cache-bust)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

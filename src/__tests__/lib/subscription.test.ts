@@ -375,7 +375,7 @@ describe('getAllowedSessionModes', () => {
   });
 });
 
-describe('getTierConfig', () => {
+describe('getTierConfig / REQ-SUB-010 (tier config cached with 60-second TTL; KV-fallback-to-defaults; resetTierConfigCache busts the cache)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
@@ -398,6 +398,25 @@ describe('getTierConfig', () => {
     const config = await getTierConfig(mockKV as unknown as KVNamespace);
     const free = config.find((t) => t.id === 'free')!;
     expect(free.monthlySeconds).toBe(14400);
+  });
+
+  it('caches the config: second call within TTL does not re-read KV', async () => {
+    const kvGetSpy = vi.spyOn(mockKV, 'get');
+    await getTierConfig(mockKV as unknown as KVNamespace);
+    await getTierConfig(mockKV as unknown as KVNamespace);
+    await getTierConfig(mockKV as unknown as KVNamespace);
+    // First call reads KV; subsequent calls inside the TTL window do not.
+    expect(kvGetSpy).toHaveBeenCalledTimes(1);
+    kvGetSpy.mockRestore();
+  });
+
+  it('resetTierConfigCache() forces the next call to re-read KV', async () => {
+    const kvGetSpy = vi.spyOn(mockKV, 'get');
+    await getTierConfig(mockKV as unknown as KVNamespace);
+    resetTierConfigCache();
+    await getTierConfig(mockKV as unknown as KVNamespace);
+    expect(kvGetSpy).toHaveBeenCalledTimes(2);
+    kvGetSpy.mockRestore();
   });
 });
 

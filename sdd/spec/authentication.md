@@ -148,9 +148,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-011](#req-auth-011-auth-resolution-order)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/service-token-auth.test.ts` describe annotated `REQ-AUTH-004 AC1/AC2/AC3/AC5`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -273,9 +273,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/session-jwt.test.ts` `shouldRefreshJWT` describe annotated `REQ-AUTH-008 AC1/AC2`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
