@@ -1,5 +1,4 @@
-import type { UserPreferences, SessionMode } from '../types';
-import type { SubscriptionTierConfig } from './subscription';
+import type { UserPreferences, SessionMode, SubscriptionTierConfig } from '../types';
 import { getAllowedSessionModes } from './subscription';
 
 export function resolveSessionMode(prefs: UserPreferences | null): SessionMode {
