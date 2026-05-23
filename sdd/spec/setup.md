@@ -204,7 +204,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 <!-- @impl: src/routes/setup/handlers.ts -->
 
-**Intent:** The setup configure endpoint must stream real-time progress so the client can display step-by-step status updates.
+**Intent:** The setup configure endpoint must stream real-time progress as NDJSON so the client can display step-by-step status updates while the setup runs.
 
 **Applies To:** User
 
@@ -215,19 +215,44 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 3. Progress messages include `step` (step name) and `status` (`running`, `success`, or `error`).
 4. Error status messages include an `error` field with the error description.
 5. Every stream ends with exactly one completion object containing `done: true` and `success: boolean`.
-6. Successful completion includes `steps` array, `workersDevUrl`, and `customDomainUrl`.
-7. Failed completion includes `steps` array and top-level `error` message.
-8. Lock contention produces an immediate `done: true, success: false` with no step progress messages.
-9. The client detects completion by parsing until `done === true`, then checks `success`.
 
 **Constraints:**
 
 - The stream is not retryable mid-progress; on failure the client must re-submit the full request.
-- The `steps` array in the completion object provides cumulative status of all attempted steps.
+- Terminal-completion payload shape and edge-case behavior is specified in [REQ-SETUP-011](#req-setup-011-setup-stream-completion-payload-contract).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
+
+**Verification:** Automated test
+
+**Status:** Partial
+
+---
+
+### REQ-SETUP-011: Setup stream completion payload contract
+
+<!-- @impl: src/routes/setup/handlers.ts -->
+
+**Intent:** The terminal `done: true` object in the NDJSON stream must carry enough information for the client to render the final outcome and chain into post-setup flows (success URL display, lock-contention retry guidance, error surfacing).
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Successful completion includes `steps` array, `workersDevUrl`, and `customDomainUrl`.
+2. Failed completion includes `steps` array and top-level `error` message.
+3. Lock contention produces an immediate `done: true, success: false` with no step progress messages.
+4. The client detects completion by parsing until `done === true`, then checks `success`.
+
+**Constraints:**
+
+- The `steps` array in the completion object provides cumulative status of all attempted steps.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson)
 
 **Verification:** Automated test
 
