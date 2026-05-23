@@ -35,16 +35,43 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
 [[ -z "$SESSION_ID" ]] && exit 0
 
 VARS_FILE="$COUNTER_DIR/${SESSION_ID}.vars"
+SENTINEL="/tmp/.memory-capture-in-flight.${SESSION_ID}"
+SENTINEL_TTL_SEC=600  # 10 min — subagent runtime budget
 
-# Common case: no deferred capture, allow the tool call.
-[[ ! -f "$VARS_FILE" ]] && exit 0
+# Common case: no deferred capture, allow the tool call. (Sentinel is moot
+# without a pending .vars; clean it up if it lingered past the previous run.)
+if [[ ! -f "$VARS_FILE" ]]; then
+    [[ -f "$SENTINEL" ]] && rm -f "$SENTINEL"
+    exit 0
+fi
 
-# Allow the memory-capture subagent itself.
-if [[ "$TOOL_NAME" == "Task" ]]; then
+# Allow the parent's spawn of the memory-capture subagent. The tool that
+# spawns subagents is called "Task" in the legacy API and "Agent" in the
+# current Claude Code harness -- accept either. Mark sentinel so the
+# subagent's own tool calls (Read/Bash/Write) below are NOT blocked --
+# PreToolUse fires on the subagent's calls too, and without this they'd
+# be hard-blocked by the same hook the spawn just satisfied (the original
+# chicken-and-egg deadlock).
+if [[ "$TOOL_NAME" == "Task" || "$TOOL_NAME" == "Agent" ]]; then
     SUBAGENT_TYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // empty' 2>/dev/null) || true
     if [[ "$SUBAGENT_TYPE" == "memory-capture" ]]; then
+        touch "$SENTINEL"
         exit 0
     fi
+fi
+
+# Sentinel hot: a memory-capture subagent has been spawned in this session
+# within the TTL window. Let the subagent's tool calls (and any parent
+# tool calls during background processing) through. The block resumes
+# automatically when .vars is deleted (early-exit above) or when the
+# sentinel ages out below.
+if [[ -f "$SENTINEL" ]]; then
+    SENTINEL_AGE=$(($(date +%s) - $(stat -c %Y "$SENTINEL" 2>/dev/null || echo 0)))
+    if (( SENTINEL_AGE < SENTINEL_TTL_SEC )); then
+        exit 0
+    fi
+    # Stale: subagent never completed -- clear and fall through to block.
+    rm -f "$SENTINEL"
 fi
 
 # Everything else: HARD BLOCK with a directive the agent cannot ignore.
