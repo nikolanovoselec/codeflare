@@ -159,6 +159,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-vault/scripts/merge-vault-graph.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/context-mode/.claude-plugin/plugin.json": {
     "modes": [
       "advanced"

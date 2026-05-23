@@ -217,55 +217,15 @@ write it back. The persistent graph is then what `graphify global add`
 consumes in step 5.
 
 ```bash
-( flock -w 5 /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python -c "
-import json
-import networkx as nx
-from pathlib import Path
-from graphify.build import build_from_json
-from graphify.cluster import cluster
-from graphify.export import to_json
-
-chunk_path = Path('/home/user/Vault/graphify-out/.graphify_chunk_01.json')
-out_path = Path('/home/user/Vault/graphify-out/graph.json')
-vault_graph_path = Path('/home/user/Vault/graphify-out/vault-graph.json')
-
-# REQ-MEM-009 AC4: missing/unreadable persistent vault-graph.json is
-# recoverable -- start fresh. Any JSON parse error or KeyError on the
-# expected node_link shape means the file is corrupt; treat as missing.
-G_prior = nx.DiGraph()
-try:
-    if vault_graph_path.exists():
-        prior_blob = json.loads(vault_graph_path.read_text(encoding='utf-8'))
-        # node_link_graph default in nx 3.x reads 'edges'; vault-graph.json
-        # historically wrote 'links'. Try both so older files still load.
-        try:
-            G_prior = nx.node_link_graph(prior_blob, edges='links')
-        except (KeyError, TypeError):
-            G_prior = nx.node_link_graph(prior_blob)
-except (json.JSONDecodeError, KeyError, TypeError, OSError) as e:
-    print(f'vault-graph.json unreadable ({e}); starting fresh')
-    G_prior = nx.DiGraph()
-
-# Build the new chunk into a graph.
-extraction = json.loads(chunk_path.read_text(encoding='utf-8'))
-G_new = build_from_json(extraction)
-
-# REQ-MEM-009 AC2: hash-keyed union -- nx.compose dedupes nodes by ID
-# (existing IDs keep their attributes; new IDs append). Edges are
-# unioned by (source, target) tuple.
-G_merged = nx.compose(G_prior, G_new)
-
-# REQ-MEM-009 AC1: persist the cumulative vault graph for the next
-# extraction to load.
-to_json(G_merged, cluster(G_merged) if G_merged.number_of_nodes() else {}, str(vault_graph_path))
-
-# Also write the per-extraction graph.json (kept for backwards-compat
-# with any caller that still reads the chunk-shaped artifact).
-to_json(G_merged, cluster(G_merged) if G_merged.number_of_nodes() else {}, str(out_path))
-
-print(f'vault graph: {G_merged.number_of_nodes()} nodes ({G_new.number_of_nodes()} new, {G_prior.number_of_nodes()} prior), {G_merged.number_of_edges()} edges')
-" ) || EXTRACT_FAILED=1
+( flock -w 5 /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python /home/user/.claude/plugins/codeflare-vault/scripts/merge-vault-graph.py ) || EXTRACT_FAILED=1
 ```
+
+The script (`merge-vault-graph.py`, REQ-MEM-009 AC1+AC2+AC4) does the
+load + compose + cluster + persist. It defaults to the standard vault
+layout (chunk at `/home/user/Vault/graphify-out/.graphify_chunk_01.json`,
+persistent graph at `vault-graph.json`, per-run output at `graph.json`)
+so the invocation above takes no arguments. Tests override the paths via
+positional arguments to drive the script against synthetic fixtures.
 
 If the Python step or `flock -w 5` failed (lock holder wedged or build error), `EXTRACT_FAILED` is set. Step 7 reads this flag and skips the marker-touch so the next 60s daemon tick re-discovers the same changed files. The wrapper used to be `|| true` (silent swallow); replaced because that allowed a silent failure to advance the high-water mark and lose the change permanently.
 

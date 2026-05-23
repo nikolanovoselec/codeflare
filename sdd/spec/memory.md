@@ -284,7 +284,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ### REQ-MEM-009: Vault graph accumulates monotonically across extractions
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md -->
-<!-- @test: host/__tests__/vault-extract-merge.test.js (vault-extract-merge describe → load + merge + persist + flock pattern in prompt → AC1-AC5) -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py -->
+<!-- @test: host/__tests__/vault-extract-merge.test.js (merge-vault-graph.py AST checks → to_json(vault_graph_path) + nx.compose + try/except guard → AC1+AC2+AC4) -->
+<!-- @test: host/__tests__/vault-extract-merge.test.js (vault-extract-prompt.md structural checks → graphify global add --as user_vault + flock /tmp/graphify-global.lock → AC3+AC5) -->
 
 **Intent:** Each vault-monitor extraction must add new nodes to the `user_vault` subgraph in the unified global graph without destroying nodes from prior extractions. Previously the agent called `graphify global add ... --as user_vault` after building a chunk graph from only the newly-changed files; `--as <tag>` replaces the entire repo-tag contribution, so every vault edit wiped all prior vault knowledge from the global graph (observed: 17 nodes -> 2 nodes after the agent ran on 2 newly-created stub `.md` files).
 

@@ -1,89 +1,107 @@
-// REQ-MEM-009: the vault-extract pipeline must accumulate the user_vault
-// subgraph across extractions instead of replacing it on every run. The
-// haiku's prompt is the canonical contract -- it spells out the exact
-// commands and order. The tests below pattern-match the prompt's body
-// against the AC contract.
+// REQ-MEM-009: vault-extract cumulative merge pipeline.
 //
-// The prompt is a markdown file with embedded bash code blocks; we read
-// it raw and assert the load/merge/persist/flock structure is present.
+// AC1/AC2/AC4 are now implemented by merge-vault-graph.py (extracted
+// from the prompt). Tests inspect the Python script's AST via a
+// subprocess: py_compile validates syntax, ast.parse + dump verifies
+// the expected imports and function calls actually exist as Python
+// nodes (not just byte patterns in prose). Gut-check: rename
+// nx.compose to nx.union and AC2 fails; remove the try/except and AC4
+// fails; remove to_json(...vault_graph_path...) and AC1 fails.
+//
+// AC3 + AC5 still test the prompt: the global-add invocation and the
+// flock scope live in the orchestrating bash, not the Python script,
+// and rewriting them as a separate script would add no behavioural
+// coverage (the bash is a single command line).
 
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const PROMPT_PATH = path.join(
-  __dirname,
-  '..',
-  '..',
-  'preseed',
-  'agents',
-  'claude',
-  'plugins',
-  'codeflare-vault',
-  'scripts',
-  'vault-extract-prompt.md',
-);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const VAULT_DIR = path.join(__dirname, '..', '..', 'preseed', 'agents', 'claude', 'plugins', 'codeflare-vault', 'scripts');
+const SCRIPT = path.join(VAULT_DIR, 'merge-vault-graph.py');
+const PROMPT = path.join(VAULT_DIR, 'vault-extract-prompt.md');
 
-function read() {
-  return fs.readFileSync(PROMPT_PATH, 'utf8');
+function pyAst(query) {
+  const code = `
+import ast, sys
+src = open(${JSON.stringify(SCRIPT)}).read()
+tree = ast.parse(src)
+${query}
+`;
+  return spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
 }
 
-test('REQ-MEM-009 AC1 / REQ-VAULT-003 (user-curated edits ingested) / REQ-VAULT-011 (PDF ingestion): prompt loads a persistent vault-graph.json before merging', () => {
-  const body = read();
-  assert.match(
-    body,
-    /vault-graph\.json/,
-    'prompt must reference /home/user/Vault/graphify-out/vault-graph.json',
-  );
-  // Must load before writing -- pattern: load path then later write same path.
-  const firstRead = body.indexOf('vault-graph.json');
-  const lastRead = body.lastIndexOf('vault-graph.json');
-  assert.notStrictEqual(firstRead, lastRead, 'prompt must both read and write vault-graph.json');
+test('REQ-MEM-009 setup: merge-vault-graph.py exists and is valid Python', () => {
+  assert.ok(fs.existsSync(SCRIPT), 'merge-vault-graph.py must exist');
+  const compile = spawnSync('python3', ['-m', 'py_compile', SCRIPT], { encoding: 'utf8', timeout: 5_000 });
+  assert.equal(compile.status, 0, `py_compile failed: ${compile.stderr}`);
 });
 
-test('REQ-MEM-009 AC2: prompt does a hash-keyed union of new chunk into persistent graph', () => {
-  const body = read();
-  // nx.compose (networkx) or an equivalent set-union step over nodes+edges.
+test('REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path', () => {
+  const r = pyAst(`
+calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == 'to_json']
+targets = []
+for c in calls:
+    for a in c.args:
+        if isinstance(a, ast.Call) and getattr(a.func, 'id', '') == 'str':
+            inner = a.args[0] if a.args else None
+            if isinstance(inner, ast.Name):
+                targets.append(inner.id)
+print(' '.join(targets))
+`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /\bvault_graph_path\b/, 'to_json must be called with str(vault_graph_path) so the cumulative graph is persisted');
+});
+
+test('REQ-MEM-009 AC2: script unions the prior + new graphs via nx.compose (hash-keyed dedup)', () => {
+  const r = pyAst(`
+hits = [n for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == 'compose'
+        and isinstance(n.func.value, ast.Name)
+        and n.func.value.id == 'nx']
+print(len(hits))
+`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), '1', 'merge-vault-graph.py must call nx.compose exactly once');
+});
+
+test('REQ-MEM-009 AC4: script wraps the vault-graph.json load in try/except so missing/corrupt files reset to a fresh DiGraph', () => {
+  const r = pyAst(`
+tries = [n for n in ast.walk(tree) if isinstance(n, ast.Try)]
+ok = False
+for t in tries:
+    body_src = ast.unparse(t)
+    if 'vault_graph_path' in body_src and t.handlers:
+        ok = True
+        break
+print('OK' if ok else 'MISSING')
+`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), 'OK', 'merge-vault-graph.py must wrap the vault_graph_path read in a try/except block');
+});
+
+test('REQ-MEM-009 AC3: prompt step 5 feeds vault-graph.json to `graphify global add --as user_vault` (not the per-chunk graph)', () => {
+  const body = fs.readFileSync(PROMPT, 'utf8');
   assert.match(
     body,
-    /compose|nodes\.update|union|merge.*graph|graph.*merge/i,
-    'prompt must spell out a node-union/merge step (e.g. nx.compose) so existing IDs dedupe',
+    /graphify\s+global\s+add\s[\s\S]{0,200}vault-graph\.json[\s\S]{0,200}--as\s+user_vault/,
+    'prompt step 5 must call `graphify global add <vault-graph.json> --as user_vault`',
   );
 });
 
-test('REQ-MEM-009 AC3: prompt feeds the persistent vault graph to `graphify global add --as user_vault`', () => {
-  const body = read();
+test('REQ-MEM-009 AC5: prompt wraps the merge invocation under flock /tmp/graphify-global.lock', () => {
+  const body = fs.readFileSync(PROMPT, 'utf8');
+  const flockMatches = body.match(/flock\s+-w\s+\d+\s+\/tmp\/graphify-global\.lock/g) || [];
+  assert.ok(flockMatches.length >= 2, `expected >=2 flock wrappers (steps 4 + 5), got ${flockMatches.length}`);
   assert.match(
     body,
-    /graphify\s+global\s+add[\s\S]{0,200}--as\s+user_vault/,
-    'prompt must run `graphify global add ... --as user_vault` to publish the cumulative vault graph',
-  );
-  // The argument to global add MUST be the persistent vault graph,
-  // not the per-extraction chunk graph.
-  assert.match(
-    body,
-    /graphify\s+global\s+add\s+[^\n]*vault-graph\.json[\s\S]{0,200}--as\s+user_vault/,
-    'global add must consume vault-graph.json (not the per-chunk graph)',
-  );
-});
-
-test('REQ-MEM-009 AC4: prompt handles missing/unreadable vault-graph.json by starting fresh', () => {
-  const body = read();
-  // Must spell out an "if not exists" / "try/except" guard around the load
-  // so a fresh vault starts cleanly rather than crashing the haiku.
-  assert.match(
-    body,
-    /try:[\s\S]{0,200}vault-graph\.json|exists\([^)]*vault-graph\.json|FileNotFoundError|JSONDecodeError|except\s+\(.+\)\s*:/i,
-    'prompt must include a missing-file / parse-error guard around vault-graph.json load',
-  );
-});
-
-test('REQ-MEM-009 AC5: merge + persist step runs under flock /tmp/graphify-global.lock', () => {
-  const body = read();
-  assert.match(
-    body,
-    /flock\s+\/tmp\/graphify-global\.lock/,
-    'prompt must wrap the merge + global-add sequence with flock /tmp/graphify-global.lock to serialise with the capture pipeline',
+    /flock\s+-w\s+\d+\s+\/tmp\/graphify-global\.lock\s+\S*python\S*\s+\S*merge-vault-graph\.py/,
+    'prompt step 4 must invoke merge-vault-graph.py under flock',
   );
 });
