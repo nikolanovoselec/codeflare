@@ -162,8 +162,8 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       });
       // The DO's fetch was called with /_internal/setBucketName containing r2 creds
       const containerFetchCalls = testState.container!.fetch.mock.calls;
-      const setBucketNameCall = containerFetchCalls.find((call: unknown[]) =>
-        (call[0] as Request).url.includes('setBucketName')
+      const setBucketNameCall = containerFetchCalls.find(
+        (call) => (call[0] as Request).url.includes('setBucketName')
       );
       expect(setBucketNameCall).toBeDefined();
       const body = JSON.parse(await (setBucketNameCall![0] as Request).clone().text());
