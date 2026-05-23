@@ -259,7 +259,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. Middleware in `index.ts` checks the `codeflare_session` JWT expiry on every response.
+1. Global middleware checks the `codeflare_session` JWT expiry on every response.
 2. When less than 15 minutes remain on the 1-hour TTL, a new JWT is signed with a fresh 1-hour expiry and set as a replacement cookie on the response.
 3. The refresh is transparent to the user (no redirect, no re-authentication).
 4. The refresh occurs on any response, not just specific routes.
@@ -321,7 +321,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. An `authConfigFetched` boolean sentinel in `access.ts` is set to `true` once KV auth config has been successfully fetched with real data (auth domain + audience).
+1. An `authConfigFetched` boolean sentinel is set to `true` once KV auth config has been successfully fetched with real data (auth domain + audience).
 2. Once the sentinel is set, the pre-setup fallback that trusts `cf-access-authenticated-user-email` headers is permanently disabled for the isolate's lifetime.
 3. Subsequent KV read failures do not revert the sentinel.
 4. `resetAuthConfigCache()` clears the sentinel (used in tests).

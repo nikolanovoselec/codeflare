@@ -125,6 +125,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
 <!-- @impl: src/container/index.ts -->
+<!-- @impl: host/src/server.ts -->
 
 **Intent:** Containers that receive no user input for a configurable duration are automatically stopped to conserve resources and reduce cost.
 
@@ -135,7 +136,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. The `sleepAfter` value is user-configurable with allowed values: 5m, 15m, 30m, 1h, 2h.
 2. Default is 30m for paying users; free-tier users are locked to 15m regardless of stored preference.
 3. The idle timer resets only when new user input is detected (not on heartbeats, reconnections, or protocol chatter).
-4. `collectMetrics()` is the sole enforcer of the container-level idle timeout: it polls the in-container `/activity` endpoint every 60 seconds, computes idle time from `lastInputAt`, and explicitly calls `this.stop('SIGTERM')` once the user-configured threshold is exceeded. (The host-side per-PTY keepalive in `host/src/server.ts` is a separate safety net for stuck `lastInputAt`, floor-clamped at the maximum `sleepAfter` so it cannot fire first; see AD47.)
+4. `collectMetrics()` is the sole enforcer of the container-level idle timeout: it polls the in-container `/activity` endpoint every 60 seconds, computes idle time from `lastInputAt`, and explicitly calls `this.stop('SIGTERM')` once the user-configured threshold is exceeded. (The host-side per-PTY keepalive is a separate safety net for stuck `lastInputAt`, floor-clamped at the maximum `sleepAfter` so it cannot fire first; see AD47.)
 5. The Container SDK's own `sleepAfter` timer is pinned to a 24h sentinel so it never fires in normal operation; idle policy is owned exclusively by `collectMetrics()`. The user-facing preference is held in the `idleTimeoutPref` field.
 6. Admins can always change their own `sleepAfter`; non-subscribed users have the dropdown disabled.
 
@@ -260,6 +261,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 <!-- @impl: src/container/index.ts -->
 <!-- @impl: src/routes/container/lifecycle.ts -->
+<!-- @impl: entrypoint.sh -->
 
 **Intent:** Restarting a session reconnects to the same R2 bucket, preserving all user files without data loss.
 
@@ -270,7 +272,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. Same-bucket restart: `setBucketName` returns 409 (bucket already set) but the 409 handler stores the new `sessionId`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled`, and `userEmail` in DO storage.
 2. `startAndWaitForPorts()` triggers `onStart()` which re-arms the `collectMetrics` schedule and records `containerStartedAt`.
 3. `onStart()` refreshes `envVars` via `updateEnvVars()` so that any updated LLM keys, deploy keys, or preferences take effect.
-4. The initial `rclone sync` in `entrypoint.sh` restores the workspace from R2 on restart.
+4. The container entrypoint runs an initial `rclone sync` that restores the workspace from R2 on restart.
 5. User preference changes (sleepAfter, fastStart, sessionMode) take effect on restart without requiring container recreation.
 
 **Constraints:**
@@ -365,11 +367,11 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. `entrypoint.sh` traps SIGINT and SIGTERM signals.
+1. The container entrypoint traps SIGINT and SIGTERM signals.
 2. The trap handler kills the sync daemon via PID file at `/tmp/sync-daemon.pid`.
 3. A final `rclone bisync` with `--ignore-checksum --max-delete 100` runs before the terminal server is killed.
 4. The bisync-initialized flag is touched on the timeout path to ensure final bisync runs even when initial sync timed out.
-5. Dockerfile uses `STOPSIGNAL SIGINT` so the container runtime sends a trappable signal.
+5. The container image declares `STOPSIGNAL SIGINT` so the container runtime sends a trappable signal.
 6. User-initiated Stop and Delete both reach the trap via the DO's `destroy()` override, which sends `SIGTERM` and polls `ctx.container.running` for up to 25 s before falling back to `super.destroy()`'s SIGKILL. Idle-timeout and quota-eviction paths reach the trap via `collectMetrics`'s `stop('SIGTERM')` call. There is no path that goes straight to SIGKILL while the container is still running.
 
 **Constraints:**

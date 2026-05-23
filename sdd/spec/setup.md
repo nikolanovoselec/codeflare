@@ -118,7 +118,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 1. **Default mode** (no `SAAS_MODE`): Uses Cloudflare Access JWT authentication. Users are manually allowlisted via the setup wizard. CF Access policies + KV allowlist control access.
 2. **Onboarding mode** (`ONBOARDING_LANDING_PAGE=active`): Uses CF Access authentication. Adds a public waitlist landing page at `/` for unauthenticated visitors. Authenticated users are routed to `/app/`. Turnstile widget is provisioned for the landing page.
 3. **SaaS mode** (`SAAS_MODE=active`): Replaces the CF Access interstitial with a branded login page. When `OAUTH_CLIENT_ID` is configured, uses Direct GitHub OAuth (Worker-managed HMAC-SHA256 session cookies). New users are auto-provisioned with `pending` tier. CF Access groups/policies are not created; the Worker handles user management via KV.
-4. `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are passed to the Worker via `--var` in `deploy.yml`.
+4. `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are injected at deploy time as Worker plaintext bindings.
 5. The frontend detects the mode: if `/public/auth/providers` returns providers, show LoginPage (SaaS); if setup incomplete, show setup; otherwise redirect to `/app/` (default with CF Access).
 
 **Constraints:**
@@ -179,7 +179,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. When `setup:complete` is `"true"` in KV, the conditional auth middleware in `src/routes/setup/index.ts` requires valid authentication.
+1. When `setup:complete` is `"true"` in KV, the setup-route auth middleware requires valid authentication.
 2. The authenticated user must have the `admin` role (enforced by `requireAdmin`).
 3. This applies to `POST /api/setup/configure`, `GET /api/setup/detect-token`, and `GET /api/setup/prefill`.
 4. `GET /api/setup/status` remains always public (no secrets in response).

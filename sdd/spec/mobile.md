@@ -287,7 +287,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Voice input uses the Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`) implemented in `speech-input.ts`.
+1. Voice input uses the Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`).
 2. Voice input is completely decoupled from the keyboard/iframe input system.
 3. On mobile, a floating microphone button starts recognition. On desktop, a small mic icon in the bottom-right corner and `Ctrl+Space` keyboard shortcut toggle voice input.
 4. Each activation captures one utterance: tap/shortcut, speak, pause, text sent, auto-deactivates (`continuous=false`, `interimResults=false`).
@@ -375,6 +375,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::restoreFocusIfNeeded -->
 <!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState -->
 <!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn -->
+<!-- @impl: web-ui/src/components/Layout.tsx -->
 
 **Intent:** When the browser is backgrounded and returned to, keyboard state signals must be reset so the terminal functions correctly without manual intervention.
 
@@ -383,7 +384,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Acceptance Criteria:**
 
 1. On visibility return (Chrome), `restoreFocusIfNeeded()` calls `forceResetKeyboardState()` + `enableVirtualKeyboardOverlay()` BEFORE refocusing the input.
-2. The `Layout.tsx` visibility handler calls `forceResetKeyboardState()` as a fallback for when focus restore does not fire.
+2. A document-visibility handler in the layout shell calls `forceResetKeyboardState()` as a fallback for when focus restore does not fire.
 3. `forceResetKeyboardState()` unconditionally zeros all signals (`keyboardHeight`, `vkOpen`, `viewportGrowth`) because `boundingRect.height` returns stale cached values on browser resume.
 4. On Samsung, the dashboard bounce (REQ-MOB-003) replaces focus-based recovery.
 5. On Samsung, `enableVirtualKeyboardOverlay()` is delayed by 300ms after visibility return so stale `geometrychange` events (arriving up to ~200ms after toggle) are caught by the 50ms ignore window.
