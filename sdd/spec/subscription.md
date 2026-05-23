@@ -53,7 +53,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -93,7 +93,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -124,7 +124,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -226,7 +226,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -259,7 +259,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -322,7 +322,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -354,7 +354,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -385,7 +385,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -420,7 +420,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -451,7 +451,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -482,7 +482,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
