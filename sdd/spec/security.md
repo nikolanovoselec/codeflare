@@ -644,9 +644,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
 
-**Verification:** Automated test (unit test for concurrent fetch deduplication)
+**Verification:** Automated test (`src/__tests__/lib/auth-config-fetch-dedup.test.ts` describe annotated `REQ-SEC-016 AC1/AC2/AC3` - 10 concurrent requests issue exactly one round of setup:* KV reads; resetAuthConfigCache forces re-fetch)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

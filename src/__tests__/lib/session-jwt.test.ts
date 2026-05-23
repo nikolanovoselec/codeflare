@@ -107,5 +107,31 @@ describe('session-jwt', () => {
     });
   });
 
-  // Cookie refresh (shouldRefreshJWT) deferred to future implementation.
+  describe('shouldRefreshJWT / REQ-AUTH-008 AC1/AC2 (cookie auto-refresh middleware: refresh when < 15 min remaining on 1h TTL)', () => {
+    const now = () => Math.floor(Date.now() / 1000);
+
+    it('returns true when payload expires in less than 15 minutes', async () => {
+      const { shouldRefreshJWT } = await import('../../lib/session-jwt');
+      const payload = { email: 'u@x.com', sub: 's', ghLogin: 'g', iat: now() - 2700, exp: now() + 600 } as any;
+      expect(shouldRefreshJWT(payload)).toBe(true);
+    });
+
+    it('returns false when payload has more than 15 minutes remaining', async () => {
+      const { shouldRefreshJWT } = await import('../../lib/session-jwt');
+      const payload = { email: 'u@x.com', sub: 's', ghLogin: 'g', iat: now(), exp: now() + 3000 } as any;
+      expect(shouldRefreshJWT(payload)).toBe(false);
+    });
+
+    it('returns false when payload is already expired (does not extend dead sessions)', async () => {
+      const { shouldRefreshJWT } = await import('../../lib/session-jwt');
+      const payload = { email: 'u@x.com', sub: 's', ghLogin: 'g', iat: now() - 7200, exp: now() - 100 } as any;
+      expect(shouldRefreshJWT(payload)).toBe(false);
+    });
+
+    it('returns true at the boundary (exactly 14:59 remaining)', async () => {
+      const { shouldRefreshJWT } = await import('../../lib/session-jwt');
+      const payload = { email: 'u@x.com', sub: 's', ghLogin: 'g', iat: now() - 2700, exp: now() + 899 } as any;
+      expect(shouldRefreshJWT(payload)).toBe(true);
+    });
+  });
 });
