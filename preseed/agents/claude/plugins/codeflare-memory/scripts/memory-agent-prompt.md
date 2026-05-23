@@ -47,78 +47,39 @@ rm -f {VARS_FILE}
 
 The hook (`memory-capture.sh`) already advanced the counter at `{COUNTER_FILE}` before emitting this directive, so do not rewrite it here — a stale rewrite under concurrent 15-message batches would move the counter backwards and cause the next hook to over-count.
 
-### 1.5. Derive ISO_TS via Bash (MANDATORY — do not skip, do not improvise)
+### 1.5. Derive ISO_TS via Bash (MANDATORY - do not skip, do not improvise)
 
 This step exists because issue #416 caught the agent silently fabricating
-the timestamp string instead of running `date`. Run the following Bash
-block EXACTLY as written via the Bash tool. The captured stdout is the
-ONLY acceptable value for `ISO_TS` everywhere it appears in later steps
+the timestamp string instead of running `date`. Run the helper script
+EXACTLY as written via the Bash tool. The captured stdout is the ONLY
+acceptable value for `ISO_TS` everywhere it appears in later steps
 (filename, frontmatter `captured_at`, anywhere else). Do not edit it,
 do not reformat it, do not regenerate it from `TODAY`.
 
 ```bash
-RESOLVED=""
-if [ -n "$USER_TIMEZONE" ]; then
-  RESOLVED="$USER_TIMEZONE"
-elif [ -n "$TZ" ]; then
-  RESOLVED="$TZ"
-elif [ -r /etc/timezone ]; then
-  RESOLVED="$(cat /etc/timezone)"
-else
-  RESOLVED="UTC"
-fi
-ISO_TS="$(TZ="$RESOLVED" date '+%Y-%m-%dT%H-%M-%S%z')"
-EXPECTED_OFFSET="$(TZ="$RESOLVED" date '+%z')"
-
-# Assertion 1: must end with a real offset like +0200, -0500, +0000.
-case "$ISO_TS" in
-  *[+-][0-9][0-9][0-9][0-9]) ;;
-  *)
-    echo "ISO_TS_ASSERTION_FAILED: missing TZ offset in $ISO_TS" >&2
-    exit 1
-    ;;
-esac
-
-# Assertion 2: offset must match what TZ="$RESOLVED" produces. Catches
-# the original #416 symptom (Europe/Zurich host emitting +0000 because
-# the LLM dropped the TZ wrapper) without rejecting legitimately UTC
-# hosts. A wrong-TZ output fails here even though it has a "real" offset.
-ACTUAL_OFFSET="${ISO_TS: -5}"
-if [ "$ACTUAL_OFFSET" != "$EXPECTED_OFFSET" ]; then
-  echo "ISO_TS_ASSERTION_FAILED: offset $ACTUAL_OFFSET does not match TZ=$RESOLVED expected $EXPECTED_OFFSET" >&2
-  exit 1
-fi
-
-# Assertion 3: a freshness check that proves `date` actually executed in
-# this Bash invocation (vs the LLM fabricating a plausible value and
-# skipping the call). Reconstruct ISO_TS into a date-parsable form by
-# converting only the time-portion hyphens after `T` back into colons,
-# then compare its epoch against the wall clock. >30s drift = fabricated.
-# (30s threshold accommodates cold-container Bash tool latency without
-# weakening detection of fabricated values, which typically drift hours.)
-DATE_PART="${ISO_TS%T*}"
-REST="${ISO_TS#*T}"
-TIME_PART="${REST%[+-]*}"
-TZ_PART="${REST#$TIME_PART}"
-TIME_COLONS="${TIME_PART//-/:}"
-ISO_TS_PARSEABLE="${DATE_PART}T${TIME_COLONS}${TZ_PART}"
-EPOCH_NOW=$(date +%s)
-ISO_TS_EPOCH=$(date -d "$ISO_TS_PARSEABLE" +%s 2>/dev/null || echo 0)
-DRIFT=$(( EPOCH_NOW - ISO_TS_EPOCH ))
-ABS_DRIFT=${DRIFT#-}
-if [ "$ISO_TS_EPOCH" -eq 0 ] || [ "$ABS_DRIFT" -gt 30 ]; then
-  echo "ISO_TS_ASSERTION_FAILED: $ISO_TS drifts ${DRIFT}s from current clock; agent likely fabricated" >&2
-  exit 1
-fi
-
-echo "ISO_TS=$ISO_TS"
-echo "RESOLVED_TZ=$RESOLVED"
+bash /home/user/.claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh
 ```
 
-Record the exact `ISO_TS=...` line from stdout. That string is now
-`{ISO_TS}` for the rest of this prompt. If the Bash call errored
-(assertion failed), re-run it once verbatim; if it still errors, halt
-with a brief explanation rather than guessing a value.
+The script resolves the user's timezone from `$USER_TIMEZONE` -> `$TZ` ->
+`/etc/timezone` -> UTC, calls `date` once, then asserts that the result
+(a) ends with a four-digit `[+-]NNNN` offset, (b) the offset matches what
+`TZ="$RESOLVED" date '+%z'` produces (catches dropped-TZ-wrapper bugs
+like #416 without false-positiving legitimately-UTC hosts), and (c) the
+reconstructed epoch is within 30s of the wall clock (catches LLM
+fabrication, which typically drifts hours). Assertion failure exits
+non-zero with `ISO_TS_ASSERTION_FAILED: ...` on stderr.
+
+On success, stdout looks like:
+
+```
+ISO_TS=2026-05-23T22-11-09+0200
+RESOLVED_TZ=Europe/Zurich
+```
+
+Take everything after the `=` on the `ISO_TS=...` line as your `{ISO_TS}`
+value for the rest of this prompt. If the script errored (assertion
+failed), re-run it once verbatim; if it still errors, halt with a brief
+explanation rather than guessing a value.
 
 Rationale: the host clock is typically UTC, but capture files must
 record the wall-clock time the user actually experienced so SilverBullet

@@ -91,20 +91,19 @@ into the global graph. See [AD58](../decisions/README.md#ad58-sonnet-for-memory-
 for the rationale (recency bias + haiku confabulation that motivated the
 switch from haiku to sonnet).
 
-Between the dedup-gate step and the prefilter step, the agent must
-execute the prompt's mandatory Step 1.5 Bash block to derive `ISO_TS`
-(REQ-MEM-010 AC5). The block resolves the user's timezone, runs `date`
-to produce a stamp like `2026-05-23T22-11-09+0200`, then runs three
-assertions and exits non-zero if any fail: (a) the stamp must end with a
-four-digit `[+-]NNNN` offset; (b) that offset must equal what
-`TZ="$RESOLVED" date '+%z'` produces (catches dropped-TZ-wrapper bugs
-like issue #416 without false-positiving legitimately-UTC hosts); (c)
-the reconstructed epoch must be within 30 seconds of the wall clock
-(catches LLM fabrications that typically drift hours). Assertion failure
-**halts the capture** -- no vault file is written, no graph merge runs.
-The captured ISO_TS string is the single source of truth for the
-filename and the `captured_at` frontmatter field; both must contain
-identical bytes.
+Between the dedup-gate step and the prefilter step, the agent invokes
+`assert-iso-ts.sh` (Step 1.5 in the prompt; REQ-MEM-010 AC5/AC6/AC7).
+The script resolves the user's timezone, runs `date` to produce a stamp
+like `2026-05-23T22-11-09+0200`, then runs three assertions and exits
+non-zero if any fail: (a) the stamp must end with a four-digit `[+-]NNNN`
+offset; (b) that offset must equal what `TZ="$RESOLVED" date '+%z'`
+produces (catches dropped-TZ-wrapper bugs like issue #416 without
+false-positiving legitimately-UTC hosts); (c) the reconstructed epoch
+must be within 30 seconds of the wall clock (catches LLM fabrications
+that typically drift hours). Assertion failure **halts the capture** --
+no vault file is written, no graph merge runs. The captured ISO_TS
+string is the single source of truth for the filename and the
+`captured_at` frontmatter field; both must contain identical bytes.
 
 ## Counter Storage
 
