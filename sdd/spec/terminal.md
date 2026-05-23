@@ -23,6 +23,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ---
 
+<!-- @test: host/__audits__/terminal-compound-key.audit.js (REQ-TERM-001 describe -> compound key parse + WS path + Worker forward + KV validate + PTY key + prewarm cap exclusion + null-return cap + 1013 close -> AC2..AC6) -->
 ### REQ-TERM-001: Up to 6 terminal tabs per session
 
 <!-- @impl: src/lib/constants.ts::MAX_TABS -->
@@ -58,6 +59,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ---
 
+<!-- @test: host/__audits__/terminal-compound-key.audit.js (REQ-TERM-002 describe -> /api/terminal/.../ws + container.fetch + login shell + xterm-256color + raw send + JSON control msgs + resize + type guard + protocol ping -> AC1..AC7) -->
 ### REQ-TERM-002: WebSocket connection to container PTY
 
 <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade -->
@@ -161,6 +163,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ---
 
+<!-- @test: host/__audits__/server-prewarm-lifecycle.audit.js (REQ-TERM-005 describe -> TAB_CONFIG parse + PREWARM_SESSION_ID + login shell + onData ready + 20s hard cap + adoption rename + 2m orphan + terminalServiceReady gate -> AC1..AC6) -->
 ### REQ-TERM-005: Tab 1 auto-starts the configured agent
 
 <!-- @impl: entrypoint.sh::configure_tab_autostart -->
@@ -299,6 +302,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ---
 
+<!-- @test: web-ui/src/__tests__/lib/terminal-process-name.test.ts (REQ-TERM-009 describe -> process-name JSON + change-gated send + {"type": prefix + onProcessName dispatch + empty PROCESS_DISPLAY_NAME + registerProcessNameCallback wiring + updateTerminalLabel -> AC1,2,4,6,7) -->
 ### REQ-TERM-009: Process name detection via control messages
 
 <!-- @impl: host/src/session.ts -->
@@ -334,6 +338,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ---
 
+<!-- @test: src/__tests__/routes/presets-req-term-010.test.ts (REQ-TERM-010 describe -> POST/GET/PATCH/DELETE /api/presets + max-3 enforcement + 201/200 -> AC1,2,3,5) -->
+<!-- @test: web-ui/src/__tests__/stores/session-presets-ac-coverage.test.ts (REQ-TERM-010 describe -> savePreset state append + applyPresetToSession populates tabConfig + tab 1 preserved + 404 on missing -> AC1,4) -->
 ### REQ-TERM-010: Session presets (saved tab configurations)
 
 <!-- @impl: src/routes/presets.ts -->
