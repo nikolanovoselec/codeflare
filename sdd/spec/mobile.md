@@ -90,12 +90,11 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
-### REQ-MOB-003: Samsung Internet keyboard quirks handled
+### REQ-MOB-003: Samsung Internet keyboard viewport state
 
-<!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState -->
 <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight -->
 
-**Intent:** Samsung Internet's non-standard VirtualKeyboard API behavior must be compensated for so the terminal functions correctly on Samsung devices.
+**Intent:** Samsung Internet's `geometrychange` event is unreliable (stale-event cache, viewport inflation from bottom nav bar). Viewport state must be filtered and compensated so the terminal lays out correctly under Samsung devices.
 
 **Applies To:** User
 
@@ -106,15 +105,11 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 3. Samsung's bottom navigation bar viewport inflation is compensated: `baselineInnerHeight` captures pre-keyboard `window.innerHeight`, and `viewportGrowth` is subtracted from `boundingRect.height` in `getKeyboardHeight()`.
 4. `baselineInnerHeight` is immutable after module initialization, except for Galaxy Fold screen-switch events (delta > 200px with keyboard closed).
 5. `baselineInnerHeight` is never updated during keyboard close, `forceResetKeyboardState()`, or `resetKeyboardStateIfStale()`.
-6. Samsung's `focusout` event (back button keyboard dismiss) triggers `forceResetKeyboardState()` to zero all keyboard state signals.
-7. Samsung browser resume uses an automatic "dashboard bounce" (deactivate then reactivate session after 50ms) to reset the unreliable VirtualKeyboard compositor state.
-8. Samsung-specific address bar position is configured via a user settings toggle (`samsungAddressBarTop`) since no API exists to detect it.
 
 **Constraints:**
 
 - Samsung detection uses `isSamsungBrowser` flag.
-- The 50ms dashboard bounce delay gives SolidJS time to process null state and run cleanup effects before re-initialization.
-- Samsung-specific input resume does NOT auto-focus (prevents stale `geometrychange` events); keyboard stays closed for user tap.
+- State recovery + UI configuration concerns live in [REQ-MOB-011](#req-mob-011-samsung-internet-keyboard-state-recovery).
 
 **Priority:** P1
 
@@ -126,13 +121,41 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
-### REQ-MOB-004: Scroll position stable during output and keyboard transitions
+### REQ-MOB-011: Samsung Internet keyboard state recovery
+
+<!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState -->
+
+**Intent:** Samsung's back-button dismiss and browser-resume paths leave the VirtualKeyboard compositor in stale states. State must be force-reset on those edges, and the user must be able to tell codeflare where Samsung's address bar sits (the API does not expose it).
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Samsung's `focusout` event (back button keyboard dismiss) triggers `forceResetKeyboardState()` to zero all keyboard state signals.
+2. Samsung browser resume uses an automatic "dashboard bounce" (deactivate then reactivate session after 50ms) to reset the unreliable VirtualKeyboard compositor state.
+3. Samsung-specific address bar position is configured via a user settings toggle (`samsungAddressBarTop`) since no API exists to detect it.
+
+**Constraints:**
+
+- The 50ms dashboard bounce delay gives SolidJS time to process null state and run cleanup effects before re-initialization.
+- Samsung-specific input resume does NOT auto-focus (prevents stale `geometrychange` events); keyboard stays closed for user tap.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-004: Scroll-drop detection during burst output
 
 <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
-<!-- @impl: web-ui/src/stores/terminal.ts::beginProgrammaticScroll -->
 <!-- @impl: web-ui/src/hooks/useTerminal.ts::isAtBottom -->
 
-**Intent:** The terminal viewport must not jump or flicker during burst output, keyboard open/close transitions, or browser background/foreground cycling.
+**Intent:** The terminal viewport must not lose its scroll position when burst output trims the scrollback buffer or when the browser silently resets `ydisp` to 0 on focus changes.
 
 **Applies To:** User
 
@@ -143,20 +166,45 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 3. A synchronous post-write scroll guard in `flushWriteBuffer()` checks `viewportY < baseY` both synchronously and in `requestAnimationFrame`.
 4. A scroll-drop detector in `useTerminal` monitors for sudden `ydisp` drops to 0 when `ybase` is high, correcting via `queueMicrotask(() => scrollToBottom())`.
 5. Distance-based detection (not absolute `ydisp === 0`) distinguishes browser focus resets from normal scrollback trimming. Detection requires: `previousYdisp > 20`, `ybase > 20`, and `distanceDrift > 20`.
-6. Programmatic scroll corrections are wrapped in a suppression counter (`beginProgrammaticScroll`/`endProgrammaticScroll`) to prevent the scroll-reset detector from misidentifying them.
-7. When the keyboard is open, the scroll-reset detector is skipped (browser focus resets cannot happen in keyboard-open mode).
-8. Bottom-following users see zero flicker: correction is applied in the `onScroll` handler (before the canvas paints) rather than in the async write callback.
-9. Scrolled-up users have their relative position preserved across scrollback trimming via distance-based restoration (`targetY = currentBaseY - savedDistanceFromBottom`).
 
 **Constraints:**
 
 - The `isCorrectingScroll` flag prevents recursion when `scrollToBottom()` inside corrections triggers synchronous `onScroll` events.
-- Recent user intent (wheel/pointerdown/keydown) is checked before forcing bottom-following users to the bottom.
 - Scrollback is limited to 1000 lines (frontend and headless). Virtual scroll is disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`).
+- The keyboard-transition correction + user-anchoring behavior live in [REQ-MOB-012](#req-mob-012-scroll-anchoring-during-keyboard-transitions).
 
 **Priority:** P0
 
 **Dependencies:** REQ-TERM-008
+
+**Verification:** Automated test
+
+**Status:** Partial
+
+---
+
+### REQ-MOB-012: Scroll anchoring during keyboard transitions
+
+<!-- @impl: web-ui/src/stores/terminal.ts::beginProgrammaticScroll -->
+
+**Intent:** Programmatic scroll corrections must not be misidentified by the scroll-reset detector, and the visible scroll anchor (bottom for following users, relative position for scrolled-up users) must be preserved across keyboard open/close and scrollback trimming.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Programmatic scroll corrections are wrapped in a suppression counter (`beginProgrammaticScroll`/`endProgrammaticScroll`) to prevent the scroll-reset detector from misidentifying them.
+2. When the keyboard is open, the scroll-reset detector is skipped (browser focus resets cannot happen in keyboard-open mode).
+3. Bottom-following users see zero flicker: correction is applied in the `onScroll` handler (before the canvas paints) rather than in the async write callback.
+4. Scrolled-up users have their relative position preserved across scrollback trimming via distance-based restoration (`targetY = currentBaseY - savedDistanceFromBottom`).
+
+**Constraints:**
+
+- Recent user intent (wheel/pointerdown/keydown) is checked before forcing bottom-following users to the bottom.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MOB-004](#req-mob-004-scroll-drop-detection-during-burst-output)
 
 **Verification:** Automated test
 
@@ -245,18 +293,44 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 4. Each activation captures one utterance: tap/shortcut, speak, pause, text sent, auto-deactivates (`continuous=false`, `interimResults=false`).
 5. Final transcribed text is sent directly to `terminal.input()`.
 6. The mic button is hidden on browsers that do not support the Web Speech API.
-7. On first use, if `navigator.permissions.query({name: 'microphone'})` returns state `'prompt'`, the iframe input is blurred (dismissing the keyboard) before calling `recognition.start()` so the user can see the browser permission prompt.
-8. The same blur-before-permission pattern applies to clipboard paste (`clipboard-read` permission).
-9. Composition events (`compositionstart`/`compositionend`) buffer swipe typing text until the IME commits.
 
 **Constraints:**
 
 - Reliability over features: one utterance per activation, no interim results.
-- Permission prompt handling is critical on mobile where the prompt appears behind the virtual keyboard.
+- The first-use permission-prompt pattern and IME composition compatibility live in [REQ-MOB-013](#req-mob-013-mobile-input-system-platform-compatibility).
 
 **Priority:** P2
 
 **Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-013: Mobile input-system platform compatibility
+
+<!-- @impl: web-ui/src/lib/speech-input.ts -->
+<!-- @impl: web-ui/src/lib/terminal-mobile-input.ts -->
+
+**Intent:** Mobile browsers stack the virtual keyboard above the permission prompt and route swipe-typed text as IME composition events. The input system must blur the iframe before triggering permission prompts (so the user sees the prompt) and buffer composition events until commit (so swipe typing arrives as whole words).
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On first use, if `navigator.permissions.query({name: 'microphone'})` returns state `'prompt'`, the iframe input is blurred (dismissing the keyboard) before calling `recognition.start()` so the user can see the browser permission prompt.
+2. The same blur-before-permission pattern applies to clipboard paste (`clipboard-read` permission).
+3. Composition events (`compositionstart`/`compositionend`) buffer swipe typing text until the IME commits.
+
+**Constraints:**
+
+- Permission prompt handling is critical on mobile where the prompt appears behind the virtual keyboard if the iframe still holds focus.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-MOB-007](#req-mob-007-voice-input-via-web-speech-api)
 
 **Verification:** Manual check
 
