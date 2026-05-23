@@ -87,7 +87,7 @@ function createApp(envOverrides: Partial<Env> = {}) {
 // ---------------------------------------------------------------------------
 // POST /billing/checkout
 // ---------------------------------------------------------------------------
-describe('POST /billing/checkout', () => {
+describe('POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-IPCountry)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuthShouldReject = false;

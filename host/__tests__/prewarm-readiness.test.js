@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { getPrewarmConfig } from '../dist/prewarm-config.js';
 
 // REQ-SESSION-015 (pre-warm config feeds the readiness gate; getPrewarmConfig extracts the command for logging the pre-warm origin)
-describe('getPrewarmConfig', () => {
+describe('getPrewarmConfig / REQ-SESSION-015 (tab-1 pre-warm command feeds readiness gate)', () => {
   describe('when TAB_CONFIG is absent or empty', () => {
     // REQ-SESSION-015 (no TAB_CONFIG -> no pre-warm command; readiness gate uses default path)
     it('returns null command for undefined', () => {

@@ -68,7 +68,7 @@ function runHook(home, { transcriptPath, sessionId = 'sess-1' }) {
 }
 
 // REQ-MEM-002 (input gating: safety guards for missing inputs/files)
-describe('memory-capture.sh - input gating', () => {
+describe('memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)', () => {
   // REQ-MEM-002 (input safety: hook called without transcript_path exits 0 silently)
   it('exits 0 silently when transcript_path is missing', () => {
     const home = makeFixture();
@@ -106,7 +106,7 @@ describe('memory-capture.sh - input gating', () => {
 });
 
 // REQ-MEM-002 AC2 (no counter -> write baseline + emit graphify-query directive)
-describe('memory-capture.sh - first-run baseline', () => {
+describe('memory-capture.sh - first-run baseline / REQ-MEM-010 (memory capture hook plumbing)', () => {
   // REQ-MEM-002 AC2 + REQ-MEM-010 AC3 (first-run emits memory-scan directive)
   it('first run creates counter file and emits memory-scan directive', () => {
     const home = makeFixture();

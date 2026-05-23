@@ -76,7 +76,7 @@ echo "PLUGINS_CONFIG=$PLUGINS_CONFIG"
   return { claudeJson, pluginsConfig, manifestPath: join(userHome, '.claude', 'plugins', 'context-mode', '.claude-plugin', 'plugin.json') };
 }
 
-describe('entrypoint context-mode preseed gate', () => {
+describe('entrypoint context-mode preseed gate / REQ-AGENT-005 (context-mode MCP registration)', () => {
   let baseTmp;
   before(() => {
     baseTmp = mkdtempSync(join(tmpdir(), 'cm-gate-'));

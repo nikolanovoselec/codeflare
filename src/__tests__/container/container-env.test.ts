@@ -35,7 +35,7 @@ function baseState(): ContainerEnvState {
 
 const baseEnv: Env = {} as Env;
 
-describe('buildEnvVars (REQ-SESSION-016 AC3)', () => {
+describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline)', () => {
   it('emits USER_TIMEZONE when _userTimezone is set', () => {
     const state = baseState();
     (state as unknown as { _userTimezone: string | null })._userTimezone = 'Europe/Zurich';

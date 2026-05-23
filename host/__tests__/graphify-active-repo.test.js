@@ -44,7 +44,7 @@ function makeRepo(parent, name) {
   return repo;
 }
 
-describe('graphify-active-repo.sh', () => {
+describe('graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges vault + active repos)', () => {
   let baseTmp, sentinelDir, workspace;
 
   before(() => {
@@ -467,7 +467,7 @@ function runHookNoGraphify(input, sentinelDir) {
   return { stdout: result.stdout.trim(), stderr: result.stderr, status: result.status };
 }
 
-describe('graphify-active-repo.sh single-active-repo maintenance', () => {
+describe('graphify-active-repo.sh single-active-repo maintenance / REQ-VAULT-014 (graphify active-repo invariant + lock serialisation)', () => {
   let baseTmp, sentinelDir, workspace;
   before(() => { baseTmp = mkdtempSync(join(tmpdir(), 'gf-maint-')); });
   after(() => { rmSync(baseTmp, { recursive: true, force: true }); });

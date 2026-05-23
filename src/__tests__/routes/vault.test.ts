@@ -23,7 +23,7 @@ import {
  * testing — mirrors the terminal.test.ts decision.
  */
 // REQ-VAULT-005 AC3 (validateVaultRoute is the boundary identifier paired with handleVaultRequest for the shared auth chain; per Verification field: "validateVaultRoute boundary cases")
-describe('validateVaultRoute', () => {
+describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container vault editor)', () => {
   function createRequest(path: string, headers: Record<string, string> = {}): Request {
     return new Request(`https://example.com${path}`, {
       headers: new Headers(headers),
@@ -200,7 +200,7 @@ describe('validateVaultRoute', () => {
   });
 
   // REQ-VAULT-013 AC5-AC7 (browser-initiated SW registration short-circuit: method+path+Service-Worker header+no-Cookie selector, defence-in-depth)
-  describe('isServiceWorkerRegistration', () => {
+  describe('isServiceWorkerRegistration / REQ-VAULT-013 (SilverBullet subpath adapter)', () => {
     function swRequest(
       method: string,
       headers: Record<string, string> = {},

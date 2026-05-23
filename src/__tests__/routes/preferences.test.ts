@@ -53,7 +53,7 @@ describe('Preferences Routes', () => {
   }
 
   // REQ-SESSION-014 (preferences endpoint; GET/PATCH for KV-backed user prefs)
-  describe('GET /preferences', () => {
+  describe('GET /preferences / REQ-SESSION-014 (user-configurable auto-sleep timeout in settings)', () => {
     it('returns empty object when no preferences are stored', async () => {
       const app = createTestApp();
 
@@ -130,7 +130,7 @@ describe('Preferences Routes', () => {
   });
 
   // REQ-SESSION-008 AC1 (fastStartEnabled persisted across restart; 409 restart path stores it in DO storage)
-  describe('fastStartEnabled preference', () => {
+  describe('fastStartEnabled preference / REQ-SESSION-008 (fast-start preference persists across restart)', () => {
     it('GET returns stored fastStartEnabled', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
         lastAgentType: 'codex',
@@ -196,7 +196,7 @@ describe('Preferences Routes', () => {
   });
 
   // REQ-MEM-011 AC2 (sessionMode stored as 'default'|'advanced' in UserPreferences; PATCH validates the literal set)
-  describe('sessionMode preference', () => {
+  describe('sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)', () => {
     it('GET returns stored sessionMode', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
         lastAgentType: 'codex',

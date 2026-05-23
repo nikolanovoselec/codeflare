@@ -102,7 +102,7 @@ describe('agent-seed manifest.json', () => {
   });
 });
 
-describe('multi-agent documents', () => {
+describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only)', () => {
   it('each non-Claude agent has an instructions file', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
     expect(keys.has('.codex/AGENTS.md')).toBe(true);
