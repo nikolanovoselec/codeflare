@@ -123,11 +123,11 @@ describe('REQ-SEC-013: Content-Disposition is built safely', () => {
   });
 
   it('REQ-SEC-013 AC2: replaces embedded double quotes (prevents ASCII filename break-out)', () => {
-    const header = buildContentDisposition('evil"; X-Injected: yes; filename="oops.txt');
+    const header = buildContentDisposition('evil"; filename="oops.txt');
     const asciiPart = header.match(/filename="([^"]*)"/);
     expect(asciiPart).not.toBeNull();
     expect(asciiPart![1]).not.toContain('"');
-    expect(header).not.toContain('X-Injected: yes');
+    expect(asciiPart![1]).toBe('evil_; filename=_oops.txt');
   });
 
   it('REQ-SEC-013 AC2: replaces backslashes (prevents ASCII filename quoted-string escape)', () => {
