@@ -143,9 +143,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. `start_vault_monitor_daemon` in entrypoint.sh polls the vault every 60s, excluding `Raw/Sessions/`, `graphify-out/`, `.silverbullet/`, and the four preseed-managed root pages (`Index.md`, `CONFIG.md`, `README.md`, `STYLES.md`) from the find. The four pages are codeflare-authoritative (see REQ-VAULT-010 AC1); agent-side `cp` from preseed must not count as a user edit, otherwise every preseed sync at boot re-triggers extraction.
+1. The vault-monitor daemon polls the vault every 60s, excluding `Raw/Sessions/`, `graphify-out/`, `.silverbullet/`, and the four preseed-managed root pages (`Index.md`, `CONFIG.md`, `README.md`, `STYLES.md`) from the find. The four pages are codeflare-authoritative (see REQ-VAULT-010 AC1); agent-side `cp` from preseed must not count as a user edit, otherwise every preseed sync at boot re-triggers extraction.
 2. The daemon uses a three-marker pattern: `vault-monitor.tick` (heartbeat), `vault-extract.last` (high-water mark), `vault-extract.vars` (trigger). The find compares against `vault-extract.last`, NOT the tick, so a daemon that advances the wrong marker cannot lose work.
-3. `vault-monitor-hook.sh` (UserPromptSubmit) exits 0 immediately when `vault-extract.vars` is absent (zero-cost on idle prompts) and emits `additionalContext` instructing the main agent to dispatch the vault-extract named subagent when present. The subagent runs as sonnet per AD58 (pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model).
+3. The vault-monitor UserPromptSubmit hook exits 0 immediately when `vault-extract.vars` is absent (zero-cost on idle prompts) and emits `additionalContext` instructing the main agent to dispatch the vault-extract named subagent when present. The subagent runs as sonnet per AD58 (pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model).
 4. The vault-extract subagent deletes `vault-extract.vars` as its first step (dedup gate), runs graphify extraction per changed file, merges via `graphify global add`, and touches `vault-extract.last` as its final step.
 5. If steps 2-4 fail, the high-water marker is NOT advanced; the next daemon tick (within 60s) re-discovers the same files.
 6. `init_user_vault()` bumps `vault-extract.last` after rewriting any preseed page, so the first post-boot daemon tick does not pick up the `cp` as a user change. Belt-and-braces for any future preseed page that misses the AC1 daemon-exclusion list.
@@ -205,9 +205,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. `graphify-mcp-lazy.py:_resolve_active()` prefers `~/.graphify/global-graph.json` when present, falling back to the sentinel-pinned per-repo graph and then to the freshest workspace-mtime graph.
-2. `graphify-active-repo.sh` runs `flock -w 5 /tmp/graphify-global.lock graphify global add <repo>/graphify-out/graph.json --as <basename>` whenever the resolved active repo has a graph and either (a) the manifest does not yet record this `<basename>` or (b) the manifest's recorded `source_hash` for this `<basename>` does not match the current graph.json hash. Pre-spawn hash check uses `sha256sum` truncated to graphify's 16-hex format with a length sanity-guard. The `flock -w 5` timeout bounds tool-call latency against a stuck lock holder.
-3. `graphify-active-repo.sh` enforces a single-active-repo invariant: when the resolved active repo's basename differs from the previously-recorded active repo's basename AND the previous basename is still present in `~/.graphify/global-manifest.json`, the hook runs `flock -w 5 /tmp/graphify-global.lock graphify global remove <previous-basename>` before performing the add in AC2. End state: the global graph contains the vault entry plus exactly one per-repo entry (the user's currently active repo). Same-basename transitions (two clones with identical directory names, or branch switches within the same repo) skip the explicit remove because `graphify global add --as <tag>` replaces the existing entry via graphify's source_hash dedup.
-4. The vault directory at `$HOME/Vault` is explicitly excluded from active-repo candidate resolution in `graphify-active-repo.sh`: when the walk-up loop reaches that path, the hook exits 0 without rewriting the sentinel or invoking `graphify global add`. The vault is registered exclusively by entrypoint init under the tag `user_vault`, so it is never re-tagged as `Vault` (basename) by a tool call that happens to touch a vault file, and the prune-on-switch logic in AC3 cannot remove it.
+2. The active-repo hook runs `flock -w 5 /tmp/graphify-global.lock graphify global add <repo>/graphify-out/graph.json --as <basename>` whenever the resolved active repo has a graph and either (a) the manifest does not yet record this `<basename>` or (b) the manifest's recorded `source_hash` for this `<basename>` does not match the current graph.json hash. Pre-spawn hash check uses `sha256sum` truncated to graphify's 16-hex format with a length sanity-guard. The `flock -w 5` timeout bounds tool-call latency against a stuck lock holder.
+3. The active-repo hook enforces a single-active-repo invariant: when the resolved active repo's basename differs from the previously-recorded active repo's basename AND the previous basename is still present in `~/.graphify/global-manifest.json`, the hook runs `flock -w 5 /tmp/graphify-global.lock graphify global remove <previous-basename>` before performing the add in AC2. End state: the global graph contains the vault entry plus exactly one per-repo entry (the user's currently active repo). Same-basename transitions (two clones with identical directory names, or branch switches within the same repo) skip the explicit remove because `graphify global add --as <tag>` replaces the existing entry via graphify's source_hash dedup.
+4. The vault directory at `$HOME/Vault` is explicitly excluded from active-repo candidate resolution: when the walk-up loop reaches that path, the hook exits 0 without rewriting the sentinel or invoking `graphify global add`. The vault is registered exclusively by entrypoint init under the tag `user_vault`, so it is never re-tagged as `Vault` (basename) by a tool call that happens to touch a vault file, and the prune-on-switch logic in AC3 cannot remove it.
 5. A cheap fast-path skip avoids spawning graphify on every Bash/Edit/Write/ctx_execute call: when the resolved active-repo path equals the prior sentinel value AND `graphify-out/graph.json`'s mtime is not newer than the sentinel's mtime, the hook returns immediately. The sentinel is `touch`-bumped at the end of every non-fast-path fire so subsequent fires can short-circuit until the next graph rebuild.
 6. The `/graphify` skill's commit step includes a `flock graphify global add` call so a fresh `graphify build` lands in the global graph.
 7. All write sites (capture agent, vault-extract agent, active-repo hook, /graphify skill) serialise via `flock -w 5 /tmp/graphify-global.lock` to prevent corrupted writes when multiple workflows race; the 5s timeout ensures a crashed lock holder cannot wedge the queue indefinitely.
@@ -241,10 +241,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. The Dockerfile installs the `silverbullet-server-linux-x86_64` binary at `/usr/local/bin/silverbullet`, pinned by version + SHA256.
-2. `start_silverbullet_supervisor` in entrypoint.sh runs the server on `127.0.0.1:3030` with a 5s restart loop so an editor crash never requires a container restart.
-3. `src/routes/vault.ts`'s `validateVaultRoute` + `handleVaultRequest` apply the same auth chain as `handleWebSocketUpgrade` in `src/routes/terminal.ts`: `authenticateRequest`, origin allowlist, `getEffectiveTier` + `isActiveUser`, session ownership, container health probe, container fetch.
+2. The container entrypoint supervises the SilverBullet server on `127.0.0.1:3030` with a 5s restart loop so an editor crash never requires a container restart.
+3. The vault-route handler applies the same auth chain as the terminal WebSocket upgrade: `authenticateRequest`, origin allowlist, `getEffectiveTier` + `isActiveUser`, session ownership, container health probe, container fetch.
 4. WebSocket upgrades for live-edit sync are rate-limited under the same per-user `ws-connect:<email>` key as terminal WebSockets so a separate budget cannot be discovered.
-5. `host/src/server.ts` exposes a `/vault/*` HTTP branch (strip prefix + `http.request` to `127.0.0.1:3030`) and a WS upgrade passthrough via a `noServer: true` WebSocketServer that handles only `/vault/*` paths.
+5. The host terminal server exposes a `/vault/*` HTTP branch (strip prefix + `http.request` to `127.0.0.1:3030`) and a WS upgrade passthrough via a `noServer: true` WebSocketServer that handles only `/vault/*` paths.
 
 **Constraints:**
 
@@ -304,10 +304,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. `shutdown_handler()` in entrypoint.sh wraps the final `bisync_with_r2` call in a background subshell with a watchdog that hard-kills at 120s, so the DO's destroy() budget always lands AFTER bisync finishes or gives up cleanly.
+1. The entrypoint shutdown handler wraps the final `bisync_with_r2` call in a background subshell with a watchdog that hard-kills at 120s, so the DO's destroy() budget always lands AFTER bisync finishes or gives up cleanly.
 2. The shutdown handler also terminates the vault-monitor daemon and SilverBullet supervisor PIDs (`/tmp/vault-monitor.pid`, `/tmp/silverbullet.pid`).
 3. The shutdown elapsed time is logged so operators can tune the 120s budget over time if user edits get large enough to need more headroom.
-4. `Container.destroy()` in `src/container/index.ts` uses `timeoutMs = 135_000` (was 25_000): 120s for the entrypoint bisync plus 15s for clean process exit.
+4. `Container.destroy()` uses `timeoutMs = 135_000` (was 25_000): 120s for the entrypoint bisync plus 15s for clean process exit.
 5. `Container.onStop()` logs `shutdownElapsedMs` (delta from `_shutdownStartedAt`), giving us telemetry on whether the budget is right.
 
 **Constraints:**
@@ -338,7 +338,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 1. `preseed/agents/claude/manifest.json` registers `plugins/codeflare-vault/.claude-plugin/plugin.json`, `plugins/codeflare-vault/scripts/vault-monitor-hook.sh`, `plugins/codeflare-vault/scripts/vault-extract-prompt.md`, `rules/vault-note-capture.md`, `skills/vault-note-capture/SKILL.md`, and `skills/vault-operations/SKILL.md` -- all in advanced mode only. The vault trigger/route content is folded into `rules/memory.md` rather than living in a separate `rules/vault.md`.
 2. The Dockerfile copies `preseed/silverbullet/` to `/opt/silverbullet-preseed/` so `init_user_vault()` can install the editor config without baking it into every R2 sync.
-3. `scripts/generate-agent-seed.mjs` (run as `prebuild`) embeds the manifest contents into `src/lib/agent-seed.generated.ts`, which is what the Worker ships to the container at boot.
+3. A build-time generator (run as `prebuild`) embeds the manifest contents into the runtime agent-seed module, which is what the Worker ships to the container at boot.
 4. `preseed/agents/claude/rules/memory.md` is updated to document the vault-only capture path.
 5. On every boot, `init_user_vault()` copies the SilverBullet plugs preseeded under `/opt/silverbullet-preseed/plugs/` into `~/Vault/Library/Codeflare/` so the editor opens with the baseline productivity plugs listed in `preseed/silverbullet/plugs/MANIFEST.md` (pdf, treeview, github, graph) available immediately, with no per-session install step. The copy is idempotent (overwrite-on-content-diff) so a codeflare-side plug pin bump propagates on next boot; user-installed plugs land under other `Library/` subdirectories and are untouched.
 
