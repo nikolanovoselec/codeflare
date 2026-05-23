@@ -56,7 +56,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (pentest.yml auth-gate job)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -86,7 +86,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (pentest.yml info-disclosure job)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -158,7 +158,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (unit tests for kv-crypto.ts encrypt/decrypt round-trip)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -227,7 +227,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (unit tests for plaintext-to-encrypted migration path)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -264,7 +264,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (unit tests for rate limiter + pentest.yml injection job)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -299,7 +299,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (pentest.yml security-headers job)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -333,7 +333,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (fuzz.yml property-based tests + pentest.yml injection job)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -364,7 +364,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (pentest.yml injection job)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -395,7 +395,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (deploy.yml Trivy scan step)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -456,7 +456,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (pentest.yml injection job)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -484,7 +484,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (pentest.yml auth-gate job)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -546,7 +546,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test (unit test for concurrent fetch deduplication)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
