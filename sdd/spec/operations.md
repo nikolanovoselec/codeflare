@@ -55,7 +55,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated test (deploy.yml pipeline success on push to main)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -92,7 +92,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated test (deploy.yml Trivy scan + container push steps)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -126,7 +126,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated test (test.yml runs on every PR to main)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -197,7 +197,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated test (pentest.yml and fuzz.yml scheduled runs)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -273,7 +273,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated test (deploy.yml verifies wrangler.toml patching)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -339,7 +339,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Automated test (scorecard.yml and dependency-review in test.yml)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
