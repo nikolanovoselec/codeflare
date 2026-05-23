@@ -95,6 +95,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (configure_tab_autostart / REQ-AGENT-003 describe -> bash harness extracts the real function from entrypoint.sh and reads generated .bashrc; claude --dangerously-skip-permissions emitted + PATH=/usr/local/bin:/usr/bin:/bin set + MANUAL_TAB skip branch present + TAB_CONFIG honored + invalid tab ids rejected + idempotent on re-run -> AC1, AC2, AC3, AC4) -->
 ### REQ-AGENT-003: Agent CLI Auto-Started in Tab 1
 
 <!-- @impl: entrypoint.sh::configure_tab_autostart -->
@@ -268,6 +269,10 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+<!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-004 AC4: reconcileAgentConfigs describe -> overwrite:false skips existing R2 objects on new-bucket path + result shape always has written/skipped/deleted/warnings arrays -> AC1 new-bucket overwrite:false + cleanup:false) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior describe -> initial rclone sync restores R2-deployed preseed onto ~/.claude/ etc. before tab autostart -> AC2 entrypoint sync restores preseed) -->
+<!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration describe -> hooks-aware merge: non-hook fields recursive merge + hook arrays rebuilt per event type preserving user hooks + replacing managed hooks via the codeflare-/graphify/context-mode detector -> AC3 hooks-aware merge) -->
+<!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (plugin enablement describe -> advanced mode includes PreToolUse/PostToolUse/UserPromptSubmit hook registrations + default mode omits them -> AC4 advanced-mode hook registrations) -->
 ### REQ-AGENT-008: Preseed Deployed to Container on Start
 
 <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
@@ -542,9 +547,10 @@ None.
 
 ---
 
+<!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration describe -> exercises the entrypoint MCP config merge path that also wires consult-llm when LLM_ENV is non-empty -> AC3 wiring) -->
 ### REQ-AGENT-016: consult-llm preference toggle
 
-<!-- @impl: src/routes/preferences.ts -->
+<!-- @impl: src/container/container-env.ts -->
 <!-- @impl: entrypoint.sh -->
 
 **Intent:** Users control whether their LLM API keys power the multi-model consultation feature.
@@ -559,7 +565,7 @@ None.
 
 **Constraints:**
 
-None.
+- Current implementation does NOT expose an explicit Settings toggle (AC1/AC2 unmet). The entrypoint conditionally registers `consult-llm` only when at least one of `OPENAI_API_KEY` or `GEMINI_API_KEY` is forwarded into the container (`entrypoint.sh` lines ~1503-1526). Presence-of-key acts as the implicit on/off — covers AC3 but not AC1/AC2's "explicit toggle, default off". A real Settings toggle requires a frontend preference + `consultLlmEnabled` field gating the env-var forwarding in `container-env.ts`.
 
 **Priority:** P2
 
@@ -567,7 +573,7 @@ None.
 
 **Verification:** Integration test
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -600,6 +606,8 @@ None.
 
 ---
 
+<!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 describe -> POST validates token against provider before save + encrypted-at-rest in KV + GET returns masked tokens -> AC2 validation, AC3 encrypted-at-rest, AC4 env-var injection) -->
+<!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars describe -> emits GH_TOKEN/CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID when state has deploy keys -> AC4 env-var injection) -->
 ### REQ-AGENT-018: Push & Deploy credential management UI
 
 <!-- @impl: web-ui/src/components -->
@@ -659,6 +667,7 @@ None.
 
 ---
 
+<!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 / REQ-AGENT-009 describe -> POST validates key + stores encrypted in KV + DELETE clears all keys + GET returns masked -> AC2 validation, AC3 delete-clears-all, AC4 masked in GET) -->
 ### REQ-AGENT-020: LLM API key management UI
 
 <!-- @impl: src/routes/llm-keys.ts -->

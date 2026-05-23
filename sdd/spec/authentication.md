@@ -56,6 +56,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
+<!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 describe -> /auth/github/login redirect with signed state, /auth/github/callback validates state/expiry/redemption, exchanges code for token, fetches verified primary email, sets codeflare_session cookie, redirects /app or /subscribe based on tier -> AC1..AC5) -->
 ### REQ-AUTH-002: SaaS mode uses Direct GitHub OAuth
 
 <!-- @impl: src/routes/github-auth.ts -->
@@ -90,6 +91,8 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
+<!-- @test: src/__tests__/lib/jwt.test.ts (JWT verification / REQ-AUTH-003 describe -> verifyAccessJWT validates CF Access signature against JWKS + extracts email claim + JWKS cache invalidation via resetJWKSCache -> AC2, AC3, AC4) -->
+<!-- @test: src/__tests__/routes/setup/access.test.ts (setup access wizard describe -> creates Access Application with 5 destinations + per-worker Access Groups admins/users -> AC5) -->
 ### REQ-AUTH-003: CF Access mode for all other deployments
 
 <!-- @impl: src/lib/jwt.ts::verifyAccessJWT -->
@@ -221,6 +224,8 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
+<!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-007 describe -> resolveOrProvisionUser creates user:{email} record with pending tier when SaaS + unknown email -> AC1) -->
+<!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser describe -> 403 PENDING for pending tier + allows identity-only routes -> AC2 pending-blocked-from-IDE) -->
 ### REQ-AUTH-007: JIT user provisioning in SaaS mode
 
 <!-- @impl: src/lib/access.ts::resolveOrProvisionUser -->
@@ -286,6 +291,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
+<!-- @test: src/__tests__/routes/auth-redirects.test.ts (GET /logout describe -> redirects to CF Access logout URL when auth_domain set + redirects to request host origin when not set + encodes returnTo with custom_domain -> AC2, AC3, AC4 backend dispatch by mode) -->
 ### REQ-AUTH-009: Logout dispatches by mode
 
 <!-- @impl: src/routes/auth-redirects.ts -->
@@ -381,6 +387,8 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
+<!-- @test: src/__tests__/lib/email.test.ts (sendWelcomeEmail describe -> POSTs Resend with branded HTML + skips silently when RESEND_API_KEY unset -> AC1 sent on JIT, AC4 skipped without API key) -->
+<!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-012 describe -> resolveOrProvisionUser fires sendWelcomeEmail fire-and-forget + dedupes via KV flag -> AC2 fire-and-forget, AC3 dedup) -->
 ### REQ-AUTH-012: Welcome email on first login
 
 <!-- @impl: src/lib/email.ts::sendWelcomeEmail -->
@@ -412,6 +420,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
+<!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (LoginPage / REQ-AUTH-013 describe -> renders Codeflare branding + animated logo + Sign in with GitHub button + lists auth providers -> AC1, AC2, AC3) -->
 ### REQ-AUTH-013: Custom branded login page
 
 <!-- @impl: web-ui/src/components/LoginPage.tsx -->
@@ -440,6 +449,8 @@ None.
 
 ---
 
+<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 describe -> renders amber re-auth banner on 401 from API + clicking banner refreshes auth + stops session polling -> AC1, AC2, AC3) -->
+<!-- @test: web-ui/src/__tests__/api/client.test.ts (API Client describe -> 401 response surfaces a typed AuthExpired signal consumed by Layout banner -> AC1 wiring) -->
 ### REQ-AUTH-014: Auth expiry detection mid-session
 
 <!-- @impl: web-ui/src/api/client.ts -->
@@ -469,6 +480,7 @@ None.
 
 ---
 
+<!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (OnboardingPage / REQ-AUTH-015 describe -> renders 4-step flow (idle timeout, GitHub PAT, Cloudflare API token, agent subscription) + free-tier 15m locked + paying-tier 5m-2h selector + auto-redirect for first-time users + onboardingComplete flag prevents re-redirect -> AC1, AC2, AC3, AC4) -->
 ### REQ-AUTH-015: Guided onboarding flow
 
 <!-- @impl: web-ui/src/components/OnboardingPage.tsx -->
@@ -498,6 +510,7 @@ None.
 
 ---
 
+<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component describe -> header-user-menu testid renders + dropdown items header-user-dropdown-usage etc. + user name display -> AC1 dropdown with Profile/Guided Setup/Logout, AC3 desktop positioning) -->
 ### REQ-AUTH-016: Header user dropdown
 
 <!-- @impl: web-ui/src/components/Header.tsx -->
@@ -526,6 +539,8 @@ None.
 
 ---
 
+<!-- @test: web-ui/src/__tests__/lib/gravatar.test.ts (getGravatarUrl / REQ-AUTH-017 AC3 describe -> MD5 hash of trimmed+lowercased email + known-answer vector + ?d=404 fallback contract for AC2 + size honored -> AC1, AC2, AC3) -->
+<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component describe -> shows default avatar when no user name (outline-icon fallback path) -> AC2 fallback) -->
 ### REQ-AUTH-017: Gravatar integration
 
 <!-- @impl: web-ui/src/components/Header.tsx -->
@@ -555,6 +570,8 @@ None.
 
 ---
 
+<!-- @test: src/__tests__/routes/users.test.ts (Users Routes / REQ-AUTH-018 describe -> /admin/users lists users grouped by tier + admin can approve/change-tier/delete -> AC1, AC2) -->
+<!-- @test: src/__tests__/lib/user-cleanup.test.ts (cleanupUserData describe -> deletes user from KV + revokes scoped R2 token + empties R2 bucket + deletes bucket via CF API -> AC2 full cleanup pipeline on delete) -->
 ### REQ-AUTH-018: User management admin panel
 
 <!-- @impl: src/routes/admin -->
