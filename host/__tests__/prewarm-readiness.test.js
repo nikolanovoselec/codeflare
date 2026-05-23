@@ -27,7 +27,7 @@ describe('getPrewarmConfig / REQ-SESSION-015 (tab-1 pre-warm command feeds readi
     });
   });
 
-  describe('when tab 1 has a command', () => {
+  describe('when tab 1 has a command / REQ-AGENT-003 (agent CLI auto-started in tab 1) / REQ-TERM-005 (pre-warm pty)', () => {
     // REQ-SESSION-015 AC1 (pre-warm tab 1 PTY; command is logged so the prewarm origin is traceable)
     it('extracts first token from command string', () => {
       const cfg = getPrewarmConfig([{ id: '1', command: 'claude --dangerously-skip-permissions', label: 'Claude' }]);

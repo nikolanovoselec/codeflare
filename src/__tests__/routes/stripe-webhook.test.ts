@@ -121,7 +121,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 // checkout.session.completed — CF-011: email preference, CF-023: existing sub check
 // ---------------------------------------------------------------------------
-describe('handleCheckoutCompleted', () => {
+describe('handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)', () => {
   it('uses metadata.email when both metadata.email and customer_email are present', async () => {
     vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
       customerId: 'cus_meta_1', subscriptionId: 'sub_meta_1',

@@ -13,7 +13,7 @@ function generateTestKeyBase64(): string {
   return btoa(String.fromCharCode(...rawKey));
 }
 
-describe('r2-sse', () => {
+describe('r2-sse / REQ-SEC-005 (R2 credentials never logged or exposed)', () => {
   describe('getSseHeaders', () => {
     it('returns 3 SSE-C headers when ENCRYPTION_KEY is set', () => {
       const key = generateTestKeyBase64();

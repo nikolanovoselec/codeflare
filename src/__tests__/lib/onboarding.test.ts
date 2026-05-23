@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isOnboardingLandingPageActive } from '../../lib/onboarding';
 
-describe('isOnboardingLandingPageActive', () => {
+describe('isOnboardingLandingPageActive / REQ-SETUP-003 (three deploy modes: Default / Onboarding / SaaS)', () => {
   it('returns true only for active (case-insensitive)', () => {
     expect(isOnboardingLandingPageActive('active')).toBe(true);
     expect(isOnboardingLandingPageActive('ACTIVE')).toBe(true);

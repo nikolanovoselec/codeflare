@@ -50,7 +50,7 @@ function pingRequest(body: Record<string, unknown>): Request {
   });
 }
 
-describe('Timekeeper DO', () => {
+describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetUserRecordCache();

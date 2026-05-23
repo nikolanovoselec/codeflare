@@ -228,7 +228,7 @@ function killHarness(child, daemonPid) {
 
 const daemonBody = extractDaemonBody();
 
-describe('entrypoint.sh bisync daemon behavior (real)', () => {
+describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persistence) / REQ-STOR-004 (initial sync) / REQ-STOR-005 (graceful shutdown final sync) / REQ-SESSION-011 (graceful shutdown with final sync) / REQ-VAULT-006 (shutdown bisync vault writes) / REQ-OPS-010 (graceful container shutdown) / REQ-MEM-004 (memory dirs in bisync filter)', () => {
   it('runs bisync within one cadence tick of starting (REQ-STOR-003 AC1)', async () => {
     const h = spawnHarness({ daemonBody, bisyncBehavior: 'success' });
     const pid = await readDaemonPid(h.child);

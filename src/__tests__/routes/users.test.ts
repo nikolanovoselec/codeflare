@@ -62,7 +62,7 @@ const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
 // Mock global fetch for CF API calls
 const mockFetch = vi.fn();
 
-describe('Users Routes', () => {
+describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   const originalFetch = globalThis.fetch;
 

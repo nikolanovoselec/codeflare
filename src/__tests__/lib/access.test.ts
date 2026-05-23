@@ -25,7 +25,7 @@ import { AuthError, ForbiddenError } from '../../lib/error-types';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 
-describe('access.ts', () => {
+describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

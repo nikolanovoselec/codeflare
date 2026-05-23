@@ -15,7 +15,7 @@ vi.mock('../../middleware/auth', () => ({
   }),
 }));
 
-describe('Presets Routes', () => {
+describe('Presets Routes / REQ-TERM-010 (session presets: saved tab configurations)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

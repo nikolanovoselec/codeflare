@@ -29,7 +29,7 @@ function read() {
   return fs.readFileSync(PROMPT_PATH, 'utf8');
 }
 
-test('REQ-MEM-009 AC1: prompt loads a persistent vault-graph.json before merging', () => {
+test('REQ-MEM-009 AC1 / REQ-VAULT-003 (user-curated edits ingested) / REQ-VAULT-011 (PDF ingestion): prompt loads a persistent vault-graph.json before merging', () => {
   const body = read();
   assert.match(
     body,

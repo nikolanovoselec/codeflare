@@ -339,7 +339,7 @@ describe('Preferences Routes', () => {
   // Preseed reconciliation on sessionMode change
   // ---------------------------------------------------------------------------
   // REQ-MEM-011 AC3-AC4 (mode change triggers reconcileAgentConfigs to seed/delete mode-appropriate preseed files)
-  describe('preseed reconciliation on sessionMode change', () => {
+  describe('preseed reconciliation on sessionMode change / REQ-AGENT-016 (advanced-mode preseed reconciliation)', () => {
     it('calls reconcileAgentConfigs when sessionMode changes from default to advanced', async () => {
       const app = createTestApp();
       const prefsKey = 'user-prefs:codeflare-test-user';

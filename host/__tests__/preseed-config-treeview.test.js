@@ -80,7 +80,7 @@ function matchesAny(rules, candidate) {
   return false;
 }
 
-test('CONFIG.md has a treeview.exclusions block with the upstream schema (REQ-VAULT-015 AC2)', () => {
+test('CONFIG.md has a treeview.exclusions block with the upstream schema (REQ-VAULT-015 AC2 / REQ-VAULT-010 preseeded codeflare-authoritative file)', () => {
   const lua = loadSpaceLuaBlock();
   const rules = extractTreeviewRegexRules(lua);
   assert.ok(rules.length >= 1, 'must declare at least one exclusion rule');

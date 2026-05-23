@@ -73,7 +73,7 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
 // was silently dropped and USER_TIMEZONE always emitted empty in
 // production. Both code paths (first-time setBucketName via applyBucketName,
 // and subsequent wakes via applyPrefsOnRestart) are exercised here.
-describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESSION-016 AC3 wiring regression)', () => {
+describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESSION-016 AC3 wiring regression) / REQ-AGENT-029 (container env vars contract)', () => {
   function makeStorage() {
     const writes: Record<string, unknown> = {};
     return {
