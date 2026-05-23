@@ -925,29 +925,61 @@ None.
 
 <!-- @impl: preseed/agents/claude/skills/sdd-clean -->
 <!-- @impl: preseed/agents/claude/rules/spec-discipline.md -->
-<!-- @impl: preseed/agents/claude/rules/documentation-discipline.md -->
-<!-- @impl: preseed/agents/claude/rules/tdd-discipline.md -->
 
-**Intent:** Three autonomy modes (interactive, auto, unleashed) give the user a knob between hand-holding and walk-away autopilot, and the `/sdd clean` rescue pass restores rotted specs to canonical shape without overwriting intent. The three review-agent disciplines apply content-quality enforcement beyond structural checks.
+**Intent:** Three autonomy modes (interactive, auto, unleashed) give the user a knob between hand-holding and walk-away autopilot, and the `/sdd clean` rescue pass restores rotted specs to canonical shape without overwriting intent. Review-agent discipline enforcement (the content-quality passes each review agent applies) lives in [REQ-AGENT-044](#req-agent-044-review-agent-discipline-enforcement).
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via the layout-resolved config file (`sdd/spec/config.yml` on the nested layout, `sdd/config.yml` on the flat-legacy layout). Interactive and auto modes apply fixes on the current branch (auto silently, interactive after confirmation). Unleashed mode is the walk-away autopilot: it applies SAFE + RISKY + JUDGMENT fixes on the current branch via per-category `[sdd-clean]` commits, refuses to run when `enforce_tdd: false` (preserves the per-project opt-out; user flips manually or uses `auto` instead), and uses conservative JUDGMENT auto-resolution that never overwrites intent. Unleashed does not create a new branch and does not open a pull request; `git revert <sha>` on a per-category commit is the rollback surface, and the per-category commit messages carry the full audit log.
-2. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place).
-3. The workflow is project-agnostic. Each review agent self-limits to 2 fix rounds per commit cycle scoped to its own lane (spec-reviewer counts only commits touching `sdd/**`; doc-updater counts only commits touching `documentation/**`) to prevent micro-fix spirals without cross-contaminating lanes.
-4. In `auto` and `unleashed` modes, spec-reviewer and doc-updater push to whatever branch is currently checked out; the user is responsible for checking out the right branch before invoking.
-5. The three review-agent disciplines (doc, spec, tdd) each enforce structural compliance plus content-quality. doc-updater runs structural passes (shape, budgets, lane) and content-quality passes (verification truth-check, Implements-vs-AC cross-walk, stale code-block detection against source, content-preservation on trims, stranger cold-read usability). spec-reviewer runs the spec analogs (REQ-test truth-check beyond literal ID match, vendor/protocol drift, content-preservation on shrink). code-reviewer flags tests whose name claims behavior the assertions don't verify (the test-name-lies antipattern in tdd-discipline). Auto-fixes derive concrete content from source/REQ when possible. Load-bearing clauses that would be lost to a word-cap trim are promoted to surrounding prose or the trim is reverted with a finding.
+1. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via the layout-resolved config file (`sdd/spec/config.yml` on the nested layout, `sdd/config.yml` on the flat-legacy layout).
+2. `interactive` and `auto` modes apply fixes on the current branch (auto silently, interactive after confirmation).
+3. `unleashed` mode applies SAFE + RISKY + JUDGMENT fixes on the current branch via per-category `[sdd-clean]` commits and uses conservative JUDGMENT auto-resolution that never overwrites intent.
+4. `unleashed` refuses to run when `enforce_tdd: false` so the per-project opt-out is preserved; the user flips the flag manually or invokes `auto` instead, and `unleashed` never creates a new branch or opens a pull request so `git revert <sha>` on a per-category commit is the rollback surface.
+5. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place).
+6. Each review agent self-limits to 2 fix rounds per commit cycle scoped to its own lane (spec-reviewer counts only commits touching `sdd/**`; doc-updater counts only commits touching `documentation/**`) to prevent micro-fix spirals without cross-contaminating lanes.
+7. In `auto` and `unleashed` modes, spec-reviewer and doc-updater push to whatever branch is currently checked out; the user is responsible for checking out the right branch before invoking.
 
 **Constraints:**
 
 - Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the `enforce_tdd` test-coverage rule follow `rules/spec-discipline.md`.
-- The structural-vs-content-quality split, per-pass severity and auto-fix behavior, and the cold-read task registry follow `rules/documentation-discipline.md`.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-pipeline)
+**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-044: Review-Agent Discipline Enforcement
+
+<!-- @impl: preseed/agents/claude/rules/spec-discipline.md -->
+<!-- @impl: preseed/agents/claude/rules/documentation-discipline.md -->
+<!-- @impl: preseed/agents/claude/rules/tdd-discipline.md -->
+
+**Intent:** The three review agents (doc-updater, spec-reviewer, code-reviewer) enforce content-quality beyond structural compliance. Each owns a distinct set of substantive passes (truth-check against source, content-preservation on trims, test-name-vs-assertion match) so a structurally-clean change cannot ship with semantically-wrong content.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. All three review agents (doc, spec, tdd) enforce both structural compliance and content-quality on every applicable lane.
+2. doc-updater runs structural passes (shape, budgets, lane) and content-quality passes (verification truth-check, Implements-vs-AC cross-walk, stale code-block detection against source, content-preservation on trims, stranger cold-read usability).
+3. spec-reviewer runs the spec analogs (REQ-test truth-check beyond literal ID match, vendor/protocol drift detection, content-preservation on shrink).
+4. code-reviewer flags tests whose name claims behavior the assertions don't actually verify (the test-name-lies antipattern from `tdd-discipline`).
+5. Auto-fixes derive concrete content from source or REQ when possible; load-bearing clauses that would be lost to a word-cap trim are promoted to surrounding prose, or the trim is reverted with a finding.
+
+**Constraints:**
+
+- The structural-vs-content-quality split, per-pass severity, and auto-fix behavior follow `rules/documentation-discipline.md`; the cold-read task registry is owned by the same file.
+- spec-reviewer's content-quality passes are defined by `rules/spec-discipline.md`; code-reviewer's test-name-lies detection follows `rules/tdd-discipline.md`.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
 **Verification:** Manual check
 
