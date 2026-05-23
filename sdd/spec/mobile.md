@@ -37,17 +37,17 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. The terminal renders correctly on mobile viewports (phones and tablets) using xterm.js with SolidJS.
+1. The terminal renders correctly on mobile viewports (phones and tablets).
 2. Text input, command execution, and output display work identically to desktop except where touch interaction necessarily differs.
-3. E2E UI mobile tests (`e2e-ui-mobile` job with `E2E_MOBILE=1`) pass against the deployed worker.
+3. The mobile E2E test suite passes against the deployed worker.
 4. The terminal adjusts layout when the virtual keyboard opens or closes without visual corruption.
-5. FitAddon recalculates terminal dimensions on viewport changes (keyboard open/close, orientation change, resize).
-6. All `fit()` call sites guard against zero-height containers (`containerEl.clientHeight === 0`) to prevent row calculation corruption on inactive terminals.
+5. Terminal dimensions are recalculated on viewport changes (keyboard open/close, orientation change, resize).
+6. The terminal layout recalculation is skipped when the terminal container has no visible height, preventing row calculation corruption on inactive terminals.
 
 **Constraints:**
 
-- Mobile-specific code paths are gated behind touch detection (`pointer: coarse` media query or VirtualKeyboard API availability).
-- No polling or timers for state verification; all fixes are event-driven on top of the stable `df1dcfc` baseline.
+- Mobile-specific code paths activate only on touch devices.
+- Mobile keyboard and layout state is driven by browser events, not polling or timers.
 
 **Priority:** P0
 
@@ -73,18 +73,18 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. The VirtualKeyboard API `overlaysContent` flag is enabled BEFORE focus to beat the keyboard/layout race condition.
-2. `overlaysContent` is disabled on terminal exit (`disableVirtualKeyboardOverlay`) so other inputs receive normal browser resizing.
-3. The `geometrychange` event from the VirtualKeyboard API is used to detect keyboard height changes.
+1. The virtual keyboard overlay is activated before terminal focus to prevent keyboard/layout race conditions.
+2. The overlay mode is disabled on terminal exit so other inputs receive normal browser resizing.
+3. Keyboard height changes are detected via the browser's VirtualKeyboard geometry change event.
 4. Terminal height is reduced by the keyboard height so content is not obscured.
-5. An iframe compositor jail provides a separate compositor context for Android IME caret containment.
-6. A `createElement` monkey-patch (scoped to `terminal.open()`) uses `input[type=password]` instead of textarea to suppress autocorrect at the OS level.
-7. The `isFocused` getter uses a live reference via `iframe.contentDocument?.hasFocus()` to avoid stale focus state.
+5. An isolated compositor context prevents the Android IME native caret from appearing outside the terminal bounds.
+6. Autocorrect is suppressed at the OS level on mobile.
+7. Focus state detection uses a live browser query rather than a cached value.
 
 **Constraints:**
 
-- `overlaysContent` must be toggled only on actual state changes (false-to-true or true-to-false); redundant no-op calls must NOT restamp the ignore window timestamp.
-- The 50ms stale-event ignore window must apply only to genuine toggles.
+- The overlay mode is only re-stamped on genuine state changes; redundant no-op toggles must not restart the stale-event ignore window.
+- The stale-event ignore window applies only to genuine toggles.
 
 **Priority:** P0
 
@@ -109,15 +109,15 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Stale `geometrychange` events (cached from previous toggle) are ignored within a 50ms window after `overlaysContent` changes value.
-2. The stale-event ignore window timestamp (`overlaysContentChangedAt`) is stamped ONLY when `overlaysContent` actually changes value; no-op calls do not restamp.
-3. Samsung's bottom navigation bar viewport inflation is compensated: `baselineInnerHeight` captures pre-keyboard `window.innerHeight`, and `viewportGrowth` is subtracted from `boundingRect.height` in `getKeyboardHeight()`.
-4. `baselineInnerHeight` is immutable after module initialization, except for Galaxy Fold screen-switch events (delta > 200px with keyboard closed).
-5. `baselineInnerHeight` is never updated during keyboard close, `forceResetKeyboardState()`, or `resetKeyboardStateIfStale()`.
+1. Stale keyboard-geometry events (cached from previous toggles) are ignored within a 50ms window after the overlay state actually changes.
+2. The stale-event ignore window is only restamped on genuine overlay state changes; no-op calls do not restart it.
+3. Samsung's bottom-navigation-bar viewport inflation is compensated so keyboard height is calculated correctly.
+4. The pre-keyboard viewport height reference is immutable after initialization, except on Galaxy Fold screen-switch events (large delta with keyboard closed).
+5. The pre-keyboard viewport height reference is never updated during keyboard close or any keyboard-state-reset path.
 
 **Constraints:**
 
-- Samsung detection uses `isSamsungBrowser` flag.
+- Samsung Internet Browser requires a separate detection path.
 - State recovery + UI configuration concerns live in [REQ-MOB-011](#req-mob-011-samsung-internet-keyboard-state-recovery).
 
 **Priority:** P1
@@ -142,20 +142,22 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Samsung's `focusout` event (back button keyboard dismiss) triggers `forceResetKeyboardState()` to zero all keyboard state signals.
-2. Samsung browser resume uses an automatic "dashboard bounce" (deactivate then reactivate session after 50ms) to reset the unreliable VirtualKeyboard compositor state.
-3. Samsung-specific address bar position is configured via a user settings toggle (`samsungAddressBarTop`) since no API exists to detect it.
+1. Samsung's back-button keyboard dismiss is intercepted; all keyboard-state signals are reset on that event.
+2. Samsung browser resume uses an automatic dashboard bounce (deactivate then reactivate the session after a brief delay) to reset the unreliable keyboard compositor state.
+3. Samsung's address-bar position is configured via a user-settings toggle because no browser API exposes it.
 
 **Constraints:**
 
-- The 50ms dashboard bounce delay gives SolidJS time to process null state and run cleanup effects before re-initialization.
-- Samsung-specific input resume does NOT auto-focus (prevents stale `geometrychange` events); keyboard stays closed for user tap.
+- Samsung session re-initialisation requires a brief delay between deactivation and reactivation for cleanup effects to settle.
+- Samsung input resume does not auto-focus the terminal; the keyboard stays closed until the user taps, to avoid stale keyboard-geometry events.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state)
 
 **Verification:** Manual check
+
+**Notes:** Samsung Internet manual verification checklist lives in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#samsung-internet-quirks).
 
 **Status:** Implemented
 
@@ -173,16 +175,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. `.xterm .xterm-viewport` has `overflow: hidden !important` on all devices, preventing native scroll interference with xterm 6.0.0's `SmoothScrollableElement`.
-2. `_syncTextArea` remains active (not frozen) so the browser's focus-scroll targets the cursor position at the bottom, not `(0,0)`.
-3. A synchronous post-write scroll guard in `flushWriteBuffer()` checks `viewportY < baseY` both synchronously and in `requestAnimationFrame`.
-4. A scroll-drop detector in `useTerminal` monitors for sudden `ydisp` drops to 0 when `ybase` is high, correcting via `queueMicrotask(() => scrollToBottom())`.
-5. Distance-based detection (not absolute `ydisp === 0`) distinguishes browser focus resets from normal scrollback trimming. Detection requires: `previousYdisp > 20`, `ybase > 20`, and `distanceDrift > 20`.
+1. The terminal viewport disables native scrolling on all devices so xterm's own scroll layer is the sole scroller.
+2. The browser's focus-scroll targets the cursor position at the bottom of the terminal, not the top-left origin.
+3. A post-write scroll guard re-applies bottom alignment when the buffer's display offset drops below the base after a write.
+4. A scroll-drop detector watches for sudden display-offset drops to zero while the base is high and corrects them.
+5. Distance-based detection (rather than equality against zero) distinguishes browser focus resets from normal scrollback trimming; small drifts are ignored.
 
 **Constraints:**
 
-- The `isCorrectingScroll` flag prevents recursion when `scrollToBottom()` inside corrections triggers synchronous `onScroll` events.
-- Scrollback is limited to 1000 lines (frontend and headless). Virtual scroll is disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`).
+- Programmatic scroll corrections cannot recursively trigger the scroll-reset detector.
+- Scrollback is limited to 1000 lines on both frontend and headless renderers; agent-side virtual scrolling is disabled.
 - The keyboard-transition correction + user-anchoring behavior live in [REQ-MOB-012](#req-mob-012-scroll-anchoring-during-keyboard-transitions).
 
 **Priority:** P0
@@ -206,10 +208,10 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Programmatic scroll corrections are wrapped in a suppression counter (`beginProgrammaticScroll`/`endProgrammaticScroll`) to prevent the scroll-reset detector from misidentifying them.
-2. When the keyboard is open, the scroll-reset detector is skipped (browser focus resets cannot happen in keyboard-open mode).
-3. Bottom-following users see zero flicker: correction is applied in the `onScroll` handler (before the canvas paints) rather than in the async write callback.
-4. Scrolled-up users have their relative position preserved across scrollback trimming via distance-based restoration (`targetY = currentBaseY - savedDistanceFromBottom`).
+1. Programmatic scroll corrections are bracketed by a suppression marker so the scroll-reset detector does not misidentify them.
+2. When the keyboard is open, the scroll-reset detector is skipped (browser focus resets cannot occur while the keyboard is open).
+3. Bottom-following users see zero flicker: correction is applied in the scroll-event handler before the canvas paints, not in the asynchronous write callback.
+4. Users who have scrolled up have their relative position (distance from bottom) preserved across scrollback trimming.
 
 **Constraints:**
 
@@ -236,18 +238,17 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Horizontal swipe gestures (left/right) send arrow key escape sequences to the terminal.
-2. A `setInterval` repeat timer fires every 80ms while the finger is held, sending repeated arrow keys.
-3. `touchstart`, `touchmove`, `touchend`, and `touchcancel` are all registered in capture phase (`{ capture: true }`) to guarantee cleanup before xterm's internal Gesture handler calls `stopPropagation()`.
-4. The repeat timer is always cleared on `touchend` or `touchcancel`.
-5. When the keyboard is closed, vertical swipes scroll the terminal buffer via `terminal.scrollLines()`.
-6. The gesture handler accumulates pixel deltas and converts to line-granularity scroll, with sensitivity derived from terminal font metrics (`fontSize * lineHeight`).
-7. When the keyboard is open, vertical swipes do NOT scroll (touch events are blocked); horizontal swipes send arrow keys.
+1. Horizontal swipe gestures (left/right) send arrow-key escape sequences to the terminal.
+2. While the finger is held, arrow-key sends auto-repeat at roughly twelve times per second.
+3. Touch event handlers are registered in capture phase to ensure cleanup runs before xterm's internal gesture handling.
+4. The repeat is always cleared when the finger lifts or the touch is cancelled.
+5. When the keyboard is closed, vertical swipes scroll the terminal buffer directly.
+6. Scroll sensitivity scales with the terminal's font metrics so a swipe travels the same number of lines on different font sizes.
+7. When the keyboard is open, vertical swipes do not scroll; horizontal swipes still send arrow keys.
 
 **Constraints:**
 
-- xterm 6.0.0's `SmoothScrollableElement` uses JS-based scrolling that does not support native touch; `.xterm-viewport` no longer has scrollable content.
-- Touch scroll must use `terminal.scrollLines()` for direct buffer scrolling.
+- Touch scroll must use xterm's buffer-scroll API directly because the viewport does not support native scroll under the current xterm scroll layer.
 
 **Priority:** P1
 
@@ -306,11 +307,11 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Voice input uses the Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`).
+1. Voice input uses the browser's Web Speech API where available.
 2. Voice input is completely decoupled from the keyboard/iframe input system.
-3. On mobile, a floating microphone button starts recognition. On desktop, a small mic icon in the bottom-right corner and `Ctrl+Space` keyboard shortcut toggle voice input.
-4. Each activation captures one utterance: tap/shortcut, speak, pause, text sent, auto-deactivates (`continuous=false`, `interimResults=false`).
-5. Final transcribed text is sent directly to `terminal.input()`.
+3. On mobile, a floating microphone button starts recognition. On desktop, a small mic icon and a `Ctrl+Space` keyboard shortcut toggle voice input.
+4. Each activation captures one utterance; recognition auto-deactivates after the user pauses.
+5. Final transcribed text is sent to the terminal as keyboard input.
 6. The mic button is hidden on browsers that do not support the Web Speech API.
 
 **Constraints:**
@@ -340,9 +341,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. On first use, if `navigator.permissions.query({name: 'microphone'})` returns state `'prompt'`, the iframe input is blurred (dismissing the keyboard) before calling `recognition.start()` so the user can see the browser permission prompt.
-2. The same blur-before-permission pattern applies to clipboard paste (`clipboard-read` permission).
-3. Composition events (`compositionstart`/`compositionend`) buffer swipe typing text until the IME commits.
+1. On first use, when the microphone permission state requires a prompt, the iframe input is blurred (dismissing the keyboard) before requesting permission so the user can see the browser prompt.
+2. The same blur-before-permission pattern applies to clipboard paste.
+3. Swipe-typed text is buffered through the browser's IME composition events and sent only when the IME commits, so partial composition does not reach the terminal as individual keystrokes.
 
 **Constraints:**
 
@@ -371,16 +372,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. xterm cursor is enabled with `cursorBlink: true` and `cursorStyle: 'bar'`.
-2. Cursor colors are set: cursor `#e4e4f0`, cursor accent `#1a2332`.
-3. CSS rules that previously hid cursor elements (`.xterm-cursor-block`, `.xterm-cursor-outline`, `.xterm-cursor-bar`, `.xterm-cursor-underline`) are removed.
-4. `applyCursorVisibility()` does not hide the cursor in alternate buffer mode; it only honors DECTCEM hide sequences from the agent.
-5. No "orange square" duplication where both the DOM cursor and CLI's ANSI cursor are visible (newer CLI versions rely on xterm's native cursor layer).
-6. The iframe compositor jail code remains as a precaution for the Android IME native caret problem (separate from xterm's DOM cursor).
+1. The terminal cursor is enabled and displays as a blinking bar.
+2. Cursor colors match the Codeflare theme palette.
+3. No CSS rules hide the terminal cursor elements.
+4. The cursor is not hidden in alternate buffer mode; only explicit DECTCEM hide sequences from the connected agent suppress it.
+5. No double-cursor duplication occurs between the terminal's native cursor and the agent's ANSI cursor on supported agent versions.
+6. The isolated compositor context for the Android IME caret remains in place as a precaution, separate from the terminal cursor layer.
 
 **Constraints:**
 
-- Cursor visibility depends on CLI agent version (Copilot 1.0.12+, Claude Code) using xterm's native cursor layer rather than rendering their own via ANSI escape sequences.
+- Cursor visibility depends on the agent version using the terminal's native cursor layer rather than rendering its own via ANSI sequences.
 
 **Priority:** P1
 
@@ -407,16 +408,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. On visibility return (Chrome), `restoreFocusIfNeeded()` calls `forceResetKeyboardState()` + `enableVirtualKeyboardOverlay()` BEFORE refocusing the input.
-2. A document-visibility handler in the layout shell calls `forceResetKeyboardState()` as a fallback for when focus restore does not fire.
-3. `forceResetKeyboardState()` unconditionally zeros all signals (`keyboardHeight`, `vkOpen`, `viewportGrowth`) because `boundingRect.height` returns stale cached values on browser resume.
-4. On Samsung, the dashboard bounce (REQ-MOB-003) replaces focus-based recovery.
-5. On Samsung, `enableVirtualKeyboardOverlay()` is delayed by 300ms after visibility return so stale `geometrychange` events (arriving up to ~200ms after toggle) are caught by the 50ms ignore window.
-6. `reconnectOnVisibilityReturn()` reconnects any dropped WebSockets after visibility return.
+1. On visibility return, focus restoration first resets all keyboard-state signals and re-enables the virtual-keyboard overlay before refocusing the input.
+2. A document-visibility handler in the layout shell triggers the same keyboard-state reset as a fallback when focus-restore does not fire.
+3. The keyboard-state reset is unconditional because cached browser geometry is stale on resume.
+4. On Samsung, the dashboard bounce ([REQ-MOB-011](#req-mob-011-samsung-internet-keyboard-state-recovery)) replaces focus-based recovery.
+5. On Samsung, the virtual-keyboard overlay re-enable is delayed enough on visibility return that stale browser keyboard-geometry events arrive inside the ignore window.
+6. Any WebSockets dropped while the page was hidden are re-established on visibility return.
 
 **Constraints:**
 
-- `resetKeyboardStateIfStale()` is not used for visibility return because `boundingRect.height` is stale at that point.
+- Visibility-return recovery does not rely on cached browser geometry because it is stale at that point.
 - Chrome and Samsung paths are separate; Samsung requires full session deactivation/reactivation.
 
 **Priority:** P1
@@ -424,6 +425,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state)
 
 **Verification:** Manual check
+
+**Notes:** Visibility-return recovery is validated manually per the checklist in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#visibility-return-recovery).
 
 **Status:** Implemented
 
@@ -436,23 +439,23 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe -> visualViewport resize/keyboard show-hide triggers terminal refit cadence) -->
 <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-010 describe -> AC1, AC2, AC3, AC4, AC5, AC6) -->
 
-**Intent:** Multiple code paths that trigger `fitAddon.fit()` must not conflict with each other or cause visual artifacts.
+**Intent:** Multiple code paths that trigger terminal-fit recalculation must not conflict with each other or cause visual artifacts.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Three code paths can trigger `fitAddon.fit()`: keyboard refit (debounced 150ms), active-state effect (immediate `requestAnimationFrame`), and ResizeObserver (immediate `requestAnimationFrame`).
-2. A `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver during keyboard refit. The ResizeObserver skips `fit()` when `kbDebounceTimer !== null`.
-3. Mobile with keyboard open: `scrollToBottom()` is called after every `fit()`.
-4. Desktop or mobile without keyboard: `isAtBottom()` is checked before `fit()`; scroll position is preserved for users scrolled into scrollback.
-5. When keyboard is open, ResizeObserver does not call `scrollToBottom()` (the keyboard height change effect handles it).
-6. `refitAllTerminals()` skips the resize WebSocket message if dimensions did not change.
+1. Three code paths can trigger a terminal-fit recalculation: keyboard refit (debounced ~150ms), active-state effect (immediate next frame), and viewport resize observer (immediate next frame).
+2. While a keyboard refit is in flight, the viewport resize observer is suppressed so the two paths do not contend.
+3. With the keyboard open on mobile, the buffer scrolls to the bottom after every refit so new output remains visible.
+4. Without the keyboard open (desktop or mobile), scroll-to-bottom only runs when the user was already at the bottom; scrollback position is preserved otherwise.
+5. While the keyboard is open, the resize observer does not force scroll-to-bottom; the keyboard-height-change handler owns that.
+6. A refit that produces unchanged dimensions does not send a resize message to the container.
 
 **Constraints:**
 
-- Using the timer ID (not a boolean flag) for `kbDebounceTimer` prevents a race condition where cleanup does not properly clear the gate.
-- The write callback's `scrollToBottom()` is the single source of truth for bottom-anchoring during keyboard-open output.
+- The keyboard-refit gate is implemented so cleanup cannot leave it stuck on after a cancelled refit.
+- The write callback owns bottom-anchoring during keyboard-open output; no other path competes for that decision.
 
 **Priority:** P1
 
