@@ -458,8 +458,8 @@ GET `/public/onboarding-config`, POST `/public/waitlist` (rate limited)
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/health` | None (auth-exempt — no `CONTAINER_AUTH_TOKEN` required) | REQ-STOR-004 | Direct host health check; available before CONTAINER_AUTH_TOKEN is wired up |
-| GET | `/api/health` | Session cookie | REQ-STOR-004 | Worker-proxied alias for `/health` |
+| GET | `/health` | None (auth-exempt — no `CONTAINER_AUTH_TOKEN` required) | REQ-SESSION-015 AC1, AC2 | Direct host health check; available before CONTAINER_AUTH_TOKEN is wired up |
+| GET | `/api/health` | Session cookie | REQ-SESSION-015 AC1, AC2 | Worker-proxied alias for `/health` |
 
 Both endpoints return the same JSON body:
 

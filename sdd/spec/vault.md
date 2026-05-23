@@ -248,6 +248,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault.ts::validateVaultRoute -->
 <!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
 <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute boundary cases describe → AC3/AC5) -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (vault WS rate-limit key contract describe → AC4) -->
 
 **Intent:** Clicking the Vault button in the codeflare UI opens SilverBullet in a new tab, behind the same auth + rate-limit boundary as every other tier-gated session feature. This REQ covers the in-container server, the auth/rate-limit proxy plumbing, and the host-side HTTP+WS branch; UX integration and SilverBullet subpath adaptation live in [REQ-VAULT-012](#req-vault-012-vault-button-render-and-readiness-gating).
 
