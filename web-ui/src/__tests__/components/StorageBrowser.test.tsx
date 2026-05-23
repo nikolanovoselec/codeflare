@@ -143,7 +143,7 @@ vi.mock('../../lib/file-upload', () => ({
 
 import StorageBrowser from '../../components/StorageBrowser';
 
-describe('StorageBrowser', () => {
+describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-sheet presentation, R2 as source of truth via Worker API)', () => {
   const enableSelectionMode = () => {
     fireEvent.click(screen.getByTitle('Selection mode'));
   };

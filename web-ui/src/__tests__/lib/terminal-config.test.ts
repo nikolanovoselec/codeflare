@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mdiConsole, mdiRobotOutline, mdiCodeBraces, mdiDiamond, mdiRobotIndustrial, mdiGithub } from '@mdi/js';
 import { TERMINAL_TAB_CONFIG, getTabIcon, getTabDisplayName, AGENT_ICON_MAP } from '../../lib/terminal-config';
 
-describe('terminal-config', () => {
+describe('terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-TERM-009 (PROCESS_ICON_MAP renders icons per tab process kind)', () => {
   describe('TERMINAL_TAB_CONFIG', () => {
     it('defines configs for tabs 1 through 6', () => {
       for (let i = 1; i <= 6; i++) {

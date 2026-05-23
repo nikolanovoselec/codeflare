@@ -52,9 +52,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/r2-config.test.ts` `getR2Config` describe annotated `REQ-STOR-001 AC1/AC2/AC3`; `src/__tests__/lib/r2-admin.test.ts` `r2-admin` describe annotated `REQ-STOR-001 AC4/AC5`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -217,9 +217,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-SUB-001](subscription.md#req-sub-001-eight-tier-subscription-system), [REQ-STOR-014](#req-stor-014-r2-storage-stats-caching)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/routes/storage-stats.test.ts` `Storage Stats Routes` describe annotated `REQ-STOR-006`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -254,9 +254,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/routes/storage-browse.test.ts` `Storage Browse Routes` describe annotated `REQ-STOR-007`; complementary endpoint-level coverage in `src/__tests__/routes/storage-upload.test.ts`, `storage-download.test.ts`, `storage-delete.test.ts`, `storage-preview.test.ts`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -283,9 +283,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser)
 
-**Verification:** Automated test
+**Verification:** Automated test (`web-ui/src/__tests__/components/StorageBrowser.test.tsx` describe annotated `REQ-STOR-016 AC1/AC2`; AC3 traversal rejection covered by `src/__tests__/routes/storage-browse.test.ts` annotated `REQ-STOR-007`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -345,9 +345,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/r2-seed.test.ts` `seedGettingStartedDocs` describe annotated `REQ-STOR-009`; endpoint coverage in `src/__tests__/routes/storage-seed.test.ts`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -380,9 +380,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/lib/r2-seed.test.ts` `seedAgentConfigs` describe annotated `REQ-STOR-010`; mode-gating coverage in `src/__tests__/lib/r2-seed-mode.test.ts`, `r2-seed-context-mode.test.ts`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -471,9 +471,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/routes/storage-stats.test.ts` `Storage Stats Routes` describe annotated `REQ-STOR-014` - exercises pagination caching, TTL, mutation-driven invalidation)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

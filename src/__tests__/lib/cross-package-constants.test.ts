@@ -18,7 +18,7 @@ import { TabConfigSchema } from '../../lib/schemas';
  *   - TabConfigSchema (backend) <-> TabConfigSchema (frontend)
  *   - StorageObject shape (backend types.ts) <-> StorageObjectSchema (frontend schemas.ts)
  */
-describe('Cross-Package Constants', () => {
+describe('Cross-Package Constants / REQ-TERM-001 AC1 (MAX_TABS=6 enforced session-wide, shared backend<->frontend constant)', () => {
   // ========================================================================
   // MAX_TABS / MAX_TERMINALS_PER_SESSION
   // ========================================================================

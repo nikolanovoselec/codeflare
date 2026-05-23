@@ -34,7 +34,7 @@ const _MockWebSocket = globalThis.WebSocket as unknown as {
   CLOSED: number;
 };
 
-describe('Terminal Store', () => {
+describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff using WS_RETRY_DELAY_MS) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)', () => {
   const sessionId = 'test-session-123';
   const terminalId = '1';
 
