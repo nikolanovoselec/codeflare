@@ -276,7 +276,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-### REQ-OPS-009: Weekly fuzz testing
+### REQ-OPS-018: Weekly fuzz testing
 
 <!-- @impl: .github/workflows/fuzz.yml -->
 

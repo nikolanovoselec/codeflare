@@ -68,7 +68,7 @@ None. Authentication is foundational; other domains depend on it.
 
 1. Visiting `/` in SaaS mode shows the Codeflare login page with a "Sign in with GitHub" button.
 2. `GET /auth/github/login` redirects to `github.com/login/oauth/authorize` with `client_id`, `scope=user:email`, and a self-contained signed `state` parameter (no cookie set).
-3. `GET /auth/github/callback` validates the `state` query parameter (rejecting any state not issued by this Worker, issued more than 30 minutes ago, or already redeemed once), exchanges the code for an access token via GitHub API, fetches the user's verified primary email, signs an HMAC-SHA256 JWT, and sets a `codeflare_session` cookie (HttpOnly, Secure, SameSite=Lax, Max-Age=3600). Redirects to `/app/` for users with an active subscription tier, or `/app/subscribe` for pending/blocked users. State validation failure redirects to `/?error=session-expired`.
+3. `GET /auth/github/callback` validates the `state` query parameter (rejecting any state not issued by this Worker, issued more than 30 minutes ago, or already redeemed once), exchanges the code for an access token via GitHub API, fetches the user's verified primary email, signs an HMAC-SHA256 JWT, and sets a `codeflare_session` cookie (HttpOnly, Secure, SameSite=Lax, Max-Age=3600); successful validation redirects to `/app/` for users with an active subscription tier or `/app/subscribe` for pending/blocked users, while state-validation failure redirects to `/?error=session-expired`.
 4. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes.
 5. Only `primary: true, verified: true` emails from the GitHub API are accepted.
 6. The GitHub access token is used ephemerally during the callback and then discarded (not stored).
@@ -167,9 +167,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. **`requireIdentity`** resolves the user from the appropriate auth mechanism. If the user is not in KV (SaaS mode), auto-provisions with `pending` tier via `resolveOrProvisionUser()`. Sets `c.get('user')` with email, role, subscriptionTier, and accessTier. Used for subscribe-page endpoints.
-2. **`requireActiveUser`** authenticates (same as requireIdentity) then checks that `subscriptionTier ?? accessTier` is an active tier (free/trial/standard/advanced/max/unlimited). Pending users receive 403 with code `'PENDING'`; blocked users receive 403 with code `'BLOCKED'`. When `SAAS_MODE` is not active, behaves identically to `requireIdentity` (no tier checking).
-3. **`requireAdmin`** checks `role === 'admin'`. Must be composed after `requireIdentity` or `requireActiveUser`. Used for `/admin/*` and user management.
+1. **`requireIdentity`** resolves the user from the appropriate auth mechanism; if the user is not in KV (SaaS mode) it auto-provisions with `pending` tier via `resolveOrProvisionUser()`, sets `c.get('user')` with email, role, subscriptionTier, and accessTier, and is used for subscribe-page endpoints.
+2. **`requireActiveUser`** authenticates (same as `requireIdentity`) then checks that `subscriptionTier ?? accessTier` is an active tier (free/trial/standard/advanced/max/unlimited); pending users receive 403 with code `'PENDING'`, blocked users receive 403 with code `'BLOCKED'`, and when `SAAS_MODE` is not active the middleware behaves identically to `requireIdentity` (no tier checking).
+3. **`requireAdmin`** checks `role === 'admin'` and must be composed after `requireIdentity` or `requireActiveUser`; used for `/admin/*` and user management.
 4. `requireActiveUser` is also exported as `authMiddleware` for backward compatibility.
 
 **Constraints:**
