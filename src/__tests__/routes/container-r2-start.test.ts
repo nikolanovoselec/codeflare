@@ -1,13 +1,14 @@
 /**
  * REQ-SESSION-003: R2 bucket mounted and synced on start
- * AC coverage: AC1 (createBucketIfNotExists called on start),
- *              AC2 (scoped R2 token obtained and injected),
- *              AC3 (entrypoint initial rclone sync - structural audit),
- *              AC4 (bisync daemon after initial sync - structural audit),
- *              AC5 (new buckets seeded with getting-started docs)
+ * AC coverage in THIS file: AC1 (createBucketIfNotExists called on start),
+ *                           AC2 (scoped R2 token obtained and injected),
+ *                           AC5 (new buckets seeded with getting-started docs)
  *
- * AC3/AC4 are entrypoint.sh structural audits (shell script contracts).
- * AC1/AC2/AC5 are integration tests against the container start route.
+ * AC3 (entrypoint initial rclone sync) and AC4 (bisync daemon + SIGUSR1)
+ * are entrypoint.sh runtime behaviors. Worker (vitest-pool-workers) runtime
+ * has no filesystem so the previous source-presence audits were broken.
+ * Backstop: host/__tests__/entrypoint-bisync-behavior.test.js (real bash
+ * harness; same code path as REQ-STOR-003 / REQ-STOR-004).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Env } from '../../types';
