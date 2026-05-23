@@ -24,19 +24,13 @@ You will also derive:
 - `SID_SHORT`: first 8 characters of `SESSION_ID`
 - `ISO_TS`: current local time formatted as `YYYY-MM-DDTHH-MM-SS%z`
   (colons replaced with hyphens so the filename is safe on all
-  filesystems). Resolve the timezone in this order, picking the first
-  non-empty value:
-  1. `$USER_TIMEZONE` if exported on the container (Worker is expected
-     to forward the browser's `Intl.DateTimeFormat().resolvedOptions().timeZone`
-     at session start once that wiring lands).
-  2. `$TZ` if already set on the process (standard POSIX).
-  3. `/etc/timezone` if present (Debian/Ubuntu convention).
-  4. Fallback to `UTC`.
-  Then run: `TZ="$RESOLVED" date '+%Y-%m-%dT%H-%M-%S%z'`.
-  The host clock is typically UTC; capture files should record wall-
-  clock time the user actually experienced so SilverBullet timestamps
-  match. Never hardcode a specific zone -- codeflare is forkable and
-  users live everywhere.
+  filesystems). You MUST derive this by running the exact Bash block in
+  step 1.5 below and using its stdout verbatim. Do NOT construct this
+  string yourself, do NOT reuse `TODAY` with a suffix, and do NOT guess
+  a clock component. Past failures (issue #416) traced to the agent
+  confabulating `T00-00-00+0000`, `T12-00-00+0000`, or `T23-30-00+0000`
+  instead of executing `date`. The exact bytes printed by `date` are
+  the only acceptable source for ISO_TS.
 - `WORK_DIR`: a temp dir at `/tmp/memory-capture-{SID_SHORT}`
 
 ## Steps
@@ -54,6 +48,59 @@ rm -f {VARS_FILE}
 ```
 
 The hook (`memory-capture.sh`) already advanced the counter at `{COUNTER_FILE}` before emitting this directive, so do not rewrite it here — a stale rewrite under concurrent 15-message batches would move the counter backwards and cause the next hook to over-count.
+
+### 1.5. Derive ISO_TS via Bash (MANDATORY — do not skip, do not improvise)
+
+This step exists because issue #416 caught the agent silently fabricating
+the timestamp string instead of running `date`. Run the following Bash
+block EXACTLY as written via the Bash tool. The captured stdout is the
+ONLY acceptable value for `ISO_TS` everywhere it appears in later steps
+(filename, frontmatter `captured_at`, anywhere else). Do not edit it,
+do not reformat it, do not regenerate it from `TODAY`.
+
+```bash
+RESOLVED=""
+if [ -n "$USER_TIMEZONE" ]; then
+  RESOLVED="$USER_TIMEZONE"
+elif [ -n "$TZ" ]; then
+  RESOLVED="$TZ"
+elif [ -r /etc/timezone ]; then
+  RESOLVED="$(cat /etc/timezone)"
+else
+  RESOLVED="UTC"
+fi
+ISO_TS="$(TZ="$RESOLVED" date '+%Y-%m-%dT%H-%M-%S%z')"
+# Assertion: reject confabulation fingerprints. A real `date` invocation
+# cannot return T00-00-00, T12-00-00, or any HH-30-00 / HH-00-00 on every
+# call. If this fires, the LLM bypassed the command above.
+case "$ISO_TS" in
+  *T00-00-00*|*T12-00-00*|*T23-30-00*|*T15-30-00*|*T16-30-00*)
+    echo "ISO_TS_ASSERTION_FAILED: suspicious clock component in $ISO_TS" >&2
+    exit 1
+    ;;
+esac
+# Assertion: must end with a real offset like +0200 or -0500 or +0000.
+case "$ISO_TS" in
+  *[+-][0-9][0-9][0-9][0-9]) ;;
+  *)
+    echo "ISO_TS_ASSERTION_FAILED: missing TZ offset in $ISO_TS" >&2
+    exit 1
+    ;;
+esac
+echo "ISO_TS=$ISO_TS"
+echo "RESOLVED_TZ=$RESOLVED"
+```
+
+Record the exact `ISO_TS=...` line from stdout. That string is now
+`{ISO_TS}` for the rest of this prompt. If the Bash call errored
+(assertion failed), re-run it once verbatim; if it still errors, halt
+with a brief explanation rather than guessing a value.
+
+Rationale: the host clock is typically UTC, but capture files must
+record the wall-clock time the user actually experienced so SilverBullet
+timestamps match. Resolving via `$USER_TIMEZONE` (forwarded from the
+browser by the Worker) -> `$TZ` -> `/etc/timezone` -> `UTC` keeps
+codeflare forkable for users in any zone. Never hardcode a region.
 
 ### 2. Prefilter and chunk the transcript
 
@@ -125,7 +172,11 @@ Now Read `{WORK_DIR}/scratchpad.md` (which is your own per-chunk notes,
 small and dense) and produce the final capture file. The scratchpad is
 your working memory; the final note is the publishable artifact.
 
-Compute the target path:
+Compute the target path. `{ISO_TS}` here MUST be the exact string
+captured from step 1.5's Bash stdout. Do not regenerate it, do not
+substitute `{TODAY}T00-00-00+0000`, do not round to a half-hour. The
+filename and the `captured_at` frontmatter field below MUST contain
+identical bytes.
 
 ```bash
 TARGET=/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md
