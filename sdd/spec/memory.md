@@ -43,20 +43,20 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The memory-capture hook script runs as a `UserPromptSubmit` hook, injecting a short instruction into the main agent's context via `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0`.
-2. The hook counts real user messages in the JSONL transcript using a two-layer grep filter that excludes tool-result wrappers (content is an array, not a string) and synthetic messages (slash commands, task notifications -- content starts with `<`).
-3. When triggered, a background sonnet agent runs the three-stage capture pipeline (prefilter transcript noise, chunk and accumulate per-chunk observations into a scratchpad, synthesise the final note) and writes the capture file to `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md`.
+1. A UserPromptSubmit hook injects a short capture instruction into the active agent context on each trigger.
+2. Only real user messages are counted; tool results and synthetic agent-generated messages are excluded from the count.
+3. When triggered, a background sonnet subagent runs the three-stage capture pipeline (prefilter transcript noise, accumulate per-chunk observations, synthesise the final note) and writes the capture file into the vault's session-captures folder.
 4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4.
-5. The capture file uses a YAML frontmatter template with `session_id`, `captured_at`, and `captured_from_range` fields followed by Context / Decisions / Observations / References sections.
-6. The capture agent extracts chunk nodes/edges from the rendered markdown via inline graph construction: sonnet emits chunk JSON matching graphify's schema, and a short Python step calls `graphify.build` / `graphify.cluster` / `graphify.export.to_json` to materialise the per-extraction graph.
-7. The agent runs `graphify global add ... --as user_vault` under `flock -w 5 /tmp/graphify-global.lock` so the new content is queryable on the same turn it is written.
+5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections.
+6. Graph nodes and edges are extracted from the rendered capture and merged into the unified global graph.
+7. The merge into the unified global graph is serialised and atomic, so the new content is queryable on the same turn it is written.
 
 **Constraints:**
 
 - The hook runs in approximately 150ms (lightweight shell script, no heavy processing).
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
 - The capture agent is sonnet per AD58, pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model.
-- The headless `graphify extract` CLI is intentionally bypassed in AC6: codeflare ships no LLM provider key for graphify, and the capture agent IS the LLM, so re-invoking the CLI would duplicate inference cost with no benefit.
+- The capture agent itself is the LLM that produces the extracted graph (the upstream headless extract CLI is not invoked) to avoid duplicating inference cost.
 
 **Priority:** P0
 
@@ -78,23 +78,23 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh describe → Europe/Zurich + ISO_TS ending in +0000 rejected → AC6) -->
 <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh describe → year-old fabricated timestamp rejected for >30s drift → AC7) -->
 
-**Intent:** Operational glue around the capture hook: tilde expansion in transcript paths, the shared `.vars` carrier file that keeps `additionalContext` strings short, a first-message graphify-query directive that primes the agent with prior-session knowledge, a timezone resolution chain so captured timestamps reflect the user's local clock instead of UTC, and a fabrication-resistant ISO_TS assertion suite (extracted to `assert-iso-ts.sh`) that fails closed if the subagent guesses the timestamp instead of executing `date`.
+**Intent:** Capture timestamps reflect the user's local timezone, the hook fires reliably regardless of path format or session state, and a fabrication-resistant timestamp assertion fails closed if the subagent guesses the timestamp instead of producing a real one.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The hook handles tilde expansion in `transcript_path` (Claude Code may send tilde-prefixed paths).
-2. All variables (transcript path, line offset, date, counts, counter file path) are written to a `.vars` JSON file to keep the context string short.
-3. On the first message of a session (no counter file exists), the hook injects a `mcp__graphify__query_graph` directive into `additionalContext` instructing the agent to query the unified graph before responding.
-4. The hook resolves the capture timestamp from `$USER_TIMEZONE`, falling back to `$TZ`, then `/etc/timezone`, then UTC. The endpoint and persistence contract that puts a value into `$USER_TIMEZONE` are specified by REQ-SESSION-016.
-5. The capture prompt Step 1.5 invokes `assert-iso-ts.sh`. The script's `ISO_TS=...` stdout line is the only acceptable source for `ISO_TS`. The script asserts the produced timestamp ends with a four-digit `[+-]NNNN` offset; missing offset exits non-zero with `ISO_TS_ASSERTION_FAILED: missing TZ offset`.
-6. The script asserts the trailing offset matches what `TZ="$RESOLVED" date '+%z'` produces. Catches dropped-TZ-wrapper bugs like issue #416 (Europe/Zurich host emitting +0000) without false-positiving legitimately-UTC hosts. Mismatch exits non-zero with `ISO_TS_ASSERTION_FAILED: offset X does not match TZ=Y expected Z`.
-7. The script asserts the epoch reconstructed from the timestamp is within 30 seconds of the current wall clock. Catches fabricated values that typically drift hours. Drift exit emits `ISO_TS_ASSERTION_FAILED: ... drifts Ns from current clock`. Any assertion failure halts the capture rather than writing a confabulated timestamp to the vault.
+1. The hook tolerates tilde-prefixed transcript paths.
+2. Variables shared between the hook and the capture subagent are passed via a small carrier file rather than inline context.
+3. On the first message of a session, the hook injects a graph-query directive instructing the agent to consult the unified graph before responding.
+4. The hook resolves the capture timezone from the user preference (REQ-SESSION-016), falling back to the container default and finally to UTC.
+5. The capture timestamp is validated against the current wall clock and rejected if fabricated, missing a timezone offset, or mismatching the resolved timezone.
+6. A timestamp whose offset does not match the resolved timezone is rejected; this catches dropped-timezone-wrapper bugs without false-positiving legitimately-UTC hosts.
+7. A timestamp more than 30 seconds away from the current wall clock is rejected. Any assertion failure halts the capture rather than writing a confabulated timestamp to the vault.
 
 **Constraints:**
 
-- The `.vars` file is the dedup gate: the capture subagent must delete it as its first step; absence on subsequent hook fires short-circuits trigger emission.
+- The carrier file acts as the dedup gate: the capture subagent must delete it as its first step; absence on subsequent hook fires short-circuits trigger emission.
 
 **Priority:** P0
 
@@ -117,17 +117,15 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The hook reads the counter file at `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset).
-2. If no counter file exists (first run after container start), the hook writes a baseline from the current transcript count and injects the graphify-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3) before exiting.
-3. If the delta between the current user message count and the last summarized count is less than 15, the hook exits silently.
-4. When the delta reaches 15, the hook writes the `.vars` file and emits the `additionalContext` instruction.
-5. The counter is updated (current count + total lines) BEFORE emitting, preventing re-triggering on subsequent hook invocations within the same window.
-6. The capture agent reads its line range from the vars file, not from the counter.
+1. The hook tracks the number of user messages since the last capture using a per-session counter.
+2. On first run for a session, the hook initialises a baseline at the current transcript size and injects the first-message graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3) before exiting.
+3. If the delta since the last capture is less than 15 messages, the hook exits silently.
+4. When the delta reaches 15, the capture subagent is triggered.
+5. The counter is advanced before the trigger emits, preventing re-triggering on subsequent hook invocations within the same window.
 
 **Constraints:**
 
-- Counter files are excluded from R2 sync (`--filter "- .memory/counter/**"`) since they are ephemeral per-session state.
-- Each new session gets a new session ID, so old counter files are orphans.
+- Counter files are ephemeral per-session state and are not persisted across sessions.
 
 **Priority:** P0
 
@@ -157,18 +155,17 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. In advanced mode, `/home/user/Vault/` is included in rclone bisync via a `+` filter that precedes the global `**/graphify-out/**` exclude so vault graphify output still rides along.
-2. On container boot, rclone pulls the vault from R2 before the vault skeleton init runs, so returning sessions inherit their persisted content untouched.
-3. The vault skeleton init (`init_user_vault`) is idempotent and only creates subdirectories / config files when absent.
-4. rclone bisync syncs changes back to R2 on three triggers: the 15-minute cadence, manual SIGUSR1 from the Sync-now button (REQ-STOR-015), and the final shutdown bisync (REQ-STOR-005).
-5. The ephemeral global-graph layer (`~/.graphify/`) is explicitly excluded from sync (rebuilt locally on every container boot from per-source graphs).
-6. The shutdown handler watchdog allows the final bisync up to 120s to drain pending writes before SIGKILL.
+1. In advanced mode, the user's vault directory (including its own graph output) is included in R2 sync.
+2. On container boot, the vault is pulled from R2 before any initialization runs so returning sessions inherit their persisted content untouched.
+3. Vault directory initialization is idempotent; re-running on a populated vault creates nothing.
+4. Vault changes are pushed back to R2 on three triggers: the regular sync cadence ([REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)), the Sync-now button ([REQ-STOR-015](storage.md#req-stor-015-frontend-sync-now-button-triggers-bisync-fanout)), and the final shutdown bisync ([REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync)).
+5. The ephemeral unified-graph layer is rebuilt locally on every container boot and is not synced.
+6. The shutdown handler watchdog allows the final bisync up to 120s to drain pending writes before forced termination.
 
 **Constraints:**
 
-- Rclone config uses `disable_checksum = true` to skip `X-Amz-Meta-Md5chksum` metadata on multipart uploads.
-- `--s3-upload-cutoff 0` forces all uploads through the multipart path to prevent `BadDigest` TOCTOU race errors.
-- Counter files are excluded from sync; only vault and ordinary workspace content are synced.
+- Vault and ordinary workspace content are synced; transient memory-counter files are not.
+- R2 sync must be reliable under multipart-upload conditions without checksum metadata.
 
 **Priority:** P0
 
@@ -194,12 +191,12 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. In default mode, the vault directory is not preserved across container recreations (sync filters limit cross-session persistence to advanced-mode sessions).
 2. In default mode, the capture hook still runs the in-session counter logic but vault writes are local-only.
-3. The memory plugin, memory rule (`rules/memory.md`, which carries the folded vault trigger/route content), vault plugin, and `rules/vault-note-capture.md` are preseeded only in advanced mode.
+3. The memory plugin, the memory rule (which carries the folded vault trigger/route content), the vault plugin, and the vault-note-capture rule are preseeded only in advanced mode.
 4. Pro mode seeds a strict superset of Standard's preseed files; the memory and vault plugins/rules are part of the Pro-only delta.
 
 **Constraints:**
 
-- Plugin enablement in `.claude.json` is permanent (not mode-gated) because missing plugin files are silently skipped by Claude Code.
+- Plugin registration is not removed on mode downgrade; missing plugin files are silently skipped at runtime.
 
 **Priority:** P1
 
@@ -226,15 +223,15 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The container entrypoint merges hook registrations (PreToolUse and UserPromptSubmit) into `settings.json` only in advanced mode. Default mode gets only `skipDangerousModePermissionPrompt`.
-2. `sessionMode` is stored as `'default' | 'advanced'` in `UserPreferences` (KV). Undefined defaults to `'default'` via `resolveSessionMode()`.
+1. In default mode, only baseline agent permissions are applied; capture hooks are not registered.
+2. If no session mode has been explicitly set, the default mode applies.
 3. Mode changes take effect only on explicit "Recreate AI agent skills & rules" click or new bucket creation.
-4. `reconcileAgentConfigs()` seeds mode-appropriate files and deletes preseed-managed files not in the current mode. It never touches user-created files.
+4. On a mode change, preseed files are reconciled to match the new mode: mode-appropriate files are written, preseed-managed files not in the new mode are removed, and user-created files are never modified.
 
 **Constraints:**
 
 - Existing users are unaffected by mode changes until they explicitly recreate.
-- `resolveSessionMode` result is clamped against the billing-resolved effective tier (a canceled user with stale `advanced` preference gets `default`).
+- A billing-canceled user's stored session mode is downgraded to default at resolution time.
 
 **Priority:** P1
 
@@ -258,18 +255,18 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The capture prompt lives in `~/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md`.
-2. The codeflare-memory plugin includes four files in the manifest: `plugin.json`, `memory-capture.sh`, `memory-agent-prompt.md`, `prefilter-transcript.sh`. The capture **subagent definition** (`preseed/agents/claude/agents/memory-capture.md` -- frontmatter pins `model: sonnet` per AD58) is registered under the manifest's top-level `agents/` section, not inside the plugin; it is seeded by the same reconcileAgentConfigs pipeline (REQ-AGENT-008) that delivers the other named subagents (architect, code-reviewer, ...).
-3. All plugin files are marked as advanced-only in the manifest (`"modes": ["advanced"]`).
-4. The hook script (`memory-capture.sh`) is delivered via the plugin but registered via `settings.json` merge (not the plugin system).
-5. The manifest pipeline source files are in `preseed/agents/claude/plugins/`.
-6. A build-time seed generator reads the manifest and emits the runtime `AGENTS_SEEDED_CONFIGS` module that the Worker consumes; memory plugin files appear in that output.
-7. Memory-related files are excluded from non-CC agents (no Codex, Gemini, Copilot, or OpenCode equivalents) because they depend on CC-specific MCP and hook systems.
+1. The capture prompt is preseeded into the session-installed memory plugin alongside its scripts.
+2. The memory plugin's scripts (hook, prompt, prefilter) and the capture subagent definition (pinned to sonnet per AD58) are all delivered via the manifest pipeline that seeds named subagents like architect and code-reviewer ([REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start)).
+3. All memory-plugin entries are marked advanced-only in the manifest.
+4. The hook script is delivered via the plugin but registered via the session settings merge, not the plugin loader.
+5. Memory-plugin source lives in the single preseed source tree.
+6. A build-time seed generator produces the runtime payload consumed by the Worker; memory-plugin files appear in that payload.
+7. Memory files are not adapted for non-Claude agents because they depend on Claude-specific MCP and hook surfaces.
 
 **Constraints:**
 
-- Plugin files update when the pipeline is redeployed and users click "Recreate AI agent skills & rules."
-- The generator is manifest-driven and ignores non-manifest files like `plugins/cache/`.
+- Plugin files are updated when the pipeline is redeployed and users explicitly recreate their preseed.
+- Only files listed in the manifest are included in the generated payload.
 
 **Priority:** P1
 
@@ -288,21 +285,21 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @test: host/__tests__/vault-extract-merge.test.js (merge-vault-graph.py AST checks → to_json(vault_graph_path) + nx.compose + try/except guard → AC1+AC2+AC4) -->
 <!-- @test: host/__tests__/vault-extract-merge.test.js (vault-extract-prompt.md structural checks → graphify global add --as user_vault + flock /tmp/graphify-global.lock → AC3+AC5) -->
 
-**Intent:** Each vault-monitor extraction must add new nodes to the `user_vault` subgraph in the unified global graph without destroying nodes from prior extractions. Previously the agent called `graphify global add ... --as user_vault` after building a chunk graph from only the newly-changed files; `--as <tag>` replaces the entire repo-tag contribution, so every vault edit wiped all prior vault knowledge from the global graph (observed: 17 nodes -> 2 nodes after the agent ran on 2 newly-created stub `.md` files).
+**Intent:** Each vault-monitor extraction must add new nodes to the unified global graph's vault contribution without destroying nodes from prior extractions.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The vault-extract agent maintains a persistent vault graph at `/home/user/Vault/graphify-out/vault-graph.json`, loaded at the start of each pass and re-written at the end.
+1. The vault-extract agent maintains a persistent incremental vault graph that survives across extraction passes.
 2. Each extraction merges the new chunk's nodes/edges into the persistent graph using a hash-keyed union (existing IDs dedupe, new IDs append).
-3. The persistent vault graph is what `graphify global add ... --as user_vault` consumes, so the global graph's `user_vault` repo tag always reflects the cumulative vault content rather than only the most recent extraction.
-4. If the persistent vault graph file is missing or unreadable, the pass starts a fresh one (rather than crashing) and writes it at the end of the run.
-5. The merge step runs under `flock -w 5 /tmp/graphify-global.lock` so it serialises with capture-pipeline writes and active-repo hooks; the 5s timeout prevents indefinite block if the lock holder crashes, matching REQ-MEM-001 AC7.
+3. The global graph's vault contribution always reflects the cumulative vault content, not only the most recent extraction.
+4. If the persistent vault graph is missing or unreadable, the pass starts a fresh one rather than crashing and writes it at the end of the run.
+5. Vault graph merges are serialised with capture-pipeline writes and active-repo hooks; a short timeout prevents indefinite blocking if the lock holder crashes (matching REQ-MEM-001 AC7).
 
 **Constraints:**
 
-- Global-graph HTML visualization is intentionally absent: the unified graph is a 10k+ node corpus that renders as an unusable force-directed hairball. Structural queries via `mcp__graphify__*` are the real interface. The vault viz (`Raw/Graphs/vault-graph.html`) is the only graphify-rendered HTML shipped to users and covers the curated subset they actually edit.
+- No HTML visualization is generated for the unified global graph; structural queries are the interface. Only the curated vault subset receives a rendered visualization shipped to users.
 
 **Priority:** P0
 
@@ -320,21 +317,21 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: entrypoint.sh -->
 <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh describe blocks → AC1-AC4) -->
 
-**Intent:** The UserPromptSubmit hook in REQ-MEM-001 emits an `additionalContext` directive instructing the agent to spawn the memory-capture subagent, but `additionalContext` is advisory: an agent that ignores it leaves the `.vars` dedup-gate file undrained, and because the 15-message delta logic in REQ-MEM-002 only fires fresh directives on threshold crossings, an entire long-running session can silently pass with zero captures. A companion PreToolUse hook closes this gap with stop-hook semantics: hard-block every tool call except the memory-capture subagent itself while `.vars` exists, forcing the agent to drain the deferred work before doing anything else. The block has no bypass surface; it clears naturally when the subagent runs and deletes `.vars`.
+**Intent:** The capture directive emitted by REQ-MEM-001's hook is advisory: an agent that ignores it leaves the dedup-gate undrained, and the 15-message threshold logic only fires fresh directives on threshold crossings, so a long session can silently pass with zero captures. A companion hard-block hook closes this gap: every tool call other than the memory-capture subagent itself is blocked while a deferred capture is pending, forcing the agent to drain the deferred work before doing anything else. The block has no bypass surface and clears naturally when the subagent runs.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. The hook is registered as PreToolUse with matcher `""` (matches every tool call) in advanced session mode only. When no `.vars` file exists for the current session (the common case), the hook exits 0 and the tool call proceeds without delay or instrumentation.
-2. When the `session_id` field is missing from the hook input (defensive guard for malformed envelopes), the hook exits 0 silently rather than blocking.
-3. When `.vars` exists at the session-scoped path AND the tool call is anything other than the allowed surface in AC4, the hook exits 2 with a stderr message that contains the literal string `HARD BLOCK`, the path to the persisted prompt file, the path to the `.vars` file, the directive `subagent_type: "memory-capture"`, `run_in_background: true`, and the literal `sonnet` (so the agent cannot downgrade the model). Exit 2 prevents the tool call from being delivered to its handler.
-4. When `.vars` exists AND the tool call is `Task` with `tool_input.subagent_type == "memory-capture"`, the hook exits 0 and the call is delivered. Any other `subagent_type` (including absent) is blocked under AC3. The block has no bypass file or override mechanism; it clears automatically the moment the subagent runs and deletes `.vars`.
+1. The block hook intercepts every tool call in advanced session mode only. When no deferred capture is pending for the current session (the common case), the hook exits silently and the tool call proceeds.
+2. When the hook input is missing a session identifier (defensive guard for malformed envelopes), the hook exits silently rather than blocking.
+3. When a deferred capture is pending AND the tool call is anything other than the permitted memory-capture subagent invocation, the hook blocks the call; the block message instructs the agent to run the memory-capture subagent (pinned to sonnet so the agent cannot downgrade the model) and points at the persisted prompt and carrier files.
+4. Only an invocation of the memory-capture subagent is permitted to proceed while a deferred capture is pending; any other subagent invocation is blocked under AC3. The block clears automatically the moment the subagent runs and removes the carrier file.
 
 **Constraints:**
 
-- The block applies in advanced session mode only because the entire memory-capture pipeline is gated to advanced (see REQ-MEM-006).
-- If `.vars` is stale beyond recovery (e.g., transcript path moved between fires), the user manually clears it via `rm ~/.memory/counter/*.vars`. There is no in-hook bypass surface because every bypass design observed in this codebase decayed into routine ignoring of the block.
+- The block applies only in advanced session mode because the entire memory-capture pipeline is advanced-mode-only (see [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)).
+- If a carrier file is stale beyond recovery, the user clears it manually; there is no in-hook bypass surface.
 
 **Priority:** P0
 
