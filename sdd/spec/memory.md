@@ -32,6 +32,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh -->
+<!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - user-message counting describe -> counts only real user prompts excluding tool_results and command wrappers -> AC2) -->
+<!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh describe -> AC3 strips tool I/O and chunks remainder -> AC3) -->
+<!-- @test-triage: AC6 (inline graph construction via graphify.build/cluster/export.to_json) -- E2E only; unit-level text-grep of prompt prose was deleted as theater per tdd-discipline (see pipeline test comment). Verified at runtime when capture lands in Vault/Raw/Sessions/ and shows up via mcp__graphify__query_graph. -->
+<!-- @test-triage: AC7 (flock -w 5 /tmp/graphify-global.lock + graphify global add --as user_vault) -- E2E only; same rationale as AC6 (prompt-text regex theater deleted). Runtime verification: capture is queryable on the same turn it is written. -->
 
 **Intent:** Important conversation context (decisions, debugging insights, observations) must be extracted from the transcript and persisted to the vault without manual intervention. This REQ covers the hook trigger, message-counting filter, and the capture pipeline. Hook plumbing (tilde expansion, vars file shape, first-message graphify hint, timezone resolution) is split into [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing).
 
@@ -132,6 +136,12 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 <!-- @impl: entrypoint.sh::init_user_vault -->
 <!-- @impl: entrypoint.sh::bisync_with_r2 -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (vault bisync filter describe -> explicitly includes Vault before graphify-out exclude -> AC1) -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (vault boot ordering describe -> establish_bisync_baseline precedes init_user_vault call -> AC2) -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (vault boot ordering describe -> init_user_vault guards file creation with existence checks -> AC3) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> cadence trigger + SIGUSR1 trigger -> AC4) -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (vault bisync filter describe -> excludes .graphify from bisync -> AC5) -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (shutdown bisync reliability describe -> 120s watchdog 108s SIGTERM + 12s SIGKILL -> AC6) -->
 
 **Intent:** Vault content (agent captures + user notes) must persist across container lifecycles by syncing to the user's R2 bucket.
 
@@ -165,6 +175,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ### REQ-MEM-006: Memory available only in Pro (Advanced) mode
 
 <!-- @impl: preseed/agents/claude/manifest.json -->
+<!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (REQ-MEM-006 AC3 describe -> memory + vault rules and plugins are advanced-only -> AC3) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json describe -> "advanced" is a superset of "default" -> AC4) -->
+<!-- @test-triage: AC1 (vault not preserved across recreations in default mode) -- behavioral/E2E; requires a real container boot with rclone and R2. Documented in pro-mode-gating.test.ts header. -->
+<!-- @test-triage: AC2 (default-mode capture hook runs counter but vault writes are local-only) -- behavioral/E2E; requires container boot to verify R2 sync absence. Documented in pro-mode-gating.test.ts header. -->
 
 **Intent:** Vault persistence and automatic capture are user-facing features gated behind the advanced session mode. This REQ specifies the observable behavior (what works in each mode) and the preseed delta (which files differ between modes). The storage/resolution/propagation of the mode value lives in [REQ-MEM-011](#req-mem-011-session-mode-storage-resolution-and-propagation).
 
@@ -196,6 +210,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
 <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 <!-- @impl: entrypoint.sh -->
+<!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration describe -> SESSION_MODE gates hook registration + default mode emits only skipDangerousModePermissionPrompt -> AC1) -->
+<!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode describe -> returns "default" when prefs unset -> AC2) -->
+<!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (reconcileAgentConfigs / REQ-MEM-011 AC4 describe -> seeds and cleans up for default mode + skips cleanup when cleanup=false -> AC4) -->
 
 **Intent:** The mechanics behind the user-observable behavior in REQ-MEM-006: how the mode value is stored, defaulted, clamped against the billing tier, propagated into `settings.json`, and reconciled into the preseed file set without trampling user content.
 
