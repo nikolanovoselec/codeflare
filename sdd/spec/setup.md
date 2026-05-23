@@ -408,6 +408,6 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** None.
 
-**Verification:** Manual (paste the apex URL into Slack, iMessage, WhatsApp, Signal, and Twitter; confirm the unfurl renders the preview card)
+**Verification:** Manual check
 
 **Status:** Implemented

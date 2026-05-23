@@ -1,4 +1,4 @@
-// Structural audit (NOT a behavioural test) for REQ-VAULT-001..007:
+// Structural audit (NOT a behavioural test) for REQ-VAULT-001..007, -010, -012, -014, plus the capture-pipeline structure (REQ-VAULT-002) and the unified-graph resolution chain (REQ-VAULT-004):
 // the persistent vault wiring across entrypoint.sh, Dockerfile, and
 // the preseed layer.
 //
@@ -253,7 +253,9 @@ describe('preseed manifest entries (REQ-VAULT-007 AC1)', () => {
     'plugins/codeflare-vault/.claude-plugin/plugin.json',
     'plugins/codeflare-vault/scripts/vault-monitor-hook.sh',
     'plugins/codeflare-vault/scripts/vault-extract-prompt.md',
-    'rules/vault.md',
+    'rules/vault-note-capture.md',
+    'skills/vault-note-capture/SKILL.md',
+    'skills/vault-operations/SKILL.md',
   ];
   for (const path of required) {
     it(`registers ${path}`, () => {
@@ -262,12 +264,111 @@ describe('preseed manifest entries (REQ-VAULT-007 AC1)', () => {
   }
 });
 
+describe('capture pipeline structure (REQ-VAULT-002)', () => {
+  const captureScript = readFileSync(
+    resolve(repoRoot, 'preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh'),
+    'utf8',
+  );
+  const promptFile = readFileSync(
+    resolve(repoRoot, 'preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md'),
+    'utf8',
+  );
+
+  // REQ-VAULT-002 AC1 (capture file path under Raw/Sessions/)
+  it('memory-agent-prompt.md targets /home/user/Vault/Raw/Sessions/ for capture writes', () => {
+    assert.ok(
+      /\/home\/user\/Vault\/Raw\/Sessions\//.test(promptFile),
+      'prompt must instruct agent to write captures under Vault/Raw/Sessions/',
+    );
+  });
+
+  // REQ-VAULT-002 AC4 (flock graphify global add --as user_vault)
+  it('memory-agent-prompt.md merges into global graph under flock /tmp/graphify-global.lock with --as user_vault', () => {
+    assert.ok(/flock\s+(-w\s+\d+\s+)?\/tmp\/graphify-global\.lock/.test(promptFile),
+      'prompt must serialise global-add through /tmp/graphify-global.lock');
+    assert.ok(/graphify global add[\s\S]{0,200}--as\s+user_vault/.test(promptFile),
+      'prompt must tag the merge with --as user_vault');
+  });
+
+  // REQ-VAULT-002 (capture-script dedup gate references .vars marker that the agent deletes first)
+  it('memory-capture.sh writes a .vars marker that the subagent deletes (dedup gate per REQ-VAULT-002 Constraints)', () => {
+    assert.ok(/VARS_FILE=/.test(captureScript), 'hook must populate VARS_FILE');
+  });
+});
+
+describe('unified-graph resolution chain (REQ-VAULT-004)', () => {
+  const mcpLazy = readFileSync(
+    resolve(repoRoot, 'preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py'),
+    'utf8',
+  );
+  const activeRepo = readFileSync(
+    resolve(repoRoot, 'preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh'),
+    'utf8',
+  );
+
+  // REQ-VAULT-004 AC1 (mcp-lazy prefers ~/.graphify/global-graph.json)
+  it('graphify-mcp-lazy.py prefers ~/.graphify/global-graph.json in _resolve_active', () => {
+    assert.ok(/_resolve_active/.test(mcpLazy), 'wrapper must define _resolve_active');
+    assert.ok(/global-graph\.json/.test(mcpLazy), 'wrapper must reference the unified global graph path');
+  });
+
+  // REQ-VAULT-004 AC2 (active-repo hook flock + graphify global add)
+  it('graphify-active-repo.sh serialises global-add via flock /tmp/graphify-global.lock', () => {
+    assert.ok(/flock\s+(-w\s+\d+\s+)?\/tmp\/graphify-global\.lock/.test(activeRepo),
+      'active-repo hook must flock /tmp/graphify-global.lock');
+    assert.ok(/graphify global add/.test(activeRepo),
+      'active-repo hook must call graphify global add');
+  });
+
+  // REQ-VAULT-004 AC3 (excludes $HOME/Vault from active-repo candidate resolution)
+  it('graphify-active-repo.sh excludes $HOME/Vault from active-repo candidate resolution', () => {
+    assert.ok(/Vault/.test(activeRepo),
+      'active-repo hook must reference Vault to short-circuit when the walk-up hits it');
+  });
+});
+
+describe('active-repo invariant and lock serialisation (REQ-VAULT-014)', () => {
+  const activeRepo = readFileSync(
+    resolve(repoRoot, 'preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh'),
+    'utf8',
+  );
+  const captureScript = readFileSync(
+    resolve(repoRoot, 'preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md'),
+    'utf8',
+  );
+  const vaultExtract = readFileSync(
+    resolve(repoRoot, 'preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md'),
+    'utf8',
+  );
+
+  // REQ-VAULT-014 AC1 (basename mismatch -> graphify global remove BEFORE add)
+  it('active-repo hook runs `graphify global remove` on basename change before the add', () => {
+    assert.ok(/graphify global remove/.test(activeRepo),
+      'hook must call graphify global remove when previous basename differs');
+  });
+
+  // REQ-VAULT-014 AC4 (all write sites flock /tmp/graphify-global.lock)
+  it('every global-add write site serialises via flock -w 5 /tmp/graphify-global.lock', () => {
+    const sites = {
+      'graphify-active-repo.sh': activeRepo,
+      'memory-agent-prompt.md': captureScript,
+      'vault-extract-prompt.md': vaultExtract,
+    };
+    for (const [name, body] of Object.entries(sites)) {
+      assert.ok(
+        /flock\s+-w\s+\d+\s+\/tmp\/graphify-global\.lock/.test(body),
+        `${name} must serialise global-add via flock -w <n> /tmp/graphify-global.lock`,
+      );
+    }
+  });
+});
+
 describe('vault preseed files exist on disk (REQ-VAULT-007 AC1)', () => {
   const files = [
     'preseed/agents/claude/plugins/codeflare-vault/.claude-plugin/plugin.json',
     'preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh',
     'preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md',
-    'preseed/agents/claude/rules/vault.md',
+    'preseed/agents/claude/rules/vault-note-capture.md',
     'preseed/silverbullet/Index.md',
     'preseed/silverbullet/CONFIG.md',
     'preseed/silverbullet/README.md',
