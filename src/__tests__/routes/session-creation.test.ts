@@ -4,7 +4,7 @@
  *              AC3 (KV persistence), AC4 (201 response), AC5 (rate limit)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Env, Session } from '../../types';
+import type { Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 

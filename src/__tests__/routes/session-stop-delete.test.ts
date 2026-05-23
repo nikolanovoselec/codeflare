@@ -12,7 +12,7 @@
  * AC6 is a structural audit of the frontend constants.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Env, Session } from '../../types';
+import type { Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 

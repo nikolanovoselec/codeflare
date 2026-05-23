@@ -7,7 +7,7 @@
  *   REQ-SEC-004 AC7  — warnIfNoEncryptionKey emits CRITICAL log on first request
  *   REQ-SEC-006 AC5  — Write-back failure still returns correct data to caller
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import {
   importEncryptionKey,

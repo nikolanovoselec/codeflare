@@ -16,7 +16,6 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import setupRoutes from '../routes/setup';
 import type { Env } from '../types';
 import { ValidationError, SetupError, ForbiddenError } from '../lib/error-types';
-import { cfApiCB } from '../lib/circuit-breakers';
 import { resetAuthConfigCache } from '../lib/access';
 import { createMockKV } from './helpers/mock-kv';
 

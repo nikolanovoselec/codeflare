@@ -163,7 +163,7 @@ describe('REQ-SESSION-008: Container restart preserves R2 bucket', () => {
       const src = readFileSync(ENTRYPOINT, 'utf8');
       const syncPos = src.search(/rclone\s+sync/);
       // Terminal server start appears after the sync block
-      const terminalPos = src.search(/node.*server|ttyd|terminal/i);
+      const _terminalPos = src.search(/node.*server|ttyd|terminal/i);
       // Sync must appear in the script (structural guarantee only - ordering
       // is verified by the entrypoint-bisync-behavior.test.js behavioral tests)
       expect(syncPos).toBeGreaterThanOrEqual(0);
