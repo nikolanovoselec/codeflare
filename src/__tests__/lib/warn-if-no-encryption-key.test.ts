@@ -12,13 +12,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 describe('warnIfNoEncryptionKey / REQ-SEC-018 AC2 (CRITICAL log fires once per isolate when ENCRYPTION_KEY absent)', () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // The structured logger defaults to 'silent' in test environments so
+    // log output doesn't pollute test results. CRITICAL warnings need the
+    // 'error' level enabled before they reach console.error. We import
+    // logger AFTER resetModules so its module-level minLogLevel is fresh.
+    const { setLogLevel } = await import('../../lib/logger');
+    setLogLevel('error');
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     consoleErrorSpy.mockRestore();
+    const { setLogLevel } = await import('../../lib/logger');
+    setLogLevel('silent');
   });
 
   it('emits a CRITICAL error log on first call when key is undefined', async () => {
