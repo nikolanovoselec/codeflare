@@ -1,145 +1,104 @@
 /**
- * REQ-SESSION-011: Graceful shutdown with final sync
- * AC coverage: AC1 (entrypoint traps SIGINT and SIGTERM),
- *              AC2 (trap kills sync daemon via PID file),
- *              AC3 (final rclone bisync --ignore-checksum --max-delete 100),
- *              AC4 (bisync-initialized flag touched on timeout path),
- *              AC5 (STOPSIGNAL SIGINT in container image),
- *              AC6 (destroy() sends SIGTERM and polls ctx.container.running),
- *              AC7 (collectMetrics calls stop(SIGTERM) for idle/quota eviction)
+ * Structural audit for REQ-SESSION-011 entrypoint shell + Dockerfile slice
+ * (AC1..AC5). The audit reads entrypoint.sh and the Dockerfile to assert the
+ * trap registration, sync-daemon PID handling, final bisync flags, and the
+ * STOPSIGNAL directive exist as the spec describes. These artifacts are
+ * declarative (a shell trap, a build-time directive); the runtime behavior
+ * that flows from them is exercised by REAL behavioral tests elsewhere:
  *
- * All ACs are structural audits of entrypoint.sh and container/index.ts.
- * Behavioral bisync daemon tests live in host/__tests__/entrypoint-bisync-behavior.test.js.
+ *   - REQ-SESSION-011 AC6 (destroy() sends SIGTERM, polls ctx.container.running,
+ *     calls super.destroy() as fallback):
+ *       src/__tests__/container/index.test.ts (destroy describe — L654..L860)
+ *   - REQ-SESSION-011 AC7 (collectMetrics calls stop('SIGTERM') on idle):
+ *       src/__tests__/container-metrics.test.ts (idle timeout resolution describe — L272..L400)
+ *   - REQ-STOR-005 / REQ-SESSION-011 bisync daemon behavior:
+ *       host/__tests__/entrypoint-bisync-behavior.test.js (real bash spawn rig)
+ *
+ * Follow-up: extend the entrypoint-bisync-behavior harness to also fire
+ * SIGTERM into the daemon and assert the trap-driven final bisync runs with
+ * the --ignore-checksum --max-delete 100 flags. Tracked in the /sdd clean
+ * follow-up issue.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SESSION_ID_PATTERN } from '../../lib/constants';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENTRYPOINT = resolve(__dirname, '../../../entrypoint.sh');
-const CONTAINER_DO = resolve(__dirname, '../../container/index.ts');
-const CONTAINER_METRICS = resolve(__dirname, '../../container/container-metrics.ts');
+const DOCKERFILE_CANDIDATES = [
+  resolve(__dirname, '../../../Dockerfile'),
+  resolve(__dirname, '../../../../Dockerfile'),
+];
 
-describe('REQ-SESSION-011: Graceful shutdown with final sync', () => {
-  // AC1: Entrypoint traps SIGINT and SIGTERM
-  describe('REQ-SESSION-011 AC1: entrypoint traps SIGINT and SIGTERM', () => {
-    it('entrypoint.sh registers a trap for SIGINT', () => {
+function readDockerfile(): string | null {
+  for (const p of DOCKERFILE_CANDIDATES) {
+    if (existsSync(p)) return readFileSync(p, 'utf8');
+  }
+  return null;
+}
+
+describe('REQ-SESSION-011: Graceful shutdown — entrypoint + image-level directives', () => {
+  describe('REQ-SESSION-011 AC1: entrypoint.sh traps SIGINT and SIGTERM via shutdown_handler', () => {
+    it('registers a trap for SIGINT', () => {
       const src = readFileSync(ENTRYPOINT, 'utf8');
       expect(src).toMatch(/trap\s+[^#\n]*SIGINT/);
     });
 
-    it('entrypoint.sh registers a trap for SIGTERM', () => {
+    it('registers a trap for SIGTERM', () => {
       const src = readFileSync(ENTRYPOINT, 'utf8');
       expect(src).toMatch(/trap\s+[^#\n]*SIGTERM/);
     });
 
-    it('entrypoint.sh defines a shutdown handler function', () => {
+    it('defines a shutdown_handler function', () => {
       const src = readFileSync(ENTRYPOINT, 'utf8');
       expect(src).toMatch(/shutdown_handler\s*\(\)/);
     });
   });
 
-  // AC2: Trap handler kills sync daemon via PID file at /tmp/sync-daemon.pid
-  describe('REQ-SESSION-011 AC2: trap kills sync daemon via PID file', () => {
-    it('entrypoint.sh references /tmp/sync-daemon.pid for daemon management', () => {
+  describe('REQ-SESSION-011 AC2: trap kills sync daemon via /tmp/sync-daemon.pid', () => {
+    it('references the PID file', () => {
       const src = readFileSync(ENTRYPOINT, 'utf8');
       expect(src).toMatch(/sync-daemon\.pid/);
     });
 
-    it('entrypoint.sh reads PID file to kill the daemon on shutdown', () => {
+    it('reads the PID file and kills the daemon', () => {
       const src = readFileSync(ENTRYPOINT, 'utf8');
-      // Must read the pid file and kill the process
       expect(src).toMatch(/sync-daemon\.pid[\s\S]{0,200}kill/);
     });
   });
 
-  // AC3: Final rclone bisync with --ignore-checksum --max-delete 100
-  describe('REQ-SESSION-011 AC3: final bisync --ignore-checksum --max-delete 100', () => {
-    it('entrypoint.sh shutdown path runs rclone bisync', () => {
+  describe('REQ-SESSION-011 AC3: shutdown path runs final bisync with safety flags', () => {
+    it('runs rclone bisync', () => {
       const src = readFileSync(ENTRYPOINT, 'utf8');
       expect(src).toMatch(/rclone\s+bisync/);
     });
 
-    it('entrypoint.sh bisync uses --ignore-checksum flag', () => {
+    it('uses --ignore-checksum', () => {
       const src = readFileSync(ENTRYPOINT, 'utf8');
       expect(src).toMatch(/--ignore-checksum/);
     });
 
-    it('entrypoint.sh bisync uses --max-delete 100 flag', () => {
+    it('uses --max-delete 100', () => {
       const src = readFileSync(ENTRYPOINT, 'utf8');
       expect(src).toMatch(/--max-delete\s+100/);
     });
   });
 
-  // AC4: bisync-initialized flag touched on timeout path
-  describe('REQ-SESSION-011 AC4: bisync-initialized flag touched on timeout path', () => {
-    it('entrypoint.sh references a bisync-initialized or bisync_initialized flag', () => {
+  describe('REQ-SESSION-011 AC4: bisync-initialized flag is touched on the timeout path', () => {
+    it('references the bisync-initialized sentinel', () => {
       const src = readFileSync(ENTRYPOINT, 'utf8');
       expect(src).toMatch(/bisync.initialized|bisync_initialized/i);
     });
   });
 
-  // AC5: Container image declares STOPSIGNAL SIGINT
-  describe('REQ-SESSION-011 AC5: STOPSIGNAL SIGINT in container image', () => {
+  describe('REQ-SESSION-011 AC5: container image declares STOPSIGNAL SIGINT', () => {
     it('Dockerfile declares STOPSIGNAL SIGINT', () => {
-      // Look for Dockerfile in the repository
-      let dockerfile = '';
-      try {
-        dockerfile = readFileSync(resolve(__dirname, '../../../Dockerfile'), 'utf8');
-      } catch {
-        try {
-          dockerfile = readFileSync(resolve(__dirname, '../../../../Dockerfile'), 'utf8');
-        } catch {
-          // Dockerfile may be in a parent directory
-          return;
-        }
+      const dockerfile = readDockerfile();
+      if (dockerfile === null) {
+        throw new Error('Dockerfile not found in expected locations');
       }
       expect(dockerfile).toMatch(/STOPSIGNAL\s+SIGINT/);
-    });
-  });
-
-  // AC6: User-initiated Stop/Delete reach trap via destroy() -> SIGTERM + poll
-  describe('REQ-SESSION-011 AC6: destroy() sends SIGTERM and polls ctx.container.running', () => {
-    it('container DO destroy() sends SIGTERM via stop()', () => {
-      const src = readFileSync(CONTAINER_DO, 'utf8');
-      expect(src).toMatch(/stop\(['"]SIGTERM['"]\)/);
-    });
-
-    it('container DO destroy() polls ctx.container.running until stopped', () => {
-      const src = readFileSync(CONTAINER_DO, 'utf8');
-      // Must check container running state in a loop
-      expect(src).toMatch(/ctx\.container\?\.running[\s\S]{0,100}while|while[\s\S]{0,100}ctx\.container\?\.running/);
-    });
-
-    it('container DO destroy() calls super.destroy() as SIGKILL fallback', () => {
-      const src = readFileSync(CONTAINER_DO, 'utf8');
-      expect(src).toMatch(/super\.destroy\(\)/);
-    });
-
-    it('container DO destroy() timeout is at least 25 seconds', () => {
-      const src = readFileSync(CONTAINER_DO, 'utf8');
-      // Original budget was 25s (25_000), later extended to 135_000
-      // The test only asserts the value is >= 25000
-      const timeoutMatch = src.match(/timeoutMs\s*=\s*(\d+)/);
-      expect(timeoutMatch).not.toBeNull();
-      const timeoutMs = parseInt(timeoutMatch![1], 10);
-      expect(timeoutMs).toBeGreaterThanOrEqual(25_000);
-    });
-  });
-
-  // AC7: collectMetrics calls stop('SIGTERM') for idle/quota eviction
-  describe('REQ-SESSION-011 AC7: collectMetrics calls stop(SIGTERM) for idle eviction', () => {
-    it('container-metrics.ts calls stop callback with SIGTERM on idle timeout', () => {
-      const src = readFileSync(CONTAINER_METRICS, 'utf8');
-      // The idle detection path calls stop('SIGTERM')
-      expect(src).toMatch(/stop\(['"]SIGTERM['"]\)/);
-    });
-
-    it('container-metrics.ts defines idle detection using idleMs vs idleTimeoutPref', () => {
-      const src = readFileSync(CONTAINER_METRICS, 'utf8');
-      expect(src).toMatch(/idleMs|idleTimeout/);
     });
   });
 });

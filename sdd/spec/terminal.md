@@ -23,7 +23,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ---
 
-<!-- @test: host/__audits__/terminal-compound-key.audit.js (REQ-TERM-001 describe -> compound key parse + WS path + Worker forward + KV validate + PTY key + prewarm cap exclusion + null-return cap + 1013 close -> AC2..AC6) -->
+<!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (REQ-TERM-001 AC2 describe -> compound key parse + URL forward + KV baseSessionId validate; REQ-TERM-001 AC3 describe -> SESSION_ID_PATTERN reject + 400 INVALID_SESSION -> AC2,3) -->
+<!-- @test: host/__tests__/session-manager.test.js (SessionManager describe -> getOrCreate cap-null + prewarm exclusion + adopt prewarm + compound-id map keying -> AC4,5,6) -->
+<!-- @test: host/__audits__/terminal-compound-key.audit.js (REQ-TERM-001 AC6 describe -> server "Session limit reached" close -> AC6 server-side close half) -->
 ### REQ-TERM-001: Up to 6 terminal tabs per session
 
 <!-- @impl: src/lib/constants.ts::MAX_TABS -->
@@ -59,7 +61,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ---
 
-<!-- @test: host/__audits__/terminal-compound-key.audit.js (REQ-TERM-002 describe -> /api/terminal/.../ws + container.fetch + login shell + xterm-256color + raw send + JSON control msgs + resize + type guard + protocol ping -> AC1..AC7) -->
+<!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (REQ-TERM-002 AC1 describe -> WS URL pattern + Upgrade header gating -> AC1) -->
+<!-- @test: host/__audits__/terminal-compound-key.audit.js (REQ-TERM-002 describe -> login shell + xterm-256color env + raw send + JSON control msgs + resize + type guard + protocol ping -> AC3..AC7 host-side) -->
 ### REQ-TERM-002: WebSocket connection to container PTY
 
 <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade -->
@@ -163,7 +166,10 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ---
 
-<!-- @test: host/__audits__/server-prewarm-lifecycle.audit.js (REQ-TERM-005 describe -> TAB_CONFIG parse + PREWARM_SESSION_ID + login shell + onData ready + 20s hard cap + adoption rename + 2m orphan + terminalServiceReady gate -> AC1..AC6) -->
+<!-- @test: host/__tests__/prewarm-readiness.test.js (REQ-SESSION-015 / REQ-TERM-005 describe -> tab 1 command extraction + first-token + ignore non-tab-1 -> AC1) -->
+<!-- @test: host/__tests__/server-prewarm.test.js (getPrewarmConfig (server integration) describe -> TAB_CONFIG absent/empty + first-token -> AC1) -->
+<!-- @test: host/__tests__/session-manager.test.js (SessionManager describe -> PREWARM_SESSION_ID adoption + orphanTimeout clear + tab-1-only rename -> AC2,5 adoption mechanism) -->
+<!-- @test: host/__audits__/server-prewarm-lifecycle.audit.js (REQ-TERM-005 describe -> server-boot wiring: sessions.set + onData + 20s setTimeout + orphan setTimeout + terminalServiceReady -> AC2..AC6 server-boot half) -->
 ### REQ-TERM-005: Tab 1 auto-starts the configured agent
 
 <!-- @impl: entrypoint.sh::configure_tab_autostart -->
@@ -302,7 +308,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ---
 
-<!-- @test: web-ui/src/__tests__/lib/terminal-process-name.test.ts (REQ-TERM-009 describe -> process-name JSON + change-gated send + {"type": prefix + onProcessName dispatch + empty PROCESS_DISPLAY_NAME + registerProcessNameCallback wiring + updateTerminalLabel -> AC1,2,4,6,7) -->
+<!-- @test: web-ui/src/__tests__/stores/update-terminal-label.test.ts (REQ-TERM-009 AC7 describe -> updateTerminalLabel writes processName + overwrites + only targeted tab + no-op for missing session/terminal -> AC7) -->
+<!-- @test: web-ui/src/__tests__/lib/terminal-process-name.test.ts (REQ-TERM-009 describe -> host JSON wire shape + change-gated send + {"type": prefix + onProcessName dispatch + registerProcessNameCallback wiring -> AC1,2,6 wire-protocol) -->
 ### REQ-TERM-009: Process name detection via control messages
 
 <!-- @impl: host/src/session.ts -->

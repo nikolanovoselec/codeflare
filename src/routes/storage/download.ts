@@ -19,7 +19,7 @@ const storageDownloadRateLimiter = createRateLimiter({
   keyPrefix: 'storage-download',
 });
 
-function buildContentDisposition(rawFilename: string): string {
+export function buildContentDisposition(rawFilename: string): string {
   // Strip CRLF, quotes, and backslashes for the ASCII fallback filename
   const safeFilename = rawFilename.replace(/[\r\n"\\]/g, '_');
   // Strip CRLF before percent-encoding for filename* (RFC 5987)

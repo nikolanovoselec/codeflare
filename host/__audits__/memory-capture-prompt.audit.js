@@ -1,7 +1,16 @@
-// Structural audit (NOT a behavioural test) for the memory-agent-prompt.md
-// contract. The prompt file IS the executable specification of what the
-// memory-capture sonnet subagent does, so the canonical step strings ARE
-// the behavior contract.
+// Contract audit (intentionally structural) for memory-agent-prompt.md.
+//
+// SCOPE: The artifact under test is an LLM instruction prompt — its
+// "behavior" is what the sonnet subagent will execute. The graphify Python
+// block + flock-protected `graphify global add --as user_vault` step are the
+// contract text that the subagent reads and runs verbatim; if those exact
+// strings drift, the merge step silently breaks even though the prompt
+// itself looks fine. A real end-to-end test would require spawning the
+// memory-capture subagent against a fixture transcript (live LLM call,
+// out of scope for the unit/CI tier). This file therefore asserts the
+// contract strings exist; the Python it embeds is well-defined and
+// graphify-internal, separately covered by the graphify package's own
+// tests.
 //
 // AC6 (REQ-MEM-001): inline graph construction via graphify.build /
 // graphify.cluster / graphify.export.to_json. The prompt must explicitly

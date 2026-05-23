@@ -508,7 +508,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-<!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 describe -> STOPSIGNAL SIGINT+trap shutdown_handler+pidfile kill+final bisync flags+bisync-initialized flag+TERMINAL_PID kill -> AC1..AC6) -->
+<!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 describe -> STOPSIGNAL SIGINT + trap shutdown_handler + pidfile kill + final bisync flags + bisync-initialized flag + TERMINAL_PID kill -> AC1..AC6 shell shape) -->
+<!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior (real) describe -> daemon-side cadence + SIGUSR1 + recovery + --resync fallback -> AC4 daemon runtime) -->
+<!-- @test: src/__tests__/container/index.test.ts (destroy describe -> SIGTERM + poll ctx.container.running + super.destroy fallback -> AC2/AC6 DO-side wiring) -->
 ### REQ-OPS-010: Graceful container shutdown preserves data
 
 <!-- @impl: Dockerfile -->

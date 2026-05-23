@@ -1,13 +1,19 @@
 // Structural audit of entrypoint.sh for REQ-OPS-010
 // (Graceful container shutdown preserves data).
 //
-// These tests grep the shipped entrypoint.sh for the specific shutdown-path
-// markers each AC depends on. The entrypoint is a shell script; the only
-// honest check without actually running a container (forbidden on 1-vCPU) is
-// to verify the code that implements each AC is present. Deleting or
-// renaming any of the audited constructs will cause the relevant test to fail.
+// SCOPE: Verifies the SHAPE of the shutdown_handler — trap registration,
+// PID-file reference, bisync flags, sentinel touches, TERMINAL_PID kill.
+// These are declarative shell constructs whose runtime behavior is exercised
+// by REAL behavioral tests:
 //
-// Companion to entrypoint-bisync-behavior.test.js which covers periodic sync.
+//   - REQ-OPS-010 AC4 daemon-side bisync (cadence + SIGUSR1 + recovery):
+//       host/__tests__/entrypoint-bisync-behavior.test.js (real bash spawn)
+//   - REQ-OPS-010 AC2/AC6 DO-side destroy() SIGTERM + poll + super.destroy:
+//       src/__tests__/container/index.test.ts (destroy describe)
+//
+// Spawning shutdown_handler in isolation requires extracting the function
+// into its own sourceable file because entrypoint.sh runs side-effects at
+// top-level. Tracked in the /sdd clean follow-up issue.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
