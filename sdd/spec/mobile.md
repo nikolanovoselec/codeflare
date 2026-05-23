@@ -27,6 +27,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 <!-- @impl: web-ui/src/lib/mobile.ts -->
 <!-- @impl: web-ui/src/hooks/useTerminal.ts -->
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-001 describe -> AC4, AC5, AC6) -->
 
 **Intent:** The terminal must be fully functional on phones and tablets, providing a usable coding experience without requiring a desktop browser.
 
@@ -61,6 +62,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 <!-- @impl: web-ui/src/lib/mobile.ts::enableVirtualKeyboardOverlay -->
 <!-- @impl: web-ui/src/lib/mobile.ts::disableVirtualKeyboardOverlay -->
 <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe -> enableVirtualKeyboardOverlay / disableVirtualKeyboardOverlay -> AC1, AC2; stale geometrychange ignore window -> AC1, AC3; baselineInnerHeight stability -> AC4; visualViewport fallback -> AC3) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-002 describe -> AC1, AC2, AC3, AC4, AC6) -->
 
 **Intent:** Tapping the terminal must reliably open the device's virtual keyboard, and the terminal must resize correctly to accommodate it.
 
@@ -155,6 +158,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
 <!-- @impl: web-ui/src/hooks/useTerminal.ts::isAtBottom -->
+<!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-004 describe -> AC3, AC4, AC5) -->
 
 **Intent:** The terminal viewport must not lose its scroll position when burst output trims the scrollback buffer or when the browser silently resets `ydisp` to 0 on focus changes.
 
@@ -187,6 +191,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 ### REQ-MOB-012: Scroll anchoring during keyboard transitions
 
 <!-- @impl: web-ui/src/stores/terminal.ts::beginProgrammaticScroll -->
+<!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-012 describe -> AC1, AC2, AC3, AC4) -->
 
 **Intent:** Programmatic scroll corrections must not be misidentified by the scroll-reset detector, and the visible scroll anchor (bottom for following users, relative position for scrolled-up users) must be preserved across keyboard open/close and scrollback trimming.
 
@@ -410,7 +415,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminals -->
 <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported -->
-<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe → visualViewport resize/keyboard show-hide triggers terminal refit cadence) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe -> visualViewport resize/keyboard show-hide triggers terminal refit cadence) -->
+<!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-010 describe -> AC2, AC3, AC4, AC5, AC6) -->
 
 **Intent:** Multiple code paths that trigger `fitAddon.fit()` must not conflict with each other or cause visual artifacts.
 
