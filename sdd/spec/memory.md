@@ -71,9 +71,11 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ### REQ-MEM-010: Memory capture hook plumbing
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md -->
 <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture-hook describe → tilde expansion + .vars schema + first-message graphify directive + timezone fallback chain → AC1-AC4) -->
+<!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (memory-agent-prompt Step 1.5 ISO_TS assertions describe → extracts the Bash block from the prompt, runs it under controlled TZ + synthetic ISO_TS overrides, asserts offset-shape / offset-vs-RESOLVED / 30s freshness drift all reject → AC5) -->
 
-**Intent:** Operational glue around the capture hook: tilde expansion in transcript paths, the shared `.vars` carrier file that keeps `additionalContext` strings short, a first-message graphify-query directive that primes the agent with prior-session knowledge, and a timezone resolution chain so captured timestamps reflect the user's local clock instead of UTC.
+**Intent:** Operational glue around the capture hook: tilde expansion in transcript paths, the shared `.vars` carrier file that keeps `additionalContext` strings short, a first-message graphify-query directive that primes the agent with prior-session knowledge, a timezone resolution chain so captured timestamps reflect the user's local clock instead of UTC, and a fabrication-resistant ISO_TS assertion suite that fails closed if the subagent guesses the timestamp instead of executing `date`.
 
 **Applies To:** User
 
@@ -83,6 +85,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. All variables (transcript path, line offset, date, counts, counter file path) are written to a `.vars` JSON file to keep the context string short.
 3. On the first message of a session (no counter file exists), the hook injects a `mcp__graphify__query_graph` directive into `additionalContext` instructing the agent to query the unified graph before responding.
 4. The hook resolves the capture timestamp from `$USER_TIMEZONE`, falling back to `$TZ`, then `/etc/timezone`, then UTC. The endpoint and persistence contract that puts a value into `$USER_TIMEZONE` are specified by REQ-SESSION-016.
+5. The capture prompt contains a mandatory Bash block (Step 1.5) whose stdout is the only acceptable source for `ISO_TS`. The block asserts that (a) the produced timestamp ends with a four-digit `[+-]NNNN` offset, (b) the offset matches what `TZ="$RESOLVED" date '+%z'` produces (catches dropped-TZ-wrapper bugs like issue #416 without false-positiving legitimately-UTC hosts), and (c) the epoch reconstructed from the timestamp is within 30 seconds of the current wall clock (catches fabricated values that typically drift hours). Assertion failure exits non-zero so the prompt halts rather than write a confabulated timestamp to the vault.
 
 **Constraints:**
 

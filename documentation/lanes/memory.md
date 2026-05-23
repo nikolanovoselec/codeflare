@@ -43,7 +43,8 @@ Conversation context (decisions, debugging insights, observations) is
 automatically captured into the vault every 15 user messages. Implements
 [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault),
 [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages),
-[REQ-MEM-008](../../sdd/spec/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline).
+[REQ-MEM-008](../../sdd/spec/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline),
+[REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing).
 
 The capture agent writes a markdown file to
 `Raw/Sessions/{ISO_TS}-{SID_SHORT}.md` (YAML frontmatter + Context /
@@ -90,6 +91,21 @@ into the global graph. See [AD58](../decisions/README.md#ad58-sonnet-for-memory-
 for the rationale (recency bias + haiku confabulation that motivated the
 switch from haiku to sonnet).
 
+Between the dedup-gate step and the prefilter step, the agent must
+execute the prompt's mandatory Step 1.5 Bash block to derive `ISO_TS`
+(REQ-MEM-010 AC5). The block resolves the user's timezone, runs `date`
+to produce a stamp like `2026-05-23T22-11-09+0200`, then runs three
+assertions and exits non-zero if any fail: (a) the stamp must end with a
+four-digit `[+-]NNNN` offset; (b) that offset must equal what
+`TZ="$RESOLVED" date '+%z'` produces (catches dropped-TZ-wrapper bugs
+like issue #416 without false-positiving legitimately-UTC hosts); (c)
+the reconstructed epoch must be within 30 seconds of the wall clock
+(catches LLM fabrications that typically drift hours). Assertion failure
+**halts the capture** -- no vault file is written, no graph merge runs.
+The captured ISO_TS string is the single source of truth for the
+filename and the `captured_at` frontmatter field; both must contain
+identical bytes.
+
 ## Counter Storage
 
 ```
@@ -111,6 +127,7 @@ anymore.
 |---|---|---|
 | Capture not firing | Counter not yet baselined, or transcript has `<15` new prompts | Check `~/.memory/counter/{session_id}` mtime; send a few more prompts and watch |
 | Capture spawns but no vault file | Capture agent failed mid-write | Check the agent's transcript for errors; the `.vars` file is gone but the counter has advanced -- next 15-prompt window will try again |
+| Capture spawns, no vault file, agent transcript shows `ISO_TS_ASSERTION_FAILED:` | Step 1.5 Bash block rejected the timestamp (REQ-MEM-010 AC5) | Read the agent transcript for the exact failure: `missing TZ offset` (Assertion 1 - bad stamp shape), `offset X does not match TZ=Y` (Assertion 2 - dropped TZ wrapper, the #416 symptom), or `drifts Ns from current clock` (Assertion 3 - agent fabricated the timestamp instead of running `date`). Fail-closed is intentional: the capture halts rather than write a wrong timestamp to the vault. Next 15-prompt window retries |
 | `mcp__graphify__query_graph` returns nothing | Global graph not built or wrapper still on per-repo | Verify `~/.graphify/global-graph.json` exists; restart MCP wrapper (it polls on a 2s loop) |
 | Same file extracted twice | Concurrent capture + vault-monitor tick | Both serialise via `flock -w 5 /tmp/graphify-global.lock`; safe, but the last writer wins for that specific file's nodes |
 
