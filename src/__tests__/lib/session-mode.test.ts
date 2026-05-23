@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveSessionMode, clampSessionModeToTier } from '../../lib/session-mode';
+import { getAllowedSessionModes } from '../../lib/subscription';
 import type { SubscriptionTierConfig } from '../../types';
 
 describe('resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)', () => {
@@ -67,5 +68,16 @@ describe('clampSessionModeToTier / REQ-SEC-015 (AC2 clamp at container start + A
 
   it('returns default when effective tier is unknown to the config (defensive)', () => {
     expect(clampSessionModeToTier('advanced', 'made-up-tier', tiers)).toBe('default');
+  });
+
+  // REQ-SEC-015 AC2 contract guard: lifecycle.ts wraps the clamp in a
+  // try {} catch {} that silently swallows any error. If getAllowedSessionModes
+  // is ever refactored to THROW on an unknown tier (instead of returning []),
+  // the lifecycle catch will absorb it and leave sessionMode = 'advanced'
+  // unclamped at container start — a silent AC2 regression. This test locks
+  // the contract so the refactor is caught here, not in production.
+  it('REQ-SEC-015 AC2 contract: getAllowedSessionModes must NOT throw on an unknown tier (returns [] so clamp downgrades)', () => {
+    expect(() => getAllowedSessionModes('made-up-tier', tiers)).not.toThrow();
+    expect(getAllowedSessionModes('made-up-tier', tiers)).toEqual([]);
   });
 });

@@ -372,12 +372,17 @@ describe('createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with 
     // `stressTestWarningLogged` flag is the sole gate. We use vi.resetModules
     // + a freshly-mocked logger to observe the side-effect cleanly without
     // contaminating other tests that already tripped the flag.
+    //
+    // Cleanup lives in beforeEach/afterEach (not inline at the tail of each
+    // it()) so a failed expect() can't leak the mocked logger or the cached
+    // module-scope `stressTestWarningLogged=true` into subsequent tests.
     describe('REQ-OPS-008 AC5: one-time warning per isolate', () => {
-      it('logs exactly one warning across many bypassed requests', async () => {
-        // Reset the module graph so the freshly-imported rate-limit.ts has a
-        // fresh stressTestWarningLogged=false flag.
+      let warnSpy: ReturnType<typeof vi.fn>;
+      let freshCreateRateLimiter: typeof createRateLimiter;
+
+      beforeEach(async () => {
         vi.resetModules();
-        const warnSpy = vi.fn();
+        warnSpy = vi.fn();
         vi.doMock('../../lib/logger', () => ({
           createLogger: () => ({
             info: vi.fn(),
@@ -387,8 +392,15 @@ describe('createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with 
           }),
         }));
         // Re-import AFTER the doMock so the factory binds to the spy.
-        const { createRateLimiter: freshCreateRateLimiter } = await import('../../middleware/rate-limit');
+        ({ createRateLimiter: freshCreateRateLimiter } = await import('../../middleware/rate-limit'));
+      });
 
+      afterEach(() => {
+        vi.doUnmock('../../lib/logger');
+        vi.resetModules();
+      });
+
+      it('logs exactly one warning across many bypassed requests', async () => {
         const app = new Hono<{ Bindings: Env; Variables: Partial<AuthVariables> }>();
         app.use('*', async (c, next) => {
           c.env = {
@@ -411,24 +423,9 @@ describe('createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with 
         const [msg] = warnSpy.mock.calls[0] as [string];
         expect(msg).toMatch(/STRESS_TEST_MODE/);
         expect(msg).toMatch(/bypass/i);
-
-        vi.doUnmock('../../lib/logger');
-        vi.resetModules();
       });
 
       it('does NOT log a warning when STRESS_TEST_MODE is unset (no false-positive on normal traffic)', async () => {
-        vi.resetModules();
-        const warnSpy = vi.fn();
-        vi.doMock('../../lib/logger', () => ({
-          createLogger: () => ({
-            info: vi.fn(),
-            warn: warnSpy,
-            error: vi.fn(),
-            debug: vi.fn(),
-          }),
-        }));
-        const { createRateLimiter: freshCreateRateLimiter } = await import('../../middleware/rate-limit');
-
         const app = new Hono<{ Bindings: Env; Variables: Partial<AuthVariables> }>();
         app.use('*', async (c, next) => {
           c.env = { KV: mockKV as unknown as KVNamespace } as Env;
@@ -447,9 +444,6 @@ describe('createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with 
           ([msg]: unknown[]) => typeof msg === 'string' && msg.includes('STRESS_TEST_MODE')
         );
         expect(stressCalls).toHaveLength(0);
-
-        vi.doUnmock('../../lib/logger');
-        vi.resetModules();
       });
     });
   });

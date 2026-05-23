@@ -111,7 +111,7 @@ Container DO (session 2) --> ping --> Timekeeper DO (user X)
 
 **Usage query** (`GET /usage`): returns real-time usage (KV flushed + pending in-memory).
 
-**Mid-session eviction:** when Timekeeper returns `quotaExceeded: true`, the Container DO calls `stop('SIGTERM')`.
+**Mid-session eviction:** when Timekeeper returns `quotaExceeded: true`, the Container DO calls `stop('SIGTERM')` (not SIGKILL) so the entrypoint trap runs the final rclone bisync before exit. See [REQ-SUB-008](../../sdd/spec/subscription.md#req-sub-008-mid-session-quota-enforcement-graceful-stop).
 
 KV value shape at `timekeeper:{bucketName}`:
 ```typescript
