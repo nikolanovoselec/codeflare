@@ -25,6 +25,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 describe -> name+agentType accept (all 6 types) + sanitize + Terminal default + SESSION_ID_PATTERN + KV write + 201 + 429 rate limit + 10/60_000 config -> AC1..AC5) -->
 ### REQ-SESSION-001: Session creation with name and agent type
 
 <!-- @impl: src/routes/session/crud.ts -->
@@ -57,6 +58,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<!-- @test: src/__tests__/lib/container-id-isolation.test.ts (REQ-SESSION-002 describe -> getContainerId(bucketName,sessionId) deterministic + distinct per session + same-user distinct + SESSION_ID_PATTERN boundaries -> AC1..AC3) -->
 ### REQ-SESSION-002: One container per session (isolation)
 
 <!-- @impl: src/container/index.ts -->
@@ -88,6 +90,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-SESSION-003 describe -> createBucketIfNotExists called + scoped R2 token injected into setBucketName body + entrypoint rclone sync 120s timeout + start_sync_daemon bisync 900s SIGUSR1 + seedGettingStartedDocs on new bucket -> AC1..AC5) -->
 ### REQ-SESSION-003: R2 bucket mounted and synced on start
 
 <!-- @impl: src/container/index.ts -->
@@ -194,6 +197,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<!-- @test: src/__tests__/routes/session-stop-delete.test.ts (REQ-SESSION-006 describe -> stop sets KV stopped + container.destroy called + best-effort on destroy failure + storage.delete SESSION_ID_KEY/bucketName + SIGTERM+poll+super.destroy + delete removes KV + running/stopped vocab -> AC1..AC6) -->
 ### REQ-SESSION-006: User can stop, restart, and delete sessions
 
 <!-- @impl: src/routes/session/lifecycle.ts -->
@@ -263,6 +267,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008 describe -> applyPrefsOnRestart updates sessionId/workspaceSyncEnabled/fastStartEnabled/tabConfig + onStart schedule collectMetrics + containerStartedAt + updateEnvVars + entrypoint rclone sync + sleepAfterPref validation -> AC2,3,4,5) -->
 ### REQ-SESSION-008: Container restart preserves R2 bucket
 
 <!-- @impl: src/container/index.ts -->
@@ -327,6 +332,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 describe -> batch-status uses KV list metadata no kv.get + r/s compression + metrics in metadata + lastActiveAt/lastStartedAt + SESSION_LIST_POLL_INTERVAL_MS constant -> AC1,2,3,5,6) -->
 ### REQ-SESSION-010: Session status observable from dashboard
 
 <!-- @impl: src/routes/session/crud.ts -->
@@ -362,6 +368,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<!-- @test: src/__tests__/routes/session-shutdown-sync.test.ts (REQ-SESSION-011 describe -> entrypoint traps SIGINT/SIGTERM + shutdown_handler + /tmp/sync-daemon.pid + --ignore-checksum --max-delete 100 + bisync-initialized flag + Dockerfile STOPSIGNAL SIGINT + destroy SIGTERM+poll+super.destroy + collectMetrics stop(SIGTERM) -> AC1..AC7) -->
 ### REQ-SESSION-011: Graceful shutdown with final sync
 
 <!-- @impl: entrypoint.sh::shutdown_handler -->
@@ -398,6 +405,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+<!-- @test: src/__tests__/container/wake-loop-prevention.test.ts (REQ-SESSION-012 describe -> web-ui disposeSession + stopped transition + container DO fetch 503 gate + close(4503 WS close code -> AC1,3) -->
 ### REQ-SESSION-012: Wake-loop prevention
 
 <!-- @impl: src/container/index.ts -->
@@ -464,6 +472,7 @@ None.
 
 ---
 
+<!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 describe -> SleepAfterOptions exactly [5m,15m,30m,1h,2h] + all 5 accepted + invalid rejected + free-tier 15m structural override + KV persist + GET/PATCH round-trip + lifecycle reads preferences.sleepAfter -> AC1..AC4) -->
 ### REQ-SESSION-014: User-configurable auto-sleep timeout in Settings
 
 <!-- @impl: src/routes/preferences.ts -->
