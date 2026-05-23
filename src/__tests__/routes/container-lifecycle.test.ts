@@ -365,7 +365,7 @@ describe('Container Lifecycle Routes', () => {
   // =========================================================================
   // Session Limits
   // =========================================================================
-  describe('Session limits', () => {
+  describe('Session limits / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN with env overrides) / REQ-SEC-019 AC2 (per-user concurrent session caps)', () => {
     it('returns 429 when running sessions exceed limit', async () => {
       const fetch = createLifecycleApp();
       container().getState.mockResolvedValue({ status: 'stopped' });

@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 
-describe('REQ-MEM-006 AC3: memory + vault rules and plugins are advanced-only', () => {
+describe('REQ-MEM-006 AC3: memory + vault rules and plugins are advanced-only / REQ-SUB-014 (session mode gating by tier: advanced-only preseed content delivered only to tiers permitting advanced mode)', () => {
   const advancedOnly = (key: string) =>
     AGENTS_SEEDED_CONFIGS.filter((d) => d.key === key).every(
       (d) => d.modes.length === 1 && d.modes[0] === 'advanced'

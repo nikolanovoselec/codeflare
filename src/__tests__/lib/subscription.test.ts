@@ -401,7 +401,7 @@ describe('getTierConfig', () => {
   });
 });
 
-describe('getEffectiveTier', () => {
+describe('getEffectiveTier / REQ-SUB-012 (billing status enforcement: subscriptionTier clamped by billingStatus, canceled/past_due demotes paid to free)', () => {
   it('returns paid tier when billing is active', () => {
     expect(getEffectiveTier('standard', undefined, 'active')).toBe('standard');
   });

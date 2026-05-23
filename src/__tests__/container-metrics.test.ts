@@ -108,7 +108,7 @@ vi.mock('../lib/logger', () => ({
 // Import AFTER mocks are set up
 import { container } from '../container/index';
 
-describe('Container Metrics', () => {
+describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)', () => {
   let mockKV: MockKV;
   let containerInstance: InstanceType<typeof container>;
 

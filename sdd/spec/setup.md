@@ -218,9 +218,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/routes/setup/handlers.test.ts` `Setup Handlers` describe annotated `REQ-SETUP-005`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -249,9 +249,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/routes/setup/handlers.test.ts` `Setup Handlers` describe annotated `REQ-SETUP-006`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -278,9 +278,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/routes/setup/handlers.test.ts` `Setup Handlers` describe annotated `REQ-SETUP-011`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -343,9 +343,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth)
 
-**Verification:** Automated test
+**Verification:** Automated test (`src/__tests__/routes/setup/handlers.test.ts` `Setup Handlers` describe annotated `REQ-SETUP-008`)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
