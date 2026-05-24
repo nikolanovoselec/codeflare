@@ -17,7 +17,6 @@ removed.
 - [Hook Mechanics](#hook-mechanics)
 - [Counter Storage](#counter-storage)
 - [Troubleshooting](#troubleshooting)
-- [Related Documentation](#related-documentation)
 
 ---
 
