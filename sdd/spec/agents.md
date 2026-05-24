@@ -1194,11 +1194,13 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh -->
 <!-- @impl: Dockerfile -->
+<!-- @impl: entrypoint.sh -->
 <!-- @test: host/__tests__/entrypoint-graphify-mcp.test.js (MCP server registration in ~/.claude.json → AC2) -->
 <!-- @test: host/__tests__/dockerfile-graphify.test.js (graphifyy pip install + pinned version → AC1/AC3) -->
 <!-- @test: host/__tests__/graphify-active-repo.test.js (active-repo sentinel writer → AC5) -->
 <!-- @test: host/__tests__/graphify-mcp-lazy.test.js (LazyGraph rebind on graph.json appearance → AC4/AC6) -->
 <!-- @test: host/__tests__/safe-graphify-update.test.js -->
+<!-- @test: host/__tests__/entrypoint-devshm-prereq.test.js (REQ-AGENT-023 prereq: /dev/shm tmpfs mount in entrypoint.sh describe -> /dev/shm mountpoint after entrypoint runs + Python multiprocessing.Lock allocates + idempotent on warm boot -> AC1 graphify Python multiprocessing prerequisite) -->
 
 **Intent:** Every container ships the graphify code-knowledge-graph capability as ambient infrastructure, so any session (default or advanced session mode) can query an existing graph or build a new one without per-tier provisioning.
 
@@ -1220,6 +1222,7 @@ None.
 - Per-branch graphs are not supported; users refresh the graph after a branch checkout.
 - Optional backend-provider and office extras are not installed by default; users who need them install upstream extras manually.
 - Preseed surfaces that invoke `graphify update` (prompts, skills, commands, hooks) call the bounded wrapper rather than the bare CLI, so a runaway rebuild cannot OOM-kill the container session.
+- The container entrypoint ensures `/dev/shm` is present and tmpfs-mounted at boot. Graphify's AST extractor uses Python's `concurrent.futures.ProcessPoolExecutor`, which allocates a `multiprocessing.Lock` that requires POSIX shared memory at `/dev/shm`; on a cold Firecracker microVM boot the rootfs ships without the mountpoint directory and the executor fails at startup. The same prerequisite covers the memory-capture hook's chunker and the vault-extract subagent's writer.
 
 **Priority:** P1
 

@@ -20,6 +20,32 @@ echo "[entrypoint] pwd: $(pwd)"
 echo "[entrypoint] HOME: $HOME"
 echo "[entrypoint] node version: $(node --version)"
 
+# Ensure /dev/shm exists and is mounted as tmpfs.
+#
+# Python's multiprocessing.Lock (used by concurrent.futures.ProcessPoolExecutor
+# inside graphify's AST extractor, the memory-capture hook's chunker, and
+# the vault-extract subagent's writer) needs POSIX shared memory at
+# /dev/shm to allocate semaphores. Without it, even a 1-worker
+# ProcessPool fails at startup with `[Errno 2] No such file or directory`
+# from multiprocessing/synchronize.py:57 (SemLock.__init__ -> sem_open).
+#
+# On a cold Firecracker microVM boot, the rootfs ships without the
+# /dev/shm mountpoint directory; the kernel does carry the mount in its
+# table but userspace cannot reach it until a directory exists at the
+# expected path. Create the directory if missing, then mount tmpfs if
+# nothing is mounted there yet. Idempotent — re-runs on warm boots are
+# silent no-ops because mkdir -p and the mountpoint check both succeed.
+if [ ! -d /dev/shm ] || ! mountpoint -q /dev/shm 2>/dev/null; then
+    mkdir -p /dev/shm 2>/dev/null || true
+    if ! mountpoint -q /dev/shm 2>/dev/null; then
+        if mount -t tmpfs tmpfs /dev/shm 2>/dev/null; then
+            echo "[entrypoint] /dev/shm: mounted tmpfs (Python multiprocessing now functional)"
+        else
+            echo "[entrypoint] /dev/shm: mount failed - Python multiprocessing tools (graphify, memory-capture, vault-extract) will fail" >&2
+        fi
+    fi
+fi
+
 # Check R2 environment variables (configured/missing status only)
 echo "[entrypoint] === R2 ENV STATUS ===" | tee /tmp/sync.log
 echo "R2_BUCKET_NAME: ${R2_BUCKET_NAME:+configured}" | tee -a /tmp/sync.log
