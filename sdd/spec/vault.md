@@ -317,7 +317,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 <!-- @test: src/__tests__/routes/vault.test.ts (base-href rewrite + service-worker shortcut describe → AC1-AC7) -->
 
-**Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response and short-circuits Service Worker registration so Chrome's credentialless SW fetch does not return 401.
+**Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response and short-circuits Service Worker registration so the browser's SW fetch does not return 401.
 
 **Applies To:** User
 
@@ -328,13 +328,13 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 3. When the body is rewritten, both the content-length and content-encoding headers are dropped because the rewrite path auto-decompresses upstream compression, and the original headers would otherwise trigger a browser decoding failure.
 4. When the rewrite runs but the body did not contain the expected base-href substring (no-op rewrite), a warning is logged so a future editor-template change surfaces as a logged signal instead of a silent white-screen regression.
 5. Browser-initiated Service Worker registration GETs for the editor's service-worker script short-circuit the auth chain and receive a key-shim service worker from the Worker (see [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5 for the key-delivery contract).
-6. The short-circuit selector requires all of: GET method, exact path match for the service-worker script, the browser-only Service-Worker request header (a Fetch-spec forbidden header name not settable from page JavaScript), and no Cookie header.
-7. The key-shim service-worker script body is identical across sessions; the per-session vault encryption key is delivered to the shim via postMessage from the bootstrap-hop page (REQ-VAULT-008 AC5), not baked into the script. The cookie-absent gate is defense-in-depth so any future browser path that carries credentials falls through to the normal auth chain instead of the shortcut.
+6. The short-circuit selector requires all of: GET method, exact path match for the service-worker script, and the browser-only Service-Worker request header (a Fetch-spec forbidden header name not settable from page JavaScript). Cookie presence is intentionally not checked because Samsung Internet and other Chromium forks may send cookies on SW registration fetches; rejecting those requests would serve the editor's real SW whose cache.addAll() install fails and hangs the bootstrap page.
+7. The key-shim service-worker script body is identical across sessions; the per-session vault encryption key is delivered to the shim via postMessage from the bootstrap-hop page (REQ-VAULT-008 AC5), not baked into the script.
 
 **Constraints:**
 
 - The editor honors a URL-prefix environment variable for rendering the base tag, but the prefix is per-session (the Worker knows the session ID, the container does not); baking it in at supervisor start is not viable, so the per-response Worker rewrite is the per-session adapter.
-- Modern Chrome omits credentials on service-worker script fetches even for same-origin same-site URLs, so the normal cookie-auth path would return 401 and service-worker registration would fail permanently without this short-circuit.
+- Browsers omit credentials on service-worker script fetches (Chrome 76+ per spec, Samsung Internet and other Chromium forks may not), so the normal cookie-auth path would return 401 and service-worker registration would fail permanently without this short-circuit. The selector is browser-agnostic: it works regardless of whether cookies are present.
 
 **Priority:** P0
 
@@ -467,7 +467,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. The key is never rotated; it is wiped only when the container is destroyed (session delete).
 3. The Worker's vault-config proxy fetches the vault key via DO RPC and merges it (plus the enable-encryption flag) into the editor's runtime boot config.
 4. The editor uses the vault key to symmetrically encrypt its per-vault IndexedDB store via its built-in encrypted-KV wrapper.
-5. The Worker delivers the key through a one-time bootstrap-hop page that registers a key-shim service worker, posts the key to it, persists an enable-encryption flag in the browser, and sets a bootstrap-completed cookie before redirecting back to the shell.
+5. The Worker delivers the key through a one-time bootstrap-hop page that registers a key-shim service worker, posts the key to it, persists an enable-encryption flag in the browser, and sets a bootstrap-completed cookie before redirecting back to the shell. The hop page guards against missing `navigator.serviceWorker`, uses a 10-second timeout on SW activation (instead of the indefinite `navigator.serviceWorker.ready`), and detects the "redundant" SW state as an explicit error. On any failure the hop shows a user-visible error message and aborts without setting the cookie or flag.
 6. Subsequent shell-path requests bypass the bootstrap hop via the cookie, and no passphrase prompt is shown to the user.
 
 **Constraints:**
