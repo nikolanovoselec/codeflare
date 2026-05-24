@@ -13,6 +13,7 @@ import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
 import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
+import { startVaultReadinessProbe } from '../lib/vault-readiness';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
 
@@ -85,62 +86,33 @@ const Layout: Component<LayoutProps> = (props) => {
       return;
     }
 
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const probeOnce = async (): Promise<boolean> => {
-      try {
-        const res = await fetch(`/api/vault/${sid}/`, {
-          method: 'HEAD',
-          cache: 'no-store',
-          signal: AbortSignal.timeout(5000),
-        });
-        return res.ok;
-      } catch {
-        return false;
-      }
-    };
-    const warmup = async () => {
-      if (cancelled) return;
-      const ok = await probeOnce();
-      if (cancelled) return;
-      if (ok) {
-        setVaultReadyBySession((prev) => ({ ...prev, [sid]: true }));
-        timer = setTimeout(steady, STEADY_INTERVAL_MS);
-        return;
-      }
-      timer = setTimeout(warmup, WARMUP_INTERVAL_MS);
-    };
-    const steady = async () => {
-      if (cancelled) return;
-      const ok = await probeOnce();
-      if (cancelled) return;
-      if (!ok) {
-        // SB likely crashed mid-session. Clear the latch (button disables
-        // itself) and restart the warmup chain in-place. Reading the latch
-        // via untrack prevents this write from re-running the effect, so
-        // there is exactly one warmup chain at any time.
-        setVaultReadyBySession((prev) => {
-          const next = { ...prev };
-          delete next[sid];
-          return next;
-        });
-        timer = setTimeout(warmup, WARMUP_INTERVAL_MS);
-        return;
-      }
-      timer = setTimeout(steady, STEADY_INTERVAL_MS);
-    };
-    // `untrack` so the latch read does not subscribe the effect to its own
+    // `untrack` so the latch reads do not subscribe the effect to its own
     // writes (steady() clears the latch on crash; tracking would spawn a
     // parallel warmup chain via effect re-run).
-    if (untrack(vaultReadyBySession)[sid]) {
-      timer = setTimeout(steady, STEADY_INTERVAL_MS);
-    } else {
-      warmup();
-    }
-    onCleanup(() => {
-      cancelled = true;
-      if (timer !== null) clearTimeout(timer);
+    const cancel = startVaultReadinessProbe({
+      probe: async () => {
+        try {
+          const res = await fetch(`/api/vault/${sid}/`, {
+            method: 'HEAD',
+            cache: 'no-store',
+            signal: AbortSignal.timeout(5000),
+          });
+          return res.ok;
+        } catch {
+          return false;
+        }
+      },
+      setLatch: () => setVaultReadyBySession((prev) => ({ ...prev, [sid]: true })),
+      clearLatch: () => setVaultReadyBySession((prev) => {
+        const next = { ...prev };
+        delete next[sid];
+        return next;
+      }),
+      initiallyReady: () => untrack(vaultReadyBySession)[sid] === true,
+      warmupIntervalMs: WARMUP_INTERVAL_MS,
+      steadyIntervalMs: STEADY_INTERVAL_MS,
     });
+    onCleanup(cancel);
   });
   const vaultReady = createMemo(() => {
     const sid = sessionStore.activeSessionId;
