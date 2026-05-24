@@ -216,8 +216,9 @@ else:
 Before dispatching subagents, print a timing estimate:
 - Load `total_words` and file counts from `.graphify_detect.json`
 - Estimate agents needed: `ceil(uncached_non_code_files / 22)` (chunk size is 20-25)
-- Estimate time: ~45s per agent batch (they run in parallel, so total ≈ 45s × ceil(agents/parallel_limit))
-- Print: "Semantic extraction: ~N files → X agents, estimated ~Ys"
+- Read the parallelism cap: `parallel_limit = int(os.environ.get('GRAPHIFY_SEMANTIC_MAX_PARALLEL', '10'))` — Step B2 dispatches subagents in waves of at most this many at a time (see Step B2 for the why)
+- Estimate time: ~45s per wave (each wave runs in parallel, so total ≈ 45s × ceil(agents/parallel_limit))
+- Print: "Semantic extraction: ~N files → X agents in W waves of ≤parallel_limit, estimated ~Ys"
 
 **Step B0 - Check extraction cache first**
 
@@ -247,17 +248,30 @@ Only dispatch subagents for files listed in `.graphify_uncached.txt`. If all fil
 
 Load files from `.graphify_uncached.txt`. Split into chunks of 20-25 files each. Each image gets its own chunk (vision needs separate context).
 
-**Step B2 - Dispatch ALL subagents in a single message**
+**Step B2 - Dispatch subagents in waves of at most `parallel_limit`**
 
-Call the Agent tool multiple times IN THE SAME RESPONSE - one call per chunk. This is the only way they run in parallel. If you make one Agent call, wait, then make another, you are doing it sequentially and defeating the purpose.
+Call the Agent tool multiple times IN THE SAME RESPONSE - one call per chunk within a wave. Subagents in the same message run in parallel. If you make one Agent call, wait, then make another inside the same wave, you are doing it sequentially and defeating the purpose.
 
-Concrete example for 3 chunks:
+**Wave structure (CRITICAL):** Do NOT fan out 100+ subagents at once. On a dense repo this floods Claude Code's Task-tool concurrency, can trip Anthropic API rate-limits, and risks a session timeout if the burst exceeds the per-minute token budget. Instead split chunks into **waves of at most `parallel_limit` subagents**, dispatch one wave per message, wait for the wave to complete, then dispatch the next wave. `parallel_limit` defaults to 10 and is overridable via `GRAPHIFY_SEMANTIC_MAX_PARALLEL`.
+
+Concrete example for 3 chunks, parallel_limit=10:
 ```
-[Agent tool call 1: files 1-15]
-[Agent tool call 2: files 16-30] 
-[Agent tool call 3: files 31-45]
+[single message with 3 Agent tool calls: files 1-15, 16-30, 31-45]
 ```
-All three in one message. Not three separate messages.
+All three fit in one wave because 3 ≤ 10. Single message, dispatched in parallel.
+
+Concrete example for 25 chunks, parallel_limit=10:
+```
+Wave 1: [single message with 10 Agent tool calls: chunks 1-10]
+  → wait for all 10 results
+Wave 2: [single message with 10 Agent tool calls: chunks 11-20]
+  → wait for all 10 results
+Wave 3: [single message with 5 Agent tool calls: chunks 21-25]
+  → wait for all 5 results
+```
+Three sequential messages, each carrying a wave that fans out in parallel. The 25 chunks complete in ~3 × 45s = ~135s rather than racing all at once.
+
+Within a wave: all Agent calls in the same response. Between waves: sequential messages with full result aggregation in between.
 
 Each subagent receives this exact prompt (substitute FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, and DEEP_MODE):
 

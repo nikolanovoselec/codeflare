@@ -59,6 +59,16 @@ Environment variables, secrets, CORS configuration, and API token permissions.
 | `SB_INDEX_PAGE` | Landing page when SilverBullet opens (case-sensitive page name, no `.md`). SB Go server defaults to `"index"` (lowercase); set to `Index` so the Codeflare dashboard loads on Vault button click. See [vault.md](./vault.md#silverbullet-editor-req-vault-005) (REQ-VAULT-012 AC2). | `Index` | no | `entrypoint.sh` `start_silverbullet_supervisor` | REQ-VAULT-012 |
 | `USER_TIMEZONE` | IANA timezone string (e.g. `Europe/Zurich`) forwarded from the `userTimezone` preference. Controls timestamps in memory-capture filenames (`Raw/Sessions/{ISO_TS}-{SID_SHORT}.md`). Falls back to `$TZ`, then `/etc/timezone`, then UTC when absent. Malformed values (non-IANA shape, path-traversal strings) are silently dropped at the DO boundary by `normalizeIanaTz`; the variable is not emitted and the UTC fallback applies, so an operator debugging an unexpected UTC timestamp should check the source `userTimezone` preference value against the IANA shape (`^[A-Za-z][A-Za-z0-9+_/-]{0,63}$`). The primary validation lives at `PATCH /api/preferences` (Zod refine + `Intl.DateTimeFormat` round-trip, returns `ValidationError` on failure); the DO check is defence-in-depth. | (absent = UTC fallback) | no | Worker -> DO via `setBucketName`; read by `entrypoint.sh` memory-capture pipeline | REQ-SESSION-016, REQ-MEM-001 AC4 |
 
+### Graphify Tooling
+
+These env vars tune the graphify knowledge-graph build/update tooling. All are optional with safe defaults — the codeflare container ships them pinned to values verified safe for a 1-vCPU / 3.2 GB RAM container.
+
+| Variable | Purpose | Default | Required | Consumed by | Implements |
+|----------|---------|---------|----------|-------------|------------|
+| `GRAPHIFY_SAFE_RLIMIT_KB` | Virtual-memory cap (KB) applied to `graphify update` via `ulimit -v`. Wraps the AST extraction so a runaway rebuild dies with ENOMEM rather than OOM-killing the codeflare session. | `1500000` (1.5 GB) | no | `preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh` | REQ-AGENT-023 |
+| `GRAPHIFY_SAFE_WORKERS` | AST extraction subprocess count for `graphify update`. Forwarded to graphify as `GRAPHIFY_MAX_WORKERS`. Single-worker on a 1 vCPU container is safest. | `1` | no | `preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh` | REQ-AGENT-023 |
+| `GRAPHIFY_SEMANTIC_MAX_PARALLEL` | Maximum number of semantic-extraction Task subagents dispatched per wave by the `/graphify` skill. Caps the parallel fan-out on full-semantic builds so a dense repo (with hundreds of non-code files) cannot flood the Task-tool concurrency or trip Anthropic API rate limits in a single burst. Higher values finish a build faster; lower values smooth the rate-limit / token-budget surface. | `10` | no | `preseed/agents/claude/skills/graphify/SKILL.md` Step B2 | (graphify skill operational knob) |
+
 ---
 
 ## Secrets
