@@ -19,7 +19,7 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 - [Per-session IDB Lifecycle](#per-session-idb-lifecycle-req-vault-008)
 - [Shutdown Bisync Reliability](#shutdown-bisync-reliability-req-vault-006)
 - [Preseed Integration](#preseed-integration-req-vault-007)
-  - [Vault initialization tiers](#vault-initialization-tiers-req-vault-001-ac3--req-vault-010-ac1ac4ac5)
+  - [Vault initialization tiers](#vault-initialization-tiers-req-vault-001-ac3-req-vault-010-ac1ac4ac5)
   - [CONFIG.md and Library/Std (base_fs)](#configmd-and-librarystd-base_fs)
   - [STYLES.md and codeflare theming](#stylesmd-and-codeflare-theming)
   - [SilverBullet plug preinstall](#silverbullet-plug-preinstall-req-vault-007)
