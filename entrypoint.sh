@@ -277,6 +277,13 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .claude/mcp-*.json"            # MCP auth cache (transient, created/deleted in ms — causes bisync fatal error if listed then deleted before copy)
     --filter "- .claude.json.backup.*"       # auto-generated backups, accumulate endlessly
 
+    # Claude Code — context-mode plugin FTS5 store. `content/` is the
+    # indexed source-of-truth body (regenerable from scratch by re-indexing
+    # whatever the next session reads), `sessions/` is per-session SQLite
+    # DBs + WAL/SHM (ephemeral, corrupt on restore). 255MB+ on a working
+    # session; pure cache, no codeflare-managed state.
+    --filter "- .claude/context-mode/**"
+
     # Claude Code — subagent transcripts (results captured in main transcript, never re-read)
     --filter "- .claude/projects/**/subagents/**"
 
