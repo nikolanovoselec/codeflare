@@ -424,14 +424,9 @@ Multi-agent support, preseed system, and session modes.
 
 1. A fast-start preference (default: enabled) controls whether agent CLIs skip auto-update checks at launch, and the user's choice is propagated into the container's runtime environment.
 2. When enabled, auto-update checks are disabled for all 5 AI tools, eliminating 5-30s startup delay.
-3. Each tool has a specific disable mechanism:
-   - Claude Code: `DISABLE_AUTOUPDATER=1` (env var)
-   - OpenCode: `OPENCODE_DISABLE_AUTOUPDATE=1` (env var)
-   - Copilot: `COPILOT_AUTO_UPDATE=false` (env var)
-   - Gemini: `~/.gemini/settings.json` with `enableAutoUpdate: false` (jq merge preserving user customizations)
-   - Codex: `~/.codex/version.json` with `dismissed_version: "999.0.0"` (overwrite, excluded from sync)
-4. When disabled (`FAST_CLI_START=false`), env vars are unset and config files are not written, allowing normal update checks.
-5. Users can toggle this in Settings > Session Defaults.
+3. Every supported agent CLI has a corresponding disable mechanism: each tool's native auto-update path is suppressed by the channel that tool exposes (environment variable for tools that expose one, on-disk settings file for tools that don't). For settings-file tools, user customizations are preserved across container restarts.
+4. When the fast-start preference is disabled, the suppression channels are not applied and each CLI runs its normal update check on launch.
+5. Users can toggle the preference from the session defaults area of the application settings.
 
 **Constraints:**
 
