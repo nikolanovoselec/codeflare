@@ -70,16 +70,21 @@ describe('startVaultReadinessProbe', () => {
       await scheduler.tick();
     }
 
-    // 1 immediate probe + 100 scheduled probes = 101 total. If the old
-    // cap regressed in, probe would have stopped at ~60.
-    expect(probe.mock.calls.length).toBeGreaterThanOrEqual(100);
+    // 1 immediate probe + 100 scheduled probes = exactly 101 calls. Tight
+    // equality (not >=) so a double-schedule regression also fails this
+    // test, not just a cap regression.
+    expect(probe.mock.calls.length).toBe(101);
     expect(setLatch).not.toHaveBeenCalled();
     expect(clearLatch).not.toHaveBeenCalled();
 
     // Every retry uses the warmup cadence (no slow-cadence fallback,
     // no exponential backoff -- just the one fixed interval per spec).
+    // 101 schedule entries: 1 from the inline initial warmup + 100 from
+    // the 100 drained ticks. Tight equality pins both no-give-up AND
+    // no-extra-cadence-bucket regressions.
     const warmupTicks = scheduler.intervals.filter((ms) => ms === 5000);
-    expect(warmupTicks.length).toBeGreaterThanOrEqual(100);
+    expect(warmupTicks.length).toBe(101);
+    expect(scheduler.intervals.length).toBe(101);
   });
 
   it('latches ready on first probe success and switches to steady cadence', async () => {

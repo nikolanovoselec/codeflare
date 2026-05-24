@@ -295,7 +295,7 @@ Multi-agent support, preseed system, and session modes.
 
 - All file modifications must complete after initial sync but before bisync baseline so the baseline observes a stable snapshot.
 - Plugin enablement is permanent because the agent silently skips missing plugins; removing a plugin does not require also rewriting the user's plugin-enablement record.
-- The managed-hook detector is anchored on the codeflare-plugin-path prefix so unrelated workspace tools with the same script basenames cannot be falsely flagged as managed.
+- The managed-hook detector uses a codeflare-owned namespace prefix so unrelated workspace tools with identical script basenames cannot be falsely flagged as managed.
 - The managed-hook surface set is the spec-side single source of truth; adding a new codeflare hook requires extending the detector or prior copies accumulate on every container boot instead of being replaced.
 
 **Priority:** P0
@@ -363,7 +363,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Constraints:**
 
-- The CRUD surface validates against provider APIs (REQ-AGENT-001 multi-agent guarantees) before writing to KV; an unreachable provider returns 502, not a stored credential of unknown validity.
+- Tokens are validated against the provider's API before being persisted; an unreachable provider is surfaced as an upstream error and the credential is not stored, so the store never contains a token of unknown validity.
 
 **Priority:** P1
 
