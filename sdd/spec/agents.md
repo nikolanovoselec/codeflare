@@ -44,7 +44,7 @@ Multi-agent support, preseed system, and session modes.
 1. Six agent types are defined: `claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `bash`.
 2. The `AgentType` type is enforced via Zod schema (`AgentTypeSchema`).
 3. Each agent's CLI is pre-installed in the container image as a global npm package (or native binary for Go-based agents).
-4. Node.js-based agent CLIs (Codex, Gemini, Copilot) run `--version` at Docker build time to trigger V8 compile cache warm-up via `NODE_COMPILE_CACHE`; Claude Code is a native binary and needs no warm-up, and Go-based agents (OpenCode) are natively compiled.
+4. Node.js-based agent CLIs (Codex, Gemini, Copilot) are pre-warmed at image build time so V8's compile cache is populated before the user's first interactive launch. Claude Code ships as a native binary and needs no warm-up; Go-based agents (OpenCode) are natively compiled.
 
 **Constraints:**
 
@@ -422,7 +422,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. `fastStartEnabled` preference (default: `true`) maps to `FAST_CLI_START` container env var.
+1. A fast-start preference (default: enabled) controls whether agent CLIs skip auto-update checks at launch, and the user's choice is propagated into the container's runtime environment.
 2. When enabled, auto-update checks are disabled for all 5 AI tools, eliminating 5-30s startup delay.
 3. Each tool has a specific disable mechanism:
    - Claude Code: `DISABLE_AUTOUPDATER=1` (env var)
@@ -459,8 +459,8 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. `BROWSER` env var points to `/usr/local/bin/open-url` shim that exits with code 1.
-2. `xdg-open` is replaced with a shim (`xdg-open-shim`) that also exits with code 1.
+1. A browser-shim is installed in the container that intercepts browser-launch attempts and exits with a non-zero code, causing the calling CLI to fall back to plain-text URL output.
+2. The XDG browser-launch entry-point is similarly shimmed so any tool that bypasses the BROWSER convention also degrades to text output.
 3. CLIs fall back to printing auth URLs as plain text in the PTY when the browser fails to open.
 4. The xterm.js link provider detects URLs in terminal output and makes them clickable.
 
@@ -830,7 +830,7 @@ None.
 
 1. `/sdd init` runs Phase 7a as a CRITICAL non-skippable gate BEFORE invoking `spec-enforce` and `doc-enforce`.
 2. The verifier walks every `<!-- @impl: <path>::<symbol>[ = <value>] -->` anchor across `sdd/**/*.md` and `documentation/**/*.md`, resolves the path on disk, confirms the symbol's word-bounded presence in source, validates any literal value pattern within the symbol's local region, and counts malformed `@impl`-shaped comments and unreadable files.
-3. The verifier emits a JSON report `{parsed, resolved, orphaned, drifted, malformed, unreadable, failures, malformed_entries, unreadable_entries, exit_code}` to `.verify-anchors.json`.
+3. The verifier emits a machine-readable JSON report containing counts of parsed, resolved, orphaned, drifted, malformed, and unreadable anchors, plus per-entry failure details and an exit-code field, written to a Phase-7a evidence file the commit body can reference.
 4. The `[sdd-init]` commit body MUST include the verbatim summary line `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`.
 5. A non-zero `exit_code` blocks the commit until every failure is fixed in source or escalated to `sdd/spec/.review-queue.md`.
 6. Substituting a structural sanity check or agent self-attestation, partial coverage, running the verifier AFTER the enforcement skills, bypassing on a missing-tool error, or committing without the summary line each carry a CRITICAL severity (`phase-7a-self-attestation`, `phase-7a-incomplete-coverage`, `phase-7a-pipeline-inversion`, `phase-7a-tooling-bypass`, `phase-7a-evidence-missing`).
@@ -957,7 +957,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A one-shot sentinel file at `/tmp/review-bypass` (overridable via `REVIEW_BYPASS_FILE` for hermetic tests) bypasses the Stop-hook gate once; the file is auto-deleted on use, never committed, and never survives container restart.
+1. A user-creatable one-shot sentinel file bypasses the Stop-hook gate for a single turn; the sentinel is auto-deleted on use, never committed, and never survives container restart. The sentinel location is overridable for hermetic test environments.
 2. A magic phrase `skip review` or `skip verification` (case-insensitive, word-bounded) in any user message after the candidate push line in the transcript bypasses the gate for that push.
 3. A 3-strike circuit breaker exits silently after blocking the same un-acked PR HEAD SHA three times, sticky until the SHA changes.
 4. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output; both are explicitly user-only escape hatches.

@@ -50,8 +50,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Constraints:**
 
-- Pre-setup endpoints (`/api/setup/configure` before first completion) are intentionally public to solve the bootstrap problem (AD10).
-- Service token auth (`X-Service-Auth` header) is checked first in all modes for E2E testing.
+- Pre-setup configuration endpoints required before first-run completion are intentionally public to allow initial configuration without authentication (AD10).
+- A dedicated service-token authentication path is checked first in all modes for E2E testing.
 
 **Priority:** P0
 

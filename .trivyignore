@@ -345,3 +345,21 @@ CVE-2026-40890
 # runtime. Same exposure profile as the existing CVE-2025-69534 entry.
 # No fixed version available in Debian bookworm.
 CVE-2026-7210
+
+# libexpat1 2.5.0-1+deb12u2: large dynamic memory allocation in
+# Expat XML parser leading to DoS via crafted XML input. Status:
+# will_not_fix in Debian bookworm (no patched version available).
+# The container's libexpat consumers (rclone, perl modules, system
+# tooling) never parse attacker-controlled XML at runtime: rclone
+# parses our own R2 ListObjects XML responses; perl is invoked only
+# by codeflare-managed scripts. Same rationale as the cpython expat
+# entries above (CVE-2026-7210, CVE-2025-69534).
+CVE-2025-59375
+
+# krb5 1.20.1-2+deb12u5 (libgssapi-krb5-2, libk5crypto3, libkrb5-3,
+# libkrb5support0): DoS via integer underflow in GSS-API context
+# establishment. Status: affected, no patched Debian bookworm package.
+# Codeflare does not use Kerberos auth; krb5 ships transitively via
+# libcurl / system tooling and is never invoked by any container code
+# path. No attacker can reach the vulnerable GSS-API surface.
+CVE-2026-40356

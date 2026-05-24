@@ -82,12 +82,12 @@ Tier configuration cached for 60s in `src/lib/subscription.ts`. Other cache TTLs
 | Metric | Value | Source |
 |--------|-------|--------|
 | KV eventual consistency delay | ~60s for new sessions | Cloudflare KV propagation |
-| WebSocket retry delay | 1s (`WS_RETRY_DELAY_MS`) | `web-ui/src/stores/terminal.ts` |
-| Dashboard WS disconnect grace period | 60s (`DASHBOARD_WS_DISCONNECT_DELAY_MS`) | `web-ui/src/lib/constants.ts` |
-| Container fetch timeout | 5s (`CONTAINER_FETCH_TIMEOUT`) | `src/lib/constants.ts` |
-| V8 compile cache | `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, pre-warmed at Docker build time for Node.js CLIs (Codex, Gemini, Copilot) | `Dockerfile` ENV |
-| Context expiry threshold | 30 min (`CONTEXT_EXPIRY_MS`) | Frontend stale session detection |
-| Bucket name settle delay | 100ms | `src/lib/constants.ts` |
+| WebSocket retry delay | 1s | Terminal WebSocket reconnect store |
+| Dashboard WS disconnect grace period | 60s | Web UI shared constants |
+| Container fetch timeout | 5s | Worker request constants |
+| V8 compile cache | Pre-warmed at image build time for Node.js agent CLIs (Codex, Gemini, Copilot) | Image build step |
+| Context expiry threshold | 30 min | Frontend stale-session detection |
+| Bucket name settle delay | 100ms | Worker request constants |
 
 ### Reliability
 
