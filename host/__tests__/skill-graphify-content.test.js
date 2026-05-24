@@ -1,7 +1,7 @@
 // Verifies REQ-AGENT-024 AC4-AC6: SKILL.md instructs the agent on the
-// codeflare-specific git-persistence model and large-repo flag. Failing
-// any of these means the agent will not be told to set up `.gitignore` /
-// `.gitattributes` properly on first build, which breaks REQ-AGENT-026.
+// codeflare-specific git-persistence model and large-repo flag.
+// Also verifies REQ-AGENT-043 AC4-AC5: semantic-extraction subagents
+// pinned to sonnet (not haiku) and opus blocked.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

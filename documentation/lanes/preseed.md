@@ -394,7 +394,9 @@ context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/c
 The integration is sized to stay within ELv2's permitted-use envelope.
 See [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) for the full design + license analysis.
 
-### Graphify hard-block PreToolUse hook (REQ-AGENT-024)
+## Graphify
+
+### Hard-block PreToolUse hook (REQ-AGENT-024)
 
 In advanced session mode, `enforce-graphify.sh` is a second PreToolUse hook on the graphify plugin that complements the existing `graph-first-nudge.sh` soft nudge. The soft nudge fires on every grep-class call with an `additionalContext` reminder; the hard-block fires only after the pattern persists.
 
@@ -409,7 +411,7 @@ Mechanics:
 
 The hook surfaces blocks as `hookSpecificOutput.permissionDecision: deny` with a `BLOCKED: <N> structural searches since last user prompt, 0 graphify queries...` reason so the agent's next-turn context carries the directive to consult the graph.
 
-### Graphify build model choice (REQ-AGENT-043)
+### Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
 
 The `/graphify` skill dispatches semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema.
 
