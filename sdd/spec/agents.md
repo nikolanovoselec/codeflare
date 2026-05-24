@@ -1313,19 +1313,19 @@ None.
 ### REQ-AGENT-043: Graphify Build Mode Dispatch
 
 <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md -->
-<!-- @test: host/__tests__/skill-graphify-content.test.js (AST-only vs Full mode question + Haiku default → AC1-AC5) -->
+<!-- @test: host/__tests__/skill-graphify-content.test.js (AST-only vs Full mode question + Sonnet default → AC1-AC5) -->
 
-**Intent:** Before a `/graphify` build dispatches semantic-extraction subagents, the user must explicitly choose between a free AST-only build and a full build that costs LLM tokens. The dispatched subagents run on Haiku by default so build cost matches vault-extract economics.
+**Intent:** Before a `/graphify` build dispatches semantic-extraction subagents, the user must explicitly choose between a free AST-only build and a full build that costs LLM tokens. The dispatched subagents run on Sonnet by default for reliable schema compliance.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Before dispatching semantic-extraction subagents in a `/graphify` build (Step B2 of the upstream protocol), the agent presents an `AskUserQuestion` with exactly two modes: AST-only (free, structural edges only) and Full (AST plus parallel Haiku subagents extracting concepts from docs/papers/images).
+1. Before dispatching semantic-extraction subagents in a `/graphify` build (Step B2 of the upstream protocol), the agent presents an `AskUserQuestion` with exactly two modes: AST-only (free, structural edges only) and Full (AST plus parallel Sonnet subagents extracting concepts from docs/papers/images).
 2. The mode question includes both the actual subagent count and a wall-time estimate.
 3. The question is skipped only when the corpus contains zero docs/papers/images (code-only repos go straight to Part C with nothing for Part B to do).
-4. In advanced session mode only, Part B semantic subagents are dispatched with `model: "haiku"` so per-build cost matches vault-extract economics (~1/8 of opus, ~1/3 of sonnet).
-5. Escalation to Sonnet is permitted only when `--mode deep` was explicitly passed on the `/graphify` command; Opus is never used from this skill.
+4. In advanced session mode only, Part B semantic subagents are dispatched with `model: "sonnet"` for reliable structured-output schema compliance (haiku produced 57% malformed nodes on the codeflare corpus).
+5. Opus is never used from this skill.
 
 **Constraints:**
 
