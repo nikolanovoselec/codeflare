@@ -19,7 +19,7 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 - [Per-session IDB Lifecycle](#per-session-idb-lifecycle-req-vault-008)
 - [Shutdown Bisync Reliability](#shutdown-bisync-reliability-req-vault-006)
 - [Preseed Integration](#preseed-integration-req-vault-007)
-  - [Three-tier durability contract](#three-tier-durability-contract-req-vault-001-ac3ac7ac8)
+  - [Vault initialization tiers](#vault-initialization-tiers-req-vault-001-ac3--req-vault-010-ac1ac4ac5)
   - [CONFIG.md and Library/Std (base_fs)](#configmd-and-librarystd-base_fs)
   - [STYLES.md and codeflare theming](#stylesmd-and-codeflare-theming)
   - [SilverBullet plug preinstall](#silverbullet-plug-preinstall-req-vault-007)
@@ -252,7 +252,7 @@ The vault plugin and supporting rule ship as preseed entries that land in every 
 
 `scripts/generate-agent-seed.mjs` reads the manifest and emits `src/lib/agent-seed.generated.ts`, the typed payload that the container fetches and writes during preseed. The vault plugin appears in default mode's manifest only as the rule's exclusion entry; runtime files are advanced-mode gated.
 
-### Three-tier durability contract (REQ-VAULT-001 AC3/AC7/AC8)
+### Vault initialization tiers (REQ-VAULT-001 AC3 + REQ-VAULT-010 AC1/AC4/AC5)
 
 `init_user_vault()` is split into three tiers by what the user can durably change:
 

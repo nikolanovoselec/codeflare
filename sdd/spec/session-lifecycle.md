@@ -46,7 +46,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Constraints:**
 
 - Session name is sanitized to prevent injection.
-- Storage quota is checked before creation in SaaS mode; over-quota users receive a `ValidationError`.
+- Storage quota is checked before creation in SaaS mode; over-quota users receive a descriptive validation error and session creation is blocked.
 
 **Priority:** P0
 
@@ -530,7 +530,7 @@ None.
 **Acceptance Criteria:**
 
 1. The terminal server's tab-1 PTY pre-warm is gated on an init-complete signal written by the entrypoint after initial sync, file modifications, and tab autostart configuration complete; this preserves the readiness contract while letting the serving port bind before Cloudflare's container port-wait timeout.
-2. The host terminal server rejects `/terminal` WebSocket upgrades with close code 1013 (reason `container-warming-up`) until both the init-complete flag is observed AND the pre-warm session is registered in the session map; this is the host-side guard against reconnects landing before shell autostart is in place.
+2. The host terminal server rejects terminal WebSocket upgrades with a retriable close code (the WebSocket "try again later" class) and a human-readable container-warming reason until both the init-complete signal is observed AND the pre-warm session is registered; this is the host-side guard against reconnects landing before shell autostart is in place.
 
 **Constraints:**
 

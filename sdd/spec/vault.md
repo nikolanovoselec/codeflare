@@ -6,12 +6,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### Key Concepts
 
-- **Vault** -- The persistent directory at `/home/user/Vault/` holding markdown notes, pasted assets, and derived graphify output. SilverBullet writes attachment uploads next to the note that referenced them, not into `Raw/Pasted/` (`Raw/Pasted/` is user-owned drag-drop only). Bisynced to R2 to survive across sessions. Always-on in the unified global graph: tagged `user_vault` from entrypoint init, never pruned by the active-repo prune-on-switch logic.
-- **Capture Agent** -- The background sonnet agent spawned by the memory-capture UserPromptSubmit hook. Writes one markdown file per 15-prompt batch into `Raw/Sessions/` and merges it into the unified global graph. Sonnet (not haiku) per AD58.
-- **Vault-monitor Daemon** -- A 60s polling loop in entrypoint.sh that watches for user-curated edits anywhere under `/home/user/Vault/` except the exclusion list (`Raw/Sessions/`, `graphify-out/`, `.silverbullet/`, and the four codeflare-authoritative root pages). Writes a trigger marker (`vault-extract.vars`) when changes are found. Uses the three-marker pattern (tick / high-water / trigger) to avoid the daemon-advances-mtime-before-extraction-reads-it race.
-- **Vault-extract Agent** -- The background sonnet agent spawned by `vault-monitor-hook.sh`. Runs graphify single-file extraction on the changed files, merges the resulting subgraph into the unified global graph, and advances the high-water marker as its final step. Sonnet (not haiku) per AD58: vault-extract emits citations into the cross-session graph and a confabulated ID is worse than a missing one.
-- **Unified Global Graph** -- `~/.graphify/global-graph.json`. Hash-keyed merge of every per-repo graphify-out plus the vault's own graph, kept in sync by `graphify global add` calls under `flock -w 5 /tmp/graphify-global.lock`. The graphify MCP wrapper prefers this graph when present so `mcp__graphify__*` tool calls return a unified view.
-- **SilverBullet** -- The Deno-compiled markdown editor (`silverbullet-server-linux-x86_64`) bound to `127.0.0.1:3030` inside the container. Reachable from the codeflare UI through the Worker proxy at `/api/vault/:sid/`. Auth boundary lives at the Worker.
+- **Vault** -- The persistent per-user vault directory holding markdown notes, pasted assets, and derived graph output. Attachment uploads land next to the note that referenced them; the dedicated raw-pasted directory is reserved for user-owned drag-drop. The vault is bisynced to R2 so it survives across sessions and is always present in the unified global graph (tagged as the user-vault source; never pruned by the active-repo prune-on-switch logic).
+- **Capture Agent** -- The background subagent spawned by the memory-capture hook. Writes one markdown file per batch into the vault's raw-sessions subdirectory and merges it into the unified global graph. Pinned to Sonnet per AD58 (citation accuracy).
+- **Vault-monitor Daemon** -- A polling loop in the entrypoint that watches for user-curated edits anywhere under the vault except the agent-written capture directory, the derived graph-output directory, the editor's internal config directory, and the four codeflare-authoritative root pages. When changes are found, writes a trigger marker. Uses a three-marker pattern (heartbeat, high-water, trigger) to avoid the daemon-advances-mtime-before-extraction-reads-it race.
+- **Vault-extract Agent** -- The background subagent spawned by the vault-monitor hook. Runs single-file graph extraction on the changed files, merges the resulting subgraph into the unified global graph, and advances the high-water marker as its final step. Pinned to Sonnet per AD58 (the agent emits citations into the cross-session graph and a confabulated ID is worse than a missing one).
+- **Unified Global Graph** -- The merged graph that combines every per-repo graph with the vault's own graph; merges are hash-keyed and serialized under a shared multi-writer lock. The graphify MCP wrapper prefers this graph when present so structural queries return a unified view across all sources.
+- **SilverBullet** -- The markdown editor running inside the container, bound to localhost only and reachable from the codeflare UI through the Worker proxy. The auth boundary lives at the Worker.
 
 ### Out of Scope
 
@@ -24,15 +24,15 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - Desktop Obsidian or web-VNC clients (SilverBullet covers the editing surface)
 - Standalone vault-only container (vault lives inside the session container)
 - Migration of legacy `~/.memory/session-*.jsonl` into the vault (MCP server-memory subsystem is removed; no historical graph is preserved)
-- Per-session `syncConcurrency` tuning for SilverBullet's sync engine. The value is a hardcoded module-level constant in SB 2.8 (`client/spaces/sync.ts:9`, value=3) and is not configurable via BootConfig. The cold-start latency delta between the SB default and a forked 15 is small at typical vault sizes (<1k files) and not worth maintaining a fork.
-- Lazy attachment loading for paths under `Raw/Pasted/**`. SB pastes attachments alongside the note they were dropped into, not under a centralised `Raw/Pasted/` tree, so the lazy-prefix optimisation has no real workload to apply to.
+- Per-session sync-concurrency tuning for SilverBullet. The default is hardcoded in the editor's sync engine and is not configurable through its boot config. The cold-start latency delta between the default and a tuned value is small at typical vault sizes and not worth maintaining a fork.
+- Lazy attachment loading for the raw-pasted directory. The editor pastes attachments alongside the note they were dropped into, not under a centralized raw-pasted tree, so the lazy-prefix optimization has no real workload to apply to.
 
 ### Domain Dependencies
 
-- **Memory** -- Reuses the `memory-capture.sh` UserPromptSubmit hook and `~/.memory/counter/` state. The capture agent writes Step 4's output into the vault (MCP server-memory has been removed from the stack); the dedup gate (`.vars` marker) is unchanged.
-- **Storage** -- Vault persistence is provided by the existing rclone bisync to R2. One new include filter (`+ Vault/**`) is added to `RCLONE_FILTERS_COMMON`, ordered BEFORE the existing `**/graphify-out/**` exclude so first-match semantics keep vault content sync'd.
-- **Session Lifecycle** -- The bundled shutdown bisync reliability fix raises the DO `destroy()` SIGTERM-to-SIGKILL budget to 135s, so the entrypoint's final bisync (120s watchdog) can complete cleanly. Without this, vault edits made in the last seconds before shutdown were silently lost to R2.
-- **Subscription** -- Vault features (preseed entries, SilverBullet supervisor) are gated to advanced session mode via the existing manifest mode filter (`"modes": ["advanced"]` on every new preseed entry).
+- **Memory** -- Reuses the memory-capture UserPromptSubmit hook and its per-user counter state. The capture agent writes its synthesis output into the vault (the legacy MCP server-memory subsystem has been removed); the dedup-gate marker contract is unchanged.
+- **Storage** -- Vault persistence is provided by the existing bisync to R2. The vault tree is added to the shared sync filter set, ordered before the global `graphify-out` exclude so first-match semantics keep vault content synced.
+- **Session Lifecycle** -- The shutdown-bisync reliability work (REQ-VAULT-006) coordinates the orchestrator destroy budget with the final-sync watchdog so vault edits made in the last seconds before shutdown reach R2 instead of being silently lost.
+- **Subscription** -- Vault features (preseed entries, editor supervisor) are gated to Pro session mode via the manifest's mode filter.
 
 ---
 
@@ -281,6 +281,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-012: Vault button render and readiness gating
 
 <!-- @impl: web-ui/src/components/Header.tsx -->
+<!-- @impl: web-ui/src/components/Layout.tsx -->
 <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header describe → Vault button gating + readiness probe state machine → AC1-AC5) -->
 
 **Intent:** The Vault button only appears when usable and only enables after a per-session probe confirms the in-container editor is actually reachable, so users never land on `VAULT_UPSTREAM_UNREACHABLE`. SilverBullet's landing page is the codeflare dashboard. SilverBullet subpath asset adaptation lives in [REQ-VAULT-013](#req-vault-013-silverbullet-subpath-adapter).

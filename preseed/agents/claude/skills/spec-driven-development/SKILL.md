@@ -272,7 +272,7 @@ The plan must:
 - **Bugs** → GitHub issues. The spec describes target state; bugs are the delta.
 - **TODOs / known gaps** → `pending.md`. Status: Partial flags incompleteness; prose detail there.
 - **Spec churn / "we tried X then Y"** → git history. No strikethrough or "Superseded:" annotations.
-- **Build environment quirks** → `documentation/troubleshooting.md`.
+- **Build environment quirks** → `documentation/[lanes/]troubleshooting.md` (flat or nested layout).
 - **Out-of-scope ideas** → `## Out of Scope` section in the relevant README.
 
 ## Templates location

@@ -350,7 +350,7 @@ is done via `settings.json` (see above).
   (`git`, `mkdir`, `rm`, `mv`, `cd`, `ls`, `npm install`, `pip
   install`) - all `gh` calls in Bash are denied and agents route them
   through MCP shell tools instead. Implements
-  [REQ-AGENT-033](../../sdd/spec/agents.md#req-agent-033-sdd-init-scaffolding-and-canonical-render) AC3 and [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-pipeline) AC1+AC2. Hooks
+  [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC3 (tool-surface portability) and [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1+AC2 (PR-boundary trigger + dual-matcher PUSH_LINE detection). Hooks
   registered in settings.json, scripts delivered via plugin.
 
 ## Third-party plugin: context-mode

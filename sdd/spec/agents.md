@@ -143,17 +143,17 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Session mode is stored as `sessionMode?: 'default' | 'advanced'` in `UserPreferences` (KV).
-2. `resolveSessionMode(prefs)` is the single source of truth for the `?? 'default'` fallback.
-3. Mode selection is available in Settings > Session Defaults.
-4. Mode takes effect on any of: explicit "Recreate AI agent skills & rules" click, new bucket creation, Stripe mode change (upgrade or downgrade via webhook), subscription termination, or Settings toggle of `sessionMode`.
-5. On Stripe-driven or Settings-driven reconciliation, preseed files are overwritten to match the new mode; user-created files are never deleted (see REQ-AGENT-005 Constraints).
+1. Session mode (Standard or Pro) is stored durably in the user's preferences record; the value is absent for users who have never expressed a preference.
+2. A single resolver provides the default-to-Standard fallback when no preference is recorded; all callers read through the resolver rather than checking the raw field directly.
+3. Mode selection is available in Settings under the session-defaults area.
+4. Mode takes effect on any of: explicit "Recreate AI agent skills & rules" action, new bucket creation, payment-provider mode change (upgrade or downgrade via webhook), subscription termination, or Settings toggle of the session-mode preference.
+5. On webhook-driven or Settings-driven reconciliation, preseed files are overwritten to match the new mode; user-created files are never deleted (see REQ-AGENT-005 Constraints).
 6. Reconciliation triggered by webhooks or Settings is non-fatal: failure does not block the webhook response or the preference write.
 
 **Constraints:**
 
-- Only tiers with `'advanced'` in their `sessionModes` array can use Pro mode (see REQ-SUB-014).
-- When a user is promoted to `advanced` tier, `sessionMode: 'advanced'` is written to preferences if not already set.
+- Only tiers whose allowed-session-modes list includes Pro can use Pro mode (see REQ-SUB-014).
+- When a user is promoted to a Pro-eligible tier, Pro mode becomes their persisted default if they had not already selected a mode.
 
 **Priority:** P1
 
@@ -284,19 +284,19 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. On first bucket creation, `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate files to R2.
-2. During container startup, initial `rclone sync` from R2 restores preseed files to the container's config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`).
-3. The container entrypoint merges settings into `~/.claude/settings.json` using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks and replacing managed hooks with the current platform version. The managed-hook detector matches `plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/`, references to legacy and current context-mode enforcement hook paths, and `context-mode hook claude-code` CLI invocations (bare, `bunx`, and `npx -y` forms).
-4. In advanced mode, settings merge includes hook registrations (PreToolUse, PostToolUse, UserPromptSubmit).
-5. The container entrypoint merges `enabledPlugins` into `~/.claude/.claude.json` to enable codeflare-memory and codeflare-hooks plugins (permanent, not mode-gated; missing plugin files are silently skipped).
+1. On first bucket creation, mode-appropriate preseed files are written to the user's R2 bucket without overwriting any existing objects and without removing anything.
+2. During container startup, the initial R2-to-local sync restores preseed files into each supported agent's per-user config directory before the agent launches.
+3. The container entrypoint merges agent settings using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks and replacing managed (codeflare-owned) hooks with the current platform version. The managed-hook detector identifies a stable, enumerable set of codeflare-owned hook surfaces; per-path inventory lives in [documentation/lanes/preseed.md](../../documentation/lanes/preseed.md).
+4. In Pro mode, the settings merge includes the codeflare-owned hook registrations across the PreToolUse, PostToolUse, and UserPromptSubmit event families; Standard mode omits them.
+5. The container entrypoint enables the codeflare-managed plugins in the agent's plugin configuration permanently (not mode-gated). Missing plugin files are silently skipped so a plugin removal does not break agent startup.
 6. Settings merge handles three cases: file doesn't exist (create), file exists (recursive merge), file malformed (skip with warning).
 
 **Constraints:**
 
-- All file modifications must complete after initial sync but before bisync baseline to avoid hash mismatches.
-- Plugin enablement is permanent because Claude Code silently skips missing plugins.
-- The managed-hook regex is anchored on the literal `plugins/` segment so unrelated workspace tools with the same script basenames are not falsely flagged as managed.
-- Any new managed-hook surface added to `entrypoint.sh:MANAGED_HOOKS_REGEX` must also be reflected in AC3 above; otherwise prior copies accumulate on every container boot instead of being replaced. The regex enumeration in AC3 is the spec-side single source of truth for what counts as managed.
+- All file modifications must complete after initial sync but before bisync baseline so the baseline observes a stable snapshot.
+- Plugin enablement is permanent because the agent silently skips missing plugins; removing a plugin does not require also rewriting the user's plugin-enablement record.
+- The managed-hook detector is anchored on the codeflare-plugin-path prefix so unrelated workspace tools with the same script basenames cannot be falsely flagged as managed.
+- The managed-hook surface set is the spec-side single source of truth; adding a new codeflare hook requires extending the detector or prior copies accumulate on every container boot instead of being replaced.
 
 **Priority:** P0
 
@@ -320,11 +320,11 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. `PUT /api/llm-keys` accepts an OpenAI key, a Gemini key, or both.
-2. A string value sets the key; `null` deletes it; omitted/undefined means no change.
-3. Keys are stored in KV under a per-bucket namespace.
-4. When platform-level credential encryption is configured, values are encrypted before KV storage.
-5. `GET /api/llm-keys` returns masked values (last 4 characters only); the full key is never returned.
+1. Users can store one or both supported LLM provider keys (OpenAI and Gemini) through a single management endpoint.
+2. The update interface supports three semantics per key: a new value replaces, an explicit null deletes, an absent field leaves the existing value unchanged.
+3. Keys are persisted in durable storage scoped to the user's bucket so two users cannot read each other's keys.
+4. When platform-level credential encryption is configured, values are encrypted before persistence.
+5. Read responses return masked values (only the trailing characters are visible); the full key is never returned to the client.
 
 **Constraints:**
 
@@ -356,10 +356,10 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. `PUT /api/deploy-keys` validates tokens against provider APIs before storing.
-2. `GET /api/deploy-keys` returns masked tokens, never full values.
-3. `DELETE /api/deploy-keys` clears all stored deploy credentials.
-4. Deploy credentials are stored in KV under a per-bucket namespace, encrypted at rest when platform-level credential encryption is configured.
+1. Tokens are validated against the provider's own API before being stored, so an invalid or expired token is rejected up front rather than discovered at use time.
+2. Read responses return masked tokens; the full value is never returned to the client.
+3. Users can clear all stored deploy credentials in a single action.
+4. Deploy credentials are persisted in durable storage scoped to the user's bucket and are encrypted at rest when platform-level credential encryption is configured.
 
 **Constraints:**
 
@@ -563,9 +563,7 @@ None.
 2. Default: off.
 3. When off, consult-llm is not configured in the agent's MCP settings.
 
-**Constraints:**
-
-- Current implementation does NOT expose an explicit Settings toggle (AC1/AC2 unmet). The entrypoint conditionally registers `consult-llm` only when at least one of `OPENAI_API_KEY` or `GEMINI_API_KEY` is forwarded into the container (`entrypoint.sh` lines ~1503-1526). Presence-of-key acts as the implicit on/off — covers AC3 but not AC1/AC2's "explicit toggle, default off". A real Settings toggle requires a frontend preference + `consultLlmEnabled` field gating the env-var forwarding in `container-env.ts`.
+**Constraints:** None.
 
 **Priority:** P2
 
@@ -574,6 +572,8 @@ None.
 **Verification:** Integration test
 
 **Status:** Partial
+
+**Notes:** AC1 and AC2 unmet: there is no explicit Settings toggle. The consult-llm MCP surface is currently activated implicitly when at least one LLM provider key is configured; presence-of-key acts as the on/off. Closing the gap requires a frontend preference plus a gating field on the per-user preference record consulted by the container env-var forwarder.
 
 ---
 

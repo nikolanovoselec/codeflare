@@ -8,7 +8,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 | Concept | Definition |
 |---------|-----------|
-| Setup Wizard | A multi-step `POST /api/setup/configure` endpoint that provisions all Cloudflare resources (R2 credentials, DNS, Access apps, Turnstile) from a single API call |
+| Setup Wizard | A multi-step provisioning endpoint that creates all required Cloudflare resources (R2 credentials, DNS, Access apps, Turnstile) from a single API call |
 | Deployment Mode | One of three runtime configurations: Default (CF Access auth), Onboarding (CF Access + public waitlist), or SaaS (GitHub OAuth + self-serve subscriptions) |
 | NDJSON Streaming | The progress reporting format used by the setup endpoint -- each line is a self-contained JSON object with step name and status, ending with a `done: true` completion object |
 

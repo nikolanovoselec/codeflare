@@ -103,12 +103,18 @@ PATTERNS=(
   "${CMDPOS}bun[[:space:]]+test"
   # npm / npx wrappers. The `npx` form must permit arbitrary flags
   # between `npx` and the tool name (e.g. `npx -y oxlint@1.66.0`,
-  # `npx -p pkg vitest`) — earlier the pattern required `npx <tool>`
-  # immediately adjacent and a `-y` slipped past, letting the assistant
-  # run oxlint locally. Match the tool name word-boundary anywhere
-  # after `npx ` on the same line.
-  "${CMDPOS}npx[[:space:]]+([^\n]*[[:space:]])?(vitest|jest|mocha|tsc|oxlint|eslint|prettier|playwright)([[:space:]@]|$)"
-  "${CMDPOS}npx[[:space:]]+([^\n]*[[:space:]])?wrangler[[:space:]]+(dev|build|deploy)"
+  # `npx -p pkg vitest`, `npx --no-install vitest`) — earlier the
+  # pattern required `npx <tool>` immediately adjacent and a `-y`
+  # slipped past, letting the assistant run oxlint locally.
+  #
+  # NOTE: use `.*` (not `[^\n]*`). Inside a POSIX bracket expression
+  # `\n` is the two literal characters backslash and `n`, not the
+  # newline escape — `[^\n]*` would falsely reject any flag containing
+  # the letter `n` (e.g. `--no-install`, `--include-node`). `grep -E`
+  # matches per-line, so newlines never appear in the haystack
+  # mid-match, making `.*` the correct primitive here.
+  "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?(vitest|jest|mocha|tsc|oxlint|eslint|prettier|playwright)([[:space:]@]|$)"
+  "${CMDPOS}npx[[:space:]]+(.*[[:space:]])?wrangler[[:space:]]+(dev|build|deploy)"
   "${CMDPOS}npm[[:space:]]+test([[:space:]]|$)"
   "${CMDPOS}npm[[:space:]]+run[[:space:]]+(test|build|dev|typecheck|lint|knip|check|e2e)"
   "${CMDPOS}pnpm[[:space:]]+test"

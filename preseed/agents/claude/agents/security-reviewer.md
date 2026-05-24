@@ -23,7 +23,7 @@ Before scanning anything, identify the project's surface so you don't apply a we
 - Embedded / firmware → focus on memory safety, hardcoded credentials, OTA-update integrity
 - Internal admin tooling behind SSO/Access → relax rate-limit + auth-on-every-route findings if an ADR explicitly accepts the boundary
 
-Detect via `package.json`/`Cargo.toml`/`go.mod` (deps), repository layout (`pages/`/`app/` = web; `cmd/` = Go CLI; `src/lib/` only = library), and `documentation/architecture.md` if it exists.
+Detect via `package.json`/`Cargo.toml`/`go.mod` (deps), repository layout (`pages/`/`app/` = web; `cmd/` = Go CLI; `src/lib/` only = library), and `documentation/[lanes/]architecture.md` if it exists (flat or nested layout).
 
 ## Graph-first for attack-surface mapping
 

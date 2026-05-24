@@ -106,6 +106,43 @@ describe('block-local-builds.sh — Bash matcher', () => {
     assert.match(r.stdout, /"decision"\s*:\s*"block"/);
   });
 
+  // Regression: a previous version of the npx pattern used `[^\n]*` to
+  // match intermediate flags. Inside a POSIX bracket expression `\n` is
+  // literal backslash + `n`, not the newline escape, so any flag
+  // containing the letter `n` (`--no-install`, `--include-node`, etc.)
+  // bypassed the block. These tests pin the fix so a future refactor
+  // cannot reintroduce the same regex bug.
+  it('blocks `npx --no-install vitest` (flag contains the letter n)', () => {
+    const r = runHook(bashInvocation('npx --no-install vitest run'), { bypassFile: tempBypass() });
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'regression: [^\\n]* used to silently fail on n-containing flags');
+  });
+
+  it('blocks `npx --include-node tsc` (flag contains the letter n)', () => {
+    const r = runHook(bashInvocation('npx --include-node tsc'), { bypassFile: tempBypass() });
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+  });
+
+  it('blocks `npx --node-options=--inspect jest`', () => {
+    const r = runHook(bashInvocation('npx --node-options=--inspect jest'), { bypassFile: tempBypass() });
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+  });
+
+  it('blocks `npx -y oxlint@1.66.0` (versioned tool with version suffix)', () => {
+    const r = runHook(bashInvocation('npx -y oxlint@1.66.0 src/'), { bypassFile: tempBypass() });
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+  });
+
+  it('blocks `npx -p some-pkg vitest` (-p flag with package arg)', () => {
+    const r = runHook(bashInvocation('npx -p some-pkg vitest'), { bypassFile: tempBypass() });
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+  });
+
+  it('blocks `npx --prefer-online wrangler dev`', () => {
+    const r = runHook(bashInvocation('npx --prefer-online wrangler dev'), { bypassFile: tempBypass() });
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+  });
+
   it('blocks bare `tsc`', () => {
     const r = runHook(bashInvocation('tsc'), { bypassFile: tempBypass() });
     assert.match(r.stdout, /"decision"\s*:\s*"block"/);

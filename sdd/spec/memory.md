@@ -6,24 +6,24 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### Key Concepts
 
-- **Vault** -- `/home/user/Vault/`. Single source of truth for cross-session memory. Holds agent-written session captures (`Raw/Sessions/`) and user-curated content under `Notes/`, `Inbox/`, `Journal/`. SilverBullet writes attachments next to the note that referenced them. Rclone-bisynced to R2.
-- **Unified Graph** -- `~/.graphify/global-graph.json`. Hash-keyed merge of the vault's graph and every active repo's per-repo graph. Queried via `mcp__graphify__*`.
-- **Capture** -- A background agent (sonnet) runs every 15 real user messages, prefilters the transcript to strip tool I/O, chunks the remainder, accumulates per-chunk observations into a scratchpad, synthesises a markdown capture file in `Raw/Sessions/`, and merges it into the unified graph under `flock -w 5 /tmp/graphify-global.lock`.
-- **Session Mode** -- Advanced (Pro) mode enables R2 sync of the vault and capture hooks. Default (Standard) mode runs the in-session capture flow but the vault is not preserved across container recreations.
+- **Vault** -- The persistent per-user vault directory. Single source of truth for cross-session memory; holds agent-written session captures plus user-curated notes, inbox, and journal entries. Attachment uploads land next to the note that referenced them. Bisynced to R2 so the vault survives across sessions.
+- **Unified Graph** -- The merged graph combining the vault's graph with every active repo's per-repo graph; merges are hash-keyed. Queryable through the graphify MCP surface so structural questions can span all sources in a single call.
+- **Capture** -- A background subagent runs every fifteen real user messages, prefilters the transcript to strip tool I/O, chunks the remainder, accumulates per-chunk observations, synthesises a markdown capture file into the vault's raw-sessions subdirectory, and merges the resulting subgraph into the unified graph under a shared multi-writer lock so concurrent writers cannot corrupt it.
+- **Session Mode** -- Pro mode enables R2 sync of the vault and capture hooks. Standard mode runs the in-session capture flow but the vault is not preserved across container recreations.
 
 ### Out of Scope
 
 - Cross-user memory sharing (each user's vault is isolated to their R2 bucket).
-- Automated graph compaction (the user prunes `Raw/Sessions/` manually via SilverBullet when needed).
-- Legacy MCP `@modelcontextprotocol/server-memory` migration (removed; no historical JSONL graph is read or written).
+- Automated graph compaction (the user prunes captured sessions manually via the editor when needed).
+- Legacy MCP server-memory migration (the subsystem has been removed; no historical graph is read or written).
 - Bulk memory export (vault files are plain markdown and can be copied with rclone or git).
 
 ### Domain Dependencies
 
-- **Vault** -- Capture writes (REQ-MEM-001) and global-graph merges depend on the vault skeleton and graphify infrastructure from the Vault domain.
-- **Storage** -- R2 sync of the vault (REQ-MEM-004) depends on rclone bisync infrastructure from the Storage domain.
-- **Agents** -- Preseed delivery (REQ-MEM-008) depends on the manifest pipeline and `reconcileAgentConfigs()` from the Agents domain.
-- **Subscription** -- Mode gating (REQ-MEM-006) depends on effective tier resolution and `sessionModes` from the Subscription domain.
+- **Vault** -- Capture writes (REQ-MEM-001) and global-graph merges depend on the vault skeleton and graph infrastructure from the Vault domain.
+- **Storage** -- R2 sync of the vault (REQ-MEM-004) depends on the bisync infrastructure from the Storage domain.
+- **Agents** -- Preseed delivery (REQ-MEM-008) depends on the preseed pipeline from the Agents domain.
+- **Subscription** -- Mode gating (REQ-MEM-006) depends on effective tier resolution and tier-allowed-session-modes from the Subscription domain.
 
 ---
 

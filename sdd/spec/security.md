@@ -206,7 +206,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars describe -> emits ENCRYPTION_KEY when state._encryptionKey set, omits when null -> AC3 env-var forwarding + AC7 no-op when unset) -->
 <!-- @test: host/__tests__/entrypoint-sse-c-config.test.js (create_rclone_config describe -> harness runs the real entrypoint function and reads back generated rclone.conf; sse_customer_key_base64 + sse_customer_algorithm = AES256 appended when ENCRYPTION_KEY exported; absent when unset or empty -> AC4 entrypoint behavior, AC7 no-op path) -->
 <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior describe -> bisync via rclone reads the configured rclone.conf (with or without SSE-C) and round-trips files -> AC5 transparent encrypt/decrypt during initial/periodic/shutdown sync) -->
-### REQ-SEC-005: R2 files encrypted via SSE-C when ENCRYPTION_KEY configured
+### REQ-SEC-005: R2 files encrypted at rest with SSE-C when operator configures an encryption key
 
 <!-- @impl: src/lib/r2-sse.ts -->
 <!-- @impl: src/lib/r2-client.ts -->
@@ -731,7 +731,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SEC-005](#req-sec-005-r2-files-encrypted-via-sse-c-when-encryption_key-configured)
+**Dependencies:** [REQ-SEC-005](#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key)
 
 **Verification:** Manual check
 

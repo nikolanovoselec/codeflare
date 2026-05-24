@@ -70,18 +70,20 @@ Audit location by trigger: `/sdd clean` writes to the per-category commit bodies
 
 REQs in `sdd/{domain}.md` describe **observable behaviour**. The following NEVER appear inside a REQ AC or Intent:
 
+Lane file paths below use the form `documentation/[lanes/]<name>.md` because projects use either flat (`documentation/<name>.md`) or nested (`documentation/lanes/<name>.md`) layouts. Resolve to whichever exists in the target project.
+
 | Banned | Where it goes instead |
 |---|---|
-| Hex color codes, CSS class names, keyframe names, viewBox values, bezier coords, animation timings, z-index | `documentation/architecture.md` or `design-system.md` |
-| File paths, function names | `documentation/architecture.md` |
-| Database column names (implementation-detail columns) | `documentation/architecture.md` |
-| Cookie names | `documentation/security.md` or `authentication.md` |
-| HTTP status code enumerations | `documentation/api-reference.md` |
-| JSON request/response schemas, endpoint paths | `documentation/api-reference.md` |
-| Env var names | `documentation/configuration.md` |
-| Build-tool internals | `documentation/troubleshooting.md` |
-| TypeScript code snippets, SQL queries | `documentation/architecture.md` |
-| Debugging checklists | `documentation/troubleshooting.md` |
+| Hex color codes, CSS class names, keyframe names, viewBox values, bezier coords, animation timings, z-index | `documentation/[lanes/]architecture.md` or `design-system.md` |
+| File paths, function names | `documentation/[lanes/]architecture.md` |
+| Database column names (implementation-detail columns) | `documentation/[lanes/]architecture.md` |
+| Cookie names | `documentation/[lanes/]security.md` or `authentication.md` |
+| HTTP status code enumerations | `documentation/[lanes/]api-reference.md` |
+| JSON request/response schemas, endpoint paths | `documentation/[lanes/]api-reference.md` |
+| Env var names | `documentation/[lanes/]configuration.md` |
+| Build-tool internals | `documentation/[lanes/]troubleshooting.md` |
+| TypeScript code snippets, SQL queries | `documentation/[lanes/]architecture.md` |
+| Debugging checklists | `documentation/[lanes/]troubleshooting.md` |
 | Strikethrough text | Delete. Git history is the strikethrough. |
 | "Current implementation:" / "Planned (not implemented):" branches in an AC | `pending.md` |
 | Implementation TODOs | GitHub issue |

@@ -85,7 +85,7 @@ Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit o
 - **REQ backlinks** `(REQ-API-003)`: encouraged
 - **Source-file paths** next to the section they document
 - **Function and class names** when documenting how to call them
-- **Database table/column names** in `documentation/architecture.md` schema sections
+- **Database table/column names** in `documentation/[lanes/]architecture.md` schema sections (flat or nested layout)
 - **Cookie names, env var names, header names** when documenting configuration or HTTP contract
 - **Code snippets** illustrating a non-obvious calling pattern (<=15 lines)
 

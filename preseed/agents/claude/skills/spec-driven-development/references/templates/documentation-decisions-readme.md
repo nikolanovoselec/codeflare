@@ -14,9 +14,9 @@ ADRs document choices between **real alternatives** where the chosen path has co
 
 | Shape | Belongs in |
 |---|---|
-| Static-analyzer false positive accepted with context | Inline source-code comment (`// SAST-false-positive: ...`) + one-line note in `documentation/troubleshooting.md` if the pattern recurs |
-| Naming/spelling preserved for backward compatibility | One-line note in `documentation/configuration.md` next to the variable |
-| Risk acceptance with no alternative considered | Inline source-code comment OR `documentation/security.md` "trust model" section |
+| Static-analyzer false positive accepted with context | Inline source-code comment (`// SAST-false-positive: ...`) + one-line note in `documentation/[lanes/]troubleshooting.md` if the pattern recurs |
+| Naming/spelling preserved for backward compatibility | One-line note in `documentation/[lanes/]configuration.md` next to the variable |
+| Risk acceptance with no alternative considered | Inline source-code comment OR `documentation/[lanes/]security.md` "trust model" section |
 | Implementation note framed as a decision | Delete or move to `pending.md` |
 
 The single test: **did we choose between real alternatives, AND would a future reader need to understand the choice to avoid undoing it?** If either half is no, it is not an ADR. The full rule and detection signals live in `~/.claude/rules/documentation-discipline.md` ("What is NOT an ADR") and run as `doc-updater` Pass 5 on every push.
