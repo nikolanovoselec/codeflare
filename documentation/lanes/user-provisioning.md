@@ -8,6 +8,15 @@ See [Authentication](authentication.md) for auth flows. See [Billing](billing.md
 
 ---
 
+## Contents
+
+- [JIT User Provisioning](#jit-user-provisioning)
+- [Self-Service Subscription Flow](#self-service-subscription-flow)
+- [Session Mode Authorization](#session-mode-authorization)
+- [CF Access Configuration Strategy](#cf-access-configuration-strategy)
+- [Frontend Components](#frontend-components)
+- [Legacy Compatibility](#legacy-compatibility)
+
 ## JIT User Provisioning
 
 When a GitHub-authenticated user makes their first request to a protected endpoint:

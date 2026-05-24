@@ -6,6 +6,14 @@ Dual authentication (Cloudflare Access and GitHub OIDC), SaaS mode, and three-ti
 
 ---
 
+## Contents
+
+- [Authentication Modes](#authentication-modes)
+- [User Identity](#user-identity)
+- [SaaS Mode](#saas-mode)
+- [Environment Variables for SaaS Mode](#environment-variables-for-saas-mode)
+- [Common Pitfalls](#common-pitfalls)
+
 ## Authentication Modes
 
 Codeflare supports two fundamentally different authentication flows:

@@ -6,6 +6,15 @@ Technical reference for the mobile terminal implementation covering keyboard han
 
 ---
 
+## Contents
+
+- [Cursor Visibility](#cursor-visibility)
+- [Keyboard Management](#keyboard-management)
+- [Touch Input](#touch-input)
+- [Scroll Stability](#scroll-stability)
+- [WebSocket Recovery](#websocket-recovery)
+- [Scroll-Stability Integration Test Plan](#scroll-stability-integration-test-plan)
+
 ## Cursor Visibility
 
 The xterm cursor is visible (enabled as of Claude Code 1.0.12+ / Copilot 1.0.12+). Previously, the cursor was hidden via CSS `display: none` on `.xterm-cursor-block`, `.xterm-cursor-outline`, `.xterm-cursor-bar`, and `.xterm-cursor-underline`, and via transparent theme colors.

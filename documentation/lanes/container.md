@@ -6,6 +6,15 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 
 ---
 
+## Contents
+
+- [Container Image](#container-image)
+- [Container Startup](#container-startup)
+- [Claude Code Integration](#claude-code-integration)
+- [Graphify (Knowledge-Graph Context) (REQ-AGENT-023)](#graphify-knowledge-graph-context-req-agent-023)
+- [LLM Consultation](#llm-consultation)
+- [Push & Deploy](#push-deploy)
+
 ## Container Image
 
 **File:** `Dockerfile` - Base: `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror; avoids Docker Hub anonymous pull rate limits on CI runners), multi-stage build (builder compiles native addons, runtime has no build tools).

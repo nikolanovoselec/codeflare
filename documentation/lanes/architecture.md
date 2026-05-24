@@ -6,6 +6,14 @@ System architecture, components, data flow, and design rationale for Codeflare.
 
 ---
 
+## Contents
+
+- [Architecture Overview](#architecture-overview)
+- [System Components](#system-components)
+- [Data Flow](#data-flow)
+- [Module-Level Caches](#module-level-caches)
+- [Design Rationale](#design-rationale)
+
 ## Architecture Overview
 
 Codeflare runs AI coding agents in isolated containers, one per browser session (tab). All sessions for a user share a single R2 bucket for persistent storage, with periodic bidirectional sync every 15 minutes plus manual triggers from the storage panel and a final sync at shutdown (see AD56).

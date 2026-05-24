@@ -6,6 +6,19 @@ Implements [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing
 
 **Audience:** Operators
 
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Running](#running)
+- [Test Suites](#test-suites)
+- [Session Lifecycle Rate Limits Detail](#session-lifecycle-rate-limits-detail)
+- [Think Time Model](#think-time-model)
+- [VU-to-Real-User Mapping](#vu-to-real-user-mapping)
+- [Concurrency Scaling](#concurrency-scaling)
+- [Rate Limit Bypass](#rate-limit-bypass)
+- [Configuration Reference](#configuration-reference)
+- [Workflow Architecture](#workflow-architecture)
+
 ## Prerequisites
 
 1. **Integration worker deployed** with `STRESS_TEST_MODE=active` (disables all rate limits — required because all VUs share one service identity)

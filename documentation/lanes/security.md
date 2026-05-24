@@ -8,6 +8,22 @@ Security architecture, encryption at rest, rate limiting, and hardening measures
 
 ---
 
+## Contents
+
+- [Authentication Gate](#authentication-gate)
+- [API Token Containment](#api-token-containment)
+- [Container Auth Token (REQ-SEC-012)](#container-auth-token-req-sec-012)
+- [Dual R2 Credential Architecture](#dual-r2-credential-architecture)
+- [Graceful Shutdown](#graceful-shutdown)
+- [Security Hardening (Pre-Launch Review)](#security-hardening-pre-launch-review)
+- [Security Headers](#security-headers)
+- [Session ID Validation](#session-id-validation)
+- [Static-Analyzer False Positives](#static-analyzer-false-positives)
+- [Context-Mode Enforcement Bypass](#context-mode-enforcement-bypass)
+- [Body Limit](#body-limit)
+- [Credential Encryption at Rest](#credential-encryption-at-rest)
+- [Rate Limiting](#rate-limiting)
+
 ## Authentication Gate
 
 All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by one of two auth mechanisms depending on deployment mode:

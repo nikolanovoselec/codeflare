@@ -8,6 +8,15 @@ See [Authentication](authentication.md) for auth flows. See [User Provisioning](
 
 ---
 
+## Contents
+
+- [Subscription Tiers](#subscription-tiers)
+- [Stripe Payment Integration](#stripe-payment-integration)
+- [Timekeeper DO (Usage Tracking)](#timekeeper-do-usage-tracking)
+- [Paygate Enforcement](#paygate-enforcement)
+- [Admin Subscription Management](#admin-subscription-management)
+- [Email Notifications](#email-notifications)
+
 ## Subscription Tiers
 
 Codeflare uses a multi-tier subscription system that controls monthly compute hours, max concurrent sessions, and session modes. Tier IDs: `blocked`, `pending`, `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`.

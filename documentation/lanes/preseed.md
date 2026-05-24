@@ -8,6 +8,18 @@ it gets there" content. Memory-system specifics live in
 [memory.md](memory.md); container runtime details live in
 [container.md](container.md).
 
+## Contents
+
+- [Session Modes](#session-modes)
+- [Preseed Components](#preseed-components)
+- [Preseed Deployment](#preseed-deployment)
+- [Multi-Agent Preseed](#multi-agent-preseed)
+- [Settings.json Merge](#settingsjson-merge)
+- [Plugin Enablement](#plugin-enablement)
+- [Third-party plugin: context-mode](#third-party-plugin-context-mode)
+- [/sdd init Modes](#sdd-init-modes)
+- [Troubleshooting](#troubleshooting)
+
 ## Session Modes
 
 Users choose between **Default** and **Advanced** session modes via

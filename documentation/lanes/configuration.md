@@ -6,6 +6,14 @@ Environment variables, secrets, CORS configuration, and API token permissions.
 
 ---
 
+## Contents
+
+- [Environment Variables](#environment-variables)
+- [Secrets](#secrets)
+- [CORS](#cors)
+- [Container Specs](#container-specs)
+- [API Token Permissions](#api-token-permissions)
+
 ## Environment Variables
 
 ### Worker Environment
