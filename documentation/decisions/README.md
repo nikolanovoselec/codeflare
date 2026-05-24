@@ -891,7 +891,7 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 
 **Decision:** The vault directory is renamed to `/home/user/Vault/` (non-hidden basename). All references in entrypoint.sh, bisync filters, preseed scripts, agent rules, Worker route, audits, and tests are updated in the same commit. The internal identifier `init_user_vault()` and the `--as user_vault` global-graph tag are preserved (no manifest migration needed). R2 is a clean cutover for the single existing user; prior `.user_vault/` content in R2 is abandoned rather than migrated.
 
-**Constraint (permanent):** The vault directory must never be renamed to a dot-prefixed basename. Any future relocation of the vault must preserve a non-hidden basename or the SilverBullet disk walker will silently return an empty file list. This constraint is documented in `documentation/vault.md#directory-layout` and enforced by the `host/__audits__/entrypoint-vault.audit.js` structural audit (checks that the supervisor command references `$HOME/Vault`, not `$HOME/.user_vault` or any other hidden path).
+**Constraint (permanent):** The vault directory must never be renamed to a dot-prefixed basename. Any future relocation of the vault must preserve a non-hidden basename or the SilverBullet disk walker will silently return an empty file list. This constraint is documented in `documentation/lanes/vault.md#directory-layout` and enforced by the `host/__audits__/entrypoint-vault.audit.js` structural audit (checks that the supervisor command references `$HOME/Vault`, not `$HOME/.user_vault` or any other hidden path).
 
 **Consequences:**
 - SilverBullet correctly walks and indexes all vault files after rename.
@@ -922,8 +922,8 @@ The initial implementation defined only `--cf-*`-namespaced custom properties on
 - The vault editor reflects codeflare branding consistently across users and sessions; switching between codeflare UI and SilverBullet feels native rather than grafted.
 - Users who want custom styling cannot achieve it without forking the project or opening a PR to `preseed/silverbullet/STYLES.md`. This is the explicit trade-off: brand consistency over per-user theming.
 - Preseed theme updates propagate to all users on next session boot with no per-user migration.
-- The always-overwrite contract is documented in `documentation/vault.md` (three-tier durability) and in the in-vault `README.md` so users discover the constraint before hand-editing.
-- The variable-namespace lesson is preserved in-source as a header comment in `STYLES.md` so future maintainers do not regress to a `--cf-*`-only theme; visual-regression smoke is documented in `documentation/vault.md` First-session Expectations (zinc base, blue accent, Inter body, JetBrains Mono code).
+- The always-overwrite contract is documented in `documentation/lanes/vault.md` (three-tier durability) and in the in-vault `README.md` so users discover the constraint before hand-editing.
+- The variable-namespace lesson is preserved in-source as a header comment in `STYLES.md` so future maintainers do not regress to a `--cf-*`-only theme; visual-regression smoke is documented in `documentation/lanes/vault.md` First-session Expectations (zinc base, blue accent, Inter body, JetBrains Mono code).
 
 **Alternative considered:** Ship `STYLES.md` as recreate-if-missing only, preserving user edits. Rejected: the same user who deletes `index.md` or `CONFIG.md` and expects automatic recovery (the always-overwrite contract for those files) would not expect `STYLES.md` to behave differently. Mixing tiers within the same set of preseed pages was deemed more confusing than the cost of disallowing in-place theme edits.
 

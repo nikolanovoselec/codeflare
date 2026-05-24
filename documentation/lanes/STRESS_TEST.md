@@ -284,7 +284,7 @@ See [Stress Testing Results](STRESS_TEST-results.md) for latest benchmark number
 
 - [Stress Testing Results](STRESS_TEST-results.md) - Latest results, file index, Timekeeper considerations
 - [Security Reference — Rate Limiting](security.md#rate-limiting) - Rate limits per endpoint
-- [Security Policy](../SECURITY.md) - Vulnerability reporting
+- [Security Policy](../../SECURITY.md) - Vulnerability reporting
 - [PENTEST.md](PENTEST.md) - Security scan results
 - [Configuration — Worker Environment](configuration.md#worker-environment) - Environment variables
 - [CI/CD — E2E Infrastructure](ci-cd.md#e2e-infrastructure) - E2E test setup

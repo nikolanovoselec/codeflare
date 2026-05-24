@@ -4,7 +4,7 @@ Security architecture, encryption at rest, rate limiting, and hardening measures
 
 **Audience:** Operators, Security
 
-> For the vulnerability reporting policy, see [SECURITY.md](../SECURITY.md).
+> For the vulnerability reporting policy, see [SECURITY.md](../../SECURITY.md).
 
 ---
 
