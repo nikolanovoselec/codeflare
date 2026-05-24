@@ -171,6 +171,12 @@ or session-mode gating issues, see [preseed.md](preseed.md#troubleshooting).
 
 ---
 
+## Specification Coverage
+
+- [REQ-MEM-012](../../sdd/spec/memory.md#req-mem-012-hard-block-tool-calls-while-memory-capture-is-deferred) - Hard-block tool calls while memory-capture is deferred
+
+---
+
 ## Related Documentation
 
 - [Vault](vault.md) -- vault layout, capture/edit paths, unified graph contract

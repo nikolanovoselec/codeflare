@@ -169,6 +169,15 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 
 ---
 
+## Specification Coverage
+
+- [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline) - Deploy workflow trigger and pre-deploy pipeline
+- [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) - Docker image build, vulnerability scan, and registry push
+- [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) - Deploy command and post-deploy hooks
+- [REQ-OPS-014](../../sdd/spec/operations.md#req-ops-014-container-binding-and-scaling-from-image) - Container binding and scaling from image
+
+---
+
 ## Related Documentation
 - [CI/CD](ci-cd.md) - GitHub Actions workflows and testing
 - [Configuration](configuration.md) - Environment variables and secrets

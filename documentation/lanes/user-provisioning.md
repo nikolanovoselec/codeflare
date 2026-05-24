@@ -125,6 +125,12 @@ Admin users always have `unlimited` tier and advanced session mode access (`canU
 
 ---
 
+## Specification Coverage
+
+- [REQ-AUTH-007](../../sdd/spec/authentication.md#req-auth-007-jit-user-provisioning-in-saas-mode) - JIT user provisioning in SaaS mode
+
+---
+
 ## Related Documentation
 
 - [Authentication](authentication.md) - Auth flows and SaaS mode

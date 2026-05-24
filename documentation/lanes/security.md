@@ -359,6 +359,25 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 
 ---
 
+## Specification Coverage
+
+- [REQ-OPS-009](../../sdd/spec/operations.md#req-ops-009-supply-chain-security-monitoring) - Supply chain security monitoring
+- [REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows) - Security-posture scanning workflows
+- [REQ-SEC-001](../../sdd/spec/security.md#req-sec-001-authenticated-endpoints-reject-unauthenticated-requests) - Authenticated endpoints reject unauthenticated requests
+- [REQ-SEC-003](../../sdd/spec/security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket) - Per-user R2 tokens scoped to user bucket
+- [REQ-SEC-004](../../sdd/spec/security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract) - Credential encryption-at-rest cryptographic contract
+- [REQ-SEC-006](../../sdd/spec/security.md#req-sec-006-transparent-kv-encryption-migration) - Transparent KV encryption migration
+- [REQ-SEC-009](../../sdd/spec/security.md#req-sec-009-input-validation-at-system-boundaries) - Input validation at system boundaries
+- [REQ-SEC-010](../../sdd/spec/security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints) - Path traversal prevention on storage endpoints
+- [REQ-SEC-012](../../sdd/spec/security.md#req-sec-012-container-auth-token-per-do-lifecycle) - Container auth token per DO lifecycle
+- [REQ-SEC-014](../../sdd/spec/security.md#req-sec-014-saas-service-token-header-not-trusted-in-saas-mode) - SaaS service-token header not trusted in SaaS mode
+- [REQ-SEC-016](../../sdd/spec/security.md#req-sec-016-concurrent-cache-deduplication-for-auth-config) - Concurrent cache deduplication for auth config
+- [REQ-SEC-017](../../sdd/spec/security.md#req-sec-017-r2-bucket-nuke-workflow-for-encryption-migration) - R2 bucket nuke workflow for encryption migration
+- [REQ-SEC-018](../../sdd/spec/security.md#req-sec-018-credential-encryption-operational-policy) - Credential encryption operational policy
+- [REQ-SEC-021](../../sdd/spec/security.md#req-sec-021-hsts-coverage-on-redirect-response-paths) - HSTS coverage on redirect response paths
+
+---
+
 ## Related Documentation
 - [Authentication — Auth Modes](authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
 - [Billing — Subscription Tiers](billing.md) - Tier-based access control

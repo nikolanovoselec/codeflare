@@ -331,6 +331,23 @@ SilverBullet writes pasted / drag-dropped attachments next to the note that refe
 | Editing a SilverBullet note shows `Could not save page, retrying again in 10 seconds` repeatedly; saves never succeed | Older image: PUT requests went through `maybeSynthesizeCsrfHeader` which clones the request to add `X-Requested-With`, consuming the original body; the proxy then forwarded the original (now disturbed) request to `container.fetch`, raising `TypeError: This ReadableStream is disturbed` and returning 500 | Redeploy. The proxy now forwards the auth-validated clone (which owns the body) instead of the original; pre-fix images log `Vault request error` with the disturbed-stream stack trace in Worker logs (`wrangler tail` or Cloudflare Observability). |
 | Browser console shows `Enabled client-side encryption for synced files` but SB then aborts the encrypted IDB open / shows "encryption flag set but SW has no key" | Key-rotation desync between the two channels: `injectVaultEncryptionConfig` rewrote `/.config` with a fresh `vaultEncryptionKey` + `enableClientEncryption=true`, but the bootstrap-hop `postMessage({type:"set-encryption-key"})` was not re-run, so the SW shim still holds the previous key (or none). Causes: the user kept an old vault tab open across a key rotation, or a partial deploy updated `injectVaultEncryptionConfig` without restarting the SW. | Reload the vault tab end-to-end (Cmd-Shift-R / Ctrl-Shift-R) so the bootstrap-hop runs fresh and posts the current key into the SW. If a rotation is in progress, force-unregister the SW from DevTools - Application - Service Workers, drop the `codeflare_vault_bootstrap` cookie, then reload; the shell-path handler will redirect through the hop again. The key-shim SW holds the key in module memory only - tearing it down is always safe. |
 
+## Specification Coverage
+
+- [REQ-VAULT-001](../../sdd/spec/vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions) - Persistent vault directory survives across sessions
+- [REQ-VAULT-002](../../sdd/spec/vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown) - Conversation captures land in the vault as markdown
+- [REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s) - User-curated edits are detected and ingested within ~60s
+- [REQ-VAULT-004](../../sdd/spec/vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos) - Unified global graph merges vault and active repos
+- [REQ-VAULT-006](../../sdd/spec/vault.md#req-vault-006-shutdown-bisync-completes-vault-writes-before-sigkill) - Shutdown bisync completes vault writes before SIGKILL
+- [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption) - Zero-UI vault encryption
+- [REQ-VAULT-009](../../sdd/spec/vault.md#req-vault-009-vault-writes-succeed-end-to-end-for-silverbullet-attachment-uploads) - Vault writes succeed end-to-end for SilverBullet attachment uploads
+- [REQ-VAULT-010](../../sdd/spec/vault.md#req-vault-010-codeflare-authoritative-files-preseeded-into-the-vault-on-every-boot) - Codeflare-authoritative files preseeded into the vault on every boot
+- [REQ-VAULT-011](../../sdd/spec/vault.md#req-vault-011-vault-extract-ingests-pdf-files) - Vault-extract ingests PDF files
+- [REQ-VAULT-013](../../sdd/spec/vault.md#req-vault-013-silverbullet-subpath-adapter) - SilverBullet subpath adapter
+- [REQ-VAULT-014](../../sdd/spec/vault.md#req-vault-014-graphify-active-repo-invariant-and-lock-serialisation) - Graphify active-repo invariant and lock serialisation
+- [REQ-VAULT-015](../../sdd/spec/vault.md#req-vault-015-vault-idb-lifecycle-and-listing-filters) - Vault IDB lifecycle and listing filters
+
+---
+
 ## Related Documentation
 
 - [memory.md](./memory.md) -- The capture-hook plumbing that the vault reuses.

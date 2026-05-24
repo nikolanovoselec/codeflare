@@ -210,6 +210,15 @@ E2E_MOBILE=1 npm run test:e2e:ui  # UI mobile tests only
 
 ---
 
+## Specification Coverage
+
+- [REQ-OPS-003](../../sdd/spec/operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit) - PR checks run lint, test, typecheck, and security audit
+- [REQ-OPS-004](../../sdd/spec/operations.md#req-ops-004-e2e-test-workflow-setup-and-job-graph) - E2E test workflow setup and job graph
+- [REQ-OPS-015](../../sdd/spec/operations.md#req-ops-015-e2e-per-suite-execution-and-artifact-handling) - E2E per-suite execution and artifact handling
+- [REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing) - Weekly fuzz testing
+
+---
+
 ## Related Documentation
 - [Deployment](deployment.md) - Development commands and file structure
 - [Configuration](configuration.md#secrets) - Worker secrets and variables

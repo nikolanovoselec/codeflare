@@ -181,6 +181,21 @@ Notifications via Resend API (`src/lib/email.ts`, sender: `RESEND_EMAIL` secret)
 
 ---
 
+## Specification Coverage
+
+- [REQ-SUB-001](../../sdd/spec/subscription.md#req-sub-001-eight-tier-subscription-system) - Eight-Tier Subscription System
+- [REQ-SUB-002](../../sdd/spec/subscription.md#req-sub-002-tier-property-definitions) - Tier Property Definitions
+- [REQ-SUB-006](../../sdd/spec/subscription.md#req-sub-006-real-time-usage-tracking-via-timekeeper-do) - Real-Time Usage Tracking via Timekeeper DO
+- [REQ-SUB-007](../../sdd/spec/subscription.md#req-sub-007-quota-enforcement-at-session-start-402) - Quota Enforcement at Session Start (402)
+- [REQ-SUB-010](../../sdd/spec/subscription.md#req-sub-010-tier-config-cached-with-60-second-ttl) - Tier Config Cached with 60-Second TTL
+- [REQ-SUB-012](../../sdd/spec/subscription.md#req-sub-012-billing-status-enforcement-effective-tier) - Billing Status Enforcement (Effective Tier)
+- [REQ-SUB-013](../../sdd/spec/subscription.md#req-sub-013-concurrent-session-limits) - Concurrent Session Limits
+- [REQ-SUB-014](../../sdd/spec/subscription.md#req-sub-014-session-mode-gating-by-tier) - Session Mode Gating by Tier
+- [REQ-SUB-017](../../sdd/spec/subscription.md#req-sub-017-enterprise-tier-contact-flow) - Enterprise tier contact flow
+- [REQ-SUB-019](../../sdd/spec/subscription.md#req-sub-019-session-limit-popup-in-frontend) - Session limit popup in frontend
+
+---
+
 ## Related Documentation
 
 - [Authentication](authentication.md) - Auth flows, SaaS mode, three-tier middleware

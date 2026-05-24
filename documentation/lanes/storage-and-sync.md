@@ -139,6 +139,19 @@ The recovery filter file starts empty on every container start and is never sync
 
 ---
 
+## Specification Coverage
+
+- [REQ-STOR-002](../../sdd/spec/storage.md#req-stor-002-file-persistence-across-sessions) - File Persistence Across Sessions
+- [REQ-STOR-004](../../sdd/spec/storage.md#req-stor-004-initial-sync-restores-files-on-container-start) - Initial Sync Restores Files on Container Start
+- [REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync) - Graceful Shutdown Performs Final Sync
+- [REQ-STOR-010](../../sdd/spec/storage.md#req-stor-010-agent-configs-auto-seeded-based-on-session-mode) - Agent Configs Auto-Seeded Based on Session Mode
+- [REQ-STOR-011](../../sdd/spec/storage.md#req-stor-011-sync-mode-controls-workspace-scope) - Sync Mode Controls Workspace Scope
+- [REQ-STOR-012](../../sdd/spec/storage.md#req-stor-012-session-transcript-cleanup) - Session Transcript Cleanup
+- [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui) - Explicit Sync Trigger from UI
+- [REQ-STOR-016](../../sdd/spec/storage.md#req-stor-016-file-browser-presentation-and-traversal-safety) - File browser presentation and traversal safety
+
+---
+
 ## Related Documentation
 - [Architecture](architecture.md#container-do-container) - Container DO lifecycle
 - [Container](container.md#container-startup) - Startup sync sequence
