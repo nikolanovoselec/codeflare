@@ -41,6 +41,7 @@ part of `/home/user/`. Both agent-written session captures
 notes) survive container recycles. Memory persistence runs in advanced
 mode only; default-mode sessions still execute the capture hook for
 in-session context but the vault subtree never reaches R2. Implements
+[REQ-MEM-004](../../sdd/spec/memory.md#req-mem-004-vault-contents-synced-to-r2-across-sessions),
 [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode).
 
 The unified graph at `~/.graphify/global-graph.json` is the index layer:
