@@ -282,7 +282,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @impl: web-ui/src/components/Header.tsx -->
 <!-- @impl: web-ui/src/components/Layout.tsx -->
+<!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
 <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header describe → Vault button gating + readiness probe state machine → AC1-AC5) -->
+<!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (startVaultReadinessProbe describe → no-give-up retry / first-success latch / SB-crash recovery / cancel / mid-probe cancel → AC5) -->
 
 **Intent:** The Vault button only appears when usable and only enables after a per-session probe confirms the in-container editor is actually reachable, so users never land on `VAULT_UPSTREAM_UNREACHABLE`. SilverBullet's landing page is the codeflare dashboard. SilverBullet subpath asset adaptation lives in [REQ-VAULT-013](#req-vault-013-silverbullet-subpath-adapter).
 
