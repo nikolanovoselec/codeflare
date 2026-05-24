@@ -648,8 +648,14 @@ jobs:
           BUCKETS_JSON: ${{ steps.discover.outputs.buckets }}
         run: |
           # Inline node — no helper scripts (forkable-repo rule).
-          # For each bucket: list keys with marker pagination, batch
-          # them into 1000-key DeleteObjects calls until empty.
+          # For each bucket: re-list from the start every iteration and
+          # delete every key on the page. We do NOT walk the cursor
+          # forward across DELETEs because R2's cursor-after-mutation
+          # semantics aren't documented as stable; re-listing from the
+          # head ensures no keys are skipped even on buckets with
+          # >1000 objects. Per-key DELETE failures are logged with the
+          # offending key + HTTP status so the operator can re-run
+          # targeted deletes; the job exits non-zero if anything failed.
           node -e '
             const token = process.env.CLOUDFLARE_API_TOKEN;
             const account = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -659,13 +665,13 @@ jobs:
               process.exit(0);
             }
             (async () => {
+              let grandFailures = 0;
               for (const bucket of buckets) {
                 console.log("=== Nuking bucket: " + bucket + " ===");
-                let total = 0, failures = 0;
-                let cursor;
+                let total = 0, failures = 0, sweepIter = 0;
                 while (true) {
+                  sweepIter++;
                   const url = new URL("https://api.cloudflare.com/client/v4/accounts/" + account + "/r2/buckets/" + bucket + "/objects");
-                  if (cursor) url.searchParams.set("cursor", cursor);
                   url.searchParams.set("per_page", "1000");
                   const lr = await fetch(url, { headers: { Authorization: "Bearer " + token } });
                   if (!lr.ok) {
@@ -675,18 +681,34 @@ jobs:
                   const body = await lr.json();
                   const objects = (body.result || body.objects || []).map(o => o.key || o.name).filter(Boolean);
                   if (objects.length === 0) break;
+                  console.log("Sweep " + sweepIter + ": deleting " + objects.length + " keys");
                   for (const key of objects) {
                     const dr = await fetch("https://api.cloudflare.com/client/v4/accounts/" + account + "/r2/buckets/" + bucket + "/objects/" + encodeURIComponent(key), {
                       method: "DELETE",
                       headers: { Authorization: "Bearer " + token },
                     });
-                    if (dr.ok) total++; else failures++;
+                    if (dr.ok) {
+                      total++;
+                    } else {
+                      failures++;
+                      let detail = "";
+                      try { detail = " body=" + (await dr.text()).slice(0, 200); } catch {}
+                      console.log("::warning::DELETE failed bucket=" + bucket + " key=" + key + " status=" + dr.status + detail);
+                    }
                   }
-                  cursor = body.result_info && body.result_info.cursor;
-                  if (!cursor) break;
+                  // Safety: bound the sweep loop so a bug-induced
+                  // never-empty list cannot run forever.
+                  if (sweepIter > 100) {
+                    console.log("::error::aborting after 100 sweeps for bucket " + bucket + " (suspected pagination bug)");
+                    process.exit(1);
+                  }
                 }
-                console.log("Bucket " + bucket + ": deleted=" + total + " failed=" + failures);
-                if (failures > 0) process.exit(1);
+                console.log("Bucket " + bucket + ": deleted=" + total + " failed=" + failures + " sweeps=" + sweepIter);
+                grandFailures += failures;
+              }
+              if (grandFailures > 0) {
+                console.log("::error::" + grandFailures + " object DELETEs failed across all buckets");
+                process.exit(1);
               }
               console.log("All discovered buckets are empty.");
             })().catch(e => { console.error(e); process.exit(1); });

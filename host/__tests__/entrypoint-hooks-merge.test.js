@@ -293,11 +293,11 @@ describe('workspaceSyncEnabled scope (REQ-STOR-011)', () => {
   function runWithScope(scope) {
     const fixture = mkdtempSync(join(tmpdir(), 'stor011-fixture-'));
     mkdirSync(join(fixture, 'workspace/.claude'), { recursive: true });
+    mkdirSync(join(fixture, 'workspace/.git'), { recursive: true });
     writeFileSync(join(fixture, 'workspace/CLAUDE.md'), '# project\n');
     writeFileSync(join(fixture, 'workspace/.claude/settings.json'), '{}\n');
     writeFileSync(join(fixture, 'workspace/foo.txt'), 'plain workspace file\n');
     writeFileSync(join(fixture, 'workspace/.git/HEAD'), 'ref: refs/heads/main\n');
-    mkdirSync(join(fixture, 'workspace/.git'), { recursive: true });
 
     // Cut entrypoint.sh down to: COMMON array + SYNC_MODE branch logic.
     // We bracket on the COMMON array header and the closing fi of the

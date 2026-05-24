@@ -79,6 +79,17 @@ jobs:
         run: npm run build
         working-directory: web-ui
 
+      - name: Install rclone (required by REQ-STOR-011 workspaceSync test)
+        # The workspaceSyncEnabled scope test in
+        # host/__tests__/entrypoint-hooks-merge.test.js drives rclone
+        # --dry-run against an on-disk fixture to verify entrypoint.sh's
+        # SYNC_MODE branches actually filter the workspace path. Without
+        # rclone, the test silently skips and REQ-STOR-011 AC1/AC2/AC3
+        # have zero CI verification.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rclone
+
       - name: Run backend tests
         # @cloudflare/vitest-pool-workers hard-codes a `[vpw:info] Starting runtime for ...`
         # log on every test file (LogLevel.VERBOSE, no config to silence). Filter the spam
