@@ -22,6 +22,7 @@ Security architecture, encryption at rest, rate limiting, and hardening measures
 - [Context-Mode Enforcement Bypass](#context-mode-enforcement-bypass)
 - [Body Limit](#body-limit)
 - [Credential Encryption at Rest](#credential-encryption-at-rest)
+- [R2 Bucket Nuke (REQ-SEC-017)](#r2-bucket-nuke-req-sec-017)
 - [Rate Limiting](#rate-limiting)
 
 ## Authentication Gate
@@ -223,6 +224,40 @@ Enabling SSE-C on an existing deployment requires re-uploading all R2 objects wi
 3. Verify by starting a session — rclone bisync should complete without errors
 
 New deployments that set `ENCRYPTION_KEY` from the start require no migration — all seeded files are encrypted at creation.
+
+## R2 Bucket Nuke (REQ-SEC-017)
+
+Implements [REQ-SEC-017](../../sdd/spec/security.md#req-sec-017-r2-bucket-nuke-workflow-for-encryption-migration).
+
+The `r2-nuke` job in `.github/workflows/deploy.yml` is a one-time migration helper for enabling SSE-C on a bucket that already contains unencrypted objects. Once SSE-C is required, pre-SSE-C objects become unreadable — the correct recovery is to purge them and let users re-sync from their local workspace on next login.
+
+**When to use:** Before enabling `ENCRYPTION_KEY` on a production deployment that has existing R2 data. Do not run this on a deployment that is already SSE-C encrypted.
+
+### Safety gates
+
+Five independent gates must all pass before any object is deleted:
+
+| Gate | Mechanism |
+|------|-----------|
+| Manual trigger only | `workflow_dispatch` - never auto-runs |
+| Explicit action selection | `action` input must be set to `r2-nuke` (default is `deploy`) |
+| Confirmation string | `r2_nuke_confirmation` input must be exactly `DELETE-ALL-R2-OBJECTS` |
+| Branch guard | `production` environment requires `main` branch |
+| Environment protection | Job runs under the chosen GitHub Environment's required-reviewer gate |
+
+### Runbook
+
+1. Navigate to **Actions > deploy** in the GitHub repository.
+2. Click **Run workflow**.
+3. Set **Environment** to `production` or `integration` as appropriate.
+4. Set **Action** to `r2-nuke`.
+5. In the **Confirmation** field, type `DELETE-ALL-R2-OBJECTS` (exact string, case-sensitive).
+6. Click **Run workflow** and approve via the GitHub Environment protection gate if configured.
+7. Monitor the job log: it discovers buckets from `wrangler.toml`, then DELETE-loops every object in each bucket. Progress is logged per object.
+8. After the job completes, set `ENCRYPTION_KEY` in GitHub Actions secrets and deploy normally.
+9. Users re-sync on next login - all new objects are written with SSE-C headers.
+
+**Irreversible:** There is no undo. Deleted objects cannot be recovered. Ensure users have local copies before running, or accept that active workspaces will need to be re-synced from scratch.
 
 ### Key pipeline
 
