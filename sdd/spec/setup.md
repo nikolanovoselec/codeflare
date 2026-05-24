@@ -38,16 +38,16 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. When `setup:complete` is not set in KV, the `POST /api/setup/configure` endpoint is publicly accessible (no authentication required).
-2. The deployer needs only a Cloudflare API token (provided as a Worker secret via `wrangler secret put`); no other pre-configuration is required.
-3. The Cloudflare API token is read from the `CLOUDFLARE_API_TOKEN` environment binding, not from the request body.
-4. The setup wizard creates all necessary Cloudflare resources (R2 credentials, DNS records, Access applications, Turnstile widgets) from scratch.
-5. `GET /api/setup/status` is always public and returns `{ configured: boolean, customDomain?: string, saasMode: boolean }`.
+1. Before setup completes, the setup-configure endpoint is publicly accessible (no authentication required).
+2. The deployer needs only a Cloudflare API token configured as a Worker secret; no other pre-configuration is required.
+3. The Cloudflare API token is read from a Worker environment binding, not from the request body.
+4. The setup wizard provisions all necessary Cloudflare resources (R2 credentials, DNS records, Access applications, Turnstile widgets) from scratch.
+5. The setup-status endpoint is always public and returns the configured flag, optional custom domain, and SaaS mode flag.
 
 **Constraints:**
 
 - The pre-setup public window is intentionally open (AD10) to solve the bootstrap problem: authentication cannot be required before it is configured.
-- Rate limiting (5/min on `setup-configure`) and short exposure window mitigate the open endpoint risk.
+- Rate limiting and a short exposure window mitigate the open-endpoint risk.
 
 **Priority:** P0
 
@@ -77,16 +77,16 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. The request body includes `customDomain` (valid domain), `allowedUsers` (non-empty email array), `adminUsers` (non-empty email array, subset of `allowedUsers`), and optional `allowedOrigins` (domain suffix patterns starting with `.`).
-2. All fields are validated by Zod schemas before streaming starts.
-3. Setup executes 7 sequential steps and streams per-step progress via NDJSON; the per-step contract for each step name and its observable effect lives in [REQ-SETUP-012](#req-setup-012-setup-wizard-step-sequence).
-4. All KV keys written by setup use the `setup:` prefix.
-5. The response stream ends with exactly one completion object containing `done: true`.
+1. The request body includes the custom domain, the user allowlist, the admin allowlist (subset of users), and an optional origin allowlist.
+2. All fields are validated synchronously before streaming starts; invalid input is rejected with a 400 error.
+3. Setup executes 7 sequential steps and streams per-step progress; the per-step contract for each step and its observable effect lives in [REQ-SETUP-012](#req-setup-012-setup-wizard-step-sequence).
+4. All persistent state written by setup lives under a dedicated setup namespace.
+5. The response stream ends with exactly one terminal completion object.
 
 **Constraints:**
 
-- Each Cloudflare API call is wrapped in `withSetupRetry()` (exponential backoff, 3 total attempts, 1s base delay).
-- `CircuitBreakerOpenError` is not retried.
+- Each Cloudflare API call uses exponential backoff (3 total attempts, 1s base delay).
+- Circuit-breaker open errors are not retried.
 
 **Priority:** P0
 
@@ -109,13 +109,13 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. Step 1 (`get_account`) retrieves the account ID from the API token.
-2. Step 2 (`derive_r2_credentials`) derives S3-compatible R2 credentials from the API token, using the token ID as the Access Key ID and the SHA-256 of the token value as the Secret.
-3. Step 3 (`set_secrets`) sets `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` as Worker secrets.
-4. Step 3a (`cleanup_stale_users`) runs only on reconfigure when users have been removed from the allowlist.
-5. Step 4 (`configure_custom_domain`) resolves the zone and creates or updates the CNAME DNS record and Worker route.
-6. Step 5 (`create_access_app`) creates or updates the CF Access application, groups, and policies, and is skipped entirely in GitHub OIDC mode.
-7. Step 6 (`configure_turnstile`) runs only when onboarding or SaaS mode is active and creates a Turnstile widget; Step 7 (`finalize`) writes final KV state and marks setup complete.
+1. Step 1 retrieves the Cloudflare account ID from the API token.
+2. Step 2 derives R2-compatible credentials deterministically from the API token.
+3. Step 3 stores the R2 access credentials as Worker secrets.
+4. On reconfigure, stale users removed from the allowlist are cleaned up before continuing.
+5. Step 4 configures the custom domain by upserting the DNS record and Worker route.
+6. Step 5 upserts the CF Access application, groups, and policies; this step is skipped entirely in SaaS mode.
+7. Step 6 provisions a Turnstile widget when onboarding or SaaS mode is active; Step 7 writes final state and marks setup complete.
 
 **Constraints:**
 
@@ -143,16 +143,16 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. **Default mode** (no `SAAS_MODE`) uses Cloudflare Access JWT authentication with manually allowlisted users via the setup wizard, gated by CF Access policies and a KV allowlist.
-2. **Onboarding mode** (`ONBOARDING_LANDING_PAGE=active`) uses CF Access authentication with a public waitlist landing page at `/` for unauthenticated visitors (Turnstile widget provisioned), routing authenticated users to `/app/`.
-3. **SaaS mode** (`SAAS_MODE=active`) replaces the CF Access interstitial with a branded login page; when `OAUTH_CLIENT_ID` is configured it uses Direct GitHub OAuth with Worker-managed HMAC-SHA256 session cookies, auto-provisions new users with `pending` tier, and the Worker handles user management via KV (no CF Access groups/policies created).
-4. `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are injected at deploy time as Worker plaintext bindings.
-5. The frontend detects the mode: if `/public/auth/providers` returns providers, show LoginPage (SaaS); if setup incomplete, show setup; otherwise redirect to `/app/` (default with CF Access).
+1. Default mode uses Cloudflare Access authentication with manually allowlisted users via the setup wizard, gated by CF Access policies and a persistent allowlist.
+2. Onboarding mode uses CF Access authentication with a public waitlist landing page for unauthenticated visitors; authenticated users are routed into the application.
+3. SaaS mode replaces the CF Access interstitial with a branded login page; when GitHub OAuth is configured it uses session credentials for authentication, auto-provisions new users with a pending tier, and manages user state without CF Access groups or policies.
+4. Deployment mode is determined at deploy time via Worker bindings (not at runtime from request data).
+5. The frontend detects the active mode on load and renders the appropriate initial view: branded login for SaaS, setup wizard if unconfigured, or workspace redirect for default mode.
 
 **Constraints:**
 
-- `STRESS_TEST_MODE` must not be active alongside `SAAS_MODE` (global middleware returns 503).
-- SaaS mode without `OAUTH_CLIENT_ID` falls back to CF Access authentication.
+- Stress-test mode must not be active alongside SaaS mode (returns 503).
+- SaaS mode without GitHub OAuth configured falls back to CF Access authentication.
 
 **Priority:** P0
 
@@ -176,16 +176,16 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. Every step uses create-or-update semantics: `get_account` is a read, `derive_r2_credentials` derives deterministically from the token, `set_secrets` overwrites, `configure_custom_domain` upserts DNS and routes, `create_access_app` upserts groups/app/policy, `configure_turnstile` upserts widget.
-2. If a previous run partially completed, a retry updates existing resources and continues from step 1.
-3. Partial progress from failed runs remains in KV. Setup is NOT marked complete on failure, so the next call retries.
-4. "Already exists" errors on Worker routes and DNS records are handled by updating the existing resource.
-5. Error code 10215 (latest version not deployed) on secret writes triggers auto-deploy of latest Worker version followed by retry.
+1. Every step uses create-or-update semantics: reads are non-mutating, derived values are deterministic from the token, secrets overwrite, DNS/route/Access/Turnstile provisioning is upsert-shaped.
+2. If a previous run partially completed, a retry updates existing resources and continues from the first step.
+3. Partial progress from failed runs is retained so the next call can resume. Setup is not marked complete on failure.
+4. "Already exists" errors on Worker routes and DNS records are handled by updating the existing resource rather than failing.
+5. The "latest version not yet deployed" error class on secret writes triggers an automatic redeploy of the latest Worker version followed by a retry.
 
 **Constraints:**
 
-- A KV-based lock (`setup:configuring`) prevents concurrent configure runs. Lock is checked on entry, overridden if stale (>60s), and deleted in `finally`. KV TTL of 300s acts as safety net.
-- The lock check returns an immediate error (no step progress) if another configure run is active and less than 60s old.
+- A persistent lock prevents concurrent configure runs and is released on completion or failure; staleness has an upper bound.
+- The lock check returns an immediate error (with no step progress) if another configure run is already active and not yet stale.
 
 **Priority:** P1
 
@@ -209,16 +209,16 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. When `setup:complete` is `"true"` in KV, the setup-route auth middleware requires valid authentication.
-2. The authenticated user must have the `admin` role (enforced by `requireAdmin`).
-3. This applies to `POST /api/setup/configure`, `GET /api/setup/detect-token`, and `GET /api/setup/prefill`.
-4. `GET /api/setup/status` remains always public (no secrets in response).
-5. Authentication is via CF Access JWT or OIDC session cookie, verified by `authMiddleware`.
+1. Once setup is marked complete, the setup-route auth middleware requires valid authentication for all configure/detect/prefill endpoints.
+2. The authenticated principal must have the admin role.
+3. The admin gate applies to the configure endpoint, the token-detection endpoint, and the prefill endpoint.
+4. The setup-status endpoint remains always public and never returns secrets.
+5. Authentication accepts either Cloudflare Access tokens or Worker-issued session credentials, verified through the shared auth middleware.
 
 **Constraints:**
 
-- Admin role is resolved from KV user records, not from CF Access group membership.
-- In SaaS mode, admin status is enforced by the Worker, not by CF Access.
+- Admin role is resolved from the application's user record store, not from CF Access group membership, so the gate behaves identically across deployment modes.
+- In SaaS mode the Worker enforces admin status itself; CF Access is not consulted.
 
 **Priority:** P1
 
@@ -241,16 +241,16 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. The response content type is `application/x-ndjson`.
-2. Each line is a self-contained JSON object terminated by `\n`.
-3. Progress messages include `step` (step name) and `status` (`running`, `success`, or `error`).
-4. Error status messages include an `error` field with the error description.
-5. Every stream ends with exactly one completion object containing `done: true` and `success: boolean`.
+1. The response uses NDJSON as its content type.
+2. Each line is a self-contained JSON object terminated by a newline.
+3. Progress messages identify the step and report one of: running, succeeded, or failed.
+4. Failure messages include a human-readable error description.
+5. Every stream ends with exactly one terminal completion object that carries the overall success flag.
 
 **Constraints:**
 
 - The stream is not retryable mid-progress; on failure the client must re-submit the full request.
-- Terminal-completion payload shape and edge-case behavior is specified in [REQ-SETUP-011](#req-setup-011-setup-stream-completion-payload-contract).
+- The exact terminal-completion payload shape and edge-case behavior is specified in [REQ-SETUP-011](#req-setup-011-setup-stream-completion-payload-contract).
 
 **Priority:** P1
 
@@ -273,14 +273,14 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. Successful completion includes `steps` array, `workersDevUrl`, and `customDomainUrl`.
-2. Failed completion includes `steps` array and top-level `error` message.
-3. Lock contention produces an immediate `done: true, success: false` with no step progress messages.
-4. The client detects completion by parsing until `done === true`, then checks `success`.
+1. Successful completion carries the cumulative per-step status list, the workers.dev URL, and the custom-domain URL.
+2. Failed completion carries the cumulative per-step status list plus a top-level error description.
+3. Lock contention produces an immediate terminal completion with success=false and no intervening step progress messages.
+4. Clients detect completion by parsing stream entries until the terminal completion marker, then read the success flag.
 
 **Constraints:**
 
-- The `steps` array in the completion object provides cumulative status of all attempted steps.
+- The per-step status list in the completion object is cumulative across all attempted steps.
 
 **Priority:** P1
 
@@ -304,18 +304,18 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. Zone resolution looks up the Cloudflare zone ID by trying progressively shorter domain suffixes (supports ccTLDs like `.co.uk`).
-2. A proxied CNAME record is created or updated, pointing the custom domain to `{workerName}.{accountSubdomain}.workers.dev`.
-3. A Worker route pattern `{customDomain}/*` is created mapped to the worker script.
-4. "Already exists" errors on Worker routes are handled by updating the existing route.
-5. The custom domain is stored in KV as `setup:custom_domain` (lowercased).
-6. Dynamic origins (custom domains and additional origins configured via setup) are cached in-memory for 5 minutes with KV as source of truth.
-7. Post-setup, the workers.dev URL is used only for initial setup; all traffic should go through the custom domain.
+1. Zone resolution walks progressively shorter suffixes of the requested hostname so multi-label TLDs are handled correctly.
+2. A proxied CNAME record is created or updated, pointing the custom domain at the Worker's default workers.dev hostname.
+3. A Worker route covering the custom domain is created and mapped to the deployed Worker script.
+4. "Already exists" errors on Worker routes are handled by updating the existing route rather than failing.
+5. The custom domain is persisted in normalized (lowercased) form so origin comparisons are deterministic.
+6. Dynamic origins (the custom domain plus any additional origins configured via setup) are cached in-memory for a short TTL; the persistent store is the source of truth.
+7. After setup completes, the workers.dev hostname is treated as an initialization-only fallback; production traffic flows through the custom domain.
 
 **Constraints:**
 
-- DNS changes require the domain's zone to be managed by Cloudflare.
-- The CNAME record is Cloudflare-proxied (orange cloud), so the origin IP is hidden.
+- The custom-domain zone must be managed by Cloudflare for DNS provisioning to succeed.
+- The CNAME record is Cloudflare-proxied so the origin address is not exposed.
 
 **Priority:** P1
 
@@ -339,15 +339,15 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. `GET /api/setup/prefill` reads existing CF Access group membership and KV configuration to prefill the setup form on redeployment.
-2. `GET /api/setup/detect-token` validates the API token and returns its capabilities (account info, permissions).
-3. Both helper endpoints are subject to the shared `setupRateLimiter` (5/min, key prefix `setup-configure`).
-4. Both endpoints require admin auth after setup is complete (same conditional middleware as configure).
+1. The prefill endpoint reads existing CF Access group membership and persistent configuration so the setup form repopulates correctly on redeployment.
+2. The token-detection endpoint validates the API token and returns its capabilities (account info, permissions).
+3. Both helper endpoints share the same rate limiter as the configure endpoint, so they cannot bypass setup-route throttling.
+4. Both endpoints require admin auth after setup is complete, using the same conditional gate as the configure endpoint.
 
 **Constraints:**
 
-- Prefill reads from Cloudflare API and KV; it does not modify any state.
-- Detection endpoint is a read-only token validation.
+- Prefill is read-only: it never writes to the Cloudflare API or persistent state.
+- Token detection is a read-only validation and never provisions resources.
 
 **Priority:** P1
 
@@ -370,12 +370,12 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. `/app/subscribe` shows available tiers with features, hours, sessions, storage, and pricing.
-2. Three-phase wizard (home, plan selection, checkout).
-3. Turnstile CAPTCHA on new subscriptions.
-4. Mode toggle (Standard/Pro).
-5. Free tier activates immediately.
-6. Paid tiers redirect to Stripe Checkout.
+1. The subscribe page shows the available tiers with their features, included hours, session limits, storage, and pricing.
+2. The flow is a three-phase wizard: overview, plan selection, and checkout.
+3. New subscriptions are gated by a CAPTCHA challenge.
+4. The page exposes a mode toggle between the two subscription mode families.
+5. The free tier activates immediately without an external checkout step.
+6. Paid tiers hand off to the external payment provider's hosted checkout.
 
 **Constraints:** None.
 
