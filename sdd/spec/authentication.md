@@ -71,7 +71,7 @@ None. Authentication is foundational; other domains depend on it.
 1. Visiting the root URL in SaaS mode shows the Codeflare login page with a "Sign in with GitHub" button.
 2. The login endpoint initiates a GitHub OAuth flow with a signed, self-contained state token (no cookie required during the redirect).
 3. The OAuth callback validates the state token, rejecting tokens not issued by this server, issued more than 30 minutes ago, or already redeemed.
-4. Successful callback validation creates an authenticated session and redirects the user to their workspace if their subscription is active, or to the subscription page if pending or blocked.
+4. Successful callback validation creates an authenticated session and redirects the user to their workspace if their subscription is active, or to the subscription page if pending or blocked; the GitHub access token used during the exchange is held only for the duration of the callback and never persisted to KV, DO storage, or any session record.
 5. State-validation failure redirects to the login page with an error indicator.
 6. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes.
 7. Only verified primary GitHub emails are accepted.
@@ -80,37 +80,11 @@ None. Authentication is foundational; other domains depend on it.
 
 - User-initiated OAuth rejections (e.g. access denied) are handled gracefully; unexpected errors surface as system errors.
 - No CF Access resources (apps, groups, policies) are created when SaaS OAuth is active.
+- The callback endpoint is rate-limited per source IP to bound brute-force replay attempts on intercepted state tokens; the window and threshold are operational tuning parameters.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
-
-**Verification:** Integration test
-
-**Status:** Implemented
-
----
-
-### REQ-AUTH-013: OAuth callback security hardening
-
-<!-- @impl: src/routes/github-auth.ts -->
-
-**Intent:** The OAuth callback surface must defend against credential leakage and abuse independently of the happy-path login flow, so a hardening change does not require touching the flow's behavioural contract.
-
-**Applies To:** System
-
-**Acceptance Criteria:**
-
-1. The GitHub access token is used ephemerally during the callback exchange and then discarded; it is never stored in KV, DO storage, or any session record.
-2. The callback endpoint is rate-limited per source IP to prevent brute-force replay of intercepted state tokens.
-
-**Constraints:**
-
-- Rate-limit window and threshold are operational tuning parameters and may evolve without spec change.
-
-**Priority:** P0
-
-**Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
 
 **Verification:** Integration test
 
