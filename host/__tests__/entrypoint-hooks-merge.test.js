@@ -267,5 +267,5 @@ describe('memory-capture counter location (REQ-MEM-002 AC6)', () => {
 
 // merge_memory_files and cleanup_old_memory_files were removed alongside the
 // MCP server-memory subsystem; the vault is now the sole cross-session memory
-// store. ~/.memory/counter survives as the hook gate (see counter directory
-// test above).
+// store. The hook gate moved to /tmp/.memory-counter (REQ-MEM-002 AC6); see
+// counter directory test above.
