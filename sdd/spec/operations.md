@@ -374,6 +374,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ### REQ-OPS-016: sleepAfter preference persistence and lifecycle
 
 <!-- @impl: src/container/index.ts -->
+<!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 AC4 describe -> AC1/AC2 sleepAfter persisted in KV across initial set and updates) + src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008 AC3 describe -> AC3 stored preference loaded on startup) + src/__tests__/container/index.test.ts (destroy describe -> AC4 preference removed on session destruction) -->
 
 **Intent:** The user-configurable idle-timeout preference must survive container-orchestration resets; on startup the stored preference is validated; on shutdown it is cleaned up.
 
@@ -405,6 +406,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ### REQ-OPS-017: sleepAfter fail-safe invariants
 
 <!-- @impl: src/container/index.ts -->
+<!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution AC8/AC9 describe -> AC1/AC4 fail-safe to 2h on corruption + fail-loud-not-substitute) + src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 AC4 describe -> AC2 preference change takes effect within one cycle) -->
 
 **Intent:** Three invariants protect user work from a misconfigured or silently broken idle-detection layer: fail to the maximum (not minimum) on corruption, propagate preference changes within one cycle, and fail loudly rather than substituting a default. A container that dies before its configured timer destroys an hour of unpushed work and breaks the product's core promise.
 

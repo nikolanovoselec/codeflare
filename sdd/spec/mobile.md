@@ -135,6 +135,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 ### REQ-MOB-011: Samsung Internet keyboard state recovery
 
 <!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState -->
+<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (Samsung focusout keyboard dismiss describe -> AC1 back-button dismiss intercepted + keyboard-state signals reset) -->
 
 **Intent:** Samsung's back-button dismiss and browser-resume paths leave the VirtualKeyboard compositor in stale states. State must be force-reset on those edges, and the user must be able to tell codeflare where Samsung's address bar sits (the API does not expose it).
 
@@ -401,6 +402,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 <!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState -->
 <!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn -->
 <!-- @impl: web-ui/src/components/Layout.tsx -->
+<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Visibility Return Keyboard Reset describe -> AC1/AC2/AC3 focus-restore + document-visibility fallback + unconditional reset) -->
 
 **Intent:** When the browser is backgrounded and returned to, keyboard state signals must be reset so the terminal functions correctly without manual intervention.
 

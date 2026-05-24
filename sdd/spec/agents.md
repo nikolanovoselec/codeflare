@@ -380,6 +380,7 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: src/routes/storage/seed.ts -->
 <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+<!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes describe -> AC1/AC3 recreate endpoint + storage-stats KV cache invalidation) + src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-004 reconcileAgentConfigs describe -> AC2/AC4/AC5 overwrite-and-cleanup with user-file preservation) -->
 
 **Intent:** Users must be able to reset their agent skills and rules to the platform defaults at any time, recovering from accidental deletion or corruption.
 
@@ -416,6 +417,7 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: entrypoint.sh -->
 <!-- @impl: src/container/container-env.ts -->
+<!-- @test: src/__tests__/routes/preferences.test.ts (fastStartEnabled preference describe -> AC1/AC5 settings toggle + KV persistence) + src/__tests__/container/container-env.test.ts (buildEnvVars describe -> AC1 fast-start propagation to container runtime env) + src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008 AC5 describe -> AC4 fast-start applied on restart) -->
 
 **Intent:** Agent CLIs must start quickly by default, with an option for users who want automatic updates.
 
@@ -919,6 +921,7 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh -->
+<!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes describes -> AC1/AC2/AC3 shared helper + lane mapping + conservative fallback to all-three-lanes) + host/__tests__/enforce-review-spawn.test.js (lane gating describe -> AC4 sequential spec-reviewer then doc-updater + AC5 fix-push cascade ack-pointer advancement) -->
 
 **Intent:** Once a PR-boundary trigger fires (REQ-AGENT-036), a shared lane classifier picks the minimal correct set of review agents from the diff so the in-turn nudge and turn-end gate agree, and a fix-push cascade can advance the ack pointer without losing review coverage.
 
@@ -949,6 +952,7 @@ None.
 ### REQ-AGENT-041: PR-Boundary Review Bypass Surfaces
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
+<!-- @test: host/__tests__/enforce-review-spawn.test.js (bypass 1: sentinel file + bypass 2: magic phrase + 3-strike circuit breaker describes -> AC1/AC2/AC3 user-only escape hatches with sticky-until-SHA-changes circuit) -->
 
 **Intent:** The user needs a small set of explicit, user-only escape hatches when a turn-end review gate would otherwise block legitimate work (hermetic tests, deliberate skip, repeated false-block). The assistant MUST NEVER trip these surfaces in its own output.
 
@@ -1416,6 +1420,7 @@ None.
 ### REQ-AGENT-032: Starter Documentation Manually Recreatable from Settings
 
 <!-- @impl: src/routes/storage/seed.ts -->
+<!-- @test: src/__tests__/routes/storage-seed.test.ts (Storage Seed Routes describe -> AC1 POST /api/storage/seed/getting-started recreate + AC3 storage-stats KV cache invalidation) -->
 
 **Intent:** Users must be able to reset the starter "getting-started" docs to the platform defaults at any time, in case they deleted them while exploring or want to see updates that shipped after their original session.
 
@@ -1536,6 +1541,7 @@ None.
 
 <!-- @impl: web-ui/src/lib/token-scopes.ts -->
 <!-- @impl: web-ui/src/components/settings/ProviderRow.tsx -->
+<!-- @test: web-ui/src/__tests__/lib/token-scopes.test.ts (GITHUB_TIERS + getGithubTokenUrl + CLOUDFLARE_TOKEN_PAGE describes -> AC1 three-tier scope selector with correct scope prefills per tier + AC2 Cloudflare token page targeting) -->
 
 **Intent:** Token creation for GitHub and Cloudflare must guide users through scope selection so they create the smallest token that still unlocks the features they need, without copy-pasting raw scope strings.
 

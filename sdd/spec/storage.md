@@ -429,6 +429,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 <!-- @impl: entrypoint.sh::create_rclone_config -->
+<!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (bisync constraint flags describe -> AC4 always-excluded categories enforced via RCLONE_FILTERS_COMMON) + host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope describe -> AC1/AC2 default-none vs full-sync workspace scope toggle) -->
 
 **Intent:** Users must be able to choose how much of their workspace is synced to R2, balancing persistence against sync overhead.
 
