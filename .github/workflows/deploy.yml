@@ -612,6 +612,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TARGET_ENV: ${{ inputs.environment }}
         run: |
           # Parse wrangler.toml for r2_buckets entries scoped to this
           # environment. r2_buckets ships as TOML arrays of inline
@@ -638,8 +639,6 @@ jobs:
             console.log("Discovered R2 buckets:", list.join(", "));
             fs.writeFileSync(process.env.GITHUB_OUTPUT, "buckets=" + JSON.stringify(list) + "\n", { flag: "a" });
           '
-        env:
-          TARGET_ENV: ${{ inputs.environment }}
 
       - name: Nuke every object in every discovered bucket
         env:
