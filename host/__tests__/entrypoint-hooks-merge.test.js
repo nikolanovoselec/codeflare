@@ -212,79 +212,55 @@ describe('plugin enablement', () => {
 // either rclone proves the filter excludes the file, or the test skips with a
 // concrete reason.
 // ============================================================================
-describe('rclone memory counter exclusion (behavior)', () => {
-  const hasRclone = (() => {
-    const r = spawnSync('which', ['rclone'], { encoding: 'utf8' });
-    return r.status === 0;
-  })();
-
-  it(
-    'rclone with extracted filters excludes .memory/counter/** but keeps siblings',
-    // Skipped on hosts without rclone installed (CI runners may differ).
-    // The full-stack smoke is verified at deploy time when bisync runs in
-    // the live container.
-    { skip: hasRclone ? false : 'rclone not installed on this host' },
-    () => {
-      // Extract every `--filter` entry from RCLONE_FILTERS_COMMON in
-      // entrypoint.sh by parsing the array literal block.
-      const start = entrypoint.indexOf('RCLONE_FILTERS_COMMON=(');
-      const end = entrypoint.indexOf('\n)\n', start);
-      assert.ok(start > -1 && end > start, 'RCLONE_FILTERS_COMMON array not found');
-      const block = entrypoint.slice(start, end);
-      // Each filter line: --filter "- pattern" or --filter '- pattern'.
-      // Capture the pattern.
-      const filterRx = /--filter\s+["']-\s+([^"']+)["']/g;
-      const patterns = [];
-      let m;
-      while ((m = filterRx.exec(block)) !== null) patterns.push(m[1]);
-      assert.ok(
-        patterns.includes('.memory/counter/**'),
-        '.memory/counter/** must be one of the extracted filter patterns'
-      );
-
-      const dir = mkdtempSync(join(tmpdir(), 'rclone-filters-'));
-      mkdirSync(join(dir, '.memory/counter'), { recursive: true });
-      writeFileSync(join(dir, '.memory/counter/sess-1.jsonl'), '{}');
-      writeFileSync(join(dir, '.memory/keep-me.jsonl'), '{}');
-      writeFileSync(join(dir, 'normal-file.txt'), 'x');
-
-      // Build the same --filter args rclone gets in production.
-      const rcloneArgs = ['ls', dir];
-      for (const p of patterns) {
-        rcloneArgs.push('--filter', `- ${p}`);
-      }
-      const ls = spawnSync('rclone', rcloneArgs, { encoding: 'utf8' });
-      assert.equal(ls.status, 0, `rclone ls failed: ${ls.stderr}`);
-
-      assert.ok(
-        !ls.stdout.includes('counter/sess-1.jsonl'),
-        `counter file must be excluded; got:\n${ls.stdout}`
-      );
-      assert.ok(
-        ls.stdout.includes('normal-file.txt'),
-        'unrelated file must remain visible'
-      );
-    }
-  );
-});
-
 // ============================================================================
-// Test: counter directory creation
+// Test: memory-capture counter location (post REQ-MEM-002 AC6 redesign)
 //
-// The SESSION_MODE-based `.memory/**` exclusion was removed alongside the MCP
-// server-memory subsystem — `merge_memory_files` and `cleanup_old_memory_files`
-// no longer exist and no JSONL graph files are written under ~/.memory/. The
-// only thing that lives there now is the hook's per-session counter, which is
-// already excluded via `--filter "- .memory/counter/**"` regardless of mode.
+// The counter directory moved from $HOME/.memory/counter/ to
+// /tmp/.memory-counter/ to leverage Cloudflare Containers' ephemeral-disk
+// guarantee (every container start = fresh /tmp = canonical "fresh container"
+// signal). The bisync filter and the boot-time mkdir are therefore obsolete
+// and must be absent from entrypoint.sh; the hook script itself mkdir -p's the
+// new /tmp path on first fire.
 // ============================================================================
-describe('memory counter directory creation', () => {
-  it('creates ~/.memory/counter directory on the same line', () => {
-    // Real-behavior assertion: the literal `mkdir -p` line for the counter
-    // dir must exist (not just both substrings somewhere in the file).
-    assert.match(
+describe('memory-capture counter location (REQ-MEM-002 AC6)', () => {
+  it('entrypoint.sh does NOT carry the obsolete .memory/counter bisync filter', () => {
+    const start = entrypoint.indexOf('RCLONE_FILTERS_COMMON=(');
+    const end = entrypoint.indexOf('\n)\n', start);
+    assert.ok(start > -1 && end > start, 'RCLONE_FILTERS_COMMON array not found');
+    const block = entrypoint.slice(start, end);
+    const filterRx = /--filter\s+["']-\s+([^"']+)["']/g;
+    const patterns = [];
+    let m;
+    while ((m = filterRx.exec(block)) !== null) patterns.push(m[1]);
+    assert.ok(
+      !patterns.includes('.memory/counter/**'),
+      'obsolete filter .memory/counter/** must be absent (counter now under /tmp)'
+    );
+  });
+
+  it('entrypoint.sh does NOT carry the obsolete mkdir -p ~/.memory/counter', () => {
+    assert.doesNotMatch(
       entrypoint,
       /mkdir\s+-p\s+["']?\$\{?USER_HOME\}?\/\.memory\/counter["']?/,
-      'entrypoint must create the .memory/counter directory via an explicit mkdir -p'
+      'obsolete mkdir -p $USER_HOME/.memory/counter must be absent'
+    );
+  });
+
+  it('memory-capture.sh resolves COUNTER_DIR to /tmp/.memory-counter by default', () => {
+    const hookPath = resolve(
+      __dirname,
+      '../../preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh',
+    );
+    const hook = readFileSync(hookPath, 'utf-8');
+    assert.match(
+      hook,
+      /COUNTER_DIR=["']?\$\{MEMCAP_COUNTER_DIR:-\/tmp\/\.memory-counter\}["']?/,
+      'memory-capture.sh must default COUNTER_DIR to /tmp/.memory-counter via MEMCAP_COUNTER_DIR override'
+    );
+    assert.match(
+      hook,
+      /mkdir\s+-p\s+["']?\$COUNTER_DIR["']?/,
+      'memory-capture.sh must mkdir -p its own COUNTER_DIR on first fire'
     );
   });
 });

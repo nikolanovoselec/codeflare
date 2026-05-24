@@ -165,7 +165,7 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
   });
 
   // REQ-MEM-002 AC6 boundary: counter absent but transcript has exactly 1 prompt
-  // is the brand-new-session case, NOT a resume — must not force-fire.
+  // is the brand-new-session case, NOT a resume - must not force-fire.
   it('AC6 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)', () => {
     const fx = makeFixture();
     const t = writeTranscript(fx.home, [realUserLine('only prompt')]);

@@ -9,7 +9,7 @@ USER_HOME="${HOME:-/home/user}"
 # resume is a full container recycle (only R2-synced state survives), so
 # /tmp is guaranteed-empty on resume. This is the same pattern other
 # session-scoped hooks use. Side-effect: the counter file's absence on the
-# first hook fire is the canonical "fresh container" signal — see below.
+# first hook fire is the canonical "fresh container" signal - see below.
 # MEMCAP_COUNTER_DIR override exists for hermetic tests; production never sets it.
 COUNTER_DIR="${MEMCAP_COUNTER_DIR:-/tmp/.memory-counter}"
 mkdir -p "$COUNTER_DIR"
@@ -76,7 +76,7 @@ else
     # sleep, the next time it is started, it will have a fresh disk as
     # defined by its container image."), so /tmp is guaranteed empty.
     # The counter's absence is therefore the canonical "fresh container"
-    # signal — distinguish two sub-cases by transcript content:
+    # signal. Distinguish two sub-cases by transcript content:
     #
     #   (a) Brand-new session: the hook fires on the first user prompt and
     #       CURRENT_COUNT == 1 (just the one message in the transcript).

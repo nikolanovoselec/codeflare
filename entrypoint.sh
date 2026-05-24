@@ -1507,7 +1507,7 @@ echo "[entrypoint] Claude Code bypass permissions consent pre-accepted"
 # Counter directory used by the memory-capture UserPromptSubmit hook
 # now lives at /tmp/.memory-counter/ (ephemeral by Cloudflare Containers
 # contract; see REQ-MEM-002 AC6). The hook script mkdir -p's it on first
-# fire — no boot-time provisioning needed.
+# fire - no boot-time provisioning needed.
 
 # Configure consult-llm-mcp MCP server when LLM API keys are present
 if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
