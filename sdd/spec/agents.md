@@ -1201,7 +1201,7 @@ None.
 <!-- @test: host/__tests__/graphify-mcp-lazy.test.js (LazyGraph rebind on graph.json appearance → AC4/AC6) -->
 <!-- @test: host/__tests__/safe-graphify-update.test.js -->
 <!-- @test: host/__tests__/entrypoint-devshm-prereq.test.js (REQ-AGENT-023 prereq: /dev/shm tmpfs mount in entrypoint.sh describe -> /dev/shm mountpoint after entrypoint runs + Python multiprocessing.Lock allocates + idempotent on warm boot -> AC1 graphify Python multiprocessing prerequisite) -->
-<!-- @test: host/__tests__/entrypoint-ctx-mode-controls.test.js (REQ-AGENT-023 prereq: context-mode FTS5 watchdog in entrypoint.sh + routing-bypass default in entrypoint.sh + pinned version describes -> watchdog SIGKILL-then-rm order + over-cap wipe + under-cap leave-alone + CODEFLARE_CTX_BYPASS_DEFAULT override + plugin.json pinned >= v1.0.151 -> AC1/AC2 context-mode runtime controls) -->
+<!-- @test: host/__tests__/context-mode-version-pin.test.js (context-mode plugin.json version pin describe -> at least v1.0.151 -> AC2 context-mode MCP server stability / issue #671 fix surface) -->
 
 **Intent:** Every container ships the graphify code-knowledge-graph capability as ambient infrastructure, so any session (default or advanced session mode) can query an existing graph or build a new one without per-tier provisioning.
 
