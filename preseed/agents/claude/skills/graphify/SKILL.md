@@ -177,9 +177,9 @@ Then act on it:
 
 This step has two parts: **structural extraction** (deterministic, free) and **semantic extraction** (Claude, costs tokens).
 
-**Run Part A (AST) and Part B (semantic) in parallel. Dispatch all semantic subagents AND start AST extraction in the same message. Both can run simultaneously since they operate on different file types. Merge results in Part C as before.**
+**Run Part A (AST) and Part B (semantic) in parallel. Start AST extraction in the same message as the FIRST semantic wave (Step B2). AST runs alongside the first wave; subsequent waves run after AST has already finished. Merge results in Part C as before.**
 
-Note: Parallelizing AST + semantic saves 5-15s on large corpora. AST is deterministic and fast; start it while subagents are processing docs/papers.
+Note: Parallelizing AST + the first semantic wave saves 5-15s on large corpora. AST is deterministic and fast; start it while the first wave of subagents is processing docs/papers. Step B2 below describes the wave structure (cap at `GRAPHIFY_SEMANTIC_MAX_PARALLEL`, default 10) that prevents 100-subagent bursts from flooding Task-tool concurrency.
 
 #### Part A - Structural extraction for code files
 
@@ -216,9 +216,9 @@ else:
 Before dispatching subagents, print a timing estimate:
 - Load `total_words` and file counts from `.graphify_detect.json`
 - Estimate agents needed: `ceil(uncached_non_code_files / 22)` (chunk size is 20-25)
-- Read the parallelism cap: `parallel_limit = int(os.environ.get('GRAPHIFY_SEMANTIC_MAX_PARALLEL', '10'))` — Step B2 dispatches subagents in waves of at most this many at a time (see Step B2 for the why)
-- Estimate time: ~45s per wave (each wave runs in parallel, so total ≈ 45s × ceil(agents/parallel_limit))
-- Print: "Semantic extraction: ~N files → X agents in W waves of ≤parallel_limit, estimated ~Ys"
+- Read the parallelism cap: `parallel_limit = int(os.environ.get('GRAPHIFY_SEMANTIC_MAX_PARALLEL', '10'))`. Step B2 dispatches subagents in waves of at most this many at a time (see Step B2 for the why)
+- Estimate time: ~45s per wave (each wave runs in parallel, so total is approximately 45s * ceil(agents/parallel_limit))
+- Print: "Semantic extraction: ~N files -> X agents in W waves of up to parallel_limit, estimated ~Ys"
 
 **Step B0 - Check extraction cache first**
 
@@ -258,18 +258,18 @@ Concrete example for 3 chunks, parallel_limit=10:
 ```
 [single message with 3 Agent tool calls: files 1-15, 16-30, 31-45]
 ```
-All three fit in one wave because 3 ≤ 10. Single message, dispatched in parallel.
+All three fit in one wave because 3 is less than or equal to 10. Single message, dispatched in parallel.
 
 Concrete example for 25 chunks, parallel_limit=10:
 ```
 Wave 1: [single message with 10 Agent tool calls: chunks 1-10]
-  → wait for all 10 results
+  -> wait for all 10 results
 Wave 2: [single message with 10 Agent tool calls: chunks 11-20]
-  → wait for all 10 results
+  -> wait for all 10 results
 Wave 3: [single message with 5 Agent tool calls: chunks 21-25]
-  → wait for all 5 results
+  -> wait for all 5 results
 ```
-Three sequential messages, each carrying a wave that fans out in parallel. The 25 chunks complete in ~3 × 45s = ~135s rather than racing all at once.
+Three sequential messages, each carrying a wave that fans out in parallel. The 25 chunks complete in approximately 3 x 45s = ~135s rather than racing all at once.
 
 Within a wave: all Agent calls in the same response. Between waves: sequential messages with full result aggregation in between.
 
