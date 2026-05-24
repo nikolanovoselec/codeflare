@@ -1313,7 +1313,7 @@ None.
 ### REQ-AGENT-043: Graphify Build Mode Dispatch
 
 <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md -->
-<!-- @test: host/__tests__/skill-graphify-content.test.js (AST-only vs Full mode question + Sonnet default → AC1-AC5) -->
+<!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content / REQ-AGENT-043 build mode dispatch → AC4-AC5) -->
 
 **Intent:** Before a `/graphify` build dispatches semantic-extraction subagents, the user must explicitly choose between a free AST-only build and a full build that costs LLM tokens. The dispatched subagents run on Sonnet by default for reliable schema compliance.
 
