@@ -611,19 +611,18 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
 
     it('guards cookie+redirect inside the SW-success branch -- failure must NOT proceed (REQ-VAULT-008 AC5 fail-loud)', () => {
       // The function's own docstring promises "never silently degrades
-      // to plaintext IDB". The previous implementation set the cookie
-      // and called location.replace unconditionally — a SW registration
-      // failure (private mode, SW disabled, exotic browser) left the
-      // user redirected into SB without a key in the SW, silently
-      // unencrypted. The fix: cookie + redirect live AFTER the SW
-      // success path, and the catch branch shows an inline failure UI
-      // instead.
+      // to plaintext IDB". The earlier implementation set the cookie
+      // and called location.replace unconditionally; the followup
+      // bug code-reviewer flagged was that localStorage.setItem fired
+      // BEFORE the SW await, so a tab close between setItem and
+      // postMessage left enableEncryption=true with no SW key. The
+      // current contract: setItem, cookie, AND redirect all live after
+      // the post-handoff success branch; the catch branch returns with
+      // none of the three side-effects ever observed.
       const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
       // Failure UI exists.
       expect(out).toContain('Vault could not start encryption');
-      // Walk balanced braces to extract the FULL catch body (the body
-      // contains a try/catch of its own for the localStorage rollback,
-      // so a non-greedy regex match would stop too early).
+      // Walk balanced braces to extract the FULL catch body.
       const catchOpenStr = '} catch (e) {';
       const catchOpenIdx = out.indexOf(catchOpenStr);
       expect(catchOpenIdx).toBeGreaterThanOrEqual(0);
@@ -634,35 +633,44 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
         if (out[i] === '{') depth++;
         else if (out[i] === '}') depth--;
       }
-      const catchBodyEndIdx = i - 1; // position of the closing `}`
+      const catchBodyEndIdx = i - 1;
       expect(depth).toBe(0);
       const catchBody = out.slice(bodyStart, catchBodyEndIdx);
-      // Catch branch returns early (no redirect, no cookie).
+      // Catch branch returns early. None of the three side-effects fire.
       expect(catchBody).toContain('return;');
       expect(catchBody).not.toContain('document.cookie');
       expect(catchBody).not.toContain('location.replace');
-      // Rollback: the catch path clears the localStorage flag we
-      // optimistically set before register(), so a reload does not boot
-      // SB with enableEncryption=true but no SW key.
-      expect(catchBody).toContain('localStorage.removeItem("enableEncryption")');
-      // Cookie/redirect order: cookie set BEFORE location.replace, both
-      // after the catch block closes.
+      // No-rollback assertion: there is nothing to roll back because the
+      // flag is never set on this branch. A future refactor that
+      // reintroduces the set-first pattern would have to also reintroduce
+      // a removeItem here; pinning the absence catches that drift.
+      expect(catchBody).not.toContain('localStorage.setItem("enableEncryption"');
+      expect(catchBody).not.toContain('localStorage.removeItem("enableEncryption"');
+      // Ordering: setItem("enableEncryption") MUST appear after the
+      // sw.postMessage call and before document.cookie. This is the
+      // load-bearing invariant the bootstrap-hop race fix enforces.
+      const postIdx = out.indexOf('sw.postMessage');
+      const setItemIdx = out.indexOf('localStorage.setItem("enableEncryption"');
       const cookieIdx = out.indexOf('document.cookie');
       const replaceIdx = out.indexOf('location.replace');
-      expect(cookieIdx).toBeGreaterThan(catchBodyEndIdx);
+      expect(postIdx).toBeGreaterThanOrEqual(0);
+      expect(setItemIdx).toBeGreaterThan(postIdx);
+      expect(cookieIdx).toBeGreaterThan(setItemIdx);
       expect(replaceIdx).toBeGreaterThan(cookieIdx);
+      // All three side-effects live after the catch block closes.
+      expect(setItemIdx).toBeGreaterThan(catchBodyEndIdx);
+      expect(cookieIdx).toBeGreaterThan(catchBodyEndIdx);
+      expect(replaceIdx).toBeGreaterThan(catchBodyEndIdx);
     });
 
-    it('aborts (no cookie, no redirect) when reg.active/installing/waiting are all null', () => {
-      // Edge case the function explicitly handles: serviceWorker.ready
-      // resolves but the registration has no SW reference yet. The
-      // hop must NOT proceed AND must roll back the localStorage flag
-      // it optimistically set above the try block.
+    it('aborts (no cookie, no redirect, no enableEncryption=true) when reg.active/installing/waiting are all null', () => {
+      // Edge case: serviceWorker.ready resolves but the registration has
+      // no SW reference yet. The hop must NOT proceed -- and because the
+      // localStorage flag is only set on the post-handoff success path,
+      // there is nothing to roll back here either.
       const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
-      // The if-branch body contains both the rollback and the fail+return.
       const ifIdx = out.indexOf('if (!sw)');
       expect(ifIdx).toBeGreaterThanOrEqual(0);
-      // Walk to the closing brace of the if-body.
       const bodyStart = out.indexOf('{', ifIdx) + 1;
       let depth = 1;
       let i = bodyStart;
@@ -671,9 +679,12 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
         else if (out[i] === '}') depth--;
       }
       const ifBody = out.slice(bodyStart, i - 1);
-      expect(ifBody).toContain('localStorage.removeItem("enableEncryption")');
       expect(ifBody).toContain('fail("service worker not active")');
       expect(ifBody).toContain('return;');
+      // No setItem / removeItem on the no-SW branch -- the flag is never
+      // touched outside the post-handoff success branch.
+      expect(ifBody).not.toContain('localStorage.setItem("enableEncryption"');
+      expect(ifBody).not.toContain('localStorage.removeItem("enableEncryption"');
     });
 
     it('embeds the session id verbatim once', () => {

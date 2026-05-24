@@ -313,11 +313,11 @@ Base64-encoded inputs are validated with try/catch around `atob()`. Invalid base
 
 Implements [REQ-SEC-020](../../sdd/spec/security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits) (with [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) providing the underlying rate-limit infrastructure).
 
-### Vault Editor Rate Limit (REQ-VAULT-005)
+### Vault Editor Rate Limit (REQ-VAULT-005 + REQ-SEC-007)
 
 The vault editor proxy at `/api/vault/:sid/*` runs through `validateVaultRoute` -> `handleVaultRequest` in `src/routes/vault.ts`. WebSocket upgrades for SilverBullet's live-edit sync are rate-limited via the same `ws-connect:<email>` bucket as terminal WebSockets (30 connections per 60s window), sharing budget across both surfaces so a runaway editor reconnect cannot starve terminal use. Plain HTTP requests to the editor share the per-user HTTP rate-limit defaults.
 
-Implements [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor).
+Surface: [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (proxy exists). Rate-limit infrastructure: [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) (shared bucket and 30/60s window).
 
 ### Session Limits
 

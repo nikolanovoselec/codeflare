@@ -400,26 +400,26 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'if (el) el.textContent = "Vault could not start encryption: " + msg + ". Reload to retry.";' +
     'console.warn("Codeflare vault bootstrap:", msg);' +
     '}' +
-    'try { localStorage.setItem("enableEncryption", "true"); } catch (_) {}' +
+    // Order of side-effects (load-bearing): SW registration + key handoff' +
+    // MUST complete before we touch localStorage["enableEncryption"]. The' +
+    // earlier "set-first, roll-back-on-throw" pattern had a window where a' +
+    // tab close between setItem and the await resolving left the flag' +
+    // durably true with no SW key — if the bootstrap then failed on the' +
+    // next attempt too, SB would boot expecting encrypted IDB it could not' +
+    // read. Set the flag only after the post-handoff success branch.' +
     'try {' +
     'await navigator.serviceWorker.register(scope + "service_worker.js", { scope: scope });' +
     'var reg = await navigator.serviceWorker.ready;' +
     'var sw = reg.active || reg.installing || reg.waiting;' +
-    'if (!sw) {' +
-    'try { localStorage.removeItem("enableEncryption"); } catch (_) {}' +
-    'fail("service worker not active"); return;' +
-    '}' +
+    'if (!sw) { fail("service worker not active"); return; }' +
     'sw.postMessage({ type: "set-encryption-key", key: key });' +
     '} catch (e) {' +
-    '// SW handoff failed (private mode, SW disabled, exotic browser).' +
-    '// Roll back the localStorage flag we optimistically set above so a' +
-    '// reload does not boot SB with enableEncryption=true but no SW key' +
-    '// (which would surface as opaquely-failed encrypted reads).' +
-    'try { localStorage.removeItem("enableEncryption"); } catch (_) {}' +
     'fail("service worker registration failed (" + (e && e.message ? e.message : e) + ")");' +
     'return;' +
     '}' +
-    '// SW is active and has the key; safe to mark the hop complete and proceed.' +
+    '// SW is active and has the key; only now safe to mark the flag,' +
+    '// set the bootstrap cookie, and redirect into SB.' +
+    'try { localStorage.setItem("enableEncryption", "true"); } catch (_) {}' +
     'document.cookie = cookieName + "=1; Path=" + scope + "; SameSite=Lax; Secure";' +
     'location.replace(scope);' +
     '})();' +
