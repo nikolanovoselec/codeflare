@@ -68,7 +68,6 @@ Codeflare is built for Cloudflare. Not adapted, not ported - built on it, for it
 - Usage dashboard - track daily and monthly compute hours, see quota remaining, per-user Timekeeper Durable Object accumulates seconds and flushes to KV every 5 minutes.
 - Configurable auto-sleep - containers stop after a period of inactivity (no terminal input). Choose 5m, 15m, 30m, 1h, or 2h in Settings. Free tier is locked to 15m. Sleep is input-aware: the timer only resets when you actually type something, not on WebSocket reconnects or background polls.
 - CPU cost scales to zero when idle. You pay for what you use. Nothing when you don't.
-- Multi-currency pricing - paid tiers render in CHF, USD, EUR, or GBP based on your country. No mental math at checkout.
 
 ### For your agent (Pro mode)
 
