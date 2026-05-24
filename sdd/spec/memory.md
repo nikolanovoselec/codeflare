@@ -119,13 +119,14 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. The hook tracks the number of user messages since the last capture using a per-session counter.
 2. On first run for a session, the hook initialises a baseline at the current transcript size and injects the first-message graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3) before exiting.
-3. If the delta since the last capture is less than 15 messages, the hook exits silently.
+3. If the delta since the last capture is less than 15 messages and the session is not a resumed session per AC6, the hook exits silently.
 4. When the delta reaches 15, the capture subagent is triggered.
 5. The counter is advanced before the trigger emits, preventing re-triggering on subsequent hook invocations within the same window.
+6. When the per-session counter file exists but has not been written for more than 30 minutes and at least one new real-user prompt has arrived since, the session is treated as resumed (`/continue` after auto-compact, `claude --resume` after a container stop+resume, or a fresh shell against the same session-id). The hook force-fires a capture on the next user message regardless of the 15-message threshold so the pending gap from the prior run is flushed, and re-emits the graph-query directive from [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3 because the agent's in-context recall of prior decisions is gone after the resume.
 
 **Constraints:**
 
-- Counter files are ephemeral per-session state and are not persisted across sessions.
+- Per-session counter files live in the local container and are not pushed to R2; the unified-graph rebuild on the next boot is the persistent surface, not the counter. The counter does persist on local disk across container resumes, which is exactly what the AC6 mtime check relies on.
 
 **Priority:** P0
 
