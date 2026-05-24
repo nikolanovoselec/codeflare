@@ -277,7 +277,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".claude/plugins/context-mode/.claude-plugin/plugin.json",
     "contentType": "application/json; charset=utf-8",
-    "content": "{\n  \"name\": \"context-mode\",\n  \"description\": \"Deterministic context-window reduction via tool-call routing (Pro tier only)\",\n  \"version\": \"1.0.118\"\n}\n",
+    "content": "{\n  \"name\": \"context-mode\",\n  \"description\": \"Deterministic context-window reduction via tool-call routing (Pro tier only)\",\n  \"version\": \"1.0.151\"\n}\n",
     "modes": [
       "advanced"
     ]
@@ -301,7 +301,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".claude/plugins/graphify/.claude-plugin/plugin.json",
     "contentType": "application/json; charset=utf-8",
-    "content": "{\n  \"name\": \"graphify\",\n  \"description\": \"Knowledge-graph codebase context (graphifyy@0.8.16) - MCP server everywhere, discipline Pro-only\",\n  \"version\": \"0.8.16\"\n}\n",
+    "content": "{\n  \"name\": \"graphify\",\n  \"description\": \"Knowledge-graph codebase context (graphifyy@0.8.18) - MCP server everywhere, discipline Pro-only\",\n  \"version\": \"0.8.18\"\n}\n",
     "modes": [
       "default",
       "advanced"
