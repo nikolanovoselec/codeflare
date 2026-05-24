@@ -41,11 +41,11 @@ if [ ! -d /dev/shm ] || ! mountpoint -q /dev/shm 2>/dev/null; then
         if mount -t tmpfs tmpfs /dev/shm 2>/dev/null; then
             echo "[entrypoint] /dev/shm: mounted tmpfs (Python multiprocessing now functional)"
         else
-            echo "[entrypoint] /dev/shm: mount failed - Python multiprocessing tools (graphify, memory-capture, vault-extract) will fail" >&2
+            echo "[entrypoint] /dev/shm: mount failed - Python multiprocessing tools (graphify, memory-capture, vault-extract) will fail; aborting container boot" >&2
+            exit 1
         fi
     fi
 fi
-
 
 # Check R2 environment variables (configured/missing status only)
 echo "[entrypoint] === R2 ENV STATUS ===" | tee /tmp/sync.log

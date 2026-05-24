@@ -26,7 +26,7 @@ describe('context-mode plugin.json version pin', () => {
     );
     const m = pluginJson.version.match(/^(\d+)\.(\d+)\.(\d+)$/);
     assert.ok(m, `plugin.json version "${pluginJson.version}" is not semver-shaped`);
-    const [_, major, minor, patch] = m.map(Number);
+    const [major, minor, patch] = m.slice(1).map(Number);
     const flat = major * 1_000_000 + minor * 1_000 + patch;
     assert.ok(
       flat >= 1_000_151,

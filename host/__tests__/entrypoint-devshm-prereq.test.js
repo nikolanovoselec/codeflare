@@ -58,11 +58,19 @@ describe('REQ-AGENT-023 prereq: /dev/shm tmpfs mount in entrypoint.sh', () => {
     assert.match(res.stdout, /MOUNTED/, `/dev/shm is not a mountpoint after block ran:\n${res.stdout}`);
   });
 
-  it('after the block runs, Python multiprocessing.Lock can be allocated', () => {
+  it('after the block runs, Python multiprocessing.Lock can be allocated', (t) => {
     // The behaviour the block exists to guarantee: that
     // concurrent.futures.ProcessPoolExecutor can start. If /dev/shm
     // is missing or unmountable, this fails at startup. Run the
     // entrypoint snippet, then immediately try a tiny ProcessPool.
+    //
+    // Skip cleanly if python3 is not on PATH (some minimal CI runners).
+    // Codeflare prod always has python3, but the test stays portable.
+    const probeAvail = spawnSync('bash', ['-c', 'command -v python3'], { encoding: 'utf-8' });
+    if (probeAvail.status !== 0) {
+      t.skip('python3 not on PATH on this runner');
+      return;
+    }
     const block = extractDevShmBlock();
     const probe = [
       block,

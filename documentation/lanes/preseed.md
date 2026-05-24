@@ -385,7 +385,10 @@ restricted to a whitelist (`git`, `mkdir`, `rm`, `mv`, `cd`, `ls`,
 `npm install`, `pip install`); WebFetch and Grep are denied entirely
 and redirected to the equivalent `ctx_*` tools. Per-call bypass via
 `/tmp/ctx-bypass` (user-only sentinel - see
-[Security](security.md#context-mode-enforcement-bypass)).
+[Security](security.md#context-mode-enforcement-bypass)). The container
+does not create `/tmp/ctx-bypass` at boot; routing is active by default
+from session start. Users who want native Bash routing must create the
+sentinel themselves in a separate terminal.
 
 context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/context-mode/blob/main/LICENSE).
 The integration is sized to stay within ELv2's permitted-use envelope.
