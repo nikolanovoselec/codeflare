@@ -9,6 +9,12 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// jsdom is installed as a devDependency in web-ui/package.json but
+// @types/jsdom is not. The only thing this test uses is the JSDOM
+// constructor and its .window.document — declared locally so the
+// typecheck stays clean without pulling another type package in.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
 import { JSDOM } from 'jsdom';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
