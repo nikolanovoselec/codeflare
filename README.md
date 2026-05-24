@@ -68,6 +68,13 @@ Codeflare is built for Cloudflare. Not adapted, not ported - built on it, for it
 - Usage dashboard - track daily and monthly compute hours, see quota remaining, per-user Timekeeper Durable Object accumulates seconds and flushes to KV every 5 minutes.
 - Configurable auto-sleep - containers stop after a period of inactivity (no terminal input). Choose 5m, 15m, 30m, 1h, or 2h in Settings. Free tier is locked to 15m. Sleep is input-aware: the timer only resets when you actually type something, not on WebSocket reconnects or background polls.
 - CPU cost scales to zero when idle. You pay for what you use. Nothing when you don't.
+- Multi-currency pricing - paid tiers render in CHF, USD, EUR, or GBP based on your country. No mental math at checkout.
+
+### For your agent (Pro mode)
+
+- **SilverBullet vault** - every Pro session ships a browser-native note editor at `~/Vault/`. Notes, decisions, journal, raw transcripts - bisync'd to R2, encrypted at rest with a per-session key (you never see the key, you don't have to). The editor is codeflare-themed; the directory is yours.
+- **Cross-session memory** - your agent auto-captures conversation context every 15 prompts into the vault. The next session opens with full recall of prior decisions, debugging insights, and observations - even on a different device.
+- **Knowledge graph** - a queryable semantic graph (Graphify) over both project source and vault content. Agents reach for it via `mcp__graphify__*` to ask "what depends on X" or "how does Y connect to Z" without grepping the world.
 
 ## Architecture
 
@@ -274,7 +281,7 @@ Create one OAuth App per environment (integration vs production) with the matchi
 - Supply chain: CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, Trivy container scanning.
 - Automated penetration testing: weekly CI workflow validates auth gate, security headers, TLS configuration, injection resistance, and information disclosure. See [PENTEST.md](documentation/lanes/PENTEST.md) for the latest report.
 - GitHub security: secret scanning, push protection, private vulnerability reporting, dependency graph.
-- Optional encryption at rest (set `ENCRYPTION_KEY`): KV credentials (API keys, deploy tokens, scoped R2 tokens) are encrypted with AES-256-GCM before storage using per-value random IVs, authenticated with AAD binding to the KV key name, decrypted on read, and masked in all API responses. R2 workspace files are encrypted via SSE-C (S3 Server-Side Encryption with Customer-Provided Keys) on all upload, download, copy, and seed operations. Rclone bisync inside containers uses the same key for transparent encrypt/decrypt. Existing plaintext KV entries are transparently migrated to encrypted format on first read (fire-and-forget write-back, no downtime). See [Security — Credential Encryption at Rest](documentation/lanes/security.md#credential-encryption-at-rest) for implementation details, migration guide, and key pipeline.
+- Optional encryption at rest (set `ENCRYPTION_KEY`): KV credentials (API keys, deploy tokens, scoped R2 tokens) are encrypted with AES-256-GCM before storage using per-value random IVs, authenticated with AAD binding to the KV key name, decrypted on read, and masked in all API responses. R2 workspace files are encrypted via SSE-C (S3 Server-Side Encryption with Customer-Provided Keys) on all upload, download, copy, and seed operations. Rclone bisync inside containers uses the same key for transparent encrypt/decrypt. Existing plaintext KV entries are transparently migrated to encrypted format on first read (fire-and-forget write-back, no downtime). The SilverBullet vault subtree gets its own zero-UI per-session key (DO-storage backed); operators never see it, users never type it. See [Security — Credential Encryption at Rest](documentation/lanes/security.md#credential-encryption-at-rest) for implementation details, migration guide, and key pipeline.
 - For vulnerability reporting, see [SECURITY.md](SECURITY.md).
 
 ## Testing
