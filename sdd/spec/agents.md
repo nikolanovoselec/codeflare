@@ -1448,7 +1448,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Keys are injected as container environment variables (`OPENAI_API_KEY`, `GEMINI_API_KEY`) during `setBucketName()`.
+1. Stored LLM API keys are propagated into the container environment at container start so in-container CLIs can call OpenAI or Gemini without re-authentication.
 2. When keys are present, the container entrypoint configures the `consult-llm-mcp` MCP server in `~/.claude.json`.
 3. Keys are NOT persisted in DO storage; they are read fresh from KV on each container start.
 

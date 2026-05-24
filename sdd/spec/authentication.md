@@ -75,8 +75,6 @@ None. Authentication is foundational; other domains depend on it.
 5. State-validation failure redirects to the login page with an error indicator.
 6. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes.
 7. Only verified primary GitHub emails are accepted.
-8. The GitHub access token is used ephemerally during the callback and then discarded (not stored).
-9. The callback endpoint is rate-limited (10/min per IP).
 
 **Constraints:**
 
@@ -86,6 +84,33 @@ None. Authentication is foundational; other domains depend on it.
 **Priority:** P0
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
+
+**Verification:** Integration test
+
+**Status:** Implemented
+
+---
+
+### REQ-AUTH-013: OAuth callback security hardening
+
+<!-- @impl: src/routes/github-auth.ts -->
+
+**Intent:** The OAuth callback surface must defend against credential leakage and abuse independently of the happy-path login flow, so a hardening change does not require touching the flow's behavioural contract.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. The GitHub access token is used ephemerally during the callback exchange and then discarded; it is never stored in KV, DO storage, or any session record.
+2. The callback endpoint is rate-limited per source IP to prevent brute-force replay of intercepted state tokens.
+
+**Constraints:**
+
+- Rate-limit window and threshold are operational tuning parameters and may evolve without spec change.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
 
 **Verification:** Integration test
 

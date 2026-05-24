@@ -155,9 +155,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ### REQ-OPS-003: PR checks run lint, test, typecheck, and security audit
 
 <!-- @impl: .github/workflows/test.yml -->
-<!-- @impl: .github/workflows/codeql.yml -->
-<!-- @impl: .github/workflows/scorecard.yml -->
-<!-- @test: host/__tests__/workflow-files.test.js (PR Checks workflow describe → lint + test + typecheck + audit + dependency-review + codeql + scorecard jobs → AC1-AC6) -->
+<!-- @test: host/__tests__/workflow-files.test.js (PR Checks workflow describe → lint + test + typecheck + audit + dependency-review jobs → AC1-AC7) -->
 
 **Intent:** Every pull request to `main` must pass comprehensive quality checks before merge.
 
@@ -171,10 +169,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. The workflow runs both backend and frontend test suites.
 5. The workflow runs both backend and frontend typechecks.
 6. The workflow runs a dead-code check on the codebase.
-7. The workflow runs a high-severity security audit on production dependencies.
-8. PRs that introduce dependencies with known vulnerabilities are blocked.
-9. A CodeQL static-analysis workflow runs on pushes to main, on PRs to main, and weekly. Results are uploaded to GitHub Security.
-10. An OSSF Scorecard workflow runs security-posture assessment on push to main and weekly.
+7. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked.
 
 **Constraints:**
 
@@ -184,6 +179,35 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Priority:** P0
 
 **Dependencies:** None.
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-019: Security-posture scanning workflows
+
+<!-- @impl: .github/workflows/codeql.yml -->
+<!-- @impl: .github/workflows/scorecard.yml -->
+<!-- @test: host/__tests__/workflow-files.test.js (PR Checks workflow describe → codeql + scorecard jobs → AC1-AC2) -->
+
+**Intent:** Independent security-posture assessment workflows must continuously evaluate the codebase against known-vulnerability patterns and supply-chain risk indicators, outside the per-PR quality gates.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A CodeQL static-analysis workflow runs on pushes to main, on PRs to main, and on a weekly schedule. Results are uploaded to GitHub Security.
+2. An OSSF Scorecard workflow runs a security-posture assessment on push to main and on a weekly schedule.
+
+**Constraints:**
+
+- These workflows run independently of the per-PR quality gates in [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit); their cadence is push-to-main + weekly, not per-PR.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
 **Verification:** Automated test
 
