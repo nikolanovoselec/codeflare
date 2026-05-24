@@ -236,4 +236,4 @@ Both `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are passed to the Worker via `--v
 - [Security](security.md) - Security model, rate limiting, encryption
 - [API Reference](api-reference.md#auth-saas-mode) - Auth API endpoints
 - [Configuration](configuration.md#secrets) - Worker secrets
-- [Architecture](architecture.md#container-do) - Container Durable Object
+- [Architecture](architecture.md#container-do-container) - Container Durable Object

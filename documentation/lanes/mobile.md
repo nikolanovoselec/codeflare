@@ -281,7 +281,7 @@ The Verification fields in `sdd/spec/mobile.md` point at this plan; CQ-1 truth c
 ---
 
 ## Related Documentation
-- [Architecture](architecture.md#frontend-solidjs--xtermjs) - Frontend architecture
+- [Architecture](architecture.md#frontend-solidjs-xtermjs) - Frontend architecture
 - [Architecture](architecture.md#terminal-server-node-pty) - Terminal server
 - [Container](container.md#container-startup) - Container startup
 - [Troubleshooting](troubleshooting.md) - Common failure modes

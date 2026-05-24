@@ -409,7 +409,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Constraints:**
 
-- Must comply with [CON-REL-001](constraints.md#con-rel-001-non-blocking) (non-blocking).
+- Must comply with [CON-REL-001](constraints.md#con-rel-001-graceful-shutdown-with-final-sync-before-exit) (non-blocking).
 - Email content must not expose internal system details.
 
 **Priority:** P2

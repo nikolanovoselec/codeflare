@@ -125,5 +125,5 @@ wrangler tail codeflare --status error
 - [Architecture](architecture.md#system-components) - System component overview
 - [Configuration](configuration.md#secrets) - Secret management
 - [Container](container.md#container-startup) - Container startup sequence
-- [Storage & Sync](storage-and-sync.md#r2-sync-issues) - Sync troubleshooting detail
+- [Storage & Sync](storage-and-sync.md) - Sync mechanics
 - [Authentication](security.md#authentication-gate) - Auth flow

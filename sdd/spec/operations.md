@@ -289,7 +289,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The pentest workflow runs weekly and on manual dispatch against the configured target URL in the production environment.
 2. The workflow runs six parallel probes using lightweight external tools (no active scanners) to minimize CI resource consumption.
-3. Six probe types cover response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling; per-probe checklists live in [documentation/lanes/security.md](../../documentation/lanes/security.md#pentest-probes).
+3. Six probe types cover response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling; per-probe checklists live in [documentation/lanes/PENTEST.md](../../documentation/lanes/PENTEST.md).
 
 **Constraints:**
 
@@ -363,7 +363,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Verification:** Manual check
 
-**Notes:** Hibernation cost guarantee is verified manually against billing-period invoices; see [documentation/lanes/operations.md](../../documentation/lanes/operations.md#hibernation-cost-verification).
+**Notes:** Hibernation cost guarantee is verified manually against billing-period invoices.
 
 **Status:** Implemented
 

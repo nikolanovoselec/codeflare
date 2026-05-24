@@ -426,7 +426,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Verification:** Manual check
 
-**Notes:** Visibility-return recovery is validated manually per the checklist in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#visibility-return-recovery).
+**Notes:** Visibility-return recovery is validated manually per the checklist in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#visibility-return-reset).
 
 **Status:** Implemented
 

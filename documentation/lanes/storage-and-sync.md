@@ -140,7 +140,7 @@ The recovery filter file starts empty on every container start and is never sync
 ---
 
 ## Related Documentation
-- [Architecture](architecture.md#container-do) - Container DO lifecycle
+- [Architecture](architecture.md#container-do-container) - Container DO lifecycle
 - [Container](container.md#container-startup) - Startup sync sequence
 - [Memory](memory.md) - Memory file sync and cleanup
 - [Configuration](configuration.md#container-environment) - Sync environment variables

@@ -477,7 +477,7 @@ None.
 
 **Verification:** Manual check
 
-**Notes:** Sleep timer countdown UI is validated manually per the checklist in [documentation/lanes/troubleshooting.md](../../documentation/lanes/troubleshooting.md#sleep-timer).
+**Notes:** Sleep timer countdown UI is validated manually per the checklist in [documentation/lanes/troubleshooting.md](../../documentation/lanes/troubleshooting.md).
 
 **Status:** Implemented
 

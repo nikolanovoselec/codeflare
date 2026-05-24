@@ -28,96 +28,96 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010) | List sessions |
-| POST | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010) | Create session (rate limited) |
-| GET | `/api/sessions/:id` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006) | Get session |
-| PATCH | `/api/sessions/:id` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010) | Update session |
-| DELETE | `/api/sessions/:id` | Session cookie | [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010), [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014) | Delete session and destroy container |
-| POST | `/api/sessions/:id/touch` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006) | Update lastAccessedAt |
-| POST | `/api/sessions/:id/stop` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006), [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014) | Stop session (KV 'stopped' + container.destroy()) |
-| GET | `/api/sessions/:id/status` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006) | Get session and container status |
-| GET | `/api/sessions/batch-status` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006) | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions, storageStats from KV cache, usage piggyback in SaaS mode) |
+| GET | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) | List sessions |
+| POST | `/api/sessions` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) | Create session (rate limited) |
+| GET | `/api/sessions/:id` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) | Get session |
+| PATCH | `/api/sessions/:id` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) | Update session |
+| DELETE | `/api/sessions/:id` | Session cookie | [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Delete session and destroy container |
+| POST | `/api/sessions/:id/touch` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) | Update lastAccessedAt |
+| POST | `/api/sessions/:id/stop` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Stop session (KV 'stopped' + container.destroy()) |
+| GET | `/api/sessions/:id/status` | Session cookie | [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero) | Get session and container status |
+| GET | `/api/sessions/batch-status` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero) | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions, storageStats from KV cache, usage piggyback in SaaS mode) |
 
 ### Container Lifecycle
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| POST | `/api/container/start` | Session cookie | [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007) | Start container (non-blocking) |
-| POST | `/api/container/destroy` | Session cookie | [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014) | Destroy container (SIGKILL) |
-| GET | `/api/container/startup-status` | Session cookie | [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006) | Poll startup progress |
-| GET | `/api/container/health` | Session cookie | [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006) | Health check |
+| POST | `/api/container/start` | Session cookie | [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier) | Start container (non-blocking) |
+| POST | `/api/container/destroy` | Session cookie | [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Destroy container (SIGKILL) |
+| GET | `/api/container/startup-status` | Session cookie | [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero) | Poll startup progress |
+| GET | `/api/container/health` | Session cookie | [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero) | Health check |
 
 ### Terminal
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| WS | `/api/terminal/:compoundId/ws` | Session cookie | [REQ-TERM-001](../../sdd/spec/terminal.md#req-term-001), [REQ-TERM-002](../../sdd/spec/terminal.md#req-term-002), [REQ-SESSION-012](../../sdd/spec/session-lifecycle.md#req-session-012) | Terminal WebSocket (compoundId format: `sessionId-terminalId`) |
-| GET | `/api/terminal/:sessionId/status` | Session cookie | [REQ-TERM-004](../../sdd/spec/terminal.md#req-term-004) | Connection status |
+| WS | `/api/terminal/:compoundId/ws` | Session cookie | [REQ-TERM-001](../../sdd/spec/terminal.md#req-term-001-up-to-6-terminal-tabs-per-session), [REQ-TERM-002](../../sdd/spec/terminal.md#req-term-002-websocket-connection-to-container-pty), [REQ-SESSION-012](../../sdd/spec/session-lifecycle.md#req-session-012-wake-loop-prevention) | Terminal WebSocket (compoundId format: `sessionId-terminalId`) |
+| GET | `/api/terminal/:sessionId/status` | Session cookie | [REQ-TERM-004](../../sdd/spec/terminal.md#req-term-004-close-code-4503-is-authoritative-no-retry) | Connection status |
 
 ### User Management
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/user` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018) | Authenticated user info (includes `onboardingActive`, `onboardingComplete`) |
-| POST | `/api/user/onboarding-complete` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006) | Mark guided setup as visited (sets KV flag) |
-| GET | `/api/user/r2-status` | Session cookie (admin-only routes require admin role) | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001) | R2 credential status for current user |
-| POST | `/api/user/ensure-r2-token` | Session cookie (admin-only routes require admin role) | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001) | Create scoped R2 token if missing (rate limited) |
-| GET | `/api/users` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018) | List allowed users (admin only) |
-| DELETE | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018) | Remove allowed user (admin only) |
-| PATCH | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009) | Update user tier/role (admin only) |
+| GET | `/api/user` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Authenticated user info (includes `onboardingActive`, `onboardingComplete`) |
+| POST | `/api/user/onboarding-complete` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006-user-email-normalized) | Mark guided setup as visited (sets KV flag) |
+| GET | `/api/user/r2-status` | Session cookie (admin-only routes require admin role) | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket) | R2 credential status for current user |
+| POST | `/api/user/ensure-r2-token` | Session cookie (admin-only routes require admin role) | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket) | Create scoped R2 token if missing (rate limited) |
+| GET | `/api/users` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | List allowed users (admin only) |
+| DELETE | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Remove allowed user (admin only) |
+| PATCH | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Update user tier/role (admin only) |
 
 ### Auth (SaaS Mode)
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/auth/providers` | varies | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002), [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008) | List configured IdPs (public, no auth) |
-| GET | `/api/auth/status` | varies | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002), [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018) | Auth status (tier, email, role, turnstile key, session/billing state) |
-| GET | `/api/auth/tiers` | varies | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009) | Subscribable tier configs (requires identity) |
-| GET | `/api/auth/onboarding-config` | varies | [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006) | Onboarding page config (turnstile key) |
-| POST | `/api/auth/subscribe` | varies | [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003) | Self-service tier selection (rate-limited 3/min) |
-| POST | `/api/auth/request-access` | varies | [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007) | Request access with Turnstile (rate-limited 3/hr) |
-| POST | `/api/auth/contact-team` | varies | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007) | Enterprise tier inquiry email (rate-limited 1/hr) |
+| GET | `/api/auth/providers` | varies | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh) | List configured IdPs (public, no auth) |
+| GET | `/api/auth/status` | varies | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page) | Auth status (tier, email, role, turnstile key, session/billing state) |
+| GET | `/api/auth/tiers` | varies | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Subscribable tier configs (requires identity) |
+| GET | `/api/auth/onboarding-config` | varies | [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006-user-email-normalized) | Onboarding page config (turnstile key) |
+| POST | `/api/auth/subscribe` | varies | [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment) | Self-service tier selection (rate-limited 3/min) |
+| POST | `/api/auth/request-access` | varies | [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006-user-email-normalized), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Request access with Turnstile (rate-limited 3/hr) |
+| POST | `/api/auth/contact-team` | varies | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Enterprise tier inquiry email (rate-limited 1/hr) |
 
 ### Usage
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/usage` | Session cookie | [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018) | Current user's real-time usage (Timekeeper DO with KV fallback) |
+| GET | `/api/usage` | Session cookie | [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page) | Current user's real-time usage (Timekeeper DO with KV fallback) |
 
 ### Admin
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/admin/tiers` | Admin role | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009), [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018) | Get current tier config (admin only) |
-| PUT | `/api/admin/tiers` | Admin role | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009), [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018) | Update tier config (admin only, 8-tier array) |
-| PUT | `/api/users/max-users` | Admin role | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009) | Set max users capacity cap (admin only) |
+| GET | `/api/admin/tiers` | Admin role | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel), [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Get current tier config (admin only) |
+| PUT | `/api/admin/tiers` | Admin role | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel), [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Update tier config (admin only, 8-tier array) |
+| PUT | `/api/users/max-users` | Admin role | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Set max users capacity cap (admin only) |
 
 ### Billing
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| POST | `/api/billing/checkout` | Session cookie | [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003), [REQ-SUB-004](../../sdd/spec/subscription.md#req-sub-004) | Create Stripe Checkout Session for paid tier (rate-limited 5/min) |
-| GET | `/api/billing/status` | Session cookie | [REQ-SUB-016](../../sdd/spec/subscription.md#req-sub-016), [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018) | Live billing state from Stripe (subscription, period, status) |
-| POST | `/api/billing/portal` | Session cookie | [REQ-SUB-011](../../sdd/spec/subscription.md#req-sub-011) | Create Stripe Customer Portal session (rate-limited 5/min) |
-| POST | `/api/billing/switch` | Session cookie | [REQ-SUB-011](../../sdd/spec/subscription.md#req-sub-011) | Deep-link portal for plan change confirmation (rate-limited 5/min) |
-| POST | `/public/stripe/webhook` | Session cookie | [REQ-SUB-005](../../sdd/spec/subscription.md#req-sub-005), [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015), [REQ-SUB-021](../../sdd/spec/subscription.md#req-sub-021) | Stripe webhook handler (unauthenticated, HMAC-verified, rate-limited 100/min) |
+| POST | `/api/billing/checkout` | Session cookie | [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment), [REQ-SUB-004](../../sdd/spec/subscription.md#req-sub-004-paid-tiers-integrate-with-stripe-checkout) | Create Stripe Checkout Session for paid tier (rate-limited 5/min) |
+| GET | `/api/billing/status` | Session cookie | [REQ-SUB-016](../../sdd/spec/subscription.md#req-sub-016-customer-portal-and-plan-switching), [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page) | Live billing state from Stripe (subscription, period, status) |
+| POST | `/api/billing/portal` | Session cookie | [REQ-SUB-011](../../sdd/spec/subscription.md#req-sub-011-graceful-degradation-without-stripe) | Create Stripe Customer Portal session (rate-limited 5/min) |
+| POST | `/api/billing/switch` | Session cookie | [REQ-SUB-011](../../sdd/spec/subscription.md#req-sub-011-graceful-degradation-without-stripe) | Deep-link portal for plan change confirmation (rate-limited 5/min) |
+| POST | `/public/stripe/webhook` | Session cookie | [REQ-SUB-005](../../sdd/spec/subscription.md#req-sub-005-trial-is-compute-based-not-time-based), [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015-stripe-webhook-signal-and-sync-pattern), [REQ-SUB-021](../../sdd/spec/subscription.md#req-sub-021-billing-cycle-alignment) | Stripe webhook handler (unauthenticated, HMAC-verified, rate-limited 100/min) |
 
 ### Deploy Keys
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018) | Get encrypted deploy credentials (masked) |
-| PUT | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018) | Save/update deploy credentials (GitHub PAT, CF API token) |
-| DELETE | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018) | Erase all deploy credentials |
+| GET | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push-deploy-credential-management-ui) | Get encrypted deploy credentials (masked) |
+| PUT | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push-deploy-credential-management-ui) | Save/update deploy credentials (GitHub PAT, CF API token) |
+| DELETE | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push-deploy-credential-management-ui) | Erase all deploy credentials |
 
 ### Public (Unauthenticated)
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/public/auth/providers` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012), [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008) | Auth providers (outside CF Access gate) |
-| GET | `/public/onboarding-config` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012), [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006) | Turnstile site key + onboarding status |
-| GET | `/public/tiers` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009) | Public tier config (no session mode info) |
-| POST | `/public/waitlist` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007) | Waitlist signup with Turnstile (rate-limited 1/day by IP) |
+| GET | `/public/auth/providers` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence), [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh) | Auth providers (outside CF Access gate) |
+| GET | `/public/onboarding-config` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence), [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006-user-email-normalized) | Turnstile site key + onboarding status |
+| GET | `/public/tiers` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Public tier config (no session mode info) |
+| POST | `/public/waitlist` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Waitlist signup with Turnstile (rate-limited 1/day by IP) |
 
 ### Setup
 
@@ -125,10 +125,10 @@ The setup wizard configures a fresh Codeflare deployment. It provisions Cloudfla
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| POST | `/api/setup/configure` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001), [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005) | Run the setup wizard (streams NDJSON progress) |
-| GET | `/api/setup/status` | Public | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001) | Whether setup is complete (always public) |
-| GET | `/api/setup/detect-token` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008) | Detect and verify the Cloudflare API token |
-| GET | `/api/setup/prefill` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008) | Prefill setup form from existing Access groups |
+| POST | `/api/setup/configure` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth) | Run the setup wizard (streams NDJSON progress) |
+| GET | `/api/setup/status` | Public | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration) | Whether setup is complete (always public) |
+| GET | `/api/setup/detect-token` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection) | Detect and verify the Cloudflare API token |
+| GET | `/api/setup/prefill` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection) | Prefill setup form from existing Access groups |
 
 Conditional auth: before `setup:complete` is set in KV, every Setup endpoint except `/api/setup/status` is publicly reachable through the CSRF-gated bootstrap window (see AD10). Once setup is marked complete, the same endpoints require an admin-role session.
 
@@ -419,18 +419,18 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/storage/browse` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007) | List objects in R2 prefix |
-| POST | `/api/storage/upload` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007), [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008) | Upload file |
-| GET | `/api/storage/download` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007), [REQ-SEC-013](../../sdd/spec/security.md#req-sec-013) | Download file |
-| POST | `/api/storage/delete` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007) | Delete objects by key and/or prefix (server-side bulk delete) |
-| GET | `/api/storage/preview` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007) | Preview file content (text files inline, others return metadata only) |
-| GET | `/api/storage/stats` | Session cookie | [REQ-STOR-006](../../sdd/spec/storage.md#req-stor-006), [REQ-STOR-014](../../sdd/spec/storage.md#req-stor-014) | File/folder counts (60s KV cache, refreshes from R2 on miss/stale) |
-| POST | `/api/storage/seed/getting-started` | Session cookie | [REQ-STOR-009](../../sdd/spec/storage.md#req-stor-009) | Seed tutorial docs |
-| POST | `/api/storage/seed/agent-configs` | Session cookie | [REQ-AGENT-011](../../sdd/spec/agents.md#req-agent-011), [REQ-STOR-009](../../sdd/spec/storage.md#req-stor-009) | Recreate AI agent skills & rules (overwrites, respects session mode) |
-| POST | `/api/storage/upload/initiate` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008) | Initiate multipart upload |
-| POST | `/api/storage/upload/part` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008) | Upload a single part (base64 body) |
-| POST | `/api/storage/upload/complete` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008) | Complete multipart upload |
-| POST | `/api/storage/upload/abort` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008) | Abort multipart upload |
+| GET | `/api/storage/browse` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) | List objects in R2 prefix |
+| POST | `/api/storage/upload` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser), [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Upload file |
+| GET | `/api/storage/download` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser), [REQ-SEC-013](../../sdd/spec/security.md#req-sec-013-content-disposition-hardening-on-downloads) | Download file |
+| POST | `/api/storage/delete` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) | Delete objects by key and/or prefix (server-side bulk delete) |
+| GET | `/api/storage/preview` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) | Preview file content (text files inline, others return metadata only) |
+| GET | `/api/storage/stats` | Session cookie | [REQ-STOR-006](../../sdd/spec/storage.md#req-stor-006-storage-quota-enforced-per-tier-at-session-start), [REQ-STOR-014](../../sdd/spec/storage.md#req-stor-014-r2-storage-stats-caching) | File/folder counts (60s KV cache, refreshes from R2 on miss/stale) |
+| POST | `/api/storage/seed/getting-started` | Session cookie | [REQ-STOR-009](../../sdd/spec/storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session) | Seed tutorial docs |
+| POST | `/api/storage/seed/agent-configs` | Session cookie | [REQ-AGENT-011](../../sdd/spec/agents.md#req-agent-011-agent-skills-rules-manually-recreatable-from-settings), [REQ-STOR-009](../../sdd/spec/storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session) | Recreate AI agent skills & rules (overwrites, respects session mode) |
+| POST | `/api/storage/upload/initiate` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Initiate multipart upload |
+| POST | `/api/storage/upload/part` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Upload a single part (base64 body) |
+| POST | `/api/storage/upload/complete` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Complete multipart upload |
+| POST | `/api/storage/upload/abort` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Abort multipart upload |
 
 ### Presets
 
@@ -440,7 +440,7 @@ GET `/api/presets`, POST `/api/presets`, PATCH `/api/presets/:id` (rename), DELE
 
 GET `/api/preferences`, PATCH `/api/preferences`
 
-`UserPreferences` fields: `lastAgentType` (AgentType, optional — last selected agent), `lastPresetId` (string, optional — last used preset), `workspaceSyncEnabled` (boolean, default: `false` — workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` — fast CLI start toggle), `sessionMode` (SessionMode, optional — default/advanced), `sleepAfter` (SleepAfterOption, optional — auto-sleep duration, see [Auto-sleep](container.md#auto-sleep-configurable-sleepafter)), `userTimezone` (string, optional — valid IANA timezone, max 64 chars; validated via `Intl.DateTimeFormat` round-trip, invalid zones return `ValidationError`; persisted to DO storage and forwarded to the container as `USER_TIMEZONE` env var so memory-capture filenames reflect the user's local time; takes effect on next session start — see [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env) and [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC9). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](container.md#fast-start). **Side effect:** when `sessionMode` changes, `PATCH /api/preferences` calls `reconcileAgentConfigs(overwrite: true, cleanup: true)` to seed the correct preseed set for the new mode. Non-fatal — failure does not block the preference save. Implements [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004) AC4–AC5.
+`UserPreferences` fields: `lastAgentType` (AgentType, optional — last selected agent), `lastPresetId` (string, optional — last used preset), `workspaceSyncEnabled` (boolean, default: `false` — workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` — fast CLI start toggle), `sessionMode` (SessionMode, optional — default/advanced), `sleepAfter` (SleepAfterOption, optional — auto-sleep duration, see [Auto-sleep](container.md#auto-sleep-configurable-sleepafter)), `userTimezone` (string, optional — valid IANA timezone, max 64 chars; validated via `Intl.DateTimeFormat` round-trip, invalid zones return `ValidationError`; persisted to DO storage and forwarded to the container as `USER_TIMEZONE` env var so memory-capture filenames reflect the user's local time; takes effect on next session start — see [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env) and [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC9). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](container.md#fast-start). **Side effect:** when `sessionMode` changes, `PATCH /api/preferences` calls `reconcileAgentConfigs(overwrite: true, cleanup: true)` to seed the correct preseed set for the new mode. Non-fatal — failure does not block the preference save. Implements [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) AC4–AC5.
 
 ### LLM API Keys
 
@@ -458,8 +458,8 @@ GET `/public/onboarding-config`, POST `/public/waitlist` (rate limited)
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/health` | None (auth-exempt — no `CONTAINER_AUTH_TOKEN` required) | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015) AC1, AC2 | Direct host health check; available before CONTAINER_AUTH_TOKEN is wired up |
-| GET | `/api/health` | Session cookie | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015) AC1, AC2 | Worker-proxied alias for `/health` |
+| GET | `/health` | None (auth-exempt — no `CONTAINER_AUTH_TOKEN` required) | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC1, AC2 | Direct host health check; available before CONTAINER_AUTH_TOKEN is wired up |
+| GET | `/api/health` | Session cookie | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC1, AC2 | Worker-proxied alias for `/health` |
 
 Both endpoints return the same JSON body:
 
