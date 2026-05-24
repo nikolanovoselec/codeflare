@@ -39,16 +39,16 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Acceptance Criteria:**
 
-1. The maximum terminal count per session is 6, defined as `MAX_TERMINALS_PER_SESSION` (frontend) and `MAX_TABS` (backend).
-2. Each terminal tab has a unique compound key: `sessionId:terminalId` on the frontend and `{sessionId}-{terminalId}` in the WebSocket URL path.
-3. The backend parses the compound ID, validates the base session, and forwards the full ID to the container.
-4. The container's `SessionManager` handles each compound ID as a separate PTY process with independent state.
-5. The session cap check in `SessionManager` excludes prewarm sessions from the active count.
-6. Creating a 7th terminal is rejected.
+1. The maximum terminal count per session is six, defined as a shared constant referenced by both frontend and backend so neither can drift.
+2. Each terminal tab is identified by a compound key built from the session ID and the per-tab terminal ID; the same identity travels through the WebSocket URL.
+3. The backend parses the compound ID, validates the base session, and forwards the full compound ID into the container.
+4. The container's session manager handles each compound ID as a separate PTY process with independent state.
+5. The container's session cap check excludes pre-warmed PTYs from the active count so pre-warming does not consume a tab slot.
+6. Attempting to create a seventh terminal in a session is rejected.
 
 **Constraints:**
 
-- Frontend and backend must agree on the compound key format (`sessionId:terminalId` vs `sessionId-terminalId`).
+- The frontend's compound-key encoding and the backend's URL-path encoding must be reversible into the same logical identity; mismatched encodings would break tab adoption.
 - Terminal IDs are scoped within a session; they are not globally unique.
 
 **Priority:** P0
@@ -75,18 +75,18 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Acceptance Criteria:**
 
-1. The WebSocket URL is `/api/terminal/{sessionId}-{terminalId}/ws`.
-2. The Worker upgrades the HTTP request to a WebSocket and forwards it through the Container DO to the terminal server at port 8080.
-3. The terminal server spawns `bash -l` (login shell, `xterm-256color`, truecolor) as the PTY process.
-4. Raw terminal data flows over the WebSocket without JSON wrapping.
-5. Control messages (resize, process-name, restore) are sent as JSON objects prefixed with `{"type":`.
-6. Unknown JSON `type` strings are silently ignored (forward compatibility).
-7. No application-level ping/pong; Cloudflare handles protocol-level WebSocket keepalive automatically.
+1. The WebSocket URL embeds the compound terminal identity (session ID and per-tab terminal ID) on a stable path under the terminal route.
+2. The Worker upgrades the HTTP request to a WebSocket and forwards it through the Container DO to the in-container terminal server.
+3. The terminal server spawns a login shell PTY with full-color terminal emulation so interactive TUI applications render correctly.
+4. Raw terminal data flows over the WebSocket without JSON wrapping so binary-clean PTY output is preserved.
+5. Out-of-band control messages (resize, process-name, restore) are encoded as JSON objects identifiable by a leading type-discriminator field.
+6. Unknown control-message types are silently ignored so the wire protocol can grow without breaking older clients or servers.
+7. No application-level ping/pong is implemented; the transport layer handles WebSocket keepalive on its own.
 
 **Constraints:**
 
-- WebSocket must be intercepted BEFORE Hono routing due to a Cloudflare Workers limitation (`workerd/issues/2319`).
-- All proxied HTTP requests from the DO to the container include a `CONTAINER_AUTH_TOKEN` Bearer header; auth-exempt paths (`/health`, `/activity`) are whitelisted.
+- WebSocket upgrade handling must run before the application router because of a Worker-runtime limitation that prevents WebSocket frames from reaching downstream middleware.
+- All proxied HTTP requests from the DO to the container carry the shared container auth token; only the health and activity probes are exempt.
 
 **Priority:** P0
 
@@ -110,17 +110,17 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Acceptance Criteria:**
 
-1. Retryable close codes are: 1001 (Going Away), 1006 (Abnormal Closure), 1011 (Unexpected Condition), 1012 (Service Restart), 1013 (Try Again Later).
-2. Reconnection uses a 1-second delay (`WS_RETRY_DELAY_MS = 1000`) with infinite retries for retryable codes.
-3. On reconnection, terminal buffer state is restored via xterm SerializeAddon (headless terminal captures full state).
-4. The `inputDisposable` is stored outside `connect()` and disposed before creating a new handler on reconnect to prevent character doubling.
-5. AbortController-based cancellation prevents parallel retry loops from accumulating.
-6. Dead-container state is never inferred from retry failure count; only the server-authoritative close code 4503 stops retrying.
+1. The retryable close-code set covers the standard WebSocket "transient" codes: going-away, abnormal-closure, unexpected-condition, service-restart, and try-again-later.
+2. Reconnection uses a short fixed delay and retries indefinitely while close codes remain in the retryable set.
+3. On reconnection, the terminal buffer state is restored by serializing the in-memory xterm buffer and replaying it into the new connection.
+4. The input handler subscription is owned outside the connect routine and disposed before a replacement handler is attached so reconnect cannot duplicate keystrokes.
+5. Reconnection attempts are cancellable so parallel retry loops cannot accumulate across rapid disconnect-reconnect cycles.
+6. Dead-container state is never inferred from a retry-failure counter; only the server-authoritative container-stopped close code stops retries.
 
 **Constraints:**
 
-- Retry loops are cancelled when a session is disposed (e.g., session stopped, user navigated away).
-- Dashboard navigation schedules a 60-second WebSocket disconnect grace period; returning cancels the timer and reconnects.
+- Retry loops are cancelled when a session is disposed (for example, when the session is stopped or the user navigates away).
+- Dashboard navigation schedules a short WebSocket disconnect grace period; returning to the terminal within the grace window cancels the timer and reconnects without tearing down the connection.
 
 **Priority:** P1
 
@@ -145,16 +145,16 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Acceptance Criteria:**
 
-1. The Container DO's `fetch()` override sends close code 4503 (`WS_CONTAINER_STOPPED_CODE`) when `!this.ctx.container?.running`.
-2. On receiving 4503, the frontend immediately sets the terminal to `'disconnected'` state with a "Session stopped" message.
-3. The frontend does not retry after 4503.
-4. On non-4503 close codes (e.g., 1006 network error), the client retries indefinitely; KV polling updates the status when propagation completes.
-5. The 4503 code is distinct from HTTP 503 responses on the terminal route guard (defense-in-depth).
+1. The Container DO's WebSocket handler sends the dedicated container-stopped close code (4503) whenever the underlying container is not running.
+2. On receiving the container-stopped close code, the frontend immediately moves the terminal into a disconnected state and surfaces a "Session stopped" message.
+3. The frontend does not retry the connection after receiving the container-stopped close code.
+4. On any other close code (network failures, transient infrastructure errors), the client retries indefinitely; persistent state polling resolves the final session status.
+5. The container-stopped close code is distinct from a 503 HTTP response on the terminal route guard so the two layers can fail independently (defense in depth).
 
 **Constraints:**
 
-- 4503 is in the WebSocket private-use range (4000-4999), safe for application-specific semantics.
-- During the 3-minute startup guard for newly started sessions, only 4503 can transition a session to stopped (anti-flapping).
+- The 4503 code falls inside the WebSocket private-use range so it cannot collide with standardized codes.
+- During the startup grace window for newly started sessions, only the container-stopped close code is allowed to transition a session into the stopped state, preventing flapping while the new container is still warming up.
 
 **Priority:** P0
 
@@ -182,18 +182,18 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Acceptance Criteria:**
 
-1. `TAB_CONFIG` environment variable is set by the Container DO and parsed by the terminal server.
-2. Tab 1 is pre-warmed at container start: the terminal server spawns a `PREWARM_SESSION_ID` PTY with a login shell that reads `.bashrc`.
-3. `.bashrc` reads `TAB_CONFIG` and launches the configured agent (e.g., `claude --dangerously-skip-permissions` for Claude Code, `codex` for Codex, etc.).
-4. Pre-warm readiness is detected by the first PTY output (any terminal output indicates the agent has started). A 20-second hard timeout acts as a safety net.
-5. When the first WebSocket client connects for tab 1, the pre-warmed session is adopted (renamed from `prewarm-1` to the actual terminal ID). If not adopted within 2 minutes, the pre-warmed session is killed.
-6. The startup status stage progresses through: `starting` -> `syncing` -> `verifying` -> `mounting` (pre-warm in progress, terminal canvas hidden) -> `ready` (pre-warm complete, "Open" button appears).
+1. The Container DO passes the per-tab agent configuration to the terminal server at container start so the server knows which agent to launch in tab 1.
+2. Tab 1 is pre-warmed at container start: the terminal server spawns a dedicated pre-warm PTY whose login shell reads the user's shell init.
+3. The shell init reads the per-tab configuration and launches the configured agent (Claude Code, Codex, Gemini CLI, OpenCode, or Copilot CLI), each in non-interactive sandboxed mode appropriate for its CLI.
+4. Pre-warm readiness is detected by the first PTY output; a bounded hard timeout acts as a safety net so a permanently silent agent does not stall startup.
+5. When the first WebSocket client connects for tab 1, the pre-warmed session is adopted (re-bound from the pre-warm identifier to the real terminal ID). If no client adopts it within a bounded window, the pre-warmed session is killed.
+6. The startup status stage progresses through a fixed pipeline: starting -> syncing -> verifying -> mounting (pre-warm in progress, terminal canvas hidden) -> ready (pre-warm complete, "Open" control appears).
 
 **Constraints:**
 
-- Fast Start (`FAST_CLI_START=true`, default) disables auto-update checks for all 5 AI tools to eliminate 5-30s startup delay.
-- PTY spawns `bash -l` (login shell) so `.bashrc` agent autostart logic runs.
-- Auto-start uses `--dangerously-skip-permissions` flag with `IS_SANDBOX=1` for permission bypass when running as root.
+- Fast Start is on by default and disables CLI auto-update checks for all supported agents so startup is not blocked on remote version lookups.
+- The pre-warm PTY uses a login shell so the shell-init agent-autostart logic runs.
+- Agent auto-start requests sandbox-mode permission bypass so the agent starts non-interactively without prompting the user inside the pre-warm window.
 
 **Priority:** P0
 
@@ -217,16 +217,16 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Acceptance Criteria:**
 
-1. When a tab is created by the user, the `manual` flag is set to `true` in the tab configuration.
-2. The WebSocket URL includes `?manual=1` query parameter.
-3. The terminal server sets `MANUAL_TAB=1` in the PTY environment variables for manual tabs.
-4. `.bashrc` reads `MANUAL_TAB` and skips the agent autostart block when set to `1`.
-5. The resulting PTY is a plain `bash -l` login shell with no agent running.
+1. Tabs created by the user are marked manual in the tab configuration so downstream components can branch on the distinction.
+2. The manual flag is propagated to the container via a query parameter on the WebSocket upgrade URL.
+3. The terminal server exposes the manual flag to the PTY environment so the shell init can read it.
+4. The shell init skips its agent-autostart block when the manual flag is set.
+5. The resulting PTY is a plain login shell with no agent running.
 
 **Constraints:**
 
-- The `manual` flag is a frontend-initiated signal; the backend trusts it for tab behavior but not for security decisions.
-- Manual tabs still have access to all installed CLI tools (agents can be started manually by the user).
+- The manual flag is a frontend-originated UX hint; the backend trusts it for tab-behavior selection but not for security decisions.
+- Manual tabs still have access to all installed CLI tools; the user can launch any agent from the shell.
 
 **Priority:** P0
 
@@ -251,18 +251,18 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Acceptance Criteria:**
 
-1. Four layout modes are supported: `tabbed` (single terminal visible), `2-split` (side by side), `3-split` (one left, two right), `4-grid` (2x2).
-2. Each layout has a minimum tab count: tabbed=1, 2-split=2, 3-split=3, 4-grid=4.
-3. `isLayoutCompatible(layout, tabCount)` validates that a session has enough tabs for the requested layout.
-4. Layout auto-upgrades when tab count matches a higher layout (`LAYOUT_UPGRADE_ORDER`).
-5. `getBestLayoutForTabCount(tabCount)` returns the highest compatible layout for a given tab count.
+1. Four layout modes are supported: tabbed (single terminal visible), two-split (side by side), three-split (one left, two right), and four-grid (2x2).
+2. Each layout has a minimum tab count equal to the number of panes it shows.
+3. A compatibility check validates whether a session has enough tabs for the requested layout before applying it.
+4. The layout auto-upgrades when the tab count reaches the next compatible layout's minimum.
+5. A best-layout helper resolves the highest layout compatible with a given tab count so the UI can land users on the most spacious view by default.
 6. Layout state is persisted per session and restored on reconnection.
-7. `setTilingLayout()` returns `false` if the session does not exist or the layout is incompatible.
+7. Applying an incompatible layout (insufficient tabs) or targeting a missing session fails cleanly rather than partially applying.
 
 **Constraints:**
 
-- Tiling state is managed in `web-ui/src/stores/tiling.ts` and accesses session store state via lazy registration to avoid circular imports.
-- Layout changes trigger terminal resize events via `triggerLayoutResize()` so xterm.js reflows content.
+- The tiling store accesses the session store lazily to avoid a circular dependency between the two pieces of UI state.
+- Layout changes trigger terminal resize events so the rendering library reflows content.
 
 **Priority:** P2
 
@@ -286,17 +286,17 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Acceptance Criteria:**
 
-1. Incoming WebSocket messages are appended to a per-terminal write buffer (`writeBuffers` Map).
-2. A flush is scheduled at 33ms intervals (`WRITE_FLUSH_INTERVAL_MS = 33`, approximately 30fps).
-3. On flush, all buffered strings are joined and written to the xterm.js terminal in a single `terminal.write()` call.
-4. At 30fps, each frame triggers roughly half the render passes compared to 60fps, cutting `renderRows` style recalculations in half during burst output.
-5. The ~33ms latency (vs ~16ms at 60fps) is imperceptible to users.
-6. Pending flushes are tracked per terminal key and cancelled on terminal disposal.
+1. Incoming WebSocket messages are appended to a per-terminal write buffer keyed by the compound terminal identity.
+2. A flush is scheduled on a fixed cadence corresponding to roughly 30 frames per second so render passes are bounded even under burst output.
+3. On flush, all buffered output for a terminal is concatenated and written to the rendering library in a single call.
+4. The 30 fps flush rate halves the render-pass count compared to 60 fps without producing perceptible latency for typed input or interactive output.
+5. The added flush latency stays below the human input-feedback perception threshold.
+6. Pending flushes are tracked per terminal and cancelled on terminal disposal.
 
 **Constraints:**
 
-- Write buffers use the compound key `sessionId:terminalId`.
-- Programmatic scroll suppression (`scrollSuppressionCounts`) prevents post-write scroll corrections from triggering false scroll-reset detection.
+- Write buffers use the compound terminal identity so each tab's stream is coalesced independently.
+- Programmatic scroll-position adjustments after a write are tracked separately so they cannot be misinterpreted as a user-initiated scroll reset.
 
 **Priority:** P1
 
@@ -322,18 +322,18 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Acceptance Criteria:**
 
-1. The terminal server sends JSON control messages with `{"type":"process-name","processName":"..."}` over the WebSocket.
-2. The frontend parses control messages (identified by the `{"type":` prefix) separately from raw terminal data.
-3. `PROCESS_ICON_MAP` maps running process names (claude, codex, gemini, opencode, copilot, htop, yazi, lazygit, bash, sh, zsh) to MDI icons.
-4. `PROCESS_DISPLAY_NAME` provides optional overrides from binary name to display name (currently empty -- all agent binary names match their display names).
-5. `AGENT_ICON_MAP` maps the 6 agent types to session card icons.
-6. The `onProcessName` callback is registered by the session store to receive process-name updates from the terminal store (avoiding circular imports).
+1. The terminal server emits process-name control messages over the WebSocket whenever the foreground process for a PTY changes.
+2. The frontend distinguishes control messages from raw terminal data using the message's leading type-discriminator field.
+3. The frontend maps known foreground process names (supported agents plus common TUI tools and shells) to display icons via a static lookup.
+4. An optional binary-name-to-display-name override table exists for cases where the executable name differs from the user-facing name; the override table is empty when no remap is needed.
+5. The session card icon set covers each supported agent type so users can identify a session at a glance.
+6. The session store registers a process-name callback against the terminal store so process updates propagate without creating a circular import between the two stores.
 7. Process name updates are reflected in tab headers and session status cards in real time.
 
 **Constraints:**
 
-- Control messages that fail JSON parsing are treated as raw terminal data (written to xterm.js).
-- Unknown `type` values in control messages are silently ignored (forward compatibility).
+- Control messages that fail to parse as JSON are treated as raw terminal data so an unexpected payload never blocks output.
+- Unknown control-message types are silently ignored so the protocol can evolve without breaking older clients.
 
 **Priority:** P1
 
@@ -357,11 +357,11 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Acceptance Criteria:**
 
-1. Users can save current tab configuration as a preset (name + tabs).
-2. Max 3 presets per user.
-3. Presets stored via /api/presets CRUD.
-4. Apply preset to new session populates tab config.
-5. Delete preset removes it.
+1. Users can save the current tab configuration as a named preset.
+2. Each user is capped at a small fixed number of presets to keep the preset picker scannable.
+3. Presets are exposed via a dedicated CRUD endpoint set.
+4. Applying a preset to a new session populates the tab configuration from the preset.
+5. Deleting a preset removes it from the user's preset list.
 
 **Constraints:** None.
 
