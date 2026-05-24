@@ -41,14 +41,14 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Bucket name is derived deterministically from the user's email (sanitized, max 63 characters).
-2. Bucket is auto-created via Cloudflare API on first container start if it does not already exist.
-3. No API endpoint returns objects from a bucket the authenticated user does not own.
+1. The bucket name is derived deterministically from the authenticated user's email so the same user always resolves to the same bucket.
+2. The bucket is auto-created via the Cloudflare API on first container start when it does not already exist.
+3. No API endpoint may return objects from a bucket the authenticated user does not own.
 
 **Constraints:**
 
-- Bucket naming must comply with S3/R2 naming rules (lowercase, no special characters beyond hyphens).
-- `createBucketIfNotExists` must be idempotent (no error on duplicate).
+- Bucket naming complies with R2's object-storage naming rules (lowercase, no special characters beyond hyphens).
+- Bucket creation is idempotent: invoking it against an existing bucket is a no-op, not an error.
 
 **Priority:** P0
 
@@ -72,9 +72,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Files written during session N are readable in session N+1 after the container is recreated.
-2. Agent configuration files (`.claude/`, `.config/`, `.gitconfig`) persist across sessions.
-3. Workspace files persist when workspace sync is enabled (`SYNC_MODE=full`).
+1. Files written during a session are readable in a subsequent session after the container is recreated.
+2. Agent configuration directories and per-user dotfiles persist across sessions. The per-path inventory lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md).
+3. Workspace files persist across sessions when the user has enabled full workspace sync.
 
 **Constraints:**
 
@@ -110,19 +110,19 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. After bisync baseline is established, a periodic rclone bisync runs every 15 minutes.
-2. The daemon's periodic sleep is interruptible by an external signal: a signal wakes the daemon and skips the remaining sleep, producing an immediate bisync. Signals delivered while a bisync is mid-flight coalesce into exactly one rerun after the current cycle completes (see REQ-STOR-015 AC5).
-3. Conflict resolution uses newest-file-wins (`--conflict-resolve newer`).
-4. The daemon retries on transient failure and continues the 15-minute cycle.
-5. On bisync failure, the daemon attempts vanishing-file recovery (parse error output, exclude transient files, clear locks, retry) before counting the failure.
-6. After 3 consecutive unrecoverable failures (each with 3 internal retries), the daemon falls back to a `--resync` baseline to re-establish clean state.
+1. After the bisync baseline is established, a periodic bisync runs on a 15-minute cadence.
+2. The daemon's periodic sleep is interruptible by an external trigger: a trigger wakes the daemon and skips the remaining sleep, producing an immediate bisync. Triggers delivered while a bisync is mid-flight coalesce into exactly one rerun after the current cycle completes (see REQ-STOR-015 AC5).
+3. Conflict resolution is newest-file-wins.
+4. The daemon retries on transient failure and continues the periodic cycle.
+5. On bisync failure, the daemon attempts vanishing-file recovery (parse the error output, exclude transient files, clear stale locks, retry) before counting the failure against the failure budget.
+6. After three consecutive unrecoverable failures (each with internal retries exhausted), the daemon falls back to a resync baseline to re-establish a clean state.
 
 **Constraints:**
 
-- All bisync commands must use `--ignore-checksum` to prevent false hash-mismatch aborts from files changing mid-transfer.
-- `--max-delete 100` must be set to allow bulk workspace deletions to propagate.
-- `--check-sync=false` must be set to prevent post-sync listing validation failures when R2 changes during sync.
-- `--min-size 1B` must exclude 0-byte files (R2 SSE-C fails on empty objects).
+- Bisync invocations must tolerate files changing mid-transfer (no false hash-mismatch aborts).
+- Bulk deletions in the workspace must propagate (no conservative delete cap that strands removals locally).
+- Post-sync listing validation must not abort the cycle when R2 changes during the sync window.
+- Empty files are excluded from sync because R2's per-object encryption rejects zero-byte uploads.
 
 **Priority:** P0
 
@@ -153,17 +153,17 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. A one-way `rclone sync` from R2 to local runs as the first initialization step after the terminal server starts listening on port 8080 (blocking).
-2. The sync completes or times out within 120 seconds (`SYNC_TIMEOUT`).
-3. All per-agent config file modifications (Claude config, Gemini settings, Codex version metadata, tab autostart shell config) complete after the initial sync but before bisync baseline, to avoid hash mismatches. The per-agent file enumeration lives in [documentation/lanes/configuration.md](../../documentation/lanes/configuration.md).
-4. A bisync baseline (`--resync`) is established after file modifications complete.
-5. If the initial baseline fails due to a vanishing file (file listed but deleted before copy), the system parses the error output, adds the file to a session-scoped recovery filter (`/tmp/rclone-recovery-filters.txt`), and retries (max 3 attempts). Only non-workspace files are auto-excluded; workspace files trigger a plain retry.
-6. Known ephemeral per-session MCP config files are statically excluded from all sync operations. The full per-path inventory of static excludes is delegated to the sync daemon and [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md).
-7. The bisync daemon starts unconditionally after baseline - even if all baseline attempts fail. A dead daemon means zero sync for the entire session; the daemon has its own recovery (vanishing-file recovery + consecutive failure -> resync fallback).
+1. A one-way sync from R2 to local runs as the first initialization step after the in-container terminal server is ready to accept connections, blocking further startup until it completes.
+2. The initial sync completes or times out within a bounded duration so the session is never blocked indefinitely on a slow R2 fetch.
+3. All per-agent config file modifications complete after the initial sync but before the bisync baseline, so the baseline observes a stable snapshot. The per-agent file enumeration lives in [documentation/lanes/configuration.md](../../documentation/lanes/configuration.md).
+4. A bisync baseline is established after the post-sync file modifications complete.
+5. If the initial baseline fails because of a vanishing file (listed by R2 but deleted before copy), the system parses the error, adds the missing file to a session-scoped recovery filter, and retries with a bounded number of attempts. Only non-workspace files are auto-excluded; workspace files trigger a plain retry.
+6. Known per-session ephemeral agent-state files are statically excluded from all sync operations. The full per-path inventory of static excludes lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md).
+7. The bisync daemon starts unconditionally after the baseline phase, even if all baseline attempts fail; a dead daemon would mean zero sync for the entire session, and the daemon already has its own recovery path (vanishing-file recovery plus resync fallback).
 
 **Constraints:**
 
-- The bisync-initialized flag (`/tmp/.bisync-initialized`) must be set even on the timeout path to prevent the shutdown trap from skipping the final sync.
+- The bisync-initialized marker must be set even on the timeout path so the shutdown handler still attempts the final sync.
 
 **Priority:** P0
 
@@ -190,16 +190,16 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. A SIGINT/SIGTERM handler triggers a final bisync before exit.
-2. The final bisync only runs if the bisync-initialized flag is set.
-3. Files created during the session are available in R2 after shutdown completes.
-4. The final bisync runs under a 120-second hard watchdog. If it has not completed within 120 seconds, the process is force-killed and the user accepts that the last writes may not have synced.
-5. The container orchestrator's destroy budget is 135 seconds (120s for the final bisync plus 15s for clean process exit) before the SDK tears down the container.
+1. A termination handler runs a final bisync before the process exits.
+2. The final bisync runs only when the bisync-initialized marker is set.
+3. Files created during the session are available in R2 after shutdown completes successfully.
+4. The final bisync runs under a hard watchdog. If it has not completed before the watchdog expires the process is force-killed; the user accepts that the last writes may not have synced.
+5. The container orchestrator's destroy budget exceeds the final-sync watchdog by enough time for a clean process exit so the orchestrator does not tear down mid-sync.
 
 **Constraints:**
 
-- The shutdown handler must complete within 120 seconds; the DO destroy() budget is 135 seconds.
-- Final bisync uses the same flags as periodic bisync (`--ignore-checksum`, `--max-delete 100`, `--check-sync=false`).
+- The shutdown handler's watchdog and the orchestrator's destroy budget must remain coordinated: destroy budget > watchdog + exit time.
+- The final bisync uses the same correctness flags as the periodic bisync so behavior at shutdown matches steady-state.
 
 **Priority:** P0
 
@@ -223,17 +223,17 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Session creation (`POST /api/sessions`) reads `storage-stats:{bucketName}` from KV and compares `totalSizeBytes` against the user's `maxStorageBytes` tier config value.
-2. If usage exceeds quota, session creation is rejected with a clear error message.
-3. `GET /api/storage/stats` returns both current usage and `maxStorageBytes` so the frontend can display "X / Y".
-4. A `null` value for `maxStorageBytes` means unlimited (no enforcement).
-5. Tier config changes backfill from defaults when the field did not exist in previously saved KV data (`{ ...default, ...stored }` merge).
+1. Session creation reads the cached storage-usage figure and compares it to the user's tier-configured maximum.
+2. If current usage exceeds the configured maximum, session creation is rejected with a clear user-facing error.
+3. The storage-stats endpoint returns both current usage and the configured maximum so the UI can render an "X of Y" indicator.
+4. An unset maximum is interpreted as unlimited and skips enforcement entirely.
+5. When tier configuration adds new fields, previously persisted records inherit the new field's default rather than appearing unset.
 
 **Constraints:**
 
-- Quota is checked only at session start; individual file uploads, rclone sync writes, and preseed writes are not blocked mid-session.
-- Users can temporarily exceed quota during an active session; overage is caught on the next session start attempt.
-- Stats are cached in KV with 60-second TTL; the quota value is embedded in the cache so cache hits skip tier config resolution.
+- Quota is checked at session start only; mid-session file uploads, sync writes, and preseed writes are not blocked.
+- Users may temporarily exceed quota during an active session; the overage is caught at the next session-start attempt.
+- The stats cache embeds the quota value so cache hits skip tier-configuration resolution.
 
 **Priority:** P1
 
@@ -265,16 +265,16 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. `GET /api/storage/browse` lists objects in a given R2 prefix with directory-style navigation.
-2. `POST /api/storage/upload` uploads a file to a specified R2 key.
-3. `GET /api/storage/download` returns a file's contents with `Content-Disposition: attachment` and sanitized filename.
-4. `POST /api/storage/delete` deletes objects by key and/or prefix (server-side bulk delete).
-5. `GET /api/storage/preview` returns file content for text files inline and metadata for other types.
+1. The browse endpoint lists objects under a given R2 prefix with directory-style navigation.
+2. The upload endpoint stores a file at a specified R2 key.
+3. The download endpoint returns file contents as an attachment with a sanitized filename.
+4. The delete endpoint removes objects by key and/or prefix in a single server-side bulk operation.
+5. The preview endpoint returns text content inline for text files and metadata-only for other types.
 
 **Constraints:**
 
-- All R2 operations use SSE-C headers when `ENCRYPTION_KEY` is set.
-- Each endpoint has its own rate limit (browse: 30/min, upload: 60/min, download: 120/min, preview: 120/min).
+- All R2 read and write operations use SSE-C when server-side encryption is configured.
+- Each endpoint has its own per-user rate limit appropriate to its expected access pattern.
 - UI presentation, architectural source-of-truth, and prefix-traversal validation are specified in [REQ-STOR-016](#req-stor-016-file-browser-presentation-and-traversal-safety).
 
 **Priority:** P1
@@ -300,9 +300,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. The frontend renders as a 400px slide-in drawer on desktop and a bottom-sheet on mobile.
-2. The file browser reads directly from R2 via Worker API (not from the container filesystem).
-3. Browse endpoint validates prefix against directory traversal (`..` rejection).
+1. The file browser renders as a slide-in side drawer on desktop and a bottom-sheet on mobile.
+2. The file browser reads directly from R2 via the Worker API (not from the container filesystem).
+3. The browse endpoint validates the requested prefix against directory-traversal probes and rejects parent-directory references.
 
 **Constraints:**
 
@@ -333,16 +333,16 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. `POST /api/storage/upload/initiate` creates a multipart upload and returns an upload ID.
-2. `POST /api/storage/upload/part` uploads a single part (base64 body) for a given upload ID.
-3. `POST /api/storage/upload/complete` finalizes the multipart upload, assembling parts into the final object.
-4. `POST /api/storage/upload/abort` cancels an in-progress multipart upload.
-5. All multipart upload endpoints share the upload rate limit (60/min).
+1. The multipart initiate endpoint creates a multipart upload and returns an upload identifier.
+2. The multipart part endpoint uploads a single part for a given upload identifier.
+3. The multipart complete endpoint finalizes the upload by assembling the recorded parts into the final object.
+4. The multipart abort endpoint cancels an in-progress multipart upload and releases any retained parts.
+5. All multipart endpoints share a single rate-limit bucket so an attacker cannot bypass the upload limit by interleaving phases.
 
 **Constraints:**
 
-- Each part must include SSE-C headers when encryption is enabled.
-- The upload endpoints are exempt from the 64 KiB body size limit applied to other API routes.
+- Each uploaded part is encrypted with SSE-C when server-side encryption is configured.
+- The multipart upload endpoints are exempt from the body-size limit applied to other API routes so chunked uploads can carry binary payloads.
 
 **Priority:** P1
 
@@ -368,14 +368,14 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. When a user's R2 bucket is created for the first time, tutorial documents are written to the bucket root.
-2. `POST /api/storage/seed/getting-started` allows manual re-seeding with `overwrite: true`.
-3. After seeding, the `storage-stats:{bucketName}` KV cache is invalidated so the next poll returns fresh data.
-4. The seed endpoint is rate-limited (3/min).
+2. A seed endpoint allows the user to manually re-seed the tutorial content, optionally overwriting existing files.
+3. After a successful seed, the storage-stats cache is invalidated so the next poll returns fresh data.
+4. The seed endpoint is rate-limited at a low ceiling appropriate to its destructive-overwrite mode.
 
 **Constraints:**
 
-- Seeding must be idempotent when called with `overwrite: false` (skip files that already exist).
-- Tutorial source content is maintained in `tutorials/` directory.
+- Seeding is idempotent in non-overwrite mode: files that already exist at the target keys are skipped, never duplicated.
+- Tutorial source content is a build-time artifact; the spec governs *that* it ships, not where the source lives.
 
 **Priority:** P1
 
@@ -402,18 +402,18 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. On first bucket creation, `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate preseed files to R2.
-2. `POST /api/storage/seed/agent-configs` triggers `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })`, overwriting existing configs and deleting files not in the current mode.
-3. Cleanup is strictly scoped to keys from `AGENTS_SEEDED_CONFIGS`; user-created files are never deleted.
-4. Variant-per-mode keys (instruction files with different content per mode) are excluded from deletion by `getPreseedKeysNotInMode()`.
-5. Partial delete failures produce warnings but do not fail the overall operation.
+1. On first bucket creation, the reconciler writes mode-appropriate preseed files to R2 without overwriting or cleaning up.
+2. The agent-config seed endpoint triggers a full reconcile that overwrites existing configs and removes files not present in the current mode.
+3. Cleanup is strictly scoped to the registered preseed key set; user-created files outside that set are never deleted.
+4. Variant-per-mode keys (instruction files whose content differs between modes) are excluded from cleanup so a mode switch never deletes a file the new mode still owns.
+5. Partial delete failures produce warnings but do not fail the overall reconcile operation.
 6. Pro mode seeds a strict superset of Standard's preseed files (Pro adds the memory plugin, agent definitions, hooks, slash commands, the discipline triad rules, and additional skills).
 
 **Constraints:**
 
-- Mode takes effect only on explicit "Recreate AI agent skills & rules" or new bucket creation; existing users keep current files until they recreate.
-- No duplicate preseed source files exist on disk; all agent variants are generated from the Claude Code preseed as single source of truth.
-- `getConfigsForMode()` must validate no duplicate keys within a single mode.
+- Mode takes effect only on explicit re-seed action or new bucket creation; existing users keep their current files until they re-seed.
+- No duplicate preseed source files exist on disk; all agent variants are generated from the Claude Code preseed as the single source of truth.
+- Preseed configuration must validate that no two entries within a single mode share the same key.
 
 **Priority:** P1
 
@@ -436,15 +436,15 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. `SYNC_MODE=none` (default): only settings and config directories are synced; `~/workspace/` is excluded entirely.
-2. `SYNC_MODE=full`: entire `~/workspace/` is synced (minus `node_modules/`).
-3. `SYNC_MODE=metadata`: only agent config files (`.claude/` and `CLAUDE.md`) per repo are synced.
-4. All modes exclude these categories (per-path inventory is delegated to the sync daemon and storage-and-sync documentation; the spec governs the categories so future filter changes have something to be verified against): package-manager caches, rclone caches, agent session logs, ephemeral agent data, build artifacts, regenerable XDG tool state (e.g. wrangler state, generic dotfile user-app caches), and vendor credential caches that the agent regenerates on demand.
+1. The default sync scope (`none`) syncs only settings and config directories and excludes the workspace directory entirely.
+2. The full sync scope (`full`) syncs the entire workspace directory, excluding dependency-install directories.
+3. The metadata sync scope (`metadata`) syncs only the agent-config files (per-repo agent instruction files and the per-repo agent rule directory).
+4. All sync scopes exclude these categories (per-path inventory lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md); the spec governs the categories so future filter changes have something to be verified against): package-manager caches, rclone caches, agent session logs, ephemeral agent data, build artifacts, regenerable tool state, and vendor credential caches that the agent regenerates on demand.
 
 **Constraints:**
 
-- All rclone commands must use `--filter` flags (not `--include`/`--exclude`).
-- The Container DO currently only maps `workspaceSyncEnabled` to `full` or `none`; `metadata` requires setting `SYNC_MODE` directly.
+- Sync configuration uses filter rules with explicit precedence (not order-sensitive include/exclude lists) so the active scope is unambiguous when multiple rules match.
+- The Container API surface currently exposes only the binary workspace-sync toggle (full or none); the metadata scope is reachable only by direct sync-mode configuration.
 
 **Priority:** P1
 
@@ -467,15 +467,15 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Before each periodic bisync, `cleanup_old_transcripts()` runs (sequential, no concurrent access).
-2. The 5 most recent session transcripts (per-project JSONL log files) are retained by modification time; older transcripts are deleted. The exact filesystem path lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md).
-3. Session directories are left intact so Claude Code can still resolve project paths.
-4. Deletions propagate to R2 via bisync automatically.
-5. Subagent transcripts are excluded from bisync entirely.
+1. Transcript cleanup runs before each periodic bisync and never overlaps another cleanup run.
+2. The five most recent per-project session transcripts are retained by modification time; older transcripts are deleted. The exact filesystem path lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md).
+3. Session directories themselves are left intact so the agent can still resolve project paths.
+4. Cleanup deletions propagate to R2 automatically via the next bisync.
+5. Subagent transcripts are excluded from bisync entirely so they never reach R2.
 
 **Constraints:**
 
-- Cleanup functions are wrapped in subshells with `|| true` to prevent `set -euo pipefail` from killing the bisync daemon on benign non-zero exits.
+- Cleanup steps must isolate non-zero exit codes so a benign cleanup failure cannot terminate the bisync daemon.
 
 **Priority:** P1
 
@@ -498,15 +498,15 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. `GET /api/storage/stats` paginates all R2 objects and caches results in KV (`storage-stats:{bucketName}`) with 60-second TTL.
-2. `batch-status` piggybacks cached stats without TTL check (relies on cache freshness).
-3. Mutation endpoints (upload, delete, seed) invalidate the KV cache after successful operations.
-4. The quota value (`maxStorageBytes`) is embedded in the cache entry so cache hits skip tier config resolution.
+1. The storage-stats endpoint paginates all R2 objects in the user's bucket and caches the aggregated result with a short TTL.
+2. The session batch-status endpoint reuses the cached stats without an additional TTL check, relying on the source-of-truth cache for freshness.
+3. Mutation endpoints (upload, delete, seed) invalidate the stats cache after a successful operation so the next read reflects the change.
+4. The cache entry embeds the tier-configured quota value so cache hits do not have to resolve tier configuration.
 
 **Constraints:**
 
-- Stats rate limited at its own rate (separate from browse/upload/download).
-- Cache miss triggers full R2 pagination, which may be slow for large buckets.
+- The stats endpoint has its own rate-limit budget separate from browse, upload, and download so a heavy stats poller cannot starve other operations.
+- A cache miss triggers a full R2 listing which may be slow for large buckets; callers must tolerate elevated latency on miss.
 
 **Priority:** P1
 
@@ -533,17 +533,17 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. `POST /api/sessions/sync` fans out a sync trigger to every running session belonging to the authenticated user. Stopped sessions are skipped client-side using `batch-status` output before fan-out.
-2. Fan-out runs in parallel with a concurrency cap of 8; remaining sessions are queued.
-3. Per-session failures are isolated -- one session's bisync failure does not prevent other sessions from completing. The response shape returns the per-session sync status.
-4. `POST /api/sessions/sync` is rate-limited at 6 requests per minute per user (matches the destructive-action rate-limiter pattern).
-5. The trigger is idempotent: a SIGUSR1 sent to the bisync daemon while a bisync is already in flight causes exactly one rerun after the current cycle completes (N concurrent signals coalesce to one rerun, not N).
-6. The frontend Sync-now button is disabled while any of the user's sessions reports `sync.status === 'syncing'` and re-enables once all sessions transition out.
+1. The sync-trigger endpoint fans out an immediate sync to every running session belonging to the authenticated user. Stopped sessions are skipped client-side using the session batch-status output before fan-out.
+2. Fan-out runs in parallel with a bounded concurrency cap; remaining sessions are queued so a user with many concurrent sessions cannot exhaust Worker subrequest budget.
+3. Per-session failures are isolated: one session's bisync failure does not prevent other sessions from completing. The response carries per-session sync status.
+4. The sync-trigger endpoint is rate-limited per user using the same destructive-action rate-limiter pattern applied to other expensive endpoints.
+5. The trigger is idempotent: an external trigger to the bisync daemon while a bisync is already in flight causes exactly one rerun after the current cycle completes (N concurrent triggers coalesce to one rerun, not N).
+6. The frontend Sync-now control is disabled while any of the user's sessions reports an in-flight sync and re-enables once all sessions transition out.
 
 **Constraints:**
 
-- Three triggers only: 15-minute cadence (REQ-STOR-003), Sync-now button (this REQ), and the final shutdown bisync (REQ-STOR-005). R2 uploads do not auto-fan-out to running containers - users click Sync-now to propagate freshly uploaded files immediately, or wait for the next 15-minute cycle. Removing the upload-side auto-trigger avoids bursting Worker subrequest budget on multi-file uploads (each file otherwise enumerates KV and fan-outs to every running session).
-- Multi-session fan-out is safe under the existing `--conflict-resolve newer` bisync semantics: the merge operation is commutative and associative under absolute mtime, so parallel and serial fan-out produce the same final R2 state per file. The same concurrent mode already runs every 15 minutes when a user has multiple sessions (per REQ-STOR-003); manual triggers introduce no new failure mode.
+- Three sync triggers only: the periodic cadence (REQ-STOR-003), the explicit user trigger (this REQ), and the final shutdown sync (REQ-STOR-005). R2-side uploads do not auto-fan-out to running containers; the user either triggers a sync or waits for the next periodic cycle. The upload-side auto-trigger was removed to avoid bursting Worker subrequest budget on multi-file uploads.
+- Multi-session fan-out is safe under the newest-file-wins bisync semantics: the merge operation is commutative and associative under absolute modification time, so parallel and serial fan-out produce the same final R2 state per file. The same concurrent mode already runs on every periodic cycle for users with multiple sessions, so manual triggers introduce no new failure mode.
 
 **Priority:** P1
 
