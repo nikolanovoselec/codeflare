@@ -669,6 +669,13 @@ jobs:
               for (const bucket of buckets) {
                 console.log("=== Nuking bucket: " + bucket + " ===");
                 let total = 0, failures = 0, sweepIter = 0;
+                // Progress detector: under R2 list staleness a recently
+                // deleted key may reappear on the next list. If we make
+                // multiple sweeps in a row with zero new successful
+                // deletes, the list is not converging — fail fast
+                // instead of burning the 100-sweep cap.
+                let consecutiveZeroProgressSweeps = 0;
+                const ZERO_PROGRESS_LIMIT = 3;
                 while (true) {
                   sweepIter++;
                   const url = new URL("https://api.cloudflare.com/client/v4/accounts/" + account + "/r2/buckets/" + bucket + "/objects");
@@ -679,16 +686,27 @@ jobs:
                     process.exit(1);
                   }
                   const body = await lr.json();
-                  const objects = (body.result || body.objects || []).map(o => o.key || o.name).filter(Boolean);
+                  // Cloudflare v4 R2 list returns { result: [...], result_info: {...} },
+                  // but harden against either result-as-array or
+                  // result.objects shape so a future envelope change
+                  // does not silently break the loop.
+                  const result = body.result;
+                  const objects = (Array.isArray(result) ? result : (result && result.objects) || body.objects || [])
+                    .map(o => o.key || o.name).filter(Boolean);
                   if (objects.length === 0) break;
                   console.log("Sweep " + sweepIter + ": deleting " + objects.length + " keys");
+                  let sweepProgress = 0;
                   for (const key of objects) {
                     const dr = await fetch("https://api.cloudflare.com/client/v4/accounts/" + account + "/r2/buckets/" + bucket + "/objects/" + encodeURIComponent(key), {
                       method: "DELETE",
                       headers: { Authorization: "Bearer " + token },
                     });
-                    if (dr.ok) {
+                    // 404 means "already gone" — under R2 list staleness
+                    // a re-issued DELETE for a key the previous sweep
+                    // removed is benign success, not failure.
+                    if (dr.ok || dr.status === 404) {
                       total++;
+                      if (dr.ok) sweepProgress++;
                     } else {
                       failures++;
                       let detail = "";
@@ -696,10 +714,18 @@ jobs:
                       console.log("::warning::DELETE failed bucket=" + bucket + " key=" + key + " status=" + dr.status + detail);
                     }
                   }
-                  // Safety: bound the sweep loop so a bug-induced
-                  // never-empty list cannot run forever.
-                  if (sweepIter > 100) {
-                    console.log("::error::aborting after 100 sweeps for bucket " + bucket + " (suspected pagination bug)");
+                  if (sweepProgress === 0) {
+                    consecutiveZeroProgressSweeps++;
+                    if (consecutiveZeroProgressSweeps >= ZERO_PROGRESS_LIMIT) {
+                      console.log("::error::" + ZERO_PROGRESS_LIMIT + " consecutive sweeps with zero successful deletes for bucket " + bucket + " (list not converging — concurrent writer or stale list)");
+                      process.exit(1);
+                    }
+                  } else {
+                    consecutiveZeroProgressSweeps = 0;
+                  }
+                  // Hard cap on total sweeps as a final safety net.
+                  if (sweepIter >= 100) {
+                    console.log("::error::aborting at 100-sweep safety cap for bucket " + bucket);
                     process.exit(1);
                   }
                 }
