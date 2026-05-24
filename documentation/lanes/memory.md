@@ -10,11 +10,13 @@ removed.
 insights, observations) survives across sessions and devices. Every 15
 user prompts the agent auto-captures a structured note into
 `Raw/Sessions/`. The next session - on the same or another device -
-opens with full recall via the unified graph. The vault subtree is
-bisync'd to R2 in advanced mode only (default mode runs the capture hook
-for in-session context but never persists to R2). The rest of this lane
-covers the hook mechanics, capture pipeline, and counter design that
-make that work.
+opens with full recall via the unified graph. Cross-device persistence
+requires Pro mode (the "Pro" / advanced session mode selected at session
+creation, gated by REQ-MEM-006): only Pro sessions bisync the vault
+subtree to R2. Default-mode sessions still run the capture hook for
+in-session context, but the vault never leaves the container. The rest
+of this lane covers the hook mechanics, capture pipeline, and counter
+design that make that work.
 
 **Audience:** Developers
 
