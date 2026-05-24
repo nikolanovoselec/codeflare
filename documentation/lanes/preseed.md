@@ -17,6 +17,7 @@ it gets there" content. Memory-system specifics live in
 - [Settings.json Merge](#settingsjson-merge)
 - [Plugin Enablement](#plugin-enablement)
 - [Third-party plugin: context-mode](#third-party-plugin-context-mode)
+- [Graphify](#graphify)
 - [/sdd init Modes](#sdd-init-modes)
 - [Troubleshooting](#troubleshooting)
 
