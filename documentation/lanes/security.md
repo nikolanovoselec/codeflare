@@ -253,11 +253,22 @@ Five independent gates must all pass before any object is deleted:
 4. Set **Action** to `r2-nuke`.
 5. In the **Confirmation** field, type `DELETE-ALL-R2-OBJECTS` (exact string, case-sensitive).
 6. Click **Run workflow** and approve via the GitHub Environment protection gate if configured.
-7. Monitor the job log: it discovers buckets from `wrangler.toml`, then DELETE-loops every object in each bucket. Progress is logged per object.
-8. After the job completes, set `ENCRYPTION_KEY` in GitHub Actions secrets and deploy normally.
+7. Monitor the job log: it discovers buckets from `wrangler.toml`, then iterates sweep-by-sweep until each bucket lists as empty. Each sweep re-lists from the head (up to 1000 keys), issues per-key DELETEs in sequence, and logs progress per object. A 404 on DELETE is treated as success (key already gone from a prior sweep). Per-key failures are logged as warnings; the job continues to the next key but exits non-zero after all buckets are processed if any DELETE failed.
+8. After the job completes successfully, set `ENCRYPTION_KEY` in GitHub Actions secrets and deploy normally.
 9. Users re-sync on next login - all new objects are written with SSE-C headers.
 
 **Irreversible:** There is no undo. Deleted objects cannot be recovered. Ensure users have local copies before running, or accept that active workspaces will need to be re-synced from scratch.
+
+#### Abort conditions
+
+The job exits non-zero (red) in three cases:
+
+| Condition | Log line to look for | What to do |
+|-----------|---------------------|------------|
+| R2 list API returns non-2xx | `::error::list failed for <bucket>: HTTP <N>` | Check `CLOUDFLARE_API_TOKEN` permissions and Cloudflare status; re-run. |
+| 3 consecutive sweeps with zero successful deletes | `::error::3 consecutive sweeps with zero successful deletes for bucket <bucket> (list not converging...)` | A concurrent writer may be recreating objects, or R2 list is returning stale entries that already 404 on DELETE but not incrementing progress. Stop any active sync processes for that user, wait 30 s, re-run. |
+| 100-sweep safety cap reached | `::error::aborting at 100-sweep safety cap for bucket <bucket>` | Bucket had more than ~100,000 objects or repeated list staleness. Re-run the job - it will re-list from scratch and continue making progress on the remaining objects. |
+| Any per-key DELETE failed | `::error::<N> object DELETEs failed across all buckets` | Scroll up for `::warning::DELETE failed` lines to identify the failing keys and HTTP status. Re-run targeting those keys manually via the R2 API, then re-run the full nuke job to confirm the bucket is empty. |
 
 ### Key pipeline
 
