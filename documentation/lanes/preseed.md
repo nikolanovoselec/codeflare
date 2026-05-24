@@ -409,6 +409,14 @@ Mechanics:
 
 The hook surfaces blocks as `hookSpecificOutput.permissionDecision: deny` with a `BLOCKED: <N> structural searches since last user prompt, 0 graphify queries...` reason so the agent's next-turn context carries the directive to consult the graph.
 
+### Graphify build model choice (REQ-AGENT-043)
+
+The `/graphify` skill dispatches semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema.
+
+Subagents run on **Sonnet** (`model: "sonnet"`). Haiku was the original choice (cost-matching with vault-extract economics) but produced 57% malformed nodes on the codeflare corpus - missing `id` fields, numeric IDs instead of strings, missing `source_file`. The extraction prompt requires reliable schema compliance across complex document types (spec files with REQ anchors, skill instructions with cross-references, ADR ledgers). Sonnet at ~3x per-agent cost with near-zero malformation is cheaper per valid node. Opus is never used from this skill.
+
+Subagents are dispatched in waves of up to 10 (configurable via `GRAPHIFY_SEMANTIC_MAX_PARALLEL`) to avoid flooding Task-tool concurrency. Each wave runs in parallel; waves are sequential. Typical codeflare build: 8 doc chunks + 16 image chunks = 24 agents across 3 waves (~135s).
+
 ## /sdd init Modes
 
 `/sdd init` is the single entry point for bootstrapping SDD on a project. It detects one of three scenarios from project state and dispatches automatically:

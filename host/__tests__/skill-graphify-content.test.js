@@ -66,11 +66,27 @@ describe('graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ
   });
 
   it('warns against `--backend openai` (no third-party API keys configured)', () => {
-    // The session model handles extraction; routing to OpenAI would silently
-    // fail or escape the in-session billing model.
     assert.ok(
       /backend openai|--backend\s+openai/i.test(skill),
       'SKILL must explicitly mention --backend openai (warning the agent off it)'
+    );
+  });
+
+  it('specifies sonnet as the default model for semantic subagents (AC4)', () => {
+    assert.ok(
+      /model:\s*"sonnet"/i.test(skill),
+      'SKILL must specify model: "sonnet" for Part B semantic subagents'
+    );
+    assert.ok(
+      !/model:\s*"haiku"/i.test(skill),
+      'SKILL must not specify model: "haiku" for semantic subagents (switched to sonnet for schema compliance)'
+    );
+  });
+
+  it('blocks opus from the skill (AC5)', () => {
+    assert.ok(
+      /never.*opus|opus.*never/i.test(skill),
+      'SKILL must state that opus is never used from this skill'
     );
   });
 });
