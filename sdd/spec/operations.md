@@ -250,6 +250,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ### REQ-OPS-015: E2E per-suite execution and artifact handling
 
 <!-- @impl: .github/workflows/e2e.yml -->
+<!-- @test: host/__tests__/workflow-e2e.test.js + host/__tests__/workflow-files.test.js (REQ-OPS-015 E2E per-suite execution describes -> AC1/AC2/AC3/AC4 API + desktop UI + mobile UI jobs + artifact 5-day retention) -->
 
 **Intent:** Each E2E suite (API, desktop UI, mobile UI) runs as its own job in the e2e workflow. Failed UI runs persist screenshots and HTML so the user can diagnose what the deployed worker actually rendered.
 
@@ -338,6 +339,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 <!-- @impl: src/container/index.ts -->
 <!-- @impl: src/container/container-metrics.ts -->
+<!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution AC8/AC9 describe -> AC1 configurable idle period) + src/__tests__/container/index.test.ts (onStop lifecycle + collectMetrics idle-stop describes -> AC2 hibernated zero-cost) -->
 
 **Intent:** Containers that are not actively in use must hibernate and incur zero compute cost. The cost model anchors the entire pricing strategy, so the hibernation guarantee is operator-facing.
 
@@ -475,6 +477,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 <!-- @impl: src/middleware/rate-limit.ts -->
 <!-- @impl: src/index.ts -->
 <!-- @impl: src/lib/rate-limit-core.ts -->
+<!-- @test: host/__tests__/workflow-stress-test.test.js (workflow shape + manual dispatch describe -> AC1-AC3) + src/__tests__/index.test.ts (REQ-OPS-008 AC6 SAAS+STRESS conflict guard describe -> AC6) + src/__tests__/middleware/rate-limit.test.ts (stress test mode bypass + REQ-OPS-008 AC5 one-time warning describes -> AC4/AC5) -->
 
 **Intent:** Load testing validates that rate limiting, session lifecycle, storage operations, and WebSocket concurrency behave correctly under high load.
 
@@ -606,6 +609,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 <!-- @impl: .github/workflows/deploy.yml -->
 <!-- @impl: wrangler.toml -->
+<!-- @test: host/__tests__/workflow-deploy-max-instances.test.js + host/__tests__/workflow-files.test.js (Per-environment container concurrency describe -> AC1/AC2/AC3/AC4 operator override + tier independence + positive integer + deploy-time apply) -->
 
 **Intent:** Operators can control how many containers run concurrently per environment independently of resource tier.
 

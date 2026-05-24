@@ -97,6 +97,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 <!-- @impl: src/container/index.ts -->
 <!-- @impl: src/container/container-env.ts -->
 <!-- @impl: src/lib/r2-admin.ts::createBucketIfNotExists -->
+<!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-SESSION-003 AC1/AC2/AC5 describes -> bucket provision + scoped token + seed-on-create) + src/__tests__/lib/r2-admin.test.ts (createBucketIfNotExists + createScopedR2Token describes -> AC1/AC2) + host/__tests__/entrypoint-bisync-behavior.test.js (REQ-SESSION-003 AC3/AC4 describes -> initial sync + bisync daemon) -->
 
 **Intent:** When a container starts, the user's persistent R2 storage is mounted and bidirectionally synced so the workspace contains all previously persisted files.
 
@@ -206,6 +207,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 <!-- @impl: src/routes/session/lifecycle.ts -->
 <!-- @impl: src/routes/session/crud.ts -->
 <!-- @impl: src/container/index.ts -->
+<!-- @test: src/__tests__/routes/session-lifecycle.test.ts (Session Lifecycle Routes POST /:id/stop + GET /:id/status describes -> AC1/AC2/AC3/AC6 stop + status transitions) + src/__tests__/routes/session-stop-delete.test.ts (AC1/AC5 describes -> stop sets KV stopped + delete cascade) -->
 
 **Intent:** Users have explicit control over session lifecycle: stop a running session, restart a stopped session, or permanently delete a session.
 
@@ -279,6 +281,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 <!-- @impl: src/container/index.ts -->
 <!-- @impl: src/routes/container/lifecycle.ts -->
 <!-- @impl: entrypoint.sh -->
+<!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (AC3/AC5 describes -> onStart refreshes envVars + preferences apply on restart) + src/__tests__/routes/preferences.test.ts (fastStartEnabled preference describe -> AC1/AC3/AC5 preference persistence across restart) -->
 
 **Intent:** Restarting a session reconnects to the same R2 bucket, preserving all user files without data loss.
 
@@ -489,6 +492,7 @@ None.
 <!-- @impl: src/routes/preferences.ts -->
 <!-- @impl: src/container/index.ts -->
 <!-- @impl: src/routes/container/lifecycle.ts::resolveEffectiveSleepAfter -->
+<!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 AC1/AC2/AC3/AC4 describes -> 5 valid options + free-tier lock + admin/paying mutation + KV persistence) + src/__tests__/routes/preferences.test.ts (GET /preferences describe -> AC4 KV preference contract) -->
 
 **Intent:** Users choose how long their sessions stay alive when idle.
 

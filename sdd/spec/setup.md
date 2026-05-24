@@ -169,6 +169,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 <!-- @impl: src/routes/setup/handlers.ts -->
 <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
+<!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-004 describe -> idempotent setup semantics) + src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-004 describe -> AC1/AC2/AC3/AC4/AC5 create-or-update + retry-resume + Already-Exists handling + latest-version-not-yet-deployed redeploy) -->
 
 **Intent:** Re-running the setup wizard with the same or updated inputs must safely update existing resources without creating duplicates or leaving orphaned state.
 
@@ -297,6 +298,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
 <!-- @impl: src/lib/cors-cache.ts -->
+<!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 describe -> AC1/AC2/AC3/AC4/AC5/AC7 zone resolution + CNAME + Worker route + Already-Exists + normalized persistence + workers.dev fallback) + src/__tests__/lib/cors-cache.test.ts (cors-cache describe -> AC6 dynamic-origin cache TTL) -->
 
 **Intent:** The setup wizard must configure a custom domain with proper DNS records and Worker routes, supporting nested subdomains and ccTLDs.
 
@@ -363,6 +365,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 ### REQ-SETUP-009: Subscribe page with tier selection
 
 <!-- @impl: web-ui/src/components/SubscribePage.tsx -->
+<!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (SubscribePage / REQ-SETUP-009 describe + AC coverage block -> AC1/AC2/AC3/AC4/AC5/AC6 tier listing + three-phase wizard + CAPTCHA + mode toggle + free-immediate + paid-handoff) -->
 
 **Intent:** Users can choose their subscription tier with a clear comparison of features and pricing.
 

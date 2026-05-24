@@ -186,6 +186,7 @@ Tiers, billing, usage tracking, and quotas.
 
 <!-- @impl: src/timekeeper/index.ts -->
 <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
+<!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted + handleSubscriptionUpdated + handleSubscriptionDeleted + auto-recreate-on-downgrade describes -> AC2/AC4/AC5/AC6 trial state transitions + cap consumption + first-charge handling + trial-used marker) + src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> AC3 trial quota enforcement) -->
 
 **Intent:** Trial periods must be capped by actual compute usage, not calendar days, so that inactive users do not burn through their trial.
 
@@ -667,6 +668,7 @@ Tiers, billing, usage tracking, and quotas.
 ### REQ-SUB-019: Session limit popup in frontend
 
 <!-- @impl: web-ui/src/components/Dashboard.tsx -->
+<!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 describe -> AC1/AC2/AC3 New-Session disable at cap + popup with running sessions + tier max from batch-status) -->
 
 **Intent:** Users understand why they can't start more sessions and which ones to stop.
 

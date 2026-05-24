@@ -277,6 +277,7 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 <!-- @impl: entrypoint.sh -->
+<!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs describe -> AC1/AC2/AC5/AC6 preseed write + sync + plugin enable + malformed-file handling) -->
 
 **Intent:** Preseed files must be available in the container's filesystem when the agent launches so that rules, skills, and agent definitions are active from the first prompt.
 
@@ -607,6 +608,7 @@ None.
 
 <!-- @impl: web-ui/src/components -->
 <!-- @impl: src/routes/deploy-keys.ts -->
+<!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes + GET/PUT/DELETE describes -> AC1/AC2/AC3/AC4 settings UI route + provider validation + KV encryption + container env propagation) -->
 
 **Intent:** Users connect GitHub and Cloudflare accounts through a visual interface without CLI commands.
 
@@ -667,6 +669,7 @@ None.
 
 <!-- @impl: src/routes/llm-keys.ts -->
 <!-- @impl: web-ui/src/components -->
+<!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes + GET/PUT/DELETE + encryption describes -> AC1/AC2/AC3/AC4 settings UI + validation + delete + masked display) -->
 
 **Intent:** Users can store their OpenAI and Gemini API keys through a visual interface.
 
@@ -699,6 +702,7 @@ None.
 <!-- @impl: preseed/agents/claude/rules/spec-discipline.md -->
 <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md -->
 <!-- @impl: preseed/agents/claude/rules/tdd-discipline.md -->
+<!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (spec-discipline + documentation-discipline + tdd-discipline + graph-first advanced-only describes -> AC1 Pro-mode rule preseed) -->
 
 **Intent:** Pro users need the spec-driven-development workflow available out of the box, with every sub-command working identically across Bash and context-mode MCP tool surfaces so the workflow does not silently behave differently across container environments.
 
@@ -1040,6 +1044,7 @@ None.
 ### REQ-AGENT-022: Legacy-codebase Import Mode Discovery
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init -->
+<!-- @test: host/__tests__/enforce-review-spawn.test.js + git-push-review-reminder.test.js (SDD transition gate describes -> AC1/AC2 transition-aware enforcement bypass during /sdd init Import Mode) -->
 
 **Intent:** Enterprises migrating a legacy codebase from manual development to autonomous agentic development need a transition path that converts un-extracted intent into a real spec. `/sdd init` Import Mode runs discovery against the full project history and produces two outputs from the same pass: official REQs for behavior clear from that surface, and a triage queue for everything unclear. The triage entry shape, transition gate, and Status semantics live in [REQ-AGENT-045](#req-agent-045-import-mode-triage-queue-and-transition-state).
 

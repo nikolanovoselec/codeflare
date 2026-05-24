@@ -68,6 +68,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade -->
 <!-- @impl: host/src/server.ts -->
 <!-- @impl: host/src/session.ts -->
+<!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (REQ-TERM-002 AC1 describe -> WS URL shape /api/terminal/{sid}-{tid}/ws) + src/__tests__/routes/terminal.test.ts (validateWebSocketRoute describes -> AC1/AC2 WS URL + upgrade) + host/__audits__/terminal-compound-key.audit.js (REQ-TERM-002 audit -> AC3/AC4/AC5/AC6/AC7 PTY spawn + raw data + JSON control frames + unknown-type tolerance + no app-level ping) -->
 
 **Intent:** Each terminal tab connects to its PTY process inside the container via a WebSocket, carrying raw terminal data bidirectionally.
 
@@ -175,6 +176,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 <!-- @impl: entrypoint.sh::configure_tab_autostart -->
 <!-- @impl: host/src/prewarm-config.ts -->
 <!-- @impl: host/src/session-manager.ts -->
+<!-- @test: host/__audits__/server-prewarm-lifecycle.audit.js (REQ-TERM-005 server.ts boot wiring audit -> AC1/AC2/AC3/AC4/AC5/AC6 prewarm PTY + readiness gate + adoption window + status pipeline) + host/__tests__/prewarm-readiness.test.js (getPrewarmConfig describes -> AC1 tab-1 config propagation + AC3 agent-launch dispatch) -->
 
 **Intent:** The first terminal tab in a session automatically launches the user's selected AI agent so they can start coding immediately without manual setup.
 
@@ -350,6 +352,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 ### REQ-TERM-010: Session presets (saved tab configurations)
 
 <!-- @impl: src/routes/presets.ts -->
+<!-- @test: src/__tests__/routes/presets-req-term-010.test.ts (REQ-TERM-010 AC1/AC2/AC3/AC5 describes -> preset name+tabs + 3-max cap + CRUD endpoints + delete removal) + src/__tests__/routes/presets.test.ts (Presets Routes GET/POST/DELETE describes -> AC3 CRUD endpoints) + web-ui/src/__tests__/stores/session-presets-ac-coverage.test.ts (AC1/AC4 describes -> preset object shape + applyPresetToSession session populate) -->
 
 **Intent:** Users save and reuse their preferred tab layouts across sessions.
 

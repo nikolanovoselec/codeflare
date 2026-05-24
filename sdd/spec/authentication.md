@@ -583,6 +583,7 @@ None.
 <!-- @impl: src/routes/admin -->
 <!-- @impl: src/routes/users.ts -->
 <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
+<!-- @test: src/__tests__/routes/users.test.ts (Users Routes + GET/DELETE + Admin-only access control describes -> AC1/AC2/AC3 admin panel listing + tier mutations + delete cascade) -->
 
 **Intent:** Admins can manage users, approve access, and configure tiers without CLI tools.
 
