@@ -35,16 +35,17 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The deploy workflow triggers on `workflow_run` completion of the `PR Checks` workflow (restricted to `branches: [main]`, gated on `conclusion == success`) and on `workflow_dispatch` (with environment selection: production or integration).
-2. The deploy pipeline runs end-to-end: install dependencies, build, test, typecheck, Docker build, scan, push, deploy, set secrets.
-3. Dependencies are cached via `actions/cache` for faster runs.
-4. Frontend is built, and both backend and frontend tests and typechecks run before any deployment steps.
-5. KV namespace is resolved or created and patched into `wrangler.toml`.
+1. The deploy workflow triggers automatically on successful PR-check completion against the main branch.
+2. The deploy workflow also supports manual dispatch with environment selection (production or integration).
+3. The deploy pipeline runs end-to-end: install dependencies, build, test, typecheck, build the container image, scan it, push it, deploy, and set secrets.
+4. Dependencies are cached between runs for faster pipeline execution.
+5. Frontend is built, and both backend and frontend tests and typechecks run before any deployment steps.
+6. The KV namespace is resolved or created and applied to the deployment configuration.
 
 **Constraints:**
 
-- Two GitHub environments: `production` (auto on push to main) and `integration` (manual dispatch only).
-- `RUNNER` variable controls the GitHub Actions runner label (supports self-hosted runners).
+- Two deployment environments are supported: production (auto on push to main) and integration (manual dispatch only).
+- The CI runner label is configurable to support self-hosted runners.
 - The deploy command, secret-setting, and post-deploy seed steps live in [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks).
 
 **Priority:** P0
@@ -68,14 +69,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Worker name is applied from the `CLOUDFLARE_WORKER_NAME` variable.
-2. Final deployment uses `npx wrangler deploy` with `--var` for runtime configuration.
-3. Worker secrets (`CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET`, optional `RESEND_API_KEY`) are set after deploy.
-4. E2E service user is seeded in KV allowlist when `CF_ACCESS_CLIENT_SECRET` is present.
+1. The worker name is configurable per environment.
+2. The worker is deployed with runtime configuration variables applied.
+3. Required worker secrets are written after deployment.
+4. The E2E service user is seeded into the allowlist when the CF Access service-token secret is configured.
 
 **Constraints:**
 
-- Secret setting runs AFTER `wrangler deploy` because secret writes are a no-op on workers that don't yet exist.
+- Secrets are set after worker deployment, as secret writes target a worker that must already exist.
 
 **Priority:** P0
 
@@ -100,11 +101,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Docker image is built locally in the CI runner.
-2. Trivy scans the image for HIGH and CRITICAL severity vulnerabilities.
-3. Known exceptions are tracked in `.trivyignore`.
-4. If Trivy finds unexcepted vulnerabilities, the pipeline fails before push.
-5. Image is pushed to Cloudflare registry via `wrangler containers push`, and the registry URI is extracted.
+1. The container image is built in the CI runner on every deploy.
+2. The built image is scanned for HIGH and CRITICAL severity vulnerabilities.
+3. Known vulnerability exceptions are tracked in a project-level allowlist.
+4. If the scan finds unexcepted vulnerabilities, the pipeline fails before push.
+5. The built image is pushed to the Cloudflare container registry; the resulting registry URI is captured for downstream binding.
 
 **Constraints:**
 
@@ -131,15 +132,15 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. `wrangler.toml` `image` field is patched to the registry URI (avoids Docker rebuild on deploy).
-2. Container resource tier is applied from `RESSOURCE_TIER` variable: low (0.25 vCPU / 1 GiB / 4 GB), default/saas (1 vCPU / 3 GiB / 6 GB), high (2 vCPU / 6 GiB / 8 GB).
-3. All tiers default to 10 max instances; `MAX_INSTANCES` variable overrides if set.
-4. Optional cache busting for the AI agent layer via `CLAUDE_CODE_CACHE_BUSTER` variable.
+1. The deployment configuration is updated with the registry URI of the most recently pushed image so the deploy does not rebuild the container.
+2. Container resource sizing is applied per the configured tier (low, default/saas, or high).
+3. All tiers default to 10 concurrent instances; the cap is overridable per deployment.
+4. The AI agent layer can be cache-busted on demand via a build variable so a fresh layer is rolled out without a full image rebuild.
 
 **Constraints:**
 
-- `MAX_INSTANCES` must be a positive integer, passed via env to avoid shell injection.
-- `RESSOURCE_TIER` is a GitHub Actions variable, not a secret.
+- The concurrent-instance cap is a positive integer and is passed safely (no shell interpolation).
+- Resource tier is configured at deploy time, not at runtime.
 
 **Priority:** P0
 
@@ -164,17 +165,21 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The PR-check workflow triggers on PRs to `main` and `workflow_dispatch`.
-2. Two parallel jobs run: `test` and `dependency-review`.
-3. The `test` job runs: lint (oxlint), build frontend, run backend + frontend tests, typecheck both, dead code check (knip), and `npm audit --audit-level=high --omit=dev` for backend and frontend.
-4. The `dependency-review` job runs `actions/dependency-review-action` to block PRs introducing dependencies with known vulnerabilities.
-5. A CodeQL static-analysis workflow runs for JavaScript/TypeScript on pushes to `main`, PRs to `main`, and weekly (Monday 06:00 UTC). Results are uploaded as SARIF to GitHub Security.
-6. An OSSF Scorecard workflow runs security-posture assessment on push to `main` and weekly (Monday 06:00 UTC).
+1. The PR-check workflow triggers on every pull request to the main branch and on manual dispatch.
+2. The workflow runs lint on the codebase.
+3. The workflow builds the frontend.
+4. The workflow runs both backend and frontend test suites.
+5. The workflow runs both backend and frontend typechecks.
+6. The workflow runs a dead-code check on the codebase.
+7. The workflow runs a high-severity security audit on production dependencies.
+8. PRs that introduce dependencies with known vulnerabilities are blocked.
+9. A CodeQL static-analysis workflow runs on pushes to main, on PRs to main, and weekly. Results are uploaded to GitHub Security.
+10. An OSSF Scorecard workflow runs security-posture assessment on push to main and weekly.
 
 **Constraints:**
 
-- Tests, builds, linting, and typechecking must NOT run locally in the development container (1 vCPU limitation). All quality checks run in GitHub Actions.
-- `RUNNER` variable controls the runner label across all workflows.
+- Quality checks do not run in the 1-vCPU development container; they run on CI runners.
+- The CI runner label is configurable across all workflows.
 
 **Priority:** P0
 
@@ -197,15 +202,15 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The E2E workflow triggers on `workflow_dispatch` with environment selection (integration or production).
-2. Four sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile`.
-3. The `setup` job sets `SERVICE_AUTH_SECRET` on the target worker, seeds the E2E service user in KV, and smoke-tests auth with a retry loop (handles KV eventual consistency ~60s).
-4. `E2E_BASE_URL` variable is set per environment to target the correct deployed worker.
+1. The E2E workflow runs on manual dispatch with an environment selector (integration or production).
+2. Jobs run as a four-stage chain: setup, API tests, desktop UI tests, mobile UI tests.
+3. The setup stage provisions the service-token secret on the target worker, seeds the E2E service user, and smoke-tests auth with a retry loop to absorb storage eventual-consistency lag.
+4. The target URL is configurable per environment so the same workflow can run against integration or production.
 
 **Constraints:**
 
-- E2E tests authenticate via `X-Service-Auth` header (service token), not browser-based auth flows.
-- The per-suite test execution + artifact handling live in [REQ-OPS-015](#req-ops-015-e2e-per-suite-execution-and-artifact-handling).
+- E2E tests authenticate via the service-token header rather than browser-based flows.
+- Per-suite test execution + artifact handling live in [REQ-OPS-015](#req-ops-015-e2e-per-suite-execution-and-artifact-handling).
 
 **Priority:** P1
 
@@ -228,14 +233,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The `e2e-api` job runs the API test suite (~55 tests across 12 files).
-2. The `e2e-ui-desktop` job runs UI desktop tests (~75 tests across 10 files, Puppeteer with Chrome).
-3. The `e2e-ui-mobile` job runs UI mobile tests with `E2E_MOBILE=1`.
-4. Failed UI test runs upload screenshots and HTML as artifacts (5-day retention).
+1. The API test suite runs as its own job.
+2. The desktop UI test suite runs as its own job, in a Chromium browser.
+3. The mobile UI test suite runs as its own job, in mobile emulation mode.
+4. Failed UI test runs upload screenshots and HTML as artifacts with a five-day retention.
 
 **Constraints:**
 
-- UI tests require Chrome installation via `npx puppeteer browsers install chrome` + system shared libraries.
+- UI tests require a Chromium browser and supporting system libraries in the runner environment.
 
 **Priority:** P1
 
@@ -258,21 +263,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The pentest workflow runs weekly (Monday 05:00 UTC) and on `workflow_dispatch` against the `PENTEST_TARGET` URL in the production environment.
-2. Pentest runs 6 parallel jobs using lightweight external probes restricted to `curl` and `openssl` invocations.
-3. Probe coverage spans response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling (per-probe checks enumerated in Constraints).
+1. The pentest workflow runs weekly and on manual dispatch against the configured target URL in the production environment.
+2. The workflow runs six parallel probes using lightweight external tools (no active scanners) to minimize CI resource consumption.
+3. Six probe types cover response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling; per-probe checklists live in [documentation/lanes/security.md](../../documentation/lanes/security.md#pentest-probes).
 
 **Constraints:**
 
-- Pentest requires `PENTEST_TARGET` variable set in the `production` GitHub environment.
-- Pentest uses only `curl` and `openssl` (no heavy scanning tools) to minimize CI resource usage.
-- Per-probe checks:
-   - `security-headers`: Verifies HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy present; `X-Powered-By` absent.
-   - `tls`: Confirms TLS 1.3 works, TLS 1.0/1.1 rejected, HSTS preload enabled, certificate >= 14 days validity.
-   - `auth-gate`: Verifies 7 API endpoints require authentication (302/401/403). Tests email header injection bypass.
-   - `info-disclosure`: Probes `/.env`, `/.git/config`, `/api/debug` for sensitive data. Confirms no stack traces in responses.
-   - `injection`: Tests host header injection, `X-Forwarded-Host` effect, CL/TE request smuggling, path traversal payloads.
-   - `http-methods`: Verifies TRACE returns 405, WebSocket upgrade without auth returns 302.
+- The pentest requires a configured target URL set in the production deployment environment.
+- The pentest uses only lightweight external tools (no heavy active scanners) so weekly runs do not consume excessive CI budget.
 
 **Priority:** P1
 
@@ -323,23 +321,25 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Containers hibernate after `sleepAfter` duration of no user input (default 30 minutes, configurable 5 minutes to 2 hours).
+1. Containers hibernate after a configurable idle period of no user input (default 30 minutes, range 5 minutes to 2 hours).
 2. Hibernated containers consume zero CPU, memory, and disk cost.
-3. Cost per active container (default tier: 1 vCPU, 3 GiB, 6 GB) at 160h/month active usage with 20% average CPU is approximately $11.14/user/month including the Workers Paid plan.
+3. Active-container cost is approximately $11/user/month for a typical workload on the default tier.
 
 **Constraints:**
 
 - CPU is billed on active usage only. Memory and disk are billed on provisioned resources during active time.
-- R2 storage: first 10 GB free, $0.015/GB/month after.
-- Cost scales per active session, not per user. Each session = one container; a session has up to 6 terminal tabs sharing a single container.
-- The sleepAfter persistence + lifecycle mechanics live in [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle).
-- The fail-safe invariants (fail-to-max, 60s propagation, fail-loud-on-missing) live in [REQ-OPS-017](#req-ops-017-sleepafter-fail-safe-invariants).
+- R2 storage is billed by GB-month, with a free tier covering small workspaces.
+- Cost scales per active session, not per user.
+- Idle-timeout persistence + lifecycle mechanics live in [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle).
+- Idle-timeout fail-safe invariants live in [REQ-OPS-017](#req-ops-017-sleepafter-fail-safe-invariants).
 
 **Priority:** P0
 
 **Dependencies:** None.
 
 **Verification:** Manual check
+
+**Notes:** Hibernation cost guarantee is verified manually against billing-period invoices; see [documentation/lanes/operations.md](../../documentation/lanes/operations.md#hibernation-cost-verification).
 
 **Status:** Implemented
 
@@ -349,26 +349,28 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 <!-- @impl: src/container/index.ts -->
 
-**Intent:** The user-configurable `sleepAfter` preference must survive Durable Object resets, both initial and subsequent setBucketName paths must persist it, the constructor must reload it with validation, and destroy must clean it up. Without persistence the preference would silently snap back to default on every DO restart.
+**Intent:** The user-configurable idle-timeout preference must survive container-orchestration resets; on startup the stored preference is validated; on shutdown it is cleaned up.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. The `sleepAfter` preference is persisted to Durable Object storage to survive DO resets.
-2. Both `setBucketName` paths (initial and subsequent) persist `sleepAfter` to storage.
-3. The DO constructor loads `sleepAfter` from storage with validation on startup.
-4. `destroy()` cleans up the persisted `sleepAfter` value.
+1. The idle-timeout preference is persisted durably so it survives container-orchestration resets.
+2. The preference is persisted on both initial bucket configuration and any subsequent updates.
+3. On startup, the stored preference is loaded and validated.
+4. On session destruction, the persisted preference is removed.
 
 **Constraints:**
 
-- Persisted preference values are schema-validated on load; invalid values are treated as missing and trigger the fail-safe fallback in REQ-OPS-017.
+- Persisted preference values are schema-validated on load; invalid values are treated as missing and trigger the fail-safe fallback in [REQ-OPS-017](#req-ops-017-sleepafter-fail-safe-invariants).
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero)
 
-**Verification:** Manual check
+**Verification:** Automated test
+
+**Notes:** Preference persistence and lifecycle are covered by `src/__tests__/container/index.test.ts` (DO setBucketName + constructor reload + destroy paths).
 
 **Status:** Implemented
 
@@ -384,19 +386,22 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The idle-detection layer fails safe in the direction of preserving user work, not minimizing compute. When the configured `sleepAfter` cannot be resolved (storage corrupted, schema-validated value missing, parser fed garbage, code path skipped the user-pref resolution), the system falls back to the maximum supported value (2h) rather than the minimum.
-2. A change to the persisted `sleepAfter` preference takes effect within one 60-second idle-check cycle, regardless of which code path wrote it. Stale in-memory copies of the preference cannot outlive a single cycle.
-3. Any code path that hands the resolved `sleepAfter` to the container init must fail loudly when the value is missing, rather than substituting a fallback. The user's configured timer (e.g., 2h) is never silently replaced by a shorter default.
+1. The idle-detection layer fails safe in the direction of preserving user work, not minimizing compute. When the configured idle timeout cannot be resolved (storage corrupted, schema-validated value missing, parser fed garbage, code path skipped the user-pref resolution), the system falls back to the maximum supported value (2h) rather than the minimum.
+2. A change to the persisted idle-timeout preference takes effect within one idle-check cycle, regardless of which code path wrote it.
+3. In-memory copies of the preference do not outlive a single idle-check cycle.
+4. Any code path that hands the resolved idle timeout to the container init must fail loudly when the value is missing, rather than substituting a fallback. The user's configured timer is never silently replaced by a shorter default.
 
 **Constraints:**
 
-- Fail-safe defaults trade billing efficiency for user-trust: a container that lives slightly longer than configured costs the operator a few cents; a container that dies before configured destroys an hour of unpushed user work and breaks the product's core promise.
+- The fail-safe direction is chosen to preserve user work over billing efficiency.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero), [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle)
 
-**Verification:** Manual check
+**Verification:** Automated test
+
+**Notes:** Fail-safe invariants are covered by `src/__tests__/container/container-metrics.test.ts` and `src/__tests__/container/index.test.ts`.
 
 **Status:** Implemented
 
@@ -414,21 +419,17 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. `RESSOURCE_TIER` GitHub Actions variable controls container sizing with four tiers:
-   - `low`: 0.25 vCPU, 1 GiB memory, 4 GB disk (basic)
-   - `default`: 1 vCPU, 3 GiB memory, 6 GB disk
-   - `saas`: 1 vCPU, 3 GiB memory, 6 GB disk (same as default)
-   - `high`: 2 vCPU, 6 GiB memory, 8 GB disk
-2. All tiers default to 10 max instances.
-3. `MAX_INSTANCES` variable overrides the max instances count if set (must be a positive integer).
-4. `MAX_SESSIONS_USER` (default 3) and `MAX_SESSIONS_ADMIN` (default 10) control per-user concurrent session limits, configurable via GitHub Actions variables.
-5. Tier configuration is applied during the deploy workflow by patching `wrangler.toml`.
+1. Container resource tier is configurable per deployment and accepts four values: low (0.25 vCPU / 1 GiB / 4 GB), default (1 vCPU / 3 GiB / 6 GB), saas (1 vCPU / 3 GiB / 6 GB), high (2 vCPU / 6 GiB / 8 GB).
+2. All tiers default to 10 concurrent instances.
+3. The concurrent-instance cap is overridable per deployment and must be a positive integer.
+4. Per-user concurrent session limits are configurable per deployment, with separate defaults for regular users (3) and admins (10).
+5. Tier and instance configuration is applied at deploy time, not at runtime.
 
 **Constraints:**
 
-- `RESSOURCE_TIER` defaults to `default` if unset.
-- `MAX_INSTANCES` is passed via env to avoid shell injection.
-- Session limits are passed to the Worker via `--var` (omitted if unset, so backend defaults apply).
+- The default resource tier is used when none is explicitly configured.
+- The concurrent-instance cap is passed safely (no shell interpolation).
+- Session limits omitted from the deploy fall back to backend defaults.
 
 **Priority:** P1
 
@@ -457,17 +458,17 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The stress-test workflow triggers on `workflow_dispatch` against the integration environment.
-2. k6 stress tests cover API throughput, session lifecycle, storage operations, and WebSocket concurrency.
-3. `STRESS_TEST_CONCURRENCY` variable (default 0 = disabled) scales virtual user targets proportionally and loosens latency thresholds when set above 0.
-4. When `STRESS_TEST_MODE=active` on the target worker, all HTTP and WebSocket rate limits are bypassed to allow high VU counts through a single service token identity.
-5. A one-time warning is logged per isolate when the rate limit bypass activates.
-6. `STRESS_TEST_MODE` must not be active alongside `SAAS_MODE` (enforced by global middleware returning 503).
+1. The stress-test workflow runs on manual dispatch against the integration environment.
+2. Load tests cover API throughput, session lifecycle, storage operations, and WebSocket concurrency.
+3. Concurrency is configurable per run; disabled by default, latency thresholds loosen when enabled.
+4. In stress-test deployment mode, all HTTP and WebSocket rate limits are bypassed to allow high virtual-user counts through a single service-token identity.
+5. A one-time warning is logged per worker instance when the rate-limit bypass activates.
+6. Stress-test mode must not be active alongside SaaS mode; the combination returns 503 to all requests.
 
 **Constraints:**
 
-- Stress testing is for integration environments only.
-- Rate limit bypass skips all KV rate-limit reads/writes for zero overhead.
+- Stress testing targets integration environments only.
+- The rate-limit bypass incurs zero additional storage overhead.
 
 **Priority:** P2
 
@@ -491,17 +492,16 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The Scorecard workflow runs OSSF Scorecard on push to `main` and weekly (Monday 06:00 UTC).
-2. Results are published and uploaded as SARIF to GitHub Security.
-3. GitHub's built-in secret scanning (with push protection) is enabled at the repository level.
+1. The OSSF Scorecard workflow runs on push to main and weekly.
+2. Scorecard results are uploaded to GitHub Security.
+3. Repository-level secret scanning with push protection is enabled.
 4. Dependabot security updates are enabled at the repository level.
-5. `npm audit --audit-level=high --omit=dev` runs for both backend and frontend in PR checks.
-6. `actions/dependency-review-action` blocks PRs that introduce dependencies with known vulnerabilities.
 
 **Constraints:**
 
 - Supply chain monitoring is continuous (push-triggered + weekly), not on-demand.
-- Secret scanning push protection prevents secrets from being committed.
+- Secret-scanning push protection prevents secrets from being committed.
+- High-severity dependency audits and dependency-review enforcement are owned by [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit); not duplicated here.
 
 **Priority:** P1
 
@@ -528,17 +528,17 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The container image declares `STOPSIGNAL SIGINT`.
-2. The container entrypoint's trap handler catches SIGINT/SIGTERM signals.
-3. The trap handler kills the sync daemon via PID file at `/tmp/sync-daemon.pid` (PID file is the sole mechanism).
-4. A final `rclone bisync` (with `--ignore-checksum --max-delete 100`) runs to R2 before exit.
-5. The bisync-initialized flag is touched on the timeout path to ensure the final bisync runs even when initial sync timed out.
-6. The terminal server is killed after the final sync completes.
+1. The container image declares a graceful-stop signal that the entrypoint trap can catch.
+2. The container entrypoint's trap handler catches the graceful-stop signal.
+3. The trap handler terminates the background sync daemon using a durable PID record as the sole mechanism.
+4. A final bidirectional sync to R2 runs before exit, with deletion safeguards to prevent accidental mass deletion.
+5. The shutdown sync runs even when the initial sync timed out.
+6. The terminal server is terminated after the final sync completes.
 
 **Constraints:**
 
-- No in-memory PID variable fallback for the sync daemon; PID file is the sole mechanism.
-- `--max-delete 100` prevents accidental mass deletion during shutdown sync.
+- The sync daemon's PID record is the sole mechanism for shutdown; no in-memory fallback exists.
+- The shutdown sync is bounded so a deletion storm cannot wipe R2.
 
 **Priority:** P0
 
@@ -561,9 +561,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The container base image is `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror).
-2. All agent CLIs (Claude Code, Codex, Gemini CLI, Copilot, OpenCode) start without crashes.
-3. System packages include essential tools (git, gh, ripgrep, fd, neovim, tmux, fzf, yazi, lazygit).
+1. The container base image is a glibc-based Node.js 24 distribution (Debian bookworm-slim).
+2. All supported agent CLIs (Claude Code, Codex, Gemini CLI, Copilot, OpenCode) start without crashes.
+3. Essential developer tools for terminal-based workflows are pre-installed.
 
 **Constraints:** None.
 
@@ -589,10 +589,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. `MAX_INSTANCES` GitHub Actions variable overrides the default 10 max instances.
-2. Independent of `RESSOURCE_TIER`.
-3. Must be a positive integer.
-4. Applied during deploy via `wrangler.toml` patching.
+1. Operators can override the default concurrent-instance cap per deployment.
+2. The override is independent of resource tier.
+3. The override must be a positive integer.
+4. The override is applied at deploy time as part of the deployment configuration.
 
 **Constraints:** None.
 
