@@ -51,8 +51,8 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| WS | `/api/terminal/:compoundId/ws` | Session cookie | REQ-TERM-001, REQ-TERM-002, REQ-SESSION-012 | Terminal WebSocket (compoundId format: `sessionId-terminalId`) |
-| GET | `/api/terminal/:sessionId/status` | Session cookie | REQ-TERM-004 | Connection status |
+| WS | `/api/terminal/:compoundId/ws` | Session cookie | [REQ-TERM-001](../../sdd/spec/terminal.md#req-term-001), [REQ-TERM-002](../../sdd/spec/terminal.md#req-term-002), [REQ-SESSION-012](../../sdd/spec/session-lifecycle.md#req-session-012) | Terminal WebSocket (compoundId format: `sessionId-terminalId`) |
+| GET | `/api/terminal/:sessionId/status` | Session cookie | [REQ-TERM-004](../../sdd/spec/terminal.md#req-term-004) | Connection status |
 
 ### User Management
 
@@ -125,10 +125,10 @@ The setup wizard configures a fresh Codeflare deployment. It provisions Cloudfla
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| POST | `/api/setup/configure` | Public (pre-setup); admin (post-setup) | REQ-SETUP-001, REQ-SETUP-005 | Run the setup wizard (streams NDJSON progress) |
-| GET | `/api/setup/status` | Public | REQ-SETUP-001 | Whether setup is complete (always public) |
-| GET | `/api/setup/detect-token` | Public (pre-setup); admin (post-setup) | REQ-SETUP-005, REQ-SETUP-008 | Detect and verify the Cloudflare API token |
-| GET | `/api/setup/prefill` | Public (pre-setup); admin (post-setup) | REQ-SETUP-005, REQ-SETUP-008 | Prefill setup form from existing Access groups |
+| POST | `/api/setup/configure` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001), [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005) | Run the setup wizard (streams NDJSON progress) |
+| GET | `/api/setup/status` | Public | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001) | Whether setup is complete (always public) |
+| GET | `/api/setup/detect-token` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008) | Detect and verify the Cloudflare API token |
+| GET | `/api/setup/prefill` | Public (pre-setup); admin (post-setup) | [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005), [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008) | Prefill setup form from existing Access groups |
 
 Conditional auth: before `setup:complete` is set in KV, every Setup endpoint except `/api/setup/status` is publicly reachable through the CSRF-gated bootstrap window (see AD10). Once setup is marked complete, the same endpoints require an admin-role session.
 
@@ -458,8 +458,8 @@ GET `/public/onboarding-config`, POST `/public/waitlist` (rate limited)
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/health` | None (auth-exempt — no `CONTAINER_AUTH_TOKEN` required) | REQ-SESSION-015 AC1, AC2 | Direct host health check; available before CONTAINER_AUTH_TOKEN is wired up |
-| GET | `/api/health` | Session cookie | REQ-SESSION-015 AC1, AC2 | Worker-proxied alias for `/health` |
+| GET | `/health` | None (auth-exempt — no `CONTAINER_AUTH_TOKEN` required) | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015) AC1, AC2 | Direct host health check; available before CONTAINER_AUTH_TOKEN is wired up |
+| GET | `/api/health` | Session cookie | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015) AC1, AC2 | Worker-proxied alias for `/health` |
 
 Both endpoints return the same JSON body:
 
