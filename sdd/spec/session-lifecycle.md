@@ -37,10 +37,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. `POST /api/sessions` accepts a `name` (string, trimmed, sanitized) and optional `agentType` (one of: claude-code, codex, gemini, opencode, copilot, bash).
-2. A unique alphanumeric session ID (8-24 lowercase chars, matching `SESSION_ID_PATTERN`) is generated.
-3. The session record is persisted to KV at `session:{bucketName}:{sessionId}` with compressed list metadata.
-4. The response returns the session object with status 201.
+1. The session creation endpoint accepts a trimmed session name and optional AI agent type (one of: claude-code, codex, gemini, opencode, copilot, bash).
+2. A unique alphanumeric session ID (8-24 lowercase chars) is generated for each new session.
+3. The session record is persisted durably and retrievable by the user.
+4. The response returns the new session object with status 201.
 5. Session creation is rate-limited (10/min per user).
 
 **Constraints:**
@@ -70,15 +70,15 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. `POST /api/container/start?sessionId=xxx` derives a deterministic container ID from the user's bucket name and the session ID.
-2. The container ID uniquely addresses a single Durable Object; no two sessions share a DO.
+1. Each session maps to a deterministic, unique container address derived from the user's storage identity and the session ID.
+2. The container address uniquely addresses a single isolated runtime; no two sessions share one.
 3. Different sessions belonging to the same user run in separate containers with separate PTY processes.
 4. A session's container cannot access files, processes, or network state of another session's container.
 
 **Constraints:**
 
-- Container ID derivation must never produce collisions for distinct (bucketName, sessionId) pairs.
-- Container ID is never a fallback or default; validation rejects malformed inputs before DO interaction.
+- The container address derivation must never produce collisions for distinct sessions of the same user.
+- The container address is never a fallback or default; validation rejects malformed inputs before container interaction.
 
 **Priority:** P0
 
@@ -104,16 +104,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. `POST /api/container/start` creates the user's R2 bucket if it does not exist (`createBucketIfNotExists`).
-2. A scoped R2 API token (bucket-specific Object Read + Write) is obtained or created for the user and injected as container environment variables.
-3. The container entrypoint runs an initial `rclone sync` from R2 to the local workspace (blocking, with a 120-second safety timeout).
-4. After initial sync, a background daemon performs `rclone bisync` every 15 minutes for the container's lifetime, with SIGUSR1-driven manual triggers and a final sync on shutdown (see REQ-STOR-003).
+1. The user's persistent storage bucket is provisioned if it does not exist.
+2. A scoped, bucket-specific credential pair is obtained or created for the user and injected into the container environment.
+3. An initial sync from persistent storage to the workspace completes before the container accepts terminal traffic, with a configurable safety timeout.
+4. After initial sync, changes are bidirectionally synced on a regular schedule for the container's lifetime, with support for on-demand triggers and a final sync on shutdown (see [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)).
 5. New buckets are seeded with getting-started docs and agent configs matching the user's session mode.
 
 **Constraints:**
 
-- The master `CLOUDFLARE_API_TOKEN` never enters the container; only per-user scoped R2 credentials are injected.
-- R2 tokens are cached in KV (optionally encrypted with AES-256-GCM) and verified before reuse.
+- The master Cloudflare API token never enters the container; only per-user scoped credentials are injected.
+- Scoped credentials are cached durably (optionally encrypted at rest) and verified before reuse.
 
 **Priority:** P0
 
@@ -138,19 +138,19 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. The `sleepAfter` value is user-configurable with allowed values: 5m, 15m, 30m, 1h, 2h.
+1. The idle timeout is user-configurable with allowed values: 5m, 15m, 30m, 1h, 2h.
 2. Default is 30m for paying users; free-tier users are locked to 15m regardless of stored preference.
 3. The idle timer resets only when new user input is detected (not on heartbeats, reconnections, or protocol chatter).
-4. `collectMetrics()` is the sole enforcer of the container-level idle timeout: it polls the in-container `/activity` endpoint every 60 seconds, computes idle time from `lastInputAt`, and explicitly calls `this.stop('SIGTERM')` once the user-configured threshold is exceeded. (The host-side per-PTY keepalive is a separate safety net for stuck `lastInputAt`, floor-clamped at the maximum `sleepAfter` so it cannot fire first; see AD47.)
-5. The Container SDK's own `sleepAfter` timer is pinned to a 24h sentinel so it never fires in normal operation; idle policy is owned exclusively by `collectMetrics()`. The user-facing preference is held in the `idleTimeoutPref` field.
-6. Admins can always change their own `sleepAfter`; non-subscribed users have the dropdown disabled.
+4. The container is stopped once the user-configured idle threshold is exceeded; the host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see AD47).
+5. The platform-level idle timer is functionally inert; idle policy is owned by the per-container metrics layer.
+6. Admins can always change their own idle timeout; non-subscribed users have the dropdown disabled.
 
 **Constraints:**
 
-- `sleepAfter` is validated against `/^(5m|15m|30m|1h|2h)$/` on the DO side.
-- `sleepAfter` is persisted to DO storage so it survives Cloudflare DO resets. The wire-protocol and storage key remain `sleepAfter` for backwards compatibility with existing sessions even though the in-memory field is named `idleTimeoutPref`.
-- Backend enforcement in `lifecycle.ts`: free-tier override cannot be bypassed via API.
-- Idle detection MUST NOT rely on the Container SDK's built-in timer, because it refreshes on any WebSocket traffic in either direction (including background process output like `tail -f`). Codeflare requires "no user input" semantics, not "no traffic" semantics.
+- The idle timeout is validated server-side against the supported value set.
+- The preference survives container-orchestration resets; the storage shape is preserved for backwards compatibility with existing sessions.
+- Free-tier override cannot be bypassed via API.
+- Idle detection MUST NOT rely on the platform's built-in inactivity timer because it refreshes on any traffic (including background process output). The product semantics are "no user input", not "no traffic".
 
 **Priority:** P0
 
@@ -176,17 +176,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. The terminal server tracks `lastInputAt` (Unix timestamp ms) representing the last real user input.
-2. `containsUserInput()` uses a whitelist: printable characters, control keys (Enter, Backspace, Tab, Ctrl+key), arrow keys, function keys, Alt+key, and mouse clicks count as input.
-3. Terminal protocol responses (CSI, OSC, DCS, APC, focus reports, mouse movement) do not count as input.
-4. `stripTerminalResponses()` removes terminal emulator response sequences (CPR, OSC 10/11/12, DA1) before writing to PTY.
-5. The Container DO's `fetch()` override dispatches `_internal/*` routes locally and delegates all other traffic to `super.fetch()` (optionally with an `Authorization: Bearer <token>` header for in-container auth). The SDK's activity timer being refreshed on every proxied request is harmless because `sleepAfter` is pinned to `'24h'` (REQ-SESSION-004 AC5), making the SDK timer functionally inert as an idle detector.
-6. `collectMetrics()` polls the in-container `/activity` endpoint every 60 s over the DO's private TCP port (not via the public fetch proxy), reads the authoritative `lastInputAt` value tracked by the terminal server, and computes `idleMs = Date.now() - (lastInputAt ?? containerStartedAt)` to drive its own idle-stop decision. There is no dependency on the SDK's activity timer.
+1. The terminal server tracks the timestamp of the last real user input.
+2. User-input classification uses a whitelist: printable characters, control keys, arrow keys, function keys, Alt+key, and mouse clicks count as input.
+3. Terminal protocol responses (cursor-position reports, OSC color queries, mouse movement, device-attribute reports) do not count as input.
+4. Terminal-emulator response sequences are stripped before being written to the PTY so the agent never sees them.
+5. Idle detection reads the authoritative last-input timestamp from within the container, not from WebSocket traffic, so background process output cannot reset the idle clock.
 
 **Constraints:**
 
-- If no input is ever received (`lastInputAt` is null), idle time is measured from `containerStartedAt`.
-- A container with an open terminal but no typing stops after `sleepAfter` from start time.
+- If no input is ever received, idle time is measured from container start.
+- A container with an open terminal but no typing stops after the configured idle timeout has elapsed from start.
 
 **Priority:** P0
 
@@ -214,18 +213,18 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. **Stop (user-initiated):** `POST /api/sessions/:id/stop` sets KV status to `'stopped'` and calls `container.destroy()`.
-2. The `destroy()` override first clears `SESSION_ID_KEY`, `bucketName` and other identifiers from DO storage (preventing session resurrection via the asynchronous `onStop()` writeback), then performs a graceful shutdown: sends `SIGTERM` to the container, polls `ctx.container.running` for up to 25 s while the entrypoint trap runs the final `rclone bisync`, and only then calls `super.destroy()` to teardown.
-3. If the trap does not exit within the 25 s timeout the DO falls back to SIGKILL via `super.destroy()` so the route always returns.
-4. **Restart:** `POST /api/container/start` on a stopped session; same-bucket restart receives 409 from `setBucketName` (bucket already set) but still updates sessionId, preferences, and tab config, while different-bucket restart calls `destroy()` then re-calls `setBucketName`.
-5. **Delete:** `DELETE /api/sessions/:id` calls `container.destroy()` (same graceful-shutdown path as Stop, so the final bisync runs before SDK teardown) and then removes the KV record.
-6. Frontend transitions: `stopped` -> `initializing` -> `running` (start); `running` -> `stopping` -> `stopped` (stop).
+1. Stopping a session marks the session record as stopped and tears down the container.
+2. Stopping clears all session-side identifiers before initiating teardown to prevent background writebacks from resurrecting the session, then performs a graceful shutdown so the final sync runs before the container is terminated.
+3. If the graceful shutdown does not exit within the deadline, the platform forces termination so the user-initiated stop always returns.
+4. Restarting a session reconnects to the same workspace and applies any updated preferences without recreating the container.
+5. Deleting a session runs the same graceful shutdown as Stop (so the final sync runs), then removes the session record permanently.
+6. Frontend status transitions are user-visible: stopped to initializing to running on start; running to stopping to stopped on stop.
 
 **Constraints:**
 
-- `destroy()` clearing identifiers before `super.destroy()` is critical to prevent the asynchronous `onStop()` from writing a stale session back to KV.
-- The entrypoint trap reads R2 credentials from process env vars baked in at container start; clearing DO storage identifiers first does not affect bisync.
-- Final bisync on shutdown uses `--ignore-checksum --max-delete 100` for safety.
+- Clearing session-side identifiers before teardown is critical to prevent asynchronous writebacks from re-creating a stale session record.
+- The shutdown sync runs against credentials baked into the container at start, independent of the session-side identifier cleanup.
+- The final shutdown sync is bounded so a deletion storm cannot wipe persistent storage.
 
 **Priority:** P0
 
@@ -250,16 +249,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Before starting a container, `validateSessionAndCheckLimits` counts running sessions from KV list metadata (zero individual `kv.get()` calls).
-2. If the running count (excluding the session being started) meets or exceeds the tier's `maxSessions`, a `QuotaExceededError` is thrown.
+1. Before starting a container, running sessions are counted from storage metadata with a single list operation (no per-session reads).
+2. If the running count (excluding the session being started) meets or exceeds the tier's concurrent-session cap, the start is rejected with a quota-exceeded error.
 3. Default tier limits: free=1, trial=2, standard=1, advanced=2, max=3, unlimited=5, blocked=0, pending=0.
-4. Non-SaaS mode falls back to role-based limits from environment variables (`MAX_SESSIONS_USER` default 3, `MAX_SESSIONS_ADMIN` default 10).
-5. Stress-test mode (`STRESS_TEST_MODE=active`) bypasses session and quota limits.
+4. Outside SaaS mode, role-based defaults apply (regular users default 3, admins default 10), configurable per deployment.
+5. Stress-test deployment mode bypasses session and quota limits.
 
 **Constraints:**
 
-- Tier limits are configurable per deployment via admin Subscription Management panel.
-- `getMaxSessions(role, env)` respects explicit `0` values (uses `NaN` check, not `||` fallback).
+- Tier limits are configurable per deployment via the admin Subscription Management panel.
+- The session-cap lookup respects an explicit zero value (a zero cap blocks all starts, not a fallthrough to default).
 
 **Priority:** P1
 
@@ -287,15 +286,15 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Same-bucket restart: `setBucketName` returns 409 (bucket already set) but the 409 handler stores the new `sessionId`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled`, and `userEmail` in DO storage.
-2. `startAndWaitForPorts()` triggers `onStart()` which re-arms the `collectMetrics` schedule and records `containerStartedAt`.
-3. `onStart()` refreshes `envVars` via `updateEnvVars()` so that any updated LLM keys, deploy keys, or preferences take effect.
-4. The container entrypoint runs an initial `rclone sync` that restores the workspace from R2 on restart.
-5. User preference changes (sleepAfter, fastStart, sessionMode) take effect on restart without requiring container recreation.
+1. Restarting a session on the same workspace preserves the bucket association and applies any stored preference updates.
+2. The idle-metric polling schedule is re-armed and the container start timestamp is recorded on each start.
+3. Updated credentials and preferences take effect on restart without requiring container recreation.
+4. The container entrypoint runs an initial sync that restores the workspace from persistent storage on restart.
+5. User preference changes (idle timeout, fast-start, session mode) take effect on restart without requiring container recreation.
 
 **Constraints:**
 
-- Different-bucket restart (user email change) triggers full `destroy()` + re-`setBucketName` cycle.
+- A restart against a different storage identity triggers a full teardown and rebind cycle.
 
 **Priority:** P0
 
@@ -318,16 +317,15 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. `destroy()` override clears from DO storage: `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled`.
-2. `destroy()` nulls in memory: `_bucketName`, `_sessionId`, `_r2AccessKeyId`, `_r2SecretAccessKey`, `_containerAuthToken`, `_openaiApiKey`, `_geminiApiKey`, `_githubToken`, `_cloudflareApiToken`, `_cloudflareAccountId`, `_encryptionKey`.
-3. `_sessionMode` resets to `'default'`.
-4. `onStop()` schedule clearing runs (`deleteSchedules('collectMetrics')`).
-5. After `destroy()`, `collectMetrics` detects missing identifiers (zombie DO) and stops the alarm loop without re-arming.
-6. The R2 bucket and its contents are NOT deleted by `destroy()` (files persist across sessions).
+1. Destroying a session clears all transient session state from the Durable Object; subsequent fetch attempts return 503.
+2. Session mode resets to default on destroy.
+3. Scheduled idle-metric polling is cancelled on destroy.
+4. After destroy, any delayed polling that fires detects the missing session state and exits without re-arming.
+5. The user's persistent storage bucket and its contents are NOT deleted by destroy; files persist across sessions.
 
 **Constraints:**
 
-- DO storage and memory must be cleared BEFORE `super.destroy()` to prevent `onStop()` race conditions.
+- Durable Object storage and in-memory state must be cleared before the platform teardown call to prevent asynchronous writebacks from re-creating a stale record.
 
 **Priority:** P0
 
@@ -351,19 +349,19 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. `GET /api/sessions/batch-status` returns status for all user sessions from KV list metadata in a single `kv.list()` call (no DO contact, no container wake).
-2. Backend KV stores two statuses: `'running'` and `'stopped'`. Frontend adds ephemeral states: `'initializing'`, `'stopping'`, `'error'` (never persisted).
-3. Frontend polls `batch-status` every 5 seconds (`SESSION_LIST_POLL_INTERVAL_MS`).
-4. Dashboard session cards display a three-color status dot: green (running + WS connected), yellow (running + WS disconnected), gray (stopped).
-5. Metrics (CPU, memory, disk, sync status) from `collectMetrics` are included in list metadata and displayed on session cards, with up to ~60s staleness.
-6. `lastActiveAt` and `lastStartedAt` timestamps are available for sleep timer countdown display.
-7. When KV polling transitions a session to `'stopped'`, terminal connections are disposed and `activeSessionId` is cleared.
+1. The batch-status endpoint returns status for all user sessions in a single storage-metadata list call (no container wake, no per-session reads).
+2. Persistent storage holds two statuses (running and stopped); the frontend adds ephemeral states (initializing, stopping, error) that are never persisted.
+3. The frontend polls batch-status on a fixed cadence (about every 5 seconds).
+4. Dashboard session cards display a three-color status dot: green (running + WebSocket connected), yellow (running + WebSocket disconnected), gray (stopped).
+5. Container metrics (CPU, memory, disk, sync status) are surfaced on the session cards with up to ~60s staleness.
+6. Last-active and last-started timestamps are available for sleep-timer countdown display.
+7. When polling transitions a session to stopped, terminal connections are disposed and the active session is cleared.
 
 **Constraints:**
 
-- KV eventual consistency: ~60s propagation delay for new sessions.
-- Dashboard status is pure KV read; no Durable Object is contacted, preserving container hibernation.
-- Newly started sessions have a 3-minute startup guard during which only close code 4503 can transition them to stopped (anti-flapping).
+- Storage eventual consistency causes ~60s propagation delay for newly created sessions.
+- Dashboard status is a pure storage read; no container is contacted, preserving container hibernation.
+- Newly started sessions have a 3-minute startup guard during which only the container-stopped close code can transition them to stopped (anti-flapping).
 
 **Priority:** P1
 
@@ -393,19 +391,18 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. The container entrypoint traps SIGINT and SIGTERM signals.
-2. The trap handler kills the sync daemon via PID file at `/tmp/sync-daemon.pid`.
-3. A final `rclone bisync` with `--ignore-checksum --max-delete 100` runs before the terminal server is killed.
-4. The bisync-initialized flag is touched on the timeout path to ensure final bisync runs even when initial sync timed out.
-5. The container image declares `STOPSIGNAL SIGINT` so the container runtime sends a trappable signal.
-6. User-initiated Stop and Delete reach the trap via the DO's `destroy()` override, which sends `SIGTERM` and polls `ctx.container.running` for up to 25 s before falling back to `super.destroy()`'s SIGKILL.
-7. Idle-timeout and quota-eviction paths reach the trap via `collectMetrics`'s `stop('SIGTERM')` call.
+1. The container entrypoint catches graceful-stop signals.
+2. The trap handler terminates the background sync daemon using a durable PID record.
+3. A final bidirectional sync runs before the terminal server is terminated; deletion safeguards prevent accidental mass deletion.
+4. The shutdown sync runs even when the initial sync timed out.
+5. The container image declares a stop signal the entrypoint can trap.
+6. User-initiated stop and delete reach the trap via a graceful shutdown that polls for the trap to exit before forcing termination.
+7. Idle-timeout and quota-eviction paths reach the trap via the same graceful-shutdown signal.
 
 **Constraints:**
 
-- PID file is the sole mechanism for killing the sync daemon (no in-memory PID variable fallback).
-- The `--max-delete 100` flag prevents catastrophic mass deletion during final sync.
-- No invocation path goes straight to SIGKILL while the container is still running; SIGTERM-then-25s-poll is always the precursor.
+- The sync daemon's PID record is the sole mechanism for shutdown; no in-memory fallback exists.
+- No invocation path goes straight to forced termination while the container is still running; the graceful signal + poll is always the precursor.
 
 **Priority:** P0
 
@@ -432,16 +429,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. **DO fetch gate:** The `fetch()` override returns 503 when `!this.ctx.container?.running` for all non-internal routes, preventing `super.fetch()` from triggering `startIfNotRunning`.
-2. **Terminal route guard:** Rejects WebSocket upgrade requests with 503 when `session.status === 'stopped'` in KV (defense-in-depth).
-3. **Frontend disposal:** Session poller detects running-to-stopped transitions and calls `terminalStore.disposeSession(sessionId)`, killing all WebSocket retry loops.
-4. **Close code 4503 (server):** The DO sends custom WebSocket close code 4503 when the container is not running.
-5. **Close code 4503 (client):** The client treats 4503 as authoritative (no retry); non-4503 codes (1006, 1001, etc.) trigger automatic reconnection.
+1. When the container is not running, all non-internal requests receive 503 without waking the container.
+2. WebSocket upgrade requests are rejected when the session is stopped (defense-in-depth).
+3. The frontend detects running-to-stopped transitions and kills all WebSocket retry loops.
+4. The server signals "container stopped" via a stable WebSocket close code.
+5. The client treats the container-stopped close code as authoritative and does not retry; other close codes trigger automatic reconnection.
 
 **Constraints:**
 
-- Fresh `connect()` calls are only made when the user explicitly starts the session again.
-- Anti-flapping guard prevents stale KV "running" status from auto-initializing terminals for non-active sessions.
+- Fresh terminal connections are only opened when the user explicitly starts the session again.
+- An anti-flapping guard prevents stale running status from auto-initializing terminals for non-active sessions.
 
 **Priority:** P1
 
@@ -468,7 +465,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 2. Visible when < 10 min remaining.
 3. Orange pulse at < 10 min, red at < 5 min.
 4. Hidden for stopped sessions.
-5. Computed from sleepAfterMs - (now - lastActiveAt).
+5. Computed from the configured idle timeout minus elapsed idle time.
 
 **Constraints:**
 
@@ -479,6 +476,8 @@ None.
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
 **Verification:** Manual check
+
+**Notes:** Sleep timer countdown UI is validated manually per the checklist in [documentation/lanes/troubleshooting.md](../../documentation/lanes/troubleshooting.md#sleep-timer).
 
 **Status:** Implemented
 
@@ -563,11 +562,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. `PATCH /api/preferences` accepts an optional `userTimezone` field (valid IANA timezone string, max 64 characters); invalid zones return a `ValidationError`.
-2. The Container DO persists the value to `ctx.storage` under the `userTimezone` key.
-3. Subsequent container starts inject `USER_TIMEZONE=<value>` into the container environment via the standard env-var pipeline; if the field is unset, the entrypoint falls back to `$TZ`, then `/etc/timezone`, then UTC.
+1. The preferences endpoint accepts an optional user-timezone field (valid IANA timezone string, max 64 characters); invalid zones are rejected with a validation error.
+2. The session persistently stores the user's timezone preference.
+3. Subsequent container starts inject the user's timezone preference into the container environment; if unset, the entrypoint falls back to the container default and finally to UTC.
 4. A timezone change takes effect on the next session start (no live re-injection into a running container).
-5. On Dashboard mount, the frontend reads the browser's IANA timezone via `Intl.DateTimeFormat().resolvedOptions().timeZone` and PATCHes `userTimezone` when the resolved zone differs from the stored preference. The sync is best-effort: failures are swallowed and never block the mount path, so a transient API error cannot strand the Dashboard.
+5. On Dashboard mount, the frontend reads the browser's IANA timezone and updates the stored preference when the resolved zone differs. The sync is best-effort: failures never block the mount path so a transient API error cannot strand the Dashboard.
 
 **Constraints:**
 
