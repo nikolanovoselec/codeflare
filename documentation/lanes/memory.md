@@ -6,6 +6,16 @@ the unified global graph; agents query it via `mcp__graphify__*`. The
 former MCP `@modelcontextprotocol/server-memory` subsystem has been
 removed.
 
+**What this enables.** Conversation context (decisions, debugging
+insights, observations) survives across sessions and devices. Every 15
+user prompts the agent auto-captures a structured note into
+`Raw/Sessions/`. The next session - on the same or another device -
+opens with full recall via the unified graph. The vault subtree is
+bisync'd to R2 in advanced mode only (default mode runs the capture hook
+for in-session context but never persists to R2). The rest of this lane
+covers the hook mechanics, capture pipeline, and counter design that
+make that work.
+
 **Audience:** Developers
 
 ---

@@ -327,9 +327,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. Non-HTML responses (JS bundles, images, manifests, markdown page bodies, JSON API replies, binary assets) pass through unchanged; the HTML-only guard is sufficient because the editor's API endpoints return non-HTML content types.
 3. When the body is rewritten, both the content-length and content-encoding headers are dropped because the rewrite path auto-decompresses upstream compression, and the original headers would otherwise trigger a browser decoding failure.
 4. When the rewrite runs but the body did not contain the expected base-href substring (no-op rewrite), a warning is logged so a future editor-template change surfaces as a logged signal instead of a silent white-screen regression.
-5. Browser-initiated Service Worker registration GETs for the editor's service-worker script short-circuit the auth chain and receive a static no-op service worker from the Worker.
+5. Browser-initiated Service Worker registration GETs for the editor's service-worker script short-circuit the auth chain and receive a key-shim service worker from the Worker (see [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5 for the key-delivery contract).
 6. The short-circuit selector requires all of: GET method, exact path match for the service-worker script, the browser-only Service-Worker request header (a Fetch-spec forbidden header name not settable from page JavaScript), and no Cookie header.
-7. The static service-worker payload contains zero user data and is identical across sessions; the cookie-absent gate is defense-in-depth so any future browser path that carries credentials falls through to the normal auth chain instead of the static-noop shortcut.
+7. The key-shim service-worker script body is identical across sessions; the per-session vault encryption key is delivered to the shim via postMessage from the bootstrap-hop page (REQ-VAULT-008 AC5), not baked into the script. The cookie-absent gate is defense-in-depth so any future browser path that carries credentials falls through to the normal auth chain instead of the shortcut.
 
 **Constraints:**
 
@@ -448,12 +448,14 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-008: Zero-UI vault encryption
 
 <!-- @impl: src/container/index.ts::ensureVaultKey -->
+<!-- @impl: src/routes/vault.ts::VAULT_KEY_SHIM_SERVICE_WORKER_JS -->
 <!-- @impl: src/routes/vault.ts::injectVaultBootstrapHopHtml -->
 <!-- @impl: src/routes/vault.ts::injectVaultIdbRecorder -->
+<!-- @impl: src/routes/vault.ts::VAULT_BOOTSTRAP_COOKIE -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
 <!-- @test: src/__tests__/container/index.test.ts (ensureVaultKey persistence + idempotency describe → AC1/AC2) -->
-<!-- @test: src/__tests__/routes/vault.test.ts (/.config merge + bootstrap-hop HTML render + SW shim message handlers describe → AC3/AC4/AC5/AC6) -->
+<!-- @test: src/__tests__/routes/vault.test.ts (injectVaultEncryptionConfig + injectVaultBootScript + injectVaultBootstrapHopHtml + hasVaultBootstrapCookie describes → AC3/AC5/AC6) -->
 
 **Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. This REQ covers encryption-at-rest with a per-session key generated and stored by the Container DO (no user passphrase prompt); IDB lifecycle cleanup on session DELETE and dashboard-mount sweeping lives in [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters). The threat model is BitLocker-grade: defeats offline disk attacks (profile theft, backup leak, ransomware scan), does NOT defeat anyone with an authenticated browser tab. The key dies with `container.destroy()` so deletion is forward-secret.
 
@@ -487,9 +489,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-015: Vault IDB lifecycle and listing filters
 
-<!-- @impl: src/routes/vault.ts -->
-<!-- @impl: web-ui/src/lib/vault-cache.ts -->
-<!-- @test: src/__tests__/routes/vault.test.ts (/.fs filter + IDB-recorder injection describe → AC1/AC3) -->
+<!-- @impl: src/routes/vault.ts::filterVaultFsListing -->
+<!-- @impl: src/routes/vault.ts::injectVaultIdbRecorder -->
+<!-- @impl: src/routes/vault.ts::VAULT_IDB_RECORDER_MARKER -->
+<!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
+<!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
+<!-- @test: src/__tests__/routes/vault.test.ts (filterVaultFsListing + injectVaultIdbRecorder describes → AC1/AC3) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache + sweepOrphanVaultCaches real IDB deletion describe → AC3/AC4) -->
 <!-- @test: host/__tests__/preseed-config-treeview.test.js (CONFIG.md treeview exclusions describe → AC2) -->
 

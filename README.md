@@ -71,7 +71,7 @@ Codeflare is built for Cloudflare. Not adapted, not ported - built on it, for it
 
 ### For your agent (Pro mode)
 
-- **SilverBullet vault** - every Pro session ships a browser-native note editor at `~/Vault/`. Notes, decisions, journal, raw transcripts - bisync'd to R2, encrypted at rest with a per-session key (you never see the key, you don't have to). The editor is codeflare-themed; the directory is yours.
+- **SilverBullet vault** - every Pro session ships a browser-native note editor at `~/Vault/`. Notes, decisions, journal, raw transcripts - bisync'd to R2 (covered by the operator-set `ENCRYPTION_KEY` when configured) and editor-side IndexedDB encrypted at rest with a zero-UI per-session key (no passphrase, no key management - the Container DO generates and stores it). The editor is codeflare-themed; the directory is yours.
 - **Cross-session memory** - your agent auto-captures conversation context every 15 prompts into the vault. The next session opens with full recall of prior decisions, debugging insights, and observations - even on a different device.
 - **Knowledge graph** - a queryable semantic graph (Graphify) over both project source and vault content. Agents reach for it via `mcp__graphify__*` to ask "what depends on X" or "how does Y connect to Z" without grepping the world.
 
@@ -318,7 +318,7 @@ See [CI/CD & Testing](documentation/lanes/ci-cd.md) for full CI/CD documentation
 
 ## Docs
 
-- `documentation/` - [architecture](documentation/lanes/architecture.md), [API reference](documentation/lanes/api-reference.md), [security](documentation/lanes/security.md), [configuration](documentation/lanes/configuration.md), and [more](documentation/README.md)
+- `documentation/` - [architecture](documentation/lanes/architecture.md), [API reference](documentation/lanes/api-reference.md), [security](documentation/lanes/security.md), [configuration](documentation/lanes/configuration.md), [billing](documentation/lanes/billing.md), and [more](documentation/README.md)
 - `preseed/tutorials/Getting Started.md` - what you can do and why you should want to. Tabs, tiling, file persistence, and three paths forward depending on how much hand-holding you need.
 - `preseed/tutorials/Examples/` - spec-driven project examples from Hello World to full blog platform. Hand one to your agent and go do something more interesting.
 
