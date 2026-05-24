@@ -3,7 +3,7 @@
 # .vars directive is undrained.
 #
 # Companion to memory-capture.sh (UserPromptSubmit). When that hook fires
-# and delta >= 15 it writes a .vars file at ~/.memory/counter/<session>.vars.
+# and delta >= 15 it writes a .vars file at /tmp/.memory-counter/<session>.vars.
 # The main agent MUST spawn `subagent_type: memory-capture` in the
 # background; the subagent's first step deletes .vars (dedup gate).
 #
@@ -20,11 +20,16 @@
 #
 # No bypass file. The block clears naturally when the subagent runs and
 # deletes .vars. If .vars is stale beyond recovery (e.g. transcript path
-# moved), delete it manually: `rm ~/.memory/counter/*.vars`.
+# moved), delete it manually: `rm /tmp/.memory-counter/*.vars`. On container
+# recycle /tmp is wiped by Cloudflare Containers contract, so stale .vars
+# cannot survive a session restart.
+#
+# COUNTER_DIR must match memory-capture.sh's MEMCAP_COUNTER_DIR resolution
+# (defaults to /tmp/.memory-counter; production never overrides).
 set -e
 
 USER_HOME="${HOME:-/home/user}"
-COUNTER_DIR="$USER_HOME/.memory/counter"
+COUNTER_DIR="${MEMCAP_COUNTER_DIR:-/tmp/.memory-counter}"
 
 INPUT=$(cat)
 

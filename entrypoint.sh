@@ -306,13 +306,10 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .codex/.tmp/**"              # plugin clones + sync temp files (17MB+, regenerated)
     --filter "- .codex/version.json"         # version check cache
 
-    # Memory capture - exclude all counter files (ephemeral per-session).
-    # ~/.memory/ as a whole survived the MCP-memory removal because the
-    # capture-hook gate (memory-capture.sh) still writes counter + .vars
-    # files there. No session-*.jsonl files are written any more; legacy
-    # ones from pre-vault sessions sit on R2 unread until the user
-    # deletes them.
-    --filter "- .memory/counter/**"
+    # Memory capture - counter files now live under /tmp/.memory-counter/
+    # (ephemeral by Cloudflare Containers contract; see REQ-MEM-002 AC6).
+    # /tmp is not synced in the first place, so no filter needed; the
+    # ~/.memory/ tree is no longer written to by the capture hook.
 
     # Perl CPAN cache — created by Perl module installs during build, regenerated
     --filter "- .cpan/**"
@@ -1508,11 +1505,9 @@ fi
 echo "[entrypoint] Claude Code bypass permissions consent pre-accepted"
 
 # Counter directory used by the memory-capture UserPromptSubmit hook
-# (the hook fires every N prompts to trigger vault capture; the MCP memory server
-# itself was removed — vault is now the persistent memory store).
-if [ -n "${SESSION_ID:-}" ]; then
-    mkdir -p "$USER_HOME/.memory/counter"
-fi
+# now lives at /tmp/.memory-counter/ (ephemeral by Cloudflare Containers
+# contract; see REQ-MEM-002 AC6). The hook script mkdir -p's it on first
+# fire — no boot-time provisioning needed.
 
 # Configure consult-llm-mcp MCP server when LLM API keys are present
 if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then

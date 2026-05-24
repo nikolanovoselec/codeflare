@@ -20,7 +20,7 @@ can query it via `mcp__graphify__*` tools.
 You will also derive:
 
 - `SESSION_ID`: the segment of `COUNTER_FILE` after the last `/`
-  (the file is `~/.memory/counter/{SESSION_ID}`)
+  (the file is `/tmp/.memory-counter/{SESSION_ID}`)
 - `SID_SHORT`: first 8 characters of `SESSION_ID`
 - `ISO_TS`: derived in **Step 1.5** below by the mandatory Bash block.
   Do NOT construct this string yourself, do NOT reuse `TODAY` with a

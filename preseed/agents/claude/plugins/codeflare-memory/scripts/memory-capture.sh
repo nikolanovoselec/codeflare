@@ -5,7 +5,13 @@
 set -e
 
 USER_HOME="${HOME:-/home/user}"
-COUNTER_DIR="$USER_HOME/.memory/counter"
+# Counter lives under /tmp by codeflare convention: every session start or
+# resume is a full container recycle (only R2-synced state survives), so
+# /tmp is guaranteed-empty on resume. This is the same pattern other
+# session-scoped hooks use. Side-effect: the counter file's absence on the
+# first hook fire is the canonical "fresh container" signal — see below.
+# MEMCAP_COUNTER_DIR override exists for hermetic tests; production never sets it.
+COUNTER_DIR="${MEMCAP_COUNTER_DIR:-/tmp/.memory-counter}"
 mkdir -p "$COUNTER_DIR"
 
 INPUT=$(cat)
@@ -58,38 +64,41 @@ COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
 MEMORY_SCAN=""
 FORCE_RESUME=""
 if [[ -f "$COUNTER_FILE" ]]; then
+    # Mid-session: counter present, normal 15-prompt cadence.
     last_count=$(head -1 "$COUNTER_FILE" 2>/dev/null) || last_count=0
     last_line=$(tail -1 "$COUNTER_FILE" 2>/dev/null) || last_line=1
     [[ "$last_count" =~ ^[0-9]+$ ]] || last_count=0
     [[ "$last_line" =~ ^[0-9]+$ ]] || last_line=1
-
-    # Resume detection: if the counter file hasn't been written in 30+
-    # minutes AND new real-user-prompts have arrived since, this is a
-    # resumed session (`/continue` after auto-compact, `claude --resume`
-    # after a container stop+resume, or a fresh shell against the same
-    # session-id). The intra-session 15-prompt cadence cannot flush the
-    # gap because the previous run ended before delta hit 15 again, so
-    # everything the user typed after the last capture went uncaptured.
-    # Force-fire a capture immediately on the first user message of the
-    # resumed session so the pending gap is flushed.
-    NOW=$(date +%s)
-    COUNTER_MTIME=$(stat -c %Y "$COUNTER_FILE" 2>/dev/null || echo "$NOW")
-    RESUME_GAP_SEC=$((NOW - COUNTER_MTIME))
-    if [[ $RESUME_GAP_SEC -gt 1800 ]] && [[ $((CURRENT_COUNT - last_count)) -gt 0 ]]; then
-        FORCE_RESUME=1
-        # Re-emit the memory-scan directive on resume too: after a
-        # /compact or container restart the agent's in-context recall
-        # of prior session decisions is gone; nudge it back into the
-        # unified graph immediately.
-        MEMORY_SCAN="BEFORE responding, query the unified graph for context. Use mcp__graphify__query_graph (or mcp__graphify__get_node for a known concept) with terms from the user's message to surface prior decisions, vault notes, and per-repo references."
-    fi
 else
-    # First run: baseline from current transcript so we don't fire on the entire history.
-    last_count=$CURRENT_COUNT
-    last_line=$(wc -l < "$TRANSCRIPT")
-    printf '%s\n%s\n' "$last_count" "$last_line" > "$COUNTER_FILE"
-    # First message — nudge graphify-based context lookup against the unified vault graph.
+    # No counter file = fresh container instance. In codeflare, every
+    # session start or resume is a complete container recycle (Cloudflare
+    # Containers: "All disk is ephemeral. When a Container instance goes to
+    # sleep, the next time it is started, it will have a fresh disk as
+    # defined by its container image."), so /tmp is guaranteed empty.
+    # The counter's absence is therefore the canonical "fresh container"
+    # signal — distinguish two sub-cases by transcript content:
+    #
+    #   (a) Brand-new session: the hook fires on the first user prompt and
+    #       CURRENT_COUNT == 1 (just the one message in the transcript).
+    #       Baseline and exit; the directive nudges the agent to query the
+    #       unified graph for context.
+    #
+    #   (b) Resumed session: the container was recycled but the transcript
+    #       persisted (claude --resume restores it), so CURRENT_COUNT > 1.
+    #       Force-fire a capture from the start of the transcript to flush
+    #       any tail from the prior session that never reached the 15-prompt
+    #       boundary, AND re-emit the graph-query directive because the
+    #       agent's in-context recall of prior decisions is gone.
     MEMORY_SCAN="BEFORE responding, query the unified graph for context. Use mcp__graphify__query_graph (or mcp__graphify__get_node for a known concept) with terms from the user's message to surface prior decisions, vault notes, and per-repo references."
+    if [[ $CURRENT_COUNT -gt 1 ]]; then
+        last_count=0
+        last_line=1
+        FORCE_RESUME=1
+    else
+        last_count=$CURRENT_COUNT
+        last_line=$(wc -l < "$TRANSCRIPT")
+        printf '%s\n%s\n' "$last_count" "$last_line" > "$COUNTER_FILE"
+    fi
 fi
 
 DELTA=$((CURRENT_COUNT - last_count))

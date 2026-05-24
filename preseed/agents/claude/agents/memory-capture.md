@@ -11,6 +11,6 @@ The full multi-step contract lives in `memory-agent-prompt.md`. The hook passes 
 
 Inputs the hook passes:
 - `PROMPT_FILE`: path to `memory-agent-prompt.md` (the contract).
-- `VARS_FILE`: path to the trigger marker at `~/.memory/counter/<session_id>.vars` (delete first).
+- `VARS_FILE`: path to the trigger marker at `/tmp/.memory-counter/<session_id>.vars` (delete first).
 
 You do not need to respond to the user; this is background ingestion. The main session is handling the user's prompt in parallel.

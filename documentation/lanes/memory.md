@@ -65,13 +65,30 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
    excluded: tool_result wrappers (array content, excluded by the
    trailing `"`) and slash-command/task-notification wrappers (string
    content starting with `<`, excluded by `[^<]`).
-3. **Counter check** -- reads `~/.memory/counter/{session_id}` (line 1:
-   last count, line 2: last line offset). First run after container
-   recycle or `/resume` baselines from the current transcript and writes
-   the counter immediately. If the delta is `< 15`, exits silently
-   (optionally emitting a graphify-query nudge on the first message).
+3. **Counter check** -- reads `/tmp/.memory-counter/{session_id}` (line 1:
+   last count, line 2: last line offset). The counter lives under `/tmp`
+   on purpose: Cloudflare Containers guarantees an ephemeral disk on every
+   container start ("All disk is ephemeral. When a Container instance goes
+   to sleep, the next time it is started, it will have a fresh disk as
+   defined by its container image."), so in codeflare the counter's
+   presence/absence is the canonical "mid-session vs. fresh-container"
+   signal. The `MEMCAP_COUNTER_DIR` env var overrides the default for
+   hermetic tests; production never sets it. If the counter file exists
+   and the delta is `< 15`, exits silently. If the counter is missing,
+   the hook distinguishes two sub-cases by `CURRENT_COUNT` (real-user
+   prompts in the transcript):
+   - **`CURRENT_COUNT == 1`** (brand-new session): baseline at the current
+     transcript size, write the counter, emit the first-message
+     graphify-query nudge, exit without capture.
+   - **`CURRENT_COUNT > 1`** (resumed session per REQ-MEM-002 AC6): the
+     container was recycled but the transcript was restored on disk, so
+     prior-session prompts are still there. Force-fire a capture covering
+     the transcript from line 1 (flushing any tail from the prior session
+     that never reached the 15-prompt boundary), AND re-emit the
+     graphify-query directive because the agent's in-context recall of
+     prior decisions is gone after the recycle.
 4. **Vars file** -- writes transcript path, offsets, date, counts, and
-   counter path to `~/.memory/counter/{session_id}.vars` as JSON.
+   counter path to `/tmp/.memory-counter/{session_id}.vars` as JSON.
 5. **Counter update** -- writes current count + total lines back to the
    counter before emitting so subsequent invocations see delta `< 15`.
 6. **JSON output** -- emits `{hookSpecificOutput:{...,additionalContext}}`
@@ -108,23 +125,29 @@ string is the single source of truth for the filename and the
 ## Counter Storage
 
 ```
-~/.memory/counter/
+/tmp/.memory-counter/
 +-- {session_id}         # Two lines: last_count, last_line_offset
 +-- {session_id}.vars    # Variables JSON for current hook invocation
 ```
 
-Counter files are excluded from sync via
-`--filter "- .memory/counter/**"` (ephemeral per-session state -- each
-session gets a new sessionID, old counters are orphans). The rest of
-`.memory/` survives because the directory persists across the MCP
-removal as the hook gate; no JSONL graph files are written there
-anymore.
+The counter directory lives under `/tmp` by design: Cloudflare Containers
+guarantees that `/tmp` (and all non-R2-backed disk) is fresh on every
+container start, which is what makes the counter's absence on the first
+hook fire a reliable "fresh container" signal for REQ-MEM-002 AC6
+resume detection. No bisync filter is required because `/tmp` is not
+synced in the first place. The `MEMCAP_COUNTER_DIR` env var overrides
+the default for hermetic tests; production never sets it.
+
+Cross-reference: the verified Cloudflare-Containers ephemerality contract
+this design relies on is captured at `~/Vault/References/Cloudflare-Containers-Ephemerality.md`
+in the user's vault.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Capture not firing | Counter not yet baselined, or transcript has `<15` new prompts | Check `~/.memory/counter/{session_id}` mtime; send a few more prompts and watch |
+| Capture not firing | Counter file present at `/tmp/.memory-counter/{session_id}` and transcript has `<15` new prompts since last capture | Send more prompts to reach the 15-message threshold; or verify the hook is registered (`cat ~/.claude/settings.json`) |
+| Capture not firing after a resume | Counter file present despite the container appearing to be a fresh start (would indicate `/tmp` somehow survived recycle, which Cloudflare's ephemerality contract forbids) | Inspect `ls -la /tmp/.memory-counter/`; if the counter mtime predates the current container's start time, file an issue — the platform contract is being violated. Workaround: `rm /tmp/.memory-counter/{session_id}` |
 | Capture spawns but no vault file | Capture agent failed mid-write | Check the agent's transcript for errors; the `.vars` file is gone but the counter has advanced -- next 15-prompt window will try again |
 | Capture spawns, no vault file, agent transcript shows `ISO_TS_ASSERTION_FAILED:` | Step 1.5 Bash block rejected the timestamp (REQ-MEM-010 AC5) | Read the agent transcript for the exact failure: `missing TZ offset` (Assertion 1 - bad stamp shape), `offset X does not match TZ=Y` (Assertion 2 - dropped TZ wrapper, the #416 symptom), or `drifts Ns from current clock` (Assertion 3 - agent fabricated the timestamp instead of running `date`). Fail-closed is intentional: the capture halts rather than write a wrong timestamp to the vault. Next 15-prompt window retries |
 | `mcp__graphify__query_graph` returns nothing | Global graph not built or wrapper still on per-repo | Verify `~/.graphify/global-graph.json` exists; restart MCP wrapper (it polls on a 2s loop) |

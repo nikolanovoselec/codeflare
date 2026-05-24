@@ -109,7 +109,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ### REQ-MEM-002: Capture triggers every 15 user messages
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
-<!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh describe → counter delta 15-msg threshold + .vars writeback + baseline init → AC1-AC6) -->
+<!-- @test: host/__tests__/memory-capture-hook.test.js (input gating + first-run baseline + AC6 resume detection + 15-msg threshold + counter advance + tilde expansion + output protocol → AC1-AC6; AC6 covered by `AC6 - missing counter + transcript with >1 prompt force-fires capture from line 1` and `AC6 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)`) -->
 
 **Intent:** Memory capture must fire at a regular interval to balance context freshness against overhead.
 
@@ -117,16 +117,18 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The hook tracks the number of user messages since the last capture using a per-session counter.
-2. On first run for a session, the hook initialises a baseline at the current transcript size and injects the first-message graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3) before exiting.
-3. If the delta since the last capture is less than 15 messages and the session is not a resumed session per AC6, the hook exits silently.
+1. The hook tracks the number of user messages since the last capture using a per-session counter file. The counter directory defaults to `/tmp/.memory-counter/` and is overridable via the `MEMCAP_COUNTER_DIR` environment variable for hermetic tests.
+2. On the first run for a session whose transcript contains exactly one real-user prompt (CURRENT_COUNT == 1), the hook treats this as a brand-new session: it initialises a baseline at the current transcript size, writes the counter, injects the first-message graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3), and exits without triggering capture.
+3. If the counter file exists and the delta since the last capture is less than 15 messages, the hook exits silently.
 4. When the delta reaches 15, the capture subagent is triggered.
 5. The counter is advanced before the trigger emits, preventing re-triggering on subsequent hook invocations within the same window.
-6. When the per-session counter file exists but has not been written for more than 30 minutes and at least one new real-user prompt has arrived since, the session is treated as resumed (`/continue` after auto-compact, `claude --resume` after a container stop+resume, or a fresh shell against the same session-id). The hook force-fires a capture on the next user message regardless of the 15-message threshold so the pending gap from the prior run is flushed, and re-emits the graph-query directive from [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3 because the agent's in-context recall of prior decisions is gone after the resume.
+6. **Resume detection via ephemeral counter:** the counter file is stored under `/tmp`, which by Cloudflare Containers contract ("All disk is ephemeral. When a Container instance goes to sleep, the next time it is started, it will have a fresh disk as defined by its container image.") is guaranteed empty on every container start. In codeflare every session start or resume is a complete container recycle, so the counter file's absence on the first hook fire is the canonical "fresh container" signal. When the hook fires with no counter file AND the transcript already contains more than one real-user prompt (CURRENT_COUNT > 1), the hook treats the session as resumed: it force-fires a capture covering the transcript from line 1 (so any tail from the prior session that never reached the 15-prompt boundary is flushed into the vault graph) and re-emits the graph-query directive from [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3, because the agent's in-context recall of prior decisions is gone after the recycle.
 
 **Constraints:**
 
-- Per-session counter files live in the local container and are not pushed to R2; the unified-graph rebuild on the next boot is the persistent surface, not the counter. The counter does persist on local disk across container resumes, which is exactly what the AC6 mtime check relies on.
+- The counter file MUST live under an ephemeral path (default `/tmp/.memory-counter/`) so that its presence/absence reliably encodes "fresh container instance vs. mid-session continuation". Persisting the counter under `$HOME` or any R2-synced path would defeat resume detection.
+- The two first-run sub-cases (brand-new vs. resumed) are distinguished entirely by `CURRENT_COUNT`: a value of 1 means the just-submitted prompt is the only one in the transcript (brand-new); a value greater than 1 means a prior session's prompts persisted in the transcript (resumed). No timestamps, mtimes, or external sentinels are involved.
+- The in-session `/compact` case (same container, same PID, counter survives) is not detected by this hook; the 15-prompt cadence catches up within one window, and the compressed summary left by `/compact` keeps the agent oriented in the meantime. Documented as a known limitation; revisit if observed to bite in practice.
 
 **Priority:** P0
 
