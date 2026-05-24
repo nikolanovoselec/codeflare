@@ -2,15 +2,15 @@
 
 Security requirements for authentication enforcement, credential isolation, encryption, rate limiting, input validation, and hardening.
 
-**Domain owner:** Worker (Hono middleware, access.ts, rate-limit.ts, kv-crypto.ts, r2-sse.ts, validation.ts)
+**Domain owner:** Worker middleware layer
 
 ### Key Concepts
 
-- **Authentication Gate** -- Middleware that rejects unauthenticated requests to protected surfaces (`/app`, `/api`, `/setup`). Enforced in `access.ts` via `getUserFromRequest()`.
-- **Rate Limiting** -- Per-user request throttling backed by KV with in-memory fallback. Keyed by bucket name (authenticated) or `CF-Connecting-IP` (unauthenticated). Fail-closed for security endpoints, fail-open for resource endpoints.
-- **Encryption at Rest** -- AES-256-GCM encryption of KV values (credentials, tokens) using a base64-encoded 256-bit `ENCRYPTION_KEY`. Ciphertext format: `v1:` + base64(IV + ciphertext + tag).
-- **SSE-C** -- Server-Side Encryption with Customer-Provided Keys. R2 objects are encrypted via S3-compatible `x-amz-server-side-encryption-customer-*` headers. Files are visible in the dashboard but contents are unreadable without the key.
-- **Security Headers** -- Standard HTTP response headers (HSTS, CSP, X-Frame-Options, etc.) applied globally in `src/index.ts` middleware to prevent common web attacks.
+- **Authentication Gate** -- Middleware that rejects unauthenticated requests to protected surfaces (application pages, API endpoints, and the setup wizard).
+- **Rate Limiting** -- Per-user request throttling backed by persistent storage with in-memory fallback. Keyed by authenticated user identity, with client IP as fallback for unauthenticated requests. Fail-closed for security endpoints, fail-open for resource endpoints.
+- **Encryption at Rest** -- Authenticated AES-256-GCM encryption of credential values stored in persistent storage. Ciphertext carries a version prefix so future schemes can be added without breaking reads.
+- **SSE-C** -- Server-Side Encryption with Customer-Provided Keys. R2 objects are encrypted via the SSE-C scheme. Files are visible in the dashboard but contents are unreadable without the key.
+- **Security Headers** -- Standard HTTP response headers (HSTS, CSP, X-Frame-Options, etc.) applied globally to prevent common web attacks.
 
 ### Out of Scope
 
@@ -40,13 +40,13 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Unauthenticated requests to `/app/*`, `/api/*`, and `/setup/*` (after setup is complete) receive 401, 302, or 403 responses.
-2. In CF Access mode, requests without a valid `CF_Authorization` cookie or `cf-access-jwt-assertion` header are rejected.
-3. In SaaS (GitHub OIDC) mode, requests without a valid `codeflare_session` cookie are rejected.
-4. Injecting `cf-access-authenticated-user-email` headers does NOT bypass authentication after setup is complete.
-5. The `authConfigFetched` sentinel prevents KV transient errors from permanently degrading to the pre-setup header-trust model.
-6. The pentest workflow's auth-gate job verifies seven API endpoints require authentication.
-7. `GET /api/setup/status` is always public (returns only configuration status, no secrets).
+1. Unauthenticated requests to protected paths (application pages, API endpoints, post-setup-completion setup endpoints) receive 401, 302, or 403 responses.
+2. In CF Access mode, requests without a valid CF Access session credential are rejected.
+3. In SaaS mode, requests without a valid SaaS session credential are rejected.
+4. Injecting the pre-setup header-trust signal does not bypass authentication after setup is complete.
+5. Transient storage failures during auth-config fetch do not permanently degrade authentication to the pre-setup trust model.
+6. All protected API endpoints reject unauthenticated requests.
+7. The setup-status endpoint is always public and returns only configuration status, no secrets.
 
 **Constraints:**
 
@@ -76,9 +76,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. `CLOUDFLARE_API_TOKEN` stays in the Worker/DO environment (GitHub Secrets -> Worker secrets).
+1. The master Cloudflare API token is never exposed inside container environments.
 2. Containers receive only per-user scoped R2 credentials (access key pair), never the master API token.
-3. The container environment variables do not include `CLOUDFLARE_API_TOKEN`.
+3. The container environment never carries the master API token.
 4. R2 credentials passed to containers are scoped to the user's bucket (Object Read + Write only).
 
 **Constraints:**
@@ -111,17 +111,17 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. `getOrCreateScopedR2Token()` creates a per-user token via `POST /accounts/{accountId}/tokens` with a bucket-specific Object Read + Write policy.
-2. Token ID serves as the S3 Access Key ID; SHA-256 of the token value serves as the S3 Secret Access Key.
-3. Tokens are cached in KV as `r2token:{email}` (encrypted when `ENCRYPTION_KEY` is set).
-4. Cached tokens are validated before use via `verifyTokenExists()` (GET request through circuit breaker). Only a definitive 404 invalidates the cache.
-5. Transient errors (429, 500, 502, network errors, circuit breaker open) assume the token is still valid to prevent unnecessary rclone 401 errors.
-6. Tokens are revoked on user deletion via `deleteScopedR2Token()`.
-7. Token creation requires the `API Tokens: Edit` permission on the deploy token.
+1. The system creates a per-user Cloudflare API token scoped to that user's R2 bucket (Object Read + Write only).
+2. Token credentials are derived deterministically so the token ID and a hash of the token value form an S3-compatible credential pair.
+3. Tokens are cached per user (encrypted when operator-provided encryption is configured).
+4. Cached tokens are validated before use; only a definitive 404 from the token-existence check invalidates the cache.
+5. Transient verification errors assume the token is still valid to prevent unnecessary downstream auth failures.
+6. Tokens are revoked on user deletion.
+7. Token creation requires the upstream API permission to manage tokens on the deploy credential.
 
 **Constraints:**
 
-- Token verification runs on every `getOrCreateScopedR2Token()` cache hit, not just on creation.
+- Token verification runs on every cache hit, not just on creation.
 - Verification failures due to transient errors do not delete the cached token.
 
 **Priority:** P0
@@ -150,17 +150,16 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. `ENCRYPTION_KEY` is a base64-encoded 256-bit key (exactly 32 bytes decoded). Non-base64 or wrong-length values are rejected at import.
-2. KV values for `llm-keys:{bucket}`, `deploy-keys:{bucket}`, and `r2token:{email}` are encrypted with AES-256-GCM via Web Crypto API.
-3. Ciphertext format is `v1:` + base64(12-byte random IV + ciphertext + 16-byte auth tag).
-4. The KV key name is bound as AAD (Additional Authenticated Data), preventing ciphertext from being copied between KV keys.
-5. The CryptoKey is imported once per Worker isolate lifetime and cached.
+1. The operator-provided encryption key must be a base64-encoded 256-bit value (exactly 32 bytes decoded). Non-base64 or wrong-length values are rejected at startup.
+2. Credential values (LLM keys, deploy keys, R2 tokens) are encrypted at rest with authenticated AES-256-GCM.
+3. Ciphertext carries a version prefix and a random IV per write, so re-encrypting the same plaintext produces a different ciphertext.
+4. The storage key name is bound as additional authenticated data, preventing ciphertext from being copied between storage keys.
+5. The encryption key is imported once per worker instance and reused for the instance's lifetime.
 
 **Constraints:**
 
-- Key is generated via `openssl rand -base64 32` and stored as a GitHub Actions secret.
-- Key pipeline: GitHub Secret -> `wrangler secret put` -> Worker env -> CryptoKey import.
-- The operational masking + missing-key warning + non-secret allowlist live in [REQ-SEC-018](#req-sec-018-credential-encryption-operational-policy).
+- Changing the encryption key requires re-encrypting all credential values (see [REQ-SEC-006](#req-sec-006-transparent-kv-encryption-migration)).
+- Operational masking, missing-key warning, and non-secret allowlist live in [REQ-SEC-018](#req-sec-018-credential-encryption-operational-policy).
 
 **Priority:** P0
 
@@ -185,9 +184,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. API responses always return masked values (`****` + last 4 chars), never plaintext keys.
-2. When `ENCRYPTION_KEY` is absent, `warnIfNoEncryptionKey()` emits a CRITICAL structured log on the first request.
-3. Non-secret KV entries (`user-prefs:*`, `session:*`, `user:*`, `setup:*`, `storage-stats:*`) remain plaintext.
+1. API responses always return masked values (last 4 characters only); the plaintext value is never returned.
+2. When no operator encryption key is configured, a CRITICAL-severity warning is emitted on the first request.
+3. Non-secret persistent storage entries (preferences, sessions, user records, setup state, storage stats) remain plaintext.
 
 **Constraints:**
 
@@ -219,18 +218,18 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. All R2 PutObject, GetObject, HeadObject, and InitiateMultipartUpload operations include SSE-C headers when `ENCRYPTION_KEY` is set.
-2. SSE-C headers include `x-amz-server-side-encryption-customer-algorithm: AES256`, the base64 key, and the base64 MD5 of raw key bytes.
-3. `ENCRYPTION_KEY` is passed from Worker to Durable Object to container as an environment variable.
-4. In containers, the entrypoint appends `sse_customer_key_base64` and `sse_customer_algorithm = AES256` to `rclone.conf`.
-5. All rclone bisync operations (initial restore, periodic sync, shutdown sync) transparently encrypt/decrypt.
+1. All R2 object operations (read, write, head, multipart) use SSE-C headers when an operator encryption key is configured.
+2. The SSE-C scheme uses AES-256; the request carries the customer-provided key and a key-hash so the storage layer can verify integrity.
+3. The encryption key is propagated from Worker to Durable Object to container as part of the session environment.
+4. In containers, the sync configuration is extended with SSE-C settings so all R2 traffic carries the customer-provided key.
+5. All bidirectional sync operations (initial restore, periodic sync, shutdown sync) transparently encrypt and decrypt without user action.
 6. Files are visible in the R2 dashboard (names, sizes, metadata) but contents are unreadable without the key.
-7. When `ENCRYPTION_KEY` is not set, R2 operations proceed without SSE-C headers (no code path changes).
+7. When no operator encryption key is configured, R2 operations proceed without SSE-C (no code path changes).
 
 **Constraints:**
 
-- Enabling SSE-C on an existing deployment requires re-uploading all existing unencrypted R2 objects with SSE-C headers.
-- New deployments that set `ENCRYPTION_KEY` from the start require no migration.
+- Enabling SSE-C on an existing deployment requires re-uploading all existing unencrypted R2 objects with SSE-C.
+- New deployments that enable encryption from the start require no migration.
 
 **Priority:** P0
 
@@ -256,13 +255,13 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. `getAndDecrypt()` detects encrypted values by the `v1:` prefix and decrypts them.
-2. Plaintext JSON values without the `v1:` prefix are parsed directly (legacy path).
-3. Plaintext values trigger a fire-and-forget re-encryption write-back to KV.
-4. Subsequent reads of the migrated value hit the fast decrypt path.
-5. If the write-back fails (transient error, rate limit), the caller still receives correct data.
-6. Two concurrent requests reading the same plaintext entry can both write encrypted copies safely (both encrypt the same plaintext; whichever write wins is equally valid).
-7. Real updates via `encryptAndStore()` always encrypt directly (no migration path needed).
+1. Encrypted values (identified by the version prefix) are decrypted transparently on read.
+2. Legacy plaintext values without a version prefix are parsed directly.
+3. Plaintext reads trigger a background re-encryption write-back.
+4. Subsequent reads of the migrated value hit the fast decrypted path.
+5. If the re-encryption write-back fails (transient error, rate limit), the caller still receives correct data.
+6. Two concurrent requests reading the same plaintext entry can both write encrypted copies safely (the result is equivalent regardless of which write wins).
+7. Direct credential writes always store encrypted data without going through a migration path.
 
 **Constraints:**
 
@@ -292,14 +291,13 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Rate limiting is implemented via `createRateLimiter()` factory, keyed by `bucketName` (user identifier) with `CF-Connecting-IP` fallback for unauthenticated requests.
-2. Primary storage is Cloudflare KV with automatic TTL expiry (window + 60s buffer). Fallback is an in-memory `Map` with periodic cleanup every 100 requests.
-3. Exceeded limits return HTTP 429 with `{ code: "RATE_LIMIT_ERROR", message: "Rate limit exceeded. Try again in N seconds." }`.
-4. All rate-limited responses include `X-RateLimit-Limit` and `X-RateLimit-Remaining` headers.
+1. Rate limiting is keyed by authenticated user identity, with client IP as fallback for unauthenticated requests.
+2. Primary storage is persistent storage with automatic TTL expiry; the fallback is per-isolate in-memory with periodic cleanup.
+3. Exceeded limits return HTTP 429 with a stable error code and a human-readable retry-time message.
+4. All rate-limited responses include the standard rate-limit advisory headers.
 
 **Constraints:**
 
-- KV key prefixes must not collide with application cache keys (use `rl-` prefix where collision exists).
 - Per-endpoint policy + fail-closed/fail-open semantics + stress-test bypass live in [REQ-SEC-019](#req-sec-019-per-endpoint-rate-limit-policy); WS-upgrade pre-rate-limit short-circuits live in [REQ-SEC-020](#req-sec-020-ws-upgrade-rate-limit-short-circuits).
 
 **Priority:** P0
@@ -328,14 +326,14 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Acceptance Criteria:**
 
 1. WebSocket connections are rate-limited at 30 per 60-second window per user.
-2. Per-user concurrent session caps are enforced: `MAX_SESSIONS_USER` (default 3), `MAX_SESSIONS_ADMIN` (default 10).
-3. Security-critical endpoints (`request-access`, Turnstile verification) use fail-closed rate limiting (KV failure returns 503 instead of allowing the request).
+2. Per-user concurrent session caps are enforced: 3 for standard users, 10 for admins.
+3. Security-critical endpoints (request-access, Turnstile verification) use fail-closed rate limiting: persistent-storage failure returns 503 instead of allowing the request.
 4. General resource-protection endpoints use fail-open rate limiting (per AD6).
-5. When `STRESS_TEST_MODE=active`, all rate limits are bypassed with a one-time warning per isolate.
+5. In stress-test deployment mode, all rate limits are bypassed with a one-time warning per worker instance.
 
 **Constraints:**
 
-- `STRESS_TEST_MODE` must not be active alongside `SAAS_MODE` (global middleware returns 503).
+- Stress-test mode must not be active in SaaS deployments; the combination returns 503 to all requests.
 
 **Priority:** P0
 
@@ -359,8 +357,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. WebSocket upgrade requests for sessions with KV status `stopped` are rejected via close code 4503 BEFORE the WS rate-limit check runs, so a reconnect storm against a hibernated container does not consume the user's 30/60s budget.
-2. WebSocket upgrade requests are rejected via close code 1013 (reason `container-warming-up`) BEFORE the WS rate-limit check when the worker observes `terminalServiceReady=false` in the container `/health` probe response, so a reconnect storm during container warm-up does not consume the user's 30/60s budget. The `/health` probe is best-effort: any probe error or missing field falls through to the normal rate-limit + forward path.
+1. WebSocket upgrade requests for stopped sessions are rejected before the WS rate-limit check runs, so a reconnect storm against a hibernated container does not consume the user's 30/60s WS budget. The close code conveys "container stopped" to the client.
+2. WebSocket upgrade requests are rejected before the rate-limit check when the container's terminal service is not yet ready; the close code conveys "container warming up". The readiness probe is best-effort: probe errors fall through to the normal rate-limit + forward path.
 
 **Constraints:**
 
@@ -398,7 +396,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Constraints:**
 
-- Headers are applied in `src/index.ts` global middleware.
+- Headers are applied globally; every response path inherits them.
 - Preflight (OPTIONS) responses receive HSTS directly in the CORS middleware.
 - Coverage of non-standard response paths (redirect responses, helper-emitted responses) lives in [REQ-SEC-021](#req-sec-021-hsts-coverage-on-redirect-response-paths).
 
@@ -424,11 +422,11 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. HSTS is applied on redirect responses via `redirectWithHeaders()` helper, including root redirect and setup redirect.
+1. All redirect responses carry the full security header set, including HSTS.
 
 **Constraints:**
 
-- Every code path that issues a redirect MUST route through `redirectWithHeaders()`; bare `Response.redirect()` is an anti-pattern (caught by spec-reviewer when found in source).
+- All redirect responses must carry the full security header set.
 
 **Priority:** P0
 
@@ -454,17 +452,17 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Request bodies are validated with Zod schemas before handler logic executes.
-2. Setup wizard inputs (domain, emails, origins) are validated via Zod with specific patterns (valid domain, valid email, origin suffix starting with `.`).
-3. Session IDs are validated against `SESSION_ID_PATTERN` (`/^[a-z0-9]{8,24}$/`) on terminal WebSocket upgrade and container lifecycle endpoints. Invalid IDs are rejected with 400 before any DO interaction.
-4. Base64-encoded inputs are validated with try/catch around `atob()`. Invalid base64 returns 400 immediately.
-5. `/api/*` routes enforce a 64 KiB body limit (storage routes exempt for file uploads).
-6. Email addresses are trimmed and lowercased before KV lookup, role resolution, and bucket name derivation.
+1. Request bodies are validated before handler logic executes.
+2. Setup wizard inputs (domain, emails, origins) are validated with shape-specific patterns.
+3. Session IDs are validated against the canonical format (8-24 lowercase alphanumeric characters) on every entry point. Invalid IDs are rejected with 400 before any session-side interaction.
+4. Malformed base64 inputs are rejected with 400 immediately.
+5. API routes enforce a 64 KiB body limit (storage routes exempt for file uploads).
+6. Email addresses are normalized before any lookup, comparison, or derivation operation.
 
 **Constraints:**
 
-- Validation errors return structured error responses with `code: "VALIDATION_ERROR"` (400).
-- Schema duplication between backend (`src/lib/schemas.ts`) and frontend (`web-ui/src/lib/schemas.ts`) is intentional due to separate build pipelines.
+- Validation errors return structured error responses with a stable validation error code and HTTP 400.
+- Validation rules are enforced independently at each tier (Worker and UI) due to separate build pipelines.
 
 **Priority:** P0
 
@@ -488,16 +486,16 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. `validateKey()` decodes URI-encoded sequences via `decodeURIComponent` before the `..` traversal check.
-2. Double-encoded attacks (`%252E%252E`) and standard encoded attacks (`%2E%2E`) are both caught.
-3. Malformed URI encoding throws `ValidationError`.
-4. The function returns the decoded key so callers use the correct value for R2 operations.
-5. Browse endpoint validates the prefix parameter against `..` rejection.
-6. The pentest workflow's injection job tests path traversal payloads (`%2e%2e`, double-encoded, backslash, unicode) and confirms they are blocked.
+1. Storage paths are URI-decoded before the parent-directory traversal check so encoded traversal sequences are caught.
+2. Both single- and double-encoded parent-directory sequences are rejected.
+3. Malformed URI encoding is rejected with a validation error.
+4. The validator returns the decoded key so callers operate on the value the user sees, not the encoded request form.
+5. The browse endpoint validates the prefix parameter against parent-directory traversal.
+6. Path-traversal payloads (percent-encoded, double-encoded, backslash, unicode variants) are rejected.
 
 **Constraints:**
 
-- `PROTECTED_PATHS` is currently empty (all R2 paths accessible via the web storage API). The `validateKey()` function still checks the array but it is a no-op.
+- A protected-paths allowlist is supported but empty by default; all storage paths are accessible via the web storage API.
 
 **Priority:** P0
 
@@ -521,15 +519,15 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Trivy scans Docker images for HIGH and CRITICAL severity vulnerabilities in the deploy workflow.
-2. Known exceptions are listed in `.trivyignore`.
-3. The deploy pipeline fails if Trivy finds unexcepted HIGH/CRITICAL vulnerabilities.
-4. Scanning occurs after Docker image build and before push to Cloudflare registry.
+1. Container images are scanned for HIGH and CRITICAL severity vulnerabilities in the deploy workflow.
+2. Known vulnerability exceptions are tracked in a project-level allowlist.
+3. The deploy pipeline fails if the scan finds unexcepted HIGH/CRITICAL vulnerabilities.
+4. Scanning occurs after image build and before push to the container registry.
 
 **Constraints:**
 
-- Trivy scanning is part of the CI/CD pipeline, not a runtime check.
-- Exceptions in `.trivyignore` must be reviewed periodically.
+- Image scanning is part of the deploy pipeline, not a runtime check.
+- The vulnerability-exception allowlist is reviewed periodically.
 
 **Priority:** P1
 
@@ -559,12 +557,12 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. A random UUID is generated per DO lifecycle and passed to the container as `CONTAINER_AUTH_TOKEN` environment variable.
-2. All proxied HTTP requests from the DO to the container include the token in the `Authorization: Bearer` header.
-3. The terminal server validates this token on all non-exempt paths.
-4. Auth-exempt paths (`/health`, `/activity`) are whitelisted at the terminal server because `collectMetrics()` calls them directly via `ctx.container.getTcpPort(TERMINAL_SERVER_PORT).fetch(...)`, which enters the container over the SDK's private TCP plumbing and never runs through the DO's public `fetch()` override, so the `Authorization: Bearer` header injection does not happen; whitelisting these two internal-health paths is safe because they expose no user data and no mutable container state.
-5. The token survives DO hibernate/wake cycles for the duration of one DO lifecycle: after the DO is evicted from memory and rehydrated on a later request, the next proxied request still authenticates successfully against the container's running env var, with no user-visible `Unauthorized` response and no need to recreate the session.
-6. On DO destruction the persisted token is cleared, so the next session under the same DO ID starts with a fresh token (no cross-lifecycle reuse).
+1. A unique auth token is generated per Durable Object lifecycle and injected into the container environment.
+2. All proxied requests from the Worker to the container include the token as a bearer credential.
+3. The container's terminal server validates the bearer credential on all non-exempt paths.
+4. A small set of health-check paths (health and activity) are auth-exempt because they are reached over an internal probe path that bypasses the proxy; both paths expose no user data and no mutable state.
+5. The token survives container hibernate/wake cycles within a single Durable Object lifecycle, so a rehydrated session still authenticates successfully without recreating the container.
+6. On Durable Object destruction the persisted token is cleared so the next lifecycle starts with a fresh token.
 
 **Constraints:**
 
@@ -624,12 +622,12 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. `cf-access-client-id` header in `getUserFromRequest` is only trusted when `!isSaasModeActive()`.
-2. In SaaS mode, the header is attacker-controlled (no CF Access edge to validate it) and must be ignored.
+1. The CF Access client-id header is only trusted in non-SaaS deployments where a CF Access edge actually validates it.
+2. In SaaS mode the header is attacker-controlled and is ignored.
 
 **Constraints:**
 
-- This guard applies only to the CF Access client ID header, not to the `X-Service-Auth` header which has its own validation.
+- This guard applies only to the CF Access client ID header; service-token validation is governed separately.
 
 **Priority:** P0
 
@@ -661,10 +659,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. `POST /api/auth/subscribe` checks `getEffectiveTier` at handler entry and throws `ForbiddenError` for blocked users.
-2. `resolveSessionMode` result is clamped against the billing-resolved effective tier at both container start and preferences save.
-3. A canceled user with stale `sessionMode: 'advanced'` preference receives `'default'` because the free tier only allows `['default']`.
-4. Both container start and preferences save use `getEffectiveTier` (not raw JWT `subscriptionTier`).
+1. The subscribe endpoint rejects blocked users at handler entry.
+2. The session mode the user can run with is clamped against the billing-resolved effective tier at both container start and preferences save.
+3. A canceled user with a stale advanced-mode preference is downgraded to default mode because their effective tier no longer permits advanced.
+4. Both container start and preferences save resolve the effective tier from billing state, not from a stored or token-side tier value.
 
 **Constraints:**
 
@@ -694,10 +692,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. The auth-config fetch is wrapped in a `pendingAuthConfigFetch` Promise sentinel.
-2. Two concurrent cold-start requests reuse the in-flight fetch instead of issuing redundant KV reads.
-3. The sentinel is cleared on TTL expiry and `resetAuthConfigCache()`.
-4. The pattern mirrors the `pendingJWKSFetch` sentinel used for JWKS cold-start fetches.
+1. Concurrent cold-start requests share a single in-flight auth-config fetch; no redundant storage reads are issued.
+2. Two concurrent cold-start requests reuse the in-flight fetch instead of issuing parallel storage reads.
+3. The cached auth config expires on TTL and can be explicitly invalidated, forcing a fresh storage read.
 
 **Constraints:**
 
@@ -723,10 +720,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Manual `workflow_dispatch` GitHub Action deletes all objects in all R2 buckets for an environment.
-2. Requires explicit confirmation.
-3. Must be run BEFORE enabling `ENCRYPTION_KEY` for SSE-C.
-4. Documented as a one-time migration step.
+1. A manually-dispatched workflow deletes all objects in all R2 buckets for an environment.
+2. The workflow requires explicit confirmation.
+3. The workflow must be run before enabling operator encryption for SSE-C, or existing files become inaccessible.
+4. The workflow is documented as a one-time migration step.
 
 **Constraints:**
 
