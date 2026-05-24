@@ -734,6 +734,7 @@ None.
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init -->
 <!-- @impl: preseed/agents/claude/commands/sdd.md -->
+<!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033 describes -> AC1/AC2 Greenfield + Import Mode procedures + AC3/AC4 dep-version resolution with --ignore-scripts + AC5 lean two-confirm flow + AC6 canonical REQ render + AC7 .review-queue.md placeholder pre-creation) -->
 
 **Intent:** `/sdd init` must bootstrap a working spec in a single coherent flow whether the project is greenfield or import-mode, with every drafted REQ rendered in the canonical shape and the supporting scaffold (lockfile, review queue file) created in the same pass.
 
@@ -765,6 +766,7 @@ None.
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init -->
 <!-- @impl: preseed/agents/claude/skills/sdd-clean -->
+<!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-048 describe -> AC1 sdd-init does not pre-create documentation/.doc-coverage.md) + host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-048 describe -> AC2 [sdd-clean] commit-body audit, no dotfile) -->
 
 **Intent:** SDD ships two adjacent audit-trail surfaces beyond the spec review queue: a doc-lane coverage accumulator owned by doc-updater, and a `/sdd clean` execution audit. The locations and lifecycle of these surfaces are specified here so neither tool re-derives them.
 
@@ -790,6 +792,7 @@ None.
 ### REQ-AGENT-034: `/sdd init` Enrichment Pass with Graphify
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init -->
+<!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034 describes -> AC1 enrichment pass section + AC2/AC3/AC4 three sub-passes (cross-link, ADR-seed, glossary-seed) + AC5 mcp__graphify__ tool calls + AC6 cluster-only fallback + changes.md notice) -->
 
 **Intent:** After `/sdd init` accepts the user's draft, an enrichment pass tightens the spec by walking the project's knowledge graph: cross-link dependencies, seed ADRs from architecturally-central nodes, seed glossary terms from concept nodes.
 
@@ -822,6 +825,7 @@ None.
 ### REQ-AGENT-035: `/sdd init` Phase 7a Source-Anchor Verifier Gate
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-source-anchors.py -->
+<!-- @test: host/__tests__/sdd-init-phase-7a-verifier.test.js (REQ-AGENT-035 describes -> AC2 JSON shape + AC2 orphaned/drifted/malformed classification + AC2 backtick-span ignore + AC5 exit_code 0/1 contract) -->
 
 **Intent:** `/sdd init` must not declare success on a spec that contains unanchored claims. A programmatic source-anchor verifier runs before iterate-to-clean so every `<!-- @impl -->` claim is proven against the source tree, closing the "agent wrote what isn't there" half of the Validation-Equals-Generation gap. Phase 7b (enumeration coverage) is split into [REQ-AGENT-039](#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate).
 
@@ -854,6 +858,7 @@ None.
 ### REQ-AGENT-039: `/sdd init` Phase 7b Enumeration-Coverage Verifier Gate
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-enumeration-coverage.py -->
+<!-- @test: host/__tests__/sdd-init-phase-7b-verifier.test.js (REQ-AGENT-039: /sdd init Phase 7b enumeration-coverage verifier gate describe -> AC2/AC3/AC5/AC7 load-bearing enumeration, anchor + triage accounting, exit code contract, per-project waiver) -->
 
 **Intent:** Phase 7a verifies that every claim the agent wrote is anchored; Phase 7b closes the second half of the Validation-Equals-Generation gap by verifying the agent did not silently drop entire source files from the enumeration. The verifier runs after Phase 7a and before iterate-to-clean so unenumerated load-bearing source surfaces as a CRITICAL gate failure rather than a silent omission.
 
@@ -887,6 +892,7 @@ None.
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
+<!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh — PR-OPEN trigger (base-gated) describe + PR-SYNC trigger (base-gated) describe -> AC1 PR target main/master only + AC3 intermediate branches deferred) + host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — PR state gating describe -> AC1/AC6 PR-state HEAD check + AC4 no-PR push no-op + enforce-review-spawn.sh — vibe-coding gate describe -> AC7 non-SDD projects exit silently + enforce-review-spawn.sh — MCP shell tool input shapes (issue #319) describe + git-push-review-reminder.sh — MCP shell tool input shapes (issue #317) describe -> AC2 PUSH_LINE detection across Bash/MCP surfaces) -->
 
 **Intent:** Review agents must fire only on PR-boundary events that actually target shipping code. Trigger detection runs across every tool surface that can move HEAD, ignores intermediate-branch and no-PR pushes so vibe-coding mode and integration-branch development stay friction-free, and assumes upstream branch protection guards direct pushes to `main`. Lane classification + agent dispatch live in [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch); bypass surfaces live in [REQ-AGENT-041](#req-agent-041-pr-boundary-review-bypass-surfaces).
 
@@ -983,6 +989,7 @@ None.
 
 <!-- @impl: preseed/agents/claude/skills/sdd-clean -->
 <!-- @impl: preseed/agents/claude/rules/spec-discipline.md -->
+<!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037 describes -> AC1 three autonomy modes + layout-resolved config.yml + AC2 unleashed JUDGMENT distinction + AC3 safety nets across modes + AC4 layout migration + AC5 per-category mechanics) + host/__tests__/enforce-review-spawn.test.js (3-strike circuit breaker describe -> AC6 2-fix-round limit per agent per commit cycle) -->
 
 **Intent:** Three autonomy modes (interactive, auto, unleashed) give the user a knob between hand-holding and walk-away autopilot, and the `/sdd clean` rescue pass restores rotted specs to canonical shape without overwriting intent. Review-agent discipline enforcement (the content-quality passes each review agent applies) lives in [REQ-AGENT-044](#req-agent-044-review-agent-discipline-enforcement).
 
@@ -1017,6 +1024,7 @@ None.
 <!-- @impl: preseed/agents/claude/rules/spec-discipline.md -->
 <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md -->
 <!-- @impl: preseed/agents/claude/rules/tdd-discipline.md -->
+<!-- @test: host/__tests__/enforce-review-spawn.test.js (3-strike circuit breaker describe + agent-spawn enforcement describe + round-3 ordering and parser fixes describe -> AC1 review-agent gating enforcement + content-quality round limits) + host/__tests__/git-push-review-reminder.test.js (SDD transition gate describe + lane-aware emission describe -> AC1 lane-by-lane enforcement dispatch + content-quality routing) -->
 
 **Intent:** The three review agents (doc-updater, spec-reviewer, code-reviewer) enforce content-quality beyond structural compliance. Each owns a distinct set of substantive passes (truth-check against source, content-preservation on trims, test-name-vs-assertion match) so a structurally-clean change cannot ship with semantically-wrong content.
 
@@ -1080,6 +1088,7 @@ None.
 ### REQ-AGENT-045: Import-Mode Triage Queue and Transition State
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init -->
+<!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045 describes -> AC1 .init-triage.md location + AC2/AC3 Status: open|resolved|lost vocabulary and Reason: requirement on lost) + host/__tests__/enforce-review-spawn.test.js + host/__tests__/git-push-review-reminder.test.js (SDD transition gate (REQ-AGENT-022) describes -> AC4 transition: true suspends entire review pipeline) -->
 
 **Intent:** Every unclear item from Import Mode lands in a typed triage entry with concrete Context evidence so the human resolver can decide without re-investigating, and the transition state suspends the entire review pipeline so legacy code does not trigger reviewers until the spec is real. Status defaults respect the project's TDD opt-out so imported codebases do not get falsely flagged as incomplete.
 
@@ -1115,6 +1124,7 @@ None.
 ### REQ-AGENT-038: Resume Mode Drain Workflow
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init -->
+<!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-038 describes -> AC1 Resume Mode section + AC2 in-flight transition state detection via config.yml transition: flag or pickup-where-you-left-off procedure) -->
 
 **Intent:** Re-invoking `/sdd init` on a transitioning project enters Resume Mode, which surfaces open triage items one at a time, refreshes their Context, accepts one of five decisions, and commits each decision so the user can drain the queue at their own pace. When the last item closes, the project exits SDD transition.
 
@@ -1152,6 +1162,7 @@ None.
 ### REQ-AGENT-047: Resume Mode closure and review-pipeline gate
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init -->
+<!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-047 describe -> AC1 Resume Mode closure runs Phase 7a + Phase 7b before exiting transition) + host/__tests__/enforce-review-spawn.test.js + host/__tests__/git-push-review-reminder.test.js (SDD transition gate (REQ-AGENT-022) describes -> AC4 PR-boundary pipeline short-circuits while .init-triage.md has open items) -->
 
 **Intent:** When the Resume Mode triage queue drains, the project must cleanly exit SDD transition: clear the `transition: true` flag, record totals, and re-arm the gates that were suspended during drain. The PR-boundary review pipeline must stay silent while triage items remain open so legacy code does not trigger review agents before the spec is real.
 

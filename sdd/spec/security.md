@@ -712,7 +712,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-017: R2 bucket nuke workflow for encryption migration
 
-<!-- @impl: .github/workflows/deploy.yml -->
+<!-- @impl: .github/workflows/deploy.yml::r2-nuke -->
+<!-- @test: host/__tests__/req-sec-017-r2-nuke-workflow.test.js (REQ-SEC-017 describes -> AC1 workflow_dispatch + r2-nuke job parses cleanly + discovers buckets + DELETE-loops every object + AC2 r2_nuke_confirmation input + DELETE-ALL-R2-OBJECTS gate + gate-before-destruction ordering) -->
 
 **Intent:** When enabling R2 SSE-C encryption, existing unencrypted files must be purged because they become unreadable with SSE-C enabled.
 

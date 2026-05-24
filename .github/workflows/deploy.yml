@@ -21,6 +21,17 @@ on:
           - production
           - integration
         default: integration
+      action:
+        description: 'Action: deploy (default) or r2-nuke (REQ-SEC-017: delete all R2 objects)'
+        type: choice
+        options:
+          - deploy
+          - r2-nuke
+        default: deploy
+      r2_nuke_confirmation:
+        description: 'Type DELETE-ALL-R2-OBJECTS to authorize r2-nuke (ignored when action=deploy)'
+        required: false
+        default: ''
 
 concurrency:
   group: deploy-${{ (github.event_name == 'workflow_run' || github.ref == 'refs/heads/main') && (inputs.environment || 'production') || 'integration' }}
@@ -32,6 +43,18 @@ permissions:
 
 jobs:
   deploy:
+    # The deploy job runs on workflow_run (post-PR-merge to main) OR on
+    # workflow_dispatch when action=deploy (the default). When the
+    # operator picks action=r2-nuke, deploy is skipped and the r2-nuke
+    # job below runs instead. This keeps the destructive R2 purge fully
+    # mutually exclusive from a deploy so a one-time migration cannot
+    # accidentally ship code at the same time.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.action != 'r2-nuke') ||
+      (github.event_name == 'workflow_run'
+       && github.event.workflow_run.conclusion == 'success'
+       && github.event.workflow_run.event == 'push'
+       && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     # On workflow_run: only deploy when PR Checks ended green.
     # On workflow_dispatch (manual): always run; the inner production-
@@ -54,12 +77,6 @@ jobs:
     # alert #34 audit.
     #   workflow_run.event == 'push'                   -- only post-merge runs trigger deploy
     #   head_repository.full_name == github.repository -- and only from this repo, never a fork
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run'
-       && github.event.workflow_run.conclusion == 'success'
-       && github.event.workflow_run.event == 'push'
-       && github.event.workflow_run.head_repository.full_name == github.repository)
     environment: ${{ github.ref == 'refs/heads/main' && (inputs.environment || 'production') || 'integration' }}
     timeout-minutes: 30
     env:
@@ -546,4 +563,131 @@ jobs:
             }));
             console.log("Pruned: ok=" + okN + " fail=" + failN);
           })().catch(e => console.log("::warning::prune crashed: " + (e?.stack || e)));
+          '
+
+  # REQ-SEC-017: R2 bucket nuke workflow for encryption migration.
+  #
+  # Manually-dispatched, requires explicit confirmation, deletes every
+  # object from every R2 bucket bound to the selected environment.
+  # Use case: a one-time migration step before enabling SSE-C on a
+  # bucket, because pre-SSE-C objects become unreadable once the key is
+  # required.
+  #
+  # Safety gates (each is independently load-bearing):
+  #   1. workflow_dispatch only — never auto-triggers.
+  #   2. action=r2-nuke input must be selected (default is "deploy").
+  #   3. r2_nuke_confirmation must be the exact string DELETE-ALL-R2-OBJECTS.
+  #   4. production target requires main branch (same gate as deploy).
+  #   5. environment: protects the job behind the chosen GitHub
+  #      Environment's required reviewers and secret scope.
+  r2-nuke:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'r2-nuke'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    environment: ${{ github.ref == 'refs/heads/main' && (inputs.environment || 'production') || 'integration' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Confirm r2-nuke authorization
+        run: |
+          if [ "${{ inputs.r2_nuke_confirmation }}" != "DELETE-ALL-R2-OBJECTS" ]; then
+            echo "::error::r2_nuke_confirmation must be exactly 'DELETE-ALL-R2-OBJECTS' to authorize this destructive operation"
+            echo "::error::Got: '${{ inputs.r2_nuke_confirmation }}'"
+            exit 1
+          fi
+          echo "Authorization confirmed for environment: ${{ inputs.environment }}"
+
+      - name: Block production r2-nuke from non-main branches
+        if: github.ref != 'refs/heads/main' && inputs.environment == 'production'
+        run: |
+          echo "::error::production r2-nuke is only allowed from main. Got: ${{ github.ref }}"
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Discover R2 buckets bound to this environment
+        id: discover
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # Parse wrangler.toml for r2_buckets entries scoped to this
+          # environment. r2_buckets ships as TOML arrays of inline
+          # tables: [[r2_buckets]] / [[env.integration.r2_buckets]].
+          # Use a tiny node parser so we avoid a dependency on yq/toml.
+          node -e '
+            const fs = require("fs");
+            const src = fs.readFileSync("wrangler.toml", "utf8");
+            const env = process.env.TARGET_ENV;
+            // Match [[r2_buckets]] (root) AND [[env.<env>.r2_buckets]].
+            // We do not parse full TOML — just the bucket_name fields
+            // inside each [[...r2_buckets]] table block.
+            const rootRe = /\[\[r2_buckets\]\]([\s\S]*?)(?=\n\[|$)/g;
+            const envRe = new RegExp("\\[\\[env\\." + env + "\\.r2_buckets\\]\\]([\\s\\S]*?)(?=\\n\\[|$)", "g");
+            const buckets = new Set();
+            for (const re of [rootRe, envRe]) {
+              let m;
+              while ((m = re.exec(src)) !== null) {
+                const name = m[1].match(/bucket_name\s*=\s*"([^"]+)"/);
+                if (name) buckets.add(name[1]);
+              }
+            }
+            const list = [...buckets];
+            console.log("Discovered R2 buckets:", list.join(", "));
+            fs.writeFileSync(process.env.GITHUB_OUTPUT, "buckets=" + JSON.stringify(list) + "\n", { flag: "a" });
+          '
+        env:
+          TARGET_ENV: ${{ inputs.environment }}
+
+      - name: Nuke every object in every discovered bucket
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BUCKETS_JSON: ${{ steps.discover.outputs.buckets }}
+        run: |
+          # Inline node — no helper scripts (forkable-repo rule).
+          # For each bucket: list keys with marker pagination, batch
+          # them into 1000-key DeleteObjects calls until empty.
+          node -e '
+            const token = process.env.CLOUDFLARE_API_TOKEN;
+            const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+            const buckets = JSON.parse(process.env.BUCKETS_JSON);
+            if (!Array.isArray(buckets) || buckets.length === 0) {
+              console.log("No R2 buckets discovered for this environment — nothing to nuke.");
+              process.exit(0);
+            }
+            (async () => {
+              for (const bucket of buckets) {
+                console.log("=== Nuking bucket: " + bucket + " ===");
+                let total = 0, failures = 0;
+                let cursor;
+                while (true) {
+                  const url = new URL("https://api.cloudflare.com/client/v4/accounts/" + account + "/r2/buckets/" + bucket + "/objects");
+                  if (cursor) url.searchParams.set("cursor", cursor);
+                  url.searchParams.set("per_page", "1000");
+                  const lr = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+                  if (!lr.ok) {
+                    console.log("::error::list failed for " + bucket + ": HTTP " + lr.status);
+                    process.exit(1);
+                  }
+                  const body = await lr.json();
+                  const objects = (body.result || body.objects || []).map(o => o.key || o.name).filter(Boolean);
+                  if (objects.length === 0) break;
+                  for (const key of objects) {
+                    const dr = await fetch("https://api.cloudflare.com/client/v4/accounts/" + account + "/r2/buckets/" + bucket + "/objects/" + encodeURIComponent(key), {
+                      method: "DELETE",
+                      headers: { Authorization: "Bearer " + token },
+                    });
+                    if (dr.ok) total++; else failures++;
+                  }
+                  cursor = body.result_info && body.result_info.cursor;
+                  if (!cursor) break;
+                }
+                console.log("Bucket " + bucket + ": deleted=" + total + " failed=" + failures);
+                if (failures > 0) process.exit(1);
+              }
+              console.log("All discovered buckets are empty.");
+            })().catch(e => { console.error(e); process.exit(1); });
           '

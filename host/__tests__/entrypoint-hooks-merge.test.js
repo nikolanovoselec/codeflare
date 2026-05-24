@@ -269,3 +269,106 @@ describe('memory-capture counter location (REQ-MEM-002 AC6)', () => {
 // MCP server-memory subsystem; the vault is now the sole cross-session memory
 // store. The hook gate moved to /tmp/.memory-counter (REQ-MEM-002 AC6); see
 // counter directory test above.
+
+// ============================================================================
+// REQ-STOR-011 AC1/AC2/AC3: workspaceSyncEnabled scope.
+//
+// Behavioural — extract the RCLONE_FILTERS resolution block out of
+// entrypoint.sh, source it through a real bash interpreter with each
+// SYNC_MODE setting, and verify the resulting filter array actually
+// drives rclone toward/away from /workspace. If a future refactor
+// renames RCLONE_FILTERS or removes a branch, the bash exec breaks,
+// not a regex.
+//
+// AC1: SYNC_MODE=none -> the filter set rejects a workspace/foo.txt path.
+// AC2: SYNC_MODE=full -> the filter set accepts a workspace/foo.txt path.
+// AC3: SYNC_MODE=metadata -> the filter set accepts workspace/CLAUDE.md
+//      and workspace/.claude/settings.json, but rejects workspace/foo.txt.
+// ============================================================================
+describe('workspaceSyncEnabled scope (REQ-STOR-011)', () => {
+  // Build a bash harness that sources the real RCLONE_FILTERS resolution
+  // out of entrypoint.sh, then drives `rclone --dry-run lsf` against a
+  // tiny on-disk workspace fixture for each SYNC_MODE. The pass/fail
+  // signal is what rclone actually copies, not whether a string matches.
+  function runWithScope(scope) {
+    const fixture = mkdtempSync(join(tmpdir(), 'stor011-fixture-'));
+    mkdirSync(join(fixture, 'workspace/.claude'), { recursive: true });
+    writeFileSync(join(fixture, 'workspace/CLAUDE.md'), '# project\n');
+    writeFileSync(join(fixture, 'workspace/.claude/settings.json'), '{}\n');
+    writeFileSync(join(fixture, 'workspace/foo.txt'), 'plain workspace file\n');
+    writeFileSync(join(fixture, 'workspace/.git/HEAD'), 'ref: refs/heads/main\n');
+    mkdirSync(join(fixture, 'workspace/.git'), { recursive: true });
+
+    // Cut entrypoint.sh down to: COMMON array + SYNC_MODE branch logic.
+    // We bracket on the COMMON array header and the closing fi of the
+    // branch block so we faithfully exercise the same code path the
+    // container does at boot. If the file shape changes, this slice
+    // breaks loudly.
+    const startIdx = entrypoint.indexOf('RCLONE_FILTERS_COMMON=(');
+    assert.ok(startIdx !== -1, 'RCLONE_FILTERS_COMMON header missing');
+    const fiIdx = entrypoint.indexOf('\nfi\n', startIdx);
+    assert.ok(fiIdx !== -1, 'SYNC_MODE branch fi terminator missing');
+    const slice = entrypoint.slice(startIdx, fiIdx + 3);
+
+    const script = [
+      'set -u',
+      `SYNC_MODE="${scope}"`,
+      slice,
+      // After sourcing, RCLONE_FILTERS is populated. Test each candidate
+      // path through `rclone --dry-run lsf` and print one line per path
+      // showing whether it survived the filter set.
+      'for path in "workspace/foo.txt" "workspace/CLAUDE.md" "workspace/.claude/settings.json" "workspace/.git/HEAD"; do',
+      '  if rclone --dry-run "${RCLONE_FILTERS[@]}" lsf --files-only "$1" --include "$path" >/dev/null 2>&1; then',
+      '    matched=$(rclone "${RCLONE_FILTERS[@]}" lsf --files-only "$1" 2>/dev/null | grep -F "$path" || true)',
+      '    if [ -n "$matched" ]; then echo "INCLUDED $path"; else echo "EXCLUDED $path"; fi',
+      '  else',
+      '    echo "EXCLUDED $path"',
+      '  fi',
+      'done',
+    ].join('\n');
+
+    const res = spawnSync('bash', ['-c', script, '_', fixture], {
+      encoding: 'utf-8',
+    });
+    if (res.status !== 0) {
+      throw new Error(
+        `bash harness failed (exit ${res.status}):\nstderr=${res.stderr}\nstdout=${res.stdout}`
+      );
+    }
+    const lines = res.stdout.trim().split('\n');
+    const verdict = {};
+    for (const line of lines) {
+      const [state, path] = line.split(' ');
+      verdict[path] = state;
+    }
+    return verdict;
+  }
+
+  // rclone may or may not be on the test runner. Skip cleanly when it
+  // is not installed so the suite is still meaningful on dev boxes.
+  const rcloneCheck = spawnSync('bash', ['-lc', 'command -v rclone'], {
+    encoding: 'utf-8',
+  });
+  const rcloneAvailable = rcloneCheck.status === 0 && rcloneCheck.stdout.trim() !== '';
+
+  it('AC1: SYNC_MODE=none rejects workspace files at the rclone filter layer', { skip: !rcloneAvailable && 'rclone not installed' }, () => {
+    const v = runWithScope('none');
+    assert.equal(v['workspace/foo.txt'], 'EXCLUDED', 'AC1: plain workspace file must be excluded');
+    assert.equal(v['workspace/CLAUDE.md'], 'EXCLUDED', 'AC1: workspace/CLAUDE.md must be excluded under none scope');
+    assert.equal(v['workspace/.claude/settings.json'], 'EXCLUDED', 'AC1: workspace/.claude/** must be excluded under none scope');
+  });
+
+  it('AC2: SYNC_MODE=full accepts workspace files at the rclone filter layer', { skip: !rcloneAvailable && 'rclone not installed' }, () => {
+    const v = runWithScope('full');
+    assert.equal(v['workspace/foo.txt'], 'INCLUDED', 'AC2: plain workspace file must be included under full scope');
+    assert.equal(v['workspace/CLAUDE.md'], 'INCLUDED', 'AC2: workspace/CLAUDE.md must be included under full scope');
+    assert.equal(v['workspace/.claude/settings.json'], 'INCLUDED', 'AC2: workspace/.claude/** must be included under full scope');
+  });
+
+  it('AC3: SYNC_MODE=metadata accepts only CLAUDE.md + .claude/** and rejects other workspace files', { skip: !rcloneAvailable && 'rclone not installed' }, () => {
+    const v = runWithScope('metadata');
+    assert.equal(v['workspace/CLAUDE.md'], 'INCLUDED', 'AC3: workspace/CLAUDE.md must be included under metadata scope');
+    assert.equal(v['workspace/.claude/settings.json'], 'INCLUDED', 'AC3: workspace/.claude/** must be included under metadata scope');
+    assert.equal(v['workspace/foo.txt'], 'EXCLUDED', 'AC3: plain workspace file must be excluded under metadata scope');
+  });
+});

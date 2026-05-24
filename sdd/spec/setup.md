@@ -394,6 +394,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ### REQ-SETUP-010: Social-share preview metadata on the public landing page
 
+<!-- @impl: web-ui/index.html -->
+<!-- @test: web-ui/src/__tests__/setup-010-og-metadata.test.ts (REQ-SETUP-010 describe -> AC1 Open Graph required tags + AC2 Twitter Card + AC3 1200x630 PNG + AC4 description/og:description sync + AC5 brand-voice tagline) -->
+
 <!-- @impl: web-ui/src/components/OnboardingLanding.tsx -->
 <!-- @impl: web-ui/index.html -->
 
