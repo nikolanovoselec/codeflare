@@ -249,6 +249,13 @@ RCLONE_FILTERS_COMMON=(
     # Claude Code native installer artifacts (removed from build, but exclude leftover data)
     --filter "- .local/share/claude/**"      # native installer version binaries (228MB)
 
+    # uv tool venvs — regenerable; baked into the image at /root/.local/share/uv,
+    # so a user-side mirror under /home/user/.local/share/uv/ is duplicate cruft.
+    # graphifyy alone is ~275MB (Python venv with numpy + httpx + mcp + uvicorn).
+    --filter "- .local/share/uv/**"          # uv tool venvs (graphifyy: ~275MB)
+    --filter "- .local/bin/uv"               # uv binary itself (regenerable)
+    --filter "- .local/bin/uvx"              # uvx binary (regenerable)
+
     # Copilot — auto-update binary, session logs, and ephemeral state
     --filter "- .copilot/logs/**"            # session logs
     --filter "- .copilot/pkg/**"             # auto-update binary download (~35MB)
