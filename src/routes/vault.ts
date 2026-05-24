@@ -161,22 +161,22 @@ export const VAULT_KEY_SHIM_SERVICE_WORKER_JS =
  * forge it via `fetch()`. The path-suffix check pins the SilverBullet-
  * served SW URL; any other path falls through to the normal auth chain.
  *
- * Defence-in-depth: also require the request to have no `Cookie` header.
- * The bypass exists only because Chrome's SW spec compliance strips
- * cookies on the registration fetch; if a cookie is somehow present
- * (different browser, different bypass-route, future spec change), let
- * the normal auth chain handle it - that path returns the real upstream
- * SW for authenticated users or 401 for unauthenticated ones, which is
- * the original (correct) behaviour rather than this static-noop shortcut.
- * If the forbidden-header status of `Service-Worker` ever changes and a
- * cookieless GET becomes page-JS-spoofable, the attacker still only
- * gets back the static no-op JS string with no user data leakage.
+ * Cookie header is intentionally NOT checked. Chrome 76+ strips cookies
+ * on SW registration fetches per spec, but Samsung Internet and other
+ * Chromium forks may not. When cookies are present and this function
+ * returns false, the request falls through to the proxy chain which
+ * serves SilverBullet's real 97KB SW instead of the key-shim. That SW
+ * runs cache.addAll() during install, which fetches the vault root
+ * without the bootstrap cookie and gets a 302 redirect, causing the
+ * install to fail and navigator.serviceWorker.ready to hang forever.
+ * The service-worker header alone is sufficient security (forbidden
+ * header, not forgeable by page JS) and the response is a static JS
+ * string with no user data.
  */
 export function isServiceWorkerRegistration(request: Request, remainingPath: string | undefined): boolean {
   if (request.method !== 'GET') return false;
   if (remainingPath !== '/service_worker.js') return false;
   if (request.headers.get('service-worker') !== 'script') return false;
-  if (request.headers.get('Cookie')) return false;
   return true;
 }
 
@@ -407,11 +407,22 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     // durably true with no SW key — if the bootstrap then failed on the' +
     // next attempt too, SB would boot expecting encrypted IDB it could not' +
     // read. Set the flag only after the post-handoff success branch.' +
+    'if (!navigator.serviceWorker) { fail("browser does not support service workers"); return; }' +
     'try {' +
-    'await navigator.serviceWorker.register(scope + "service_worker.js", { scope: scope });' +
-    'var reg = await navigator.serviceWorker.ready;' +
+    'var reg = await navigator.serviceWorker.register(scope + "service_worker.js", { scope: scope });' +
     'var sw = reg.active || reg.installing || reg.waiting;' +
-    'if (!sw) { fail("service worker not active"); return; }' +
+    'if (!sw) { fail("no service worker instance after registration"); return; }' +
+    'if (sw.state !== "activated") {' +
+    'await new Promise(function (resolve, reject) {' +
+    'var timer = setTimeout(function () { reject(new Error("activation timed out after 10 s")); }, 10000);' +
+    'function check() {' +
+    'if (sw.state === "activated") { clearTimeout(timer); resolve(); return; }' +
+    'if (sw.state === "redundant") { clearTimeout(timer); reject(new Error("service worker became redundant")); return; }' +
+    '}' +
+    'sw.addEventListener("statechange", check);' +
+    'check();' +
+    '});' +
+    '}' +
     'sw.postMessage({ type: "set-encryption-key", key: key });' +
     '} catch (e) {' +
     'fail("service worker registration failed (" + (e && e.message ? e.message : e) + ")");' +

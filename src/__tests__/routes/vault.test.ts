@@ -199,7 +199,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
   });
 
-  // REQ-VAULT-013 AC5-AC7 (browser-initiated SW registration short-circuit: method+path+Service-Worker header+no-Cookie selector, defence-in-depth)
+  // REQ-VAULT-013 AC5-AC7 (browser-initiated SW registration short-circuit: method+path+Service-Worker header selector)
   describe('isServiceWorkerRegistration / REQ-VAULT-013 (SilverBullet subpath adapter)', () => {
     function swRequest(
       method: string,
@@ -211,11 +211,10 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       });
     }
 
-    it('returns true for GET /service_worker.js with service-worker:script header and no Cookie', () => {
+    it('returns true for GET /service_worker.js with service-worker:script header', () => {
       // The `service-worker: script` header is browser-set on SW registration
       // fetches and is a Fetch-spec forbidden header name (page JS cannot
-      // set it via `fetch()`), so it is a safe selector for the no-cookie
-      // auth bypass. Cookie absence is required as defence-in-depth.
+      // set it via `fetch()`), so it is a safe selector for the auth bypass.
       expect(isServiceWorkerRegistration(
         swRequest('GET', { 'service-worker': 'script' }),
         '/service_worker.js',
@@ -229,15 +228,16 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       )).toBe(false);
     });
 
-    it('returns false when Cookie is present (defence-in-depth: let normal auth handle authenticated SW reg)', () => {
-      // If the browser ever stops stripping cookies on SW registration,
-      // or some other path delivers an authenticated SW fetch, we want
-      // the normal auth chain to run (returning the real upstream SW or
-      // 401) rather than serving the static no-op shortcut.
+    it('returns true even when Cookie is present (Samsung Internet and other Chromium forks may send cookies on SW reg)', () => {
+      // Cookie header is NOT checked. Samsung Internet and other Chromium
+      // forks may not strip cookies on SW registration fetches. If we
+      // reject the request, it falls through to the proxy which serves
+      // SB's real 97KB SW whose cache.addAll() install fails and hangs
+      // navigator.serviceWorker.ready forever.
       expect(isServiceWorkerRegistration(
         swRequest('GET', { 'service-worker': 'script', Cookie: 'codeflare_session=eyJ...' }),
         '/service_worker.js',
-      )).toBe(false);
+      )).toBe(true);
     });
 
     it('returns false for non-GET methods even with the header', () => {
@@ -664,8 +664,8 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
 
     it('aborts (no cookie, no redirect, no enableEncryption=true) when reg.active/installing/waiting are all null', () => {
-      // Edge case: serviceWorker.ready resolves but the registration has
-      // no SW reference yet. The hop must NOT proceed -- and because the
+      // Edge case: register() resolves but the registration has no SW
+      // reference yet. The hop must NOT proceed -- and because the
       // localStorage flag is only set on the post-handoff success path,
       // there is nothing to roll back here either.
       const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
@@ -679,12 +679,30 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
         else if (out[i] === '}') depth--;
       }
       const ifBody = out.slice(bodyStart, i - 1);
-      expect(ifBody).toContain('fail("service worker not active")');
+      expect(ifBody).toContain('fail(');
       expect(ifBody).toContain('return;');
       // No setItem / removeItem on the no-SW branch -- the flag is never
       // touched outside the post-handoff success branch.
       expect(ifBody).not.toContain('localStorage.setItem("enableEncryption"');
       expect(ifBody).not.toContain('localStorage.removeItem("enableEncryption"');
+    });
+
+    it('guards against missing navigator.serviceWorker before registration', () => {
+      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
+      expect(out).toContain('!navigator.serviceWorker');
+      expect(out).toContain('browser does not support service workers');
+    });
+
+    it('guards SW activation with a 10 s timeout instead of relying on navigator.serviceWorker.ready', () => {
+      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
+      expect(out).not.toContain('navigator.serviceWorker.ready');
+      expect(out).toContain('activation timed out');
+      expect(out).toContain('10000');
+    });
+
+    it('detects redundant SW state as an explicit error', () => {
+      const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
+      expect(out).toContain('redundant');
     });
 
     it('embeds the session id verbatim once', () => {
