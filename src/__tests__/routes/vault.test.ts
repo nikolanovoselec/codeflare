@@ -5,6 +5,7 @@ import {
   isServiceWorkerRegistration,
   VAULT_KEY_SHIM_SERVICE_WORKER_JS,
   VAULT_BOOTSTRAP_COOKIE,
+  VAULT_SW_ACTIVATION_TIMEOUT_MS,
   VAULT_IDB_RECORDER_MARKER,
   injectVaultEncryptionConfig,
   injectVaultBootScript,
@@ -693,11 +694,11 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       expect(out).toContain('browser does not support service workers');
     });
 
-    it('guards SW activation with a 10 s timeout instead of relying on navigator.serviceWorker.ready', () => {
+    it('guards SW activation with a timeout instead of relying on navigator.serviceWorker.ready', () => {
       const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
       expect(out).not.toContain('navigator.serviceWorker.ready');
       expect(out).toContain('activation timed out');
-      expect(out).toContain('10000');
+      expect(out).toContain(String(VAULT_SW_ACTIVATION_TIMEOUT_MS));
     });
 
     it('detects redundant SW state as an explicit error', () => {

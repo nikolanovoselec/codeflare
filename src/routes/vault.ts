@@ -359,6 +359,7 @@ export function injectVaultIdbRecorder(html: string): string {
  * Implements REQ-VAULT-008 AC5.
  */
 export const VAULT_BOOTSTRAP_COOKIE = 'codeflare_vault_bootstrap';
+export const VAULT_SW_ACTIVATION_TIMEOUT_MS = 10_000;
 
 export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKey: string): string {
   if (!vaultEncryptionKey) {
@@ -414,7 +415,7 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'if (!sw) { fail("no service worker instance after registration"); return; }' +
     'if (sw.state !== "activated") {' +
     'await new Promise(function (resolve, reject) {' +
-    'var timer = setTimeout(function () { reject(new Error("activation timed out after 10 s")); }, 10000);' +
+    'var timer = setTimeout(function () { reject(new Error("activation timed out after 10 s")); }, ' + VAULT_SW_ACTIVATION_TIMEOUT_MS + ');' +
     'function check() {' +
     'if (sw.state === "activated") { clearTimeout(timer); resolve(); return; }' +
     'if (sw.state === "redundant") { clearTimeout(timer); reject(new Error("service worker became redundant")); return; }' +
