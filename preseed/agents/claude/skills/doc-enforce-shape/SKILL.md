@@ -101,6 +101,25 @@ Detection: in any table inside `decisions/README.md` or `*-index.md`, scan each 
 
 Auto-fix in `auto`/`unleashed`: wrap the bare ID with a markdown link to the resolved target.
 
+## Implements-column link rule (binding)
+
+Any grouped table inside a canonical lane file (`api-reference*.md`, `configuration.md`, `security.md`, `architecture.md`, `deployment.md`, `observability.md`, `troubleshooting.md`) whose header includes an `Implements` column MUST render every `(REQ|CON)-[A-Z]+-\d+` token in that column as a markdown link to the spec target. Bare-text REQ/CON IDs and the placeholder string `TBD` are both MEDIUM findings.
+
+Resolution targets:
+- Nested layout: `[REQ-X-NNN](../../sdd/spec/<domain>.md#req-x-nnn)`
+- Flat layout: `[REQ-X-NNN](../sdd/<domain>.md#req-x-nnn)`
+- Domain mapping: `SESSION` → `session-lifecycle.md`; `AUTH` → `authentication.md`; `MEM` → `memory.md`; `VAULT` → `vault.md`; `STOR` → `storage.md`; `TERM` → `terminal.md`; `AGENT` → `agents.md`; `SUB` → `subscription.md`; `OPS` → `operations.md`; `SEC` → `security.md`; `SETUP` → `setup.md`; `MOB` → `mobile.md`.
+
+Forms:
+- API row: `| GET | \`/api/sessions\` | Session cookie | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001) | List sessions |`
+- Config row: `| \`CLOUDFLARE_API_TOKEN\` | R2 bucket creation | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002) | yes | Wrangler secret | provisioning |`
+
+Detection: in any table whose header row contains a cell named exactly `Implements`, walk every data-row's Implements cell. Match `(REQ|CON)-[A-Z]+-\d+` tokens; if a token is NOT inside a `[...](...)` markdown link, finding `implements-cell-id-not-linked`. The literal cell value `TBD` (case-insensitive, optionally whitespace-padded) is finding `implements-cell-tbd`. Both severities MEDIUM.
+
+Multiple REQs in one cell are separated by `, ` (comma-space); each token must be individually wrapped.
+
+Auto-fix in `auto`/`unleashed`: for `implements-cell-id-not-linked`, wrap each bare ID with the resolved target per the domain mapping above. For `implements-cell-tbd`, defer to JUDGMENT (the human must supply the REQ ID; auto-mode does not guess); leave the cell unchanged and emit a `documentation/.doc-coverage.md` row with the row's METHOD+PATH (api-reference) or Variable name (configuration) so the next `/sdd clean` pass can backfill.
+
 ## Pass 5 — Format-template field presence
 
 **Scope:** Pass 5 (and Pass 6, Pass 7) operate on canonical lane files. Framework metadata files excluded by name: any basename starting with `.` (`.doc-coverage.md`, `.review-needed.md`, `.cold-read-tasks.yml`), `documentation/README.md` index. `documentation/decisions/README.md` is covered by the **Index-table link rule** above and by the per-ADR-section template in the per-lane templates table.
