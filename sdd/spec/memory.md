@@ -111,7 +111,6 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
 <!-- @test: host/__tests__/memory-capture-hook.test.js (input gating + first-run baseline + AC6 resume detection + 15-msg threshold + counter advance + tilde expansion + output protocol → AC1-AC6; AC6 covered by `AC6 - missing counter + transcript with >1 prompt force-fires capture from line 1` and `AC6 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)`) -->
 <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (describe `memory-capture counter location (REQ-MEM-002 AC6)` → asserts obsolete .memory/counter bisync filter absent, obsolete mkdir absent, MEMCAP_COUNTER_DIR default = /tmp/.memory-counter) -->
-<!-- @test: host/__tests__/memory-capture-block.test.js (describe blocks REQ-MEM-002 input gating → companion PreToolUse gate reads .vars from the same /tmp/.memory-counter path; covers gate-vs-script path-symmetry contract that backs AC6) -->
 
 **Intent:** Memory capture must fire at a regular interval to balance context freshness against overhead.
 
