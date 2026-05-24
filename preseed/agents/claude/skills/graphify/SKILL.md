@@ -67,7 +67,7 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
 
 8. **Mandatory build-mode choice before any extraction.** Before dispatching Part B subagents (Step B2 of the upstream protocol), ALWAYS present the user with an `AskUserQuestion` offering exactly two modes:
    - **AST-only** - free, no token cost; code structure + call/import/contains edges only; no semantic concepts from docs / papers / images.
-   - **Full (AST + semantic)** - AST plus N parallel Haiku subagents extracting concepts from docs / papers / images. Include the actual subagent count (`ceil(uncached_non_code_files / 22) + image_count`) and a wall-time estimate (~45s per parallel batch).
+   - **Full (AST + semantic)** - AST plus N parallel Sonnet subagents extracting concepts from docs / papers / images. Include the actual subagent count (`ceil(uncached_non_code_files / 22) + image_count`) and a wall-time estimate (~45s per parallel batch).
 
    Default recommendation: choose by intent, not size. **AST-only** when the user is testing the build pipeline, exploring an unfamiliar repo for a one-off question, or has explicitly capped per-build cost (no docs / images get extracted, only structural edges). **Full** when this is a target project the user will work on long-term and wants the semantic concept graph from docs / READMEs / image diagrams in their MCP query results. The file count and word total are surfaced in the prompt so the user sees the cost surface, but they should not drive the recommendation - a 5000-file repo built once for long-term reference is still Full; a 50-file repo someone is poking at for ten minutes is still AST-only.
 
@@ -75,11 +75,11 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
 
    This choice is separate from the "split by subfolder" question the upstream protocol asks on > 200 files - ask both in sequence (subfolder first, then build mode against the chosen scope).
 
-9. **Spawn Part B semantic subagents with `model: "haiku"`.** Graphify semantic extraction is a templated structured-output task: each subagent reads files and emits chunk JSON matching graphify's schema. Same workload class as the vault-extract agent that already runs on Haiku. The `Task` calls in Step B2 must include `model: "haiku"` so per-build cost matches vault-extract economics (~1/8 of Opus, ~1/3 of Sonnet). Override to Sonnet only when `--mode deep` was passed; never escalate to Opus from this skill.
+9. **Spawn Part B semantic subagents with `model: "sonnet"`.** Graphify semantic extraction requires reliable schema compliance - each subagent must emit valid JSON with correct `id`, `source_file`, and `confidence_score` fields. Haiku produced 57% malformed nodes on the codeflare corpus (288/504 dropped during post-filter); Sonnet's structured-output fidelity eliminates this waste. The `Task` calls in Step B2 must include `model: "sonnet"`. Never escalate to Opus from this skill.
 
 ---
 
-The upstream graphify extraction pipeline is reproduced below in full. It is the canonical algorithm; do not improvise on it. The two operational notes above (#8 mandatory build-mode question, #9 Haiku subagents) are codeflare-specific overrides that bind on top of the upstream Step 2 + Step B2 below - apply them even where the upstream text does not mention them.
+The upstream graphify extraction pipeline is reproduced below in full. It is the canonical algorithm; do not improvise on it. The two operational notes above (#8 mandatory build-mode question, #9 Sonnet subagents) are codeflare-specific overrides that bind on top of the upstream Step 2 + Step B2 below - apply them even where the upstream text does not mention them.
 
 ---
 
