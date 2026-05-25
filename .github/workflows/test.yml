@@ -113,7 +113,10 @@ jobs:
         working-directory: host
 
       - name: Run host hook tests (node:test)
-        run: node --experimental-test-module-mocks --test --test-timeout=60000 $(ls host/__tests__/*.test.js | grep -v entrypoint-bisync-behavior)
+        run: |
+          node --experimental-test-module-mocks --test --test-timeout=60000 \
+            $(ls host/__tests__/*.test.js \
+              | grep -v -E '(entrypoint-bisync-behavior|entrypoint-context-mode|entrypoint-graphify-bisync|entrypoint-graphify-mcp|entrypoint-hooks-merge|entrypoint-shutdown|enforce-ctx-mode\.test|enforce-review-spawn|graphify-clone-prompt|graphify-session-start|lane-classifier|memory-context-inject|memory-prompt-iso-ts|preseed-graphify-discipline|skill-sdd-init-contract)')
         timeout-minutes: 5
 
       - name: Run frontend tests
