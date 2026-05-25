@@ -436,8 +436,6 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'fail(e && e.message ? e.message : String(e));' +
     'return;' +
     '}' +
-    '// SW is active and has the key; only now safe to mark the flag,' +
-    '// set the bootstrap cookie, and redirect into SB.' +
     'try { localStorage.setItem("enableEncryption", "true"); } catch (_) {}' +
     'document.cookie = cookieName + "=1; Path=" + scope + "; SameSite=Lax; Secure";' +
     'location.replace(scope);' +
