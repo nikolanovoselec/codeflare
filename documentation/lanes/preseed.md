@@ -110,7 +110,7 @@ deep-reviewer agents) and `--verify-high` (Phase 7 external-LLM
 second-opinion); invoking it with no arguments prints a CLI help
 screen and exits without running.
 
-**Skills (29 SKILL.md files, 44 manifest entries including
+**Skills (29 SKILL.md files, 46 manifest entries including
 reference files)**: `cloudflare-stack`, `github-cloudflare-ship`
 (+ 2 reference files), `consult-llm`, `api-design`,
 `backend-patterns`, `content-hash-cache-pattern`,
