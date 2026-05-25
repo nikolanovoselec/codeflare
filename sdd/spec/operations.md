@@ -218,6 +218,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ### REQ-OPS-020: Shadow-pin version bump automation
 
 <!-- @impl: .github/workflows/bump-shadow-pins.yml -->
+<!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow describe -> AC1-AC4) -->
 
 **Intent:** Pinned binary versions in Dockerfile and npm packages outside package.json are invisible to Dependabot. A weekly workflow checks upstream releases and opens one PR per tool when a newer version is available, with SHA256 intentionally invalidated to force manual checksum verification before merge.
 
@@ -236,10 +237,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
-<!-- coverage-gap: AC1-AC4 verified by manual inspection of bump-shadow-pins.yml; no automated parse test exists -->
+**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

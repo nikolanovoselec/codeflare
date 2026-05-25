@@ -138,3 +138,35 @@ describe('fuzz workflow / REQ-OPS-018 (fuzz workflow scheduled + PR-triggered) /
     assert.match(body, /^\s+fuzz:/m, 'fuzz.yml must declare a `fuzz:` job');
   });
 });
+
+describe('shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)', () => {
+  test('AC1: bump-shadow-pins.yml declares parallel jobs for all four Dockerfile binaries', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    for (const job of ['zoxide', 'yazi', 'lazygit', 'silverbullet']) {
+      const re = new RegExp(`^\\s+${job}:`, 'm');
+      assert.match(body, re, `bump-shadow-pins.yml must declare a \`${job}:\` job`);
+    }
+  });
+
+  test('AC2: context-mode npm package is watched', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    assert.match(body, /^\s+context-mode:/m, 'bump-shadow-pins.yml must declare a `context-mode:` job');
+    assert.match(body, /npm view context-mode version/, 'context-mode job must check npm registry');
+  });
+
+  test('AC3: SHA256 is invalidated on Dockerfile bumps', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    assert.match(body, /NEEDS_UPDATE_SEE_PR_BODY/, 'Dockerfile bump jobs must invalidate SHA256 with placeholder');
+  });
+
+  test('AC4: deduplication guard skips existing bump branches', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    assert.match(body, /git ls-remote.*--heads.*origin/, 'bump jobs must check for existing branch before creating');
+  });
+
+  test('weekly schedule trigger configured', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    assert.match(body, /schedule:/, 'bump-shadow-pins must run on schedule');
+    assert.match(body, /workflow_dispatch:/, 'bump-shadow-pins must allow manual dispatch');
+  });
+});
