@@ -202,7 +202,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s)
 
-**Verification:** [Integration test](../../documentation/lanes/vault.md)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -343,7 +343,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -453,6 +453,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault.ts::injectVaultBootstrapHopHtml -->
 <!-- @impl: src/routes/vault.ts::injectVaultIdbRecorder -->
 <!-- @impl: src/routes/vault.ts::VAULT_BOOTSTRAP_COOKIE -->
+<!-- @impl: src/routes/vault.ts::VAULT_SW_ACTIVATION_TIMEOUT_MS -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
 <!-- @test: src/__tests__/container/index.test.ts (ensureVaultKey persistence + idempotency describe → AC1/AC2) -->
