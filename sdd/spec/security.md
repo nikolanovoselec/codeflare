@@ -17,6 +17,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - WAF rules and DDoS protection (handled by Cloudflare's edge network)
 - Penetration testing automation (pentest.yml is a lightweight probe suite, not a full pentest tool)
 - Certificate management (handled by Cloudflare's edge TLS termination)
+- R2 bulk-nuke workflow for SSE-C encryption migration (removed; vault bootstrap-hop handles per-session key setup without bulk wipe)
 
 ### Domain Dependencies
 

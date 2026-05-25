@@ -24,7 +24,6 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [Context-Mode Enforcement Bypass](#context-mode-enforcement-bypass)
 - [Body Limit](#body-limit)
 - [Credential Encryption at Rest](#credential-encryption-at-rest)
-- [R2 Bucket Nuke (REQ-SEC-017)](#r2-bucket-nuke-req-sec-017)
 - [Rate Limiting](#rate-limiting)
 
 ## Authentication Gate
@@ -227,72 +226,6 @@ Enabling SSE-C on an existing deployment requires re-uploading all R2 objects wi
 
 New deployments that set `ENCRYPTION_KEY` from the start require no migration — all seeded files are encrypted at creation.
 
-## R2 Bucket Nuke (REQ-SEC-017)
-
-Implements [REQ-SEC-017](../../sdd/spec/security.md#req-sec-017-r2-bucket-nuke-workflow-for-encryption-migration).
-
-The `r2-nuke` job in `.github/workflows/deploy.yml` is a one-time migration helper for enabling SSE-C on a bucket that already contains unencrypted objects. Once SSE-C is required, pre-SSE-C objects become unreadable — the correct recovery is to purge them and let users re-sync from their local workspace on next login.
-
-**When to use:** Before enabling `ENCRYPTION_KEY` on a production deployment that has existing R2 data. Do not run this on a deployment that is already SSE-C encrypted.
-
-### Safety gates
-
-Five independent gates must all pass before any object is deleted:
-
-| Gate | Mechanism |
-|------|-----------|
-| Manual trigger only | `workflow_dispatch` - never auto-runs |
-| Explicit action selection | `action` input must be set to `r2-nuke` (default is `deploy`) |
-| Confirmation string | `r2_nuke_confirmation` input must be exactly `DELETE-ALL-R2-OBJECTS` |
-| Branch guard | `production` environment requires `main` branch |
-| Environment protection | Job runs under the chosen GitHub Environment's required-reviewer gate |
-
-### Runbook
-
-1. Navigate to **Actions > deploy** in the GitHub repository.
-2. Click **Run workflow**.
-3. Set **Environment** to `production` or `integration` as appropriate.
-4. Set **Action** to `r2-nuke`.
-5. In the **Confirmation** field, type `DELETE-ALL-R2-OBJECTS` (exact string, case-sensitive).
-6. Click **Run workflow** and approve via the GitHub Environment protection gate if configured.
-7. Monitor the job log: it discovers buckets from `wrangler.toml`, then iterates sweep-by-sweep until each bucket lists as empty. Each sweep re-lists from the head (up to 1000 keys), issues per-key DELETEs in sequence, and logs progress per object. A 404 on DELETE is treated as success (key already gone from a prior sweep). Per-key failures are logged as warnings; the job continues to the next key but exits non-zero after all buckets are processed if any DELETE failed.
-8. After the job completes successfully, set `ENCRYPTION_KEY` in GitHub Actions secrets and deploy normally.
-9. Users re-sync on next login - all new objects are written with SSE-C headers.
-
-**Irreversible:** There is no undo. Deleted objects cannot be recovered. Ensure users have local copies before running, or accept that active workspaces will need to be re-synced from scratch.
-
-#### Abort conditions
-
-The job exits non-zero (red) in three cases:
-
-| Condition | Log line to look for | What to do |
-|-----------|---------------------|------------|
-| R2 list API returns non-2xx | `::error::list failed for <bucket>: HTTP <N>` | Check `CLOUDFLARE_API_TOKEN` permissions and Cloudflare status; re-run. |
-| 3 consecutive sweeps with zero successful deletes | `::error::3 consecutive sweeps with zero successful deletes for bucket <bucket> (list not converging...)` | A concurrent writer may be recreating objects, or R2 list is returning stale entries that already 404 on DELETE but not incrementing progress. Stop any active sync processes for that user, wait 30 s, re-run. |
-| 100-sweep safety cap reached | `::error::aborting at 100-sweep safety cap for bucket <bucket>` | Bucket had more than ~100,000 objects or repeated list staleness. Re-run the job - it will re-list from scratch and continue making progress on the remaining objects. |
-| Any per-key DELETE failed | `::error::<N> object DELETEs failed across all buckets` | Scroll up for `::warning::DELETE failed` lines to identify the failing keys and HTTP status. Re-run targeting those keys manually via the R2 API, then re-run the full nuke job to confirm the bucket is empty. |
-
-### Key pipeline
-
-```mermaid
-flowchart TD
-    GH["GitHub Actions Secret<br/>ENCRYPTION_KEY"] -->|wrangler secret put| WS["Worker Secret<br/>Env.ENCRYPTION_KEY"]
-    WS -->|getOrImportKey| CK["CryptoKey<br/>AES-256-GCM"]
-    WS -->|getSseHeaders| SSE["SSE-C Headers<br/>x-amz-server-side-encryption-*"]
-    WS -->|setBucketName body| DO["Durable Object<br/>_encryptionKey"]
-    CK -->|getAndDecrypt / encryptAndStore| KV["KV Encryption<br/>llm-keys, deploy-keys, r2token"]
-    SSE -->|fetch with headers| R2W["R2 Worker Calls<br/>upload, download, preview, seed"]
-    DO -->|container env var| CE["Container ENV<br/>ENCRYPTION_KEY"]
-    CE -->|entrypoint.sh| RC["rclone.conf<br/>sse_customer_key_base64"]
-    RC -->|bisync| R2C["R2 Container Sync<br/>restore, periodic, shutdown"]
-```
-
-### Backward compatibility
-
-When `ENCRYPTION_KEY` is not set: KV values are stored and read as plaintext JSON (existing behavior). R2 operations proceed without SSE-C headers. No code paths change — `getOrImportKey()` returns `null`, `getSseHeaders()` returns `{}`, and all encryption wrappers fall through to direct KV/R2 calls.
-
----
-
 ## Rate Limiting
 
 Per-user rate limiting via `createRateLimiter()` factory in `src/middleware/rate-limit.ts`. Keyed by `bucketName` (user identifier set by auth middleware), falls back to `CF-Connecting-IP` for unauthenticated requests.
@@ -420,7 +353,6 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 - [REQ-SEC-012](../../sdd/spec/security.md#req-sec-012-container-auth-token-per-do-lifecycle) - Container auth token per DO lifecycle
 - [REQ-SEC-014](../../sdd/spec/security.md#req-sec-014-saas-service-token-header-not-trusted-in-saas-mode) - SaaS service-token header not trusted in SaaS mode
 - [REQ-SEC-016](../../sdd/spec/security.md#req-sec-016-concurrent-cache-deduplication-for-auth-config) - Concurrent cache deduplication for auth config
-- [REQ-SEC-017](../../sdd/spec/security.md#req-sec-017-r2-bucket-nuke-workflow-for-encryption-migration) - R2 bucket nuke workflow for encryption migration
 - [REQ-SEC-018](../../sdd/spec/security.md#req-sec-018-credential-encryption-operational-policy) - Credential encryption operational policy
 - [REQ-SEC-021](../../sdd/spec/security.md#req-sec-021-hsts-coverage-on-redirect-response-paths) - HSTS coverage on redirect response paths
 
