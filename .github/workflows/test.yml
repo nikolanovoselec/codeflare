@@ -97,7 +97,8 @@ jobs:
         run: set -o pipefail && npm test 2>&1 | grep -v -F '[vpw:info] Starting runtime for'
 
       - name: Run host hook tests (node:test)
-        run: node --test host/__tests__/*.test.js
+        run: node --test --test-timeout=30000 host/__tests__/*.test.js
+        timeout-minutes: 3
 
       - name: Run frontend tests
         run: npm test
