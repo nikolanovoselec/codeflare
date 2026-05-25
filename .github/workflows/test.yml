@@ -113,7 +113,11 @@ jobs:
         working-directory: host
 
       - name: Run host hook tests (node:test)
-        run: node --experimental-test-module-mocks --test --test-timeout=240000 host/__tests__/*.test.js
+        run: node --experimental-test-module-mocks --test --test-timeout=60000 $(ls host/__tests__/*.test.js | grep -v entrypoint-bisync-behavior)
+        timeout-minutes: 5
+
+      - name: Run bisync daemon tests (slow - spawns real daemons)
+        run: node --test --test-timeout=300000 host/__tests__/entrypoint-bisync-behavior.test.js
         timeout-minutes: 8
 
       - name: Run frontend tests
