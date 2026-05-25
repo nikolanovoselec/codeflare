@@ -133,7 +133,8 @@ try:
     if vault_hits:
         print(f'({len(vault_hits)} vault note(s) matched - consider reading them for detailed context)')
 
-except Exception:
+except Exception as e:
+    print(f'memory-inject-failed: {e}', file=sys.stderr)
     sys.exit(0)
 " 2>/dev/null)
 
