@@ -1253,7 +1253,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. In advanced session mode only, a SessionStart hook injects a graph-context reminder when the cwd already has a knowledge graph (pointing the agent at the human-readable report and MCP tools); when the cwd looks like a code repo without a graph, the hook instead injects a build-suggestion reminder.
+1. In advanced session mode only, a SessionStart hook queries the knowledge graph for the highest-connectivity nodes and injects a compressed structural summary as additionalContext. Three fallback tiers: (a) god-nodes query producing node labels with degree counts, (b) GRAPH_REPORT.md preamble when the query fails, (c) build-suggestion reminder when the cwd has source files but no graph.
 2. In advanced session mode only, a short authoritative graph-first rule is preseeded, stating MUST / MUST NOT bullets for graph vs grep and routing to the graphify skill for mechanics rather than restating them.
 3. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, and OpenCode by the seed generator.
 4. The skill documents the safe build path for large repos (more than 2000 files).

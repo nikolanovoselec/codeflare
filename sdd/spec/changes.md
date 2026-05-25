@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-05-25
 
+- REQ-MEM-013 added: proactive memory injection on first prompt. UserPromptSubmit hook extracts keywords from the user's first message, queries the unified graph, and injects matched nodes as additionalContext before the agent responds.
+- REQ-AGENT-024 AC1 updated: SessionStart hook now queries god-nodes from graph JSON and injects a compressed structural summary (three-tier fallback: god-nodes query, GRAPH_REPORT.md preamble, build-suggestion).
 - REQ-VAULT-008 AC7 added: key-shim SW recovers encryption key from auth-gated Worker endpoint after browser terminates idle SW. Fixes vault re-open failure ("Authentication not enabled" 403 on .auth) when the SW's in-memory key is lost.
 - Removed REQ-SEC-017 (R2 bucket nuke workflow for encryption migration); the r2-nuke CI job was removed as the migration never materialized. Vault bootstrap-hop handles per-session key setup without bulk wipe.
 - REQ-VAULT-008 AC5: bootstrap-hop redirect gated to GET only so HEAD readiness probes fall through to SB. Resilience contracts added: navigator.serviceWorker guard, 10-second activation timeout replacing indefinite navigator.serviceWorker.ready, "redundant" SW state detection, fail-loud abort.

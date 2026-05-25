@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SessionStart hook (matcher: "startup") - inject knowledge-graph
-# context from prior sessions. Implements REQ-AGENT-023 AC3.
+# context from prior sessions. Implements REQ-AGENT-024 AC1.
 #
 # Three tiers of injection, cheapest first:
 #
@@ -38,16 +38,17 @@ emit_reminder() {
 }
 
 if [ -f "$GRAPH" ]; then
-  # Tier 1: query the graph for structural context.
-  # god_nodes returns the highest-degree nodes - the architectural spine.
+  # Tier 1: compute god-nodes (highest-degree) from the raw graph JSON.
+  # Pure Python - reads graph.json directly, no graphify CLI needed.
   # Budget: ~1500 tokens of context injected, enough for orientation
   # without bloating the system prompt.
   GOD_NODES=""
-  if command -v graphify >/dev/null 2>&1; then
-    GOD_NODES=$(timeout 10 python3 -c "
+  if command -v python3 >/dev/null 2>&1; then
+    GOD_NODES=$(GRAPH_PATH="$GRAPH" timeout 10 python3 -c "
 import json, sys
 try:
-    with open('$GRAPH') as f:
+    import os
+    with open(os.environ['GRAPH_PATH']) as f:
         g = json.load(f)
     nodes = g.get('nodes', [])
     edges = g.get('edges', [])

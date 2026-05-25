@@ -21,9 +21,10 @@ INPUT=$(cat 2>/dev/null) || true
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
 [ -z "$SESSION_ID" ] && exit 0
 
-# Only fire on first prompt - counter file absent means fresh container.
-COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
-[ -f "$COUNTER_FILE" ] && exit 0
+# Only fire once per session. Uses its own sentinel (not memory-capture's
+# counter file) so the two hooks are self-contained with no ordering dependency.
+INJECT_SENTINEL="$COUNTER_DIR/${SESSION_ID}.inject-done"
+[ -f "$INJECT_SENTINEL" ] && exit 0
 
 # Extract the user's prompt text from the hook envelope.
 # Claude Code passes it as .prompt (string) in UserPromptSubmit hooks.
@@ -62,27 +63,24 @@ fi
 # Use Python directly against the graph JSON - avoids MCP round-trip
 # and works even if the MCP server hasn't started yet (SessionStart
 # race). Budget: ~1000 tokens of matched context.
-MATCHED_CONTEXT=$(timeout 8 python3 -c "
-import json, sys, re
+MATCHED_CONTEXT=$(GRAPH_PATH="$GLOBAL_GRAPH" QUERY_KEYWORDS="$KEYWORDS" timeout 8 python3 -c "
+import json, sys, os
 
 try:
-    with open('$GLOBAL_GRAPH') as f:
+    with open(os.environ['GRAPH_PATH']) as f:
         g = json.load(f)
 
     nodes = g.get('nodes', [])
-    edges = g.get('edges', [])
-    keywords = '''$KEYWORDS'''.split()
+    keywords = os.environ.get('QUERY_KEYWORDS', '').split()
 
     if not keywords:
         sys.exit(0)
 
-    # Score nodes by keyword match on label + description
     scored = []
     for n in nodes:
         label = (n.get('label', '') or '').lower()
         desc = (n.get('description', '') or '').lower()
         source = (n.get('source', '') or '').lower()
-        text = label + ' ' + desc + ' ' + source
         score = 0
         for kw in keywords:
             if kw in label:
@@ -97,7 +95,6 @@ try:
     if not scored:
         sys.exit(0)
 
-    # Top 10 matches
     scored.sort(key=lambda x: -x[0])
     top = scored[:10]
 
@@ -113,7 +110,6 @@ try:
             entry += f': {desc}'
         lines.append(entry)
 
-    # Also find vault notes in matches (source contains 'Vault/')
     vault_hits = [n for _, n in top if 'vault/' in (n.get('source', '') or '').lower()]
 
     print('Prior context matching your query:')
@@ -121,11 +117,14 @@ try:
     if vault_hits:
         print(f'({len(vault_hits)} vault note(s) matched - consider reading them for detailed context)')
 
-except Exception as e:
+except Exception:
     sys.exit(0)
 " 2>/dev/null)
 
 [ -z "$MATCHED_CONTEXT" ] && exit 0
+
+# Mark as done so subsequent prompts skip immediately.
+touch "$INJECT_SENTINEL" 2>/dev/null || true
 
 # Inject as additionalContext - the agent sees this before responding.
 CONTEXT="$MATCHED_CONTEXT
