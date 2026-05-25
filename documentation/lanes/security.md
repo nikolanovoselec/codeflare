@@ -216,15 +216,15 @@ SSE-C headers: `x-amz-server-side-encryption-customer-algorithm: AES256`, `x-amz
 
 **Cloudflare dashboard impact:** With SSE-C enabled, files are visible in the R2 dashboard (names, sizes, metadata) but contents are unreadable — the dashboard doesn't have the encryption key. Downloads through the app work normally (Worker decrypts transparently).
 
-### R2 bucket migration
+### R2 bucket migration (REQ-SEC-005)
 
 Enabling SSE-C on an existing deployment requires re-uploading all R2 objects with SSE-C headers. Existing unencrypted objects remain readable without headers, but new objects written with SSE-C can only be read with SSE-C. For a clean encrypted state:
 
 1. Enable `ENCRYPTION_KEY` in GitHub secrets and deploy
 2. For each existing user bucket: download all objects (unencrypted GET), re-upload with SSE-C headers (PUT with `getSseHeaders()`)
-3. Verify by starting a session — rclone bisync should complete without errors
+3. Verify by starting a session - rclone bisync should complete without errors
 
-New deployments that set `ENCRYPTION_KEY` from the start require no migration — all seeded files are encrypted at creation.
+New deployments that set `ENCRYPTION_KEY` from the start require no migration - all seeded files are encrypted at creation.
 
 ## Rate Limiting
 
