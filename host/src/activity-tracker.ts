@@ -30,6 +30,10 @@ export function createActivityTracker(): ActivityTracker {
       lastInputAt = Date.now();
     },
 
+    recordHeartbeat(): void {
+      lastHeartbeatAt = Date.now();
+    },
+
     getActivityInfo(sessionManager: ActivitySessionManager | null | undefined): ActivityInfo {
       const connectedClients = sessionManager ? sessionManager.clients.size : 0;
       const hasActiveConnections = connectedClients > 0;
@@ -50,12 +54,13 @@ export function createActivityTracker(): ActivityTracker {
         activeSessions,
         disconnectedForMs,
         lastInputAt,
+        lastHeartbeatAt,
       };
     },
   };
 
-  // Track last user input timestamp (null = no input yet since container start)
   let lastInputAt: number | null = null;
+  let lastHeartbeatAt: number | null = null;
 
   return tracker;
 }

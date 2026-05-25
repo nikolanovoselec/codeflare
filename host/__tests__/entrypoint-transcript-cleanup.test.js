@@ -12,7 +12,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, utimesSync, rmSync, readFileSync } from 'node:fs';
-import { join, tmpdir, dirname } from 'node:path';
+import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 

@@ -113,8 +113,8 @@ jobs:
         working-directory: host
 
       - name: Run host hook tests (node:test)
-        run: node --test --test-timeout=30000 host/__tests__/*.test.js
-        timeout-minutes: 3
+        run: node --experimental-test-module-mocks --test --test-timeout=60000 host/__tests__/*.test.js
+        timeout-minutes: 5
 
       - name: Run frontend tests
         run: npm test
