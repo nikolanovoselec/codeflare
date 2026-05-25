@@ -138,8 +138,17 @@ export const VAULT_KEY_SHIM_SERVICE_WORKER_JS =
   '  try { return new URL(source.url).origin === self.location.origin; }\n' +
   '  catch (_) { return false; }\n' +
   '}\n' +
+  'async function recoverKey() {\n' +
+  '  if (encryptionKey !== undefined) return;\n' +
+  '  try {\n' +
+  '    var r = await fetch(self.registration.scope + ".vault-key", { credentials: "same-origin" });\n' +
+  '    if (r.ok) { var b = await r.json(); if (b && b.key) encryptionKey = b.key; }\n' +
+  '  } catch (_) {}\n' +
+  '}\n' +
   'self.addEventListener("install", () => self.skipWaiting());\n' +
-  'self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));\n' +
+  'self.addEventListener("activate", (event) => event.waitUntil(\n' +
+  '  recoverKey().then(() => self.clients.claim())\n' +
+  '));\n' +
   'self.addEventListener("message", (event) => {\n' +
   '  const msg = event && event.data;\n' +
   '  if (!msg || typeof msg !== "object") return;\n' +
@@ -149,6 +158,10 @@ export const VAULT_KEY_SHIM_SERVICE_WORKER_JS =
   '    return;\n' +
   '  }\n' +
   '  if (msg.type === "get-encryption-key") {\n' +
+  '    if (encryptionKey === undefined) {\n' +
+  '      recoverKey().then(() => event.source.postMessage({ type: "encryption-key", key: encryptionKey }));\n' +
+  '      return;\n' +
+  '    }\n' +
   '    event.source.postMessage({ type: "encryption-key", key: encryptionKey });\n' +
   '    return;\n' +
   '  }\n' +
@@ -818,6 +831,26 @@ export async function handleVaultRequest(
           JSON.stringify({ error: 'Vault bootstrap failed', code: 'VAULT_BOOTSTRAP_FAILED' }),
           { status: 500, headers: jsonHeaders },
         );
+      }
+    }
+
+    if (remainingPath === '/.vault-key' && !isWebSocket && request.method === 'GET') {
+      try {
+        const vaultEncryptionKey = await (container as unknown as {
+          ensureVaultKey: () => Promise<string>;
+        }).ensureVaultKey();
+        return new Response(JSON.stringify({ key: vaultEncryptionKey }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
+            'X-Request-ID': requestId,
+          },
+        });
+      } catch (err) {
+        logger.error('vault key recovery failed', toError(err));
+        return new Response(JSON.stringify({ error: 'Key recovery failed' }),
+          { status: 500, headers: jsonHeaders });
       }
     }
 
