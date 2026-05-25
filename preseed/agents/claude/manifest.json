@@ -144,6 +144,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-memory/scripts/memory-context-inject.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-vault/.claude-plugin/plugin.json": {
     "modes": [
       "advanced"

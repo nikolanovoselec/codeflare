@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # SessionStart hook (matcher: "startup") - inject knowledge-graph
-# context if a graph exists in cwd. Implements REQ-AGENT-023 AC3.
+# context from prior sessions. Implements REQ-AGENT-023 AC3.
 #
-# Two branches:
+# Three tiers of injection, cheapest first:
 #
-#   1. graphify-out/graph.json + GRAPH_REPORT.md present
-#      -> inject a system reminder telling the agent to read
-#         GRAPH_REPORT.md first and prefer mcp__graphify__* queries
-#         over Grep for architecture questions.
+#   1. graphify-out/graph.json present
+#      -> query the graph for god-nodes (highest-connectivity concepts)
+#         and inject a compressed structural summary as additionalContext.
+#         The agent sees architecture context before its first tool call.
 #
-#   2. cwd looks like a code repo but no graphify-out/
+#   2. graphify-out/ present but query fails
+#      -> fall back to the GRAPH_REPORT.md preamble (first 80 lines).
+#
+#   3. cwd looks like a code repo but no graphify-out/
 #      -> inject a short build-suggestion reminder. Never auto-builds.
 #
 # Fail-safe: any unexpected error -> exit 0 with no output. Sessions
@@ -19,10 +22,6 @@ set +e
 # Drain stdin so the hook does not SIGPIPE the parent.
 INPUT=$(cat 2>/dev/null) || true
 
-# Prefer the cwd field from the hook envelope (documented contract);
-# fall back to pwd if it is missing or empty. Matches the sibling
-# graph-first-nudge.sh pattern and survives future Claude Code
-# launch-context changes that might dissociate $PWD from the agent's cwd.
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 [ -z "$CWD" ] && CWD=$(pwd 2>/dev/null)
 [ -z "$CWD" ] && exit 0
@@ -30,7 +29,6 @@ GRAPH="$CWD/graphify-out/graph.json"
 REPORT="$CWD/graphify-out/GRAPH_REPORT.md"
 
 emit_reminder() {
-  # $1 = additionalContext string
   jq -n --arg ctx "$1" '{
     hookSpecificOutput: {
       hookEventName: "SessionStart",
@@ -39,19 +37,73 @@ emit_reminder() {
   }' 2>/dev/null || true
 }
 
-if [ -f "$GRAPH" ] && [ -f "$REPORT" ]; then
-  emit_reminder "A graphify knowledge graph exists for this project at graphify-out/. Before answering architecture, dependency, or call-flow questions, read graphify-out/GRAPH_REPORT.md and use the graphify MCP tools (mcp__graphify__query_graph, mcp__graphify__get_node, mcp__graphify__get_neighbors, mcp__graphify__shortest_path) for focused lookups. Prefer focused MCP queries over broad Grep when the question is structural. If you have modified source files, run \`bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .\` to refresh the AST portion of the graph (free, no LLM cost; the wrapper caps memory so a runaway rebuild cannot OOM the session) before answering."
+if [ -f "$GRAPH" ]; then
+  # Tier 1: query the graph for structural context.
+  # god_nodes returns the highest-degree nodes - the architectural spine.
+  # Budget: ~1500 tokens of context injected, enough for orientation
+  # without bloating the system prompt.
+  GOD_NODES=""
+  if command -v graphify >/dev/null 2>&1; then
+    GOD_NODES=$(timeout 10 python3 -c "
+import json, sys
+try:
+    with open('$GRAPH') as f:
+        g = json.load(f)
+    nodes = g.get('nodes', [])
+    edges = g.get('edges', [])
+    # Compute degree per node
+    deg = {}
+    for e in edges:
+        s, t = str(e.get('source','')), str(e.get('target',''))
+        deg[s] = deg.get(s, 0) + 1
+        deg[t] = deg.get(t, 0) + 1
+    # Build id->label map
+    labels = {str(n['id']): n.get('label','') for n in nodes}
+    # Top 15 by degree
+    top = sorted(deg.items(), key=lambda x: -x[1])[:15]
+    lines = []
+    for nid, d in top:
+        lbl = labels.get(nid, nid)
+        lines.append(f'- {lbl} (degree {d})')
+    stats = f'{len(nodes)} nodes, {len(edges)} edges'
+    print(f'Graph: {stats}')
+    print('Key concepts (highest connectivity):')
+    print(chr(10).join(lines))
+except Exception as e:
+    print(f'graph-query-failed: {e}', file=sys.stderr)
+    sys.exit(1)
+" 2>/dev/null)
+  fi
+
+  if [ -n "$GOD_NODES" ]; then
+    # Tier 1 success: real graph context + tool guidance
+    CONTEXT="SessionStart hook additional context: $GOD_NODES
+
+BEFORE responding, query the unified graph for context. Use mcp__graphify__query_graph (or mcp__graphify__get_node for a known concept) with terms from the user's message to surface prior decisions, vault notes, and per-repo references."
+    emit_reminder "$CONTEXT"
+    exit 0
+  fi
+
+  # Tier 2: graph exists but query failed - use report preamble
+  if [ -f "$REPORT" ]; then
+    PREAMBLE=$(head -80 "$REPORT" 2>/dev/null | head -c 3000)
+    if [ -n "$PREAMBLE" ]; then
+      CONTEXT="SessionStart hook additional context: Knowledge graph loaded.
+
+$PREAMBLE
+
+BEFORE responding, query the unified graph for context. Use mcp__graphify__query_graph (or mcp__graphify__get_node for a known concept) with terms from the user's message to surface prior decisions, vault notes, and per-repo references."
+      emit_reminder "$CONTEXT"
+      exit 0
+    fi
+  fi
+
+  # Tier 2 fallback: graph exists but no report - still nudge
+  emit_reminder "A graphify knowledge graph exists for this project at graphify-out/. Before answering architecture, dependency, or call-flow questions, use the graphify MCP tools (mcp__graphify__query_graph, mcp__graphify__get_node, mcp__graphify__get_neighbors, mcp__graphify__shortest_path) for focused lookups. Prefer focused MCP queries over broad Grep when the question is structural. If you have modified source files, run \`bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .\` to refresh the AST portion of the graph."
   exit 0
 fi
 
-# No graph - only nudge if cwd looks like a code repo.
-#
-# Detection: first try cheap project-marker files at depth 1 (package.json,
-# Cargo.toml, go.mod, pyproject.toml, etc.) - these unambiguously mark a
-# repo root regardless of source layout. If none found, fall back to a
-# bounded source-file search to depth 4 (covers src/lib/.../foo.ts,
-# packages/*/src/, app/components/, etc.). Marker probe is O(1) per cwd;
-# the source-file scan is bounded by `timeout 2` and `head -n 1`.
+# Tier 3: No graph - only nudge if cwd looks like a code repo.
 PROJECT_MARKER=$(find "$CWD" -maxdepth 1 -type f \
   \( -name 'package.json' -o -name 'Cargo.toml' -o -name 'go.mod' \
      -o -name 'pyproject.toml' -o -name 'pom.xml' -o -name 'build.gradle' \
