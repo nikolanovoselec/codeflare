@@ -65,20 +65,15 @@ if [ ! -f "$GLOBAL_GRAPH" ]; then
   [ ! -f "$GLOBAL_GRAPH" ] && exit 0
 fi
 
-# Claim the sentinel atomically AFTER all cheap checks pass. mkdir is
-# POSIX-atomic: it either creates (we won) or fails (concurrent claim).
-# Placed here so short prompts, empty keywords, and missing graphs
-# don't permanently disable injection for the session.
-mkdir "$INJECT_SENTINEL" 2>/dev/null || exit 0
-
-# Query the graph with extracted keywords.
-# Use Python directly against the graph JSON - avoids MCP round-trip
-# and works even if the MCP server hasn't started yet (SessionStart
-# race). Budget: ~1000 tokens of matched context.
-# Skip graphs > 30MB (Python JSON parse too slow on 1-vCPU)
+# Skip graphs > 30MB (Python JSON parse too slow on 1-vCPU).
+# Both checks are deterministic per session, so safe before sentinel.
 GRAPH_SIZE=$(stat -c%s "$GLOBAL_GRAPH" 2>/dev/null) || GRAPH_SIZE=0
 [ "$GRAPH_SIZE" -gt 31457280 ] && exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
+
+# Claim the sentinel atomically AFTER all cheap checks pass. mkdir is
+# POSIX-atomic: it either creates (we won) or fails (concurrent claim).
+mkdir "$INJECT_SENTINEL" 2>/dev/null || exit 0
 MATCHED_CONTEXT=$(GRAPH_PATH="$GLOBAL_GRAPH" QUERY_KEYWORDS="$KEYWORDS" timeout 8 python3 -c "
 import json, sys, os
 
