@@ -304,7 +304,10 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
         skipWaiting,
         clients: { claim: clientsClaim },
         location: { origin: 'https://codeflare.test' },
+        registration: { scope: 'https://codeflare.test/api/vault/abc/' },
       };
+      // recoverKey() calls fetch on activate when encryptionKey is undefined
+      globalThis.fetch = vi.fn(() => Promise.resolve({ ok: false } as Response));
       // eslint-disable-next-line @typescript-eslint/no-implied-eval
       const runShim = new Function('self', VAULT_KEY_SHIM_SERVICE_WORKER_JS);
       runShim(self);
@@ -313,11 +316,12 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       listeners.install?.({});
       expect(skipWaiting).toHaveBeenCalled();
 
-      // activate -> clients.claim (wrapped in waitUntil)
+      // activate -> recoverKey() then clients.claim (wrapped in waitUntil)
       const waitUntilArgs: unknown[] = [];
       listeners.activate?.({ waitUntil: (p: unknown) => waitUntilArgs.push(p) });
-      expect(clientsClaim).toHaveBeenCalled();
       expect(waitUntilArgs).toHaveLength(1);
+      await waitUntilArgs[0];
+      expect(clientsClaim).toHaveBeenCalled();
 
       // Same-origin client builder
       const sameOrigin = (replies: unknown[]) => ({
