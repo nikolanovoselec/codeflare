@@ -364,7 +364,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
         source: sameOrigin(replies2),
       });
       await vi.waitFor(() => expect(replies2).toHaveLength(1));
-      expect(replies2).toEqual([{ type: 'encryption-key', key: undefined }]);
+      expect(replies2).toEqual([{ type: 'encryption-key', key: null }]);
       globalThis.fetch = origFetch;
 
       // Unknown message types are ignored (no throw, no reply)
