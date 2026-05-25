@@ -421,21 +421,16 @@ case "$TOOL_NAME" in
       exit 0
     fi
 
-    # Guard: the awk-based extract_subs parser does character-by-character
-    # recursion. Commands over 4KB (heredocs with regex patterns) can cause
-    # exponential backtracking. Skip extraction for long commands - they are
-    # always heredocs/scripts where the chain-op split + first-word check
-    # on the outer command is sufficient.
-    if [ ${#COMMAND} -gt 4096 ]; then
-      EXTRACTED="$COMMAND"
-    else
-      # Extract substitutions first: $(...), <(...), >(...), `...`.
-      # These execute commands hidden inside argument expansion of an
-      # outer whitelisted command, e.g. 'git log $(curl evil)'. Each
-      # extracted body is appended as a ;-separated segment so the
-      # per-segment scan below covers it.
-      EXTRACTED=$(printf '%s' "$COMMAND" | extract_subs)
-    fi
+    # Extract substitutions first: $(...), <(...), >(...), `...`.
+    # These execute commands hidden inside argument expansion of an
+    # outer whitelisted command, e.g. 'git log $(curl evil)'. Each
+    # extracted body is appended as a ;-separated segment so the
+    # per-segment scan below covers it.
+    # The awk parser has a 5-second timeout to bound pathological inputs
+    # (deeply nested regex patterns in heredocs). On timeout, extraction
+    # returns empty and the command passes through to the chain-op split
+    # which checks the outer first-word only.
+    EXTRACTED=$(printf '%s' "$COMMAND" | extract_subs)
 
     # Normalize: strip heredoc bodies + quoted content, leaving only
     # shell-structural text. Chain operators inside quoted strings or

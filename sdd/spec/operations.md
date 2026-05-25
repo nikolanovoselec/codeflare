@@ -215,6 +215,33 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+### REQ-OPS-020: Shadow-pin version bump automation
+
+<!-- @impl: .github/workflows/bump-shadow-pins.yml -->
+
+**Intent:** Pinned binary versions in Dockerfile and npm packages outside package.json are invisible to Dependabot. A weekly workflow checks upstream releases and opens one PR per tool when a newer version is available, with SHA256 intentionally invalidated to force manual checksum verification before merge.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Watched Dockerfile binaries: zoxide, yazi, lazygit, silverbullet. Each has its own parallel job checking GitHub releases.
+2. Watched npm packages: context-mode (canonical version in plugin.json, echoed in entrypoint.sh fallback and hooks.json).
+3. SHA256 checksum is reset to a placeholder on Dockerfile bumps, causing Docker build failure until the operator verifies and updates the hash.
+4. A bump branch is skipped if one already exists for that version (deduplication guard).
+
+**Constraints:** None.
+
+**Priority:** P2
+
+**Dependencies:** None.
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
 <!-- @test: host/__tests__/workflow-e2e.test.js (REQ-OPS-004 describe -> workflow_dispatch+job-graph+SERVICE_AUTH_SECRET+E2E_BASE_URL -> AC1..AC4) -->
 ### REQ-OPS-004: E2E test workflow setup and job graph
 

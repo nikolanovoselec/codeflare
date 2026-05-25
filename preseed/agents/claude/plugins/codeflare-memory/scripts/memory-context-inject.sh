@@ -71,9 +71,6 @@ GRAPH_SIZE=$(stat -c%s "$GLOBAL_GRAPH" 2>/dev/null) || GRAPH_SIZE=0
 [ "$GRAPH_SIZE" -gt 31457280 ] && exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
-# Claim the sentinel atomically AFTER all cheap checks pass. mkdir is
-# POSIX-atomic: it either creates (we won) or fails (concurrent claim).
-mkdir "$INJECT_SENTINEL" 2>/dev/null || exit 0
 MATCHED_CONTEXT=$(GRAPH_PATH="$GLOBAL_GRAPH" QUERY_KEYWORDS="$KEYWORDS" timeout 8 python3 -c "
 import json, sys, os
 
@@ -134,6 +131,11 @@ except Exception as e:
 " 2>/dev/null)
 
 [ -z "$MATCHED_CONTEXT" ] && exit 0
+
+# Claim the sentinel AFTER a successful query. mkdir is POSIX-atomic:
+# it either creates (we won) or fails (concurrent claim). Placed here
+# so failed/empty queries don't permanently disable injection.
+mkdir "$INJECT_SENTINEL" 2>/dev/null || exit 0
 
 # Inject as additionalContext - the agent sees this before responding.
 CONTEXT="$MATCHED_CONTEXT
