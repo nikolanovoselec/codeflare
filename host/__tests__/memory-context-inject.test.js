@@ -5,7 +5,7 @@
 //   AC4: skips prompts shorter than 20 characters
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -75,9 +75,11 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
 
     assert.equal(status, 0);
     assert.ok(json, 'must emit JSON with matched context');
+    assert.equal(json.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
     const ctx = json.hookSpecificOutput.additionalContext;
     assert.ok(ctx.includes('handleVaultRequest'), 'must match vault-related node');
     assert.ok(ctx.includes('Container'), 'must match container-related node');
+    assert.ok(!ctx.includes('Unrelated Widget'), 'non-matching decoy node must be excluded');
     assert.ok(ctx.includes('Prior context matching your query'), 'must include header');
   });
 
@@ -138,6 +140,7 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     });
     assert.equal(status, 0);
     assert.equal(stdout, '', 'no graph must produce no output');
+    assert.ok(!existsSync(join(counterDir, 'test-sess.inject-done')), 'sentinel must not be created when no graph exists');
   });
 
   it('fail-safe: malformed graph JSON exits silently', () => {

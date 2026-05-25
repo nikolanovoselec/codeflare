@@ -64,6 +64,7 @@ fi
 # Use Python directly against the graph JSON - avoids MCP round-trip
 # and works even if the MCP server hasn't started yet (SessionStart
 # race). Budget: ~1000 tokens of matched context.
+command -v python3 >/dev/null 2>&1 || exit 0
 MATCHED_CONTEXT=$(GRAPH_PATH="$GLOBAL_GRAPH" QUERY_KEYWORDS="$KEYWORDS" timeout 8 python3 -c "
 import json, sys, os
 
