@@ -352,7 +352,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh -->
 <!-- @impl: preseed/agents/claude/manifest.json -->
 <!-- @impl: entrypoint.sh -->
-<!-- @test: host/__tests__/memory-context-inject.test.js (memory-context-inject.sh describe -> AC1+AC2 keyword match injection, AC3 sentinel once-only, AC4 short prompt skip) -->
+<!-- @test: host/__tests__/memory-context-inject.test.js (memory-context-inject.sh describe -> AC1 keyword match injection, AC3 sentinel once-only, AC4 short prompt skip) -->
 
 **Intent:** The agent receives relevant prior context (vault notes, code concepts, past decisions) automatically on the first user message of each session, without requiring an explicit tool call. Keywords are extracted from the user's prompt and matched against the unified graphify graph; matched nodes are injected as additionalContext in the hook response so the agent sees them before responding.
 
@@ -360,7 +360,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. On the first user message of an advanced-mode session, the hook extracts keywords from the prompt and queries the unified graph for matching nodes.
+1. On the first user message of a session, the hook extracts keywords from the prompt and queries the unified graph for matching nodes.
 2. Matched nodes (up to 10, ~1000 tokens) are injected as additionalContext in the UserPromptSubmit hook response.
 3. The hook fires exactly once per session (gated by its own sentinel file, independent of the memory-capture counter).
 4. Prompts shorter than 20 characters are skipped (insufficient signal for keyword extraction).

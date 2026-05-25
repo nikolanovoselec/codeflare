@@ -1,4 +1,4 @@
-// Verifies REQ-AGENT-023 AC3 + AC4 + AC10: graphify SessionStart + PostToolUse + PreToolUse
+// Verifies REQ-AGENT-023 AC3 + AC4 + AC10, REQ-AGENT-024 AC1/AC7: graphify SessionStart + PostToolUse + PreToolUse
 // hooks are merged into settings.json in advanced session mode when the
 // plugin manifest is present, and absent otherwise (mode-gated discipline).
 import { describe, it, before } from 'node:test';

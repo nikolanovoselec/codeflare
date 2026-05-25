@@ -1,4 +1,4 @@
-// Verifies REQ-AGENT-024 AC1-AC3: in advanced session mode the discipline
+// Verifies REQ-AGENT-024 AC2/AC3 (+ AC1 file-existence only): in advanced session mode the discipline
 // pieces are preseeded (graph-first rule + SKILL.md + SessionStart hook
 // script). Also asserts the manifest gates the rule/skill to advanced mode
 // only, not default. The HOOK-level wiring (which advanced settings.json
