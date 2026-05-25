@@ -8,6 +8,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 - REQ-VAULT-013 AC6/AC7: removed Cookie-header gate from the SW registration short-circuit selector (Samsung Internet compatibility). The service-worker: script forbidden header is the sole selector. Intent and Constraints updated to browser-agnostic language.
 - REQ-AGENT-043 AC4: graphify semantic-extraction subagents switched from haiku to sonnet for schema compliance (57% malformed node rate on codeflare corpus). AC5 simplified to Opus-never only. REQ-AGENT-043 demoted to Partial (AC1-AC3 lack automated test coverage).
 - REQ-VAULT-011: demoted to Partial; PDF error-path ingestion (AC4 - corrupt/password-protected file read failures) has no dedicated automated test.
+- REQ-VAULT-008: demoted to Partial; AC4 (SilverBullet encrypted-KV wrapper usage) is a runtime/IDB behavioral property with no dedicated test.
 
 ## 2026-05-24
 

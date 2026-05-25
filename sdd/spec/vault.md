@@ -487,7 +487,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
