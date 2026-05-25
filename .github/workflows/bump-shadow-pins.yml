@@ -1,11 +1,11 @@
 name: bump-shadow-pins
 
-# Watches npm packages whose versions are pinned outside any package.json
+# Watches pinned versions that live outside any package.json
 # (so Dependabot can't see them) and opens a single PR per bump.
 #
-# Currently watched: context-mode (canonical version in
-# preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json,
-# echoed in entrypoint.sh, hooks.json, and README.md).
+# Currently watched:
+# - context-mode npm package (plugin.json + entrypoint.sh + hooks.json + README.md)
+# - zoxide, yazi, lazygit, silverbullet (GitHub release binaries pinned in Dockerfile)
 
 on:
   schedule:
@@ -65,17 +65,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "${{ steps.branch.outputs.branch }}"
 
-          # Replace every occurrence of the exact version string. The version
-          # is specific enough (1.0.NNN) that a global string replace is safe.
-          # No sed: do it via Node so the rule against editing files with sed
-          # holds even in CI.
           node <<'NODE'
           const fs = require('node:fs');
           const cur = process.env.CUR;
           const lat = process.env.LAT;
           const files = [
             'preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json',
-            'entrypoint.sh',
             'preseed/agents/claude/plugins/context-mode/hooks/hooks.json',
             'preseed/agents/claude/plugins/context-mode/README.md',
           ];
@@ -87,10 +82,30 @@ jobs:
               console.log(`updated ${f}`);
             }
           }
+          // Fix entrypoint.sh fallback versions (these may have drifted from
+          // the canonical plugin.json version). Regex targets the specific
+          // patterns rather than a blind string replace.
+          const ep = 'entrypoint.sh';
+          let epContent = fs.readFileSync(ep, 'utf-8');
+          const epBefore = epContent;
+          epContent = epContent.replace(
+            /CONTEXT_MODE_VERSION="[^"]+"/g,
+            `CONTEXT_MODE_VERSION="${lat}"`
+          );
+          epContent = epContent.replace(
+            /\.version \/\/ "[^"]+"/g,
+            `.version // "${lat}"`
+          );
+          epContent = epContent.replace(
+            /\|\| echo "[0-9]+\.[0-9]+\.[0-9]+"/g,
+            `|| echo "${lat}"`
+          );
+          if (epContent !== epBefore) {
+            fs.writeFileSync(ep, epContent);
+            console.log(`updated ${ep}`);
+          }
           NODE
 
-          # Regenerate the embedded preseed manifest so agent-seed.generated.ts
-          # reflects the bumped hooks.json content.
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
 
@@ -135,3 +150,383 @@ jobs:
             --head "${{ steps.branch.outputs.branch }}" \
             --title "chore(deps): bump context-mode $CUR -> $LAT" \
             --body "$BODY"
+
+  zoxide:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compare Dockerfile pin against latest GitHub release
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep -oP 'ZOXIDE_VERSION="\K[^"]+' Dockerfile)
+          TAG=$(gh api repos/ajeetdsouza/zoxide/releases/latest --jq .tag_name)
+          LATEST="${TAG#v}"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already on $LATEST, nothing to do."
+          else
+            echo "Bumping $CURRENT -> $LATEST"
+          fi
+
+      - name: Skip if a branch for this version already exists
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        run: |
+          BRANCH="bump/zoxide-${{ steps.ver.outputs.latest }}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists, skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply bump
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "${{ steps.branch.outputs.branch }}"
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const lat = process.env.LAT;
+          let content = fs.readFileSync('Dockerfile', 'utf-8');
+          content = content.replace(/ZOXIDE_VERSION="[^"]+"/, `ZOXIDE_VERSION="${lat}"`);
+          content = content.replace(/ZOXIDE_SHA256="[^"]+"/, `ZOXIDE_SHA256="NEEDS_UPDATE_SEE_PR_BODY"`);
+          fs.writeFileSync('Dockerfile', content);
+          NODE
+
+          git add Dockerfile
+          if git diff --cached --quiet; then
+            echo "Nothing changed — aborting."
+            exit 1
+          fi
+          git commit -m "chore(deps): bump zoxide $CUR -> $LAT"
+          git push -u origin "${{ steps.branch.outputs.branch }}"
+        env:
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+
+      - name: Open PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          gh pr create \
+            --base develop \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --title "chore(deps): bump zoxide $CUR -> $LAT" \
+            --body "$(cat <<EOF
+          Auto-generated bump of \`zoxide\` from \`$CUR\` to \`$LAT\`.
+
+          The version is pinned in \`Dockerfile\` with a SHA256 checksum — Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
+
+          **Action required before merge:** Update the SHA256 checksum in Dockerfile:
+          \`\`\`bash
+          curl -fsSL "https://github.com/ajeetdsouza/zoxide/releases/download/v${LAT}/zoxide-${LAT}-x86_64-unknown-linux-musl.tar.gz" | sha256sum
+          \`\`\`
+
+          ## Test plan
+          - [ ] Update \`ZOXIDE_SHA256\` in Dockerfile
+          - [ ] CI green (Docker build verifies checksum)
+          EOF
+          )"
+
+  yazi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compare Dockerfile pin against latest GitHub release
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep -oP 'YAZI_VERSION="\K[^"]+' Dockerfile)
+          TAG=$(gh api repos/sxyazi/yazi/releases/latest --jq .tag_name)
+          LATEST="${TAG#v}"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already on $LATEST, nothing to do."
+          else
+            echo "Bumping $CURRENT -> $LATEST"
+          fi
+
+      - name: Skip if a branch for this version already exists
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        run: |
+          BRANCH="bump/yazi-${{ steps.ver.outputs.latest }}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists, skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply bump
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "${{ steps.branch.outputs.branch }}"
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const lat = process.env.LAT;
+          let content = fs.readFileSync('Dockerfile', 'utf-8');
+          content = content.replace(/YAZI_VERSION="[^"]+"/, `YAZI_VERSION="${lat}"`);
+          content = content.replace(/YAZI_SHA256="[^"]+"/, `YAZI_SHA256="NEEDS_UPDATE_SEE_PR_BODY"`);
+          fs.writeFileSync('Dockerfile', content);
+          NODE
+
+          git add Dockerfile
+          if git diff --cached --quiet; then
+            echo "Nothing changed — aborting."
+            exit 1
+          fi
+          git commit -m "chore(deps): bump yazi $CUR -> $LAT"
+          git push -u origin "${{ steps.branch.outputs.branch }}"
+        env:
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+
+      - name: Open PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          gh pr create \
+            --base develop \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --title "chore(deps): bump yazi $CUR -> $LAT" \
+            --body "$(cat <<EOF
+          Auto-generated bump of \`yazi\` from \`$CUR\` to \`$LAT\`.
+
+          The version is pinned in \`Dockerfile\` with a SHA256 checksum — Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
+
+          **Action required before merge:** Update the SHA256 checksum in Dockerfile:
+          \`\`\`bash
+          curl -fsSL "https://github.com/sxyazi/yazi/releases/download/v${LAT}/yazi-x86_64-unknown-linux-musl.zip" | sha256sum
+          \`\`\`
+
+          ## Test plan
+          - [ ] Update \`YAZI_SHA256\` in Dockerfile
+          - [ ] CI green (Docker build verifies checksum)
+          EOF
+          )"
+
+  lazygit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compare Dockerfile pin against latest GitHub release
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep -oP 'LAZYGIT_VERSION="\K[^"]+' Dockerfile)
+          TAG=$(gh api repos/jesseduffield/lazygit/releases/latest --jq .tag_name)
+          LATEST="${TAG#v}"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already on $LATEST, nothing to do."
+          else
+            echo "Bumping $CURRENT -> $LATEST"
+          fi
+
+      - name: Skip if a branch for this version already exists
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        run: |
+          BRANCH="bump/lazygit-${{ steps.ver.outputs.latest }}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists, skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply bump
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "${{ steps.branch.outputs.branch }}"
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const lat = process.env.LAT;
+          let content = fs.readFileSync('Dockerfile', 'utf-8');
+          content = content.replace(/LAZYGIT_VERSION="[^"]+"/, `LAZYGIT_VERSION="${lat}"`);
+          content = content.replace(/LAZYGIT_SHA256="[^"]+"/, `LAZYGIT_SHA256="NEEDS_UPDATE_SEE_PR_BODY"`);
+          fs.writeFileSync('Dockerfile', content);
+          NODE
+
+          git add Dockerfile
+          if git diff --cached --quiet; then
+            echo "Nothing changed — aborting."
+            exit 1
+          fi
+          git commit -m "chore(deps): bump lazygit $CUR -> $LAT"
+          git push -u origin "${{ steps.branch.outputs.branch }}"
+        env:
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+
+      - name: Open PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          gh pr create \
+            --base develop \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --title "chore(deps): bump lazygit $CUR -> $LAT" \
+            --body "$(cat <<EOF
+          Auto-generated bump of \`lazygit\` from \`$CUR\` to \`$LAT\`.
+
+          The version is pinned in \`Dockerfile\` with a SHA256 checksum — Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
+
+          **Action required before merge:** Update the SHA256 checksum in Dockerfile:
+          \`\`\`bash
+          curl -fsSL "https://github.com/jesseduffield/lazygit/releases/download/v${LAT}/lazygit_${LAT}_linux_x86_64.tar.gz" | sha256sum
+          \`\`\`
+
+          ## Test plan
+          - [ ] Update \`LAZYGIT_SHA256\` in Dockerfile
+          - [ ] CI green (Docker build verifies checksum)
+          EOF
+          )"
+
+  silverbullet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compare Dockerfile pin against latest GitHub release
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep -oP 'SILVERBULLET_VERSION="\K[^"]+' Dockerfile)
+          TAG=$(gh api repos/silverbulletmd/silverbullet/releases/latest --jq .tag_name)
+          LATEST="${TAG#v}"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already on $LATEST, nothing to do."
+          else
+            echo "Bumping $CURRENT -> $LATEST"
+          fi
+
+      - name: Skip if a branch for this version already exists
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        run: |
+          BRANCH="bump/silverbullet-${{ steps.ver.outputs.latest }}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists, skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply bump
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "${{ steps.branch.outputs.branch }}"
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const lat = process.env.LAT;
+          let content = fs.readFileSync('Dockerfile', 'utf-8');
+          content = content.replace(/SILVERBULLET_VERSION="[^"]+"/, `SILVERBULLET_VERSION="${lat}"`);
+          content = content.replace(/SILVERBULLET_SHA256="[^"]+"/, `SILVERBULLET_SHA256="NEEDS_UPDATE_SEE_PR_BODY"`);
+          fs.writeFileSync('Dockerfile', content);
+          NODE
+
+          git add Dockerfile
+          if git diff --cached --quiet; then
+            echo "Nothing changed — aborting."
+            exit 1
+          fi
+          git commit -m "chore(deps): bump silverbullet $CUR -> $LAT"
+          git push -u origin "${{ steps.branch.outputs.branch }}"
+        env:
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+
+      - name: Open PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          gh pr create \
+            --base develop \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --title "chore(deps): bump silverbullet $CUR -> $LAT" \
+            --body "$(cat <<EOF
+          Auto-generated bump of \`silverbullet\` from \`$CUR\` to \`$LAT\`.
+
+          The version is pinned in \`Dockerfile\` with a SHA256 checksum — Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
+
+          **Action required before merge:** Update the SHA256 checksum in Dockerfile:
+          \`\`\`bash
+          curl -fsSL "https://github.com/silverbulletmd/silverbullet/releases/download/${LAT}/silverbullet-server-linux-x86_64.zip" | sha256sum
+          \`\`\`
+
+          ## Test plan
+          - [ ] Update \`SILVERBULLET_SHA256\` in Dockerfile
+          - [ ] CI green (Docker build verifies checksum)
+          EOF
+          )"
