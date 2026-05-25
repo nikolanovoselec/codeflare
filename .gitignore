@@ -1,6 +1,7 @@
 node_modules/
 .wrangler/
 dist/
+worker-configuration.d.ts
 *.backup
 users/
 web-ui/node_modules/

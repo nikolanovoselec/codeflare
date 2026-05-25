@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022"],
-    "types": ["@cloudflare/workers-types", "node"],
+    "types": ["./worker-configuration.d.ts", "node"],
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,

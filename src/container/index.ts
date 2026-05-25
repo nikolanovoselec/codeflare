@@ -20,7 +20,6 @@
  *   Response (200): { bucketName: string | null }
  */
 import { Container } from '@cloudflare/containers';
-import type { DurableObjectState } from '@cloudflare/workers-types';
 import type { Env, TabConfig } from '../types';
 import { getR2Config } from '../lib/r2-config';
 import { toError, toErrorMessage } from '../lib/error-types';

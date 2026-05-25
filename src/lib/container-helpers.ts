@@ -1,6 +1,5 @@
 import type { Context } from 'hono';
 import type { Env } from '../types';
-import type { DurableObjectStub } from '@cloudflare/workers-types';
 import { getContainer } from '@cloudflare/containers';
 import { SESSION_ID_PATTERN } from './constants';
 import { getContainerHealthCB } from './circuit-breakers';

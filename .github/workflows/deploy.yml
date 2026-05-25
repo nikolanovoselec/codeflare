@@ -122,6 +122,9 @@ jobs:
         run: npm test
         working-directory: web-ui
 
+      - name: Generate Workers runtime types
+        run: npx wrangler types
+
       - name: Type check backend
         run: npm run typecheck
 
