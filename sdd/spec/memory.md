@@ -361,13 +361,14 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. In advanced session mode only, on the first user message of a session, the hook extracts keywords from the prompt and queries the unified graph for matching nodes.
-2. Matched nodes (up to 10, ~1000 tokens) are injected as additionalContext in the UserPromptSubmit hook response.
-3. The hook fires exactly once per session (gated by its own sentinel file, independent of the memory-capture counter).
+1. On the first user message of a session, the hook extracts keywords from the prompt and queries the unified graph for matching nodes.
+2. Matched nodes (up to 10, ~1000 tokens) are injected as additionalContext in the UserPromptSubmit hook response. <!-- coverage-gap: 10-node cap is implemented (scored[:10]) but budget assertion not in automated tests -->
+3. The hook fires exactly once per session (gated by its own atomic mkdir sentinel, independent of the memory-capture counter).
 4. Prompts shorter than 20 characters are skipped (insufficient signal for keyword extraction).
 
 **Constraints:**
 
+- The hook plugin is advanced-session-only by manifest declaration (`preseed/agents/claude/manifest.json`); standard sessions never receive the plugin.
 - The hook reads the graph JSON directly (no MCP round-trip) because the MCP server may not be ready on the first prompt.
 - The hook is fail-safe: any error exits silently with no output. A failed injection must never block the session.
 - Keyword extraction strips all non-alphanumeric characters and filters to words of 4+ characters to avoid noise.
@@ -378,4 +379,4 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Verification:** [Automated test](../../host/__tests__/memory-context-inject.test.js)
 
-**Status:** Implemented
+**Status:** Partial
