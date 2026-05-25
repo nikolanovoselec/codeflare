@@ -396,19 +396,11 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'var key = ' + escapedKey + ';' +
     'var cookieName = ' + escapedCookie + ';' +
     'var scope = "/api/vault/" + sid + "/";' +
-    'function fail(msg) {' +
     'var el = document.getElementById("status");' +
+    'function fail(msg) {' +
     'if (el) el.textContent = "Vault could not start encryption: " + msg + ". Reload to retry.";' +
     'console.warn("Codeflare vault bootstrap:", msg);' +
     '}' +
-    // Order of side-effects (load-bearing): SW registration + key handoff' +
-    // MUST complete before we touch localStorage["enableEncryption"]. The' +
-    // earlier "set-first, roll-back-on-throw" pattern had a window where a' +
-    // tab close between setItem and the await resolving left the flag' +
-    // durably true with no SW key — if the bootstrap then failed on the' +
-    // next attempt too, SB would boot expecting encrypted IDB it could not' +
-    // read. Set the flag only after the post-handoff success branch.' +
-    'var el = document.getElementById("status");' +
     'function step(msg) { if (el) el.textContent = msg; console.log("vault-hop:", msg); }' +
     'if (!navigator.serviceWorker) { fail("browser does not support service workers"); return; }' +
     'try {' +
