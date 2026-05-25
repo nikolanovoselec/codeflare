@@ -13,7 +13,7 @@ GitHub Actions workflows, test suites, E2E infrastructure, and deployment pipeli
 
 ## CI/CD (GitHub Actions)
 
-Nine workflows covering deploy, testing, fuzzing, penetration testing, stress testing, and supply chain security. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
+Ten workflows covering deploy, testing, fuzzing, penetration testing, stress testing, supply chain security, and dependency pin maintenance. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
 
 ### Dependabot Configuration
 
@@ -32,6 +32,7 @@ Dependabot runs weekly against the `develop` branch for three npm package direct
 | `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
 | `stress-test.yml` | `workflow_dispatch` | k6 stress tests (API throughput, session lifecycle, storage operations, WebSocket concurrency) against integration worker. Configurable concurrency via `STRESS_TEST_CONCURRENCY` variable. |
 | `deploy-dockerhub.yml` | `workflow_dispatch` (production/integration) | Fallback deploy pipeline identical to `deploy.yml` but pushes the container image to Docker Hub instead of `registry.cloudflare.com`. Used when the Cloudflare managed registry drops connections mid-upload. Requires `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets. |
+| `bump-shadow-pins.yml` | Weekly (Monday 06:00 UTC) + `workflow_dispatch` | Watches packages pinned outside `package.json` (Dependabot blind spot) and opens a PR per version bump. Currently tracking `context-mode` plugin. |
 
 ### GitHub Environments
 
