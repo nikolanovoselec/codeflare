@@ -1324,18 +1324,18 @@ None.
 1. Before dispatching semantic-extraction subagents in a `/graphify` build (Step B2 of the upstream protocol), the agent presents an `AskUserQuestion` with exactly two modes: AST-only (free, structural edges only) and Full (AST plus parallel semantic-extraction subagents processing docs/papers/images).
 2. The mode question includes both the actual subagent count and a wall-time estimate.
 3. The question is skipped only when the corpus contains zero docs/papers/images (code-only repos go straight to Part C with nothing for Part B to do).
-4. In advanced session mode only, Part B semantic subagents are dispatched with `model: "sonnet"` for reliable structured-output schema compliance (haiku produced 57% malformed nodes on the codeflare corpus).
+4. In advanced session mode only, Part B semantic subagents use a model capable of reliable structured-output schema compliance so that the resulting graph nodes are well-formed.
 5. Opus is never used from this skill.
 
 **Constraints:**
 
-None.
+- Sonnet is used for Part B subagents (haiku produced 57% malformed nodes on the codeflare corpus; see SKILL.md Note 9 for rationale).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** [Automated test](../../host/__tests__/skill-graphify-content.test.js) (AC4-AC5 verified; AC1-AC3 pending)
+**Verification:** [Automated test](../../host/__tests__/skill-graphify-content.test.js)
 
 **Status:** Partial
 
