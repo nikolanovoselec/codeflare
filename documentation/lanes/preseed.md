@@ -185,7 +185,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`)
 
-**Manifest structure (113 total entries)**:
+**Manifest structure (120 total entries)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -198,7 +198,7 @@ All preseed content is deployed via the manifest pipeline:
   (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, review, sdd
   (advanced only)
-- `skills/` (44): cloudflare-stack, github-cloudflare-ship (+2
+- `skills/` (46): cloudflare-stack, github-cloudflare-ship (+2
   refs), ci-monitoring, pr-workflow, deploy-credentials (the five
   default+advanced skills), consult-llm, api-design,
   backend-patterns, content-hash-cache-pattern, database-migrations,
@@ -209,7 +209,7 @@ All preseed content is deployed via the manifest pipeline:
   spec-enforce-ac, spec-enforce-truth, doc-enforce, doc-enforce-lanes,
   doc-enforce-shape, doc-enforce-truth, tdd-enforce,
   git-review-pipeline, graphify
-- `plugins/` (26): known_marketplaces.json (default+advanced),
+- `plugins/` (31): known_marketplaces.json (default+advanced),
   codeflare-memory plugin (5 files, advanced only: plugin.json,
   memory-capture.sh, memory-agent-prompt.md, prefilter-transcript.sh,
   memory-context-inject.sh),
