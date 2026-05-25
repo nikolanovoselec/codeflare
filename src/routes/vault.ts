@@ -412,10 +412,10 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'if (sw.state !== "activated") {' +
     'step("Waiting for activation (state: " + sw.state + ")...");' +
     'await new Promise(function (resolve, reject) {' +
-    'var timer = setTimeout(function () { reject(new Error("activation timed out after 10 s (state: " + sw.state + ")")); }, ' + VAULT_SW_ACTIVATION_TIMEOUT_MS + ');' +
+    'var timer = setTimeout(function () { sw.removeEventListener("statechange", check); reject(new Error("activation timed out after " + (' + VAULT_SW_ACTIVATION_TIMEOUT_MS + ' / 1000) + " s (state: " + sw.state + ")")); }, ' + VAULT_SW_ACTIVATION_TIMEOUT_MS + ');' +
     'function check() {' +
-    'if (sw.state === "activated") { clearTimeout(timer); resolve(); return; }' +
-    'if (sw.state === "redundant") { clearTimeout(timer); reject(new Error("service worker became redundant")); return; }' +
+    'if (sw.state === "activated") { clearTimeout(timer); sw.removeEventListener("statechange", check); resolve(); return; }' +
+    'if (sw.state === "redundant") { clearTimeout(timer); sw.removeEventListener("statechange", check); reject(new Error("service worker became redundant")); return; }' +
     '}' +
     'sw.addEventListener("statechange", check);' +
     'check();' +

@@ -701,6 +701,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       expect(out).not.toContain('navigator.serviceWorker.ready');
       expect(out).toContain('activation timed out');
       expect(out).toContain(String(VAULT_SW_ACTIVATION_TIMEOUT_MS));
+      expect(out).toContain('removeEventListener("statechange"');
     });
 
     it('detects redundant SW state as an explicit error', () => {
