@@ -175,6 +175,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       'memory-agent-prompt.md',
       'memory-capture-block.sh',
       'memory-capture.sh',
+      'memory-context-inject.sh',
       'plugin.json',
       'prefilter-transcript.sh',
     ]);
