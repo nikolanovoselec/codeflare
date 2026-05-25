@@ -52,6 +52,13 @@ jobs:
           path: web-ui/node_modules
           key: webui-${{ hashFiles('web-ui/package-lock.json') }}
 
+      - name: Cache host node_modules
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        id: cache-host
+        with:
+          path: host/node_modules
+          key: host-${{ hashFiles('host/package-lock.json') }}
+
       - name: Install root dependencies
         if: steps.cache-root.outputs.cache-hit != 'true'
         run: npm ci
@@ -95,6 +102,15 @@ jobs:
         # log on every test file (LogLevel.VERBOSE, no config to silence). Filter the spam
         # so the CI test output stays readable. set -o pipefail keeps the exit code from npm.
         run: set -o pipefail && npm test 2>&1 | grep -v -F '[vpw:info] Starting runtime for'
+
+      - name: Install host dependencies
+        if: steps.cache-host.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: host
+
+      - name: Build host (TypeScript)
+        run: npm run build
+        working-directory: host
 
       - name: Run host hook tests (node:test)
         run: node --test --test-timeout=30000 host/__tests__/*.test.js

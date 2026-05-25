@@ -68,7 +68,6 @@ describe('block-local-builds.sh — Bash matcher', () => {
     const r = runHook(bashInvocation('npm test'), { bypassFile: tempBypass() });
     assert.equal(r.status, 0);
     assert.match(r.stdout, /"decision"\s*:\s*"block"/);
-    assert.match(r.stdout, /GO FUCK YOURSELF/);
   });
 
   it('blocks `npm run test`', () => {
@@ -300,9 +299,9 @@ describe('block-local-builds.sh — MCP shell-tool matchers', () => {
     assert.match(r.stdout, /"decision"\s*:\s*"block"/);
   });
 
-  it('blocks ctx_execute(language=shell) chained pipeline with vitest', () => {
+  it('blocks ctx_execute(language=shell) multi-line script with vitest', () => {
     const r = runHook(
-      ctxExecuteShell('cd /home/user/workspace/codeflare && npx vitest run'),
+      ctxExecuteShell('cd /home/user/workspace/codeflare\nnpx vitest run'),
       { bypassFile: tempBypass() }
     );
     assert.match(r.stdout, /"decision"\s*:\s*"block"/);

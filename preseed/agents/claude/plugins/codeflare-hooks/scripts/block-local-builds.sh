@@ -47,7 +47,7 @@ case "$TOOL_NAME" in
   mcp__context-mode__ctx_batch_execute)
     # Each entry has its own .command; concatenate so a single batch
     # cannot smuggle a build by hiding it among other commands.
-    CMD=$(echo "$INPUT" | jq -r '.tool_input.commands[]?.command // empty' 2>/dev/null | tr '\n' ';')
+    CMD=$(echo "$INPUT" | jq -r '.tool_input.commands[]?.command // empty' 2>/dev/null)
     ;;
   *)
     exit 0

