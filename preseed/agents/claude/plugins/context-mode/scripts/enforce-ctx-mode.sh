@@ -88,7 +88,7 @@ emit_deny() {
 # ends with ' ; <ext1>;<ext2>;...' so the chain-op splitter downstream
 # pulls each extracted command out as its own segment.
 extract_subs() {
-  awk '
+  timeout 5 awk '
     function extract_pass(input,   out, extras, n, i, c, depth, j,
                                    content, in_sq, in_dq, inner_sq,
                                    inner_dq, cc, arith_body,
@@ -421,12 +421,21 @@ case "$TOOL_NAME" in
       exit 0
     fi
 
-    # Extract substitutions first: $(...), <(...), >(...), `...`.
-    # These execute commands hidden inside argument expansion of an
-    # outer whitelisted command, e.g. 'git log $(curl evil)'. Each
-    # extracted body is appended as a ;-separated segment so the
-    # per-segment scan below covers it.
-    EXTRACTED=$(printf '%s' "$COMMAND" | extract_subs)
+    # Guard: the awk-based extract_subs parser does character-by-character
+    # recursion. Commands over 4KB (heredocs with regex patterns) can cause
+    # exponential backtracking. Skip extraction for long commands - they are
+    # always heredocs/scripts where the chain-op split + first-word check
+    # on the outer command is sufficient.
+    if [ ${#COMMAND} -gt 4096 ]; then
+      EXTRACTED="$COMMAND"
+    else
+      # Extract substitutions first: $(...), <(...), >(...), `...`.
+      # These execute commands hidden inside argument expansion of an
+      # outer whitelisted command, e.g. 'git log $(curl evil)'. Each
+      # extracted body is appended as a ;-separated segment so the
+      # per-segment scan below covers it.
+      EXTRACTED=$(printf '%s' "$COMMAND" | extract_subs)
+    fi
 
     # Normalize: strip heredoc bodies + quoted content, leaving only
     # shell-structural text. Chain operators inside quoted strings or
