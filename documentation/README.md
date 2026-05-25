@@ -31,7 +31,7 @@ The specification (`sdd/`) defines what the system should do. This documentation
 | [Architecture](lanes/architecture.md) | System overview, components, data flow, design rationale | Developers |
 | [Architecture Internals](lanes/architecture-internals.md) | Backend library reference, code structure, CF-NNN index | Developers |
 | [API Reference](lanes/api-reference.md) | All API endpoints, request/response formats | Developers |
-| [Authentication & Billing](lanes/authentication.md) | Dual auth (CF Access + OIDC), SaaS mode, three-tier middleware | Operators, Developers |
+| [Authentication & Billing](lanes/authentication.md) | Dual auth (CF Access + OIDC), SaaS mode, three-tier middleware | Operators, Developers, Security |
 | [Billing & Subscription](lanes/billing.md) | Stripe integration, subscription tiers, Timekeeper, paygate | Operators, Developers |
 | [User Provisioning](lanes/user-provisioning.md) | JIT provisioning, subscribe page, session mode authorization | Operators, Developers |
 | [Security](lanes/security.md) | Security model, encryption, rate limiting, hardening | Operators, Security |

@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-05-25
 
-- REQ-VAULT-008 AC5: bootstrap-hop redirect gated to GET only so HEAD readiness probes fall through to SB. Resilience contracts added: navigator.serviceWorker guard, 10-second activation timeout replacing indefinite navigator.serviceWorker.ready, "redundant" SW state detection, fail-loud abort. Inline JS // comments removed (they broke the single-line script).
+- REQ-VAULT-008 AC5: bootstrap-hop redirect gated to GET only so HEAD readiness probes fall through to SB. Resilience contracts added: navigator.serviceWorker guard, 10-second activation timeout replacing indefinite navigator.serviceWorker.ready, "redundant" SW state detection, fail-loud abort.
 - REQ-VAULT-013 AC6/AC7: removed Cookie-header gate from the SW registration short-circuit selector (Samsung Internet compatibility). The service-worker: script forbidden header is the sole selector. Intent and Constraints updated to browser-agnostic language.
 - REQ-AGENT-043 AC4: graphify semantic-extraction subagents switched from haiku to sonnet for schema compliance (57% malformed node rate on codeflare corpus). AC5 simplified to Opus-never only. REQ-AGENT-043 demoted to Partial (AC1-AC3 lack automated test coverage).
 

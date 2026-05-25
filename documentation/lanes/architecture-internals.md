@@ -11,7 +11,7 @@ See [Architecture](architecture.md) for system overview, components, data flow, 
 - [Backend Libraries](#backend-libraries)
 - [Code Structure (Pre-Launch Refactoring)](#code-structure-pre-launch-refactoring)
 - [Appendix: CF-NNN Code Index](#appendix-cf-nnn-code-index)
-- [Frontend Components](#frontend-components)
+- [SaaS UI Components](#saas-ui-components)
 
 ---
 
@@ -105,9 +105,9 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 ---
 
-## Frontend Components
+## SaaS UI Components
 
-SolidJS components that implement the SaaS authentication and subscription UI. These components handle login, tier selection, onboarding, and admin user management.
+SolidJS components for the SaaS auth and subscription flow (`web-ui/src/`). These components handle login, tier selection, onboarding, and admin user management.
 
 ### LoginPage (`web-ui/src/components/LoginPage.tsx`)
 
