@@ -397,7 +397,7 @@ See [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-
 
 ## Graphify
 
-### Hard-block PreToolUse hook (REQ-AGENT-024)
+### Hard-block PreToolUse hook ([REQ-AGENT-042](../../sdd/spec/agents.md#req-agent-042-graphify-hard-block-enforcement))
 
 In advanced session mode, `enforce-graphify.sh` is a second PreToolUse hook on the graphify plugin that complements the existing `graph-first-nudge.sh` soft nudge. The soft nudge fires on every grep-class call with an `additionalContext` reminder; the hard-block fires only after the pattern persists.
 
