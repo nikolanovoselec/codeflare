@@ -1,7 +1,7 @@
 // Verifies REQ-MEM-013: Proactive memory injection on first prompt.
 //   AC1: extracts keywords from prompt, queries unified graph for matches
-//   AC2: injects matched nodes as additionalContext (budget cap not asserted - @test omits AC2)
-//   AC3: fires exactly once per session (sentinel file gate)
+//   AC2: matched nodes capped at 10 (budget cap)
+//   AC3: fires at most once per session (sentinel file gate)
 //   AC4: skips prompts shorter than 20 characters
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
@@ -83,7 +83,31 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     assert.ok(ctx.includes('Prior context matching your query'), 'must include header');
   });
 
-  it('AC3: fires exactly once per session (sentinel directory prevents re-fire)', () => {
+  it('AC2: injects at most 10 nodes even when more match', () => {
+    const counterDir = mkdtempSync(join(baseTmp, 'ac2-counter-'));
+    const homeDir = mkdtempSync(join(baseTmp, 'ac2-home-'));
+    const graphDir = join(homeDir, '.graphify');
+    const nodes = [];
+    for (let i = 1; i <= 15; i++) {
+      nodes.push({ id: String(i), label: `VaultHandler${i}`, source: `src/vault${i}.ts`, description: `Vault handler number ${i}` });
+    }
+    makeGraph(graphDir, nodes);
+
+    const { json, status } = runHook({
+      counterDir,
+      home: homeDir,
+      prompt: 'check all vault handler implementations and their dependencies',
+    });
+
+    assert.equal(status, 0);
+    assert.ok(json, 'must emit JSON');
+    const ctx = json.hookSpecificOutput.additionalContext;
+    const matches = ctx.match(/VaultHandler\d+/g) || [];
+    assert.ok(matches.length <= 10, `budget cap: expected at most 10 matched nodes, got ${matches.length}`);
+    assert.ok(matches.length >= 1, 'at least one node must match');
+  });
+
+  it('AC3: fires at most once per session (sentinel directory prevents re-fire)', () => {
     const counterDir = mkdtempSync(join(baseTmp, 'ac3-counter-'));
     const homeDir = mkdtempSync(join(baseTmp, 'ac3-home-'));
     const graphDir = join(homeDir, '.graphify');

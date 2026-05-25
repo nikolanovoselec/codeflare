@@ -159,7 +159,7 @@ export const VAULT_KEY_SHIM_SERVICE_WORKER_JS =
   '  }\n' +
   '  if (msg.type === "get-encryption-key") {\n' +
   '    if (encryptionKey === undefined) {\n' +
-  '      recoverKey().then(() => event.source.postMessage({ type: "encryption-key", key: encryptionKey }));\n' +
+  '      recoverKey().then(() => event.source.postMessage({ type: "encryption-key", key: encryptionKey !== undefined ? encryptionKey : null }));\n' +
   '      return;\n' +
   '    }\n' +
   '    event.source.postMessage({ type: "encryption-key", key: encryptionKey });\n' +

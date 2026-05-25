@@ -194,6 +194,7 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
 
   // Activity endpoint for smart hibernation (WS connection-based)
   if (pathname === '/activity' && method === 'GET') {
+    activityTracker.recordHeartbeat();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(activityTracker.getActivityInfo(sessionManager)));
     return;
