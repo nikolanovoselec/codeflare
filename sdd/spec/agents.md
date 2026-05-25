@@ -1326,6 +1326,7 @@ None.
 3. The question is skipped only when the corpus contains zero docs/papers/images (code-only repos go straight to Part C with nothing for Part B to do).
 4. In advanced session mode only, Part B semantic subagents use a model capable of reliable structured-output schema compliance so that the resulting graph nodes are well-formed.
 5. Opus is never used from this skill.
+6. The Part C merge step preserves all data structures produced by Part B subagents - including hyperedges - in the merged output; no field present in the semantic extraction result is silently dropped.
 
 **Constraints:**
 
@@ -1339,7 +1340,7 @@ None.
 
 **Status:** Partial
 
-<!-- coverage-gap: AC1-AC3 (AskUserQuestion two-mode presentation, subagent count + wall-time estimate, code-only skip) are runtime behavioral checks not covered by the static SKILL.md content test. AC4-AC5 are verified. -->
+<!-- coverage-gap: AC1-AC3 (AskUserQuestion two-mode presentation, subagent count + wall-time estimate, code-only skip) are runtime behavioral checks not covered by the static SKILL.md content test. AC4-AC6 are verified by content test (AC6: Part C code block contains 'hyperedges' key). -->
 
 ---
 

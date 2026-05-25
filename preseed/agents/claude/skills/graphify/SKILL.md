@@ -381,7 +381,7 @@ print(f'Merged: {total} nodes, {edges} edges, {len(merged_hyperedges)} hyperedge
 ```bash
 mkdir -p graphify-out
 /root/.local/share/uv/tools/graphifyy/bin/python -c "
-import sys, json
+import json
 from graphify.build import build_from_json
 from graphify.cluster import cluster, score_all
 from graphify.analyze import god_nodes, surprising_connections, suggest_questions
@@ -434,7 +434,7 @@ Then regenerate the report and save the labels for the visualizer:
 
 ```bash
 /root/.local/share/uv/tools/graphifyy/bin/python -c "
-import sys, json
+import json
 from graphify.build import build_from_json
 from graphify.cluster import score_all
 from graphify.analyze import god_nodes, surprising_connections, suggest_questions
@@ -472,7 +472,7 @@ Replace INPUT_PATH with the actual path.
 
 ```bash
 /root/.local/share/uv/tools/graphifyy/bin/python -c "
-import sys, json
+import json
 from graphify.build import build_from_json
 from graphify.export import to_obsidian, to_canvas
 from pathlib import Path
@@ -503,7 +503,7 @@ Also generate the HTML graph (always, unless `--no-viz`):
 
 ```bash
 /root/.local/share/uv/tools/graphifyy/bin/python -c "
-import sys, json
+import json
 from graphify.build import build_from_json
 from graphify.export import to_html
 from pathlib import Path
@@ -623,7 +623,7 @@ Use when you've added or modified files since the last run. Only re-extracts cha
 
 ```bash
 /root/.local/share/uv/tools/graphifyy/bin/python -c "
-import sys, json
+import json
 from graphify.detect import detect_incremental, save_manifest
 from pathlib import Path
 
@@ -662,7 +662,7 @@ Then:
 
 ```bash
 /root/.local/share/uv/tools/graphifyy/bin/python -c "
-import sys, json
+import json
 from graphify.build import build_from_json
 from graphify.export import to_json
 from networkx.readwrite import json_graph
@@ -722,7 +722,7 @@ Skip Steps 1-2. Load the existing graph from `graphify-out/graph.json` and re-ru
 
 ```bash
 /root/.local/share/uv/tools/graphifyy/bin/python -c "
-import sys, json
+import json
 from graphify.cluster import cluster, score_all
 from graphify.analyze import god_nodes, surprising_connections
 from graphify.report import generate
