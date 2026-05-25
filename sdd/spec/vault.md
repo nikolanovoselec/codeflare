@@ -315,7 +315,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-013: SilverBullet subpath adapter
 
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
-<!-- @test: src/__tests__/routes/vault.test.ts (base-href rewrite + service-worker shortcut describe → AC1-AC7) -->
+<!-- @test: src/__tests__/routes/vault.test.ts (isServiceWorkerRegistration / REQ-VAULT-013 (SilverBullet subpath adapter) → AC5-AC7) -->
 
 **Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response and short-circuits Service Worker registration so the browser's SW fetch does not return 401.
 
