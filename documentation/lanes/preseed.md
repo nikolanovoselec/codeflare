@@ -185,7 +185,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`)
 
-**Manifest structure (112 total entries)**:
+**Manifest structure (113 total entries)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -209,9 +209,10 @@ All preseed content is deployed via the manifest pipeline:
   spec-enforce-ac, spec-enforce-truth, doc-enforce, doc-enforce-lanes,
   doc-enforce-shape, doc-enforce-truth, tdd-enforce,
   git-review-pipeline, graphify
-- `plugins/` (25): known_marketplaces.json (default+advanced),
-  codeflare-memory plugin (4 files, advanced only: plugin.json,
-  memory-capture.sh, memory-agent-prompt.md, prefilter-transcript.sh),
+- `plugins/` (26): known_marketplaces.json (default+advanced),
+  codeflare-memory plugin (5 files, advanced only: plugin.json,
+  memory-capture.sh, memory-agent-prompt.md, prefilter-transcript.sh,
+  memory-context-inject.sh),
   codeflare-vault plugin (3 files, advanced only: plugin.json,
   vault-monitor-hook.sh, vault-extract-prompt.md), codeflare-hooks
   plugin (7 files, advanced only: plugin.json,
@@ -343,8 +344,13 @@ in default mode, the plugins simply don't load. Plugins are used for
 file organization and delivery via R2 sync only -- hook registration
 is done via `settings.json` (see above).
 
-- **codeflare-memory**: Scripts for memory capture (hook registered
-  in settings.json, scripts delivered via plugin)
+- **codeflare-memory**: Two UserPromptSubmit hooks registered in
+  settings.json, scripts delivered via plugin.
+  `memory-context-inject.sh` fires on the first prompt of each
+  session: extracts keywords, queries the unified graphify graph,
+  and injects matched nodes as additionalContext before the agent
+  responds ([REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt)).
+  `memory-capture.sh` handles the ongoing 15-prompt capture cadence
 - **codeflare-hooks**: Scripts for commit attribution blocking,
   git-push review reminders, and SDD review-agent sequential
   enforcement - `spec-reviewer` runs first, then `doc-updater`
@@ -534,6 +540,7 @@ The legacy v4 timestamp file `.git/sdd-last-ack-push` (if present from a prior i
 - [REQ-AGENT-044](../../sdd/spec/agents.md#req-agent-044-review-agent-discipline-enforcement) - Review-Agent Discipline Enforcement
 - [REQ-AGENT-047](../../sdd/spec/agents.md#req-agent-047-resume-mode-closure-and-review-pipeline-gate) - Resume Mode closure and review-pipeline gate
 - [REQ-AGENT-048](../../sdd/spec/agents.md#req-agent-048-audit-accumulator-surfaces) - Audit accumulator surfaces
+- [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 
 ---
 

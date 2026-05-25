@@ -1,4 +1,4 @@
-// Verifies REQ-AGENT-023 AC3 + AC4 + AC10, REQ-AGENT-024 AC1/AC7: graphify SessionStart + PostToolUse + PreToolUse
+// Verifies REQ-AGENT-023 AC3 + AC4, REQ-AGENT-024 AC1/AC7: graphify SessionStart + PostToolUse + PreToolUse
 // hooks are merged into settings.json in advanced session mode when the
 // plugin manifest is present, and absent otherwise (mode-gated discipline).
 import { describe, it, before } from 'node:test';
@@ -163,7 +163,7 @@ describe('entrypoint graphify hooks (advanced session mode)', () => {
     );
   });
 
-  it('manifest present + advanced mode: PreToolUse graph-first nudge wired for Grep|Glob and the ctx grep-equivalents (REQ-AGENT-023 AC10)', () => {
+  it('manifest present + advanced mode: PreToolUse graph-first nudge wired for Grep|Glob and the ctx grep-equivalents (REQ-AGENT-024 AC7)', () => {
     const cwd = mkdtempSync(join(baseTmp, 'present-nudge-'));
     const { settings } = buildHarness(cwd, {
       sessionMode: 'advanced', graphifyManifest: true, ctxManifest: false,

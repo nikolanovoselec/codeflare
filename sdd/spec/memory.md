@@ -353,7 +353,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/claude/manifest.json -->
 <!-- @impl: entrypoint.sh -->
 <!-- @test: host/__tests__/memory-context-inject.test.js (memory-context-inject.sh describe -> AC1 keyword match injection, AC3 sentinel once-only, AC4 short prompt skip) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (codeflare-memory plugin files are advanced-only -> AC1 mode-gate) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (codeflare-memory plugin files are advanced-only -> Constraints mode-gate) -->
 <!-- coverage-gap: AC2 - 10-node cap implemented (scored[:10]) but budget assertion not in automated tests -->
 
 **Intent:** The agent receives relevant prior context (vault notes, code concepts, past decisions) automatically on the first user message of each session, without requiring an explicit tool call. Keywords are extracted from the user's prompt and matched against the unified graphify graph; matched nodes are injected as additionalContext in the hook response so the agent sees them before responding.
