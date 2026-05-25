@@ -157,15 +157,15 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 1. The vault-monitor daemon polls the vault on a short fixed cadence, excluding the agent-written capture directory, the derived graph-output directory, the editor's internal config directory, and the four preseed-managed root pages. The four pages are codeflare-authoritative; the per-boot preseed copy must not count as a user edit, otherwise every preseed sync at boot would re-trigger extraction.
 2. The daemon uses a three-marker pattern - a heartbeat marker, a high-water marker, and a trigger marker. The change-detection scan compares against the high-water marker (not the heartbeat) so a daemon that advances the wrong marker cannot lose work.
-3. The hook handler exits immediately when the trigger marker is absent (zero-cost on idle prompts) and emits an additional-context directive instructing the main agent to dispatch the vault-extract subagent when present. The subagent runs at sonnet per AD58 (pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model).
-4. The vault-extract subagent deletes the trigger marker as its first step (dedup gate), runs graph extraction per changed file, merges via the shared global-graph add command, and touches the high-water marker as its final step.
+3. The hook handler exits immediately when the trigger marker is absent (zero-cost on idle prompts) or when an in-flight sentinel exists and is younger than 5 minutes (prevents duplicate agent spawns while extraction is running). When neither exit condition applies, it creates the in-flight sentinel and emits an additional-context directive instructing the main agent to dispatch the vault-extract subagent. The subagent runs at sonnet per AD58 (pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model).
+4. The vault-extract subagent deletes the trigger marker as its first step (dedup gate), runs graph extraction per changed file, merges via the shared global-graph add command, touches the high-water marker, and removes the in-flight sentinel as its final step.
 5. If any of the extract-merge-advance steps fail, the high-water marker is not advanced; the next daemon tick re-discovers the same files.
 6. The vault initializer bumps the high-water marker after rewriting any preseed page so the first post-boot daemon tick does not interpret the preseed copy as a user change. This is belt-and-braces for any future preseed page that misses the daemon-exclusion list.
 
 **Constraints:**
 
 - The polling cadence is intentional; inotify was rejected as overkill for the expected edit rate.
-- The dedup gate prevents the hook from re-spawning the agent on every prompt while extraction is already in flight.
+- The in-flight sentinel (5-minute TTL) prevents the hook from re-spawning the agent on every prompt while extraction is already running. The sentinel is created by the hook on emission and removed by the agent unconditionally at the end of step 7.
 - PDF-specific ingestion behavior is specified in [REQ-VAULT-011](#req-vault-011-vault-extract-ingests-pdf-files).
 
 **Priority:** P0
