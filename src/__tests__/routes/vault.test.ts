@@ -14,6 +14,8 @@ import {
   hasVaultBootstrapCookie,
   filterVaultFsListing,
   inferOriginValidated,
+  rewriteVaultBaseHref,
+  rewriteVaultHtmlResponse,
 } from '../../routes/vault';
 
 /**
@@ -855,6 +857,88 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     it('AC1: case-insensitive method comparison', () => {
       expect(inferOriginValidated(req('put'))).toBe(true);
       expect(inferOriginValidated(req('Post'))).toBe(true);
+    });
+  });
+
+  describe('rewriteVaultBaseHref / rewriteVaultHtmlResponse (REQ-VAULT-013 AC1-AC4)', () => {
+    const SID = 'abc123';
+
+    it('AC1: rewrites bare base-href to session-prefixed path on HTML', () => {
+      const html = '<html><head><base href="/" /></head><body>hi</body></html>';
+      const { rewritten, wasNoOp } = rewriteVaultBaseHref(html, SID);
+      expect(rewritten).toContain(`<base href="/api/vault/${SID}/" />`);
+      expect(rewritten).not.toContain('<base href="/" />');
+      expect(wasNoOp).toBe(false);
+    });
+
+    it('AC1: rewrites case-insensitive and self-closing variants', () => {
+      const variants = [
+        '<BASE HREF="/" />',
+        '<base  href="/"  >',
+        '<Base href="/" >',
+      ];
+      for (const tag of variants) {
+        const { rewritten, wasNoOp } = rewriteVaultBaseHref(`<html>${tag}</html>`, SID);
+        expect(wasNoOp).toBe(false);
+        expect(rewritten).toContain(`/api/vault/${SID}/`);
+      }
+    });
+
+    it('AC2: non-HTML responses pass through unchanged', async () => {
+      const jsBody = 'console.log("hello")';
+      const response = new Response(jsBody, {
+        headers: {
+          'content-type': 'application/javascript',
+          'content-length': String(jsBody.length),
+          'content-encoding': 'gzip',
+        },
+      });
+      const contentType = response.headers.get('content-type') ?? '';
+      expect(contentType.includes('text/html')).toBe(false);
+    });
+
+    it('AC3: drops content-length and content-encoding headers after rewrite', async () => {
+      const html = '<html><head><base href="/" /></head></html>';
+      const upstream = new Response(html, {
+        headers: {
+          'content-type': 'text/html',
+          'content-length': '999',
+          'content-encoding': 'gzip',
+          'x-custom': 'kept',
+        },
+      });
+      const logger = { warn: vi.fn() };
+      const result = await rewriteVaultHtmlResponse(upstream, SID, '/deep/page', '/vault/deep/page', 'text/html', logger);
+      expect(result.headers.get('content-length')).toBeNull();
+      expect(result.headers.get('content-encoding')).toBeNull();
+      expect(result.headers.get('x-custom')).toBe('kept');
+      const body = await result.text();
+      expect(body).toContain(`/api/vault/${SID}/`);
+    });
+
+    it('AC4: logs warning when base-href not found on shell path (no-op rewrite)', async () => {
+      const html = '<html><head><base href="/already-set/" /></head></html>';
+      const upstream = new Response(html, {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+      const logger = { warn: vi.fn() };
+      await rewriteVaultHtmlResponse(upstream, SID, '/', '/vault/', 'text/html', logger);
+      expect(logger.warn).toHaveBeenCalledWith('vault base-href rewrite no-op', expect.objectContaining({
+        pathname: '/vault/',
+        contentType: 'text/html',
+      }));
+    });
+
+    it('AC4: does NOT warn on no-op for non-shell paths (error pages)', async () => {
+      const html = '<html><body>404 not found</body></html>';
+      const upstream = new Response(html, {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+      const logger = { warn: vi.fn() };
+      await rewriteVaultHtmlResponse(upstream, SID, '/some/plugin/page', '/vault/some/plugin/page', 'text/html', logger);
+      expect(logger.warn).not.toHaveBeenCalled();
     });
   });
 

@@ -523,6 +523,54 @@ export function inferOriginValidated(request: Request): boolean {
   return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
 }
 
+export interface RewriteResult {
+  readonly rewritten: string;
+  readonly wasNoOp: boolean;
+}
+
+export function rewriteVaultBaseHref(html: string, sessionId: string): RewriteResult {
+  const prefix = `/api/vault/${sessionId}`;
+  const rewritten = html.replace(
+    /<base\s+href="\/"\s*\/?>/gi,
+    `<base href="${prefix}/" />`,
+  );
+  return { rewritten, wasNoOp: rewritten === html };
+}
+
+export async function rewriteVaultHtmlResponse(
+  response: Response,
+  sessionId: string,
+  remainingPath: string,
+  pathname: string,
+  contentType: string,
+  logger: { warn: (msg: string, meta?: Record<string, unknown>) => void },
+): Promise<Response> {
+  const body = await response.text();
+  const { rewritten: baseRewritten, wasNoOp } = rewriteVaultBaseHref(body, sessionId);
+  let rewritten = baseRewritten;
+
+  const isShellPath = remainingPath === '/' || remainingPath === '/index.html';
+  if (response.status === 200 && isShellPath) {
+    try {
+      rewritten = injectVaultBootScript(rewritten, { sessionId });
+      rewritten = injectVaultIdbRecorder(rewritten);
+    } catch (err) {
+      logger.warn('vault boot-script injection skipped', { error: toErrorMessage(err) });
+    }
+  }
+  if (wasNoOp && response.status === 200 && isShellPath) {
+    logger.warn('vault base-href rewrite no-op', { pathname, contentType });
+  }
+  const headers = new Headers(response.headers);
+  headers.delete('content-length');
+  headers.delete('content-encoding');
+  return new Response(rewritten, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export function validateVaultRoute(request: Request): VaultRouteResult {
   const url = new URL(request.url);
   const match = url.pathname.match(/^\/api\/vault\/([^/]+)(\/.*)$/);
@@ -920,48 +968,7 @@ export async function handleVaultRequest(
     }
 
     if (contentType.includes('text/html')) {
-      const prefix = `/api/vault/${sessionId}`;
-      const body = await response.text();
-      let rewritten = body.replace(
-        /<base\s+href="\/"\s*\/?>/gi,
-        `<base href="${prefix}/" />`,
-      );
-
-      // REQ-VAULT-015 AC3: on the 200 shell paths, inject the boot
-      // script (exposes sessionId on window) and the IDB-name recorder
-      // (records every sb_* IDB SilverBullet opens into localStorage so
-      // dashboard cleanup can delete them). Error pages and non-shell
-      // text/html responses are skipped by the marker idempotency guards
-      // inside the helpers.
-      const isShellPath =
-        remainingPath === '/' || remainingPath === '/index.html';
-      if (response.status === 200 && isShellPath) {
-        try {
-          rewritten = injectVaultBootScript(rewritten, { sessionId });
-          rewritten = injectVaultIdbRecorder(rewritten);
-        } catch (err) {
-          logger.warn('vault boot-script injection skipped', { error: toErrorMessage(err) });
-        }
-      }
-      // Only warn on the shell paths where the rewrite is load-bearing
-      // (`/` and `/index.html`). On any other text/html path - error
-      // pages, 404 HTML, future plug-served HTML - a no-op rewrite is
-      // expected, not a signal. Logging unconditionally fills prod logs
-      // with false positives on every non-shell error response.
-      if (rewritten === body && response.status === 200 && isShellPath) {
-        logger.warn('vault base-href rewrite no-op', {
-          pathname: vaultUrl.pathname,
-          contentType,
-        });
-      }
-      const headers = new Headers(response.headers);
-      headers.delete('content-length');
-      headers.delete('content-encoding');
-      return new Response(rewritten, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-      });
+      return rewriteVaultHtmlResponse(response, sessionId, remainingPath, vaultUrl.pathname, contentType, logger);
     }
     return response;
   } catch (err) {
