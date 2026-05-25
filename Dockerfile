@@ -4,7 +4,7 @@
 # ---- Stage 1: Builder (compile native addons + TypeScript) ----
 # Use AWS ECR Public mirror of Docker Hub to avoid anonymous pull rate limits on CI.
 # Shared GitHub Actions runner IPs routinely hit Docker Hub's 100-pull/6h cap.
-FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb AS builder
+FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
@@ -20,7 +20,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ---- Stage 2: Runtime ----
-FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb
+FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf
 
 # Suppress npm update nag; configure Claude Code for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
@@ -97,16 +97,16 @@ RUN ZOXIDE_VERSION="0.9.9" && \
     rm /tmp/zoxide.tar.gz
 
 # Install yazi and lazygit from GitHub releases (pinned versions)
-RUN YAZI_VERSION="26.1.22" && \
-    YAZI_SHA256="a136269b2d5fbb5fb43f3fac3391446e8fbc72aba1c4bb4fae6e6d1556420750" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-gnu.zip" -o /tmp/yazi.zip && \
+RUN YAZI_VERSION="26.5.6" && \
+    YAZI_SHA256="1031a02560d053301537195a6661d227c15cb4ce5c30481050b31e2b88681bff" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-musl.zip" -o /tmp/yazi.zip && \
     echo "${YAZI_SHA256}  /tmp/yazi.zip" | sha256sum -c - && \
     unzip -o /tmp/yazi.zip -d /tmp/yazi && \
-    mv /tmp/yazi/yazi-x86_64-unknown-linux-gnu/yazi /usr/local/bin/yazi && \
+    mv /tmp/yazi/yazi-x86_64-unknown-linux-musl/yazi /usr/local/bin/yazi && \
     chmod +x /usr/local/bin/yazi && \
     rm -rf /tmp/yazi /tmp/yazi.zip
-RUN LAZYGIT_VERSION="0.60.0" && \
-    LAZYGIT_SHA256="6252ca6cf98bc4fd3e0d927b54225910cfa57b065d0ad88263f14592f7f9ab15" && \
+RUN LAZYGIT_VERSION="0.61.1" && \
+    LAZYGIT_SHA256="1b91e660700f2332696726b635202576b543e2bc49b639830dccd26bc5160d5d" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \
@@ -121,8 +121,8 @@ RUN LAZYGIT_VERSION="0.60.0" && \
 #
 # SilverBullet 2.x ships TWO binaries per release: `sb-...` (CLI client) and
 # `silverbullet-server-...` (the actual server). We want the server.
-RUN SILVERBULLET_VERSION="2.8.0" && \
-    SILVERBULLET_SHA256="1781aa1c083ae06eeab3f5b5066304c5d5afa279a8ae1895a8e769e27f8d4125" && \
+RUN SILVERBULLET_VERSION="2.8.1" && \
+    SILVERBULLET_SHA256="568416820a34f889b7acbe77ab00832c115017a6d513f6df4418428436981ed6" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/silverbulletmd/silverbullet/releases/download/${SILVERBULLET_VERSION}/silverbullet-server-linux-x86_64.zip" -o /tmp/silverbullet.zip && \
     echo "${SILVERBULLET_SHA256}  /tmp/silverbullet.zip" | sha256sum -c - && \
     unzip -o /tmp/silverbullet.zip -d /tmp/silverbullet && \
@@ -184,7 +184,7 @@ RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@la
 # runtime and substitutes it for Node in the JS/TS subprocess path, so a
 # breaking Bun release silently regresses ctx_execute for every user. Bump
 # this version deliberately after smoke-testing a new release.
-RUN npm install -g bun@1.3.13 && \
+RUN npm install -g bun@1.3.14 && \
     bun --version && \
     npm cache clean --force && rm -rf /root/.npm
 
