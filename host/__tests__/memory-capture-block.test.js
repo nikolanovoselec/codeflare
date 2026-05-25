@@ -138,9 +138,10 @@ describe('memory-capture-block.sh - hard block / REQ-MEM-012 AC3', () => {
 describe('memory-capture-block.sh - subagent allowlist / REQ-MEM-012 AC4', () => {
   it('exits 0 when tool is Task with subagent_type=memory-capture', () => {
     const fx = makeFixture();
-    writeVars(fx, 'sess-blocked');
+    const sid = `sess-allow-mc-${Date.now()}`;
+    writeVars(fx, sid);
     const r = runHook(fx, {
-      session_id: 'sess-blocked',
+      session_id: sid,
       tool_name: 'Task',
       tool_input: { subagent_type: 'memory-capture', prompt: 'drain' },
     });
