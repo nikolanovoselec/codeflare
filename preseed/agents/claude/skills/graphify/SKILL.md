@@ -21,7 +21,7 @@ Re-extracts code structure only. Use after source code changes. Memory-safe (OOM
 ### Recipe 2: Full semantic update (existing repo)
 1. Detect files (Step 1 below)
 2. Check semantic cache (Step B0) - note cached vs uncached counts
-3. Present AskUserQuestion: AST-only vs Full (Note 8). Include subagent count: `ceil(uncached_non_code_files / 22) + image_count`
+3. Present AskUserQuestion: AST-only vs Full (Note 8). Include subagent count: `ceil(uncached_doc_paper_files / 22) + uncached_image_count` (images get own chunk)
 4. If Full chosen: start AST (Part A) in background, dispatch first semantic wave in parallel
 5. Split uncached non-code files into chunks of 22 (images get own chunk)
 6. Dispatch waves of at most 10 Sonnet subagents (Note 9: `model: "sonnet"`). All agents in one wave go in a SINGLE message. Wait for wave completion before next wave.
@@ -92,7 +92,7 @@ Reruns community detection on existing `graph.json`. No extraction, no tokens.
 
 8. **Mandatory build-mode choice before any extraction.** Before dispatching Part B subagents (Step B2 of the upstream protocol), ALWAYS present the user with an `AskUserQuestion` offering exactly two modes:
    - **AST-only** - free, no token cost; code structure + call/import/contains edges only; no semantic concepts from docs / papers / images.
-   - **Full (AST + semantic)** - AST plus N parallel Sonnet subagents extracting concepts from docs / papers / images. Include the actual subagent count (`ceil(uncached_non_code_files / 22) + image_count`) and a wall-time estimate (~45s per parallel batch).
+   - **Full (AST + semantic)** - AST plus N parallel Sonnet subagents extracting concepts from docs / papers / images. Include the actual subagent count (`ceil(uncached_doc_paper_files / 22) + uncached_image_count`) and a wall-time estimate (~45s per parallel batch).
 
    Choose by intent, not size. **AST-only** when testing the pipeline, exploring for a one-off question, or cost-capping. **Full** when this is a long-term project and the user wants semantic concepts from docs/images in MCP queries.
 
@@ -133,9 +133,9 @@ Replace INPUT_PATH with the actual path the user provided. Do NOT cat or print t
 ```
 Corpus: X files ~ ~Y words
  code: N files (.py .ts .go ...)
- docs: N files (.md .txt ...)
- papers: N files (.pdf ...)
- images: N files
+ document: N files (.md .txt ...)
+ paper: N files (.pdf ...)
+ image: N files
 ```
 
 Then act on it:
@@ -182,13 +182,13 @@ else:
 
 #### Part B - Semantic extraction (parallel subagents)
 
-**Fast path:** If detection found zero docs, papers, and images (code-only corpus), skip Part B entirely and go straight to Part C. AST handles code - there is nothing for semantic subagents to do.
+**Fast path:** If detection found zero `document`, `paper`, and `image` files (code-only corpus), skip Part B entirely and go straight to Part C. AST handles code - there is nothing for semantic subagents to do.
 
 **MANDATORY: You MUST use the Agent tool here. Reading files yourself one-by-one is forbidden - it is 5-10x slower. If you do not use the Agent tool you are doing this wrong.**
 
 Before dispatching subagents, print a timing estimate:
 - Load `total_words` and file counts from `.graphify_detect.json`
-- Estimate agents needed: `ceil(uncached_non_code_files / 22)` (chunk size is 20-25)
+- Estimate agents needed: `ceil(uncached_doc_paper_files / 22) + uncached_image_count` (chunk size 20-25 for text; each image gets its own chunk)
 - Read the parallelism cap: `parallel_limit = int(os.environ.get('GRAPHIFY_SEMANTIC_MAX_PARALLEL', '10'))`. Step B2 dispatches subagents in waves of at most this many at a time (see Step B2 for the why)
 - Estimate time: ~45s per wave (each wave runs in parallel, so total is approximately 45s * ceil(agents/parallel_limit))
 - Print: "Semantic extraction: ~N files -> X agents in W waves of up to parallel_limit, estimated ~Ys"
@@ -204,14 +204,14 @@ from graphify.cache import check_semantic_cache
 from pathlib import Path
 
 detect = json.loads(Path('.graphify_detect.json').read_text())
-all_files = [f for files in detect['files'].values() for f in files]
+non_code = [f for cat in ['document', 'paper', 'image'] for f in detect['files'].get(cat, [])]
 
-cached_nodes, cached_edges, uncached = check_semantic_cache(all_files)
+cached_nodes, cached_edges, cached_hyperedges, uncached = check_semantic_cache(non_code)
 
-if cached_nodes or cached_edges:
- Path('.graphify_cached.json').write_text(json.dumps({'nodes': cached_nodes, 'edges': cached_edges}))
+if cached_nodes or cached_edges or cached_hyperedges:
+ Path('.graphify_cached.json').write_text(json.dumps({'nodes': cached_nodes, 'edges': cached_edges, 'hyperedges': cached_hyperedges}))
 Path('.graphify_uncached.txt').write_text('\n'.join(uncached))
-print(f'Cache: {len(all_files)-len(uncached)} files hit, {len(uncached)} files need extraction')
+print(f'Cache: {len(non_code)-len(uncached)} files hit, {len(uncached)} files need extraction')
 "
 ```
 
@@ -304,8 +304,8 @@ import json
 from graphify.cache import save_semantic_cache
 from pathlib import Path
 
-new = json.loads(Path('.graphify_semantic_new.json').read_text()) if Path('.graphify_semantic_new.json').exists() else {'nodes':[],'edges':[]}
-saved = save_semantic_cache(new.get('nodes', []), new.get('edges', []))
+new = json.loads(Path('.graphify_semantic_new.json').read_text()) if Path('.graphify_semantic_new.json').exists() else {'nodes':[],'edges':[],'hyperedges':[]}
+saved = save_semantic_cache(new.get('nodes', []), new.get('edges', []), new.get('hyperedges', []))
 print(f'Cached {saved} files')
 "
 ```
@@ -316,11 +316,12 @@ Merge cached + new results into `.graphify_semantic.json`:
 import json
 from pathlib import Path
 
-cached = json.loads(Path('.graphify_cached.json').read_text()) if Path('.graphify_cached.json').exists() else {'nodes':[],'edges':[]}
-new = json.loads(Path('.graphify_semantic_new.json').read_text()) if Path('.graphify_semantic_new.json').exists() else {'nodes':[],'edges':[]}
+cached = json.loads(Path('.graphify_cached.json').read_text()) if Path('.graphify_cached.json').exists() else {'nodes':[],'edges':[],'hyperedges':[]}
+new = json.loads(Path('.graphify_semantic_new.json').read_text()) if Path('.graphify_semantic_new.json').exists() else {'nodes':[],'edges':[],'hyperedges':[]}
 
 all_nodes = cached['nodes'] + new.get('nodes', [])
 all_edges = cached['edges'] + new.get('edges', [])
+all_hyperedges = cached.get('hyperedges', []) + new.get('hyperedges', [])
 seen = set()
 deduped = []
 for n in all_nodes:
@@ -331,11 +332,12 @@ for n in all_nodes:
 merged = {
  'nodes': deduped,
  'edges': all_edges,
+ 'hyperedges': all_hyperedges,
  'input_tokens': new.get('input_tokens', 0),
  'output_tokens': new.get('output_tokens', 0),
 }
 Path('.graphify_semantic.json').write_text(json.dumps(merged, indent=2))
-print(f'Extraction complete - {len(deduped)} nodes, {len(all_edges)} edges ({len(cached[\"nodes\"])} from cache, {len(new.get(\"nodes\",[]))} new)')
+print(f'Extraction complete - {len(deduped)} nodes, {len(all_edges)} edges, {len(all_hyperedges)} hyperedges ({len(cached[\"nodes\"])} from cache, {len(new.get(\"nodes\",[]))} new)')
 "
 ```
 Clean up temp files: `rm -f .graphify_cached.json .graphify_uncached.txt .graphify_semantic_new.json`
