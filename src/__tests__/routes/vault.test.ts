@@ -884,17 +884,11 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       }
     });
 
-    it('AC2: non-HTML responses pass through unchanged', async () => {
-      const jsBody = 'console.log("hello")';
-      const response = new Response(jsBody, {
-        headers: {
-          'content-type': 'application/javascript',
-          'content-length': String(jsBody.length),
-          'content-encoding': 'gzip',
-        },
-      });
-      const contentType = response.headers.get('content-type') ?? '';
-      expect(contentType.includes('text/html')).toBe(false);
+    it('AC2: non-HTML content passes through rewriteVaultBaseHref unchanged', () => {
+      const jsBody = 'console.log("hello"); var x = "</base>";';
+      const { rewritten, wasNoOp } = rewriteVaultBaseHref(jsBody, SID);
+      expect(rewritten).toBe(jsBody);
+      expect(wasNoOp).toBe(true);
     });
 
     it('AC3: drops content-length and content-encoding headers after rewrite', async () => {
