@@ -4,7 +4,6 @@
  * Extracted from Container DO (index.ts) to reduce file size.
  * All functions receive explicit state/context parameters instead of `this`.
  */
-import type { DurableObjectState } from '@cloudflare/workers-types';
 import type { Env, Session } from '../types';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { toError } from '../lib/error-types';

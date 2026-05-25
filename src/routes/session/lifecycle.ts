@@ -4,7 +4,6 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { DurableObjectStub } from '@cloudflare/workers-types';
 import type { Env, Session } from '../../types';
 import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString, putSessionWithMetadata, expandSessionMetadata, type SessionListMetadata } from '../../lib/kv-keys';
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';

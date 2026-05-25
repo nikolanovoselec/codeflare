@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getContainerId, getSessionIdFromQuery } from '../../lib/container-helpers';
 import type { HealthData } from '../../lib/container-helpers';
 import { ValidationError } from '../../lib/error-types';
-import type { DurableObjectStub } from '@cloudflare/workers-types';
+
 
 /**
  * Test-local health check options and polling helpers.
