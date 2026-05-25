@@ -83,7 +83,7 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     assert.ok(ctx.includes('Prior context matching your query'), 'must include header');
   });
 
-  it('AC3: fires exactly once per session (sentinel file prevents re-fire)', () => {
+  it('AC3: fires exactly once per session (sentinel directory prevents re-fire)', () => {
     const counterDir = mkdtempSync(join(baseTmp, 'ac3-counter-'));
     const homeDir = mkdtempSync(join(baseTmp, 'ac3-home-'));
     const graphDir = join(homeDir, '.graphify');
@@ -100,7 +100,7 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     assert.ok(run1.json, 'first run must emit context');
 
     const sentinel = join(counterDir, 'once-test.inject-lock');
-    assert.ok(existsSync(sentinel), 'sentinel file must exist after first run');
+    assert.ok(existsSync(sentinel), 'sentinel directory must exist after first run');
 
     const run2 = runHook({
       counterDir,

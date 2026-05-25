@@ -28,20 +28,15 @@ case "$SESSION_ID" in
 esac
 [[ "$SESSION_ID" =~ ^[a-zA-Z0-9_-]+$ ]] || exit 0
 
-# Only fire once per session. Uses its own sentinel (not memory-capture's
-# counter file) so the two hooks are self-contained with no ordering dependency.
-# mkdir is atomic on POSIX - it either creates (we won the race) or fails
-# (another invocation already claimed it). This closes the TOCTOU gap where
-# concurrent hooks could all see "no sentinel" between check and touch.
+# Check sentinel EXISTENCE first (fast path for 2nd+ prompts).
 INJECT_SENTINEL="$COUNTER_DIR/${SESSION_ID}.inject-lock"
-mkdir "$INJECT_SENTINEL" 2>/dev/null || exit 0
+[ -d "$INJECT_SENTINEL" ] && exit 0
 
-# Extract the user's prompt text from the hook envelope.
-# Claude Code passes it as .prompt (string) in UserPromptSubmit hooks.
+# Extract and validate prompt BEFORE claiming the sentinel.
+# This ensures short/empty prompts don't permanently disable injection.
 PROMPT_TEXT=$(echo "$INPUT" | jq -r '.prompt // empty' 2>/dev/null) || true
 [ -z "$PROMPT_TEXT" ] && exit 0
 
-# Skip very short prompts (greetings, "hi", "continue") - not enough signal.
 PROMPT_LEN=${#PROMPT_TEXT}
 [ "$PROMPT_LEN" -lt 20 ] && exit 0
 
@@ -65,9 +60,16 @@ if [ ! -f "$GLOBAL_GRAPH" ]; then
   # Fall back to per-repo graph in cwd.
   CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
   [ -z "$CWD" ] && CWD=$(pwd 2>/dev/null)
+  case "$CWD" in *..* ) exit 0 ;; esac
   GLOBAL_GRAPH="$CWD/graphify-out/graph.json"
   [ ! -f "$GLOBAL_GRAPH" ] && exit 0
 fi
+
+# Claim the sentinel atomically AFTER all cheap checks pass. mkdir is
+# POSIX-atomic: it either creates (we won) or fails (concurrent claim).
+# Placed here so short prompts, empty keywords, and missing graphs
+# don't permanently disable injection for the session.
+mkdir "$INJECT_SENTINEL" 2>/dev/null || exit 0
 
 # Query the graph with extracted keywords.
 # Use Python directly against the graph JSON - avoids MCP round-trip
