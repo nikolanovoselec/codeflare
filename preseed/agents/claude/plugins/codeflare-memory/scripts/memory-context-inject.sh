@@ -15,6 +15,7 @@ set +e
 
 USER_HOME="${HOME:-/home/user}"
 COUNTER_DIR="${MEMCAP_COUNTER_DIR:-/tmp/.memory-counter}"
+mkdir -p "$COUNTER_DIR" 2>/dev/null || true
 
 INPUT=$(cat 2>/dev/null) || true
 

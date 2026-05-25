@@ -1242,7 +1242,7 @@ None.
 <!-- @impl: preseed/agents/claude/rules/graph-first.md -->
 <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md -->
 <!-- @test: host/__tests__/entrypoint-graphify-hooks.test.js (entrypoint hook installation → AC1/AC7) -->
-<!-- @test: host/__tests__/graphify-session-start.test.js (SessionStart graph-context injection → AC1) -->
+<!-- @test: host/__tests__/graphify-session-start.test.js (SessionStart three-tier fallback: god-nodes, GRAPH_REPORT preamble, build-suggestion → AC1) -->
 <!-- @test: host/__tests__/graph-first-nudge.test.js (PreToolUse soft-nudge matcher set → AC7) -->
 <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (rule + SKILL preseeded in advanced only → AC2/AC3) -->
 <!-- @test: host/__tests__/skill-graphify-content.test.js (SKILL contents → AC4/AC5/AC6) -->

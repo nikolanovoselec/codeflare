@@ -1,8 +1,9 @@
-// Verifies REQ-AGENT-023 AC3: SessionStart hook injects appropriate
-// context for three cwd shapes:
-//   1. graphify-out/graph.json + GRAPH_REPORT.md present -> graph reminder
-//   2. code repo without a graph -> build-suggestion reminder
-//   3. non-code cwd -> silent (no output)
+// Verifies REQ-AGENT-024 AC1: SessionStart hook three-tier fallback:
+//   Tier 1: graph.json + python3 -> god-nodes structural summary
+//   Tier 2: graph.json, query fails -> GRAPH_REPORT.md preamble
+//   Tier 2 fallback: graph.json, no report -> generic nudge
+//   Tier 3: code repo, no graph -> build-suggestion
+//   Silent: non-code cwd -> no output
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
@@ -14,11 +15,12 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOOK = resolve(__dirname, '../../preseed/agents/claude/plugins/graphify/scripts/graphify-session-start.sh');
 
-function runFromCwd(cwd) {
+function runFromCwd(cwd, env) {
   const result = spawnSync('bash', [HOOK], {
     cwd,
-    input: JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'test' }),
+    input: JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'test', cwd }),
     encoding: 'utf-8',
+    env: { ...process.env, ...env },
   });
   return {
     stdout: result.stdout.trim(),
@@ -31,86 +33,91 @@ function safeParse(s) {
   try { return JSON.parse(s); } catch { return null; }
 }
 
-describe('graphify-session-start.sh', () => {
+function makeGraph(outDir, nodes, edges) {
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(join(outDir, 'graph.json'), JSON.stringify({ nodes, edges }));
+}
+
+describe('graphify-session-start.sh (REQ-AGENT-024 AC1)', () => {
   let baseTmp;
   before(() => {
     baseTmp = mkdtempSync(join(tmpdir(), 'gf-session-'));
-    // Sanity: hook script must exist and be executable
     assert.ok(existsSync(HOOK), `hook script missing at ${HOOK}`);
     chmodSync(HOOK, 0o755);
   });
 
-  it('graph present: injects a context-mode reminder pointing at GRAPH_REPORT.md and MCP tools', () => {
-    const cwd = mkdtempSync(join(baseTmp, 'graph-present-'));
+  it('Tier 1: graph with nodes injects god-nodes structural summary with degree counts', () => {
+    const cwd = mkdtempSync(join(baseTmp, 'tier1-'));
     const outDir = join(cwd, 'graphify-out');
-    mkdirSync(outDir, { recursive: true });
-    writeFileSync(join(outDir, 'graph.json'), JSON.stringify({ nodes: [], edges: [] }));
-    writeFileSync(join(outDir, 'GRAPH_REPORT.md'), '# graph report\nstub');
+    const nodes = [
+      { id: '1', label: 'handleVaultRequest' },
+      { id: '2', label: 'Container' },
+      { id: '3', label: 'authMiddleware' },
+    ];
+    const edges = [
+      { source: '1', target: '2' },
+      { source: '1', target: '3' },
+      { source: '2', target: '3' },
+    ];
+    makeGraph(outDir, nodes, edges);
+    writeFileSync(join(outDir, 'GRAPH_REPORT.md'), '# report\nstub');
 
     const { json, status } = runFromCwd(cwd);
     assert.equal(status, 0);
-    assert.ok(json, 'must emit JSON when a graph exists');
-    assert.equal(json.hookSpecificOutput.hookEventName, 'SessionStart');
+    assert.ok(json, 'must emit JSON');
     const ctx = json.hookSpecificOutput.additionalContext;
-    assert.ok(ctx.includes('GRAPH_REPORT.md'), 'reminder must mention GRAPH_REPORT.md');
-    assert.ok(
-      ctx.includes('mcp__graphify__query_graph'),
-      'reminder must list the MCP tool names so the agent can call them by ID'
-    );
-    assert.ok(ctx.includes('mcp__graphify__get_node'));
-    assert.ok(ctx.includes('mcp__graphify__get_neighbors'));
-    assert.ok(ctx.includes('mcp__graphify__shortest_path'));
+    assert.ok(ctx.includes('degree'), 'Tier 1 must include degree counts');
+    assert.ok(ctx.includes('Key concepts'), 'Tier 1 must include key concepts header');
+    assert.ok(ctx.includes('mcp__graphify__query_graph'), 'must include tool guidance');
   });
 
-  it('code repo, no graph: emits a build-suggestion reminder mentioning /graphify', () => {
-    const cwd = mkdtempSync(join(baseTmp, 'code-no-graph-'));
-    writeFileSync(join(cwd, 'index.ts'), 'export const x = 1;\n');
-    writeFileSync(join(cwd, 'helper.py'), 'def y(): return 2\n');
+  it('Tier 2: graph with empty nodes falls back to GRAPH_REPORT.md preamble', () => {
+    const cwd = mkdtempSync(join(baseTmp, 'tier2-'));
+    const outDir = join(cwd, 'graphify-out');
+    makeGraph(outDir, [], []);
+    writeFileSync(join(outDir, 'GRAPH_REPORT.md'), '# Graph Report\nThis is a test preamble.\n'.repeat(5));
+
+    const { json, status } = runFromCwd(cwd);
+    assert.equal(status, 0);
+    assert.ok(json, 'must emit JSON on Tier 2 fallback');
+    const ctx = json.hookSpecificOutput.additionalContext;
+    assert.ok(ctx.includes('Graph Report'), 'Tier 2 must include report preamble');
+    assert.ok(ctx.includes('mcp__graphify__query_graph'), 'must include tool guidance');
+  });
+
+  it('Tier 2 fallback: graph.json present but no GRAPH_REPORT.md emits generic nudge', () => {
+    const cwd = mkdtempSync(join(baseTmp, 'tier2-fb-'));
+    const outDir = join(cwd, 'graphify-out');
+    makeGraph(outDir, [], []);
 
     const { json } = runFromCwd(cwd);
-    assert.ok(json, 'must emit a reminder when cwd contains code files but no graph');
+    assert.ok(json, 'must emit JSON even without report');
     const ctx = json.hookSpecificOutput.additionalContext;
-    assert.ok(ctx.includes('/graphify'), 'reminder must mention the /graphify slash command');
-    assert.ok(
-      ctx.toLowerCase().includes('cluster-only'),
-      'big-repo guidance (cluster-only --no-viz) must be present'
-    );
+    assert.ok(ctx.includes('mcp__graphify__query_graph'), 'generic nudge must mention tools');
+    assert.ok(!ctx.includes('Key concepts'), 'generic nudge must not include god-nodes');
   });
 
-  it('non-code cwd: no reminder is emitted', () => {
+  it('Tier 3: code repo, no graph emits build-suggestion mentioning /graphify', () => {
+    const cwd = mkdtempSync(join(baseTmp, 'tier3-'));
+    writeFileSync(join(cwd, 'index.ts'), 'export const x = 1;\n');
+
+    const { json } = runFromCwd(cwd);
+    assert.ok(json, 'must emit a reminder for code repos without a graph');
+    const ctx = json.hookSpecificOutput.additionalContext;
+    assert.ok(ctx.includes('/graphify'), 'must mention /graphify');
+    assert.ok(ctx.toLowerCase().includes('cluster-only'), 'big-repo guidance must be present');
+  });
+
+  it('non-code cwd: no reminder emitted', () => {
     const cwd = mkdtempSync(join(baseTmp, 'non-code-'));
-    writeFileSync(join(cwd, 'notes.txt'), 'plain text only');
-    writeFileSync(join(cwd, 'README'), 'no extension');
+    writeFileSync(join(cwd, 'notes.txt'), 'plain text');
 
     const { stdout, status } = runFromCwd(cwd);
     assert.equal(status, 0);
-    assert.equal(
-      stdout,
-      '',
-      'cwd without code files and without a graph must produce no SessionStart context (silent)'
-    );
+    assert.equal(stdout, '', 'non-code cwd must produce no output');
   });
 
-  it('partial graph (graph.json without GRAPH_REPORT.md): treated as no-graph and falls through to the code-check branch', () => {
-    const cwd = mkdtempSync(join(baseTmp, 'partial-graph-'));
-    const outDir = join(cwd, 'graphify-out');
-    mkdirSync(outDir, { recursive: true });
-    writeFileSync(join(outDir, 'graph.json'), JSON.stringify({ nodes: [] }));
-    writeFileSync(join(cwd, 'main.go'), 'package main\nfunc main() {}\n');
-
-    const { json } = runFromCwd(cwd);
-    assert.ok(json, 'partial graph + code present should fall through to build-suggestion');
-    assert.ok(
-      json.hookSpecificOutput.additionalContext.includes('/graphify'),
-      'reminder must be the build-suggestion variant, not the graph-present variant'
-    );
-    assert.ok(
-      !json.hookSpecificOutput.additionalContext.includes('GRAPH_REPORT.md'),
-      'partial graph should not trigger the GRAPH_REPORT-pointing reminder'
-    );
-  });
-
-  it('fail-safe: malformed stdin still exits 0', () => {
+  it('fail-safe: malformed stdin exits 0', () => {
     const cwd = mkdtempSync(join(baseTmp, 'malformed-'));
     const result = spawnSync('bash', [HOOK], {
       cwd,
