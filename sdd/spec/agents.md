@@ -1337,7 +1337,9 @@ None.
 
 **Verification:** Automated test
 
-**Status:** Implemented
+**Status:** Partial
+
+<!-- coverage-gap: AC1-AC3 (AskUserQuestion two-mode presentation, subagent count + wall-time estimate, code-only skip) are runtime behavioral checks not covered by the static SKILL.md content test. AC4-AC5 are verified. -->
 
 ---
 
