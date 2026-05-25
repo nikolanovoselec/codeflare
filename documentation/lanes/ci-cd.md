@@ -135,7 +135,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 ### Host Tests
 
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
-**Count:** 17 test files, ~96 tests.
+**Count:** 57 test files.
 **Run:** `cd host && npm test` (also runs in CI via `node --test host/__tests__/*.test.js`)
 **Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect + input tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup, container memory tracking, entrypoint ECC validation, entrypoint hooks merge, metrics collection, session manager lifecycle, proactive memory injection (memory-context-inject.sh), graphify SessionStart three-tier fallback, graphify discipline preseed checks.
 

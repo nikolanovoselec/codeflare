@@ -213,8 +213,9 @@ All preseed content is deployed via the manifest pipeline:
   codeflare-memory plugin (7 files, advanced only: plugin.json,
   memory-capture.sh, memory-capture-block.sh, memory-agent-prompt.md,
   prefilter-transcript.sh, assert-iso-ts.sh, memory-context-inject.sh),
-  codeflare-vault plugin (3 files, advanced only: plugin.json,
-  vault-monitor-hook.sh, vault-extract-prompt.md), codeflare-hooks
+  codeflare-vault plugin (4 files, advanced only: plugin.json,
+  vault-monitor-hook.sh, vault-extract-prompt.md, merge-vault-graph.py),
+  codeflare-hooks
   plugin (7 files, advanced only: plugin.json,
   block-attributed-commits.sh, block-local-builds.sh,
   git-push-review-reminder.sh, enforce-review-spawn.sh,
@@ -225,10 +226,10 @@ All preseed content is deployed via the manifest pipeline:
   context-mode plugin (3 files, advanced only: plugin.json,
   README.md, scripts/enforce-ctx-mode.sh - admin-only Custom-tier
   routing enforcement, see Third-party plugin section below),
-  graphify plugin (8 files, default+advanced for plugin.json + README
+  graphify plugin (9 files, default+advanced for plugin.json + README
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
-  graph-first-nudge.sh, enforce-graphify.sh)
+  graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
 
 ## Multi-Agent Preseed
 
