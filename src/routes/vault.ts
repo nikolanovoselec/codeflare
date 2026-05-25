@@ -408,14 +408,19 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     // durably true with no SW key — if the bootstrap then failed on the' +
     // next attempt too, SB would boot expecting encrypted IDB it could not' +
     // read. Set the flag only after the post-handoff success branch.' +
+    'var el = document.getElementById("status");' +
+    'function step(msg) { if (el) el.textContent = msg; console.log("vault-hop:", msg); }' +
     'if (!navigator.serviceWorker) { fail("browser does not support service workers"); return; }' +
     'try {' +
+    'step("Registering service worker...");' +
     'var reg = await navigator.serviceWorker.register(scope + "service_worker.js", { scope: scope });' +
+    'step("Registered. SW state: " + (reg.active ? "active" : reg.installing ? "installing" : reg.waiting ? "waiting" : "none"));' +
     'var sw = reg.active || reg.installing || reg.waiting;' +
     'if (!sw) { fail("no service worker instance after registration"); return; }' +
     'if (sw.state !== "activated") {' +
+    'step("Waiting for activation (state: " + sw.state + ")...");' +
     'await new Promise(function (resolve, reject) {' +
-    'var timer = setTimeout(function () { reject(new Error("activation timed out after 10 s")); }, ' + VAULT_SW_ACTIVATION_TIMEOUT_MS + ');' +
+    'var timer = setTimeout(function () { reject(new Error("activation timed out after 10 s (state: " + sw.state + ")")); }, ' + VAULT_SW_ACTIVATION_TIMEOUT_MS + ');' +
     'function check() {' +
     'if (sw.state === "activated") { clearTimeout(timer); resolve(); return; }' +
     'if (sw.state === "redundant") { clearTimeout(timer); reject(new Error("service worker became redundant")); return; }' +
@@ -424,9 +429,11 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'check();' +
     '});' +
     '}' +
+    'step("Posting encryption key...");' +
     'sw.postMessage({ type: "set-encryption-key", key: key });' +
+    'step("Redirecting...");' +
     '} catch (e) {' +
-    'fail("service worker registration failed (" + (e && e.message ? e.message : e) + ")");' +
+    'fail(e && e.message ? e.message : String(e));' +
     'return;' +
     '}' +
     '// SW is active and has the key; only now safe to mark the flag,' +
