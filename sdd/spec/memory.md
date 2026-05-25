@@ -360,7 +360,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. On the first user message of a session, the hook extracts keywords from the prompt and queries the unified graph for matching nodes.
+1. In advanced session mode only, on the first user message of a session, the hook extracts keywords from the prompt and queries the unified graph for matching nodes.
 2. Matched nodes (up to 10, ~1000 tokens) are injected as additionalContext in the UserPromptSubmit hook response.
 3. The hook fires exactly once per session (gated by its own sentinel file, independent of the memory-capture counter).
 4. Prompts shorter than 20 characters are skipped (insufficient signal for keyword extraction).

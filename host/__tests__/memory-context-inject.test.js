@@ -57,7 +57,7 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     chmodSync(HOOK, 0o755);
   });
 
-  it('AC1+AC2: injects matched nodes from global graph on first prompt', () => {
+  it('AC1: injects matched nodes from global graph on first prompt', () => {
     const counterDir = mkdtempSync(join(baseTmp, 'ac1-counter-'));
     const homeDir = mkdtempSync(join(baseTmp, 'ac1-home-'));
     const graphDir = join(homeDir, '.graphify');
