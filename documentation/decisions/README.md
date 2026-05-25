@@ -712,7 +712,7 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 - A compromised `OAUTH_JWT_SECRET` now also allows forging state tokens (not just session cookies). The attack surface increase is minimal -- an attacker with the secret could already forge sessions, which is the higher-value target.
 - The 30-min window is longer than the previous 5-min cookie TTL. The trade-off is intentional: the broader window accommodates slow mobile networks and interrupted OAuth flows that previously forced re-login.
 
-**Related requirements:** REQ-AUTH-005 (GitHub OAuth CSRF protection)
+**Related requirements:** REQ-AUTH-002 (GitHub OAuth CSRF protection)
 
 **Implementation references:**
 
