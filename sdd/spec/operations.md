@@ -237,8 +237,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** None.
 
 **Verification:** Manual check
+<!-- coverage-gap: AC1-AC4 verified by manual inspection of bump-shadow-pins.yml; no automated parse test exists -->
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
