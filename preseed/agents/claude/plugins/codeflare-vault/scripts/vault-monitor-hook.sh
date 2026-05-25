@@ -59,7 +59,20 @@ if [ -f "$LAST_MARKER" ] && [ ! "$VARS_FILE" -nt "$LAST_MARKER" ]; then
     exit 0
 fi
 
-CONTEXT="Vault changes detected. Spawn the **vault-extract** subagent (Task tool with subagent_type=\"vault-extract\") in the background. Pass PROMPT_FILE=${PROMPT_FILE} and VARS_FILE=${VARS_FILE} so it can execute the 5-step contract documented in the prompt file. The subagent's first step is to delete ${VARS_FILE} as the dedup gate. The subagent's frontmatter pins the model to sonnet (AD58); do not pass a model override. If you have already spawned this subagent in the current turn, do nothing."
+# In-flight guard: prevent re-emitting while an extraction agent is
+# already running. Created here, deleted by the agent in step 7.
+# 5-minute TTL covers the longest reasonable extraction run.
+IN_FLIGHT="$HOOK_CACHE/vault-extract.in-flight"
+if [ -f "$IN_FLIGHT" ]; then
+    IN_FLIGHT_AGE=$(($(date +%s) - $(stat -c %Y "$IN_FLIGHT" 2>/dev/null || echo 0)))
+    if [ "$IN_FLIGHT_AGE" -lt 300 ]; then
+        exit 0
+    fi
+    rm -f "$IN_FLIGHT"
+fi
+touch "$IN_FLIGHT"
+
+CONTEXT="Vault changes detected. Spawn the **vault-extract** subagent (Task tool with subagent_type=\"vault-extract\") in the background. Pass PROMPT_FILE=${PROMPT_FILE} and VARS_FILE=${VARS_FILE}."
 
 jq -n --arg ctx "$CONTEXT" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
 exit 0

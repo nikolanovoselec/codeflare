@@ -303,6 +303,7 @@ if [ -z "${EXTRACT_FAILED:-}" ]; then
 else
     echo "[vault-extract] step 4 or 5 failed; leaving high-water mark old for retry" >&2
 fi
+rm -f ~/.cache/codeflare-hooks/vault-extract.in-flight
 ```
 
 The `EXTRACT_FAILED` gate is the programmatic enforcement of "only
