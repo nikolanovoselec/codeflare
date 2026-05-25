@@ -165,7 +165,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Constraints:**
 
 - The polling cadence is intentional; inotify was rejected as overkill for the expected edit rate.
-- The in-flight sentinel (5-minute TTL) prevents the hook from re-spawning the agent on every prompt while extraction is already running. The sentinel is created by the hook on emission and removed by the agent unconditionally at the end of step 7.
+- The in-flight sentinel (5-minute TTL) prevents the hook from re-spawning the agent on every prompt while extraction is already running. The sentinel is created by the hook on emission and removed by the agent unconditionally as its final step.
 - PDF-specific ingestion behavior is specified in [REQ-VAULT-011](#req-vault-011-vault-extract-ingests-pdf-files).
 
 **Priority:** P0
