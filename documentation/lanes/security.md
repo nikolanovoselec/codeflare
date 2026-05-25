@@ -226,7 +226,7 @@ Enabling SSE-C on an existing deployment requires re-uploading all R2 objects wi
 
 New deployments that set `ENCRYPTION_KEY` from the start require no migration - all seeded files are encrypted at creation.
 
-> **Note:** The automated `r2-nuke` CI workflow previously available for bulk migration was removed (PR #421). The steps above describe a manual procedure that has not been executed in production.
+> **Note:** The automated `r2-nuke` CI workflow previously available for bulk migration has been removed. The steps above describe a manual procedure that has not been executed in production.
 
 ## Rate Limiting
 
