@@ -61,45 +61,9 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### Container DO (container)
 
-**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. Exported from `src/index.ts` as lowercase `container` (matching `wrangler.toml` class_name). `defaultPort = 8080`, `sleepAfter = '24h'` sentinel (SDK timer pinned so it never fires in normal operation — idle enforcement is owned entirely by `collectMetrics()`, see [Auto-sleep](container.md#auto-sleep-configurable-sleepafter)). The `idleTimeoutPref` class field defaults to `'2h'` (REQ-OPS-017 AC1) so that if the constructor's storage read races or returns nothing, the first `collectMetrics` tick uses the safe maximum rather than a short fallback. A second DO, `Timekeeper`, is exported from `src/timekeeper/index.ts` as lowercase `timekeeper` for per-user usage tracking (see [Timekeeper DO](authentication.md)).
+**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. Exported from `src/index.ts` as lowercase `container` (matching `wrangler.toml` class_name). The Container DO owns the full lifecycle of a single session's container: startup, idle enforcement via `collectMetrics()`, request proxying with auth token injection, and graceful shutdown with a 135-second budget for final bisync. A second DO, `Timekeeper`, is exported from `src/timekeeper/index.ts` for per-user usage tracking.
 
-**SDK-Managed Hibernation:** `sleepAfter` lets the SDK handle container process lifecycle via its own alarm loop. `onStart()` records `containerStartedAt`, refreshes `envVars` via `updateEnvVars()`, updates KV with `lastStartedAt` timestamp AND `lastActiveAt` (set to start time so the frontend sleep timer icon has a reference timestamp even before any user input), clears stale `collectMetrics` schedules, and arms a fresh 60-second `collectMetrics` schedule. `onStop()` clears the `collectMetrics` schedule via `deleteSchedules('collectMetrics')` to kill the alarm loop immediately (preventing zombie alarms on dead containers), then sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
-
-**Request proxying:** The `fetch()` override dispatches `_internal/*` requests to local handlers (via the `internalRoutes` map), then delegates all other requests to `super.fetch()` — the SDK's `containerFetch()` — which handles container startup readiness, WebSocket upgrades, and in-container HTTP routing. If an auth token has been generated, the request headers are cloned and augmented with `Authorization: Bearer <token>` before delegation. When `this.ctx.container?.running === false`, the override short-circuits: HTTP requests get `503`, and WebSocket upgrades are accepted and immediately closed with code `4503 container-stopped` so the browser can distinguish a stopped container from network errors.
-
-**SDK timer is intentionally inert:** In `@cloudflare/containers` v0.2.x, `containerFetch()` refreshes the SDK activity timer on every WebSocket message in both directions. That semantics is "any traffic", but codeflare wants "no user input" — a container running `tail -f` or `yes` should still sleep when the user walks away. Codeflare therefore pins `sleepAfter` to `'24h'` as a sentinel so the SDK timer never fires in practice, and delegates all idle decisions to `collectMetrics()`, which reads real PTY input activity from inside the container and stops it explicitly when the user-configured threshold is exceeded.
-
-**`collectMetrics()` idle enforcement (every 60s):** Polls `/activity` (reads `lastInputAt` from PTY tracker), re-reads `sleepAfter` from DO storage on every tick (authoritative — cache may drift on hibernation), computes `idleMs = Date.now() - (lastInputAt ?? containerStartedAt)`. When `idleMs > parseSleepAfterMs(idleTimeoutPref)`, writes KV `status: 'stopped'` and calls `stop('SIGTERM')` — this is the sole idle-hibernation path. Fails open on `/activity` errors (never kills a container due to a broken activity endpoint). Pings Timekeeper DO every tick in SaaS mode. Stops re-arming when container is dead or identifiers are missing (zombie DO detection). `parseSleepAfterMs` fail-safe: any unrecognized value returns 2h max — a container that lives longer costs cents, a container that dies earlier destroys unpushed work.
-
-```mermaid
-flowchart TD
-    CM["collectMetrics() fires<br/>(every 60s)"] --> CRunning{"container.running?"}
-    CRunning -->|No| Exit1["Early return, no re-arm<br/>(loop dies -- container dead)"]
-    CRunning -->|Yes| FetchAct["Fetch /activity<br/>from container"]
-    FetchAct --> ActOK{"Response OK?"}
-    ActOK -->|No| Skip["Skip idle check (fail-open)"]
-    ActOK -->|Yes| IdleCheck{"idleMs &gt;<br/>idleTimeoutPref?"}
-    IdleCheck -->|Yes| StopIdle["stop('SIGTERM')<br/>(idle exceeded)"]
-    IdleCheck -->|No| FetchHealth["Fetch /health<br/>from container"]
-    Skip --> FetchHealth
-    FetchHealth --> IDs{"identifiers exist?<br/>(sessionId + bucketName)"}
-    IDs -->|No| Exit2["Early return, no re-arm<br/>(zombie DO detected)"]
-    IDs -->|Yes| WriteKV["Write metrics to KV"]
-    WriteKV --> TK{"SaaS mode +<br/>Timekeeper binding?"}
-    TK -->|Yes| Ping["Timekeeper ping<br/>(+60s usage)"]
-    Ping --> QuotaCheck{"quotaExceeded?"}
-    QuotaCheck -->|Yes| Stop["stop(SIGTERM)<br/>(no re-arm)"]
-    QuotaCheck -->|No| ReArm["schedule(60, 'collectMetrics')<br/>(if container.running)"]
-    TK -->|No| ReArm
-```
-
-**`destroy()` Override:** Clears session identifiers and in-memory credentials from DO storage before calling `super.destroy()`. Sends `SIGTERM` and polls `ctx.container.running` for up to **135 seconds** so the entrypoint trap can run the final `rclone bisync` (120s budget) before SIGKILL, with a 15s clean-exit buffer. A `logger.warn` fires inside the poll loop at 110 seconds elapsed so sessions approaching the budget surface in logs. Clearing identifiers first prevents `onStop()` (async) from resurrecting deleted sessions in KV. The `containerAuthToken` storage key is also cleared here so the next session under the same DO ID starts with a fresh token (no cross-lifecycle reuse). See AD57 for the budget rationale.
-
-**Container auth token persistence (REQ-SEC-012 AC5/AC6):** The token referenced in [Request proxying](#container-do-container) above is generated lazily in `updateEnvVars()`, persisted to `ctx.storage` under key `containerAuthToken`, and restored in `blockConcurrencyWhile` alongside `bucketName` / `sessionId` / other operational state. The storage put is pinned to the request lifecycle via `ctx.waitUntil(...)` so the runtime cannot hibernate the DO before the write commits, closing the wake-then-immediately-hibernate window where the new token would otherwise be lost and re-generated on the next wake. See [security.md](./security.md#container-auth-token-req-sec-012) for the threat model and failure consequence.
-
-**`setBucketName` Idempotency (409 Path):** Once `_bucketName` is set, subsequent calls return 409 but still store `sessionId`, preferences, LLM keys, and `sleepAfter` — ensuring `collectMetrics`/`onStop` can find the KV entry on session restarts and that user preference changes take effect without container recreation. R2 credentials flow: `_internal/setBucketName` body (primary) > `this.env` fallback. `envVars` must be a property assignment, not a getter. `buildSetBucketNameBody` throws on missing `sleepAfter` (fail-loud — prevents silent timeout substitution).
-
-**Internal Endpoints:** `/_internal/setBucketName`, `/_internal/setSessionId`, `/_internal/getBucketName`
+For Container DO internals including the `collectMetrics()` loop, `destroy()` override, auth token lifecycle, `setBucketName` idempotency, and SDK timer semantics, see [Container](container.md#container-durable-object).
 
 ### Terminal Server (node-pty)
 

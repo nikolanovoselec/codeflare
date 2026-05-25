@@ -105,7 +105,11 @@ Base image: Node.js 24 Debian (bookworm-slim).
 
 ## API Token Permissions
 
-### Account Permissions
+### Cloudflare API Token (Operator)
+
+These are the permissions required for the Cloudflare API token used by the deploy workflow and worker runtime. Codeflare recommends using the **"Edit Cloudflare Workers"** template when creating the token, then adding the additional scopes listed below.
+
+#### Account Permissions
 
 | Permission | Access | Required | Why |
 |-----------|--------|----------|-----|
@@ -119,13 +123,75 @@ Base image: Node.js 24 Debian (bookworm-slim).
 | Turnstile | Edit | Only if onboarding active | Turnstile widget |
 | API Tokens | Edit | Yes | Create/revoke per-user scoped R2 tokens |
 
-### Zone Permissions
+#### Zone Permissions
 
 | Permission | Access | Required | Why |
 |-----------|--------|----------|-----|
 | Zone | Read | Yes | Zone ID resolution |
 | DNS | Edit | Yes | Proxied CNAME |
 | Workers Routes | Edit | Yes | Worker route upsert |
+
+#### Additional Scopes You May Need
+
+If your agent asks for additional permissions, you can add them by editing your token in the [Cloudflare dashboard](https://dash.cloudflare.com/profile/api-tokens):
+
+| Permission | Level | When Needed |
+|---|---|---|
+| D1 | Edit | Creating and managing D1 databases |
+| DNS | Edit | Managing DNS records for custom domains |
+| Zone | Read | Required alongside DNS for zone resolution |
+| Turnstile | Edit | Creating CAPTCHA widgets |
+| Access: Apps and Policies | Edit | Managing Cloudflare Access applications |
+| Access: Organizations | Edit | Managing Access groups and identity providers |
+| API Tokens | Edit | Managing other API tokens programmatically |
+
+Cloudflare API tokens do not expire by default but can be set to expire during creation. You can scope tokens to specific accounts and zones, or use "All accounts" and "All zones" for convenience.
+
+### GitHub Fine-Grained PAT (User)
+
+Users connect their GitHub account by creating a fine-grained personal access token. Codeflare offers three scope tiers -- choose based on your workflow:
+
+- **Minimal** -- just git access
+- **Recommended** -- full development workflow (repos, PRs, CI, deploy)
+- **Advanced** -- everything, including GitHub Copilot
+
+You can adjust scopes anytime from your [GitHub token settings](https://github.com/settings/tokens).
+
+#### Repository Permissions
+
+| Scope | Minimal | Recommended | Advanced | Why |
+|---|---|---|---|---|
+| Contents: Write | yes | yes | yes | Push/pull code, manage branches and tags |
+| Metadata: Read | yes | yes | yes | Basic repo info (always granted) |
+| Pull Requests: Write | - | yes | yes | Create, review, and merge pull requests |
+| Actions: Read | - | yes | yes (Write) | View CI workflow runs and logs |
+| Workflows: Write | - | yes | yes | Create and modify `.github/workflows/` files |
+| Administration: Write | - | yes | yes | Create/delete repositories, manage settings |
+| Secrets: Write | - | yes | yes | Set GitHub Actions secrets (e.g., deploy credentials) |
+| Actions Variables: Write | - | - | yes | Set GitHub Actions variables |
+| Issues: Write | - | - | yes | Create and manage issues |
+| Deployments: Write | - | - | yes | Manage deployment statuses |
+| Environments: Write | - | - | yes | Manage deployment environments and secrets |
+| Pages: Write | - | - | yes | Configure GitHub Pages |
+| Commit Statuses: Write | - | - | yes | Set commit status checks |
+| Webhooks: Write | - | - | yes | Manage repository webhooks |
+| Merge Queues: Write | - | - | yes | Manage merge queue entries |
+| Security Events: Write | - | - | yes | Access code scanning and security alerts |
+| Custom Properties: Write | - | - | yes | Set custom properties on repositories |
+| Discussions: Write | - | - | yes | Create and manage discussions |
+
+#### Account Permissions
+
+| Scope | Minimal | Recommended | Advanced | Why |
+|---|---|---|---|---|
+| Emails: Read | - | - | yes | Read email for git identity |
+| Copilot Requests: Read | - | - | yes | Required for GitHub Copilot CLI |
+
+#### Notes
+
+- **GitHub Copilot** requires the Advanced tier. The `user_copilot_requests: read` account scope is needed for the Copilot CLI to authenticate.
+- Fine-grained PATs expire after 90 days by default. You can change the expiration during creation.
+- You can scope tokens to specific repositories or all repositories. For a cloud IDE, "All repositories" is typical since you may create new repos from sessions.
 
 ---
 

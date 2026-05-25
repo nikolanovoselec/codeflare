@@ -162,10 +162,10 @@ Users can connect their GitHub and Cloudflare accounts via Settings > Push & Dep
 
 ### Automated Penetration Testing
 
-A weekly CI workflow (`pentest.yml`) runs external black-box security tests against the production deployment, validating security headers, TLS, auth gates, info disclosure, injection resistance, and HTTP methods. Run manually via `Actions` > `Pentest` > `Run workflow`. See [PENTEST.md](documentation/PENTEST.md) for the complete report covering all 13 test categories.
+A weekly CI workflow (`pentest.yml`) runs external black-box security tests against the production deployment, validating security headers, TLS, auth gates, info disclosure, injection resistance, and HTTP methods. Run manually via `Actions` > `Pentest` > `Run workflow`. See [Penetration Testing](documentation/lanes/pentest.md) for the complete report covering all 13 test categories.
 
 **Related Documentation:**
 - [Security Reference](documentation/security.md) - Security model, rate limiting, and encryption
 - [Architecture Decisions](documentation/decisions/README.md) - Design trade-offs and rationale
-- [STRESS_TEST.md](documentation/STRESS_TEST.md) - Load testing methodology and rate limit validation
+- [Stress Testing](documentation/lanes/stress-test.md) - Load testing methodology and rate limit validation
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Development workflow and guidelines

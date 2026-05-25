@@ -75,7 +75,7 @@ If you add or modify API endpoints that should be rate-limited, run:
 npm test -- src/__tests__/routes/rate-limits.test.ts
 ```
 
-See `src/middleware/rate-limit.ts` for the rate limiting implementation and [STRESS_TEST.md](documentation/STRESS_TEST.md) for load testing details.
+See `src/middleware/rate-limit.ts` for the rate limiting implementation and [Stress Testing](documentation/lanes/stress-test.md) for load testing details.
 
 ### Subscription and Usage Tests
 
@@ -143,7 +143,7 @@ Example: `fix/websocket-reconnect-race-condition`
 
 If you discover a security vulnerability, **do not open a public issue**. Report it via [GitHub's private vulnerability reporting](https://github.com/nikolanovoselec/codeflare/security/advisories/new). See [SECURITY.md](SECURITY.md) for details.
 
-An automated penetration test runs weekly against production (`pentest.yml`). If you make changes to authentication, CORS, security headers, or routing, you can trigger it manually from `Actions` > `Pentest` > `Run workflow` to verify nothing regressed. See [PENTEST.md](documentation/PENTEST.md) for a full breakdown of what gets tested.
+An automated penetration test runs weekly against production (`pentest.yml`). If you make changes to authentication, CORS, security headers, or routing, you can trigger it manually from `Actions` > `Pentest` > `Run workflow` to verify nothing regressed. See [Penetration Testing](documentation/lanes/pentest.md) for a full breakdown of what gets tested.
 
 ## Questions
 
@@ -152,4 +152,4 @@ Open an issue for questions about the codebase, architecture, or contribution pr
 **Related Documentation:**
 - [Documentation](documentation/README.md) - Full technical reference
 - [README.md](README.md) - Product overview and setup
-- [STRESS_TEST.md](documentation/STRESS_TEST.md) - Load testing guide
+- [Stress Testing](documentation/lanes/stress-test.md) - Load testing guide

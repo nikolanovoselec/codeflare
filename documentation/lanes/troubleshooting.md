@@ -4,7 +4,17 @@ Diagnostic commands, common failure modes, and resolution steps.
 
 **Audience:** Operators
 
+## Contents
+
+- [Common Issues](#common-issues)
+- [Common Failure Modes](#common-failure-modes)
+- [Diagnostic Commands](#diagnostic-commands)
+
 ---
+
+## Common Issues
+
+Frequently encountered problems grouped by symptom, with causes and resolution steps.
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
@@ -32,14 +42,7 @@ The loading screen waits for both R2 sync and PTY pre-warm to complete before si
 
 ### R2 Sync Issues
 
-- **Storage panel doesn't show a file I just created in the terminal**: The periodic bisync runs every 15 minutes (see [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers)). Click the **Sync-now** button (cloud-sync icon in the storage panel toolbar) to trigger an immediate bisync across all your running sessions. Status surfaces in the button tooltip ("Synced N sessions" / "No running sessions to sync" / "Sync errors"). If a session shows as `'not-running'`, its container is hibernated; the next time you open that tab the container's wake-time baseline bisync will pull fresh state from R2.
-- **Bisync empty listing**: Initial `establish_bisync_baseline()` uses `--resync` to create the baseline, handles this case. The periodic daemon never uses `--resync` (see [AD14](../decisions/README.md#ad14-never-auto---resync-on-bisync-failure)).
-- **`lstat: no such file or directory` bisync failure**: A transient file was listed by rclone then deleted before the copy completed. Automatically recovered: the system parses the error, adds the file to `/tmp/rclone-recovery-filters.txt`, clears bisync locks, and retries (max 3 attempts). Check `/tmp/sync.log` for `[sync-recovery] Excluded vanished file:` entries. If the failure persists beyond 3 attempts, it escalates to the normal consecutive-failure path. See [Vanishing-file recovery](storage-and-sync.md#vanishing-file-recovery) and [AD43](../decisions/README.md#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke).
-- **Transfers 0 files**: Filter order indeterminacy from mixed `--include`/`--exclude`. Use `--filter` flags instead.
-- **Slow sync**: Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
-- **Missing secrets**: Check `startup-status` response `details.syncError` for the missing variable.
-- **Session-delete spinner takes ~2 minutes**: The Container DO `destroy()` budget is 135 seconds (120s final-bisync watchdog + 15s clean-exit buffer) so unsaved local changes propagate to R2 before SIGKILL. Routine on sessions with large pending writes. See [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync).
-- **Search button is missing from the storage panel**: Removed 2026-05-18 (sync-v2). The toolbar slot is now the Sync-now button. The underlying search-by-name filter (`storageStore.searchFiles`) is still in the codebase and can be restored by re-adding `<SearchInput />` in the toolbar - see comments in `web-ui/src/components/storage/StorageToolbar.tsx` and `web-ui/src/components/StorageBrowser.tsx`.
+See [Storage & Sync - Troubleshooting](storage-and-sync.md#troubleshooting).
 
 ### Zombie Container
 
@@ -72,7 +75,7 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Note:** Package names differ between Ubuntu versions - 22.04 uses `libatk1.0-0`, 24.04 uses `libatk1.0-0t64`.
 
-### Common Failure Modes
+## Common Failure Modes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
@@ -99,7 +102,7 @@ sudo apt-get install -yqq --no-install-recommends \
 | `mcp__graphify__*` returns answers from the wrong repo (REQ-AGENT-023) | Sentinel file at `~/.cache/codeflare-hooks/graphify-active-cwd` is absent, stale, or points at a repo without a `graphify-out/`; wrapper fell back to the freshest-mtime heuristic and picked the wrong repo | `cat ~/.cache/codeflare-hooks/graphify-active-cwd` should contain the current repo root. If missing, the active-repo hook has not fired yet - trigger a Bash `cd` to the repo, or Edit any file in it. Advanced session mode only: confirm `graphify-active-repo.sh` is registered under `~/.claude/settings.json` `hooks.PostToolUse`. Default mode has no sentinel by design (fallback only). |
 | Graph stale after recent code edits (REQ-AGENT-023) | AST portion of the graph was not refreshed since the edits | Run `graphify update .` from the project root. It re-extracts only changed files via tree-sitter (free, no LLM cost). Skip if the change was test-only or doc-only - the graph de-emphasises tests by design. |
 
-### Diagnostic Commands
+## Diagnostic Commands
 
 **Check container status:**
 ```bash

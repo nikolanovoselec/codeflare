@@ -25,6 +25,7 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
   - [SilverBullet plug preinstall](#silverbullet-plug-preinstall-req-vault-007)
 - [First-session Expectations](#first-session-expectations)
 - [Attachment Cost Caveat](#attachment-cost-caveat-req-vault-011-ac1)
+- [Memory Capture System](#memory-capture-system)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -309,6 +310,103 @@ The vault-monitor daemon does not fire a spurious extraction on first boot or af
 
 SilverBullet writes pasted / drag-dropped attachments next to the note that referenced them (a Quick Note at `Inbox/2026-05-18/16-59-59.md` produces attachments at `Inbox/2026-05-18/*.pdf`, `.png`, etc.). The vault-extract agent reads PDFs via the Read tool (rendering pages as images, capped at 20 pages per PDF) and emits a `document` node plus `concept` nodes for whatever titles / headings / entities are visible. Image-only PDFs and screenshots cost vision tokens per page on every ingestion pass; be aware when pasting many images into notes you expect to query frequently. Move attachments to `Raw/Pasted/` manually if you want them grouped outside the date-folder rhythm.
 
+## Memory Capture System
+
+Cross-session memory in codeflare lives entirely in the vault. Graphify ingests every vault file into the unified global graph; agents query it via `mcp__graphify__*`. The former MCP `@modelcontextprotocol/server-memory` subsystem has been removed. Conversation context (decisions, debugging insights, observations) survives across sessions and devices. Every 15 user prompts the agent auto-captures a structured note into `Raw/Sessions/`. Cross-device persistence requires Pro mode (the "Pro" / advanced session mode, gated by REQ-MEM-006): only Pro sessions bisync the vault subtree to R2. Default-mode sessions still run the capture hook for in-session context, but the vault never leaves the container.
+
+Implements [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-004](../../sdd/spec/memory.md#req-mem-004-vault-contents-synced-to-r2-across-sessions), [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-MEM-008](../../sdd/spec/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline), [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing).
+
+### Hook Mechanics
+
+The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
+
+1. **Tilde expansion** - expands `~` in `transcript_path` to `$HOME`.
+2. **Message counting** - `grep -c '"role":"user","content":"[^<]' "$TRANSCRIPT"`
+   counts real human prompts. Two layers of synthetic messages are
+   excluded: tool_result wrappers (array content, excluded by the
+   trailing `"`) and slash-command/task-notification wrappers (string
+   content starting with `<`, excluded by `[^<]`).
+3. **Counter check** - reads `/tmp/.memory-counter/{session_id}` (line 1:
+   last count, line 2: last line offset). The counter lives under `/tmp`
+   on purpose: Cloudflare Containers guarantees an ephemeral disk on every
+   container start ("All disk is ephemeral. When a Container instance goes
+   to sleep, the next time it is started, it will have a fresh disk as
+   defined by its container image."), so in codeflare the counter's
+   presence/absence is the canonical "mid-session vs. fresh-container"
+   signal. The `MEMCAP_COUNTER_DIR` env var overrides the default for
+   hermetic tests; production never sets it. If the counter file exists
+   and the delta is `< 15`, exits silently. If the counter is missing,
+   the hook distinguishes two sub-cases by `CURRENT_COUNT` (real-user
+   prompts in the transcript):
+   - **`CURRENT_COUNT == 1`** (brand-new session): baseline at the current
+     transcript size, write the counter, emit the first-message
+     graphify-query nudge, exit without capture.
+   - **`CURRENT_COUNT > 1`** (resumed session per REQ-MEM-002 AC6): the
+     container was recycled but the transcript was restored on disk, so
+     prior-session prompts are still there. Force-fire a capture covering
+     the transcript from line 1 (flushing any tail from the prior session
+     that never reached the 15-prompt boundary), AND re-emit the
+     graphify-query directive because the agent's in-context recall of
+     prior decisions is gone after the recycle.
+4. **Vars file** - writes transcript path, offsets, date, counts, and
+   counter path to `/tmp/.memory-counter/{session_id}.vars` as JSON.
+5. **Counter update** - writes current count + total lines back to the
+   counter before emitting so subsequent invocations see delta `< 15`.
+6. **JSON output** - emits `{hookSpecificOutput:{...,additionalContext}}`
+   with a mandatory directive: the main agent MUST spawn the **memory-capture**
+   subagent (Task tool, `subagent_type="memory-capture"`, `run_in_background=true`)
+   before any other work. The companion `memory-capture-block.sh` PreToolUse hook
+   hard-blocks all tool calls until the subagent is spawned. The subagent's
+   frontmatter pins `model: sonnet` (AD58); the main agent must not pass a model
+   override.
+
+The capture agent deletes the `.vars` file as its first step (dedup
+gate), runs `prefilter-transcript.sh` (jq filter that strips tool I/O,
+slash-command wrappers, and meta records - 76x size reduction on a
+typical transcript), splits the clean NDJSON into chunks, processes each
+chunk into a scratchpad, then synthesises the final vault note and merges
+into the global graph. See [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)
+for the rationale (recency bias + haiku confabulation that motivated the
+switch from haiku to sonnet).
+
+Between the dedup-gate step and the prefilter step, the agent invokes
+`assert-iso-ts.sh` (Step 1.5 in the prompt; REQ-MEM-010 AC5/AC6/AC7).
+The script resolves the user's timezone, runs `date` to produce a stamp
+like `2026-05-23T22-11-09+0200`, then runs three assertions and exits
+non-zero if any fail: (a) the stamp must end with a four-digit `[+-]NNNN`
+offset; (b) that offset must equal what `TZ="$RESOLVED" date '+%z'`
+produces (catches dropped-TZ-wrapper bugs like issue #416 without
+false-positiving legitimately-UTC hosts); (c) the reconstructed epoch
+must be within 30 seconds of the wall clock (catches LLM fabrications
+that typically drift hours). Assertion failure **halts the capture** -
+no vault file is written, no graph merge runs. The captured ISO_TS
+string is the single source of truth for the filename and the
+`captured_at` frontmatter field; both must contain identical bytes.
+
+### Counter Storage
+
+```
+/tmp/.memory-counter/
++-- {session_id}         # Two lines: last_count, last_line_offset
++-- {session_id}.vars    # Variables JSON for current hook invocation
+```
+
+The counter directory lives under `/tmp` by design: Cloudflare Containers
+guarantees that `/tmp` (and all non-R2-backed disk) is fresh on every
+container start, which is what makes the counter's absence on the first
+hook fire a reliable "fresh container" signal for REQ-MEM-002 AC6
+resume detection. No bisync filter is required because `/tmp` is not
+synced in the first place. The `MEMCAP_COUNTER_DIR` env var overrides
+the default for hermetic tests; production never sets it.
+
+Cross-reference: the verified Cloudflare-Containers ephemerality contract
+this design relies on is captured at `~/Vault/References/Cloudflare-Containers-Ephemerality.md`
+in the user's vault.
+
+### Specification Coverage (Memory)
+
+- [REQ-MEM-012](../../sdd/spec/memory.md#req-mem-012-hard-block-tool-calls-while-memory-capture-is-deferred) - Hard-block tool calls while memory-capture is deferred
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
@@ -329,6 +427,14 @@ SilverBullet writes pasted / drag-dropped attachments next to the note that refe
 | Bootstrap-hop page stuck on "Loading vault..." indefinitely | Samsung Internet and other Chromium forks may send cookies on SW registration fetches. If the Worker's SW selector rejected cookied requests, the request fell through to SB's real 97KB SW whose `cache.addAll()` install failed and left `navigator.serviceWorker.ready` permanently unresolved | Fixed: the Cookie gate was removed from `isServiceWorkerRegistration()`, and the hop page now uses a 10-second activation timeout (`VAULT_SW_ACTIVATION_TIMEOUT_MS`) instead of the indefinite `.ready`. On timeout or install failure ("redundant" state), the hop shows an explicit error message with retry guidance. |
 | Editing a SilverBullet note shows `Could not save page, retrying again in 10 seconds` repeatedly; saves never succeed | Older image: PUT requests went through `maybeSynthesizeCsrfHeader` which clones the request to add `X-Requested-With`, consuming the original body; the proxy then forwarded the original (now disturbed) request to `container.fetch`, raising `TypeError: This ReadableStream is disturbed` and returning 500 | Redeploy. The proxy now forwards the auth-validated clone (which owns the body) instead of the original; pre-fix images log `Vault request error` with the disturbed-stream stack trace in Worker logs (`wrangler tail` or Cloudflare Observability). |
 | Browser console shows `Enabled client-side encryption for synced files` but SB then aborts the encrypted IDB open / shows "encryption flag set but SW has no key" | Key-rotation desync between the two channels: `injectVaultEncryptionConfig` rewrote `/.config` with a fresh `vaultEncryptionKey` + `enableClientEncryption=true`, but the bootstrap-hop `postMessage({type:"set-encryption-key"})` was not re-run, so the SW shim still holds the previous key (or none). Causes: the user kept an old vault tab open across a key rotation, or a partial deploy updated `injectVaultEncryptionConfig` without restarting the SW. | Reload the vault tab end-to-end (Cmd-Shift-R / Ctrl-Shift-R) so the bootstrap-hop runs fresh and posts the current key into the SW. If a rotation is in progress, force-unregister the SW from DevTools - Application - Service Workers, drop the `codeflare_vault_bootstrap` cookie, then reload; the shell-path handler will redirect through the hop again. The key-shim SW holds the key in module memory only - tearing it down is always safe. |
+| Capture not firing | Counter file present at `/tmp/.memory-counter/{session_id}` and transcript has `<15` new prompts since last capture | Send more prompts to reach the 15-message threshold; or verify the hook is registered (`cat ~/.claude/settings.json`) |
+| Capture not firing after a resume | Counter file present despite the container appearing to be a fresh start (would indicate `/tmp` somehow survived recycle, which Cloudflare's ephemerality contract forbids) | Inspect `ls -la /tmp/.memory-counter/`; if the counter mtime predates the current container's start time, file an issue - the platform contract is being violated. Workaround: `rm /tmp/.memory-counter/{session_id}` |
+| Capture spawns but no vault file | Capture agent failed mid-write | Check the agent's transcript for errors; the `.vars` file is gone but the counter has advanced - next 15-prompt window will try again |
+| Capture spawns, no vault file, agent transcript shows `ISO_TS_ASSERTION_FAILED:` | Step 1.5 Bash block rejected the timestamp (REQ-MEM-010 AC5) | Read the agent transcript for the exact failure: `missing TZ offset` (Assertion 1 - bad stamp shape), `offset X does not match TZ=Y` (Assertion 2 - dropped TZ wrapper, the #416 symptom), or `drifts Ns from current clock` (Assertion 3 - agent fabricated the timestamp instead of running `date`). Fail-closed is intentional: the capture halts rather than write a wrong timestamp to the vault. Next 15-prompt window retries |
+| Same file extracted twice | Concurrent capture + vault-monitor tick | Both serialise via `flock -w 5 /tmp/graphify-global.lock`; safe, but the last writer wins for that specific file's nodes |
+
+For hook registration, attribution-blocking, review-spawn enforcement,
+or session-mode gating issues, see [Troubleshooting in preseed.md](preseed.md#troubleshooting).
 
 ## Specification Coverage
 
@@ -349,7 +455,6 @@ SilverBullet writes pasted / drag-dropped attachments next to the note that refe
 
 ## Related Documentation
 
-- [memory.md](./memory.md) -- The capture-hook plumbing that the vault reuses.
 - [architecture.md](./architecture.md) -- Container layout, Worker proxy boundary.
 - [deployment.md](./deployment.md) -- How Dockerfile + preseed land in a new session.
 - [`sdd/vault.md`](../../sdd/spec/vault.md) -- Spec / acceptance criteria.

@@ -4,6 +4,8 @@ Dual authentication (Cloudflare Access and GitHub OIDC), SaaS mode, and three-ti
 
 **Audience:** Operators, Developers
 
+For security hardening, rate limiting, and encryption at rest, see [Security](security.md).
+
 ---
 
 ## Contents
@@ -128,6 +130,8 @@ flowchart TD
 ---
 
 ## User Identity
+
+Each authenticated user is mapped to a unique R2 bucket and a set of scoped credentials.
 
 ### Per-User Bucket Naming
 

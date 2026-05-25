@@ -4,6 +4,8 @@ Security architecture, encryption at rest, rate limiting, and hardening measures
 
 **Audience:** Operators, Security
 
+For authentication modes and user identity flow, see [Authentication](authentication.md).
+
 > For the vulnerability reporting policy, see [SECURITY.md](../../SECURITY.md).
 
 ---
@@ -134,7 +136,7 @@ When the context-mode plugin folder is active (Custom tier, Pro mode), a PreTool
 touch /tmp/ctx-bypass
 ```
 
-Same sentinel model as `/tmp/review-bypass` (see [`preseed-troubleshooting.md`](preseed-troubleshooting.md#resetting-the-review-spawn-checkpoint)).
+Same sentinel model as `/tmp/review-bypass` (see [Resetting the Review-Spawn Checkpoint](preseed.md#resetting-the-review-spawn-checkpoint)).
 
 ## Body Limit
 
@@ -428,7 +430,7 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 - [Authentication — Auth Modes](authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
 - [Billing — Subscription Tiers](billing.md) - Tier-based access control
 - [API Reference — Common Headers](api-reference.md#common-response-headers) - Security headers on responses
-- [PENTEST.md](PENTEST.md) - Penetration testing results
-- [STRESS_TEST.md](STRESS_TEST.md) - Load testing and rate limit validation
+- [pentest.md](pentest.md) - Penetration testing results
+- [stress-test.md](stress-test.md) - Load testing and rate limit validation
 - [Troubleshooting](troubleshooting.md#common-failure-modes) - Common failure modes
 - [Decisions](../decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) - Security-related architecture decisions

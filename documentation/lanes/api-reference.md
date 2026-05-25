@@ -4,6 +4,26 @@ Complete API endpoint reference for the Codeflare Worker.
 
 **Audience:** Developers
 
+## Contents
+
+- [Session Management](#session-management)
+- [Container Lifecycle](#container-lifecycle)
+- [Terminal](#terminal)
+- [User Management](#user-management)
+- [Auth (SaaS Mode)](#auth-saas-mode)
+- [Usage](#usage)
+- [Admin](#admin)
+- [Billing](#billing)
+- [Deploy Keys](#deploy-keys)
+- [Public (Unauthenticated)](#public-unauthenticated)
+- [Setup](#setup)
+- [Storage (R2 File Browser)](#storage-r2-file-browser)
+- [Presets](#presets)
+- [Preferences](#preferences)
+- [LLM API Keys](#llm-api-keys)
+- [Public (Onboarding)](#public-onboarding)
+- [Health](#health)
+
 ---
 
 ### Common Response Headers

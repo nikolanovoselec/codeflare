@@ -6,6 +6,13 @@ Backend library reference, code structure, and refactoring index for Codeflare.
 
 See [Architecture](architecture.md) for system overview, components, data flow, and design rationale.
 
+## Contents
+
+- [Backend Libraries](#backend-libraries)
+- [Code Structure (Pre-Launch Refactoring)](#code-structure-pre-launch-refactoring)
+- [Appendix: CF-NNN Code Index](#appendix-cf-nnn-code-index)
+- [Frontend Components](#frontend-components)
+
 ---
 
 ## Backend Libraries
@@ -95,6 +102,44 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 | CF-029 | Cache invalidation for storage deletes | src/routes/storage/ |
 | CF-030 | Idempotency key to prevent duplicate checkout sessions | src/lib/stripe.ts |
 | CF-032 | Log warning on unresolved customer (was silently dropped) | src/routes/stripe-webhook.ts |
+
+---
+
+## Frontend Components
+
+SolidJS components that implement the SaaS authentication and subscription UI. These components handle login, tier selection, onboarding, and admin user management.
+
+### LoginPage (`web-ui/src/components/LoginPage.tsx`)
+
+Shown at `/` when `SAAS_MODE=active`. Detects current auth state:
+- Active tier -> redirect to `/app/`; pending -> redirect to `/app/subscribe`; blocked -> show blocked message
+- If unauthenticated, fetches providers from `/public/auth/providers` and renders GitHub login button
+
+### SubscribePage (`web-ui/src/components/SubscribePage.tsx`)
+
+Shown at `/app/subscribe`. Two-phase layout:
+
+**Phase 1 (home view):** Logo, feature highlights, status area (varies by user state).
+
+**Phase 2 (plan view):** Mode card (Standard/Pro toggle), lifeline rail (5 plan stops: free -> standard -> advanced -> max -> unlimited), detail panel (price, hours, sessions, CTA button). Tier name and price use `useScrambleText` for decrypt animation on selection change.
+
+**Status text by user state:**
+| State | Text | Color |
+|-------|------|-------|
+| Pending | "Not Subscribed" | Orange |
+| Active | "Subscribed" | Green + "Continue" link |
+| Blocked | "Blocked" | Red |
+
+### RootPage (`web-ui/src/App.tsx`)
+
+Determines deployment mode from backend:
+1. Calls `/public/auth/providers` - if providers returned, show LoginPage (SaaS mode)
+2. Calls `/public/onboarding-config` - if active, show OnboardingLanding
+3. Otherwise, redirect to `/app/` (default mode with CF Access)
+
+### Admin User Management
+
+Admin users always have `unlimited` tier and advanced session mode access (`canUseAdvanced()` returns `true` for admins). Backend rejects tier changes and deletions for admin-role users. `SettingsPanel` re-fetches `/api/user` each time it opens for live tier refresh.
 
 ---
 

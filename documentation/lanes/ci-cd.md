@@ -4,6 +4,11 @@ GitHub Actions workflows, test suites, E2E infrastructure, and deployment pipeli
 
 **Audience:** Developers
 
+## Contents
+
+- [CI/CD (GitHub Actions)](#cicd-github-actions)
+- [Testing](#testing)
+
 ---
 
 ## CI/CD (GitHub Actions)
@@ -102,7 +107,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 5. **injection**: Tests host header injection (spoofed `Host` returns 403), `X-Forwarded-Host` has no effect on content, CL/TE request smuggling is rejected, and path traversal payloads (`%2e%2e`, double-encoded, backslash, unicode) are blocked at the auth layer.
 6. **http-methods**: Verifies TRACE returns 405 and WebSocket upgrade without authentication returns 302.
 
-**Requires:** `PENTEST_TARGET` variable set in the `production` GitHub environment (e.g., `https://codeflare.ch`). See the full manual test report in [PENTEST.md](PENTEST.md).
+**Requires:** `PENTEST_TARGET` variable set in the `production` GitHub environment (e.g., `https://codeflare.ch`). See the full manual test report in [pentest.md](pentest.md).
 
 ---
 
@@ -222,5 +227,5 @@ E2E_MOBILE=1 npm run test:e2e:ui  # UI mobile tests only
 ## Related Documentation
 - [Deployment](deployment.md) - Development commands and file structure
 - [Configuration](configuration.md#secrets) - Worker secrets and variables
-- [PENTEST.md](PENTEST.md) - Penetration testing results
-- [STRESS_TEST.md](STRESS_TEST.md) - Load testing guide
+- [pentest.md](pentest.md) - Penetration testing results
+- [stress-test.md](stress-test.md) - Load testing guide

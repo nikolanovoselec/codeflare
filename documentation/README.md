@@ -1,8 +1,30 @@
 # Codeflare Documentation
 
-Technical reference documentation for Codeflare.
+Operator and developer reference for Codeflare - an ephemeral cloud IDE that runs AI coding agents in isolated containers on Cloudflare's edge.
 
----
+This documentation is organized into **lanes** - each file targets a specific audience (operator, developer, or security) and covers one operational slice of the system. Facts live in one place and are cross-referenced elsewhere. When documentation implements a specification requirement, the file links back to the relevant REQ in `sdd/` via anchor references.
+
+The specification (`sdd/`) defines what the system should do. This documentation describes how it works in production - configuration, troubleshooting, architecture, and operational procedures. Together they form a closed loop: requirements drive implementation, implementation is documented, and documentation links back to requirements.
+
+## Documentation Principles
+
+1. **Operator-focused lanes** - Each document targets a specific audience and covers one concern. An operator looking for sync troubleshooting finds it in Storage & Sync, not scattered across Architecture and Deployment.
+
+2. **Spec-backed** - Documentation implements specification requirements. REQ backlinks at the bottom of each file connect operational docs to their acceptance criteria in `sdd/`.
+
+3. **Single source of truth** - Each fact lives in exactly one file. Other files cross-reference via markdown links rather than duplicating content. When a detail changes, it changes in one place.
+
+4. **Decisions recorded** - Architecture decisions are captured as numbered ADRs in `decisions/README.md` with context, rationale, and trade-offs. Code comments and documentation reference ADR numbers rather than re-explaining the reasoning.
+
+## Audience Guide
+
+| Audience | Start here |
+|----------|------------|
+| Operator | [Configuration](lanes/configuration.md), [Container](lanes/container.md), [Storage & Sync](lanes/storage-and-sync.md), [Troubleshooting](lanes/troubleshooting.md) |
+| Developer | [Architecture](lanes/architecture.md), [API Reference](lanes/api-reference.md), [CI/CD](lanes/ci-cd.md), [Preseed System](lanes/preseed.md) |
+| Security | [Security](lanes/security.md), [Penetration Testing](lanes/pentest.md), [Authentication](lanes/authentication.md) |
+
+## Lane Index
 
 | Document | Description | Audience |
 |----------|-------------|----------|
@@ -20,15 +42,15 @@ Technical reference documentation for Codeflare.
 | [Development & Deployment](lanes/deployment.md) | Dev setup, file structure, cost analysis | Developers |
 | [Troubleshooting](lanes/troubleshooting.md) | Diagnostic commands, common failures, resolutions | Operators |
 | [Mobile Terminal](lanes/mobile.md) | Keyboard handling, scroll stability, touch input | Developers |
-| [Memory](lanes/memory.md) | Vault-based cross-session memory, automatic capture to Raw/Sessions/, hook mechanics | Developers |
-| [Vault](lanes/vault.md) | Persistent user note vault, unified graphify graph, SilverBullet editor | Developers |
-| [Preseed System](lanes/preseed.md) | Session modes, manifest pipeline, multi-agent adaptation, hooks | Developers |
-| [Preseed Troubleshooting](lanes/preseed-troubleshooting.md) | Hook debugging, attribution blocking, checkpoint reset | Developers |
-| [Token Scopes](lanes/token-scopes.md) | GitHub PAT and Cloudflare API token scope guidance | Operators |
+| [Vault](lanes/vault.md) | Persistent user note vault, cross-session memory capture, unified graphify graph, SilverBullet editor | Developers |
+| [Preseed System](lanes/preseed.md) | Session modes, manifest pipeline, multi-agent adaptation, hooks, troubleshooting | Developers |
 | [Architecture Decisions](decisions/README.md) | 59 ADRs (44 active) with rationale and trade-offs | Developers |
-| [Penetration Testing](lanes/PENTEST.md) | Security scan results | Security |
-| [Stress Testing](lanes/STRESS_TEST.md) | Load testing guide | Operators |
-| [Stress Testing Results](lanes/STRESS_TEST-results.md) | Latest benchmark results, file index, Timekeeper load | Operators |
+| [Penetration Testing](lanes/pentest.md) | Security scan results | Security |
+| [Stress Testing](lanes/stress-test.md) | Load testing guide, latest benchmark results | Operators |
+
+## Architecture Decisions
+
+All significant design choices are recorded as Architecture Decision Records (ADRs) with context, alternatives considered, and rationale. See [decisions/README.md](decisions/README.md) for the full ledger.
 
 ## Other Documentation
 

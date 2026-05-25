@@ -80,37 +80,7 @@ In SaaS mode, the admin group is NOT included in the CF Access policy because ad
 
 ## Frontend Components
 
-### LoginPage (`web-ui/src/components/LoginPage.tsx`)
-
-Shown at `/` when `SAAS_MODE=active`. Detects current auth state:
-- Active tier -> redirect to `/app/`; pending -> redirect to `/app/subscribe`; blocked -> show blocked message
-- If unauthenticated, fetches providers from `/public/auth/providers` and renders GitHub login button
-
-### SubscribePage (`web-ui/src/components/SubscribePage.tsx`)
-
-Shown at `/app/subscribe`. Two-phase layout:
-
-**Phase 1 (home view):** Logo, feature highlights, status area (varies by user state).
-
-**Phase 2 (plan view):** Mode card (Standard/Pro toggle), lifeline rail (5 plan stops: free -> standard -> advanced -> max -> unlimited), detail panel (price, hours, sessions, CTA button). Tier name and price use `useScrambleText` for decrypt animation on selection change.
-
-**Status text by user state:**
-| State | Text | Color |
-|-------|------|-------|
-| Pending | "Not Subscribed" | Orange |
-| Active | "Subscribed" | Green + "Continue" link |
-| Blocked | "Blocked" | Red |
-
-### RootPage (`web-ui/src/App.tsx`)
-
-Determines deployment mode from backend:
-1. Calls `/public/auth/providers` - if providers returned, show LoginPage (SaaS mode)
-2. Calls `/public/onboarding-config` - if active, show OnboardingLanding
-3. Otherwise, redirect to `/app/` (default mode with CF Access)
-
-### Admin User Management
-
-Admin users always have `unlimited` tier and advanced session mode access (`canUseAdvanced()` returns `true` for admins). Backend rejects tier changes and deletions for admin-role users. `SettingsPanel` re-fetches `/api/user` each time it opens for live tier refresh.
+See [Architecture Internals - Frontend Components](architecture-internals.md#frontend-components) for LoginPage, SubscribePage, RootPage, and admin user management details.
 
 ---
 

@@ -4,6 +4,12 @@ Development setup, project file structure, and cost analysis.
 
 **Audience:** Developers, Operators
 
+## Contents
+
+- [Development](#development)
+- [File Structure](#file-structure)
+- [Cost Analysis](#cost-analysis)
+
 ---
 
 ## Development
@@ -26,109 +32,20 @@ cd web-ui && npm run build # Frontend production build
 
 ```
 codeflare/
-├── src/
-│   ├── index.ts              # Hono router, WebSocket intercept, CORS
-│   ├── types.ts              # TypeScript types
-│   ├── routes/
-│   │   ├── container/        # Container lifecycle API
-│   │   │   ├── index.ts      # Route aggregator
-│   │   │   ├── lifecycle.ts  # Start/destroy
-│   │   │   ├── status.ts     # Health, startup-status
-│   │   │   └── shared.ts     # Shared helpers
-│   │   ├── session/          # Session API
-│   │   │   ├── index.ts      # Route aggregator
-│   │   │   ├── crud.ts       # CRUD operations
-│   │   │   └── lifecycle.ts  # Start/stop/status/batch-status
-│   │   ├── setup/            # Setup wizard
-│   │   │   ├── index.ts      # Route aggregator
-│   │   │   ├── handlers.ts   # Main configure handler
-│   │   │   ├── secrets.ts    # Secret management
-│   │   │   ├── custom-domain.ts # Domain configuration
-│   │   │   ├── access.ts     # CF Access setup
-│   │   │   ├── account.ts    # Account discovery
-│   │   │   ├── credentials.ts # R2 credential setup
-│   │   │   ├── turnstile.ts  # Turnstile widget setup
-│   │   │   └── shared.ts     # Shared helpers
-│   │   ├── storage/          # R2 file browser API
-│   │   │   ├── index.ts      # Route aggregator
-│   │   │   ├── browse.ts     # List objects
-│   │   │   ├── delete.ts     # Delete objects
-│   │   │   ├── download.ts   # Download files
-│   │   │   ├── preview.ts    # Preview content
-│   │   │   ├── seed.ts       # Seed tutorial docs
-│   │   │   ├── stats.ts      # File/folder counts
-│   │   │   ├── upload.ts     # Upload (single + multipart)
-│   │   │   └── validation.ts # Path validation
-│   │   ├── admin/
-│   │   │   └── tiers.ts      # Admin tier management (GET/PUT /api/admin/tiers)
-│   │   ├── public/
-│   │   │   └── index.ts      # Onboarding endpoints + public tiers
-│   │   ├── auth.ts           # Auth routes (status, subscribe, request-access, contact-team)
-│   │   ├── auth-redirects.ts # Login/logout redirects (CF Access)
-│   │   ├── github-auth.ts    # GitHub OAuth flow (SaaS mode)
-│   │   ├── billing.ts        # Stripe billing (checkout, portal, switch, status)
-│   │   ├── stripe-webhook.ts # Stripe webhook handler (HMAC-verified)
-│   │   ├── deploy-keys.ts    # Deploy credential CRUD (GitHub PAT, CF API token)
-│   │   ├── llm-keys.ts       # LLM API key CRUD (OpenAI, Gemini)
-│   │   ├── usage.ts          # Usage API (real-time via Timekeeper DO, KV fallback)
-│   │   ├── presets.ts        # Preset CRUD
-│   │   ├── preferences.ts    # User preferences
-│   │   ├── terminal.ts       # Terminal WebSocket proxy
-│   │   ├── user-profile.ts   # User info
-│   │   └── users.ts          # User management
-│   ├── timekeeper/index.ts    # Timekeeper DO class (per-user usage tracking)
-│   ├── middleware/            # auth.ts, rate-limit.ts
-│   ├── lib/                  # access, access-policy, access-tier, activity-policy, agent-config,
-│   │                         # agent-seed.generated, cache-reset, cf-api,
-│   │                         # circuit-breaker, circuit-breakers (per-container CB via
-│   │                         #   getContainerXxxCB(containerId) — no more global singletons),
-│   │                         # constants, container-helpers,
-│   │                         # container-config-schema, cors-cache, email, error-types,
-│   │                         # jwt, kv-crypto, kv-keys, logger, onboarding,
-│   │                         # r2-admin, r2-client, r2-config, r2-seed, r2-sse,
-│   │                         # rate-limit-core, request-helpers, schemas,
-│   │                         # session-helpers, session-jwt, session-mode,
-│   │                         # stripe, subscription, tutorial-seed.generated,
-│   │                         # turnstile, type-guards, user-cleanup, user-record, xml-utils
-│   │                         #   escapeXml() — sanitizes user input for XML/HTML interpolation
-│   │                         #   decodeXmlEntities() — decodes &amp; &lt; etc. from R2 S3 API responses
-│   │                         #   FIX-39 audit trail in file header tracks all interpolation sites
-│   ├── container/            # index.ts (Container DO), container-env.ts (env var construction), container-metrics.ts (metrics/idle/Timekeeper)
-│   └── __tests__/            # Backend unit tests (96 files)
-├── e2e/                      # E2E tests: 12 API files (~55 tests) + 10 UI files (~75 tests, Puppeteer)
-├── host/                        # TypeScript (migrated from JS)
-│   ├── src/
-│   │   ├── server.ts         # HTTP/WS server, auth, routing, prewarm, signal handlers
-│   │   ├── session.ts        # Session class — PTY management, tab lifecycle
-│   │   ├── session-manager.ts # SessionManager class, PREWARM_SESSION_ID constant
-│   │   ├── metrics.ts        # System metrics collection (disk usage, sync status)
-│   │   ├── activity-tracker.ts # WS connection + user input tracking for idle detection (input-change based)
-│   │   ├── prewarm-config.ts # PTY pre-warm configuration (first-output readiness)
-│   │   └── types.ts          # Shared TypeScript types
-│   ├── __tests__/            # Host unit tests (15 files: prewarm, activity tracker, WS input, session manager, container memory, metrics, server prewarm, server security, host fixes, fuzz, entrypoint sync/ECC/hooks, memory capture hook)
-│   ├── tsconfig.json         # TypeScript configuration
-│   ├── knip.json             # Dead code detection config for host package
-│   └── package.json
-├── web-ui/
-│   └── src/
-│       ├── components/       # SolidJS components (Terminal, Layout, SessionCard, StorageBrowser,
-│       │                     #   SubscribePage, UsagePage, Header, SettingsPanel, LoginPage,
-│       │                     #   admin/SubscriptionManagement, settings/SessionSection, etc.)
-│       ├── stores/           # terminal.ts, terminal-layout.ts, terminal-url-detection.ts, session.ts, storage.ts, setup.ts, tiling.ts, session-presets.ts, session-tabs.ts, preferences.ts, r2-readiness.ts
-│       ├── api/              # client.ts, fetch-helper.ts, storage.ts
-│       ├── hooks/            # useTerminal.ts, useStageTimings.ts
-│       ├── lib/              # constants, schemas, terminal-config, terminal-link-provider, xterm-internals, settings, format, mobile, sleep-timer, + others
-│       ├── styles/           # CSS (design tokens, animations, component styles)
-│       └── __tests__/        # Frontend unit tests (78 files)
-├── .oxlintrc.json            # oxlint configuration (root + web-ui)
-├── scripts/                  # generate-tutorial-seed.mjs, generate-agent-seed.mjs, fix-broken-sourcemaps.js
-├── tutorials/                # Tutorial content (Getting Started, Examples, etc.)
-├── Dockerfile                # Multi-stage container image
-├── entrypoint.sh             # Container startup script
-├── wrangler.toml             # Cloudflare configuration
-├── vitest.config.ts          # Backend test config
-└── vitest.e2e.config.ts      # E2E test config
+├── src/               # Worker source (Hono router, routes, middleware, lib, Container DO)
+├── e2e/               # E2E tests: API (12 files) + UI (10 files, Puppeteer)
+├── host/              # Terminal server (TypeScript) - HTTP/WS, PTY, activity tracking
+├── web-ui/            # SolidJS frontend - components, stores, styles
+├── scripts/           # Code generation (tutorial-seed, agent-seed, sourcemap fix)
+├── tutorials/         # Tutorial content (Getting Started, Examples)
+├── Dockerfile         # Multi-stage container image
+├── entrypoint.sh      # Container startup script (sync, agent config, hooks)
+├── wrangler.toml      # Cloudflare Workers + Containers configuration
+├── vitest.config.ts   # Backend test config
+└── vitest.e2e.config.ts # E2E test config
 ```
+
+For the current tree, run `tree -L 2 -I node_modules` from the repo root.
 
 ### Intentional Schema Duplication (Bundle Boundary)
 
@@ -146,6 +63,8 @@ codeflare/
 | `/tmp/sync.log` | Sync log for debugging |
 
 ## Cost Analysis
+
+Estimated monthly costs per active user based on Cloudflare Containers pricing.
 
 ### Per-Container Pricing
 
