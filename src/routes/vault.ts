@@ -781,7 +781,7 @@ export async function handleVaultRequest(
     // unencrypted -- the exact regression REQ-VAULT-008 AC5 forbids.
     const isShellPathPre =
       remainingPath === '/' || remainingPath === '/index.html';
-    if (isShellPathPre && !isWebSocket && !hasVaultBootstrapCookie(request)) {
+    if (isShellPathPre && !isWebSocket && request.method === 'GET' && !hasVaultBootstrapCookie(request)) {
       return new Response(null, {
         status: 302,
         headers: {
