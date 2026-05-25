@@ -119,7 +119,6 @@ Six parallel jobs, each running lightweight external probes against the producti
 ### Backend Tests
 
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js).
-**Count:** 96 test files.
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
@@ -128,14 +127,12 @@ Six parallel jobs, each running lightweight external probes against the producti
 ### Frontend Tests
 
 **Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
-**Count:** 78 test files.
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
 ### Host Tests
 
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
-**Count:** 57 test files.
 **Run:** `cd host && npm test` (also runs in CI via `node --test host/__tests__/*.test.js`)
 **Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect + input tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup, container memory tracking, entrypoint ECC validation, entrypoint hooks merge, metrics collection, session manager lifecycle, proactive memory injection (memory-context-inject.sh), graphify SessionStart three-tier fallback, graphify discipline preseed checks.
 
