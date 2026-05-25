@@ -210,9 +210,9 @@ All preseed content is deployed via the manifest pipeline:
   doc-enforce-shape, doc-enforce-truth, tdd-enforce,
   git-review-pipeline, graphify
 - `plugins/` (31): known_marketplaces.json (default+advanced),
-  codeflare-memory plugin (5 files, advanced only: plugin.json,
-  memory-capture.sh, memory-agent-prompt.md, prefilter-transcript.sh,
-  memory-context-inject.sh),
+  codeflare-memory plugin (7 files, advanced only: plugin.json,
+  memory-capture.sh, memory-capture-block.sh, memory-agent-prompt.md,
+  prefilter-transcript.sh, assert-iso-ts.sh, memory-context-inject.sh),
   codeflare-vault plugin (3 files, advanced only: plugin.json,
   vault-monitor-hook.sh, vault-extract-prompt.md), codeflare-hooks
   plugin (7 files, advanced only: plugin.json,
