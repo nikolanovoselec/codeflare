@@ -222,6 +222,7 @@ E2E_MOBILE=1 npm run test:e2e:ui  # UI mobile tests only
 - [REQ-OPS-004](../../sdd/spec/operations.md#req-ops-004-e2e-test-workflow-setup-and-job-graph) - E2E test workflow setup and job graph
 - [REQ-OPS-015](../../sdd/spec/operations.md#req-ops-015-e2e-per-suite-execution-and-artifact-handling) - E2E per-suite execution and artifact handling
 - [REQ-OPS-018](../../sdd/spec/operations.md#req-ops-018-weekly-fuzz-testing) - Weekly fuzz testing
+- [REQ-OPS-020](../../sdd/spec/operations.md#req-ops-020-shadow-pin-version-bump-automation) - Shadow-pin version bump automation
 
 ---
 
