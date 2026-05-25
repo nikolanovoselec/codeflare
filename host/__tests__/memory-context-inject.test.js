@@ -1,6 +1,6 @@
 // Verifies REQ-MEM-013: Proactive memory injection on first prompt.
 //   AC1: extracts keywords from prompt, queries unified graph for matches
-//   AC2: injects matched nodes as additionalContext (~1000 token budget)
+//   AC2: injects matched nodes as additionalContext (budget cap not asserted - @test omits AC2)
 //   AC3: fires exactly once per session (sentinel file gate)
 //   AC4: skips prompts shorter than 20 characters
 import { describe, it, before } from 'node:test';
