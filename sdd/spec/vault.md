@@ -204,7 +204,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Verification:** Manual check
 
-**Status:** Implemented
+**Status:** Partial
+
+<!-- coverage-gap: PDF error-path ingestion (AC4 - corrupt/password-protected/unsupported-encoding read failures emitting bare node + high-water marker advance) has no dedicated automated test -->
 
 ---
 

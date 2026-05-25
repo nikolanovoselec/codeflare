@@ -175,7 +175,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-001](vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** [Integration test](../../host/__audits__/entrypoint-vault.audit.js)
+**Verification:** [Structural audit](../../host/__audits__/entrypoint-vault.audit.js)
 
 **Status:** Implemented
 
