@@ -13,7 +13,7 @@ GitHub Actions workflows, test suites, E2E infrastructure, and deployment pipeli
 
 ## CI/CD (GitHub Actions)
 
-Eight workflows covering deploy, testing, fuzzing, penetration testing, stress testing, and supply chain security. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
+Nine workflows covering deploy, testing, fuzzing, penetration testing, stress testing, and supply chain security. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
 
 ### Dependabot Configuration
 
@@ -31,6 +31,7 @@ Dependabot runs weekly against the `develop` branch for three npm package direct
 | `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
 | `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
 | `stress-test.yml` | `workflow_dispatch` | k6 stress tests (API throughput, session lifecycle, storage operations, WebSocket concurrency) against integration worker. Configurable concurrency via `STRESS_TEST_CONCURRENCY` variable. |
+| `deploy-dockerhub.yml` | `workflow_dispatch` (production/integration) | Fallback deploy pipeline identical to `deploy.yml` but pushes the container image to Docker Hub instead of `registry.cloudflare.com`. Used when the Cloudflare managed registry drops connections mid-upload. Requires `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets. |
 
 ### GitHub Environments
 
@@ -50,6 +51,8 @@ Dependabot runs weekly against the `develop` branch for three npm package direct
 | `RESEND_API_KEY` | If onboarding or SaaS mode active | `deploy.yml` | Notification emails via Resend (waitlist submissions + access requests) |
 | `CF_ACCESS_CLIENT_ID` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token ID for E2E auth |
 | `CF_ACCESS_CLIENT_SECRET` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token secret; also used as `SERVICE_AUTH_SECRET` worker secret and KV seeding |
+| `DOCKERHUB_USERNAME` | For Docker Hub fallback | `deploy-dockerhub.yml` | Docker Hub account that owns the image repo |
+| `DOCKERHUB_TOKEN` | For Docker Hub fallback | `deploy-dockerhub.yml` | Access token (read+write+delete scope) for pushing images |
 
 **Variables:**
 
