@@ -269,9 +269,9 @@ files exist on disk.
 
 **Excluded from non-CC agents**: hooks (CC hook system), commands (CC
 slash commands), plugins (CC plugin system, including
-codeflare-memory and codeflare-vault), `rules/memory.md` (references
+codeflare-memory and codeflare-vault), `preseed/agents/claude/rules/memory.md` (references
 CC-specific `mcp__graphify__*` tools and the vault hook system; the
-vault trigger/route content lives in memory.md as folded subsections,
+vault trigger/route content lives in that preseed rule as folded subsections,
 not a separate rules/vault.md), `consult-llm` skill (depends on
 CC-specific MCP tool).
 

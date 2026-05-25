@@ -80,7 +80,7 @@ In SaaS mode, the admin group is NOT included in the CF Access policy because ad
 
 ## Frontend Components
 
-See [Architecture Internals - Frontend Components](architecture-internals.md#frontend-components) for LoginPage, SubscribePage, RootPage, and admin user management details.
+See [Architecture Internals - SaaS UI Components](architecture-internals.md#saas-ui-components) for LoginPage, SubscribePage, RootPage, and admin user management details.
 
 ---
 

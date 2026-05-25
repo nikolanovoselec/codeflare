@@ -50,7 +50,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** None.
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/lib/auth-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -86,7 +86,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/routes/github-auth.test.ts)
 
 **Status:** Implemented
 
@@ -122,7 +122,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/lib/jwt.test.ts)
 
 **Status:** Implemented
 
@@ -155,7 +155,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-011](#req-auth-011-auth-resolution-order)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/auth-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -188,7 +188,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/middleware/auth-saas.test.ts)
 
 **Status:** Implemented
 
@@ -218,7 +218,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/access.test.ts)
 
 **Status:** Implemented
 
@@ -252,7 +252,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-005](#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/lib/access.test.ts)
 
 **Status:** Implemented
 
@@ -285,7 +285,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/auth-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -317,7 +317,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/auth-redirects.test.ts)
 
 **Notes:** Logout dispatch is covered by automated tests at `src/__tests__/routes/auth-redirects.test.ts`.
 
@@ -352,7 +352,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-003](#req-auth-003-cf-access-mode-for-all-other-deployments)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/auth-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -383,7 +383,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-001](#req-auth-001-two-authentication-modes), [REQ-AUTH-010](#req-auth-010-auth-bypass-prevention)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/auth-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -416,7 +416,7 @@ None. Authentication is foundational; other domains depend on it.
 
 **Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/lib/email.test.ts)
 
 **Status:** Implemented
 
@@ -445,7 +445,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../web-ui/src/__tests__/components/LoginPage.test.tsx)
 
 **Status:** Implemented
 
@@ -476,7 +476,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-008](#req-auth-008-session-cookie-auto-refresh)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 
@@ -506,7 +506,7 @@ None.
 
 **Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode), [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../web-ui/src/__tests__/components/OnboardingPage.test.tsx)
 
 **Status:** Implemented
 
@@ -535,7 +535,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../web-ui/src/__tests__/components/Header.test.tsx)
 
 **Notes:** Dropdown items, mobile sheet, and desktop positioning are covered by `web-ui/src/__tests__/components/Header.test.tsx`.
 
@@ -568,7 +568,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../web-ui/src/__tests__/lib/gravatar.test.ts)
 
 **Notes:** Lookup contract is covered by `web-ui/src/__tests__/lib/gravatar.test.ts`; fallback rendering is covered by `web-ui/src/__tests__/components/Header.test.tsx`.
 
@@ -603,6 +603,6 @@ None.
 
 **Dependencies:** [REQ-AUTH-005](#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/routes/users.test.ts)
 
 **Status:** Implemented

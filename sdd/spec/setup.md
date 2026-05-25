@@ -53,7 +53,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** None.
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -92,7 +92,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -125,7 +125,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -158,7 +158,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/lib/onboarding.test.ts)
 
 **Status:** Implemented
 
@@ -192,7 +192,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/setup-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -225,7 +225,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/setup/handlers.test.ts)
 
 **Status:** Implemented
 
@@ -257,7 +257,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/setup/handlers.test.ts)
 
 **Status:** Implemented
 
@@ -287,7 +287,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/setup/handlers.test.ts)
 
 **Status:** Implemented
 
@@ -323,7 +323,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/setup-007-custom-domain-ac.test.ts)
 
 **Status:** Implemented
 
@@ -355,7 +355,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/setup/handlers.test.ts)
 
 **Status:** Implemented
 
@@ -386,7 +386,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SUB-001](subscription.md#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../web-ui/src/__tests__/components/SubscribePage.test.tsx)
 
 **Status:** Implemented
 

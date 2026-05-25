@@ -62,7 +62,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../host/__tests__/memory-capture-hook.test.js)
 
 **Status:** Implemented
 
@@ -100,7 +100,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/memory-capture-hook.test.js)
 
 **Status:** Implemented
 
@@ -135,7 +135,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/memory-capture-hook.test.js)
 
 **Status:** Implemented
 
@@ -175,7 +175,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-001](vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../host/__audits__/entrypoint-vault.audit.js)
 
 **Status:** Implemented
 
@@ -206,7 +206,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/lib/pro-mode-gating.test.ts)
 
 **Status:** Implemented
 
@@ -241,7 +241,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../host/__tests__/entrypoint-hooks-merge.test.js)
 
 **Status:** Implemented
 
@@ -276,7 +276,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-AGENT-003](agents.md#req-agent-003-agent-cli-auto-started-in-tab-1)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 
@@ -309,7 +309,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) (capture pipeline contract), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown) (vault is always-on in the global graph)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/vault-extract-merge.test.js)
 
 **Status:** Implemented
 
@@ -341,6 +341,6 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/memory-capture-block.test.js)
 
 **Status:** Implemented

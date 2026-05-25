@@ -53,7 +53,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../web-ui/src/__tests__/lib/mobile.test.ts)
 
 **Status:** Implemented
 
@@ -90,7 +90,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../web-ui/src/__tests__/lib/mobile.test.ts)
 
 **Status:** Implemented
 
@@ -192,7 +192,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -222,7 +222,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-MOB-004](#req-mob-004-scroll-drop-detection-during-burst-output)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -463,6 +463,6 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../web-ui/src/__tests__/lib/mobile.test.ts)
 
 **Status:** Implemented

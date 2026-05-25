@@ -53,7 +53,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -95,7 +95,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -128,7 +128,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/subscription.test.ts)
 
 **Status:** Implemented
 
@@ -170,7 +170,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-003](#req-sub-003-free-tier-requires-no-payment)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/routes/auth-subscribe.test.ts)
 
 **Status:** Implemented
 
@@ -210,7 +210,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/routes/admin-tiers.test.ts)
 
 **Status:** Implemented
 
@@ -245,7 +245,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/timekeeper/index.test.ts)
 
 **Status:** Implemented
 
@@ -279,7 +279,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/timekeeper/index.test.ts)
 
 **Status:** Implemented
 
@@ -311,7 +311,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-007](#req-sub-007-quota-enforcement-at-session-start-402)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/container-metrics.test.ts)
 
 **Status:** Implemented
 
@@ -347,7 +347,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -381,7 +381,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-009](#req-sub-009-admin-configurable-tiers-via-management-panel)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -414,7 +414,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts)
 
 **Status:** Implemented
 
@@ -450,7 +450,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/subscription.test.ts)
 
 **Status:** Implemented
 
@@ -482,7 +482,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/container-lifecycle.test.ts)
 
 **Status:** Implemented
 
@@ -514,7 +514,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/pro-mode-gating.test.ts)
 
 **Status:** Implemented
 
@@ -555,7 +555,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/routes/stripe-webhook.test.ts)
 
 **Status:** Implemented
 
@@ -593,7 +593,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/routes/billing.test.ts)
 
 **Status:** Implemented
 
@@ -625,7 +625,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/routes/contact-team.test.ts)
 
 **Status:** Implemented
 
@@ -658,7 +658,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/routes/usage.test.ts)
 
 **Status:** Implemented
 
@@ -686,7 +686,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-013](#req-sub-013-concurrent-session-limits)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
 
 **Status:** Implemented
 
@@ -721,7 +721,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/stripe.test.ts)
 
 **Status:** Implemented
 
@@ -752,6 +752,6 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/billing.test.ts)
 
 **Status:** Implemented

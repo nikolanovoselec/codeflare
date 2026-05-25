@@ -55,7 +55,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/agent-config.test.ts)
 
 **Status:** Implemented
 
@@ -89,7 +89,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/agent-config.test.ts)
 
 **Status:** Implemented
 
@@ -124,7 +124,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../host/__tests__/entrypoint-tab-autostart.test.js)
 
 **Status:** Implemented
 
@@ -159,7 +159,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/session-mode.test.ts)
 
 **Status:** Implemented
 
@@ -195,7 +195,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/entrypoint-context-mode.test.js)
 
 **Status:** Implemented
 
@@ -230,7 +230,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 
@@ -263,7 +263,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 
@@ -303,7 +303,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/lib/r2-seed.test.ts)
 
 **Status:** Implemented
 
@@ -338,7 +338,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/llm-keys.test.ts)
 
 **Status:** Implemented
 
@@ -370,7 +370,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/deploy-keys.test.ts)
 
 **Status:** Implemented
 
@@ -507,7 +507,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 
@@ -567,7 +567,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../host/__tests__/entrypoint-hooks-merge.test.js)
 
 **Status:** Partial
 
@@ -598,7 +598,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/dockerfile-graphify.test.js)
 
 **Status:** Implemented
 
@@ -631,7 +631,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/routes/deploy-keys.test.ts)
 
 **Status:** Implemented
 
@@ -692,7 +692,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../src/__tests__/routes/llm-keys.test.ts)
 
 **Status:** Implemented
 
@@ -1229,7 +1229,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-008](#req-agent-008-preseed-deployed-to-container-on-start)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/entrypoint-graphify-mcp.test.js)
 
 **Status:** Implemented
 
@@ -1271,7 +1271,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/entrypoint-graphify-hooks.test.js)
 
 **Status:** Implemented
 
@@ -1304,7 +1304,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-VAULT-004](vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/enforce-graphify.test.js)
 
 **Status:** Implemented
 
@@ -1335,7 +1335,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Automated test (AC4-AC5 verified; AC1-AC3 pending)
+**Verification:** [Automated test](../../host/__tests__/skill-graphify-content.test.js) (AC4-AC5 verified; AC1-AC3 pending)
 
 **Status:** Partial
 
@@ -1366,7 +1366,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/graphify-clone-prompt.test.js)
 
 **Status:** Implemented
 
@@ -1398,7 +1398,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/entrypoint-graphify-bisync.test.js)
 
 **Status:** Implemented
 
@@ -1428,7 +1428,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/enforce-ctx-mode-graphify.test.js)
 
 **Status:** Implemented
 
@@ -1487,7 +1487,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/container/container-env.test.ts)
 
 **Status:** Implemented
 
@@ -1517,7 +1517,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 
@@ -1548,7 +1548,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/container/container-env.test.ts)
 
 **Status:** Implemented
 

@@ -52,7 +52,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
 
 **Status:** Implemented
 
@@ -82,7 +82,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
 
 **Status:** Implemented
 
@@ -115,7 +115,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-011](security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
 
 **Status:** Implemented
 
@@ -146,7 +146,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
 
 **Status:** Implemented
 
@@ -180,7 +180,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
 
 **Status:** Implemented
 
@@ -209,7 +209,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
 
 **Status:** Implemented
 
@@ -240,7 +240,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline), [REQ-SEC-012](security.md#req-sec-012-container-auth-token-per-do-lifecycle)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../host/__tests__/workflow-e2e.test.js)
 
 **Status:** Implemented
 
@@ -271,7 +271,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-004](#req-ops-004-e2e-test-workflow-setup-and-job-graph)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../host/__tests__/workflow-e2e.test.js)
 
 **Status:** Implemented
 
@@ -301,7 +301,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
 
 **Status:** Implemented
 
@@ -329,7 +329,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response), [REQ-SEC-009](security.md#req-sec-009-input-validation-at-system-boundaries), [REQ-SEC-010](security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
 
 **Status:** Implemented
 
@@ -395,7 +395,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/session-sleep-timeout.test.ts)
 
 **Notes:** Preference persistence and lifecycle are covered by `src/__tests__/container/index.test.ts` (DO setBucketName + constructor reload + destroy paths).
 
@@ -427,7 +427,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero), [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/container-metrics.test.ts)
 
 **Notes:** Fail-safe invariants are covered by `src/__tests__/container/container-metrics.test.ts` and `src/__tests__/container/index.test.ts`.
 
@@ -463,7 +463,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
 
 **Status:** Implemented
 
@@ -503,7 +503,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SEC-007](security.md#req-sec-007-rate-limiting-infrastructure), [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../host/__tests__/workflow-stress-test.test.js)
 
 **Status:** Implemented
 
@@ -536,7 +536,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
 
 **Status:** Implemented
 
@@ -573,7 +573,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-STOR-001](storage.md#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../host/__tests__/entrypoint-shutdown.test.js)
 
 **Status:** Implemented
 
@@ -600,7 +600,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../host/__tests__/dockerfile-base-image.test.js)
 
 **Status:** Implemented
 
@@ -630,6 +630,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-001](#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../host/__tests__/workflow-deploy-max-instances.test.js)
 
 **Status:** Implemented

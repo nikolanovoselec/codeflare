@@ -66,7 +66,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-STOR-002](storage.md#req-stor-002-file-persistence-across-sessions) (file persistence across sessions), [REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) (15-min bisync), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start) (initial sync restores files on container start)
 
-**Verification:** Structural audit
+**Verification:** [Structural audit](../../host/__audits__/entrypoint-vault.audit.js)
 
 **Status:** Implemented
 
@@ -101,7 +101,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Structural audit
+**Verification:** [Structural audit](../../host/__audits__/entrypoint-vault.audit.js)
 
 **Status:** Implemented
 
@@ -136,7 +136,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Structural audit
+**Verification:** [Structural audit](../../host/__audits__/entrypoint-vault.audit.js)
 
 **Status:** Implemented
 
@@ -172,7 +172,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Structural audit
+**Verification:** [Structural audit](../../host/__audits__/entrypoint-vault.audit.js)
 
 **Status:** Implemented
 
@@ -202,7 +202,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s)
 
-**Verification:** Integration test
+**Verification:** [Integration test](../../documentation/lanes/vault.md)
 
 **Status:** Implemented
 
@@ -236,7 +236,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions), [REQ-VAULT-002](#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s)
 
-**Verification:** Structural audit
+**Verification:** [Structural audit](../../host/__audits__/entrypoint-vault.audit.js)
 
 **Status:** Implemented
 
@@ -272,7 +272,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
 
 **Status:** Implemented
 
@@ -306,7 +306,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../web-ui/src/__tests__/lib/vault-readiness.test.ts)
 
 **Status:** Implemented
 
@@ -341,7 +341,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
 
 **Status:** Implemented
 
@@ -372,7 +372,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
 
-**Verification:** Structural audit
+**Verification:** [Structural audit](../../host/__audits__/entrypoint-vault.audit.js)
 
 **Status:** Implemented
 
@@ -406,7 +406,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-SESSION-009](session-lifecycle.md#req-session-009-container-destroy-wipes-session-state) (container destroy wipes session state), [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) (graceful shutdown with final sync), [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync) (graceful shutdown performs final sync)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented
 
@@ -440,7 +440,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) (preseed configs from single source), [REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start) (preseed deployed to container on start), [REQ-AGENT-014](agents.md#req-agent-014-manifest-driven-preseed-pipeline) (manifest-driven preseed pipeline)
 
-**Verification:** Structural audit
+**Verification:** [Structural audit](../../host/__audits__/entrypoint-vault.audit.js)
 
 **Status:** Implemented
 
@@ -483,7 +483,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions) (vault directory survives sessions), [REQ-MEM-006](memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode) (Pro mode gating)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
 
 **Status:** Implemented
 
@@ -520,7 +520,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
 
 **Status:** Implemented
 
@@ -551,7 +551,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor)
 
-**Verification:** Automated test
+**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
 
 **Status:** Implemented
 
