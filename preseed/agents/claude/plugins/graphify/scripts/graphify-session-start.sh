@@ -25,6 +25,8 @@ INPUT=$(cat 2>/dev/null) || true
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 [ -z "$CWD" ] && CWD=$(pwd 2>/dev/null)
 [ -z "$CWD" ] && exit 0
+# Reject path traversal in CWD
+case "$CWD" in *..* ) exit 0 ;; esac
 GRAPH="$CWD/graphify-out/graph.json"
 REPORT="$CWD/graphify-out/GRAPH_REPORT.md"
 
@@ -38,12 +40,16 @@ emit_reminder() {
 }
 
 if [ -f "$GRAPH" ]; then
+  # Skip Tier 1 for graphs > 30MB (Python JSON parse too slow on 1-vCPU).
+  GRAPH_SIZE=$(stat -c%s "$GRAPH" 2>/dev/null) || GRAPH_SIZE=0
+  [ "$GRAPH_SIZE" -gt 31457280 ] && GRAPH_SIZE_SKIP=1 || GRAPH_SIZE_SKIP=0
+
   # Tier 1: compute god-nodes (highest-degree) from the raw graph JSON.
   # Pure Python - reads graph.json directly, no graphify CLI needed.
   # Budget: ~1500 tokens of context injected, enough for orientation
   # without bloating the system prompt.
   GOD_NODES=""
-  if command -v python3 >/dev/null 2>&1; then
+  if [ "$GRAPH_SIZE_SKIP" -eq 0 ] && command -v python3 >/dev/null 2>&1; then
     GOD_NODES=$(GRAPH_PATH="$GRAPH" timeout 10 python3 -c "
 import json, sys
 try:

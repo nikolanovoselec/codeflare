@@ -22,10 +22,19 @@ INPUT=$(cat 2>/dev/null) || true
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
 [ -z "$SESSION_ID" ] && exit 0
 
+# Sanitize session_id: UUID format only, reject path traversal.
+case "$SESSION_ID" in
+  *..* | */* | *\\*) exit 0 ;;
+esac
+[[ "$SESSION_ID" =~ ^[a-zA-Z0-9_-]+$ ]] || exit 0
+
 # Only fire once per session. Uses its own sentinel (not memory-capture's
 # counter file) so the two hooks are self-contained with no ordering dependency.
-INJECT_SENTINEL="$COUNTER_DIR/${SESSION_ID}.inject-done"
-[ -f "$INJECT_SENTINEL" ] && exit 0
+# mkdir is atomic on POSIX - it either creates (we won the race) or fails
+# (another invocation already claimed it). This closes the TOCTOU gap where
+# concurrent hooks could all see "no sentinel" between check and touch.
+INJECT_SENTINEL="$COUNTER_DIR/${SESSION_ID}.inject-lock"
+mkdir "$INJECT_SENTINEL" 2>/dev/null || exit 0
 
 # Extract the user's prompt text from the hook envelope.
 # Claude Code passes it as .prompt (string) in UserPromptSubmit hooks.
@@ -64,6 +73,9 @@ fi
 # Use Python directly against the graph JSON - avoids MCP round-trip
 # and works even if the MCP server hasn't started yet (SessionStart
 # race). Budget: ~1000 tokens of matched context.
+# Skip graphs > 30MB (Python JSON parse too slow on 1-vCPU)
+GRAPH_SIZE=$(stat -c%s "$GLOBAL_GRAPH" 2>/dev/null) || GRAPH_SIZE=0
+[ "$GRAPH_SIZE" -gt 31457280 ] && exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 MATCHED_CONTEXT=$(GRAPH_PATH="$GLOBAL_GRAPH" QUERY_KEYWORDS="$KEYWORDS" timeout 8 python3 -c "
 import json, sys, os
@@ -124,9 +136,6 @@ except Exception:
 " 2>/dev/null)
 
 [ -z "$MATCHED_CONTEXT" ] && exit 0
-
-# Mark as done so subsequent prompts skip immediately.
-touch "$INJECT_SENTINEL" 2>/dev/null || true
 
 # Inject as additionalContext - the agent sees this before responding.
 CONTEXT="$MATCHED_CONTEXT

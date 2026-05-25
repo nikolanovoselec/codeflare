@@ -99,7 +99,7 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     });
     assert.ok(run1.json, 'first run must emit context');
 
-    const sentinel = join(counterDir, 'once-test.inject-done');
+    const sentinel = join(counterDir, 'once-test.inject-lock');
     assert.ok(existsSync(sentinel), 'sentinel file must exist after first run');
 
     const run2 = runHook({
@@ -126,7 +126,7 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     });
     assert.equal(status, 0);
     assert.equal(stdout, '', 'short prompt must produce no output');
-    assert.ok(!existsSync(join(counterDir, 'test-sess.inject-done')), 'sentinel must not be created for skipped prompts');
+    assert.ok(!existsSync(join(counterDir, 'test-sess.inject-lock')), 'sentinel must not be created for skipped prompts');
   });
 
   it('no graph: exits silently without error', () => {
@@ -140,7 +140,7 @@ describe('memory-context-inject.sh (REQ-MEM-013)', () => {
     });
     assert.equal(status, 0);
     assert.equal(stdout, '', 'no graph must produce no output');
-    assert.ok(!existsSync(join(counterDir, 'test-sess.inject-done')), 'sentinel must not be created when no graph exists');
+    assert.ok(!existsSync(join(counterDir, 'test-sess.inject-lock')), 'sentinel must not be created when no graph exists');
   });
 
   it('fail-safe: malformed graph JSON exits silently', () => {
