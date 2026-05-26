@@ -815,7 +815,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-011](#req-agent-011-manual-recreate-agent-skills-from-settings), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** [Backend route tests](../../src/__tests__/routes/session-batch-status.test.ts), [Seed hash persistence](../../src/__tests__/routes/storage-seed.test.ts), [Store upgrade flow](../../web-ui/src/__tests__/stores/session.test.ts), [Dashboard UI](../../web-ui/src/__tests__/components/Dashboard.test.tsx). ACs without automated test coverage: AC1 (hash determinism in generate-agent-seed.mjs), AC6 (stopped card dimmed/click-disabled), AC7 (failure path - error logged + dashboard remains usable), AC8 (mode/tier propagation to reconcile). These gaps keep Status: Partial.
+**Verification:** [Backend route tests](../../src/__tests__/routes/session-batch-status.test.ts), [Seed hash persistence](../../src/__tests__/routes/storage-seed.test.ts), [Store upgrade flow](../../web-ui/src/__tests__/stores/session.test.ts), [Dashboard UI](../../web-ui/src/__tests__/components/Dashboard.test.tsx). ACs without automated test coverage: AC1 (hash determinism in generate-agent-seed.mjs), AC5-partial (SessionDropdown button disabled/Upgrading - untested, Dashboard button covered), AC6 (stopped card dimmed/click-disabled), AC7 (failure path - error logged + dashboard remains usable), AC8 (mode/tier propagation to reconcile). These gaps keep Status: Partial.
 
 **Status:** Partial
 
