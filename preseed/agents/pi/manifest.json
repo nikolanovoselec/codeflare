@@ -1,0 +1,6 @@
+{
+  "extensions/codeflare-pi.ts": { "modes": ["advanced"] },
+  "extensions/context-mode-enforcement.ts": { "modes": ["advanced"] },
+  "package.json": { "modes": ["default", "advanced"] },
+  "mcp.json": { "modes": ["default", "advanced"] }
+}

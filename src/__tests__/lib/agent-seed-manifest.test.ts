@@ -158,12 +158,23 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('Pi has skills but no agent definitions', () => {
+  it('Pi has skills and native runtime extensions but no custom agent definitions', () => {
     const piDocs = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/') || d.key.startsWith('.agents/'));
     const skills = piDocs.filter((d) => d.key.startsWith('.agents/skills/'));
     const agents = piDocs.filter((d) => d.key.includes('/agents/') && !d.key.startsWith('.agents/skills/') && !d.key.endsWith('AGENTS.md'));
+    const extensions = piDocs.filter((d) => d.key.startsWith('.pi/agent/extensions/'));
     expect(skills.length).toBeGreaterThan(0);
+    expect(extensions.map((d) => d.key).sort()).toEqual([
+      '.pi/agent/extensions/codeflare-pi.ts',
+      '.pi/agent/extensions/context-mode-enforcement.ts',
+    ]);
     expect(agents.length).toBe(0);
+  });
+
+  it('Pi native runtime assets include MCP and npm package config', () => {
+    const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
+    expect(keys.has('.pi/agent/mcp.json')).toBe(true);
+    expect(keys.has('.pi/agent/npm/package.json')).toBe(true);
   });
 
   it('consult-llm skill is excluded from all non-Claude agents', () => {

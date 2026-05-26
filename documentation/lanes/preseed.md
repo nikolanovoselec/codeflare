@@ -198,9 +198,9 @@ All preseed content is deployed via the manifest pipeline:
    [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)
 7. Bisync pulls from R2 to container config directories
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
-   `~/.config/opencode/`)
+   `~/.config/opencode/`, `~/.pi/agent/`, `.agents/`)
 
-**Manifest structure (120 total entries)**:
+**Manifest structure (124 total source entries: 120 Claude + 4 Pi-native)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -245,6 +245,13 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
+- Pi-native runtime assets (4): `preseed/agents/pi/manifest.json`
+  maps `extensions/codeflare-pi.ts` and
+  `extensions/context-mode-enforcement.ts` (advanced-only) plus
+  `package.json` and `mcp.json` (default+advanced) into Pi's native
+  config surface. These are runtime adapters, not duplicated workflow
+  prose: commands and lifecycle hooks use Pi primitives while rules and
+  skills still come from the Claude source tree.
 
 ## Multi-Agent Preseed
 
@@ -261,46 +268,56 @@ files exist on disk.
 | Gemini | `~/.gemini/GEMINI.md` (single file) | `~/.gemini/skills/<name>/SKILL.md` | `~/.gemini/agents/*.md` |
 | Copilot | `~/.copilot/copilot-instructions.md` (single file) | N/A | `~/.copilot/agents/<name>.agent.md` |
 | OpenCode | `~/.config/opencode/AGENTS.md` (single file) | `~/.config/opencode/skills/<name>/SKILL.md` | `~/.config/opencode/agents/*.md` |
+| Pi | `~/.pi/agent/AGENTS.md` (single file) | `.agents/skills/<name>/SKILL.md` | N/A |
 
 **Tool name mapping** (adapted in agent definition frontmatter):
 
-| CC | Codex | Gemini | Copilot | OpenCode |
-|--------|-------|--------|---------|----------|
-| Read | read | read_file | read | read |
-| Write | write | write_file | editFiles | write |
-| Edit | edit | replace | editFiles | edit |
-| Bash | shell | run_shell_command | execute | bash |
-| Grep | grep | search_file_content | search | search |
-| Glob | glob | glob | search | glob |
+| CC | Codex | Gemini | Copilot | OpenCode | Pi |
+|--------|-------|--------|---------|----------|----|
+| Read | read | read_file | read | read | read |
+| Write | write | write_file | editFiles | write | write |
+| Edit | edit | replace | editFiles | edit | edit |
+| Bash | shell | run_shell_command | execute | bash | bash |
+| Grep | grep | search_file_content | search | search | grep |
+| Glob | glob | glob | search | glob | find |
 
 **What each agent gets:**
 
 | Agent | Total Documents |
 |-------|-----------------|
-| CC | 91 |
-| Codex | 40 |
-| Gemini | 49 |
-| Copilot | 11 |
-| OpenCode | 49 |
-| **Total** | **240** |
+| CC | 120 |
+| Codex | 47 |
+| Gemini | 58 |
+| Copilot | 13 |
+| OpenCode | 58 |
+| Pi | 51 |
+| **Total** | **347** |
 
-**Excluded from non-CC agents**: hooks (CC hook system), commands (CC
-slash commands), plugins (CC plugin system, including
+**Excluded from non-CC transformed assets**: hooks (CC hook system),
+commands (CC slash commands), plugins (CC plugin system, including
 codeflare-memory and codeflare-vault), `preseed/agents/claude/rules/memory.md` (references
 CC-specific `mcp__graphify__*` tools and the vault hook system; the
 vault trigger/route content lives in that preseed rule as folded subsections,
 not a separate rules/vault.md), `consult-llm` skill (depends on
-CC-specific MCP tool).
+CC-specific MCP tool). Pi receives native TypeScript extensions for the
+runtime behaviors that cannot be represented as transformed prose:
+`/sdd`, `/review`, `/graphify`, `/vault`, `/note`, context-mode
+routing enforcement, graphify active-repo/global-graph maintenance,
+PR-boundary review nudges, local-build blocking, and AI-attribution
+blocking.
 
 **Adaptation pipeline**: For each non-CC agent, the generator: (1)
 concatenates applicable rules into a single instructions file, (2)
 remaps tool names in agent definition frontmatter, (3) removes
 `model` field from frontmatter, (4) replaces `~/.claude/` path
 references with agent-specific config paths, (5) uses correct file
-extensions (e.g., `.agent.md` for Copilot agents).
+extensions (e.g., `.agent.md` for Copilot agents). Pi additionally
+loads `preseed/agents/pi/manifest.json` and emits native runtime files
+to `.pi/agent/extensions/`, `.pi/agent/mcp.json`, and
+`.pi/agent/npm/package.json`.
 
-**Per-mode counts**: Default mode seeds 36 files, advanced mode
-seeds 236 files. Total array size is 240 (includes variant-per-mode
+**Per-mode counts**: Default mode seeds 49 files, advanced mode
+seeds 342 files. Total array size is 347 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the

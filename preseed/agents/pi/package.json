@@ -1,0 +1,8 @@
+{
+  "name": "codeflare-pi-preseed",
+  "private": true,
+  "dependencies": {
+    "@gaodes/pi-graphify": "latest",
+    "context-mode": "latest"
+  }
+}
