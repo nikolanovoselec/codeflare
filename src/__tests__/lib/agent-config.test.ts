@@ -14,10 +14,11 @@ const EXPECTED_COMMANDS: Record<AgentType, { command: string; label: string }> =
   'copilot': { command: 'copilot --yolo', label: 'Terminal 1' },
   'gemini': { command: 'gemini -y', label: 'Terminal 1' },
   'opencode': { command: 'opencode', label: 'Terminal 1' },
+  'pi': { command: 'pi', label: 'Terminal 1' },
   'bash': { command: '', label: 'Terminal 1' },
 };
 
-describe('AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (six agent types: claude-code, codex, copilot, gemini, opencode, bash; enforced via AgentTypeSchema)', () => {
+describe('AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, gemini, opencode, pi, bash; enforced via AgentTypeSchema)', () => {
   const allAgentTypes = AgentTypeSchema.options;
 
   it('every AgentType in the schema has a valid tab config (no runtime error)', () => {
@@ -27,7 +28,7 @@ describe('AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (six agent types
   });
 
   it('schema contains exactly the expected agent types', () => {
-    const expected = ['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'bash'];
+    const expected = ['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'pi', 'bash'];
     expect([...allAgentTypes].sort()).toEqual([...expected].sort());
   });
 
@@ -80,6 +81,11 @@ describe('getDefaultTabConfig / REQ-AGENT-002 AC1/AC2/AC5 (POST /api/sessions ac
   it('returns correct full structure for opencode agent', () => {
     const tabs = getDefaultTabConfig('opencode');
     expect(tabs[0]).toEqual({ id: '1', command: 'opencode', label: 'Terminal 1' });
+  });
+
+  it('sets tab 1 to pi for pi agent', () => {
+    const tabs = getDefaultTabConfig('pi');
+    expect(tabs[0].command).toBe('pi');
   });
 
   it('sets tab 1 to empty command for bash agent', () => {

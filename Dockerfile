@@ -154,13 +154,13 @@ RUN npm install -g @anthropic-ai/claude-code@latest && \
 # Verify Claude Code is installed and working as root with IS_SANDBOX=1
 RUN claude --version
 
-# Install Codex + Gemini + OpenCode + Copilot CLIs for multi-agent support (single RUN for npm dedup).
+# Install Codex + Gemini + OpenCode + Copilot + Pi CLIs for multi-agent support (single RUN for npm dedup).
 # OpenCode (opencode-ai) is an open-source multi-model AI coding CLI supporting 75+ providers.
 # Consolidated install allows npm to deduplicate shared dependencies across packages.
 # OpenCode ships 11 platform binaries as optionalDependencies — delete unused ones (~446MB saved).
 # Debian uses glibc — postinstall correctly hard-links opencode-linux-x64 to bin/.opencode.
 # Uses @latest — .cache-bust above invalidates this layer so every deploy pulls newest versions
-RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@latest @github/copilot@latest && \
+RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@latest @github/copilot@latest @earendil-works/pi-coding-agent@latest && \
     cd /usr/local/lib/node_modules/opencode-ai/node_modules && \
     find . -maxdepth 1 -name 'opencode-*' ! -name 'opencode-linux-x64' -type d -exec rm -rf {} + && \
     npm cache clean --force && \
@@ -350,12 +350,13 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 # V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
 # Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.
-# This speeds up first-launch of Node.js CLIs (codex, gemini, copilot) inside containers
+# This speeds up first-launch of Node.js CLIs (codex, gemini, copilot, pi) inside containers
 # by avoiding the compilation overhead on every container start.
 # Note: Go binaries (like opencode) don't need this — they're already natively compiled.
 RUN codex --version 2>&1 || true && \
     gemini --version 2>&1 || true && \
-    copilot --version 2>&1
+    copilot --version 2>&1 && \
+    pi --version 2>&1 || true
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
 # OpenCode stores its DB at ~/.local/share/opencode/opencode.db (XDG data dir) and runs

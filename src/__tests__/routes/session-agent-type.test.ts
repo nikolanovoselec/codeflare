@@ -104,9 +104,9 @@ describe('REQ-AGENT-002: Agent Selection at Session Creation', () => {
     expect(res.status).toBe(400);
   });
 
-  it('REQ-AGENT-002 AC2: POST /api/sessions accepts all six valid agent types', async () => {
+  it('REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types', async () => {
     const app = createCrudApp();
-    const validTypes = ['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'bash'];
+    const validTypes = ['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'pi', 'bash'];
     for (const agentType of validTypes) {
       const res = await app.request('/sessions', {
         method: 'POST',

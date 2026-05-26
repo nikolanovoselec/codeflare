@@ -32,7 +32,7 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: Dockerfile -->
 <!-- @impl: src/lib/schemas.ts -->
-<!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness describe → AC1/AC2) -->
+<!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness describe -> AC1/AC2) -->
 <!-- @test: host/__tests__/dockerfile-graphify.test.js (npm install + V8 warm-up → AC3/AC4) -->
 
 **Intent:** The platform must support multiple AI coding agents so users can choose the tool that fits their workflow.
@@ -41,10 +41,10 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Six agent types are defined: `claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `bash`.
+1. Seven agent types are defined: `claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `pi`, `bash`.
 2. The `AgentType` type is enforced via Zod schema (`AgentTypeSchema`).
 3. Each agent's CLI is pre-installed in the container image as a global npm package (or native binary for Go-based agents).
-4. Node.js-based agent CLIs (Codex, Gemini, Copilot) are pre-warmed at image build time so V8's compile cache is populated before the user's first interactive launch. Claude Code ships as a native binary and needs no warm-up; Go-based agents (OpenCode) are natively compiled.
+4. Node.js-based agent CLIs (Codex, Gemini, Copilot, Pi) are pre-warmed at image build time so V8's compile cache is populated before the user's first interactive launch. Claude Code ships as a native binary and needs no warm-up; Go-based agents (OpenCode) are natively compiled.
 
 **Constraints:**
 
@@ -61,7 +61,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-<!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 describe -> POST /api/sessions accepts/persists agentType + Zod rejects invalid + all 6 valid types + lastAgentType via PATCH /preferences + default claude-code -> AC1..AC5) -->
+<!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 describe -> POST /api/sessions accepts/persists agentType + Zod rejects invalid + all 7 valid types + lastAgentType via PATCH /preferences + default claude-code -> AC1..AC5) -->
 ### REQ-AGENT-002: Agent Selection at Session Creation
 
 <!-- @impl: src/routes/session/crud.ts -->
