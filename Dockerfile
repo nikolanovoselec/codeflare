@@ -355,7 +355,7 @@ ENV PATH="/root/.local/bin:${PATH}"
 # Note: Go binaries (like opencode) don't need this — they're already natively compiled.
 RUN codex --version 2>&1 || true && \
     gemini --version 2>&1 || true && \
-    copilot --version 2>&1 && \
+    copilot --version 2>&1 || true && \
     pi --version 2>&1 || true
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
