@@ -256,7 +256,8 @@ All preseed content is deployed via the manifest pipeline:
   skills still come from the Claude source tree. `/review` is deliberately
   separate from PR-boundary enforcement: the command reviews a requested
   scope, while `review-enforcement.ts` watches PR HEADs and requires a
-  review acknowledgement for SDD PRs targeting `main`/`master`. Pi subagents are provided by `@gotgenes/pi-subagents`,
+  review acknowledgement for SDD PRs targeting `main`/`master`.
+  Pi subagents are provided by `@gotgenes/pi-subagents`,
   a Claude Code-style subagent extension exposing `Agent`,
   `get_subagent_result`, and `steer_subagent`; the generator adapts
   Claude agent definitions into `.pi/agent/agents/*.md` for that runtime.
