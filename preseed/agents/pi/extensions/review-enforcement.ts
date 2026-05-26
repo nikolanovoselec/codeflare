@@ -153,12 +153,12 @@ function subagentDirective(repo: string, pr: PrState, lanes: string[]): string {
     commands.push(`After spec-reviewer completes, run:`);
     commands.push(`/run doc-updater ${JSON.stringify(`${base} Run after spec-reviewer so documentation sees final spec changes.`)} --fork --bg`);
   }
-  commands.push("After required subagents report, run /review --diff to acknowledge this PR HEAD.");
+  commands.push("Review acknowledgement is recorded automatically after code-reviewer, spec-reviewer, and doc-updater complete for this PR HEAD.");
   return commands.join("\n");
 }
 
 export default function (pi: ExtensionAPI) {
-  let pending: { repo: string; head: string; message: string } | undefined;
+  let pending: { repo: string; head: string; message: string; completed: Set<string>; docPromptSent: boolean } | undefined;
 
   pi.on("tool_result", (event, ctx) => {
     const toolName = String(event?.toolName ?? "").toLowerCase();
@@ -177,9 +177,31 @@ export default function (pi: ExtensionAPI) {
     const lanes = requiredReviewLanes(repo);
     const message = enforcementMessage(repo, pr, lanes);
     const directive = `${message}\n\n${subagentDirective(repo, pr, lanes)}`;
-    pending = { repo, head: pr.headRefOid, message: directive };
+    pending = { repo, head: pr.headRefOid, message: directive, completed: new Set(), docPromptSent: false };
     ctx.ui.notify(message, "warning");
     pi.sendUserMessage(directive, { deliverAs: "followUp" });
+  });
+
+  pi.on("subagents:completed", (event, ctx) => {
+    if (!pending) return;
+    const type = String(event?.type ?? "");
+    if (!type) return;
+    const current = prState(pending.repo);
+    if (!isEnforcedPr(current) || current.headRefOid !== pending.head) {
+      pending = undefined;
+      return;
+    }
+    pending.completed.add(type);
+    if (type === "spec-reviewer" && !pending.docPromptSent) {
+      pending.docPromptSent = true;
+      const base = `Review PR #${current.number ?? "?"} for ${basename(pending.repo)} at head ${pending.head}. Scope is the current diff against ${current.baseRefName}. Report findings only; do not modify files. Run after spec-reviewer so documentation sees final spec changes.`;
+      pi.sendUserMessage(`/run doc-updater ${JSON.stringify(base)} --fork --bg`, { deliverAs: "followUp" });
+    }
+    if (["code-reviewer", "spec-reviewer", "doc-updater"].every((lane) => pending?.completed.has(lane))) {
+      writeFileSync(ackPath(pending.repo), `${pending.head}\n`, "utf8");
+      ctx.ui.notify(`PR-boundary review acknowledged for ${basename(pending.repo)} at ${pending.head.slice(0, 12)}.`, "info");
+      pending = undefined;
+    }
   });
 
   pi.on("agent_end", (_event, ctx) => {
@@ -204,6 +226,6 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     ctx.ui.notify(`${pending.message} Reminder ${count}/3.`, "warning");
-    pi.sendUserMessage(`${pending.message}\n\nThis is enforcement, not /review help. Complete /review --diff or use the user-only bypass ${REVIEW_BYPASS}.`, { deliverAs: "followUp" });
+    pi.sendUserMessage(`${pending.message}\n\nThis is enforcement, not /review help. Complete the required subagents or use the user-only bypass ${REVIEW_BYPASS}.`, { deliverAs: "followUp" });
   });
 }

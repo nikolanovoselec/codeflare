@@ -7,7 +7,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
@@ -19,19 +19,6 @@ function findGitRoot(startDir: string): string | undefined {
   try {
     const root = shell("git rev-parse --show-toplevel", startDir);
     return root || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function currentPrHead(repo: string): string | undefined {
-  try {
-    const json = shell("gh pr view --json headRefOid,state,baseRefName 2>/dev/null", repo);
-    if (!json) return undefined;
-    const pr = JSON.parse(json) as { headRefOid?: string; state?: string; baseRefName?: string };
-    if (pr.state !== "OPEN") return undefined;
-    if (pr.baseRefName !== "main" && pr.baseRefName !== "master") return undefined;
-    return pr.headRefOid;
   } catch {
     return undefined;
   }
@@ -68,7 +55,6 @@ async function dispatchReview(args: string, ctx: ExtensionCommandContext): Promi
     return;
   }
 
-  const repo = findGitRoot(ctx.sessionManager.getCwd());
   const command = `/review ${trimmed}`;
   const reviewInstructions = [
     skillPrompt("git-review-pipeline", "Run the Codeflare review pipeline."),
@@ -81,15 +67,6 @@ async function dispatchReview(args: string, ctx: ExtensionCommandContext): Promi
 
   await ctx.waitForIdle();
   await ctx.sendUserMessage(reviewInstructions);
-
-  // Native Pi has no Claude-style subagent completion event. Until a richer
-  // review-run marker exists, treating explicit /review invocation as the
-  // acknowledgement is the safest non-blocking equivalent for PR-boundary
-  // enforcement.
-  if (repo && trimmed.includes("--diff")) {
-    const head = currentPrHead(repo);
-    if (head) writeFileSync(join(repo, ".git", "sdd-last-ack-pr-head"), head + "\n", "utf8");
-  }
 }
 
 export default function (pi: ExtensionAPI) {

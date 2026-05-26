@@ -213,9 +213,13 @@ function bashDenialReason(command: string): string | undefined {
     }
 
     if (first === "gh") {
-      const allowedGh = ["pr", "run", "auth", "repo"];
-      if (second && allowedGh.includes(second)) continue;
-      return `gh '${second ?? ""}' violates context-mode routing. Native Bash is allowed only for GitHub workflow commands (gh pr/run/auth/repo); use ctx_execute for data-heavy gh calls.`;
+      const third = words(segment)[2];
+      const allowedPr = ["create", "view", "status", "list", "checkout"];
+      const allowedRun = ["list", "view"];
+      if (second === "pr" && third && allowedPr.includes(third) && !segment.includes(" diff") && !segment.includes("--patch")) continue;
+      if (second === "run" && third && allowedRun.includes(third) && !segment.includes("--log")) continue;
+      if (second === "auth" || second === "repo") continue;
+      return `gh '${second ?? ""} ${third ?? ""}' violates context-mode routing. Native Bash is allowed only for small GitHub workflow commands; use ctx_execute for data-heavy gh calls.`;
     }
 
     if (first === "curl" || first === "wget") {
