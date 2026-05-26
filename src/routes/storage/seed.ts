@@ -103,7 +103,7 @@ app.post('/agent-configs', async (c) => {
     await c.env.KV.delete(`storage-stats:${bucketName}`);
 
     // REQ-AGENT-049: persist preseed hash so next batch-status check skips upgrade
-    const updatedPreferences = { ...(preferences ?? {}), lastPreseedHash: PRESEED_CONTENT_HASH };
+    const updatedPreferences = { ...preferences, lastPreseedHash: PRESEED_CONTENT_HASH };
     await c.env.KV.put(preferencesKey, JSON.stringify(updatedPreferences));
 
     return c.json({
