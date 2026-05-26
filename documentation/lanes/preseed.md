@@ -255,7 +255,8 @@ All preseed content is deployed via the manifest pipeline:
   prose: commands and lifecycle hooks use Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
   separate from PR-boundary enforcement: the command reviews a requested
-  scope, while `review-enforcement.ts` watches PR HEADs and requires a
+  scope, while `review-enforcement.ts` watches PR HEADs, resolves the
+  active repo from native GitHub workflow commands, and requires a
   review acknowledgement for SDD PRs targeting `main`/`master`.
   Pi subagents are provided by `@gotgenes/pi-subagents`,
   a Claude Code-style subagent extension exposing `Agent`,
