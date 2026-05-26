@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
 const claudeDir = path.join(rootDir, 'preseed/agents/claude');
+const piDir = path.join(rootDir, 'preseed/agents/pi');
 const outputFile = path.join(rootDir, 'src/lib/agent-seed.generated.ts');
 
 // ---------------------------------------------------------------------------
@@ -112,6 +113,8 @@ function inferContentType(filePath) {
       return 'image/svg+xml';
     case '.sh':
       return 'application/x-shellscript; charset=utf-8';
+    case '.ts':
+      return 'text/typescript; charset=utf-8';
     default:
       return 'application/octet-stream';
   }
@@ -200,6 +203,29 @@ function validateManifestPath(p) {
   if (p.includes('\\')) throw new Error(`Backslash in manifest path: ${p}`);
 }
 
+function validateModes(manifest, label) {
+  for (const manifestKey of Object.keys(manifest)) {
+    validateManifestPath(manifestKey);
+    const entry = manifest[manifestKey];
+    if (!Array.isArray(entry.modes) || entry.modes.length === 0) {
+      throw new Error(`${label} manifest entry "${manifestKey}" has empty or missing modes`);
+    }
+    for (const mode of entry.modes) {
+      if (mode !== 'default' && mode !== 'advanced') {
+        throw new Error(`Invalid mode "${mode}" in ${label} manifest entry "${manifestKey}"`);
+      }
+    }
+  }
+}
+
+function piNativeKey(withinPi) {
+  if (withinPi.startsWith('extensions/')) return `.pi/agent/${withinPi}`;
+  if (withinPi === 'package.json') return '.pi/agent/npm/package.json';
+  if (withinPi === 'mcp.json') return '.pi/agent/mcp.json';
+  if (withinPi === 'settings.json') return '.pi/agent/settings.json';
+  throw new Error(`Cannot map Pi native preseed file: ${withinPi}`);
+}
+
 /** Ensure no duplicate (key, mode) pairs across all documents. */
 function validateDocuments(documents) {
   const seen = new Map();
@@ -256,18 +282,7 @@ async function generate() {
   const manifestPath = path.join(claudeDir, 'manifest.json');
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
 
-  for (const manifestKey of Object.keys(manifest)) {
-    validateManifestPath(manifestKey);
-    const entry = manifest[manifestKey];
-    if (!Array.isArray(entry.modes) || entry.modes.length === 0) {
-      throw new Error(`Manifest entry "${manifestKey}" has empty or missing modes`);
-    }
-    for (const mode of entry.modes) {
-      if (mode !== 'default' && mode !== 'advanced') {
-        throw new Error(`Invalid mode "${mode}" in manifest entry "${manifestKey}"`);
-      }
-    }
-  }
+  validateModes(manifest, 'Claude');
 
   // Read all manifest-listed files (manifest-driven, not filesystem-driven,
   // so non-manifest files like plugins/cache/** are safely ignored)
@@ -294,6 +309,32 @@ async function generate() {
       content: file.content,
       modes: file.modes,
     });
+  }
+
+  // --- Pi native runtime assets (extensions, MCP config, npm package metadata) ---
+  const piManifestPath = path.join(piDir, 'manifest.json');
+  let piNativeCount = 0;
+  try {
+    const piManifest = JSON.parse(await fs.readFile(piManifestPath, 'utf8'));
+    validateModes(piManifest, 'Pi');
+    for (const [withinPi, entry] of Object.entries(piManifest)) {
+      const absolutePath = path.join(piDir, withinPi);
+      let content;
+      try {
+        content = await fs.readFile(absolutePath, 'utf8');
+      } catch {
+        throw new Error(`Pi manifest references "${withinPi}" but file does not exist`);
+      }
+      documents.push({
+        key: piNativeKey(withinPi),
+        contentType: inferContentType(withinPi),
+        content,
+        modes: entry.modes,
+      });
+      piNativeCount++;
+    }
+  } catch (error) {
+    if (!error || error.code !== 'ENOENT') throw error;
   }
 
   // --- Non-Claude agent documents ---
@@ -363,10 +404,10 @@ async function generate() {
   // Summary
   const relativeOutputPath = path.relative(rootDir, outputFile);
   const claudeCount = sourceFiles.length;
-  const nonClaudeCount = documents.length - claudeCount;
+  const nonClaudeCount = documents.length - claudeCount - piNativeCount;
   console.log(
     `[generate:agent-seed] Wrote ${documents.length} document(s) to ${relativeOutputPath}` +
-      ` (${claudeCount} Claude + ${nonClaudeCount} non-Claude)`
+      ` (${claudeCount} Claude + ${piNativeCount} Pi native + ${nonClaudeCount} transformed)`
   );
 }
 

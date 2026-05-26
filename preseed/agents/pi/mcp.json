@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "context-mode": {
+      "command": "context-mode",
+      "args": ["mcp"]
+    },
+    "graphify": {
+      "command": "/root/.local/share/uv/tools/graphifyy/bin/python",
+      "args": ["-m", "graphify.serve"]
+    }
+  }
+}
