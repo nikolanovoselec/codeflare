@@ -65,7 +65,7 @@ function activeRepoFallback(): string | undefined {
 }
 
 function commandText(event: any): string {
-  const input = event?.input ?? event?.params ?? {};
+  const input = event?.input ?? event?.params ?? event?.args ?? {};
   if (typeof input.command === "string") return input.command;
   if (typeof input.code === "string") return input.code;
   if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => String(cmd?.command ?? "")).join("\n");
@@ -277,10 +277,10 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  pi.on("tool_call", (event, ctx) => {
+  const onAgentStart = (event: any, ctx: any) => {
     const toolName = String(event?.toolName ?? "").toLowerCase();
     if (toolName !== "agent") return;
-    const input = event?.input ?? event?.params ?? {};
+    const input = event?.input ?? event?.params ?? event?.args ?? {};
     const type = String(input.subagent_type ?? input.subagentType ?? "");
     if (type !== "doc-updater") return;
     const state = hydratePending(ctx);
@@ -293,12 +293,15 @@ export default function (pi: ExtensionAPI) {
     if (state.lanes.includes("spec-reviewer") && !state.completed.has("spec-reviewer")) {
       return { block: true, reason: "PR-boundary review order violation: doc-updater must run only after spec-reviewer completes for this PR HEAD." };
     }
-  });
+  };
 
-  pi.on("tool_result", (event, ctx) => {
+  pi.on("tool_call", onAgentStart);
+  pi.on("tool_execution_start", onAgentStart);
+
+  const onToolEnd = (event: any, ctx: any) => {
     const toolName = String(event?.toolName ?? "").toLowerCase();
     if (toolName === "agent") {
-      const input = event?.input ?? event?.params ?? {};
+      const input = event?.input ?? event?.params ?? event?.args ?? {};
       const type = String(input.subagent_type ?? input.subagentType ?? "");
       if (type) markCompleted(type, ctx);
       return;
@@ -332,7 +335,10 @@ export default function (pi: ExtensionAPI) {
     const message = directiveFor(repo, pr, review.lanes);
     ctx.ui.notify(`PR-boundary review required for ${basename(repo)} at ${pr.headRefOid.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
     pi.sendUserMessage(message, { deliverAs: "followUp" });
-  });
+  };
+
+  pi.on("tool_result", onToolEnd);
+  pi.on("tool_execution_end", onToolEnd);
 
   const onSubagentCompleted = (event: any, ctx: any) => {
     const type = String(event?.type ?? "");
