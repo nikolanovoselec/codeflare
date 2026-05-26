@@ -112,4 +112,4 @@ export function getCloudflareTokenUrl(tier: ScopeTier): string {
 }
 
 /** Documentation page listing all scopes per tier with explanations. */
-export const SCOPES_DOCS_URL = 'https://github.com/nikolanovoselec/codeflare/blob/main/documentation/token-scopes.md';
+export const SCOPES_DOCS_URL = 'https://github.com/nikolanovoselec/codeflare/blob/main/documentation/lanes/configuration.md';
