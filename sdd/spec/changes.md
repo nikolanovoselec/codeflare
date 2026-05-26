@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-26
+
+- REQ-AGENT-049 added: preseed content is now reconciled automatically on first dashboard load when a release ships updated agent skills, rules, or plugins. Build-time SHA-256 hash piggybacked on batch-status initial load; hash stored in UserPreferences KV. UI prevents session creation during the brief upgrade. No manual "Recreate" click required.
+
 ## 2026-05-25
 
 - REQ-OPS-020 added: shadow-pin version bump automation. Weekly workflow checks GitHub releases for Dockerfile-pinned binaries (zoxide, yazi, lazygit, silverbullet) and npm latest for context-mode, opening one PR per tool when a newer version is available. SHA256 checksums are intentionally invalidated on Dockerfile bumps to force manual verification before merge.

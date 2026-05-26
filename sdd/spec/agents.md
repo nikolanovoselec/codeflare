@@ -792,11 +792,11 @@ None.
 ### REQ-AGENT-049: Auto-upgrade preseed on release
 
 <!-- @impl: scripts/generate-agent-seed.mjs, src/routes/session/lifecycle.ts, src/routes/storage/seed.ts, web-ui/src/stores/session.ts -->
-<!-- @test: TBD -->
+<!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-AGENT-049 describe -> AC3 preseedNeedsUpgrade) + src/__tests__/routes/storage-seed.test.ts (REQ-AGENT-049 -> AC2 lastPreseedHash persistence) + web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 -> AC4/AC5/AC6 upgrade flow) + web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-049 -> AC5 button disabled) -->
 
-**Intent:** When a new codeflare release ships changed preseed content (agent skills, rules, plugins), the user's R2 bucket should be reconciled automatically on first dashboard load - no manual "Recreate Agent Skills & Rules" click required. Session creation and stopped-session access are blocked during the brief upgrade.
+**Intent:** When a new codeflare release ships changed preseed content (agent skills, rules, plugins), the user's R2 bucket should be reconciled automatically on first dashboard load - no manual "Recreate Agent Skills & Rules" click required. Session creation and stopped-session access are prevented in the UI during the brief upgrade.
 
-**Applies To:** Agent
+**Applies To:** User
 
 **Acceptance Criteria:**
 
@@ -815,7 +815,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-011](#req-agent-011-manual-recreate-agent-skills-from-settings), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Automated (backend route tests + frontend store tests + dashboard UI tests)
+**Verification:** [Backend route tests](../../src/__tests__/routes/session-batch-status.test.ts), [Seed hash persistence](../../src/__tests__/routes/storage-seed.test.ts), [Store upgrade flow](../../web-ui/src/__tests__/stores/session.test.ts), [Dashboard UI](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
 
 **Status:** Partial
 
