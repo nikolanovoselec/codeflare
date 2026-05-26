@@ -118,6 +118,12 @@ function bashDenialReason(command: string): string | undefined {
       return `${first} '${second ?? ""}' violates context-mode routing. Only ${first} install is allowed in Bash; use ctx_execute for the rest.`;
     }
 
+    if (first === "gh") {
+      const allowedGh = ["pr", "run", "auth", "repo"];
+      if (second && allowedGh.includes(second)) continue;
+      return `gh '${second ?? ""}' violates context-mode routing. Native Bash is allowed only for GitHub workflow commands (gh pr/run/auth/repo); use ctx_execute for data-heavy gh calls.`;
+    }
+
     if (first === "curl" || first === "wget") {
       return `Bash '${first}' violates context-mode routing. Use ctx_fetch_and_index for URLs or ctx_execute for sandboxed processing.`;
     }

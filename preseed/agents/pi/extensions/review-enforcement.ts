@@ -36,6 +36,22 @@ function findGitRoot(startDir: string): string | undefined {
   }
 }
 
+function cwdFromCommand(command: string): string | undefined {
+  const match = command.match(/(?:^|[;&|]\s*)cd\s+([^;&|]+)\s*&&/);
+  if (!match) return undefined;
+  return match[1].trim().replace(/^(["'])(.*)\1$/, "$2");
+}
+
+function activeRepoFallback(): string | undefined {
+  try {
+    const p = "/home/user/.cache/codeflare-hooks/graphify-active-cwd";
+    if (existsSync(p)) return readFileSync(p, "utf8").trim() || undefined;
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 function commandText(event: any): string {
   const input = event?.input ?? {};
   if (typeof input.command === "string") return input.command;
@@ -157,7 +173,7 @@ export default function (pi: ExtensionAPI) {
     if (toolName !== "bash" && !toolName.startsWith("context_mode_ctx_execute")) return;
     if (!isGitPush(command) && !isPrCreate(command)) return;
 
-    const repo = findGitRoot(ctx.sessionManager.getCwd());
+    const repo = findGitRoot(cwdFromCommand(command) ?? ctx.sessionManager.getCwd()) ?? activeRepoFallback();
     if (!repo || !isSddProject(repo)) return;
     if (consumeBypass()) return;
 
