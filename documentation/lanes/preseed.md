@@ -263,6 +263,8 @@ All preseed content is deployed via the manifest pipeline:
 
 <!-- pi-review-test-marker-2 -->
 
+<!-- pi-review-native-rewrite-test -->
+
 ## Multi-Agent Preseed
 
 The generator produces adapted config files for all supported agents
