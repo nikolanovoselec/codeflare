@@ -255,6 +255,11 @@ All preseed content is deployed via the manifest pipeline:
   subagent completion for SDD PRs targeting `main`/`master`.
   Pi subagents are provided by `@gotgenes/pi-subagents`; the generator
   adapts Claude agent definitions into `.pi/agent/agents/*.md`.
+  The container image preinstalls Pi extension npm dependencies into an
+  image-local cache, and entrypoint copies that cache into `~/.pi/agent/npm`
+  after R2 restore so Pi does not run npm install on first launch.
+
+<!-- pi-review-test-marker -->
 
 ## Multi-Agent Preseed
 
