@@ -67,8 +67,8 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
       class={`stat-card session-stat-card ${props.isActive ? 'session-stat-card--active' : ''}`}
       data-testid={`session-stat-card-${props.session.id}`}
       data-status={props.session.status}
-      style={sessionStore.preseedUpgrading ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
-      onClick={() => { if (!sessionStore.preseedUpgrading) props.onSelect(); }}
+      style={sessionStore.preseedUpgrading && props.session.status === 'stopped' ? { opacity: 0.6, 'pointer-events': 'none' } : {}}
+      onClick={() => { if (sessionStore.preseedUpgrading && props.session.status === 'stopped') return; props.onSelect(); }}
     >
       <div class="stat-card__header">
         <span class="stat-card__icon">

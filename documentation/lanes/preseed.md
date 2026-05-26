@@ -59,8 +59,10 @@ The Custom-tier column reflects the extra delivery surface for users on the `unl
 **When mode takes effect**: On any of: explicit "Recreate AI agent
 skills & rules" click, new bucket creation, Stripe mode change
 (upgrade or downgrade via webhook), subscription termination
-(`customer.subscription.deleted`), or Settings toggle of
-`sessionMode`. The Settings toggle immediately triggers server-side
+(`customer.subscription.deleted`), Settings toggle of
+`sessionMode`, or automatic upgrade on release (triggered by
+`preseedNeedsUpgrade: true` in the initial dashboard batch-status
+response; see [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)). The Settings toggle immediately triggers server-side
 reconciliation as part of the `PATCH /api/preferences` call -- no
 separate Recreate click is required; the UI shows a confirmation
 ("Agent skills updated for X mode. Takes effect in new sessions.")
@@ -173,15 +175,25 @@ All preseed content is deployed via the manifest pipeline:
 3. `scripts/generate-agent-seed.mjs` reads manifest + files
    (manifest-driven, ignores non-manifest files like
    `plugins/cache/`), generates `src/lib/agent-seed.generated.ts`
-   with `AGENTS_SEEDED_CONFIGS` array (240 documents across all
-   agents)
+   with `AGENTS_SEEDED_CONFIGS` array and `PRESEED_CONTENT_HASH`
+   (deterministic SHA-256 over all documents sorted by key,
+   truncated to 16 hex chars)
 4. On first bucket creation:
    `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })`
    writes mode-appropriate files to R2
 5. On "Recreate skills & rules" button:
    `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })`
    overwrites in R2 and deletes files not in current mode
-6. Bisync pulls from R2 to container config directories
+6. On first dashboard load after a release:
+   `GET /api/sessions/batch-status?includePreseedCheck=true` compares
+   `PRESEED_CONTENT_HASH` against `lastPreseedHash` in
+   `UserPreferences` KV. If they differ, the frontend fires
+   `recreateAgentConfigs()` in the background. The "+ New Session"
+   button and stopped-session cards are disabled during the upgrade.
+   On completion, `lastPreseedHash` is updated. Failure is
+   non-fatal; a page refresh retries. Implements
+   [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)
+7. Bisync pulls from R2 to container config directories
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`)
 
@@ -517,6 +529,7 @@ The legacy v4 timestamp file `.git/sdd-last-ack-push` (if present from a prior i
 
 - [REQ-AGENT-007](../../sdd/spec/agents.md#req-agent-007-multi-agent-adaptation-pipeline) - Multi-Agent Adaptation Pipeline
 - [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline) - Manifest-Driven Preseed Pipeline
+- [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) - Auto-upgrade preseed on release
 - [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) - /review command for multi-perspective codebase review
 - [REQ-AGENT-016](../../sdd/spec/agents.md#req-agent-016-consult-llm-preference-toggle) - consult-llm preference toggle
 - [REQ-AGENT-017](../../sdd/spec/agents.md#req-agent-017-bubblewrap-sandbox-for-codex) - Bubblewrap sandbox for Codex
