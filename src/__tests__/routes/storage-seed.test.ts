@@ -138,8 +138,7 @@ describe('Agent Config Seed Routes', () => {
     const prefsPut = putCalls.find(([key]) => key === 'user-prefs:my-bucket');
     expect(prefsPut).toBeDefined();
     const storedPrefs = JSON.parse(prefsPut![1]);
-    expect(storedPrefs.lastPreseedHash).toEqual(expect.any(String));
-    expect(storedPrefs.lastPreseedHash.length).toBe(16);
+    expect(storedPrefs.lastPreseedHash).toBe('test_hash_abc123');
   });
 
   it('recreates agent configs with overwrite enabled', async () => {
