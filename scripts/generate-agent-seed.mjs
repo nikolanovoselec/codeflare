@@ -44,6 +44,13 @@ const AGENT_CONFIGS = {
     agentExtension: '.md',
     homePath: '~/.config/opencode',
   },
+  pi: {
+    instructionsKey: '.pi/agent/AGENTS.md',
+    skillsPrefix: '.agents/skills',
+    agentsPrefix: null,
+    agentExtension: null,
+    homePath: '~/.pi/agent',
+  },
 };
 
 const TOOL_MAP = {
@@ -51,6 +58,7 @@ const TOOL_MAP = {
   gemini: { Read: 'read_file', Write: 'write_file', Edit: 'replace', Bash: 'run_shell_command', Grep: 'search_file_content', Glob: 'glob' },
   copilot: { Read: 'read', Write: 'editFiles', Edit: 'editFiles', Bash: 'execute', Grep: 'search', Glob: 'search' },
   opencode: { Read: 'read', Write: 'write', Edit: 'edit', Bash: 'bash', Grep: 'search', Glob: 'glob' },
+  pi: { Read: 'read', Write: 'write', Edit: 'edit', Bash: 'bash', Grep: 'grep', Glob: 'find' },
 };
 
 const CLAUDE_ONLY_CATEGORIES = new Set(['hook', 'command', 'plugin']);

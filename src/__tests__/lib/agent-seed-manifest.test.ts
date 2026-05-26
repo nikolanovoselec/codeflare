@@ -11,7 +11,7 @@ import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
  * isn't available in the Workers vitest pool).
  */
 
-const VALID_KEY_PREFIXES = ['.claude/', '.codex/', '.gemini/', '.copilot/', '.config/opencode/'];
+const VALID_KEY_PREFIXES = ['.claude/', '.codex/', '.gemini/', '.copilot/', '.config/opencode/', '.pi/agent/', '.agents/'];
 
 function stripPrefix(key: string): string {
   for (const prefix of VALID_KEY_PREFIXES) {
@@ -111,6 +111,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(keys.has('.gemini/GEMINI.md')).toBe(true);
     expect(keys.has('.copilot/copilot-instructions.md')).toBe(true);
     expect(keys.has('.config/opencode/AGENTS.md')).toBe(true);
+    expect(keys.has('.pi/agent/AGENTS.md')).toBe(true);
   });
 
   it('instructions files appear twice (one per mode, different content)', () => {
@@ -119,6 +120,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.gemini/GEMINI.md',
       '.copilot/copilot-instructions.md',
       '.config/opencode/AGENTS.md',
+      '.pi/agent/AGENTS.md',
     ];
     for (const key of instructionKeys) {
       const entries = AGENTS_SEEDED_CONFIGS.filter((d) => d.key === key);
@@ -154,6 +156,14 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       expect(skills.length, `${prefix} should have skills`).toBeGreaterThan(0);
       expect(agents.length, `${prefix} should have agents`).toBeGreaterThan(0);
     }
+  });
+
+  it('Pi has skills but no agent definitions', () => {
+    const piDocs = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/') || d.key.startsWith('.agents/'));
+    const skills = piDocs.filter((d) => d.key.startsWith('.agents/skills/'));
+    const agents = piDocs.filter((d) => d.key.includes('/agents/') && !d.key.startsWith('.agents/skills/') && !d.key.endsWith('AGENTS.md'));
+    expect(skills.length).toBeGreaterThan(0);
+    expect(agents.length).toBe(0);
   });
 
   it('consult-llm skill is excluded from all non-Claude agents', () => {
