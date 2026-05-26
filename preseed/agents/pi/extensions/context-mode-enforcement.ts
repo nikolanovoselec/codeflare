@@ -7,7 +7,8 @@
  */
 
 import { existsSync, statSync } from "node:fs";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+type ExtensionAPI = { on: (event: string, handler: (event: any) => unknown) => void };
 
 const BYPASS_FILE = "/tmp/ctx-bypass";
 const MAX_READ_BYTES = 20 * 1024;
@@ -259,7 +260,7 @@ function readDenialReason(input: Record<string, unknown>): string | undefined {
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.on("tool_call", (event) => {
+  pi.on("tool_call", (event: any) => {
     if (existsSync(BYPASS_FILE)) return;
 
     const toolName = String(event?.toolName ?? "").toLowerCase();
