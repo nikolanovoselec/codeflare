@@ -218,7 +218,9 @@ function agentCall(type: string, prompt: string, description: string): string {
 function subagentDirective(repo: string, pr: PrState, lanes: string[]): string {
   const base = `Review PR #${pr.number ?? "?"} for ${basename(repo)} at head ${pr.headRefOid}. Scope is the current diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
   const tasks = lanes.length > 0 ? lanes : ["code-reviewer", "spec-reviewer", "doc-updater"];
-  const commands: string[] = [];
+  const commands: string[] = [
+    `Freshness gate: before launching any Agent call, verify current PR head is exactly ${pr.headRefOid}. If gh pr view --json headRefOid reports a different SHA, ignore this stale directive.`,
+  ];
   const parallel = tasks.filter((lane) => lane === "code-reviewer" || lane === "spec-reviewer");
   if (parallel.length > 0) {
     commands.push("Launch these Agent tool calls in parallel:");
