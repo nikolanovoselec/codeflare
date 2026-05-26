@@ -103,6 +103,30 @@ function ackPath(repo: string): string {
   return join(repo, ".git", "sdd-last-ack-pr-head");
 }
 
+function pendingPath(repo: string): string {
+  return join(repo, ".git", "sdd-review-pending.json");
+}
+
+type PendingReview = { repo: string; head: string; message: string; completed: Set<string>; docPromptSent: boolean };
+
+function savePending(pending: PendingReview): void {
+  writeFileSync(pendingPath(pending.repo), JSON.stringify({ head: pending.head, message: pending.message, completed: [...pending.completed], docPromptSent: pending.docPromptSent }) + "\n", "utf8");
+}
+
+function loadPending(repo: string): PendingReview | undefined {
+  try {
+    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { head?: string; message?: string; completed?: string[]; docPromptSent?: boolean };
+    if (!state.head || !state.message) return undefined;
+    return { repo, head: state.head, message: state.message, completed: new Set(state.completed ?? []), docPromptSent: Boolean(state.docPromptSent) };
+  } catch {
+    return undefined;
+  }
+}
+
+function clearPending(repo: string): void {
+  try { unlinkSync(pendingPath(repo)); } catch { /* best effort */ }
+}
+
 function blockCountPath(repo: string): string {
   return join(repo, ".git", "sdd-review-block-count");
 }
@@ -154,15 +178,14 @@ function subagentDirective(repo: string, pr: PrState, lanes: string[]): string {
     commands.push(`/parallel ${parallel.map((lane) => `${lane} ${JSON.stringify(base)}`).join(" -> ")} --fork --bg`);
   }
   if (tasks.includes("doc-updater")) {
-    commands.push(`After spec-reviewer completes, run:`);
-    commands.push(`/run doc-updater ${JSON.stringify(`${base} Run after spec-reviewer so documentation sees final spec changes.`)} --fork --bg`);
+    commands.push("After spec-reviewer completes, review enforcement will send the doc-updater command automatically.");
   }
   commands.push("Review acknowledgement is recorded automatically after code-reviewer, spec-reviewer, and doc-updater complete for this PR HEAD.");
   return commands.join("\n");
 }
 
 export default function (pi: ExtensionAPI) {
-  let pending: { repo: string; head: string; message: string; completed: Set<string>; docPromptSent: boolean } | undefined;
+  let pending: PendingReview | undefined;
 
   pi.on("tool_result", (event, ctx) => {
     const toolName = String(event?.toolName ?? "").toLowerCase();
@@ -183,16 +206,22 @@ export default function (pi: ExtensionAPI) {
     const message = enforcementMessage(repo, pr, lanes);
     const directive = `${message}\n\n${subagentDirective(repo, pr, lanes)}`;
     pending = { repo, head: pr.headRefOid, message: directive, completed: new Set(), docPromptSent: false };
+    savePending(pending);
     ctx.ui.notify(message, "warning");
     pi.sendUserMessage(directive, { deliverAs: "followUp" });
   });
 
   pi.on("subagents:completed", (event, ctx) => {
+    if (!pending) {
+      const repo = activeRepoFallback() ?? findGitRoot(ctx.sessionManager.getCwd());
+      pending = repo ? loadPending(repo) : undefined;
+    }
     if (!pending) return;
     const type = String(event?.type ?? "");
     if (!type) return;
     const current = prState(pending.repo);
     if (!isEnforcedPr(current) || current.headRefOid !== pending.head) {
+      clearPending(pending.repo);
       pending = undefined;
       return;
     }
@@ -200,11 +229,16 @@ export default function (pi: ExtensionAPI) {
     if (type === "spec-reviewer" && !pending.docPromptSent) {
       pending.docPromptSent = true;
       const base = `Review PR #${current.number ?? "?"} for ${basename(pending.repo)} at head ${pending.head}. Scope is the current diff against ${current.baseRefName}. Report findings only; do not modify files. Run after spec-reviewer so documentation sees final spec changes.`;
+      savePending(pending);
       pi.sendUserMessage(`/run doc-updater ${JSON.stringify(base)} --fork --bg`, { deliverAs: "followUp" });
+      return;
     }
+    savePending(pending);
     if (["code-reviewer", "spec-reviewer", "doc-updater"].every((lane) => pending?.completed.has(lane))) {
-      writeFileSync(ackPath(pending.repo), `${pending.head}\n`, "utf8");
+      writeFileSync(ackPath(pending.repo), `${pending.head}
+`, "utf8");
       resetBlockCount(pending.repo);
+      clearPending(pending.repo);
       ctx.ui.notify(`PR-boundary review acknowledged for ${basename(pending.repo)} at ${pending.head.slice(0, 12)}.`, "info");
       pending = undefined;
     }

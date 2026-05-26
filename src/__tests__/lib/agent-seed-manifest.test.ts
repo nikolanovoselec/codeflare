@@ -173,6 +173,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/code-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/spec-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/doc-updater.md');
+    const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
+    expect(codeReviewer?.content).toContain('tools: read, grep, find, bash, write');
+    expect(codeReviewer?.content).toContain('prompt_mode: replace');
+    expect(codeReviewer?.content).toContain('extensions: true');
+    expect(codeReviewer?.content).toContain('skills: true');
+    expect(codeReviewer?.content).toContain('inherit_context: true');
+    expect(codeReviewer?.content).toContain('run_in_background: false');
   });
 
   it('Pi native runtime assets include MCP and npm package config', () => {

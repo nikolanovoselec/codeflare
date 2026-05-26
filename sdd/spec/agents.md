@@ -924,6 +924,7 @@ None.
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
+<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh — PR-OPEN trigger (base-gated) describe + PR-SYNC trigger (base-gated) describe -> AC1 PR target main/master only + AC3 intermediate branches deferred + git-push-review-reminder.sh — MCP shell tool input shapes (issue #317) describe -> AC2 PUSH_LINE detection across Bash/MCP surfaces) + host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — PR state gating describe -> AC1/AC6 PR-state HEAD check + AC4 no-PR push no-op + enforce-review-spawn.sh — vibe-coding gate describe -> AC7 non-SDD projects exit silently + enforce-review-spawn.sh — MCP shell tool input shapes (issue #319) describe -> AC2 PUSH_LINE detection across Bash/MCP surfaces) -->
 
 **Intent:** Review agents must fire only on PR-boundary events that actually target shipping code. Trigger detection runs across every tool surface that can move HEAD, ignores intermediate-branch and no-PR pushes so vibe-coding mode and integration-branch development stay friction-free, and assumes upstream branch protection guards direct pushes to `main`. Lane classification + agent dispatch live in [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch); bypass surfaces live in [REQ-AGENT-041](#req-agent-041-pr-boundary-review-bypass-surfaces).
@@ -959,6 +960,7 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh -->
+<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes describes -> AC1/AC2/AC3 shared helper + lane mapping + conservative fallback to all-three-lanes) + host/__tests__/enforce-review-spawn.test.js (lane gating describe -> AC4 sequential spec-reviewer then doc-updater + AC5 fix-push cascade ack-pointer advancement) -->
 
 **Intent:** Once a PR-boundary trigger fires (REQ-AGENT-036), a shared lane classifier picks the minimal correct set of review agents from the diff so the in-turn nudge and turn-end gate agree, and a fix-push cascade can advance the ack pointer without losing review coverage.
@@ -1529,7 +1531,7 @@ None.
 ### REQ-AGENT-030: Multi-Agent Format Transforms
 
 <!-- @impl: scripts/generate-agent-seed.mjs -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe → per-agent frontmatter + model removal + path rewrites + .agent.md → AC1-AC4) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe → per-agent frontmatter + model removal + path rewrites + .agent.md → AC1-AC5) -->
 
 **Intent:** Each non-Claude agent has its own config-file conventions (frontmatter shape, model-field presence, path layout, file extensions). The generator must apply the right per-agent transform so the adapted config is valid for the consumer.
 

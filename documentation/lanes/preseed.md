@@ -245,23 +245,16 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (6): `preseed/agents/pi/manifest.json`
-  maps `extensions/codeflare-pi.ts`,
-  `extensions/context-mode-enforcement.ts`,
-  `extensions/review-command.ts`, and
-  `extensions/review-enforcement.ts` (advanced-only) plus
-  `package.json` and `mcp.json` (default+advanced) into Pi's native
-  config surface. These are runtime adapters, not duplicated workflow
-  prose: commands and lifecycle hooks use Pi primitives while rules and
+- Pi-native runtime assets (6): manifest, package, MCP, and four extensions.
+
+  These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
   separate from PR-boundary enforcement: the command reviews a requested
   scope, while `review-enforcement.ts` watches PR HEADs, resolves the
-  active repo from native GitHub workflow commands, and requires a
-  review acknowledgement for SDD PRs targeting `main`/`master`.
-  Pi subagents are provided by `@gotgenes/pi-subagents`,
-  a Claude Code-style subagent extension exposing `Agent`,
-  `get_subagent_result`, and `steer_subagent`; the generator adapts
-  Claude agent definitions into `.pi/agent/agents/*.md` for that runtime.
+  active repo from native GitHub workflow commands, and requires review
+  subagent completion for SDD PRs targeting `main`/`master`.
+  Pi subagents are provided by `@gotgenes/pi-subagents`; the generator
+  adapts Claude agent definitions into `.pi/agent/agents/*.md`.
 
 ## Multi-Agent Preseed
 
@@ -559,6 +552,7 @@ The legacy v4 timestamp file `.git/sdd-last-ack-push` (if present from a prior i
 
 ## Specification Coverage
 
+- [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) - Preseed Configs Generated from Single Source of Truth
 - [REQ-AGENT-007](../../sdd/spec/agents.md#req-agent-007-multi-agent-adaptation-pipeline) - Multi-Agent Adaptation Pipeline
 - [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline) - Manifest-Driven Preseed Pipeline
 - [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) - Auto-upgrade preseed on release
