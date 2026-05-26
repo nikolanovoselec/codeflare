@@ -196,7 +196,7 @@ function words(segment: string): string[] {
     .filter(Boolean);
 }
 
-function bashDenialReason(command: string): string | undefined {
+export function bashDenialReason(command: string): string | undefined {
   for (const segment of commandSegments(command)) {
     const [first, second] = words(segment);
     if (!first) continue;

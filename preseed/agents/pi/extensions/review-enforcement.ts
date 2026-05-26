@@ -64,7 +64,7 @@ function isGitPush(command: string): boolean {
   return /(^|[;&|]\s*)git\s+push\b/.test(command);
 }
 
-function isPrBoundaryCommand(command: string): boolean {
+export function isPrBoundaryCommand(command: string): boolean {
   return /(^|[;&|]\s*)git\s+push\b/.test(command) || /(^|[;&|]\s*)gh\s+pr\s+(create|merge)\b/.test(command);
 }
 
@@ -110,7 +110,7 @@ function changedFiles(repo: string, lastAck: string, current: string): string[] 
   }
 }
 
-function classifyFiles(files: string[] | undefined): string[] | undefined {
+export function classifyReviewFiles(files: string[] | undefined): string[] | undefined {
   const all = ["code-reviewer", "spec-reviewer", "doc-updater"];
   if (files === undefined) return all;
   if (files.length === 0) return [];
@@ -131,7 +131,7 @@ function classifyFiles(files: string[] | undefined): string[] | undefined {
 
 function requiredReviewLanes(repo: string, current: string, previous?: PendingReview): { lanes: string[]; completed: Set<string> } {
   const base = previous?.head ?? lastAckHead(repo);
-  const changed = classifyFiles(changedFiles(repo, base, current));
+  const changed = classifyReviewFiles(changedFiles(repo, base, current));
   const changedLanes = changed ?? ["code-reviewer", "spec-reviewer", "doc-updater"];
   if (!previous) return { lanes: changedLanes, completed: new Set() };
 

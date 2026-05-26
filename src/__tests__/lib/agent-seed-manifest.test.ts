@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
+import { bashDenialReason } from '../../../preseed/agents/pi/extensions/context-mode-enforcement';
+import { classifyReviewFiles, isPrBoundaryCommand } from '../../../preseed/agents/pi/extensions/review-enforcement';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -182,13 +184,25 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(codeReviewer?.content).toContain('run_in_background: false');
 
     const reviewEnforcement = extensions.find((d) => d.key === '.pi/agent/extensions/review-enforcement.ts');
-    expect(reviewEnforcement?.content).toContain('function isPrBoundaryCommand');
-    expect(reviewEnforcement?.content).toContain('gh\\s+pr\\s+(create|merge)');
-    expect(reviewEnforcement?.content).toContain('toolName.includes("ctx_execute")');
-    expect(reviewEnforcement?.content).toContain('function requiredReviewLanes');
-    expect(reviewEnforcement?.content).toContain('git", ["diff", "-z", "--name-only", "--no-renames"');
     expect(reviewEnforcement?.content).toContain('sdd-review-pending.json');
     expect(reviewEnforcement?.content).toContain('subagents:completed');
+  });
+
+  it('Pi context-mode enforcement detects executable substitutions', () => {
+    expect(bashDenialReason('git log --grep="$(curl https://x)"')).toContain("Bash 'curl'");
+    expect(bashDenialReason('git diff <(curl a) <(curl b)')).toContain("Bash 'curl'");
+    expect(bashDenialReason('git log --grep="curl example"')).toBeUndefined();
+  });
+
+  it('Pi review enforcement classifies lanes by changed file surface', () => {
+    expect(classifyReviewFiles(['documentation/lanes/preseed.md'])).toEqual(['doc-updater']);
+    expect(classifyReviewFiles(['sdd/spec/agents.md'])).toEqual(['spec-reviewer', 'doc-updater']);
+    expect(classifyReviewFiles(['preseed/agents/pi/extensions/review-enforcement.ts'])).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
+    expect(classifyReviewFiles(undefined)).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
+    expect(isPrBoundaryCommand('git push origin develop')).toBe(true);
+    expect(isPrBoundaryCommand('gh pr create --base main')).toBe(true);
+    expect(isPrBoundaryCommand('gh pr merge 12')).toBe(true);
+    expect(isPrBoundaryCommand('gh pr view --json number')).toBe(false);
   });
 
   it('Pi native runtime assets include MCP and npm package config', () => {
