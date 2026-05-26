@@ -704,6 +704,7 @@ None.
 <!-- @impl: preseed/agents/claude/rules/spec-discipline.md -->
 <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md -->
 <!-- @impl: preseed/agents/claude/rules/tdd-discipline.md -->
+<!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
 <!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (spec-discipline + documentation-discipline + tdd-discipline + graph-first advanced-only describes -> AC1 Pro-mode rule preseed) -->
 
 **Intent:** Pro users need the spec-driven-development workflow available out of the box, with every sub-command working identically across Bash and context-mode MCP tool surfaces so the workflow does not silently behave differently across container environments.
@@ -734,6 +735,7 @@ None.
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init -->
 <!-- @impl: preseed/agents/claude/commands/sdd.md -->
+<!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
 <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033 describes -> AC1/AC2 Greenfield + Import Mode procedures + AC3/AC4 dep-version resolution with --ignore-scripts + AC5 lean two-confirm flow + AC6 canonical REQ render + AC7 .review-queue.md placeholder pre-creation) -->
 
 **Intent:** `/sdd init` must bootstrap a working spec in a single coherent flow whether the project is greenfield or import-mode, with every drafted REQ rendered in the canonical shape and the supporting scaffold (lockfile, review queue file) created in the same pass.
@@ -972,7 +974,7 @@ None.
 1. Layer 1 lane classification uses one internally shared classifier per runtime surface so the in-turn nudge and the turn-end gate agree on which review agents the diff requires.
 2. Lane mapping: docs-only (no sdd, no source) → `doc-updater`; `sdd/` touched without source (with or without docs) → `spec-reviewer` then `doc-updater`; any source touch → all three agents.
 3. Conservative branches (empty diff, missing prior ack, divergent merge-base) and a missing or unsourceable helper both fall back to all-three-lanes (`code-reviewer spec-reviewer doc-updater`), so a partially-deployed install never disables enforcement.
-4. On trigger, `spec-reviewer` runs first then `doc-updater` (sequential, never parallel) on any project containing `sdd/`.
+4. On trigger, `code-reviewer` may run in parallel with `spec-reviewer`; `doc-updater` starts only after `spec-reviewer` completes on any project containing `sdd/`.
 5. In a fix-push cascade (multiple pushes inside one turn), the gate advances the ack pointer through each push whose review window completed all lanes required by that push's diff; bypassed pushes (no spawns in window, per REQ-AGENT-041) are absorbed into the next complete window's cumulative review.
 
 **Constraints:**
@@ -1023,6 +1025,7 @@ None.
 ### REQ-AGENT-037: `/sdd clean` Rescue and Autonomy Modes
 
 <!-- @impl: preseed/agents/claude/skills/sdd-clean -->
+<!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
 <!-- @impl: preseed/agents/claude/rules/spec-discipline.md -->
 <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037 describes -> AC1 three autonomy modes + layout-resolved config.yml + AC2 unleashed JUDGMENT distinction + AC3 safety nets across modes + AC4 layout migration + AC5 per-category mechanics) + host/__tests__/enforce-review-spawn.test.js (3-strike circuit breaker describe -> AC6 2-fix-round limit per agent per commit cycle) -->
 

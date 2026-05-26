@@ -211,21 +211,24 @@ function enforcementMessage(repo: string, pr: PrState, lanes: string[]): string 
   return `PR-boundary review required for ${basename(repo)} PR #${pr.number ?? "?"} (${pr.baseRefName}, head ${pr.headRefOid?.slice(0, 12)}). Required lanes: ${laneText}. Run the requested subagents before finishing this turn.`;
 }
 
+function agentCall(type: string, prompt: string, description: string): string {
+  return `Agent({ subagent_type: ${JSON.stringify(type)}, prompt: ${JSON.stringify(prompt)}, description: ${JSON.stringify(description)}, run_in_background: true })`;
+}
+
 function subagentDirective(repo: string, pr: PrState, lanes: string[]): string {
   const base = `Review PR #${pr.number ?? "?"} for ${basename(repo)} at head ${pr.headRefOid}. Scope is the current diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
   const tasks = lanes.length > 0 ? lanes : ["code-reviewer", "spec-reviewer", "doc-updater"];
-  const parallel = tasks.filter((lane) => lane === "code-reviewer" || lane === "spec-reviewer");
   const commands: string[] = [];
-  if (parallel.length === 1) {
-    commands.push(`/run ${parallel[0]} ${JSON.stringify(base)} --fork --bg`);
-  } else if (parallel.length > 1) {
-    commands.push(`/parallel ${parallel.map((lane) => `${lane} ${JSON.stringify(base)}`).join(" -> ")} --fork --bg`);
+  const parallel = tasks.filter((lane) => lane === "code-reviewer" || lane === "spec-reviewer");
+  if (parallel.length > 0) {
+    commands.push("Launch these Agent tool calls in parallel:");
+    for (const lane of parallel) commands.push(agentCall(lane, base, lane === "code-reviewer" ? "Review code changes" : "Review spec changes"));
   }
   if (tasks.includes("doc-updater")) {
     if (tasks.includes("spec-reviewer")) {
-      commands.push("After spec-reviewer completes, review enforcement will send the doc-updater command automatically.");
+      commands.push("After spec-reviewer completes, review enforcement will send the doc-updater Agent call automatically.");
     } else {
-      commands.push(`/run doc-updater ${JSON.stringify(base)} --fork --bg`);
+      commands.push(agentCall("doc-updater", base, "Review documentation changes"));
     }
   }
   commands.push(`Review acknowledgement is recorded automatically after required lanes complete for this PR HEAD: ${tasks.join(", ")}.`);
@@ -267,7 +270,7 @@ export default function (pi: ExtensionAPI) {
     pi.sendUserMessage(directive, { deliverAs: "followUp" });
   });
 
-  pi.on("subagents:completed", (event, ctx) => {
+  const onSubagentCompleted = (event: any, ctx: any) => {
     if (!pending) {
       const repo = activeRepoFallback() ?? findGitRoot(ctx.sessionManager.getCwd());
       pending = repo ? loadPending(repo) : undefined;
@@ -286,18 +289,22 @@ export default function (pi: ExtensionAPI) {
       pending.docPromptSent = true;
       const base = `Review PR #${current.number ?? "?"} for ${basename(pending.repo)} at head ${pending.head}. Scope is the current diff against ${current.baseRefName}. Report findings only; do not modify files. Run after spec-reviewer so documentation sees final spec changes.`;
       savePending(pending);
-      pi.sendUserMessage(`/run doc-updater ${JSON.stringify(base)} --fork --bg`, { deliverAs: "followUp" });
+      pi.sendUserMessage(agentCall("doc-updater", base, "Review documentation changes"), { deliverAs: "followUp" });
       return;
     }
     savePending(pending);
     if (pending.lanes.every((lane) => pending?.completed.has(lane))) {
-      writeFileSync(ackPath(pending.repo), `${pending.head}\n`, "utf8");
+      writeFileSync(ackPath(pending.repo), `${pending.head}
+`, "utf8");
       resetBlockCount(pending.repo);
       clearPending(pending.repo);
       ctx.ui.notify(`PR-boundary review acknowledged for ${basename(pending.repo)} at ${pending.head.slice(0, 12)}.`, "info");
       pending = undefined;
     }
-  });
+  };
+
+  pi.on("subagents:completed", onSubagentCompleted);
+  (pi as any).events?.on?.("subagents:completed", (event: any) => onSubagentCompleted(event, { sessionManager: { getCwd: () => process.cwd() }, ui: { notify: () => undefined } }));
 
   pi.on("agent_end", (_event, ctx) => {
     if (!pending) return;
