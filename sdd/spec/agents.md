@@ -32,7 +32,7 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: Dockerfile -->
 <!-- @impl: src/lib/schemas.ts -->
-<!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness describe -> AC1/AC2) -->
+<!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness describe → AC1/AC2) -->
 <!-- @test: host/__tests__/dockerfile-graphify.test.js (npm install + V8 warm-up → AC3/AC4) -->
 
 **Intent:** The platform must support multiple AI coding agents so users can choose the tool that fits their workflow.
@@ -380,7 +380,7 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: src/routes/storage/seed.ts -->
 <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
-<!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes describe -> AC1/AC3 recreate endpoint + storage-stats KV cache invalidation) + src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-004 reconcileAgentConfigs describe -> AC2/AC4/AC5 overwrite-and-cleanup with user-file preservation) -->
+<!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes describe → AC1/AC3/AC6/AC7 recreate endpoint + rate limit + storage-stats KV cache invalidation) + src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-011 reconcileAgentConfigs describe → AC2/AC4/AC5 overwrite-and-cleanup with user-file preservation) -->
 
 **Intent:** Users must be able to reset their agent skills and rules to the platform defaults at any time, recovering from accidental deletion or corruption.
 
@@ -407,7 +407,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-010](storage.md#req-stor-010-agent-configs-auto-seeded-based-on-session-mode)
 
-**Verification:** [Automated test](../../src/__tests__/routes/storage-seed.test.ts)
+**Verification:** [storage-seed.test.ts](../../src/__tests__/routes/storage-seed.test.ts) (AC1/AC3/AC6/AC7), [r2-seed-mode-req-coverage.test.ts](../../src/__tests__/lib/r2-seed-mode-req-coverage.test.ts) (AC2/AC4/AC5)
 
 **Status:** Implemented
 
