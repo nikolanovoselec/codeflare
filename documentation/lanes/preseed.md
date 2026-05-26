@@ -273,6 +273,8 @@ All preseed content is deployed via the manifest pipeline:
 
 <!-- pi-review-clean-live-test -->
 
+<!-- pi-review-short-directive-test -->
+
 ## Multi-Agent Preseed
 
 The generator produces adapted config files for all supported agents
