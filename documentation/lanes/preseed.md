@@ -278,7 +278,7 @@ files exist on disk.
 | Gemini | `~/.gemini/GEMINI.md` (single file) | `~/.gemini/skills/<name>/SKILL.md` | `~/.gemini/agents/*.md` |
 | Copilot | `~/.copilot/copilot-instructions.md` (single file) | N/A | `~/.copilot/agents/<name>.agent.md` |
 | OpenCode | `~/.config/opencode/AGENTS.md` (single file) | `~/.config/opencode/skills/<name>/SKILL.md` | `~/.config/opencode/agents/*.md` |
-| Pi | `~/.pi/agent/AGENTS.md` (single file) | `.agents/skills/<name>/SKILL.md` | N/A |
+| Pi | `~/.pi/agent/AGENTS.md` (single file) | `.agents/skills/<name>/SKILL.md` | `.pi/agent/agents/*.md` |
 
 **Tool name mapping** (adapted in agent definition frontmatter):
 

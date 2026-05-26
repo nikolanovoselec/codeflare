@@ -45,6 +45,98 @@ function stripHeredocs(command: string): string {
   return output.join("\n");
 }
 
+function matchingParenIndex(input: string, start: number): number {
+  let depth = 1;
+  let inSingle = false;
+  let inDouble = false;
+
+  for (let index = start + 1; index < input.length; index++) {
+    const char = input[index];
+    if (inSingle) {
+      if (char === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      if (char === "\\") {
+        index++;
+        continue;
+      }
+      if (char === '"') inDouble = false;
+      continue;
+    }
+    if (char === "'") {
+      inSingle = true;
+      continue;
+    }
+    if (char === '"') {
+      inDouble = true;
+      continue;
+    }
+    if (char === "(") depth++;
+    if (char === ")") depth--;
+    if (depth === 0) return index;
+  }
+
+  return -1;
+}
+
+function extractSubstitutions(command: string): string[] {
+  const extras: string[] = [];
+  let inSingle = false;
+  let inDouble = false;
+
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index];
+    if (inSingle) {
+      if (char === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble && char === "\\") {
+      index++;
+      continue;
+    }
+    if (char === "'" && !inDouble) {
+      inSingle = true;
+      continue;
+    }
+    if (char === '"') {
+      inDouble = !inDouble;
+      continue;
+    }
+
+    if (char === "`") {
+      const end = command.indexOf("`", index + 1);
+      if (end === -1) continue;
+      const inner = command.slice(index + 1, end);
+      extras.push(inner, ...extractSubstitutions(inner));
+      index = end;
+      continue;
+    }
+
+    const isCommandSub = char === "$" && command[index + 1] === "(" && command[index + 2] !== "(";
+    const isProcessSub = (char === "<" || char === ">") && command[index + 1] === "(";
+    const openIndex = isCommandSub ? index + 1 : isProcessSub ? index + 1 : -1;
+    if (openIndex !== -1) {
+      const end = matchingParenIndex(command, openIndex);
+      if (end === -1) continue;
+      const inner = command.slice(openIndex + 1, end);
+      extras.push(inner, ...extractSubstitutions(inner));
+      index = end;
+      continue;
+    }
+
+    if (char === "$" && command[index + 1] === "(" && command[index + 2] === "(") {
+      const end = matchingParenIndex(command, index + 1);
+      if (end === -1) continue;
+      const inner = command.slice(index + 3, Math.max(index + 3, end - 1));
+      extras.push(...extractSubstitutions(inner));
+      index = end;
+    }
+  }
+
+  return extras;
+}
+
 function stripQuotedContent(command: string): string {
   let result = "";
   let inSingle = false;
@@ -85,7 +177,9 @@ function stripQuotedContent(command: string): string {
 }
 
 function commandSegments(command: string): string[] {
-  return stripQuotedContent(stripHeredocs(command))
+  const withoutHeredocs = stripHeredocs(command);
+  const extracted = extractSubstitutions(withoutHeredocs);
+  return stripQuotedContent([withoutHeredocs, ...extracted].join(" ; "))
     .replace(/[0-9]*[<>]&[0-9]+|[0-9]*[<>]&-|&>>?|&\|/g, " ")
     .split(/&&|\|\||;|\||&/g)
     .map((segment) => segment.trim())
