@@ -128,7 +128,24 @@ function consumeBypass(): boolean {
 
 function enforcementMessage(repo: string, pr: PrState, lanes: string[]): string {
   const laneText = lanes.length > 0 ? lanes.join(", ") : "code-reviewer";
-  return `PR-boundary review required for ${basename(repo)} PR #${pr.number ?? "?"} (${pr.baseRefName}, head ${pr.headRefOid?.slice(0, 12)}). Required lanes: ${laneText}. Run /review --diff before finishing this turn.`;
+  return `PR-boundary review required for ${basename(repo)} PR #${pr.number ?? "?"} (${pr.baseRefName}, head ${pr.headRefOid?.slice(0, 12)}). Required lanes: ${laneText}. Run the requested subagents or /review --diff before finishing this turn.`;
+}
+
+function subagentDirective(repo: string, pr: PrState, lanes: string[]): string {
+  const base = `Review PR #${pr.number ?? "?"} for ${basename(repo)} at head ${pr.headRefOid}. Scope is the current diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
+  const tasks = lanes.length > 0 ? lanes : ["code-reviewer"];
+  const parallel = tasks.filter((lane) => lane !== "doc-updater");
+  const commands: string[] = [];
+  if (parallel.length === 1) {
+    commands.push(`/run ${parallel[0]} ${JSON.stringify(base)} --fork`);
+  } else if (parallel.length > 1) {
+    commands.push(`/parallel ${parallel.map((lane) => `${lane} ${JSON.stringify(base)}`).join(" -> ")} --fork`);
+  }
+  if (tasks.includes("doc-updater")) {
+    commands.push(`/run doc-updater ${JSON.stringify(`${base} Run after spec-reviewer so documentation sees final spec changes.`)} --fork`);
+  }
+  commands.push("After required subagents report, run /review --diff to acknowledge this PR HEAD.");
+  return commands.join("\n");
 }
 
 export default function (pi: ExtensionAPI) {
@@ -150,9 +167,10 @@ export default function (pi: ExtensionAPI) {
 
     const lanes = requiredReviewLanes(repo);
     const message = enforcementMessage(repo, pr, lanes);
-    pending = { repo, head: pr.headRefOid, message };
+    const directive = `${message}\n\n${subagentDirective(repo, pr, lanes)}`;
+    pending = { repo, head: pr.headRefOid, message: directive };
     ctx.ui.notify(message, "warning");
-    pi.sendUserMessage(message, { deliverAs: "followUp" });
+    pi.sendUserMessage(directive, { deliverAs: "followUp" });
   });
 
   pi.on("agent_end", (_event, ctx) => {

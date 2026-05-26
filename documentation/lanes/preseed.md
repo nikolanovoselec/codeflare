@@ -256,7 +256,10 @@ All preseed content is deployed via the manifest pipeline:
   skills still come from the Claude source tree. `/review` is deliberately
   separate from PR-boundary enforcement: the command reviews a requested
   scope, while `review-enforcement.ts` watches PR HEADs and requires a
-  review acknowledgement for SDD PRs targeting `main`/`master`.
+  review acknowledgement for SDD PRs targeting `main`/`master`. Pi subagents are provided by `@gotgenes/pi-subagents`,
+  a Claude Code-style subagent extension exposing `Agent`,
+  `get_subagent_result`, and `steer_subagent`; the generator adapts
+  Claude agent definitions into `.pi/agent/agents/*.md` for that runtime.
 
 ## Multi-Agent Preseed
 
@@ -295,8 +298,8 @@ files exist on disk.
 | Gemini | 58 |
 | Copilot | 13 |
 | OpenCode | 58 |
-| Pi | 53 |
-| **Total** | **349** |
+| Pi | 64 |
+| **Total** | **360** |
 
 **Excluded from non-CC transformed assets**: hooks (CC hook system),
 commands (CC slash commands), plugins (CC plugin system, including
@@ -318,12 +321,13 @@ remaps tool names in agent definition frontmatter, (3) removes
 `model` field from frontmatter, (4) replaces `~/.claude/` path
 references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents). Pi additionally
-loads `preseed/agents/pi/manifest.json` and emits native runtime files
+loads `preseed/agents/pi/manifest.json`, emits native runtime files
 to `.pi/agent/extensions/`, `.pi/agent/mcp.json`, and
-`.pi/agent/npm/package.json`.
+`.pi/agent/npm/package.json`, and adapts Claude agent definitions into
+`.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`.
 
 **Per-mode counts**: Default mode seeds 49 files, advanced mode
-seeds 344 files. Total array size is 349 (includes variant-per-mode
+seeds 355 files. Total array size is 360 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the

@@ -158,10 +158,10 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('Pi has skills and native runtime extensions but no custom agent definitions', () => {
+  it('Pi has skills, native runtime extensions, and subagent definitions', () => {
     const piDocs = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/') || d.key.startsWith('.agents/'));
     const skills = piDocs.filter((d) => d.key.startsWith('.agents/skills/'));
-    const agents = piDocs.filter((d) => d.key.includes('/agents/') && !d.key.startsWith('.agents/skills/') && !d.key.endsWith('AGENTS.md'));
+    const agents = piDocs.filter((d) => d.key.startsWith('.pi/agent/agents/') && !d.key.endsWith('AGENTS.md'));
     const extensions = piDocs.filter((d) => d.key.startsWith('.pi/agent/extensions/'));
     expect(skills.length).toBeGreaterThan(0);
     expect(extensions.map((d) => d.key).sort()).toEqual([
@@ -170,7 +170,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/review-command.ts',
       '.pi/agent/extensions/review-enforcement.ts',
     ]);
-    expect(agents.length).toBe(0);
+    expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/code-reviewer.md');
+    expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/spec-reviewer.md');
+    expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/doc-updater.md');
   });
 
   it('Pi native runtime assets include MCP and npm package config', () => {

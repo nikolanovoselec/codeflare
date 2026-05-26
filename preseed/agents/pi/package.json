@@ -3,6 +3,7 @@
   "private": true,
   "dependencies": {
     "@gaodes/pi-graphify": "latest",
+    "@tintinweb/pi-subagents": "latest",
     "context-mode": "latest"
   }
 }

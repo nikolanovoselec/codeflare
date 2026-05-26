@@ -48,8 +48,8 @@ const AGENT_CONFIGS = {
   pi: {
     instructionsKey: '.pi/agent/AGENTS.md',
     skillsPrefix: '.agents/skills',
-    agentsPrefix: null,
-    agentExtension: null,
+    agentsPrefix: '.pi/agent/agents',
+    agentExtension: '.md',
     homePath: '~/.pi/agent',
   },
 };
@@ -148,19 +148,25 @@ function adaptAgentFrontmatter(content, agentId) {
   const [, frontmatter, body] = match;
   const lines = frontmatter.split('\n');
   const newLines = [];
+  let sawTools = false;
 
   for (const line of lines) {
     if (line.startsWith('model:')) continue;
 
     if (line.startsWith('tools:')) {
+      sawTools = true;
       const toolsMatch = line.match(/tools:\s*(\[.*\])/);
       if (toolsMatch) {
         const tools = JSON.parse(toolsMatch[1]);
         const remapped = remapTools(tools, agentId);
-        // OpenCode expects tools as a record {name: true}, not an array
+        // OpenCode expects tools as a record {name: true}, not an array.
         if (agentId === 'opencode') {
           const record = Object.fromEntries(remapped.map((t) => [t, true]));
           newLines.push(`tools: ${JSON.stringify(record)}`);
+        } else if (agentId === 'pi') {
+          const allowed = ['read', 'grep', 'find', 'ls', 'bash', 'edit', 'write'];
+          const piTools = [...new Set(remapped.filter((t) => allowed.includes(t)))];
+          newLines.push(`tools: ${piTools.length > 0 ? piTools.join(', ') : 'none'}`);
         } else {
           newLines.push(`tools: ${JSON.stringify(remapped)}`);
         }
@@ -171,6 +177,15 @@ function adaptAgentFrontmatter(content, agentId) {
     }
 
     newLines.push(line);
+  }
+
+  if (agentId === 'pi') {
+    if (!sawTools) newLines.push('tools: read, grep, find, ls, bash, edit, write');
+    newLines.push('prompt_mode: replace');
+    newLines.push('extensions: true');
+    newLines.push('skills: true');
+    newLines.push('inherit_context: true');
+    newLines.push('run_in_background: false');
   }
 
   return `---\n${newLines.join('\n')}\n---\n${adaptPaths(body, agentId)}`;
