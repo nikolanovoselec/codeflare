@@ -62,13 +62,16 @@ skills & rules" click, new bucket creation, Stripe mode change
 (`customer.subscription.deleted`), Settings toggle of
 `sessionMode`, or automatic upgrade on release (triggered by
 `preseedNeedsUpgrade: true` in the initial dashboard batch-status
-response; see [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)). The Settings toggle immediately triggers server-side
-reconciliation as part of the `PATCH /api/preferences` call -- no
-separate Recreate click is required; the UI shows a confirmation
-("Agent skills updated for X mode. Takes effect in new sessions.")
-when the toggle completes. On Stripe-driven or Settings-driven
-reconciliation, preseed files are overwritten to match the new mode;
-user-created files are never deleted. Implements
+response; see
+[REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)).
+
+The Settings toggle immediately triggers server-side reconciliation
+as part of the `PATCH /api/preferences` call -- no separate Recreate
+click is required; the UI shows a confirmation ("Agent skills updated
+for X mode. Takes effect in new sessions.") when the toggle
+completes. On Stripe-driven or Settings-driven reconciliation,
+preseed files are overwritten to match the new mode; user-created
+files are never deleted. Implements
 [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) AC4 - AC5 and
 [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers).
 
