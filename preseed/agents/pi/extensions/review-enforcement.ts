@@ -32,6 +32,7 @@ type PendingReview = {
   lanes: string[];
   completed: Set<string>;
   docPromptSent: boolean;
+  spawned: boolean;
 };
 
 function shell(command: string, cwd: string): string {
@@ -146,16 +147,16 @@ function consumeBypass(): boolean {
 
 function loadPending(repo: string): PendingReview | undefined {
   try {
-    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean };
+    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean };
     if (!state.head || !state.baseRefName || !Array.isArray(state.lanes)) return undefined;
-    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, lanes: state.lanes, completed: new Set(state.completed ?? []), docPromptSent: Boolean(state.docPromptSent) };
+    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, lanes: state.lanes, completed: new Set(state.completed ?? []), docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned) };
   } catch {
     return undefined;
   }
 }
 
 function savePending(pending: PendingReview): void {
-  writeFileSync(pendingPath(pending.repo), JSON.stringify({ prNumber: pending.prNumber, baseRefName: pending.baseRefName, head: pending.head, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent }) + "\n", "utf8");
+  writeFileSync(pendingPath(pending.repo), JSON.stringify({ prNumber: pending.prNumber, baseRefName: pending.baseRefName, head: pending.head, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent, spawned: pending.spawned }) + "\n", "utf8");
 }
 
 function isAncestor(repo: string, ancestor: string, current: string): boolean {
@@ -337,9 +338,10 @@ export default function (pi: ExtensionAPI) {
     }
 
     resetBlockCount(repo);
-    pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, lanes: review.lanes, completed: review.completed, docPromptSent: false };
-    savePending(pending);
+    pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false };
     const spawned = await spawnInitialLanes(pending, effectivePr);
+    pending.spawned = spawned;
+    savePending(pending);
     ctx.ui.notify(`PR-boundary review required for ${basename(repo)} at ${head.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
     if (!spawned) {
       pi.sendUserMessage(directiveFor(repo, effectivePr, review.lanes), { deliverAs: "followUp" });
@@ -370,6 +372,10 @@ export default function (pi: ExtensionAPI) {
       pending = undefined;
       return;
     }
+    const currentState = loadPending(state.repo) ?? state;
+    if (currentState.spawned) {
+      return;
+    }
     const service = subagentsService();
     if (service?.hasRunning?.()) {
       return;
@@ -380,7 +386,6 @@ export default function (pi: ExtensionAPI) {
       pending = undefined;
       return;
     }
-    const currentState = loadPending(state.repo) ?? state;
     const remaining = currentState.lanes.filter((lane) => !currentState.completed.has(lane)).join(", ") || "none";
     const reminder = `PR-boundary review still pending for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Remaining lanes: ${remaining}. Reminder ${count}/3.`;
     ctx.ui.notify(reminder, "warning");

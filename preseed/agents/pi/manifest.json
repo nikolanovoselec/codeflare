@@ -4,11 +4,6 @@
       "advanced"
     ]
   },
-  "extensions/context-mode-enforcement.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "package.json": {
     "modes": [
       "default",
