@@ -1,9 +1,10 @@
-// Implements REQ-AGENT-010
+// Implements REQ-AGENT-010, REQ-AGENT-028
 import { describe, it, expect } from 'vitest';
 import {
   getGithubTokenUrl,
   GITHUB_TIERS,
-  CLOUDFLARE_TOKEN_PAGE,
+  getCloudflareTokenUrl,
+  CLOUDFLARE_TIERS,
 } from '../../lib/token-scopes';
 
 describe('GITHUB_TIERS / REQ-AGENT-010 (deploy credential token scope tiers)', () => {
@@ -98,8 +99,106 @@ describe('getGithubTokenUrl', () => {
   });
 });
 
-describe('CLOUDFLARE_TOKEN_PAGE', () => {
-  it('points to Cloudflare API tokens page', () => {
-    expect(CLOUDFLARE_TOKEN_PAGE).toBe('https://dash.cloudflare.com/profile/api-tokens');
+describe('CLOUDFLARE_TIERS / REQ-AGENT-028 AC2 (Cloudflare token scope tiers)', () => {
+  it('has exactly 3 tiers', () => {
+    expect(Object.keys(CLOUDFLARE_TIERS)).toHaveLength(3);
+  });
+
+  it('has minimal, recommended, and advanced', () => {
+    expect(CLOUDFLARE_TIERS.minimal).toBeDefined();
+    expect(CLOUDFLARE_TIERS.recommended).toBeDefined();
+    expect(CLOUDFLARE_TIERS.advanced).toBeDefined();
+  });
+
+  it('each tier has label and description', () => {
+    for (const tier of Object.values(CLOUDFLARE_TIERS)) {
+      expect(tier.label).toBeTruthy();
+      expect(tier.description).toBeTruthy();
+    }
+  });
+});
+
+describe('getCloudflareTokenUrl', () => {
+  it('all tiers include permissionGroupKeys and name=Codeflare', () => {
+    for (const tier of ['minimal', 'recommended', 'advanced'] as const) {
+      const url = getCloudflareTokenUrl(tier);
+      expect(url).toContain('permissionGroupKeys=');
+      expect(url).toContain('name=Codeflare');
+      expect(url).toContain('accountId=%2A');
+      expect(url).toContain('zoneId=all');
+    }
+  });
+
+  it('minimal has 7 scopes', () => {
+    const url = getCloudflareTokenUrl('minimal');
+    const params = new URL(url).searchParams;
+    const scopes = JSON.parse(params.get('permissionGroupKeys')!);
+    expect(scopes).toHaveLength(7);
+  });
+
+  it('recommended has 10 scopes (superset of minimal)', () => {
+    const url = getCloudflareTokenUrl('recommended');
+    const params = new URL(url).searchParams;
+    const scopes = JSON.parse(params.get('permissionGroupKeys')!);
+    expect(scopes).toHaveLength(10);
+
+    const minimalUrl = getCloudflareTokenUrl('minimal');
+    const minimalScopes = JSON.parse(new URL(minimalUrl).searchParams.get('permissionGroupKeys')!);
+    for (const scope of minimalScopes) {
+      expect(scopes).toContainEqual(scope);
+    }
+  });
+
+  it('advanced has 22 scopes (superset of recommended)', () => {
+    const url = getCloudflareTokenUrl('advanced');
+    const params = new URL(url).searchParams;
+    const scopes = JSON.parse(params.get('permissionGroupKeys')!);
+    expect(scopes).toHaveLength(22);
+
+    const recUrl = getCloudflareTokenUrl('recommended');
+    const recScopes = JSON.parse(new URL(recUrl).searchParams.get('permissionGroupKeys')!);
+    for (const scope of recScopes) {
+      expect(scopes).toContainEqual(scope);
+    }
+  });
+
+  it('minimal includes core Worker scopes', () => {
+    const url = getCloudflareTokenUrl('minimal');
+    const scopes = JSON.parse(new URL(url).searchParams.get('permissionGroupKeys')!);
+    const keys = scopes.map((s: { key: string }) => s.key);
+    expect(keys).toContain('workers_scripts');
+    expect(keys).toContain('workers_kv_storage');
+    expect(keys).toContain('workers_r2');
+    expect(keys).toContain('d1');
+  });
+
+  it('minimal does NOT include dns or access', () => {
+    const url = getCloudflareTokenUrl('minimal');
+    const scopes = JSON.parse(new URL(url).searchParams.get('permissionGroupKeys')!);
+    const keys = scopes.map((s: { key: string }) => s.key);
+    expect(keys).not.toContain('dns');
+    expect(keys).not.toContain('access');
+  });
+
+  it('recommended includes dns and access', () => {
+    const url = getCloudflareTokenUrl('recommended');
+    const scopes = JSON.parse(new URL(url).searchParams.get('permissionGroupKeys')!);
+    const keys = scopes.map((s: { key: string }) => s.key);
+    expect(keys).toContain('dns');
+    expect(keys).toContain('access');
+    expect(keys).toContain('access_acct');
+  });
+
+  it('advanced includes AI, Containers, Queues, and Agents', () => {
+    const url = getCloudflareTokenUrl('advanced');
+    const scopes = JSON.parse(new URL(url).searchParams.get('permissionGroupKeys')!);
+    const keys = scopes.map((s: { key: string }) => s.key);
+    expect(keys).toContain('ai');
+    expect(keys).toContain('containers');
+    expect(keys).toContain('queues');
+    expect(keys).toContain('cf_agents');
+    expect(keys).toContain('challenge_widgets');
+    expect(keys).toContain('workers_ci');
+    expect(keys).toContain('r2_catalog');
   });
 });

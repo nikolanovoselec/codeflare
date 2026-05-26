@@ -1591,7 +1591,7 @@ None.
 
 <!-- @impl: web-ui/src/lib/token-scopes.ts -->
 <!-- @impl: web-ui/src/components/settings/ProviderRow.tsx -->
-<!-- @test: web-ui/src/__tests__/lib/token-scopes.test.ts (GITHUB_TIERS + getGithubTokenUrl + CLOUDFLARE_TOKEN_PAGE describes -> AC1 three-tier scope selector with correct scope prefills per tier + AC2 Cloudflare token page targeting) -->
+<!-- @test: web-ui/src/__tests__/lib/token-scopes.test.ts (GITHUB_TIERS + getGithubTokenUrl describes -> AC1 three-tier GitHub scope selector; CLOUDFLARE_TIERS + getCloudflareTokenUrl describes -> AC2 three-tier Cloudflare scope selector with 7/10/22 scope counts) -->
 
 **Intent:** Token creation for GitHub and Cloudflare must guide users through scope selection so they create the smallest token that still unlocks the features they need, without copy-pasting raw scope strings.
 
@@ -1600,18 +1600,18 @@ None.
 **Acceptance Criteria:**
 
 1. GitHub token creation offers three scope tiers (Minimal, Recommended, Advanced) via a selector in the connect flow, with Recommended pre-selected and the URL pre-filling the correct scopes per tier.
-2. Cloudflare token creation directs users to use the "Edit Cloudflare Workers" template with account and zone selection. No scope pre-fill (Cloudflare template URLs are broken).
+2. Cloudflare token creation offers three scope tiers (Minimal, Recommended, Advanced) via the same selector pattern, with Recommended pre-selected and the URL pre-filling the correct permission group keys per tier.
 3. A documentation page lists all scopes per tier with explanations of why each is needed, linked from the UI via "See all scopes".
 
 **Constraints:**
 
 - GitHub Minimal: 1 scope (contents). Recommended: 6 scopes (contents, PRs, actions, workflows, administration, secrets). Advanced: all 19 scopes including Copilot.
-- Cloudflare: "Edit Cloudflare Workers" template covers Workers, KV, R2, Pages, Containers, Routes. Users add extra scopes (D1, DNS, Access, Turnstile) when their agent requests them.
+- Cloudflare Minimal: 7 scopes (Workers Scripts, KV, R2, D1, Routes, Account Settings read, Zone read). Recommended: 10 scopes (Minimal + DNS, Access Apps+Policies, Access Orgs+IdPs). Advanced: 22 scopes (Recommended + Pages, Containers, API Tokens, Queues, AI read+write, Vectorize, Turnstile, Builds, Observability, R2 Data Catalog, Agents).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-019](#req-agent-019-branded-settings-ui)
 
-**Verification:** Manual check
+**Verification:** [Token scope tests](../../web-ui/src/__tests__/lib/token-scopes.test.ts)
 
 **Status:** Implemented

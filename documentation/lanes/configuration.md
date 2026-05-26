@@ -147,6 +147,37 @@ If your agent asks for additional permissions, you can add them by editing your 
 
 Cloudflare API tokens do not expire by default but can be set to expire during creation. You can scope tokens to specific accounts and zones, or use "All accounts" and "All zones" for convenience.
 
+### Cloudflare API Token (User)
+
+Users connect their Cloudflare account by creating an API token. Codeflare offers three scope tiers -- choose based on what you build:
+
+| Scope | Minimal | Recommended | Advanced | Why |
+|---|---|---|---|---|
+| **Workers Scripts: Edit** | yes | yes | yes | Deploy Workers and manage secrets |
+| **Workers KV Storage: Edit** | yes | yes | yes | KV namespace management |
+| **Workers R2 Storage: Edit** | yes | yes | yes | Object storage for user data |
+| **D1: Edit** | yes | yes | yes | SQL database management |
+| **Workers Routes: Edit** | yes | yes | yes | Route traffic to Workers |
+| **Account Settings: Read** | yes | yes | yes | Account ID discovery |
+| **Zone: Read** | yes | yes | yes | Zone ID resolution |
+| **DNS: Edit** | - | yes | yes | Manage DNS records for custom domains |
+| **Access: Apps and Policies: Edit** | - | yes | yes | Cloudflare Access applications |
+| **Access: Orgs, IdPs, and Groups: Edit** | - | yes | yes | Access groups and identity providers |
+| **Cloudflare Pages: Edit** | - | - | yes | Deploy static sites and full-stack apps |
+| **Containers: Edit** | - | - | yes | Container lifecycle management |
+| **API Tokens: Edit** | - | - | yes | Create/revoke scoped tokens programmatically |
+| **Queues: Edit** | - | - | yes | Message queue management |
+| **Workers AI: Edit** | - | - | yes | Inference and model management |
+| **Workers AI: Read** | - | - | yes | Read-only inference access |
+| **Vectorize: Edit** | - | - | yes | Vector database for AI embeddings |
+| **Turnstile: Edit** | - | - | yes | CAPTCHA widget management |
+| **Workers Builds Configuration: Edit** | - | - | yes | CI/CD build pipeline configuration |
+| **Workers Observability: Edit** | - | - | yes | Logs, traces, and monitoring |
+| **Workers R2 Data Catalog: Edit** | - | - | yes | R2 bucket metadata and catalog |
+| **Workers Agents Configuration: Edit** | - | - | yes | Cloudflare Agents configuration |
+
+The connect flow pre-fills the Cloudflare dashboard token creation form with the correct permissions for the selected tier. Cloudflare API tokens do not expire by default but can be set to expire during creation. Scope tokens to specific accounts and zones, or use "All accounts" and "All zones" for convenience. Implements [REQ-AGENT-028](../../sdd/spec/agents.md#req-agent-028-deploy-credential-token-creation-ux) AC2.
+
 ### GitHub Fine-Grained PAT (User)
 
 Users connect their GitHub account by creating a fine-grained personal access token. Codeflare offers three scope tiers -- choose based on your workflow:

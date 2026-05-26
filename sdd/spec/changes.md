@@ -5,6 +5,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 ## 2026-05-26
 
 - REQ-AGENT-049 added: preseed content is now reconciled automatically on first dashboard load when a release ships updated agent skills, rules, or plugins. Build-time SHA-256 hash piggybacked on batch-status initial load; hash stored in UserPreferences KV. UI prevents session creation during the brief upgrade. No manual "Recreate" click required.
+- REQ-AGENT-028 AC2 updated: Cloudflare token creation now uses three-tier scope selector (Minimal 7 / Recommended 10 / Advanced 22 scopes) with prefilled template URLs, matching the existing GitHub pattern. Replaces the plain API tokens page link that was a workaround after Cloudflare broke the old template URL syntax.
 
 ## 2026-05-25
 
