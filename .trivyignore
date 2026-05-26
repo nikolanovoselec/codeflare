@@ -363,3 +363,52 @@ CVE-2025-59375
 # libcurl / system tooling and is never invoked by any container code
 # path. No attacker can reach the vulnerable GSS-API surface.
 CVE-2026-40356
+
+# Go stdlib net/netip in rclone v1.73.x / lazygit v0.60.0 (Go 1.25.1 build):
+# Parse permits values other than IPv6 addresses. These CLI tools do not parse
+# untrusted IP address input. Fix: Go 1.24.8 / 1.25.2; upstream not rebuilt.
+CVE-2025-47912
+
+# Go stdlib crypto/x509 in rclone / lazygit: maliciously crafted DER payload
+# causes unbounded memory allocation. CLI tools in sandboxed container, not
+# exposed to untrusted certificate chains. Fix: Go 1.24.8 / 1.25.2.
+CVE-2025-58185
+
+# Go stdlib net/http in rclone / lazygit: HTTP/1 chunked body bypasses the
+# default 1MB header limit. Container doesn't expose HTTP servers; these tools
+# make outbound requests only. Fix: Go 1.24.8 / 1.25.2.
+CVE-2025-58186
+
+# Go stdlib crypto/x509 in rclone / lazygit: name constraint checking DoS via
+# crafted cert chain. CLI tools in sandboxed container, not exposed to untrusted
+# certificate chains. Fix: Go 1.24.9 / 1.25.3.
+CVE-2025-58187
+
+# Go stdlib crypto/x509 in rclone / lazygit: DSA public key validation DoS via
+# crafted cert chain. Same exposure as CVE-2025-58187 - no untrusted cert chains.
+# Fix: Go 1.24.8 / 1.25.2.
+CVE-2025-58188
+
+# Go stdlib crypto/tls in rclone / lazygit: ALPN negotiation failure leaks
+# connection state. Container doesn't expose TLS endpoints; outbound TLS only
+# to trusted services.
+CVE-2025-58189
+
+# Go stdlib encoding/json in rclone / lazygit: processing time for invalid inputs
+# scales poorly (DoS). CLI tools in sandboxed container, not processing untrusted
+# JSON input at scale.
+CVE-2025-61723
+
+# Go stdlib net/http in rclone / lazygit: ReadResponse constructs unbounded
+# response objects. Container doesn't expose HTTP servers; outbound only to
+# trusted endpoints.
+CVE-2025-61724
+
+# Go stdlib net/mail in rclone / lazygit: ParseAddress domain-literal DoS via
+# crafted input. CLI tools don't parse untrusted email addresses.
+CVE-2025-61725
+
+# Go stdlib crypto/x509 in rclone / lazygit: excluded subdomain constraint
+# bypass in cert chain validation. CLI tools in sandboxed container, not exposed
+# to untrusted certificate chains. Fix: Go 1.24.11 / 1.25.5.
+CVE-2025-61727
