@@ -3,7 +3,7 @@
  *
  * Native Pi counterpart to Claude Code's git-push-review-reminder.sh and
  * enforce-review-spawn.sh. This is not /review. It watches PR-boundary events
- * and requires a /review --diff acknowledgement for each open PR HEAD that
+ * and requires code/spec/doc subagent completion for each open PR HEAD that
  * targets main/master in SDD projects.
  */
 
@@ -128,6 +128,10 @@ function incrementBlockCount(repo: string): number {
   return count;
 }
 
+function resetBlockCount(repo: string): void {
+  try { unlinkSync(blockCountPath(repo)); } catch { /* best effort */ }
+}
+
 function consumeBypass(): boolean {
   if (!existsSync(REVIEW_BYPASS)) return false;
   try { unlinkSync(REVIEW_BYPASS); } catch { /* best effort */ }
@@ -174,6 +178,7 @@ export default function (pi: ExtensionAPI) {
     if (!isEnforcedPr(pr)) return;
     if (acked(repo, pr.headRefOid)) return;
 
+    resetBlockCount(repo);
     const lanes = requiredReviewLanes(repo);
     const message = enforcementMessage(repo, pr, lanes);
     const directive = `${message}\n\n${subagentDirective(repo, pr, lanes)}`;
@@ -199,6 +204,7 @@ export default function (pi: ExtensionAPI) {
     }
     if (["code-reviewer", "spec-reviewer", "doc-updater"].every((lane) => pending?.completed.has(lane))) {
       writeFileSync(ackPath(pending.repo), `${pending.head}\n`, "utf8");
+      resetBlockCount(pending.repo);
       ctx.ui.notify(`PR-boundary review acknowledged for ${basename(pending.repo)} at ${pending.head.slice(0, 12)}.`, "info");
       pending = undefined;
     }

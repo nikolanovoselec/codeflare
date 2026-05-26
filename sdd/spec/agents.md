@@ -219,7 +219,7 @@ Multi-agent support, preseed system, and session modes.
 3. A build-time seed generator reads the manifest and source files, producing the runtime payload the Worker ships to the container.
 4. The generator is manifest-driven; files not in the manifest are ignored.
 5. No duplicate preseed source files exist on disk.
-6. The generator produces output for all supported agents (Claude Code as the source-of-truth lane plus adapted lanes for Codex, Gemini, Copilot, OpenCode).
+6. The generator produces output for all supported agents (Claude Code as the source-of-truth lane plus adapted lanes for Codex, Gemini, Copilot, OpenCode, and Pi).
 
 **Constraints:**
 
@@ -247,16 +247,16 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Adapted configs are generated for all 5 supported agents from the Claude Code source.
-2. Tool names are remapped per agent (e.g., `Read` -> `read_file` for Gemini, `Read` -> `read` for Codex).
-3. Instructions are concatenated into a single file for agents that use monolithic config (Codex: `AGENTS.md`, Gemini: `GEMINI.md`, Copilot: `copilot-instructions.md`, OpenCode: `AGENTS.md`).
-4. Claude Code keeps individual rule files in `~/.claude/rules/`.
+1. Adapted configs are generated for all supported non-Claude agents from the Claude Code source.
+2. Tool names are remapped per agent (e.g., `Read` -> `read_file` for Gemini, `Read` -> `read` for Codex and Pi).
+3. Instructions are concatenated into a single file for agents that use monolithic config (Codex: `AGENTS.md`, Gemini: `GEMINI.md`, Copilot: `copilot-instructions.md`, OpenCode: `AGENTS.md`, Pi: `AGENTS.md`).
+4. Claude Code keeps individual rule files in `~/.claude/rules/`, and Pi receives native runtime-adapter assets for Pi extension/package/MCP/subagent surfaces.
 
 **Constraints:**
 
-- Hooks, commands, and plugins are excluded from non-CC agents (they are CC-specific features).
+- Hooks, commands, and plugins are excluded from generic transformed agents because they are Claude-specific surfaces; Pi is the native-runtime exception and receives Pi extension/package/MCP/subagent adapters instead of copied Claude hooks.
 - `rules/memory.md` and `consult-llm` skill are excluded from non-CC agents (they depend on CC-specific MCP).
-- Each non-CC agent gets a strictly-smaller config than Claude Code, since CC is the source-of-truth lane and other agents drop CC-specific content (hooks, slash commands, plugins, MCP-dependent rules/skills).
+- Generic non-CC agents get a strictly-smaller config than Claude Code, since CC is the source-of-truth lane and those agents drop CC-specific content. Pi may receive additional Pi-native runtime adapters when equivalent Pi primitives exist.
 - The per-agent format transforms (frontmatter shape, removed fields, path rewrites, file extensions) live in [REQ-AGENT-030](#req-agent-030-multi-agent-format-transforms).
 
 **Priority:** P1
@@ -1537,10 +1537,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. Agent definitions use correct frontmatter format per agent (e.g., `tools` as record `{read: true}` for OpenCode, as array for others).
-2. `model` field is removed from frontmatter for non-CC agents.
-3. Path references (e.g., `~/.claude/`) are replaced with agent-specific config paths.
-4. File extensions match agent conventions (e.g., `.agent.md` for Copilot agents).
+1. Agent definitions use correct frontmatter format per agent (e.g., `tools` as record `{read: true}` for OpenCode, as array or comma-separated names according to the target schema).
+2. `model` field is removed from frontmatter for non-CC agents where the target runtime resolves model selection independently.
+3. Path references (e.g., `~/.claude/`) are replaced with agent-specific config paths, including Pi's `.pi/agent/agents/` subagent path.
+4. File extensions match agent conventions (e.g., `.agent.md` for Copilot agents and `.md` for Pi subagents).
+5. Pi subagent transforms emit Pi-compatible frontmatter for tools, prompt mode, extension/skill inheritance, context inheritance, and background defaults.
 
 **Constraints:**
 

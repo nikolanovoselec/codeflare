@@ -84,7 +84,7 @@ function isStructuralSearch(command: string): boolean {
 }
 
 function commandText(event: any): string {
-  const input = event?.input ?? {};
+  const input = event?.input ?? event?.params ?? {};
   if (typeof input.command === "string") return input.command;
   if (typeof input.code === "string") return input.code;
   if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => String(cmd?.command ?? "")).join("\n");
