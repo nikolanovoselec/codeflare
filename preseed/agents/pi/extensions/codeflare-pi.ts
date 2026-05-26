@@ -15,7 +15,6 @@ const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
 const GRAPHIFY_BYPASS = "/tmp/graphify-bypass";
-const REVIEW_BYPASS = "/tmp/review-bypass";
 
 function ensureCacheDir(): void {
   mkdirSync(CACHE_DIR, { recursive: true });
@@ -100,32 +99,6 @@ function isGitPush(command: string): boolean {
   return /(^|[;&|]\s*)git\s+push\b/.test(command);
 }
 
-function isPrCreate(command: string): boolean {
-  return /(^|[;&|]\s*)gh\s+pr\s+create\b/.test(command);
-}
-
-function changedFiles(repo: string): string[] {
-  try {
-    const base = shell("git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD origin/master 2>/dev/null || git rev-parse HEAD~1", repo);
-    const out = shell(`git diff --name-only ${base}...HEAD`, repo);
-    return out ? out.split("\n").filter(Boolean) : [];
-  } catch {
-    return [];
-  }
-}
-
-function requiredReviewLanes(repo: string): string[] {
-  const files = changedFiles(repo);
-  const lanes = new Set<string>();
-  for (const file of files) {
-    if (file.startsWith("sdd/")) lanes.add("spec-reviewer");
-    else if (file.startsWith("documentation/") || file === "README.md") lanes.add("doc-updater");
-    else lanes.add("code-reviewer");
-  }
-  if (lanes.has("spec-reviewer")) lanes.add("doc-updater");
-  return [...lanes];
-}
-
 function ensureNoAttributedCommit(command: string): string | undefined {
   if (!/(^|[;&|]\s*)(git\s+commit|gh\s+pr\s+create)\b/.test(command)) return undefined;
   if (/Co-Authored-By:|Generated with|🤖|🧠|Claude|ChatGPT/i.test(command)) {
@@ -196,17 +169,6 @@ export default function (pi: ExtensionAPI) {
       const subcommand = args.trim().split(/\s+/, 1)[0] || "help";
       const skill = subcommand === "init" ? "sdd-init" : subcommand === "clean" ? "sdd-clean" : "spec-driven-development";
       await sendWorkflowMessage(ctx, `/sdd ${args}`.trim(), `${skillPrompt(skill, "Use the Codeflare SDD workflow.")}\n\nUser command: /sdd ${args}`);
-    },
-  });
-
-  pi.registerCommand("review", {
-    description: "Run Codeflare review workflow",
-    handler: async (args, ctx) => {
-      if (!/(^|\s)--(all|diff)(\s|$)/.test(args)) {
-        ctx.ui.notify("Usage: /review --all|--diff [--deep] [--verify-high]", "warning");
-        return;
-      }
-      await sendWorkflowMessage(ctx, `/review ${args}`.trim(), `${skillPrompt("git-review-pipeline", "Run the Codeflare review pipeline.")}\n\nUser command: /review ${args}`);
     },
   });
 
@@ -292,12 +254,6 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.notify("Repository cloned. Run /graphify to build a Codeflare graph if this will be a long-running project.", "info");
     }
 
-    if (repo && toolName === "bash" && (isGitPush(command) || isPrCreate(command)) && existsSync(join(repo, "sdd", "README.md")) && !existsSync(REVIEW_BYPASS)) {
-      const lanes = requiredReviewLanes(repo);
-      if (lanes.length > 0) {
-        ctx.ui.notify(`PR-boundary review needed for ${basename(repo)}: ${lanes.join(", ")}. Run /review --diff.`, "warning");
-      }
-    }
   });
 
   pi.on("agent_end", (_event, _ctx) => {

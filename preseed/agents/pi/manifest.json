@@ -1,6 +1,34 @@
 {
-  "extensions/codeflare-pi.ts": { "modes": ["advanced"] },
-  "extensions/context-mode-enforcement.ts": { "modes": ["advanced"] },
-  "package.json": { "modes": ["default", "advanced"] },
-  "mcp.json": { "modes": ["default", "advanced"] }
+  "extensions/codeflare-pi.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/context-mode-enforcement.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "package.json": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "mcp.json": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "extensions/review-command.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/review-enforcement.ts": {
+    "modes": [
+      "advanced"
+    ]
+  }
 }

@@ -200,7 +200,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`, `.agents/`)
 
-**Manifest structure (124 total source entries: 120 Claude + 4 Pi-native)**:
+**Manifest structure (126 total source entries: 120 Claude + 6 Pi-native)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -245,13 +245,18 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (4): `preseed/agents/pi/manifest.json`
-  maps `extensions/codeflare-pi.ts` and
-  `extensions/context-mode-enforcement.ts` (advanced-only) plus
+- Pi-native runtime assets (6): `preseed/agents/pi/manifest.json`
+  maps `extensions/codeflare-pi.ts`,
+  `extensions/context-mode-enforcement.ts`,
+  `extensions/review-command.ts`, and
+  `extensions/review-enforcement.ts` (advanced-only) plus
   `package.json` and `mcp.json` (default+advanced) into Pi's native
   config surface. These are runtime adapters, not duplicated workflow
   prose: commands and lifecycle hooks use Pi primitives while rules and
-  skills still come from the Claude source tree.
+  skills still come from the Claude source tree. `/review` is deliberately
+  separate from PR-boundary enforcement: the command reviews a requested
+  scope, while `review-enforcement.ts` watches PR HEADs and requires a
+  review acknowledgement for SDD PRs targeting `main`/`master`.
 
 ## Multi-Agent Preseed
 
@@ -290,8 +295,8 @@ files exist on disk.
 | Gemini | 58 |
 | Copilot | 13 |
 | OpenCode | 58 |
-| Pi | 51 |
-| **Total** | **347** |
+| Pi | 53 |
+| **Total** | **349** |
 
 **Excluded from non-CC transformed assets**: hooks (CC hook system),
 commands (CC slash commands), plugins (CC plugin system, including
@@ -301,10 +306,11 @@ vault trigger/route content lives in that preseed rule as folded subsections,
 not a separate rules/vault.md), `consult-llm` skill (depends on
 CC-specific MCP tool). Pi receives native TypeScript extensions for the
 runtime behaviors that cannot be represented as transformed prose:
-`/sdd`, `/review`, `/graphify`, `/vault`, `/note`, context-mode
+`/sdd`, `/graphify`, `/vault`, `/note`, context-mode
 routing enforcement, graphify active-repo/global-graph maintenance,
-PR-boundary review nudges, local-build blocking, and AI-attribution
-blocking.
+local-build blocking, and AI-attribution blocking. Pi receives a separate
+`review-command.ts` for the user-invoked `/review` UX and
+`review-enforcement.ts` for PR-boundary review enforcement.
 
 **Adaptation pipeline**: For each non-CC agent, the generator: (1)
 concatenates applicable rules into a single instructions file, (2)
@@ -317,7 +323,7 @@ to `.pi/agent/extensions/`, `.pi/agent/mcp.json`, and
 `.pi/agent/npm/package.json`.
 
 **Per-mode counts**: Default mode seeds 49 files, advanced mode
-seeds 342 files. Total array size is 347 (includes variant-per-mode
+seeds 344 files. Total array size is 349 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the
