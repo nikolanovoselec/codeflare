@@ -2,6 +2,7 @@ import { createStore, produce } from 'solid-js/store';
 import { createSignal } from 'solid-js';
 import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, TabPreset, UserPreferences } from '../types';
 import * as api from '../api/client';
+import { recreateAgentConfigs } from '../api/storage';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
 import { cleanupSessionVaultCache } from '../lib/vault-cache';
@@ -125,6 +126,7 @@ export interface SessionState {
   presets: TabPreset[];
   preferences: UserPreferences;
   maxSessions: number;
+  preseedUpgrading: boolean;
 }
 
 const [state, setState] = createStore<SessionState>({
@@ -139,6 +141,7 @@ const [state, setState] = createStore<SessionState>({
   presets: [],
   preferences: {},
   maxSessions: 3,
+  preseedUpgrading: false,
 });
 
 // Auth expiry detection — set when background polling gets a 401/auth redirect.
@@ -225,7 +228,7 @@ async function loadSessions(): Promise<void> {
   try {
     const [sessions, batchResponse] = await Promise.all([
       api.getSessions(),
-      api.getBatchSessionStatus().catch((err) => {
+      api.getBatchSessionStatus({ includePreseedCheck: true }).catch((err) => {
         logger.warn('[SessionStore] getBatchSessionStatus failed:', err);
         setState('error', err instanceof Error ? err.message : 'Failed to fetch session statuses');
         return { statuses: {} as Record<string, BatchStatusEntry>, maxSessions: state.maxSessions };
@@ -234,6 +237,14 @@ async function loadSessions(): Promise<void> {
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
     if ('storageStats' in batchResponse && batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
+
+    // REQ-AGENT-049: auto-upgrade preseed if stale (fire-and-forget, non-blocking)
+    if ('preseedNeedsUpgrade' in batchResponse && batchResponse.preseedNeedsUpgrade && !state.preseedUpgrading) {
+      setState('preseedUpgrading', true);
+      recreateAgentConfigs()
+        .catch((err) => logger.warn('[SessionStore] preseed auto-upgrade failed:', err))
+        .finally(() => setState('preseedUpgrading', false));
+    }
 
     if (thisGen !== loadSessionsGeneration) return;
 
@@ -585,6 +596,7 @@ export const sessionStore = {
   get maxSessions() { return state.maxSessions; },
   isAtSessionLimit,
   hasRecentContext,
+  get preseedUpgrading() { return state.preseedUpgrading; },
   get r2Ready() { return isR2Ready(); },
   startR2Polling,
   stopR2Polling,

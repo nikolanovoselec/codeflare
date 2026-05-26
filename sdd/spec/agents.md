@@ -789,6 +789,38 @@ None.
 
 ---
 
+### REQ-AGENT-049: Auto-upgrade preseed on release
+
+<!-- @impl: scripts/generate-agent-seed.mjs, src/routes/session/lifecycle.ts, src/routes/storage/seed.ts, web-ui/src/stores/session.ts -->
+<!-- @test: TBD -->
+
+**Intent:** When a new codeflare release ships changed preseed content (agent skills, rules, plugins), the user's R2 bucket should be reconciled automatically on first dashboard load - no manual "Recreate Agent Skills & Rules" click required. Session creation and stopped-session access are blocked during the brief upgrade.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. `generate-agent-seed.mjs` computes a deterministic SHA-256 content hash over all preseed documents (sorted by key) and emits `PRESEED_CONTENT_HASH` in `agent-seed.generated.ts`.
+2. After a successful `POST /api/storage/seed/agent-configs` reconcile (manual or auto), the applied hash is persisted in the user's `UserPreferences` KV entry as `lastPreseedHash`.
+3. `GET /api/sessions/batch-status?includePreseedCheck=true` compares the stored `lastPreseedHash` against `PRESEED_CONTENT_HASH` and returns `preseedNeedsUpgrade: boolean`. The field is omitted when the query param is absent (5s polling path).
+4. On initial dashboard load (`loadSessions`), the frontend passes `includePreseedCheck=true`. If `preseedNeedsUpgrade` is true, it fires `recreateAgentConfigs()` in the background.
+5. While the upgrade is in progress, the "+ New Session" button is disabled and displays "Upgrading..." (both Dashboard and SessionDropdown).
+6. Stopped session cards are visually dimmed (reduced opacity) and click-disabled during upgrade.
+7. If the auto-upgrade fails, the error is logged but the dashboard remains fully usable. A page refresh retries the check.
+8. The reconcile respects the user's current session mode and tier (standard/pro/unlimited) - identical behavior to the manual "Recreate" button.
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-011](#req-agent-011-manual-recreate-agent-skills-from-settings), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
+
+**Verification:** Automated (backend route tests + frontend store tests + dashboard UI tests)
+
+**Status:** Partial
+
+---
+
 ### REQ-AGENT-034: `/sdd init` Enrichment Pass with Graphify
 
 <!-- @impl: preseed/agents/claude/skills/sdd-init -->

@@ -5,6 +5,7 @@ import SessionStatCard from './SessionStatCard';
 import SessionContextMenu from './SessionContextMenu';
 import CreateSessionDialog from './CreateSessionDialog';
 import type { SessionWithStatus, SessionStatus, AgentType, TabConfig } from '../types';
+import { sessionStore } from '../stores/session';
 import { generateSessionName } from '../lib/session-utils';
 import '../styles/session-dropdown.css';
 
@@ -77,10 +78,11 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
           ref={setCreateBtnRef}
           class="session-dropdown__new-session"
           data-testid="session-dropdown-new"
+          disabled={sessionStore.preseedUpgrading}
           onClick={() => setShowCreateDialog(!showCreateDialog())}
         >
           <Icon path={mdiPlus} size={16} />
-          <span>New Session</span>
+          <span>{sessionStore.preseedUpgrading ? 'Upgrading...' : 'New Session'}</span>
         </button>
 
         <div class="session-dropdown__list">

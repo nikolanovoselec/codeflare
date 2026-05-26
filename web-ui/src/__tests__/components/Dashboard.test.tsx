@@ -58,11 +58,13 @@ vi.mock('../../stores/session', () => {
   let _isAtLimit = false;
   let _maxSessions = 3;
   let _r2Ready = true;
+  let _preseedUpgrading = false;
   return {
     sessionStore: {
       get sessions() { return []; },
       get maxSessions() { return _maxSessions; },
       get r2Ready() { return _r2Ready; },
+      get preseedUpgrading() { return _preseedUpgrading; },
       isAtSessionLimit: () => _isAtLimit,
       startR2Polling: vi.fn(),
       _setTestLimit: (atLimit: boolean, max?: number) => {
@@ -70,6 +72,7 @@ vi.mock('../../stores/session', () => {
         if (max !== undefined) _maxSessions = max;
       },
       _setR2Ready: (ready: boolean) => { _r2Ready = ready; },
+      _setPreseedUpgrading: (upgrading: boolean) => { _preseedUpgrading = upgrading; },
     },
     isAtUsageQuota: () => false,
     getUsageState: () => ({ monthlySeconds: 0, monthlyQuotaSeconds: null }),
@@ -427,6 +430,29 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
     expect(screen.getByTestId('storage-browser')).toBeInTheDocument();
     expect(screen.queryByTestId('storage-skeleton')).not.toBeInTheDocument();
+  });
+
+  // REQ-AGENT-049: preseed upgrade UI lockdown
+  it('should disable new session button and show Upgrading... during preseed upgrade', () => {
+    (sessionStore as any)._setPreseedUpgrading(true);
+    render(() => <Dashboard {...defaultProps} />);
+
+    const btn = screen.getByTestId('dashboard-new-session');
+    expect(btn).toBeDisabled();
+    expect(btn.textContent).toBe('Upgrading...');
+
+    cleanup();
+    (sessionStore as any)._setPreseedUpgrading(false);
+  });
+
+  it('should show normal button text when preseed upgrade is not running', () => {
+    (sessionStore as any)._setPreseedUpgrading(false);
+    render(() => <Dashboard {...defaultProps} />);
+
+    const btn = screen.getByTestId('dashboard-new-session');
+    expect(btn.textContent).toBe('+ New Session');
+
+    cleanup();
   });
 
 });

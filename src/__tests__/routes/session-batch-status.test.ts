@@ -19,6 +19,7 @@ import {
 } from '../../lib/kv-keys';
 
 vi.mock('../../lib/onboarding', () => ({ isSaasModeActive: vi.fn(() => false) }));
+vi.mock('../../lib/agent-seed.generated', () => ({ PRESEED_CONTENT_HASH: 'abc1234567890def' }));
 vi.mock('../../middleware/rate-limit', () => ({
   createRateLimiter: vi.fn(() => async (_c: any, next: any) => next()),
 }));
@@ -253,6 +254,43 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
         return;
       }
       expect(src).toMatch(/SESSION_LIST_POLL_INTERVAL_MS|POLL_INTERVAL/);
+    });
+  });
+
+  // REQ-AGENT-049: preseed upgrade check piggybacked on batch-status
+  describe('REQ-AGENT-049: preseed upgrade detection via batch-status', () => {
+    it('returns preseedNeedsUpgrade true when hash missing from preferences', async () => {
+      const app = createApp();
+      const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { preseedNeedsUpgrade?: boolean };
+      expect(body.preseedNeedsUpgrade).toBe(true);
+    });
+
+    it('returns preseedNeedsUpgrade true when hash mismatches', async () => {
+      mockKV._set('user-prefs:test-bucket', { lastPreseedHash: 'stale_old_hash_00' });
+      const app = createApp();
+      const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { preseedNeedsUpgrade?: boolean };
+      expect(body.preseedNeedsUpgrade).toBe(true);
+    });
+
+    it('returns preseedNeedsUpgrade false when hash matches', async () => {
+      mockKV._set('user-prefs:test-bucket', { lastPreseedHash: 'abc1234567890def' });
+      const app = createApp();
+      const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { preseedNeedsUpgrade?: boolean };
+      expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
+    it('omits preseedNeedsUpgrade when query param absent', async () => {
+      const app = createApp();
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { preseedNeedsUpgrade?: boolean };
+      expect(body.preseedNeedsUpgrade).toBeUndefined();
     });
   });
 });

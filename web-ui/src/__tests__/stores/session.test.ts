@@ -49,10 +49,15 @@ vi.mock('../../api/client', () => ({
   ensureR2Token: vi.fn().mockResolvedValue({ ready: false }),
 }));
 
+vi.mock('../../api/storage', () => ({
+  recreateAgentConfigs: vi.fn().mockResolvedValue({ success: true, written: [], skipped: [], deleted: [], warnings: [] }),
+}));
+
 // Import after mocks
 import { sessionStore } from '../../stores/session';
 import { applyMetricsUpdate } from '../../stores/session';
 import * as api from '../../api/client';
+import * as storageApi from '../../api/storage';
 import * as terminal from '../../stores/terminal';
 
 // Get typed mocks
@@ -62,6 +67,7 @@ const mockDeleteSession = vi.mocked(api.deleteSession);
 const mockGetBatchSessionStatus = vi.mocked(api.getBatchSessionStatus);
 const mockGetStartupStatus = vi.mocked(api.getStartupStatus);
 const mockStopSession = vi.mocked(api.stopSession);
+const mockRecreateAgentConfigs = vi.mocked(storageApi.recreateAgentConfigs);
 const mockSendInputToTerminal = vi.mocked(terminal.sendInputToTerminal);
 
 describe('Session Store', () => {
@@ -272,6 +278,52 @@ describe('Session Store', () => {
       // Only the newer generation's sessions should be in state
       expect(sessionStore.sessions.some(s => s.id === 'session-new')).toBe(true);
       expect(sessionStore.sessions.some(s => s.id === 'session-old')).toBe(false);
+    });
+
+    // REQ-AGENT-049: auto-upgrade preseed on stale hash
+    it('should trigger recreateAgentConfigs when preseedNeedsUpgrade is true', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        preseedNeedsUpgrade: true,
+      });
+
+      await sessionStore.loadSessions();
+
+      expect(mockRecreateAgentConfigs).toHaveBeenCalledOnce();
+    });
+
+    it('should not trigger recreateAgentConfigs when preseedNeedsUpgrade is false', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        preseedNeedsUpgrade: false,
+      });
+
+      await sessionStore.loadSessions();
+
+      expect(mockRecreateAgentConfigs).not.toHaveBeenCalled();
+    });
+
+    it('should set preseedUpgrading during upgrade and clear after', async () => {
+      let resolveRecreate: (value: any) => void;
+      mockRecreateAgentConfigs.mockReturnValue(
+        new Promise((resolve) => { resolveRecreate = resolve; })
+      );
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        preseedNeedsUpgrade: true,
+      });
+
+      const loadPromise = sessionStore.loadSessions();
+      await loadPromise;
+
+      // preseedUpgrading should be true while the recreate is pending
+      expect(sessionStore.preseedUpgrading).toBe(true);
+
+      resolveRecreate!({ success: true, written: [], skipped: [], deleted: [], warnings: [] });
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
     });
   });
 

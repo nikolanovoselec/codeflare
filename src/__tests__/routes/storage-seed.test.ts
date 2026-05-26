@@ -27,6 +27,10 @@ vi.mock('../../lib/r2-config', () => ({
   getR2Config: vi.fn(async () => createMockR2Config()),
 }));
 
+vi.mock('../../lib/agent-seed.generated', () => ({
+  PRESEED_CONTENT_HASH: 'test_hash_abc123',
+}));
+
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
 import seedRoutes from '../../routes/storage/seed';
@@ -122,6 +126,21 @@ describe('Agent Config Seed Routes', () => {
       },
     });
   }
+
+  // REQ-AGENT-049 AC2: preseed hash persisted in UserPreferences after successful reconcile
+  it('writes lastPreseedHash to user preferences after successful agent-configs seed', async () => {
+    const app = createApp('my-bucket');
+
+    const res = await app.request('/seed/agent-configs', { method: 'POST' });
+    expect(res.status).toBe(200);
+
+    const putCalls = mockKV.put.mock.calls as [string, string][];
+    const prefsPut = putCalls.find(([key]) => key === 'user-prefs:my-bucket');
+    expect(prefsPut).toBeDefined();
+    const storedPrefs = JSON.parse(prefsPut![1]);
+    expect(storedPrefs.lastPreseedHash).toEqual(expect.any(String));
+    expect(storedPrefs.lastPreseedHash.length).toBe(16);
+  });
 
   it('recreates agent configs with overwrite enabled', async () => {
     const app = createApp('my-bucket');

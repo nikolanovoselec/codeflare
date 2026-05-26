@@ -4,8 +4,9 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session } from '../../types';
-import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString, putSessionWithMetadata, expandSessionMetadata, type SessionListMetadata } from '../../lib/kv-keys';
+import type { Env, Session, UserPreferences } from '../../types';
+import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString, putSessionWithMetadata, expandSessionMetadata, getPreferencesKey, type SessionListMetadata } from '../../lib/kv-keys';
+import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -168,7 +169,14 @@ app.get('/batch-status', async (c) => {
     }
   }
 
-  return c.json({ statuses, maxSessions, storageStats, usage });
+  // REQ-AGENT-049: preseed upgrade check (initial load only, not 5s polls)
+  let preseedNeedsUpgrade: boolean | undefined;
+  if (c.req.query('includePreseedCheck') === 'true') {
+    const prefs = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
+    preseedNeedsUpgrade = prefs?.lastPreseedHash !== PRESEED_CONTENT_HASH;
+  }
+
+  return c.json({ statuses, maxSessions, storageStats, usage, preseedNeedsUpgrade });
 });
 
 /**

@@ -166,6 +166,7 @@ export const BatchSessionStatusResponseSchema = z.object({
     monthlyQuotaSeconds: z.number().nullable(),
     tier: z.string(),
   }).optional(),
+  preseedNeedsUpgrade: z.boolean().optional(),
 });
 
 // Setup API schemas — moved from client.ts (strict versions)

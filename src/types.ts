@@ -237,6 +237,8 @@ export interface UserPreferences {
   sleepAfter?: SleepAfterOption;
   /** REQ-MEM-001 AC4: user's IANA timezone, captured from the browser. */
   userTimezone?: string;
+  /** REQ-AGENT-049: hash of last applied preseed content, for auto-upgrade detection. */
+  lastPreseedHash?: string;
 }
 
 /**
