@@ -166,6 +166,16 @@ RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@la
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
 
+# Preinstall Pi extension npm dependencies into an image-local seed cache.
+# ~/.pi/agent/npm/node_modules is excluded from R2 sync, so without this Pi
+# performs an npm install on first launch in every fresh container (~90s on
+# mobile). Entrypoint copies this cache into the user home after R2 restore.
+COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
+RUN cd /opt/codeflare/pi-agent/npm && \
+    npm ci --omit=dev --no-audit --no-fund && \
+    npm cache clean --force && \
+    rm -rf /root/.npm
+
 # Install Bun for faster context-mode ctx_execute / ctx_batch_execute subprocess
 # starts. Bun is faster than Node for short-lived JS subprocess starts; the
 # improvement adds up across an interactive session that fires hooks on every

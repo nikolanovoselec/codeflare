@@ -1516,6 +1516,40 @@ else
     update_sync_status "skipped" "$SYNC_ERROR"
 fi
 
+warm_pi_npm_dependencies() {
+    local pi_npm_preseed="${PI_NPM_PRESEED:-/opt/codeflare/pi-agent/npm}"
+    local pi_npm_dir="${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}"
+    if [ ! -d "$pi_npm_preseed/node_modules" ]; then
+        return 0
+    fi
+    mkdir -p "$pi_npm_dir"
+    if [ ! -f "$pi_npm_dir/package.json" ] && [ -f "$pi_npm_preseed/package.json" ]; then
+        cp "$pi_npm_preseed/package.json" "$pi_npm_dir/package.json"
+    fi
+    if [ ! -f "$pi_npm_dir/package-lock.json" ] && [ -f "$pi_npm_preseed/package-lock.json" ]; then
+        cp "$pi_npm_preseed/package-lock.json" "$pi_npm_dir/package-lock.json"
+    fi
+    local missing=0
+    if [ ! -d "$pi_npm_dir/node_modules/@gotgenes/pi-subagents" ] || \
+       [ ! -d "$pi_npm_dir/node_modules/context-mode" ] || \
+       [ ! -d "$pi_npm_dir/node_modules/@gaodes/pi-graphify" ]; then
+        missing=1
+    fi
+    if [ "$missing" = "1" ]; then
+        echo "[entrypoint] Warming missing Pi extension npm dependencies from image cache"
+        mkdir -p "$pi_npm_dir/node_modules"
+        cp -a "$pi_npm_preseed/node_modules/." "$pi_npm_dir/node_modules/"
+    else
+        echo "[entrypoint] Pi extension npm dependencies already present"
+    fi
+}
+
+# Warm Pi extension npm dependencies from the image-local seed cache.
+# R2 excludes **/node_modules/** by design, so restored ~/.pi/agent/npm has
+# package.json but no installed packages. Copying the image cache prevents Pi
+# from running a slow npm install on first launch.
+warm_pi_npm_dependencies
+
 # Pre-accept Claude Code's bypass permissions consent
 # Claude Code stores this in ~/.claude.json (bypassPermissionsModeAccepted field)
 # This prevents the interactive "WARNING: Claude Code running in Bypass Permissions mode" prompt

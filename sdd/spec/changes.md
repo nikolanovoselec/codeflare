@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-27
+
+- REQ-AGENT-001 updated: Pi extension npm dependencies are preinstalled into an image-local cache and copied into user config after restore, avoiding Pi's first-launch npm install delay.
+
 ## 2026-05-26
 
 - REQ-AGENT-006 / REQ-AGENT-007 / REQ-AGENT-030 / REQ-AGENT-036 / REQ-AGENT-040 / REQ-AGENT-041 updated: Pi is now a first-class preseed runtime target. The generator emits Pi-native extension/package/MCP assets and adapts Claude agent definitions into Pi subagent files, with Pi-specific frontmatter/path conventions, PR-boundary review sequencing, smart lane classification, bypass handling, and completion acknowledgement.

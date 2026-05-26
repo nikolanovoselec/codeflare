@@ -5,12 +5,15 @@
 // without actually building an image (forbidden locally, 1 vCPU).
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
+const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
 const pluginJson = JSON.parse(
   readFileSync(
     resolve(__dirname, '../../preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json'),
@@ -117,6 +120,47 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
       /(codex|gemini|copilot)\s+(?:[a-z]+\s+)?--version/.test(dockerfile),
       'Dockerfile must run at least one Node-based agent CLI with --version at build to trigger the V8 compile cache'
     );
+  });
+
+  it('REQ-AGENT-001 AC5 (Pi extension npm dependencies preinstalled in image cache)', () => {
+    assert.ok(
+      dockerfile.includes('COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/'),
+      'Dockerfile must copy the locked Pi package manifest for image-time npm install'
+    );
+    assert.ok(
+      dockerfile.includes('/opt/codeflare/pi-agent/npm') && dockerfile.includes('npm ci --omit=dev'),
+      'Dockerfile must install Pi extension dependencies into the image-local cache from the lockfile'
+    );
+    assert.ok(
+      entrypoint.includes('warm_pi_npm_dependencies') && entrypoint.includes('Warming Pi extension npm dependencies from image cache'),
+      'entrypoint must copy the image-local Pi npm cache into ~/.pi/agent/npm after restore'
+    );
+  });
+
+  it('REQ-AGENT-001 AC5 (Pi npm warm-cache helper copies dependencies behaviorally)', () => {
+    const match = entrypoint.match(/warm_pi_npm_dependencies\(\) \{[\s\S]*?\n\}/);
+    assert.ok(match, 'entrypoint must define warm_pi_npm_dependencies');
+
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-npm-warm-'));
+    const preseed = join(fixture, 'preseed');
+    const target = join(fixture, 'home/.pi/agent/npm');
+    mkdirSync(join(preseed, 'node_modules/@gotgenes/pi-subagents'), { recursive: true });
+    mkdirSync(join(preseed, 'node_modules/context-mode'), { recursive: true });
+    mkdirSync(join(preseed, 'node_modules/@gaodes/pi-graphify'), { recursive: true });
+    writeFileSync(join(preseed, 'package.json'), '{"name":"fixture"}\n');
+    writeFileSync(join(preseed, 'node_modules/context-mode/package.json'), '{}\n');
+
+    const script = `${match[0]}\nexport USER_HOME=${JSON.stringify(join(fixture, 'home'))}\nexport PI_NPM_PRESEED=${JSON.stringify(preseed)}\nexport PI_NPM_DIR=${JSON.stringify(target)}\nwarm_pi_npm_dependencies\n`;
+    const result = spawnSync('bash', ['-lc', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(existsSync(join(target, 'package.json')), 'package.json copied');
+    assert.ok(existsSync(join(target, 'node_modules/context-mode/package.json')), 'node_modules copied');
+
+    writeFileSync(join(target, 'package.json'), '{"name":"user-custom"}\n');
+    writeFileSync(join(preseed, 'package.json'), '{"name":"fixture","version":"2"}\n');
+    const rerun = spawnSync('bash', ['-lc', script], { encoding: 'utf8' });
+    assert.equal(rerun.status, 0, rerun.stderr);
+    assert.equal(readFileSync(join(target, 'package.json'), 'utf8'), '{"name":"user-custom"}\n');
   });
 
   it('REQ-AGENT-023: graphify CLI shim symlinked onto system PATH', () => {

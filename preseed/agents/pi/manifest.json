@@ -30,5 +30,16 @@
     "modes": [
       "advanced"
     ]
+  },
+  "extensions/review-helpers.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "package-lock.json": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
   }
 }

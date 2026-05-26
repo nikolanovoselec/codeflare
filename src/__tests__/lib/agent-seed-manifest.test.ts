@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 import { bashDenialReason } from '../../../preseed/agents/pi/extensions/context-mode-enforcement';
-import { classifyReviewFiles, isPrBoundaryCommand } from '../../../preseed/agents/pi/extensions/review-enforcement';
+import { classifyReviewFiles, isPrBoundaryCommand } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -209,6 +209,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
     expect(keys.has('.pi/agent/mcp.json')).toBe(true);
     expect(keys.has('.pi/agent/npm/package.json')).toBe(true);
+    expect(keys.has('.pi/agent/npm/package-lock.json')).toBe(true);
   });
 
   it('consult-llm skill is excluded from all non-Claude agents', () => {

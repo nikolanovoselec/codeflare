@@ -12,9 +12,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { ALL_REVIEW_LANES, classifyReviewFiles, isPrBoundaryCommand } from "./review-helpers";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
-const ALL_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"];
 
 type PrState = {
   state?: string;
@@ -72,10 +72,6 @@ function commandText(event: any): string {
   return "";
 }
 
-export function isPrBoundaryCommand(command: string): boolean {
-  return /(^|[;&|]\s*)git\s+push\b/.test(command) || /(^|[;&|]\s*)gh\s+pr\s+(create|merge)\b/.test(command);
-}
-
 function isSddProject(repo: string): boolean {
   return existsSync(join(repo, "sdd", "README.md"));
 }
@@ -84,6 +80,14 @@ function prState(repo: string): PrState | undefined {
   try {
     const out = shell("gh pr view --json number,state,baseRefName,headRefOid,isDraft 2>/dev/null", repo);
     return out ? JSON.parse(out) as PrState : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function localHead(repo: string): string | undefined {
+  try {
+    return shell("git rev-parse HEAD", repo);
   } catch {
     return undefined;
   }
@@ -174,27 +178,10 @@ function changedFiles(repo: string, from: string, to: string): string[] | undefi
   }
 }
 
-export function classifyReviewFiles(files: string[] | undefined): string[] | undefined {
-  if (files === undefined) return ALL_LANES;
-  if (files.length === 0) return [];
-  let hasBehavioral = false;
-  let touchesSdd = false;
-  let touchesDocs = false;
-  for (const file of files) {
-    if (file.startsWith("sdd/")) touchesSdd = true;
-    else if (file.startsWith("documentation/") || ["README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "LICENSE"].includes(file)) touchesDocs = true;
-    else hasBehavioral = true;
-  }
-  if (hasBehavioral) return ALL_LANES;
-  if (touchesSdd) return ["spec-reviewer", "doc-updater"];
-  if (touchesDocs) return ["doc-updater"];
-  return [];
-}
-
 function mergeLaneState(repo: string, currentHead: string, previous?: PendingReview): { lanes: string[]; completed: Set<string> } {
   const base = previous?.head ?? lastAckHead(repo);
   const changed = classifyReviewFiles(changedFiles(repo, base, currentHead));
-  const changedLanes = changed ?? ALL_LANES;
+  const changedLanes = changed ?? ALL_REVIEW_LANES;
   if (!previous) return { lanes: changedLanes, completed: new Set() };
 
   const incompletePrevious = previous.lanes.filter((lane) => !previous.completed.has(lane));
@@ -209,28 +196,48 @@ function agentCall(type: string, prompt: string, description: string): string {
   return `Agent({ subagent_type: ${JSON.stringify(type)}, prompt: ${JSON.stringify(prompt)}, description: ${JSON.stringify(description)}, run_in_background: true })`;
 }
 
+async function subagentsService(): Promise<any | undefined> {
+  try {
+    const mod = await import("@gotgenes/pi-subagents");
+    return mod.getSubagentsService?.();
+  } catch {
+    return undefined;
+  }
+}
+
+async function spawnLane(type: string, prompt: string, description: string): Promise<boolean> {
+  const service = await subagentsService();
+  if (!service?.spawn) return false;
+  service.spawn(type, prompt, { description, inheritContext: false });
+  return true;
+}
+
+async function spawnInitialLanes(pending: PendingReview, pr: PrState): Promise<boolean> {
+  const base = reviewPrompt(pending.repo, pr, pending.head);
+  let spawned = false;
+  if (pending.lanes.includes("code-reviewer")) {
+    spawned = await spawnLane("code-reviewer", base, "Review code changes") || spawned;
+  }
+  if (pending.lanes.includes("spec-reviewer")) {
+    spawned = await spawnLane("spec-reviewer", base, "Review spec changes") || spawned;
+  }
+  if (pending.lanes.includes("doc-updater") && !pending.lanes.includes("spec-reviewer")) {
+    spawned = await spawnLane("doc-updater", base, "Review documentation changes") || spawned;
+  }
+  return spawned;
+}
+
 function reviewPrompt(repo: string, pr: PrState, head: string): string {
   return `Review PR #${pr.number ?? "?"} for ${basename(repo)} at head ${head}. Scope is the current diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
 }
 
 function directiveFor(repo: string, pr: PrState, lanes: string[]): string {
   const laneText = lanes.join(", ");
-  const base = reviewPrompt(repo, pr, pr.headRefOid!);
-  const lines = [
-    `PR-boundary review required for ${basename(repo)} PR #${pr.number ?? "?"} (${pr.baseRefName}, head ${pr.headRefOid!.slice(0, 12)}). Required lanes: ${laneText}.`,
-    `Freshness gate: verify current PR head is exactly ${pr.headRefOid} before launching agents; ignore this directive if it changed.`,
-  ];
-  const parallel = lanes.filter((lane) => lane === "code-reviewer" || lane === "spec-reviewer");
-  if (parallel.length > 0) {
-    lines.push("Launch these Agent calls in parallel:");
-    for (const lane of parallel) lines.push(agentCall(lane, base, lane === "code-reviewer" ? "Review code changes" : "Review spec changes"));
-  }
-  if (lanes.includes("doc-updater")) {
-    if (lanes.includes("spec-reviewer")) lines.push("After spec-reviewer completes, this extension sends the doc-updater Agent call automatically.");
-    else lines.push(agentCall("doc-updater", base, "Review documentation changes"));
-  }
-  lines.push(`Acknowledgement is automatic after required lanes complete: ${laneText}.`);
-  return lines.join("\n");
+  const head = pr.headRefOid!;
+  const sequence = lanes.includes("spec-reviewer") && lanes.includes("doc-updater")
+    ? `${lanes.filter((lane) => lane !== "doc-updater").join(" + ")} first; doc-updater after spec-reviewer completes`
+    : laneText;
+  return `PR-boundary review required for ${basename(repo)} PR #${pr.number ?? "?"} at ${head.slice(0, 12)}. Current head must equal ${head}; ignore if stale. Required lanes: ${laneText}. Run: ${sequence}. Acknowledgement is automatic after required lanes complete.`;
 }
 
 function docUpdaterPrompt(pending: PendingReview): string {
@@ -239,7 +246,9 @@ function docUpdaterPrompt(pending: PendingReview): string {
 
 function isCurrentPending(pending: PendingReview): boolean {
   const current = prState(pending.repo);
-  return Boolean(isEnforcedPr(current) && current.headRefOid === pending.head);
+  if (!isEnforcedPr(current)) return false;
+  const effectiveHead = localHead(pending.repo) ?? current.headRefOid;
+  return effectiveHead === pending.head;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -252,7 +261,7 @@ export default function (pi: ExtensionAPI) {
     return pending;
   }
 
-  function markCompleted(type: string, ctx: any): void {
+  async function markCompleted(type: string, ctx: any): Promise<void> {
     const state = hydratePending(ctx);
     if (!state || !state.lanes.includes(type)) return;
     if (!isCurrentPending(state)) {
@@ -264,7 +273,8 @@ export default function (pi: ExtensionAPI) {
     if (type === "spec-reviewer" && state.lanes.includes("doc-updater") && !state.docPromptSent) {
       state.docPromptSent = true;
       savePending(state);
-      pi.sendUserMessage(agentCall("doc-updater", docUpdaterPrompt(state), "Review documentation changes"), { deliverAs: "followUp" });
+      const spawned = await spawnLane("doc-updater", docUpdaterPrompt(state), "Review documentation changes");
+      if (!spawned) pi.sendUserMessage(agentCall("doc-updater", docUpdaterPrompt(state), "Review documentation changes"), { deliverAs: "followUp" });
       return;
     }
     savePending(state);
@@ -298,12 +308,12 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_call", onAgentStart);
   pi.on("tool_execution_start", onAgentStart);
 
-  const onToolEnd = (event: any, ctx: any) => {
+  const onToolEnd = async (event: any, ctx: any) => {
     const toolName = String(event?.toolName ?? "").toLowerCase();
     if (toolName === "agent") {
       const input = event?.input ?? event?.params ?? event?.args ?? {};
       const type = String(input.subagent_type ?? input.subagentType ?? "");
-      if (type) markCompleted(type, ctx);
+      if (type) await markCompleted(type, ctx);
       return;
     }
 
@@ -316,33 +326,37 @@ export default function (pi: ExtensionAPI) {
 
     const pr = prState(repo);
     if (!isEnforcedPr(pr)) return;
-    if (acked(repo, pr.headRefOid)) return;
+    const head = localHead(repo) ?? pr.headRefOid;
+    const effectivePr = { ...pr, headRefOid: head };
+    if (acked(repo, head)) return;
 
     const previous = loadPending(repo);
-    if (previous && previous.head === pr.headRefOid) return;
-    if (previous && !isAncestor(repo, previous.head, pr.headRefOid)) clearPending(repo);
+    if (previous && previous.head === head) return;
+    if (previous && !isAncestor(repo, previous.head, head)) clearPending(repo);
 
-    const review = mergeLaneState(repo, pr.headRefOid, previous && isAncestor(repo, previous.head, pr.headRefOid) ? previous : undefined);
+    const review = mergeLaneState(repo, head, previous && isAncestor(repo, previous.head, head) ? previous : undefined);
     if (review.lanes.length === 0) {
-      writeAck(repo, pr.headRefOid);
+      writeAck(repo, head);
       clearPending(repo);
       return;
     }
 
     resetBlockCount(repo);
-    pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head: pr.headRefOid, lanes: review.lanes, completed: review.completed, docPromptSent: false };
+    pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, lanes: review.lanes, completed: review.completed, docPromptSent: false };
     savePending(pending);
-    const message = directiveFor(repo, pr, review.lanes);
-    ctx.ui.notify(`PR-boundary review required for ${basename(repo)} at ${pr.headRefOid.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
-    pi.sendUserMessage(message, { deliverAs: "followUp" });
+    const spawned = await spawnInitialLanes(pending, effectivePr);
+    ctx.ui.notify(`PR-boundary review required for ${basename(repo)} at ${head.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
+    if (!spawned) {
+      pi.sendUserMessage(directiveFor(repo, effectivePr, review.lanes), { deliverAs: "followUp" });
+    }
   };
 
   pi.on("tool_result", onToolEnd);
   pi.on("tool_execution_end", onToolEnd);
 
-  const onSubagentCompleted = (event: any, ctx: any) => {
+  const onSubagentCompleted = async (event: any, ctx: any) => {
     const type = String(event?.type ?? "");
-    if (type) markCompleted(type, ctx);
+    if (type) await markCompleted(type, ctx);
   };
 
   pi.on("subagents:completed", onSubagentCompleted);

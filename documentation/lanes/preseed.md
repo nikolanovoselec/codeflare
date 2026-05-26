@@ -245,7 +245,7 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (6): package config, MCP config, and four extensions.
+- Pi-native runtime assets (8): package config, package lock, MCP config, five extension files.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
@@ -258,22 +258,6 @@ All preseed content is deployed via the manifest pipeline:
   The container image preinstalls Pi extension npm dependencies into an
   image-local cache, and entrypoint copies that cache into `~/.pi/agent/npm`
   after R2 restore so Pi does not run npm install on first launch.
-
-<!-- pi-review-test-marker -->
-
-<!-- pi-review-test-marker-2 -->
-
-<!-- pi-review-native-rewrite-test -->
-
-<!-- pi-review-doc-only-after-ack-test -->
-
-<!-- pi-review-live-after-reload-test -->
-
-<!-- pi-review-tool-execution-event-test -->
-
-<!-- pi-review-clean-live-test -->
-
-<!-- pi-review-short-directive-test -->
 
 ## Multi-Agent Preseed
 

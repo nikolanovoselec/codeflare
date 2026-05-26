@@ -6,14 +6,14 @@ Multi-agent support, preseed system, and session modes.
 
 | Concept | Definition |
 |---------|-----------|
-| Agent | One of six supported AI coding tools (`claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `bash`) that runs inside the container and is auto-started in terminal tab 1 |
+| Agent | One of seven supported AI coding tools (`claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `pi`, `bash`) that runs inside the container and is auto-started in terminal tab 1 |
 | Preseed | A set of configuration files (rules, skills, agents, commands, plugins) generated from a single Claude Code source of truth and deployed to each user's R2 bucket |
 | Session Mode | Either Standard (`default`) or Pro (`advanced`) controlling the scope of agent enhancements seeded to a user's storage |
 | Manifest | The declarative `manifest.json` file that maps each preseed source file to its applicable modes and drives the code generation pipeline |
 
 ### Out of Scope
 
-- **Custom agent creation by users** -- Users cannot define their own agent types or register third-party CLI tools as agents. The six supported agents are hardcoded.
+- **Custom agent creation by users** -- Users cannot define their own agent types or register third-party CLI tools as agents. The seven supported agents are hardcoded.
 - **Agent marketplace** -- No mechanism for browsing, installing, or sharing community-contributed agent configurations or plugins.
 - **Runtime agent switching** -- Agent type is immutable after session creation. Switching requires creating a new session.
 
@@ -31,9 +31,10 @@ Multi-agent support, preseed system, and session modes.
 ### REQ-AGENT-001: Support Multiple AI Coding Agents
 
 <!-- @impl: Dockerfile -->
+<!-- @impl: entrypoint.sh -->
 <!-- @impl: src/lib/schemas.ts -->
 <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness describe → AC1/AC2) -->
-<!-- @test: host/__tests__/dockerfile-graphify.test.js (npm install + V8 warm-up → AC3/AC4) -->
+<!-- @test: host/__tests__/dockerfile-graphify.test.js (npm install + V8 warm-up + Pi npm warm-cache behavior → AC3/AC4/AC5) -->
 
 **Intent:** The platform must support multiple AI coding agents so users can choose the tool that fits their workflow.
 
@@ -45,6 +46,7 @@ Multi-agent support, preseed system, and session modes.
 2. The `AgentType` type is enforced via Zod schema (`AgentTypeSchema`).
 3. Each agent's CLI is pre-installed in the container image as a global npm package (or native binary for Go-based agents).
 4. Node.js-based agent CLIs (Codex, Gemini, Copilot, Pi) are pre-warmed at image build time so V8's compile cache is populated before the user's first interactive launch. Claude Code ships as a native binary and needs no warm-up; Go-based agents (OpenCode) are natively compiled.
+5. Pi extension npm dependencies are installed into an image-local cache and copied into the user config after restore, so Pi starts without a first-launch package install.
 
 **Constraints:**
 
@@ -55,7 +57,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-config.test.ts)
+**Verification:** [Automated test](../../src/__tests__/lib/agent-config.test.ts), [Automated test](../../host/__tests__/dockerfile-graphify.test.js)
 
 **Status:** Implemented
 
@@ -940,7 +942,7 @@ None.
 3. PRs into intermediate integration branches (`develop`, `staging`, etc.) do NOT trigger reviews; the case is deferred until the integration branch's own PR-to-`main` opens or syncs, where the cumulative review covers everything that landed.
 4. A plain push to a branch with no open PR does NOT trigger reviews.
 5. Direct pushes to `main` are expected to be prevented by GitHub branch protection (require PR before merge); the review pipeline is not engineered to compensate for a bypass that the upstream platform already blocks.
-6. Layer 2 false-positive filtering compares the candidate push's HEAD SHA against `gh pr view`'s reported HEAD before any agent is spawned.
+6. Layer 2 false-positive filtering validates that the candidate push belongs to the currently open PR; same-session pushes may use local HEAD as the candidate SHA while GitHub's PR API catches up, with every directive carrying a freshness gate for the exact head.
 7. On non-SDD projects (no `sdd/` folder) no review agents run at all; every hook exits silently and the workflow proceeds friction-free (vibe-coding mode).
 
 **Constraints:**
