@@ -95,16 +95,8 @@ function changedFiles(repo: string): string[] {
   }
 }
 
-function requiredReviewLanes(repo: string): string[] {
-  const files = changedFiles(repo);
-  const lanes = new Set<string>();
-  for (const file of files) {
-    if (file.startsWith("sdd/")) lanes.add("spec-reviewer");
-    else if (file.startsWith("documentation/") || file === "README.md") lanes.add("doc-updater");
-    else lanes.add("code-reviewer");
-  }
-  if (lanes.has("spec-reviewer")) lanes.add("doc-updater");
-  return [...lanes];
+function requiredReviewLanes(_repo: string): string[] {
+  return ["code-reviewer", "spec-reviewer", "doc-updater"];
 }
 
 function ackPath(repo: string): string {
@@ -149,16 +141,17 @@ function enforcementMessage(repo: string, pr: PrState, lanes: string[]): string 
 
 function subagentDirective(repo: string, pr: PrState, lanes: string[]): string {
   const base = `Review PR #${pr.number ?? "?"} for ${basename(repo)} at head ${pr.headRefOid}. Scope is the current diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
-  const tasks = lanes.length > 0 ? lanes : ["code-reviewer"];
-  const parallel = tasks.filter((lane) => lane !== "doc-updater");
+  const tasks = lanes.length > 0 ? lanes : ["code-reviewer", "spec-reviewer", "doc-updater"];
+  const parallel = tasks.filter((lane) => lane === "code-reviewer" || lane === "spec-reviewer");
   const commands: string[] = [];
   if (parallel.length === 1) {
-    commands.push(`/run ${parallel[0]} ${JSON.stringify(base)} --fork`);
+    commands.push(`/run ${parallel[0]} ${JSON.stringify(base)} --fork --bg`);
   } else if (parallel.length > 1) {
-    commands.push(`/parallel ${parallel.map((lane) => `${lane} ${JSON.stringify(base)}`).join(" -> ")} --fork`);
+    commands.push(`/parallel ${parallel.map((lane) => `${lane} ${JSON.stringify(base)}`).join(" -> ")} --fork --bg`);
   }
   if (tasks.includes("doc-updater")) {
-    commands.push(`/run doc-updater ${JSON.stringify(`${base} Run after spec-reviewer so documentation sees final spec changes.`)} --fork`);
+    commands.push(`After spec-reviewer completes, run:`);
+    commands.push(`/run doc-updater ${JSON.stringify(`${base} Run after spec-reviewer so documentation sees final spec changes.`)} --fork --bg`);
   }
   commands.push("After required subagents report, run /review --diff to acknowledge this PR HEAD.");
   return commands.join("\n");
@@ -196,6 +189,11 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     if (consumeBypass()) {
+      pending = undefined;
+      return;
+    }
+    const current = prState(pending.repo);
+    if (!isEnforcedPr(current) || current.headRefOid !== pending.head) {
       pending = undefined;
       return;
     }
