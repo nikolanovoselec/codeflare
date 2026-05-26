@@ -344,9 +344,6 @@ RCLONE_FILTERS_COMMON=(
     # Gemini CLI — tmp contains a downloaded ripgrep binary (~5MB) and session chat logs
     --filter "- .gemini/tmp/**"
 
-    # Pi — session JSONL logs (per-cwd subdirs, regenerated each session)
-    --filter "- .pi/agent/sessions/**"
-
     # OpenCode — session logs and SQLite temp files (WAL/SHM cause sync conflicts)
     --filter "- .local/share/opencode/log/**"
     --filter "- .local/share/opencode/opencode.db-shm"
