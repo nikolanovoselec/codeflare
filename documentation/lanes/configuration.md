@@ -105,47 +105,36 @@ Base image: Node.js 24 Debian (bookworm-slim).
 
 ## API Token Permissions
 
-### Cloudflare API Token (Operator)
+### Cloudflare API Token (User)
 
-These are the permissions required for the Cloudflare API token used by the deploy workflow and worker runtime. Codeflare recommends using the **"Edit Cloudflare Workers"** template when creating the token, then adding the additional scopes listed below.
+Users connect their Cloudflare account by creating an API token. Codeflare offers three scope tiers -- choose based on what you build:
 
-#### Account Permissions
+| Scope | Minimal | Recommended | Advanced | Why |
+|---|---|---|---|---|
+| **Workers Scripts: Edit** | yes | yes | yes | Deploy Workers and manage secrets |
+| **Workers KV Storage: Edit** | yes | yes | yes | KV namespace management |
+| **Workers R2 Storage: Edit** | yes | yes | yes | Object storage for user data |
+| **D1: Edit** | yes | yes | yes | SQL database management |
+| **Workers Routes: Edit** | yes | yes | yes | Route traffic to Workers |
+| **Account Settings: Read** | yes | yes | yes | Account ID discovery |
+| **Zone: Read** | yes | yes | yes | Zone ID resolution |
+| **DNS: Edit** | - | yes | yes | Manage DNS records for custom domains |
+| **Access: Apps and Policies: Edit** | - | yes | yes | Cloudflare Access applications |
+| **Access: Orgs, IdPs, and Groups: Edit** | - | yes | yes | Access groups and identity providers |
+| **Cloudflare Pages: Edit** | - | - | yes | Deploy static sites and full-stack apps |
+| **Containers: Edit** | - | - | yes | Container lifecycle management |
+| **API Tokens: Edit** | - | - | yes | Create/revoke scoped tokens programmatically |
+| **Queues: Edit** | - | - | yes | Message queue management |
+| **Workers AI: Edit** | - | - | yes | Inference and model management |
+| **Workers AI: Read** | - | - | yes | Read-only inference access |
+| **Vectorize: Edit** | - | - | yes | Vector database for AI embeddings |
+| **Turnstile: Edit** | - | - | yes | CAPTCHA widget management |
+| **Workers Builds Configuration: Edit** | - | - | yes | CI/CD build pipeline configuration |
+| **Workers Observability: Edit** | - | - | yes | Logs, traces, and monitoring |
+| **Workers R2 Data Catalog: Edit** | - | - | yes | R2 bucket metadata and catalog |
+| **Workers Agents Configuration: Edit** | - | - | yes | Cloudflare Agents configuration |
 
-| Permission | Access | Required | Why |
-|-----------|--------|----------|-----|
-| Account Settings | Read | Yes | Account ID discovery |
-| Workers Scripts | Edit | Yes | Deploy worker + secrets |
-| Workers KV Storage | Edit | Yes | KV namespace management |
-| Workers R2 Storage | Edit | Yes | Per-user R2 buckets |
-| Containers | Edit | Yes | Container lifecycle |
-| Access: Apps and Policies | Edit | Yes | Managed Access app |
-| Access: Organizations, Identity Providers, and Groups | Edit | Yes | Access groups + auth_domain |
-| Turnstile | Edit | Only if onboarding active | Turnstile widget |
-| API Tokens | Edit | Yes | Create/revoke per-user scoped R2 tokens |
-
-#### Zone Permissions
-
-| Permission | Access | Required | Why |
-|-----------|--------|----------|-----|
-| Zone | Read | Yes | Zone ID resolution |
-| DNS | Edit | Yes | Proxied CNAME |
-| Workers Routes | Edit | Yes | Worker route upsert |
-
-#### Additional Scopes You May Need
-
-If your agent asks for additional permissions, you can add them by editing your token in the [Cloudflare dashboard](https://dash.cloudflare.com/profile/api-tokens):
-
-| Permission | Level | When Needed |
-|---|---|---|
-| D1 | Edit | Creating and managing D1 databases |
-| DNS | Edit | Managing DNS records for custom domains |
-| Zone | Read | Required alongside DNS for zone resolution |
-| Turnstile | Edit | Creating CAPTCHA widgets |
-| Access: Apps and Policies | Edit | Managing Cloudflare Access applications |
-| Access: Organizations | Edit | Managing Access groups and identity providers |
-| API Tokens | Edit | Managing other API tokens programmatically |
-
-Cloudflare API tokens do not expire by default but can be set to expire during creation. You can scope tokens to specific accounts and zones, or use "All accounts" and "All zones" for convenience.
+The connect flow pre-fills the Cloudflare dashboard token creation form with the correct permissions for the selected tier. Cloudflare API tokens do not expire by default but can be set to expire during creation. Scope tokens to specific accounts and zones, or use "All accounts" and "All zones" for convenience. Implements [REQ-AGENT-028](../../sdd/spec/agents.md#req-agent-028-deploy-credential-token-creation-ux) AC2.
 
 ### GitHub Fine-Grained PAT (User)
 

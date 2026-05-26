@@ -6,7 +6,7 @@ import ScrambleText from './ScrambleText';
 import Icon from './Icon';
 import { mdiArrowRight } from '@mdi/js';
 import { logger } from '../lib/logger';
-import { getGithubTokenUrl, GITHUB_TIERS, CLOUDFLARE_TOKEN_PAGE, SCOPES_DOCS_URL, CLOUDFLARE_BRAND_COLOR } from '../lib/token-scopes';
+import { getGithubTokenUrl, GITHUB_TIERS, getCloudflareTokenUrl, CLOUDFLARE_TIERS, SCOPES_DOCS_URL } from '../lib/token-scopes';
 import '../styles/login-page.css';
 import '../styles/onboarding-page.css';
 
@@ -347,8 +347,6 @@ const OnboardingPage: Component = () => {
               icon={CloudflareIcon}
               name="Cloudflare"
               brandColor="#f38020"
-              externalUrl={CLOUDFLARE_TOKEN_PAGE}
-              externalLabel="Open Cloudflare"
               placeholder="Cloudflare API token..."
               connected={cfConnected()}
               onSave={(token) => { void handleSaveCloudflare(token); }}
@@ -358,7 +356,11 @@ const OnboardingPage: Component = () => {
               message={cfMessage()}
               error={cfError()}
               testId="onboarding-cloudflare-row"
-              instructions={<>Press <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Open Cloudflare"</span> below, click <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Create Token"</span>, then use the <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Edit Cloudflare Workers"</span> template. Select your account and zones, then create the token.</>}
+              tierOptions={{
+                tiers: CLOUDFLARE_TIERS,
+                getUrl: getCloudflareTokenUrl,
+                docsUrl: SCOPES_DOCS_URL,
+              }}
             />
             {/* Multi-account dropdown */}
             <Show when={cfAccounts().length > 1}>

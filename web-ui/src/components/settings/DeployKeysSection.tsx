@@ -3,7 +3,7 @@ import { getDeployKeys, updateDeployKeys } from '../../api/client';
 import type { DeployKeysResponse } from '../../api/client';
 import ProviderRow from './ProviderRow';
 import { GitHubIcon, CloudflareIcon } from './BrandIcons';
-import { getGithubTokenUrl, GITHUB_TIERS, CLOUDFLARE_TOKEN_PAGE, SCOPES_DOCS_URL, CLOUDFLARE_BRAND_COLOR } from '../../lib/token-scopes';
+import { getGithubTokenUrl, GITHUB_TIERS, getCloudflareTokenUrl, CLOUDFLARE_TIERS, SCOPES_DOCS_URL } from '../../lib/token-scopes';
 
 interface CloudflareAccount {
   id: string;
@@ -155,8 +155,6 @@ const DeployKeysSection: Component = () => {
         icon={CloudflareIcon}
         name="Cloudflare"
         brandColor="#f38020"
-        externalUrl={CLOUDFLARE_TOKEN_PAGE}
-        externalLabel="Open Cloudflare"
         placeholder="Cloudflare API token..."
         connected={cfConnected()}
         onSave={(token) => { void handleSaveCloudflare(token); }}
@@ -166,7 +164,11 @@ const DeployKeysSection: Component = () => {
         message={cfMessage()}
         error={cfError()}
         testId="deploy-cf-row"
-        instructions={<>Press <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Open Cloudflare"</span> below, click <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Create Token"</span>, then use the <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Edit Cloudflare Workers"</span> template. Select your account and zones, then create the token.</>}
+        tierOptions={{
+          tiers: CLOUDFLARE_TIERS,
+          getUrl: getCloudflareTokenUrl,
+          docsUrl: SCOPES_DOCS_URL,
+        }}
       />
 
       {/* Cloudflare multi-account dropdown */}
