@@ -451,7 +451,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/entrypoint-hooks-merge.test.js)
 
 **Status:** Implemented
 

@@ -478,7 +478,7 @@ None.
 
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../web-ui/src/__tests__/lib/sleep-timer.test.ts)
 
 **Notes:** Sleep timer countdown UI is validated manually per the checklist in [documentation/lanes/troubleshooting.md](../../documentation/lanes/troubleshooting.md).
 

@@ -391,7 +391,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/container/index.test.ts)
 
 **Notes:** Hibernation cost guarantee is verified manually against billing-period invoices.
 

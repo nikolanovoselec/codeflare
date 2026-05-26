@@ -407,9 +407,9 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-010](storage.md#req-stor-010-agent-configs-auto-seeded-based-on-session-mode)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/routes/storage-seed.test.ts)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
@@ -440,7 +440,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/routes/preferences.test.ts)
 
 **Status:** Implemented
 
@@ -471,7 +471,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/lib/r2-seed-mode-req-coverage.test.ts)
 
 **Status:** Implemented
 
@@ -539,7 +539,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/entrypoint-hooks-merge.test.js)
 
 **Status:** Implemented
 
@@ -660,7 +660,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/routes/llm-keys.test.ts)
 
 **Status:** Implemented
 
@@ -724,7 +724,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-ecc-rules.test.ts)
 
 **Status:** Implemented
 
@@ -756,7 +756,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify), [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate), [REQ-AGENT-039](#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
 
 **Status:** Implemented
 
@@ -783,7 +783,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
 
 **Status:** Implemented
 
@@ -848,7 +848,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
 
 **Status:** Implemented
 
@@ -881,7 +881,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/sdd-init-phase-7a-verifier.test.js)
 
 **Status:** Implemented
 
@@ -914,7 +914,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/sdd-init-phase-7b-verifier.test.js)
 
 **Status:** Implemented
 
@@ -948,7 +948,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/git-push-review-reminder.test.js)
 
 **Status:** Implemented
 
@@ -981,7 +981,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/lane-classifier.test.js)
 
 **Status:** Implemented
 
@@ -1011,7 +1011,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/enforce-review-spawn.test.js)
 
 **Status:** Implemented
 
@@ -1045,7 +1045,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/skill-sdd-clean-contract.test.js)
 
 **Status:** Implemented
 
@@ -1079,7 +1079,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/enforce-review-spawn.test.js)
 
 **Status:** Implemented
 
@@ -1111,7 +1111,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/enforce-review-spawn.test.js)
 
 **Status:** Implemented
 
@@ -1147,7 +1147,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
 
 **Status:** Implemented
 
@@ -1185,7 +1185,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
 
 **Status:** Implemented
 
@@ -1213,7 +1213,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-038](#req-agent-038-resume-mode-drain-workflow)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
 
 **Status:** Implemented
 
@@ -1490,7 +1490,7 @@ None.
 
 **Dependencies:** [REQ-STOR-009](storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session)
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../src/__tests__/routes/storage-seed.test.ts)
 
 **Status:** Implemented
 

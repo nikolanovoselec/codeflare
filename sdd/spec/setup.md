@@ -421,6 +421,6 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** [Automated test](../../web-ui/src/__tests__/setup-010-og-metadata.test.ts)
 
 **Status:** Implemented
