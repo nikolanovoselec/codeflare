@@ -800,10 +800,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. `generate-agent-seed.mjs` computes a deterministic SHA-256 content hash over all preseed documents (sorted by key) and emits `PRESEED_CONTENT_HASH` in `agent-seed.generated.ts`.
-2. After a successful `POST /api/storage/seed/agent-configs` reconcile (manual or auto), the applied hash is persisted in the user's `UserPreferences` KV entry as `lastPreseedHash`.
-3. `GET /api/sessions/batch-status?includePreseedCheck=true` compares the stored `lastPreseedHash` against `PRESEED_CONTENT_HASH` and returns `preseedNeedsUpgrade: boolean`. The field is omitted when the query param is absent (5s polling path).
-4. On initial dashboard load (`loadSessions`), the frontend passes `includePreseedCheck=true`. If `preseedNeedsUpgrade` is true, it fires `recreateAgentConfigs()` in the background.
+1. The preseed generation script computes a deterministic SHA-256 content hash over all preseed documents (sorted by key) and emits it as a build-time constant accessible to the runtime.
+2. After a successful reconcile (manual or auto), the applied hash is persisted in the user's preferences store.
+3. On initial dashboard load, the backend compares the stored hash against the build-time constant and returns whether an upgrade is needed. This check is omitted from periodic polling to avoid overhead.
+4. On initial dashboard load, if an upgrade is needed, the frontend triggers the reconcile in the background.
 5. While the upgrade is in progress, the "+ New Session" button is disabled and displays "Upgrading..." (both Dashboard and SessionDropdown).
 6. Stopped session cards are visually dimmed (reduced opacity) and click-disabled during upgrade.
 7. If the auto-upgrade fails, the error is logged but the dashboard remains fully usable. A page refresh retries the check.
