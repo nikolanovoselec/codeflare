@@ -196,17 +196,12 @@ function agentCall(type: string, prompt: string, description: string): string {
   return `Agent({ subagent_type: ${JSON.stringify(type)}, prompt: ${JSON.stringify(prompt)}, description: ${JSON.stringify(description)}, run_in_background: true })`;
 }
 
-async function subagentsService(): Promise<any | undefined> {
-  try {
-    const mod = await import("@gotgenes/pi-subagents");
-    return mod.getSubagentsService?.();
-  } catch {
-    return undefined;
-  }
+function subagentsService(): any | undefined {
+  return (globalThis as Record<symbol, unknown>)[Symbol.for("@gotgenes/pi-subagents:service")];
 }
 
 async function spawnLane(type: string, prompt: string, description: string): Promise<boolean> {
-  const service = await subagentsService();
+  const service = subagentsService();
   if (!service?.spawn) return false;
   service.spawn(type, prompt, { description, inheritContext: false });
   return true;

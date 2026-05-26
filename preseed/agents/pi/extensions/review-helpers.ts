@@ -20,3 +20,7 @@ export function classifyReviewFiles(files: string[] | undefined): string[] | und
   if (touchesDocs) return ["doc-updater"];
   return [];
 }
+
+export default function () {
+  // Helper module for review-enforcement.ts; no extension registration needed.
+}
