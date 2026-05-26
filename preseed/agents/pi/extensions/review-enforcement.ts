@@ -250,15 +250,18 @@ export default function (pi: ExtensionAPI) {
     if (!isEnforcedPr(pr)) return;
     if (acked(repo, pr.headRefOid)) return;
 
+    const previous = pending ?? loadPending(repo);
     resetBlockCount(repo);
-    const lanes = requiredReviewLanes(repo, pr.headRefOid);
+    const review = requiredReviewLanes(repo, pr.headRefOid, previous);
+    const lanes = review.lanes;
     if (lanes.length === 0) {
       writeFileSync(ackPath(repo), `${pr.headRefOid}\n`, "utf8");
+      clearPending(repo);
       return;
     }
     const message = enforcementMessage(repo, pr, lanes);
     const directive = `${message}\n\n${subagentDirective(repo, pr, lanes)}`;
-    pending = { repo, head: pr.headRefOid, message: directive, lanes, completed: new Set(), docPromptSent: false };
+    pending = { repo, head: pr.headRefOid, message: directive, lanes, completed: review.completed, docPromptSent: previous?.docPromptSent ?? false };
     savePending(pending);
     ctx.ui.notify(message, "warning");
     pi.sendUserMessage(directive, { deliverAs: "followUp" });
