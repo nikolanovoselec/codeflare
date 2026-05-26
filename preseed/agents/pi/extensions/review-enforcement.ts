@@ -110,9 +110,8 @@ function changedFiles(repo: string, lastAck: string, current: string): string[] 
   }
 }
 
-function requiredReviewLanes(repo: string, current: string): string[] {
+function classifyFiles(files: string[] | undefined): string[] | undefined {
   const all = ["code-reviewer", "spec-reviewer", "doc-updater"];
-  const files = changedFiles(repo, lastAckHead(repo), current);
   if (files === undefined) return all;
   if (files.length === 0) return [];
   let hasBehavioral = false;
@@ -128,6 +127,20 @@ function requiredReviewLanes(repo: string, current: string): string[] {
   if (touchesSdd) lanes.push("spec-reviewer", "doc-updater");
   else if (touchesDocs) lanes.push("doc-updater");
   return [...new Set(lanes)];
+}
+
+function requiredReviewLanes(repo: string, current: string, previous?: PendingReview): { lanes: string[]; completed: Set<string> } {
+  const base = previous?.head ?? lastAckHead(repo);
+  const changed = classifyFiles(changedFiles(repo, base, current));
+  const changedLanes = changed ?? ["code-reviewer", "spec-reviewer", "doc-updater"];
+  if (!previous) return { lanes: changedLanes, completed: new Set() };
+
+  const previousIncomplete = previous.lanes.filter((lane) => !previous.completed.has(lane));
+  const lanes = [...new Set([...previousIncomplete, ...changedLanes])];
+  const completed = new Set(
+    previous.lanes.filter((lane) => previous.completed.has(lane) && lanes.includes(lane) && !changedLanes.includes(lane)),
+  );
+  return { lanes, completed };
 }
 
 function ackPath(repo: string): string {

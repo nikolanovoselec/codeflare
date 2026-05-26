@@ -224,7 +224,8 @@ export default function (pi: ExtensionAPI) {
     const toolName = String(event?.toolName ?? "").toLowerCase();
     const command = commandText(event);
 
-    if (toolName === "bash" || toolName.startsWith("context_mode_ctx_execute")) {
+    const isShellSurface = toolName === "bash" || toolName.includes("ctx_execute") || toolName.includes("ctx_batch_execute");
+    if (isShellSurface) {
       const attributionReason = ensureNoAttributedCommit(command);
       if (attributionReason) return { block: true, reason: attributionReason };
       const buildReason = ensureNoLocalBuild(command);
