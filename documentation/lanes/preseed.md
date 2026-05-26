@@ -267,6 +267,8 @@ All preseed content is deployed via the manifest pipeline:
 
 <!-- pi-review-doc-only-after-ack-test -->
 
+<!-- pi-review-live-after-reload-test -->
+
 ## Multi-Agent Preseed
 
 The generator produces adapted config files for all supported agents
