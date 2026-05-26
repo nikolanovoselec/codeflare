@@ -223,7 +223,7 @@ async function spawnInitialLanes(pending: PendingReview, pr: PrState): Promise<b
 }
 
 function reviewPrompt(repo: string, pr: PrState, head: string): string {
-  return `Review PR #${pr.number ?? "?"} for ${basename(repo)} at head ${head}. Scope is the current diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
+  return `Work in ${repo}. Review PR #${pr.number ?? "?"} for ${basename(repo)} at head ${head}. Scope is the current diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
 }
 
 function directiveFor(repo: string, pr: PrState, lanes: string[]): string {
@@ -236,7 +236,7 @@ function directiveFor(repo: string, pr: PrState, lanes: string[]): string {
 }
 
 function docUpdaterPrompt(pending: PendingReview): string {
-  return `Review PR #${pending.prNumber ?? "?"} for ${basename(pending.repo)} at head ${pending.head}. Scope is the current diff against ${pending.baseRefName}. Report findings only; do not modify files. Run after spec-reviewer so documentation sees final spec changes.`;
+  return `Work in ${pending.repo}. Review PR #${pending.prNumber ?? "?"} for ${basename(pending.repo)} at head ${pending.head}. Scope is the current diff against ${pending.baseRefName}. Report findings only; do not modify files. Run after spec-reviewer so documentation sees final spec changes.`;
 }
 
 function isCurrentPending(pending: PendingReview): boolean {
@@ -370,13 +370,18 @@ export default function (pi: ExtensionAPI) {
       pending = undefined;
       return;
     }
+    const service = subagentsService();
+    if (service?.hasRunning?.()) {
+      return;
+    }
     const count = incrementBlockCount(state.repo);
     if (count >= 3) {
       ctx.ui.notify(`Review enforcement circuit breaker opened after ${count} reminders for ${basename(state.repo)}.`, "warning");
       pending = undefined;
       return;
     }
-    const remaining = state.lanes.filter((lane) => !state.completed.has(lane)).join(", ") || "none";
+    const currentState = loadPending(state.repo) ?? state;
+    const remaining = currentState.lanes.filter((lane) => !currentState.completed.has(lane)).join(", ") || "none";
     const reminder = `PR-boundary review still pending for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Remaining lanes: ${remaining}. Reminder ${count}/3.`;
     ctx.ui.notify(reminder, "warning");
     pi.sendUserMessage(`${reminder}\nComplete the remaining subagents or use the user-only bypass ${REVIEW_BYPASS}.`, { deliverAs: "followUp" });
