@@ -152,7 +152,7 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
                   data-testid={props.testId ? `${props.testId}-create-token` : undefined}
                 >
                   <ProviderIcon size={20} fill="white" />
-                  <span>Connect to {props.name}</span>
+                  <span>Create Token on {props.name}</span>
                 </a>
               </>
             )}
