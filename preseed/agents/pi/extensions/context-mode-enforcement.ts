@@ -6,12 +6,10 @@
  * and large Read calls and directing the agent to ctx_* tools.
  */
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const BYPASS_FILE = "/tmp/ctx-bypass";
-const MAX_READ_BYTES = 20 * 1024;
-const MAX_READ_LINES = 260;
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
 const ALLOWED_FIRST_WORDS = new Set(["git", "mkdir", "rm", "mv", "cd", "ls", "graphify"]);
 
@@ -137,18 +135,7 @@ function readDenialReason(input: Record<string, unknown>): string | undefined {
   const path = typeof input.path === "string" ? input.path : undefined;
   if (!path || IMAGE_EXTENSIONS.has(extensionFor(path))) return undefined;
 
-  const offset = typeof input.offset === "number" ? input.offset : undefined;
-  const limit = typeof input.limit === "number" ? input.limit : undefined;
-  if (offset !== undefined && limit !== undefined && limit <= MAX_READ_LINES) return undefined;
-
-  try {
-    const stat = statSync(path);
-    if (stat.isFile() && stat.size <= MAX_READ_BYTES) return undefined;
-  } catch {
-    return undefined;
-  }
-
-  return `Large or unbounded Read of '${path}' violates context-mode routing. Use ctx_execute_file for analysis, or Read with offset+limit <= ${MAX_READ_LINES} when exact text is needed for editing.`;
+  return `Read of '${path}' violates strict context-mode routing. Use ctx_execute_file for file analysis. If exact text is needed for editing, use ctx_execute_file to print the minimal exact snippet, then edit that snippet.`;
 }
 
 export default function (pi: ExtensionAPI) {
