@@ -87,7 +87,7 @@ describe('CreateSessionDialog', () => {
   });
 
   describe('Agent type selection', () => {
-    it('renders all 6 agent options', () => {
+    it('renders all 7 agent options', () => {
       render(() => (
         <CreateSessionDialog
           isOpen={true}
@@ -101,6 +101,7 @@ describe('CreateSessionDialog', () => {
       expect(screen.getByTestId('csd-agent-gemini')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-copilot')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-opencode')).toBeInTheDocument();
+      expect(screen.getByTestId('csd-agent-pi')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-bash')).toBeInTheDocument();
     });
 
@@ -116,7 +117,7 @@ describe('CreateSessionDialog', () => {
       expect(screen.queryByTestId('csd-agent-claude-unleashed')).not.toBeInTheDocument();
     });
 
-    it('renders exactly 6 agent option buttons', () => {
+    it('renders exactly 7 agent option buttons', () => {
       render(() => (
         <CreateSessionDialog
           isOpen={true}
@@ -126,7 +127,7 @@ describe('CreateSessionDialog', () => {
       ));
 
       const buttons = screen.getByTestId('create-session-dialog').querySelectorAll('.csd-agent-btn');
-      expect(buttons).toHaveLength(6);
+      expect(buttons).toHaveLength(7);
     });
 
     it('renders opencode option with correct label and icon', () => {
@@ -242,6 +243,7 @@ describe('CreateSessionDialog', () => {
         'csd-agent-gemini',
         'csd-agent-copilot',
         'csd-agent-opencode',
+        'csd-agent-pi',
         'csd-agent-bash',
       ]);
     });

@@ -73,13 +73,13 @@ describe('terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-
       expect(AGENT_ICON_MAP['claude-unleashed']).toBeUndefined();
     });
 
-    it('has entries for all 6 agent types', () => {
-      const expectedAgentTypes = ['claude-code', 'codex', 'gemini', 'opencode', 'copilot', 'bash'];
+    it('has entries for all 7 agent types', () => {
+      const expectedAgentTypes = ['claude-code', 'codex', 'gemini', 'opencode', 'copilot', 'pi', 'bash'];
       expect(Object.keys(AGENT_ICON_MAP).sort()).toEqual(expectedAgentTypes.sort());
     });
 
     it('has no extra entries beyond the expected agent types', () => {
-      expect(Object.keys(AGENT_ICON_MAP)).toHaveLength(6);
+      expect(Object.keys(AGENT_ICON_MAP)).toHaveLength(7);
     });
 
     it('every icon value is a non-empty string (valid SVG path)', () => {

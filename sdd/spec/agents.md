@@ -409,7 +409,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Verification:** [Automated test](../../src/__tests__/routes/storage-seed.test.ts)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
