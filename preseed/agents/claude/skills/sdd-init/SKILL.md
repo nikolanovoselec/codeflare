@@ -1,6 +1,6 @@
 ---
 name: sdd-init
-description: Workflow for /sdd init bootstrap. Covers greenfield (lean two-confirm flow), Import Mode (two-output: REQs + triage), Resume Mode (drain triage queue), Phase 4 behavioral enumeration (deterministic source-surface walk that drives Phase 5d), Phase 5 enrichment pass (graphify-backed cross-link / ADR-seed / glossary-seed), Phase 7a source-anchor verification, Phase 7b enumeration-coverage verification, and dependency version resolution. Invoked when /sdd init runs. Requires the spec-driven-development skill for REQ format, Status semantics, and templates.
+description: "Workflow for /sdd init bootstrap. Covers greenfield (lean two-confirm flow), Import Mode (two-output: REQs + triage), Resume Mode (drain triage queue), Phase 4 behavioral enumeration (deterministic source-surface walk that drives Phase 5d), Phase 5 enrichment pass (graphify-backed cross-link / ADR-seed / glossary-seed), Phase 7a source-anchor verification, Phase 7b enumeration-coverage verification, and dependency version resolution. Invoked when /sdd init runs. Requires the spec-driven-development skill for REQ format, Status semantics, and templates."
 version: 1.1.0
 ---
 

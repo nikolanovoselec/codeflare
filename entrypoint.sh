@@ -1238,7 +1238,7 @@ CASE_EOF
             ;;
 CASE_EOF
                     ;;
-                codex|opencode|copilot*)
+                codex|opencode|copilot*|pi)
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # ${cmd} (bash stays as session leader for TTY stability)
