@@ -64,8 +64,8 @@ function isGitPush(command: string): boolean {
   return /(^|[;&|]\s*)git\s+push\b/.test(command);
 }
 
-function isPrCreate(command: string): boolean {
-  return /(^|[;&|]\s*)gh\s+pr\s+create\b/.test(command);
+function isPrBoundaryCommand(command: string): boolean {
+  return /(^|[;&|]\s*)git\s+push\b/.test(command) || /(^|[;&|]\s*)gh\s+pr\s+(create|merge)\b/.test(command);
 }
 
 function isSddProject(repo: string): boolean {
@@ -85,18 +85,49 @@ function isEnforcedPr(pr: PrState | undefined): pr is Required<Pick<PrState, "he
   return Boolean(pr?.headRefOid && pr.state === "OPEN" && (pr.baseRefName === "main" || pr.baseRefName === "master"));
 }
 
-function changedFiles(repo: string): string[] {
+function lastAckHead(repo: string): string {
+  try { return readFileSync(ackPath(repo), "utf8").trim(); } catch { return ""; }
+}
+
+function isAncestor(repo: string, ancestor: string, current: string): boolean {
+  if (!ancestor) return false;
   try {
-    const base = shell("git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD origin/master 2>/dev/null || git rev-parse HEAD~1", repo);
-    const out = shell(`git diff --name-only ${base}...HEAD`, repo);
-    return out ? out.split("\n").filter(Boolean) : [];
+    const base = shell(`git merge-base ${ancestor} ${current}`, repo);
+    return base === ancestor;
   } catch {
-    return [];
+    return false;
   }
 }
 
-function requiredReviewLanes(_repo: string): string[] {
-  return ["code-reviewer", "spec-reviewer", "doc-updater"];
+function changedFiles(repo: string, lastAck: string, current: string): string[] | undefined {
+  if (!lastAck || lastAck === current) return lastAck === current ? [] : undefined;
+  if (!isAncestor(repo, lastAck, current)) return undefined;
+  try {
+    const out = execFileSync("git", ["diff", "-z", "--name-only", "--no-renames", lastAck, current], { cwd: repo, encoding: "buffer", stdio: ["ignore", "pipe", "pipe"] });
+    return out.toString("utf8").split("\0").filter(Boolean);
+  } catch {
+    return undefined;
+  }
+}
+
+function requiredReviewLanes(repo: string, current: string): string[] {
+  const all = ["code-reviewer", "spec-reviewer", "doc-updater"];
+  const files = changedFiles(repo, lastAckHead(repo), current);
+  if (files === undefined) return all;
+  if (files.length === 0) return [];
+  let hasBehavioral = false;
+  let touchesSdd = false;
+  let touchesDocs = false;
+  for (const file of files) {
+    if (file.startsWith("sdd/")) touchesSdd = true;
+    else if (file.startsWith("documentation/") || ["README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "LICENSE"].includes(file)) touchesDocs = true;
+    else hasBehavioral = true;
+  }
+  if (hasBehavioral) return all;
+  const lanes: string[] = [];
+  if (touchesSdd) lanes.push("spec-reviewer", "doc-updater");
+  else if (touchesDocs) lanes.push("doc-updater");
+  return [...new Set(lanes)];
 }
 
 function ackPath(repo: string): string {
@@ -107,17 +138,17 @@ function pendingPath(repo: string): string {
   return join(repo, ".git", "sdd-review-pending.json");
 }
 
-type PendingReview = { repo: string; head: string; message: string; completed: Set<string>; docPromptSent: boolean };
+type PendingReview = { repo: string; head: string; message: string; lanes: string[]; completed: Set<string>; docPromptSent: boolean };
 
 function savePending(pending: PendingReview): void {
-  writeFileSync(pendingPath(pending.repo), JSON.stringify({ head: pending.head, message: pending.message, completed: [...pending.completed], docPromptSent: pending.docPromptSent }) + "\n", "utf8");
+  writeFileSync(pendingPath(pending.repo), JSON.stringify({ head: pending.head, message: pending.message, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent }) + "\n", "utf8");
 }
 
 function loadPending(repo: string): PendingReview | undefined {
   try {
-    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { head?: string; message?: string; completed?: string[]; docPromptSent?: boolean };
+    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { head?: string; message?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean };
     if (!state.head || !state.message) return undefined;
-    return { repo, head: state.head, message: state.message, completed: new Set(state.completed ?? []), docPromptSent: Boolean(state.docPromptSent) };
+    return { repo, head: state.head, message: state.message, lanes: state.lanes ?? ["code-reviewer", "spec-reviewer", "doc-updater"], completed: new Set(state.completed ?? []), docPromptSent: Boolean(state.docPromptSent) };
   } catch {
     return undefined;
   }
@@ -164,7 +195,7 @@ function consumeBypass(): boolean {
 
 function enforcementMessage(repo: string, pr: PrState, lanes: string[]): string {
   const laneText = lanes.length > 0 ? lanes.join(", ") : "code-reviewer";
-  return `PR-boundary review required for ${basename(repo)} PR #${pr.number ?? "?"} (${pr.baseRefName}, head ${pr.headRefOid?.slice(0, 12)}). Required lanes: ${laneText}. Run the requested subagents or /review --diff before finishing this turn.`;
+  return `PR-boundary review required for ${basename(repo)} PR #${pr.number ?? "?"} (${pr.baseRefName}, head ${pr.headRefOid?.slice(0, 12)}). Required lanes: ${laneText}. Run the requested subagents before finishing this turn.`;
 }
 
 function subagentDirective(repo: string, pr: PrState, lanes: string[]): string {
@@ -178,9 +209,13 @@ function subagentDirective(repo: string, pr: PrState, lanes: string[]): string {
     commands.push(`/parallel ${parallel.map((lane) => `${lane} ${JSON.stringify(base)}`).join(" -> ")} --fork --bg`);
   }
   if (tasks.includes("doc-updater")) {
-    commands.push("After spec-reviewer completes, review enforcement will send the doc-updater command automatically.");
+    if (tasks.includes("spec-reviewer")) {
+      commands.push("After spec-reviewer completes, review enforcement will send the doc-updater command automatically.");
+    } else {
+      commands.push(`/run doc-updater ${JSON.stringify(base)} --fork --bg`);
+    }
   }
-  commands.push("Review acknowledgement is recorded automatically after code-reviewer, spec-reviewer, and doc-updater complete for this PR HEAD.");
+  commands.push(`Review acknowledgement is recorded automatically after required lanes complete for this PR HEAD: ${tasks.join(", ")}.`);
   return commands.join("\n");
 }
 
@@ -190,8 +225,9 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_result", (event, ctx) => {
     const toolName = String(event?.toolName ?? "").toLowerCase();
     const command = commandText(event);
-    if (toolName !== "bash" && !toolName.startsWith("context_mode_ctx_execute")) return;
-    if (!isGitPush(command) && !isPrCreate(command)) return;
+    const isShellSurface = toolName === "bash" || toolName.includes("ctx_execute") || toolName.includes("ctx_batch_execute");
+    if (!isShellSurface) return;
+    if (!isPrBoundaryCommand(command)) return;
 
     const repo = findGitRoot(cwdFromCommand(command) ?? ctx.sessionManager.getCwd()) ?? activeRepoFallback();
     if (!repo || !isSddProject(repo)) return;
@@ -202,10 +238,14 @@ export default function (pi: ExtensionAPI) {
     if (acked(repo, pr.headRefOid)) return;
 
     resetBlockCount(repo);
-    const lanes = requiredReviewLanes(repo);
+    const lanes = requiredReviewLanes(repo, pr.headRefOid);
+    if (lanes.length === 0) {
+      writeFileSync(ackPath(repo), `${pr.headRefOid}\n`, "utf8");
+      return;
+    }
     const message = enforcementMessage(repo, pr, lanes);
     const directive = `${message}\n\n${subagentDirective(repo, pr, lanes)}`;
-    pending = { repo, head: pr.headRefOid, message: directive, completed: new Set(), docPromptSent: false };
+    pending = { repo, head: pr.headRefOid, message: directive, lanes, completed: new Set(), docPromptSent: false };
     savePending(pending);
     ctx.ui.notify(message, "warning");
     pi.sendUserMessage(directive, { deliverAs: "followUp" });
@@ -226,7 +266,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     pending.completed.add(type);
-    if (type === "spec-reviewer" && !pending.docPromptSent) {
+    if (type === "spec-reviewer" && pending.lanes.includes("doc-updater") && !pending.docPromptSent) {
       pending.docPromptSent = true;
       const base = `Review PR #${current.number ?? "?"} for ${basename(pending.repo)} at head ${pending.head}. Scope is the current diff against ${current.baseRefName}. Report findings only; do not modify files. Run after spec-reviewer so documentation sees final spec changes.`;
       savePending(pending);
@@ -234,9 +274,8 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     savePending(pending);
-    if (["code-reviewer", "spec-reviewer", "doc-updater"].every((lane) => pending?.completed.has(lane))) {
-      writeFileSync(ackPath(pending.repo), `${pending.head}
-`, "utf8");
+    if (pending.lanes.every((lane) => pending?.completed.has(lane))) {
+      writeFileSync(ackPath(pending.repo), `${pending.head}\n`, "utf8");
       resetBlockCount(pending.repo);
       clearPending(pending.repo);
       ctx.ui.notify(`PR-boundary review acknowledged for ${basename(pending.repo)} at ${pending.head.slice(0, 12)}.`, "info");

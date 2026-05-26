@@ -180,6 +180,15 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(codeReviewer?.content).toContain('skills: true');
     expect(codeReviewer?.content).toContain('inherit_context: true');
     expect(codeReviewer?.content).toContain('run_in_background: false');
+
+    const reviewEnforcement = extensions.find((d) => d.key === '.pi/agent/extensions/review-enforcement.ts');
+    expect(reviewEnforcement?.content).toContain('function isPrBoundaryCommand');
+    expect(reviewEnforcement?.content).toContain('gh\\s+pr\\s+(create|merge)');
+    expect(reviewEnforcement?.content).toContain('toolName.includes("ctx_execute")');
+    expect(reviewEnforcement?.content).toContain('function requiredReviewLanes');
+    expect(reviewEnforcement?.content).toContain('git", ["diff", "-z", "--name-only", "--no-renames"');
+    expect(reviewEnforcement?.content).toContain('sdd-review-pending.json');
+    expect(reviewEnforcement?.content).toContain('subagents:completed');
   });
 
   it('Pi native runtime assets include MCP and npm package config', () => {
