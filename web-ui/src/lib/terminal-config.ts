@@ -9,6 +9,7 @@ import {
 
   mdiRobotIndustrial,
   mdiGithub,
+  mdiPi,
 } from '@mdi/js';
 
 // Tab configuration: generic defaults, overridden by live process detection
@@ -39,6 +40,7 @@ const PROCESS_ICON_MAP: Record<string, string> = {
   'htop': mdiChartLine,
   'yazi': mdiFolderOutline,
   'lazygit': mdiSourceBranch,
+  'pi': mdiPi,
   'bash': mdiConsole,
   'sh': mdiConsole,
   'zsh': mdiConsole,
@@ -56,5 +58,6 @@ export const AGENT_ICON_MAP: Record<string, string> = {
   'gemini': mdiDiamond,
   'opencode': mdiRobotIndustrial,
   'copilot': mdiGithub,
+  'pi': mdiPi,
   'bash': mdiConsole,
 };

@@ -6,6 +6,7 @@ import {
   mdiConsole,
   mdiRobotIndustrial,
   mdiGithub,
+  mdiPi,
 } from '@mdi/js';
 import Icon from './Icon';
 import type { AgentType, TabConfig } from '../types';
@@ -33,6 +34,7 @@ const AGENT_OPTIONS: AgentOption[] = [
   { type: 'gemini', label: 'Gemini', icon: mdiDiamond, description: 'Google Gemini CLI' },
   { type: 'copilot', label: 'GitHub Copilot', icon: mdiGithub, description: "GitHub's AI coding agent", badge: 'beta' },
   { type: 'opencode', label: 'OpenCode', icon: mdiRobotIndustrial, description: 'Multi-model agent', badge: 'beta' },
+  { type: 'pi', label: 'Pi', icon: mdiPi, description: 'Minimal, extensible coding harness', badge: 'beta' },
   { type: 'bash', label: 'Bash', icon: mdiConsole, description: 'Plain terminal session' },
 ];
 

@@ -6,6 +6,7 @@ const AGENT_LABELS: Record<AgentType, string> = {
   'copilot': 'GitHub Copilot',
   'gemini': 'Gemini',
   'opencode': 'OpenCode',
+  'pi': 'Pi',
   'bash': 'Bash',
 };
 
