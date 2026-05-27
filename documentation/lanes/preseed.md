@@ -198,7 +198,7 @@ All preseed content is deployed via the manifest pipeline:
    [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)
 7. Bisync pulls from R2 to container config directories
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
-   `~/.config/opencode/`, `~/.pi/agent/`, `.agents/`)
+   `~/.config/opencode/`, `~/.pi/agent/`)
 
 **Manifest structure (131 total source entries: 120 Claude + 11 Pi-native)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
@@ -274,7 +274,7 @@ files exist on disk.
 | Gemini | `~/.gemini/GEMINI.md` (single file) | `~/.gemini/skills/<name>/SKILL.md` | `~/.gemini/agents/*.md` |
 | Copilot | `~/.copilot/copilot-instructions.md` (single file) | N/A | `~/.copilot/agents/<name>.agent.md` |
 | OpenCode | `~/.config/opencode/AGENTS.md` (single file) | `~/.config/opencode/skills/<name>/SKILL.md` | `~/.config/opencode/agents/*.md` |
-| Pi | `~/.pi/agent/AGENTS.md` (single file) | `.agents/skills/<name>/SKILL.md` | `.pi/agent/agents/*.md` |
+| Pi | `~/.pi/agent/AGENTS.md` (single file) | `~/.pi/agent/skills/<name>/SKILL.md` | `~/.pi/agent/agents/*.md` |
 
 **Tool name mapping** (adapted in agent definition frontmatter):
 
@@ -325,7 +325,7 @@ extensions (e.g., `.agent.md` for Copilot agents). Pi additionally
 loads `preseed/agents/pi/manifest.json`, emits native runtime files
 to `.pi/agent/extensions/`, `.pi/agent/scripts/`, `.pi/agent/mcp.json`,
 `.pi/agent/npm/package.json`, `.pi/agent/npm/package-lock.json`, and
-native Pi skill overrides under `.agents/skills/`, and adapts Claude agent definitions into
+native Pi skill overrides under `~/.pi/agent/skills/`, and adapts Claude agent definitions into
 `.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`.
 
 **Per-mode counts**: Default mode seeds 52 files, advanced mode

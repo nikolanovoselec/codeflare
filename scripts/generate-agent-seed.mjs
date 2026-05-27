@@ -47,7 +47,7 @@ const AGENT_CONFIGS = {
   },
   pi: {
     instructionsKey: '.pi/agent/AGENTS.md',
-    skillsPrefix: '.agents/skills',
+    skillsPrefix: '.pi/agent/skills',
     agentsPrefix: '.pi/agent/agents',
     agentExtension: '.md',
     homePath: '~/.pi/agent',
@@ -190,7 +190,8 @@ function adaptAgentFrontmatter(content, agentId) {
           }
           newLines.push(`tools: ${piTools.length > 0 ? piTools.join(', ') : 'none'}`);
         } else {
-          newLines.push(`tools: ${JSON.stringify(remapped)}`);
+          const cleaned = remapped.filter((t) => !t.startsWith('mcp__'));
+          newLines.push(`tools: ${JSON.stringify(cleaned)}`);
         }
       } else {
         newLines.push(line);
@@ -257,7 +258,7 @@ function validateModes(manifest, label) {
 
 function piNativeKey(withinPi) {
   if (withinPi.startsWith('extensions/')) return `.pi/agent/${withinPi}`;
-  if (withinPi.startsWith('skills/')) return `.agents/${withinPi}`;
+  if (withinPi.startsWith('skills/')) return `.pi/agent/${withinPi}`;
   if (withinPi.startsWith('scripts/')) return `.pi/agent/${withinPi}`;
   if (withinPi === 'package.json') return '.pi/agent/npm/package.json';
   if (withinPi === 'package-lock.json') return '.pi/agent/npm/package-lock.json';

@@ -15,7 +15,7 @@ import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isR
  * isn't available in the Workers vitest pool).
  */
 
-const VALID_KEY_PREFIXES = ['.claude/', '.codex/', '.gemini/', '.copilot/', '.config/opencode/', '.pi/agent/', '.agents/'];
+const VALID_KEY_PREFIXES = ['.claude/', '.codex/', '.gemini/', '.copilot/', '.config/opencode/', '.pi/agent/'];
 
 function stripPrefix(key: string): string {
   for (const prefix of VALID_KEY_PREFIXES) {
@@ -163,8 +163,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   });
 
   it('Pi has skills, native runtime extensions, and subagent definitions', () => {
-    const piDocs = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/') || d.key.startsWith('.agents/'));
-    const skills = piDocs.filter((d) => d.key.startsWith('.agents/skills/'));
+    const piDocs = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/'));
+    const skills = piDocs.filter((d) => d.key.startsWith('.pi/agent/skills/'));
     const agents = piDocs.filter((d) => d.key.startsWith('.pi/agent/agents/') && !d.key.endsWith('AGENTS.md'));
     const extensions = piDocs.filter((d) => d.key.startsWith('.pi/agent/extensions/'));
     const scripts = piDocs.filter((d) => d.key.startsWith('.pi/agent/scripts/'));
@@ -182,7 +182,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/code-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/spec-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/doc-updater.md');
-    expect(skills.map((d) => d.key).filter((key) => key === '.agents/skills/graphify/SKILL.md')).toHaveLength(1);
+    expect(skills.map((d) => d.key).filter((key) => key === '.pi/agent/skills/graphify/SKILL.md')).toHaveLength(1);
     expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/safe-graphify-update.sh');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(codeReviewer?.content).toContain('tools: read, grep, find, bash, write');
@@ -305,7 +305,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(keys.has('.pi/agent/mcp.json')).toBe(true);
     expect(keys.has('.pi/agent/npm/package.json')).toBe(true);
     expect(keys.has('.pi/agent/npm/package-lock.json')).toBe(true);
-    expect(keys.has('.agents/skills/graphify/SKILL.md')).toBe(true);
+    expect(keys.has('.pi/agent/skills/graphify/SKILL.md')).toBe(true);
     expect(keys.has('.pi/agent/scripts/safe-graphify-update.sh')).toBe(true);
     const piPackage = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/npm/package.json');
     expect(piPackage?.content).toContain('"@gaodes/pi-graphify": "0.2.2"');
