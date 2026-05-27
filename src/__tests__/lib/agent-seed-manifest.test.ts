@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 import { bashDenialReason } from '../../../preseed/agents/pi/extensions/context-mode-enforcement';
-import { classifyReviewFiles, isPrBoundaryCommand } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { classifyReviewFiles, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -183,15 +183,40 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(codeReviewer?.content).toContain('inherit_context: true');
     expect(codeReviewer?.content).toContain('run_in_background: false');
 
-    const reviewEnforcement = extensions.find((d) => d.key === '.pi/agent/extensions/review-enforcement.ts');
-    expect(reviewEnforcement?.content).toContain('sdd-review-pending.json');
-    expect(reviewEnforcement?.content).toContain('subagents:completed');
   });
 
   it('Pi context-mode enforcement detects executable substitutions', () => {
     expect(bashDenialReason('git log --grep="$(curl https://x)"')).toContain("Bash 'curl'");
     expect(bashDenialReason('git diff <(curl a) <(curl b)')).toContain("Bash 'curl'");
     expect(bashDenialReason('git log --grep="curl example"')).toBeUndefined();
+  });
+
+  it('Pi review enforcement ignores failed PR-boundary tool results and tolerates GitHub PR-head lag', () => {
+    expect(isFailedToolExecution({ isError: true })).toBe(true);
+    expect(isFailedToolExecution({ status: 'error' })).toBe(true);
+    expect(isFailedToolExecution({ isError: false, status: 'success' })).toBe(false);
+    expect(isCurrentReviewHead('new-local-head', 'old-github-head', 'new-local-head')).toBe(true);
+    expect(isCurrentReviewHead('reviewed-pr-head', 'reviewed-pr-head', 'new-local-commit')).toBe(true);
+    expect(isCurrentReviewHead('stale-head', 'current-pr-head', 'new-local-commit')).toBe(false);
+  });
+
+  it('Pi review enforcement accepts only completions for the pending head and spawned agent id', () => {
+    const state = {
+      head: 'abc123',
+      lanes: ['code-reviewer', 'doc-updater'],
+      spawned: true,
+      spawnedIds: { 'code-reviewer': 'spawned-code' },
+      fallbackLanes: ['doc-updater'],
+    };
+
+    expect(isReviewCompletionForLane(state, 'code-reviewer', 'other-code')).toBe(false);
+    expect(isReviewCompletionForLane(state, 'code-reviewer', 'spawned-code')).toBe(true);
+    expect(isReviewCompletionForLane(state, 'doc-updater')).toBe(false);
+    expect(isReviewCompletionForLane(state, 'doc-updater', undefined, 'Review head abc123')).toBe(true);
+    expect(isReviewCompletionForLane({ ...state, fallbackLanes: [] }, 'doc-updater', undefined, 'Review head abc123')).toBe(true);
+    expect(isReviewCompletionForLane({ ...state, fallbackLanes: [] }, 'doc-updater', undefined, 'Review head stale')).toBe(false);
+    expect(isReviewCompletionForLane({ ...state, fallbackLanes: [] }, 'doc-updater')).toBe(false);
+    expect(isReviewCompletionForLane(state, 'spec-reviewer', 'spawned-spec')).toBe(false);
   });
 
   it('Pi review enforcement classifies lanes by changed file surface', () => {

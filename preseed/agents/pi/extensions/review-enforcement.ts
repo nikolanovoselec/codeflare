@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { ALL_REVIEW_LANES, classifyReviewFiles, isPrBoundaryCommand } from "./review-helpers";
+import { ALL_REVIEW_LANES, classifyReviewFiles, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from "./review-helpers";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
@@ -33,6 +33,8 @@ type PendingReview = {
   completed: Set<string>;
   docPromptSent: boolean;
   spawned: boolean;
+  spawnedIds: Record<string, string>;
+  fallbackLanes: Set<string>;
 };
 
 function shell(command: string, cwd: string): string {
@@ -147,16 +149,16 @@ function consumeBypass(): boolean {
 
 function loadPending(repo: string): PendingReview | undefined {
   try {
-    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean };
+    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean; spawnedIds?: Record<string, string>; fallbackLanes?: string[] };
     if (!state.head || !state.baseRefName || !Array.isArray(state.lanes)) return undefined;
-    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, lanes: state.lanes, completed: new Set(state.completed ?? []), docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned) };
+    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, lanes: state.lanes, completed: new Set(state.completed ?? []), docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds ?? {}, fallbackLanes: new Set(state.fallbackLanes ?? []) };
   } catch {
     return undefined;
   }
 }
 
 function savePending(pending: PendingReview): void {
-  writeFileSync(pendingPath(pending.repo), JSON.stringify({ prNumber: pending.prNumber, baseRefName: pending.baseRefName, head: pending.head, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent, spawned: pending.spawned }) + "\n", "utf8");
+  writeFileSync(pendingPath(pending.repo), JSON.stringify({ prNumber: pending.prNumber, baseRefName: pending.baseRefName, head: pending.head, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent, spawned: pending.spawned, spawnedIds: pending.spawnedIds, fallbackLanes: [...pending.fallbackLanes] }) + "\n", "utf8");
 }
 
 function isAncestor(repo: string, ancestor: string, current: string): boolean {
@@ -194,31 +196,38 @@ function mergeLaneState(repo: string, currentHead: string, previous?: PendingRev
 }
 
 function agentCall(type: string, prompt: string, description: string): string {
-  return `Agent({ subagent_type: ${JSON.stringify(type)}, prompt: ${JSON.stringify(prompt)}, description: ${JSON.stringify(description)}, run_in_background: true })`;
+  return `Agent({ subagent_type: ${JSON.stringify(type)}, prompt: ${JSON.stringify(prompt)}, description: ${JSON.stringify(description)}, run_in_background: false })`;
 }
 
 function subagentsService(): any | undefined {
   return (globalThis as Record<symbol, unknown>)[Symbol.for("@gotgenes/pi-subagents:service")];
 }
 
-async function spawnLane(type: string, prompt: string, description: string): Promise<boolean> {
+async function spawnLane(type: string, prompt: string, description: string): Promise<string | undefined> {
   const service = subagentsService();
-  if (!service?.spawn) return false;
-  service.spawn(type, prompt, { description, inheritContext: false });
-  return true;
+  if (!service?.spawn) return undefined;
+  try {
+    const id = service.spawn(type, prompt, { description, inheritContext: false });
+    return typeof id === "string" ? id : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function spawnInitialLanes(pending: PendingReview, pr: PrState): Promise<boolean> {
   const base = reviewPrompt(pending.repo, pr, pending.head);
   let spawned = false;
   if (pending.lanes.includes("code-reviewer")) {
-    spawned = await spawnLane("code-reviewer", base, "Review code changes") || spawned;
+    const id = await spawnLane("code-reviewer", base, "Review code changes");
+    if (id) { pending.spawnedIds["code-reviewer"] = id; spawned = true; }
   }
   if (pending.lanes.includes("spec-reviewer")) {
-    spawned = await spawnLane("spec-reviewer", base, "Review spec changes") || spawned;
+    const id = await spawnLane("spec-reviewer", base, "Review spec changes");
+    if (id) { pending.spawnedIds["spec-reviewer"] = id; spawned = true; }
   }
   if (pending.lanes.includes("doc-updater") && !pending.lanes.includes("spec-reviewer")) {
-    spawned = await spawnLane("doc-updater", base, "Review documentation changes") || spawned;
+    const id = await spawnLane("doc-updater", base, "Review documentation changes");
+    if (id) { pending.spawnedIds["doc-updater"] = id; spawned = true; }
   }
   return spawned;
 }
@@ -243,8 +252,7 @@ function docUpdaterPrompt(pending: PendingReview): string {
 function isCurrentPending(pending: PendingReview): boolean {
   const current = prState(pending.repo);
   if (!isEnforcedPr(current)) return false;
-  const effectiveHead = localHead(pending.repo) ?? current.headRefOid;
-  return effectiveHead === pending.head;
+  return isCurrentReviewHead(pending.head, current.headRefOid, localHead(pending.repo));
 }
 
 export default function (pi: ExtensionAPI) {
@@ -257,9 +265,10 @@ export default function (pi: ExtensionAPI) {
     return pending;
   }
 
-  async function markCompleted(type: string, ctx: any): Promise<void> {
+  async function markCompleted(type: string, ctx: any, completionId?: string, prompt?: string): Promise<void> {
     const state = hydratePending(ctx);
     if (!state || !state.lanes.includes(type)) return;
+    if (!isReviewCompletionForLane({ ...state, fallbackLanes: [...state.fallbackLanes] }, type, completionId, prompt)) return;
     if (!isCurrentPending(state)) {
       clearPending(state.repo);
       pending = undefined;
@@ -269,8 +278,17 @@ export default function (pi: ExtensionAPI) {
     if (type === "spec-reviewer" && state.lanes.includes("doc-updater") && !state.docPromptSent) {
       state.docPromptSent = true;
       savePending(state);
-      const spawned = await spawnLane("doc-updater", docUpdaterPrompt(state), "Review documentation changes");
-      if (!spawned) pi.sendUserMessage(agentCall("doc-updater", docUpdaterPrompt(state), "Review documentation changes"), { deliverAs: "followUp" });
+      const docPrompt = docUpdaterPrompt(state);
+      const spawnedId = await spawnLane("doc-updater", docPrompt, "Review documentation changes");
+      if (spawnedId) {
+        state.spawnedIds["doc-updater"] = spawnedId;
+        state.spawned = true;
+        savePending(state);
+      } else {
+        state.fallbackLanes.add("doc-updater");
+        savePending(state);
+        pi.sendUserMessage(agentCall("doc-updater", docPrompt, "Review documentation changes"), { deliverAs: "followUp" });
+      }
       return;
     }
     savePending(state);
@@ -306,10 +324,16 @@ export default function (pi: ExtensionAPI) {
 
   const onToolEnd = async (event: any, ctx: any) => {
     const toolName = String(event?.toolName ?? "").toLowerCase();
+    if (isFailedToolExecution(event)) return;
+
     if (toolName === "agent") {
       const input = event?.input ?? event?.params ?? event?.args ?? {};
       const type = String(input.subagent_type ?? input.subagentType ?? "");
-      if (type) await markCompleted(type, ctx);
+      const prompt = String(input.prompt ?? "");
+      const state = hydratePending(ctx);
+      if (type && state?.fallbackLanes.has(type) && input.run_in_background !== true) {
+        await markCompleted(type, ctx, undefined, prompt);
+      }
       return;
     }
 
@@ -338,12 +362,17 @@ export default function (pi: ExtensionAPI) {
     }
 
     resetBlockCount(repo);
-    pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false };
-    const spawned = await spawnInitialLanes(pending, effectivePr);
-    pending.spawned = spawned;
+    pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set() };
+    await spawnInitialLanes(pending, effectivePr);
+    const initialLanes = pending.lanes.filter((lane) => lane !== "doc-updater" || !pending.lanes.includes("spec-reviewer"));
+    pending.spawned = initialLanes.length > 0 && initialLanes.every((lane) => Boolean(pending.spawnedIds[lane]));
     savePending(pending);
     ctx.ui.notify(`PR-boundary review required for ${basename(repo)} at ${head.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
-    if (!spawned) {
+    if (!pending.spawned) {
+      for (const lane of initialLanes) {
+        if (!pending.spawnedIds[lane]) pending.fallbackLanes.add(lane);
+      }
+      savePending(pending);
       pi.sendUserMessage(directiveFor(repo, effectivePr, review.lanes), { deliverAs: "followUp" });
     }
   };
@@ -353,11 +382,27 @@ export default function (pi: ExtensionAPI) {
 
   const onSubagentCompleted = async (event: any, ctx: any) => {
     const type = String(event?.type ?? "");
-    if (type) await markCompleted(type, ctx);
+    if (type) await markCompleted(type, ctx, typeof event?.id === "string" ? event.id : undefined);
   };
 
   pi.on("subagents:completed", onSubagentCompleted);
   (pi as any).events?.on?.("subagents:completed", (event: any) => onSubagentCompleted(event, { sessionManager: { getCwd: () => process.cwd() }, ui: { notify: () => undefined } }));
+
+  const onSubagentFailed = async (event: any, ctx: any) => {
+    const state = hydratePending(ctx);
+    if (!state || !isCurrentPending(state)) return;
+    const id = typeof event?.id === "string" ? event.id : undefined;
+    const lane = Object.entries(state.spawnedIds).find(([, spawnedId]) => spawnedId === id)?.[0];
+    if (!lane) return;
+    delete state.spawnedIds[lane];
+    state.fallbackLanes.add(lane);
+    state.spawned = Object.keys(state.spawnedIds).length > 0;
+    savePending(state);
+    ctx.ui.notify(`PR-boundary ${lane} failed for ${basename(state.repo)} at ${state.head.slice(0, 12)}; review remains pending.`, "warning");
+  };
+
+  pi.on("subagents:failed", onSubagentFailed);
+  (pi as any).events?.on?.("subagents:failed", (event: any) => onSubagentFailed(event, { sessionManager: { getCwd: () => process.cwd() }, ui: { notify: () => undefined } }));
 
   pi.on("agent_end", (_event, ctx) => {
     const state = hydratePending(ctx);
@@ -373,7 +418,11 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     const currentState = loadPending(state.repo) ?? state;
-    if (currentState.spawned) {
+    const hasUnstartedLane = currentState.lanes.some((lane) => {
+      if (currentState.completed.has(lane) || currentState.spawnedIds[lane]) return false;
+      return !(lane === "doc-updater" && currentState.lanes.includes("spec-reviewer") && !currentState.completed.has("spec-reviewer"));
+    });
+    if (!hasUnstartedLane && Object.keys(currentState.spawnedIds).length > 0) {
       return;
     }
     const service = subagentsService();

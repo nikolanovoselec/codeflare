@@ -296,8 +296,8 @@ files exist on disk.
 | Gemini | 58 |
 | Copilot | 13 |
 | OpenCode | 58 |
-| Pi | 64 |
-| **Total** | **360** |
+| Pi | 65 |
+| **Total** | **361** |
 
 **Excluded from non-CC transformed assets**: hooks (CC hook system),
 commands (CC slash commands), plugins (CC plugin system, including
@@ -320,12 +320,12 @@ remaps tool names in agent definition frontmatter, (3) removes
 references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents). Pi additionally
 loads `preseed/agents/pi/manifest.json`, emits native runtime files
-to `.pi/agent/extensions/`, `.pi/agent/mcp.json`, and
-`.pi/agent/npm/package.json`, and adapts Claude agent definitions into
+to `.pi/agent/extensions/`, `.pi/agent/mcp.json`,
+`.pi/agent/npm/package.json`, and `.pi/agent/npm/package-lock.json`, and adapts Claude agent definitions into
 `.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`.
 
-**Per-mode counts**: Default mode seeds 49 files, advanced mode
-seeds 355 files. Total array size is 360 (includes variant-per-mode
+**Per-mode counts**: Default mode seeds 50 files, advanced mode
+seeds 356 files. Total array size is 361 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the
@@ -535,18 +535,19 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 - **Stop hook spawns all three review agents even on a doc-only push (partially-deployed install)**: `enforce-review-spawn.sh` and `git-push-review-reminder.sh` both source `scripts/lib/lane-classifier.sh` (path is relative to the hooks plugin root; in source it lives at `preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh`) to determine which lanes a diff requires. If the helper is missing or fails to source, both hooks fail-closed to the legacy all-three-lanes posture (`code-reviewer spec-reviewer doc-updater`) rather than skipping enforcement, so a partially-synced plugin set never disables review. To diagnose, check `ls ~/.claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh`; if absent, re-run `entrypoint.sh` or trigger a full R2 sync to restore the complete plugin payload.
 
-### Resetting the Review-Spawn Checkpoint
+### Resetting Review-Spawn Checkpoints
 
 The `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. It triggers at PR-boundary events: `gh pr create` runs in the session, OR a push lands on a branch that already has an open PR (the hook calls `gh pr view` to check). Enforcement only fires when the open PR targets `main` or `master`. PRs into intermediate branches (`develop`, `staging`) are silently deferred until that branch's own PR-to-`main` opens.
 
-The hook tracks the most recently acknowledged PR HEAD SHA in `.git/sdd-last-ack-pr-head`. Acknowledgment advances only when the full pipeline (code-reviewer + spec-reviewer + doc-updater) is observed for the current PR HEAD.
+The Claude hook and Pi native enforcement both track the most recently acknowledged PR HEAD SHA in `.git/sdd-last-ack-pr-head`. Pi also persists in-flight lane state in `.git/sdd-review-pending.json`. Acknowledgment advances only when the full required pipeline (code-reviewer + spec-reviewer + doc-updater, or the reduced lane set for doc/spec-only changes) is observed for the current PR HEAD.
 
 Three USER-ONLY bypass methods exist (the agent must never invoke these autonomously): the user runs `touch /tmp/review-bypass` (one-shot sentinel; per-session, not committed, auto-deleted on use), the user says "skip review" in a message, or the user waits for the 3-strike circuit breaker to clear after 3 blocks on the same un-acknowledged PR HEAD.
 
-If enforcement fires spuriously after a legitimate pipeline completed, reset both checkpoints:
+If enforcement fires spuriously after a legitimate pipeline completed and local `HEAD` is the current PR head, preserve the acknowledgement and clear only transient runtime state:
 
 ```bash
-rm .git/sdd-last-ack-pr-head .git/sdd-review-block-count
+git rev-parse HEAD > .git/sdd-last-ack-pr-head
+rm -f .git/sdd-review-block-count .git/sdd-review-pending.json
 ```
 
 The legacy v4 timestamp file `.git/sdd-last-ack-push` (if present from a prior install) is auto-deleted on the first v5 invocation, so no manual cleanup is needed for the v4 to v5 migration path.

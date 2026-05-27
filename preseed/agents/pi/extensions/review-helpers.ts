@@ -4,6 +4,31 @@ export function isPrBoundaryCommand(command: string): boolean {
   return /(^|[;&|]\s*)git\s+push\b/.test(command) || /(^|[;&|]\s*)gh\s+pr\s+(create|merge)\b/.test(command);
 }
 
+export function isFailedToolExecution(event: any): boolean {
+  return event?.isError === true || event?.error === true || String(event?.status ?? "").toLowerCase() === "error";
+}
+
+export function isCurrentReviewHead(pendingHead: string, prHead: string | undefined, localHead: string | undefined): boolean {
+  return prHead === pendingHead || localHead === pendingHead;
+}
+
+export type ReviewCompletionState = {
+  head: string;
+  lanes: string[];
+  spawned: boolean;
+  spawnedIds?: Record<string, string>;
+  fallbackLanes?: string[];
+};
+
+export function isReviewCompletionForLane(state: ReviewCompletionState, type: string, completionId?: string, prompt?: string): boolean {
+  if (!state.lanes.includes(type)) return false;
+  const spawnedId = state.spawnedIds?.[type];
+  if (spawnedId) return completionId === spawnedId;
+  if (state.fallbackLanes?.includes(type)) return prompt !== undefined && prompt.includes(state.head);
+  if (state.spawned) return prompt !== undefined && prompt.includes(state.head);
+  return true;
+}
+
 export function classifyReviewFiles(files: string[] | undefined): string[] | undefined {
   if (files === undefined) return ALL_REVIEW_LANES;
   if (files.length === 0) return [];
