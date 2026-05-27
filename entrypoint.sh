@@ -324,6 +324,13 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .claude/backups/**"          # settings backups (settings.json itself is synced)
     --filter "- .claude/tasks/**"            # task state (ephemeral per session)
     --filter "- .claude/sessions/**"         # session metadata
+    --filter "- .claude/daemon/**"           # daemon lock/log/status (ephemeral)
+    --filter "- .claude/daemon.*"            # daemon state files at root
+    --filter "- .claude/paste-cache/**"      # ephemeral paste buffer
+    --filter "- .claude/jobs/**"             # ephemeral job state
+    --filter "- .claude/*.bak.*"             # backup tarballs (agents/commands/plugins/rules/skills)
+    --filter "- .claude/settings.json.bak*"  # settings backup files
+    --filter "- .claude/skills.bak.*/**"     # stale skills backup directories
     --filter "- .claude/history.jsonl"       # command history (nice-to-have, not critical)
 
     # Codex — ephemeral session data and caches
@@ -339,6 +346,13 @@ RCLONE_FILTERS_COMMON=(
     # (ephemeral by Cloudflare Containers contract; see REQ-MEM-002 AC6).
     # /tmp is not synced in the first place, so no filter needed; the
     # ~/.memory/ tree is no longer written to by the capture hook.
+
+    # Pi — subagent task logs within sessions (equivalent to .claude/projects/**/subagents/**)
+    # Main session JSONL transcripts ARE synced for --resume; only task subdirs are excluded.
+    --filter "- .pi/agent/sessions/**/tasks/**"
+
+    # Pi — context-mode FTS5 store (equivalent to .claude/context-mode/**)
+    --filter "- .pi/context-mode/**"
 
     # Perl CPAN cache — created by Perl module installs during build, regenerated
     --filter "- .cpan/**"
@@ -651,6 +665,40 @@ cleanup_old_transcripts() {
     fi
 }
 
+cleanup_old_pi_transcripts() {
+    local SESSIONS_DIR="$USER_HOME/.pi/agent/sessions"
+    local KEEP_COUNT=5
+
+    [ -d "$SESSIONS_DIR" ] || return 0
+
+    local ALL_TRANSCRIPTS
+    ALL_TRANSCRIPTS=$(find "$SESSIONS_DIR" -maxdepth 2 -name "*.jsonl" -not -path "*/tasks/*" 2>/dev/null) || true
+    local COUNT
+    COUNT=$(echo "$ALL_TRANSCRIPTS" | grep -c . 2>/dev/null) || COUNT=0
+
+    if [ "$COUNT" -le "$KEEP_COUNT" ]; then
+        return 0
+    fi
+
+    local TO_DELETE
+    TO_DELETE=$(echo "$ALL_TRANSCRIPTS" | xargs ls -t 2>/dev/null | tail -n +$((KEEP_COUNT + 1))) || true
+
+    [ -z "$TO_DELETE" ] && return 0
+
+    local DELETED=0
+    for transcript in $TO_DELETE; do
+        [ -f "$transcript" ] || continue
+        local TASK_DIR="${transcript%.jsonl}"
+        [ -d "$TASK_DIR/tasks" ] && rm -rf "$TASK_DIR/tasks"
+        rm -f "$transcript"
+        DELETED=$((DELETED + 1))
+    done
+
+    if [ "$DELETED" -gt 0 ]; then
+        echo "[sync-daemon] Cleaned up $DELETED old Pi session transcript(s), kept newest $KEEP_COUNT" | tee -a /tmp/sync.log
+    fi
+}
+
 # ============================================================================
 # Background sync daemon - bisync every 60 seconds, SIGUSR1-interruptible
 #
@@ -725,6 +773,7 @@ start_sync_daemon() {
         # Cleanup old session transcripts before sync (sequential — no race with bisync).
         # Run in subshell to prevent set -e from killing the daemon on cleanup failure.
         (cleanup_old_transcripts) || true
+        (cleanup_old_pi_transcripts) || true
 
         echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Running periodic bisync..." | tee -a /tmp/sync.log
 
