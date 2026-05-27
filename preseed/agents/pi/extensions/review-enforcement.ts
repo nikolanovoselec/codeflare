@@ -270,10 +270,11 @@ export default function (pi: ExtensionAPI) {
 
   function withStartArgs(event: any): any {
     const id = toolEventId(event);
-    if (!id || event?.args || event?.input || event?.params) return event;
-    const args = toolStartArgs.get(id);
-    toolStartArgs.delete(id);
-    return args ? { ...event, args } : event;
+    const cached = id ? toolStartArgs.get(id) : undefined;
+    if (id) toolStartArgs.delete(id);
+    if (commandText(event) || !cached) return event;
+    const current = event?.args ?? event?.input ?? event?.params ?? {};
+    return { ...event, args: { ...cached, ...current } };
   }
 
   function hydratePending(ctx: any): PendingReview | undefined {

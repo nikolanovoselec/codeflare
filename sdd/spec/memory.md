@@ -76,6 +76,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh -->
+<!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture-hook describe → tilde expansion + .vars schema + first-message graphify directive + timezone fallback chain → AC1-AC4) -->
 <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh describe → happy paths UTC + Europe/Zurich + offset-shape rejection → AC5) -->
 <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh describe → Europe/Zurich + ISO_TS ending in +0000 rejected → AC6) -->

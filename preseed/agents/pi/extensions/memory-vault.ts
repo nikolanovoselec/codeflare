@@ -186,6 +186,8 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
+    if (existsSync(VAULT_VARS_FILE)) return;
+
     const newest = Math.max(...changed.map((path) => statSync(path).mtimeMs));
     writeFileSync(VAULT_VARS_FILE, JSON.stringify({
       PROMPT_FILE: VAULT_PROMPT_FILE,
