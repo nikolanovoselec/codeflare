@@ -188,11 +188,12 @@ describe('Agent Config Seed Routes', () => {
 
   it('REQ-AGENT-049 AC8: propagates advanced mode and contextModeEnabled for unlimited tier', async () => {
     mockKV = createMockKV();
-    mockKV._set('user-prefs:adv-bucket', { sessionMode: 'advanced', tier: 'unlimited' });
+    mockKV._set('user-prefs:adv-bucket', { sessionMode: 'advanced' });
     const app = createTestApp({
       routes: [{ path: '/seed', handler: seedRoutes }],
       mockKV,
       bucketName: 'adv-bucket',
+      user: { email: 'test@example.com', authenticated: true, accessTier: 'unlimited' as any },
       envOverrides: {
         CLOUDFLARE_API_TOKEN: 'test-token',
         R2_ACCESS_KEY_ID: 'test-key',
