@@ -42,12 +42,12 @@ AI CLI packages install with `@latest` -- each deploy pulls the newest versions 
 | `@openai/codex` | 0.105.0 | `codex` command |
 | `@google/gemini-cli` | 0.30.0 | `gemini` command |
 | `opencode-ai` | 1.2.15 | `opencode` command |
-| `@github/copilot` | 0.0.418 | `copilot` command |
-| `bun` | 1.3.14 (pinned) | JS/TS subprocess runtime. context-mode autodetects Bun for `ctx_execute` / `ctx_batch_execute`. |
+| `@github/copilot` | 0.0.418 | `copilot` command. Post-install: non-linux-x64 prebuilds, `mxc-bin/arm64`, bundled `ripgrep/` (system `rg` used instead), and non-linux native modules (`clipboard`, `pvrecorder`, `sharp` node_modules) stripped to save ~200MB. |
+| `bun` | 1.3.14 (pinned) | JS/TS subprocess runtime. context-mode autodetects Bun for `ctx_execute` / `ctx_batch_execute`. Post-install: `node_modules/` (258MB of non-linux platform binaries) stripped; only the linux-x64 binary in `bin/` is retained. |
 
 ### Pi Extension npm Cache
 
-Pi extensions (`@gotgenes/pi-subagents`, `@gaodes/pi-graphify`, `context-mode`) are preinstalled at Docker build time into `/opt/codeflare/pi-agent/npm/` via `npm ci --omit=dev`. On container boot, `warm_pi_npm_dependencies()` in `entrypoint.sh` copies the seed cache to `~/.pi/agent/npm/` if any of the three packages are missing (skips if already present from R2 restore). The `~/.pi/agent/npm/node_modules/` directory is excluded from R2 sync by design - without the image cache, Pi would run a ~90s npm install on every fresh container start.
+Pi extensions (`@gotgenes/pi-subagents`, `@gaodes/pi-graphify`, `context-mode`) are preinstalled at Docker build time into `/opt/codeflare/pi-agent/npm/` via `npm ci --omit=dev`. On container boot, `warm_pi_npm_dependencies()` in `entrypoint.sh` symlinks `~/.pi/agent/npm/node_modules` to the image-local cache (instant, zero-copy). The symlink is recreated on each boot since `**/node_modules/**` is excluded from R2 sync. `PI_OFFLINE=1` prevents Pi from writing to the read-only target. The runtime npm cache (`~/.npm`) is purged at boot to reclaim ~200MB of disk from prior session installs.
 
 ### V8 Compile Cache Warm-Up
 
