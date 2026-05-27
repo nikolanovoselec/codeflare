@@ -820,9 +820,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-011](#req-agent-011-manual-recreate-agent-skills-from-settings), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** [Backend route tests](../../src/__tests__/routes/session-batch-status.test.ts), [Seed hash persistence](../../src/__tests__/routes/storage-seed.test.ts), [Store upgrade flow](../../web-ui/src/__tests__/stores/session.test.ts), [Dashboard UI](../../web-ui/src/__tests__/components/Dashboard.test.tsx). ACs without automated test coverage: AC1 (hash determinism in generate-agent-seed.mjs), AC5-partial (SessionDropdown button disabled/Upgrading - untested, Dashboard button covered), AC6 (stopped card dimmed/click-disabled), AC7 (failure path - error logged + dashboard remains usable), AC8 (mode/tier propagation to reconcile). These gaps keep Status: Partial.
+**Verification:** [Backend route tests](../../src/__tests__/routes/session-batch-status.test.ts), [Seed hash persistence + AC8 mode/tier propagation](../../src/__tests__/routes/storage-seed.test.ts), [Store upgrade flow + AC7 failure path](../../web-ui/src/__tests__/stores/session.test.ts), [Dashboard UI AC5](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionDropdown AC5](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionStatCard AC6](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [AC1 hash determinism](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -1324,7 +1324,9 @@ None.
 ### REQ-AGENT-042: Graphify Hard-Block Enforcement
 
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/enforce-graphify.sh -->
+<!-- @impl: preseed/agents/pi/extensions/context-mode-enforcement.ts -->
 <!-- @test: host/__tests__/enforce-graphify.test.js (3-call threshold + bypass surfaces + sentinel resolution → AC1-AC7) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi context-mode enforcement: bashDenialReason, commandFromEvent, tool_call/tool_execution_start blocking) -->
 
 **Intent:** The graph-first soft-nudge in REQ-AGENT-024 informs but never blocks. When an agent ignores it across multiple calls, a hard-block hook denies further structural searches until a graph query is made, with explicit user-only bypass surfaces for legitimate edge cases.
 

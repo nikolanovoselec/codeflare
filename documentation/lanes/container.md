@@ -45,6 +45,10 @@ AI CLI packages install with `@latest` -- each deploy pulls the newest versions 
 | `@github/copilot` | 0.0.418 | `copilot` command |
 | `bun` | 1.3.14 (pinned) | JS/TS subprocess runtime. context-mode autodetects Bun for `ctx_execute` / `ctx_batch_execute`. |
 
+### Pi Extension npm Cache
+
+Pi extensions (`@gotgenes/pi-subagents`, `@gaodes/pi-graphify`, `context-mode`) are preinstalled at Docker build time into `/opt/codeflare/pi-agent/npm/` via `npm ci --omit=dev`. On container boot, `warm_pi_npm_dependencies()` in `entrypoint.sh` copies the seed cache to `~/.pi/agent/npm/` if any of the three packages are missing (skips if already present from R2 restore). The `~/.pi/agent/npm/node_modules/` directory is excluded from R2 sync by design - without the image cache, Pi would run a ~90s npm install on every fresh container start.
+
 ### V8 Compile Cache Warm-Up
 
 Node.js CLIs (codex, gemini, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (like `opencode`) are already natively compiled and do not need V8 cache warm-up. Claude Code ships as a native binary (v2.1.102+) and is verified at build time via `claude --version`.

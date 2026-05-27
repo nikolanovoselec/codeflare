@@ -207,7 +207,7 @@ export function bashDenialReason(command: string): string | undefined {
 
     if (first === "npm") {
       if (second === "install" || second === "i" || second === "ci") continue;
-      return `npm '${second ?? ""}' violates context-mode routing. Only npm install/i/ci is allowed in Bash; use ctx_execute for the rest.`;
+      return `npm '${second ?? ""}' is not allowed in Bash. For build/test/lint commands, push to CI (see no-local-builds rule). For other npm commands, use ctx_execute.`;
     }
 
     if (first === "pip" || first === "pip3") {

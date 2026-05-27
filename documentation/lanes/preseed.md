@@ -245,7 +245,7 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (11): package config, package lock, MCP config, six extension files, one native graphify skill override, and one Pi graphify wrapper script.
+- Pi-native runtime assets (11): package config, package lock, MCP config, six extension files, one native graphify skill override ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7), and one Pi graphify wrapper script.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
@@ -598,5 +598,7 @@ The legacy v4 timestamp file `.git/sdd-last-ack-push` (if present from a prior i
   capture hook chain
 - [Container](container.md#claude-code-integration) - Claude Code
   configuration
+- [Container](container.md#pi-extension-npm-cache) - Pi extension npm
+  warm-up
 - [Storage & Sync](storage-and-sync.md) - R2 sync internals
 - [Decisions](../decisions/README.md) - Architecture decisions

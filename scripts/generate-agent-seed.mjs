@@ -184,6 +184,10 @@ function adaptAgentFrontmatter(content, agentId) {
             'graphify_query', 'graphify_path', 'graphify_explain',
           ];
           const piTools = [...new Set(remapped.filter((t) => allowed.includes(t)))];
+          const dropped = remapped.filter((t) => !allowed.includes(t));
+          if (dropped.length > 0) {
+            console.warn(`[generate:agent-seed] Pi agent: dropped tools not in allowlist: ${dropped.join(', ')}`);
+          }
           newLines.push(`tools: ${piTools.length > 0 ? piTools.join(', ') : 'none'}`);
         } else {
           newLines.push(`tools: ${JSON.stringify(remapped)}`);

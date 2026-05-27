@@ -185,4 +185,29 @@ describe('Agent Config Seed Routes', () => {
     expect(res.status).toBe(200);
     expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:my-bucket');
   });
+
+  it('REQ-AGENT-049 AC8: propagates advanced mode and contextModeEnabled for unlimited tier', async () => {
+    mockKV = createMockKV();
+    mockKV._set('user-prefs:adv-bucket', { sessionMode: 'advanced', tier: 'unlimited' });
+    const app = createTestApp({
+      routes: [{ path: '/seed', handler: seedRoutes }],
+      mockKV,
+      bucketName: 'adv-bucket',
+      envOverrides: {
+        CLOUDFLARE_API_TOKEN: 'test-token',
+        R2_ACCESS_KEY_ID: 'test-key',
+        R2_SECRET_ACCESS_KEY: 'test-secret',
+      },
+    });
+
+    const res = await app.request('/seed/agent-configs', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(reconcileAgentConfigs).toHaveBeenCalledWith(
+      expect.any(Object),
+      'adv-bucket',
+      'https://test.r2.cloudflarestorage.com',
+      'advanced',
+      { overwrite: true, cleanup: true, contextModeEnabled: true }
+    );
+  });
 });

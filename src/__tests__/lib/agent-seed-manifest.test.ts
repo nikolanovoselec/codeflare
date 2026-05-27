@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
+import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import contextModeExtension, { bashDenialReason, commandFromEvent } from '../../../preseed/agents/pi/extensions/context-mode-enforcement';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from '../../../preseed/agents/pi/extensions/review-helpers';
@@ -497,5 +497,13 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     const script = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/scripts/safe-graphify-update.sh');
     expect(script?.content).toContain('ulimit -v');
     expect(script?.content).toContain('GRAPHIFY_SAFE_RLIMIT_KB');
+  });
+
+  it('REQ-AGENT-049 AC1: PRESEED_CONTENT_HASH is a deterministic 16-char hex string', () => {
+    expect(PRESEED_CONTENT_HASH).toMatch(/^[0-9a-f]{16}$/);
+    const { createHash } = require('node:crypto');
+    const sorted = [...AGENTS_SEEDED_CONFIGS].sort((a, b) => a.key.localeCompare(b.key));
+    const recomputed = createHash('sha256').update(JSON.stringify(sorted)).digest('hex').slice(0, 16);
+    expect(PRESEED_CONTENT_HASH).toBe(recomputed);
   });
 });

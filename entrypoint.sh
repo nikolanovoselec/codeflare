@@ -1538,6 +1538,9 @@ warm_pi_npm_dependencies() {
         missing=1
     fi
     if [ "$missing" = "1" ]; then
+        # Copies the full preseed tree; overwrites any user modifications to
+        # the three pinned packages. Acceptable because versions are pinned and
+        # user-added packages live alongside (not inside) these directories.
         echo "[entrypoint] Warming missing Pi extension npm dependencies from image cache"
         mkdir -p "$pi_npm_dir/node_modules"
         cp -a "$pi_npm_preseed/node_modules/." "$pi_npm_dir/node_modules/"

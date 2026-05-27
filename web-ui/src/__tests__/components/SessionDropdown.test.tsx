@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import SessionDropdown from '../../components/SessionDropdown';
+import { sessionStore } from '../../stores/session';
 import type { SessionWithStatus } from '../../types';
 
 // Mock child components
@@ -32,13 +33,18 @@ vi.mock('../../components/CreateSessionDialog', () => ({
   ),
 }));
 
-vi.mock('../../stores/session', () => ({
-  sessionStore: {
-    getMetricsForSession: vi.fn(() => null),
-    getInitProgressForSession: vi.fn(() => null),
-    sessions: [],
-  },
-}));
+vi.mock('../../stores/session', () => {
+  let _preseedUpgrading = false;
+  return {
+    sessionStore: {
+      getMetricsForSession: vi.fn(() => null),
+      getInitProgressForSession: vi.fn(() => null),
+      sessions: [],
+      get preseedUpgrading() { return _preseedUpgrading; },
+      _setPreseedUpgrading: (v: boolean) => { _preseedUpgrading = v; },
+    },
+  };
+});
 
 vi.mock('../../stores/terminal', () => ({
   terminalStore: {
@@ -184,6 +190,28 @@ describe('SessionDropdown', () => {
       // The dropdown should not have backdrop-filter so session cards
       // look identical to the dashboard
       expect(dropdown.className).toContain('session-dropdown--popover');
+    });
+  });
+
+  describe('REQ-AGENT-049 AC5: preseed upgrade lockdown', () => {
+    afterEach(() => {
+      (sessionStore as any)._setPreseedUpgrading(false);
+    });
+
+    it('disables New Session button and shows Upgrading... during preseed upgrade', () => {
+      (sessionStore as any)._setPreseedUpgrading(true);
+      render(() => <SessionDropdown {...defaultProps} />);
+      const btn = screen.getByTestId('session-dropdown-new');
+      expect(btn).toBeDisabled();
+      expect(btn.textContent).toContain('Upgrading...');
+    });
+
+    it('enables New Session button when preseed upgrade is not running', () => {
+      (sessionStore as any)._setPreseedUpgrading(false);
+      render(() => <SessionDropdown {...defaultProps} />);
+      const btn = screen.getByTestId('session-dropdown-new');
+      expect(btn).not.toBeDisabled();
+      expect(btn.textContent).toContain('New Session');
     });
   });
 });

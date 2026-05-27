@@ -325,6 +325,19 @@ describe('Session Store', () => {
       resolveRecreate!({ success: true, written: [], skipped: [], deleted: [], warnings: [] });
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
     });
+
+    it('REQ-AGENT-049 AC7: should clear preseedUpgrading on failure so dashboard remains usable', async () => {
+      mockRecreateAgentConfigs.mockRejectedValue(new Error('Network failure'));
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        preseedNeedsUpgrade: true,
+      });
+
+      await sessionStore.loadSessions();
+
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+    });
   });
 
   describe('createSession', () => {

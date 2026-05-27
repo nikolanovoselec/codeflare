@@ -1,22 +1,28 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import SessionStatCard from '../../components/SessionStatCard';
+import { sessionStore } from '../../stores/session';
 import type { SessionWithStatus } from '../../types';
 import { terminalStore } from '../../stores/terminal';
 
 // Mock stores
-vi.mock('../../stores/session', () => ({
-  sessionStore: {
-    getMetricsForSession: vi.fn(() => ({
-      bucketName: 'codeflare-test',
-      cpu: '15%',
-      mem: '1.2/3.0G',
-      hdd: '2.1G/10G',
-    })),
-    getInitProgressForSession: vi.fn(() => ({ progress: 50 })),
-    preferences: { sleepAfter: '30m' },
-  },
-}));
+vi.mock('../../stores/session', () => {
+  let _preseedUpgrading = false;
+  return {
+    sessionStore: {
+      getMetricsForSession: vi.fn(() => ({
+        bucketName: 'codeflare-test',
+        cpu: '15%',
+        mem: '1.2/3.0G',
+        hdd: '2.1G/10G',
+      })),
+      getInitProgressForSession: vi.fn(() => ({ progress: 50 })),
+      preferences: { sleepAfter: '30m' },
+      get preseedUpgrading() { return _preseedUpgrading; },
+      _setPreseedUpgrading: (v: boolean) => { _preseedUpgrading = v; },
+    },
+  };
+});
 
 vi.mock('../../stores/terminal', () => ({
   terminalStore: {
@@ -243,6 +249,37 @@ describe('SessionStatCard', () => {
       render(() => <SessionStatCard {...defaultProps} session={session} onSelect={onSelect} />);
       fireEvent.click(screen.getByTestId('session-stat-card-test-1-timer'));
       expect(onSelect).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('REQ-AGENT-049 AC6: stopped card dimmed during preseed upgrade', () => {
+    afterEach(() => {
+      (sessionStore as any)._setPreseedUpgrading(false);
+    });
+
+    it('applies reduced opacity and blocks clicks on stopped card during upgrade', () => {
+      (sessionStore as any)._setPreseedUpgrading(true);
+      const onSelect = vi.fn();
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'stopped' })} onSelect={onSelect} />);
+      const card = screen.getByTestId('session-stat-card-test-1');
+      expect(card.style.opacity).toBe('0.6');
+      expect(card.style.pointerEvents).toBe('none');
+      fireEvent.click(card);
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('does not dim running card during upgrade', () => {
+      (sessionStore as any)._setPreseedUpgrading(true);
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running' })} />);
+      const card = screen.getByTestId('session-stat-card-test-1');
+      expect(card.style.opacity).not.toBe('0.6');
+    });
+
+    it('does not dim stopped card when upgrade is not running', () => {
+      (sessionStore as any)._setPreseedUpgrading(false);
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'stopped' })} />);
+      const card = screen.getByTestId('session-stat-card-test-1');
+      expect(card.style.opacity).not.toBe('0.6');
     });
   });
 });

@@ -75,6 +75,14 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Note:** Package names differ between Ubuntu versions - 22.04 uses `libatk1.0-0`, 24.04 uses `libatk1.0-0t64`.
 
+### Pi Extension Packages Missing After Restart
+
+**Symptom:** A Pi package installed during a session is missing after container restart.
+
+**Cause:** `PI_OFFLINE=1` (set when Fast Start is ON, the default) prevents `pi update` from running, so packages not in the image cache are absent until Fast Start is disabled.
+
+**Fix:** Disable Fast Start in Settings, restart the session so `pi update` runs, then re-enable Fast Start.
+
 ## Common Failure Modes
 
 | Symptom | Cause | Fix |

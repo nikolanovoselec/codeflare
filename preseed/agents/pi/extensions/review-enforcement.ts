@@ -36,6 +36,7 @@ type PendingReview = {
   spawned: boolean;
   spawnedIds: Record<string, string>;
   fallbackLanes: Set<string>;
+  spawnedAt?: number;
 };
 
 function shell(command: string, cwd: string): string {
@@ -155,16 +156,16 @@ function consumeBypass(): boolean {
 
 function loadPending(repo: string): PendingReview | undefined {
   try {
-    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; reviewBase?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean; spawnedIds?: Record<string, string>; fallbackLanes?: string[] };
+    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; reviewBase?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean; spawnedIds?: Record<string, string>; fallbackLanes?: string[]; spawnedAt?: number };
     if (!state.head || !state.baseRefName || !Array.isArray(state.lanes)) return undefined;
-    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, reviewBase: state.reviewBase, lanes: state.lanes, completed: new Set(state.completed || []), docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds || {}, fallbackLanes: new Set(state.fallbackLanes || []) };
+    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, reviewBase: state.reviewBase, lanes: state.lanes, completed: new Set(state.completed || []), docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds || {}, fallbackLanes: new Set(state.fallbackLanes || []), spawnedAt: state.spawnedAt };
   } catch {
     return undefined;
   }
 }
 
 function savePending(pending: PendingReview): void {
-  writeFileSync(pendingPath(pending.repo), JSON.stringify({ prNumber: pending.prNumber, baseRefName: pending.baseRefName, head: pending.head, reviewBase: pending.reviewBase, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent, spawned: pending.spawned, spawnedIds: pending.spawnedIds, fallbackLanes: [...pending.fallbackLanes] }) + "\n", "utf8");
+  writeFileSync(pendingPath(pending.repo), JSON.stringify({ prNumber: pending.prNumber, baseRefName: pending.baseRefName, head: pending.head, reviewBase: pending.reviewBase, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent, spawned: pending.spawned, spawnedIds: pending.spawnedIds, fallbackLanes: [...pending.fallbackLanes], spawnedAt: pending.spawnedAt }) + "\n", "utf8");
 }
 
 function isAncestor(repo: string, ancestor: string, current: string): boolean {
@@ -239,6 +240,7 @@ async function spawnInitialLanes(pending: PendingReview, pr: PrState, notify?: (
     const id = await spawnLane("doc-updater", docUpdaterPrompt(pending), "Review documentation changes", notify);
     if (id) { pending.spawnedIds["doc-updater"] = id; spawned = true; }
   }
+  if (spawned) pending.spawnedAt = Date.now();
   return spawned;
 }
 
@@ -496,7 +498,9 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    if (service?.hasRunning?.()) {
+    const STALL_TIMEOUT_MS = 10 * 60 * 1000;
+    const pendingAge = Date.now() - (currentState.spawnedAt ?? Date.now());
+    if (service?.hasRunning?.() && pendingAge < STALL_TIMEOUT_MS) {
       return;
     }
 
@@ -524,14 +528,14 @@ export default function (pi: ExtensionAPI) {
       if (respawned) return;
     }
 
-    const count = incrementBlockCount(state.repo);
+    const count = incrementBlockCount(currentState.repo);
     if (count >= 3) {
-      ctx.ui.notify(`Review enforcement circuit breaker opened after ${count} reminders for ${basename(state.repo)}.`, "warning");
+      ctx.ui.notify(`Review enforcement circuit breaker opened after ${count} reminders for ${basename(currentState.repo)}.`, "warning");
       pending = undefined;
       return;
     }
     const remaining = currentState.lanes.filter((lane) => !currentState.completed.has(lane)).join(", ") || "none";
-    const reminder = `PR-boundary review still pending for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Remaining lanes: ${remaining}. Reminder ${count}/3.`;
+    const reminder = `PR-boundary review still pending for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}. Remaining lanes: ${remaining}. Reminder ${count}/3.`;
     ctx.ui.notify(reminder, "warning");
     pi.sendUserMessage(`${reminder}\nComplete the remaining subagents or use the user-only bypass ${REVIEW_BYPASS}.`, { deliverAs: "followUp" });
   });

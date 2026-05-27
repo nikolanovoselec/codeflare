@@ -58,6 +58,8 @@ For the current tree, run `tree -L 2 -I node_modules` from the repo root.
 | `/home/user` | User home directory |
 | `/home/user/workspace` | Working directory (synced to R2) |
 | `/home/user/.claude/` | Claude config and credentials |
+| `/opt/codeflare/pi-agent/npm` | Image-local Pi extension npm seed cache (read-only at runtime) |
+| `/home/user/.pi/agent/npm` | Pi extension npm runtime directory (copied from seed on startup) |
 | `/home/user/.config/rclone/rclone.conf` | rclone configuration |
 | `/tmp/sync-status.json` | Sync status (read by health server) |
 | `/tmp/sync.log` | Sync log for debugging |
