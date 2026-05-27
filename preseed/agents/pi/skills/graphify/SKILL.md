@@ -46,16 +46,21 @@ flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json
 
 ## Full semantic + AST build
 
-Use this only after the user chooses Full.
+Use this only after the user chooses Full. This is the Pi equivalent of the interactive Graphify skill flow: local AST plus Pi `Agent` subagents using the current Pi session/runtime. Do **not** pin or mention a specific model unless the user explicitly asks.
 
 1. Detect non-code files (docs, papers, images) and estimate subagent count.
-2. Run AST extraction locally in parallel with the first semantic wave.
-3. Dispatch semantic extraction with Pi `Agent` subagents in waves of at most `GRAPHIFY_SEMANTIC_MAX_PARALLEL` (default 10). Use `model: "sonnet"` when available for schema compliance. Do not use Opus.
-4. Each subagent returns JSON graph fragments: nodes, edges, and hyperedges.
-5. Cache semantic fragments, merge cached + new fragments, then merge AST + semantic output.
-6. Build `graphify-out/graph.json`, run clustering/report generation, and merge into the global graph.
+2. Run AST extraction locally; it is deterministic and free.
+3. Split uncached semantic files into chunks:
+   - 20-25 related text/doc files per chunk.
+   - one image per chunk.
+   - group files from the same directory together when possible.
+4. Dispatch semantic extraction with Pi `Agent` subagents in bounded waves of at most `GRAPHIFY_SEMANTIC_MAX_PARALLEL` (default 2 in Codeflare/Pi because the container is 1 CPU). Use `subagent_type: "general-purpose"`; do **not** use read-only agents because semantic chunks must be written to disk.
+5. Each subagent must write its JSON fragment to an absolute path such as `<repo>/graphify-out/.graphify_chunk_01.json`. Returning JSON in chat is not enough. Treat `No output` or a missing chunk file as a failed chunk.
+6. Validate each chunk JSON has `nodes`, `edges`, and `hyperedges`; warn and skip failed chunks. If more than half the chunks fail or are missing, stop and ask whether to retry with smaller chunks or AST-only.
+7. Cache semantic fragments, merge cached + new fragments, then merge AST + semantic output.
+8. Build `graphify-out/graph.json`, run clustering/report generation, generate `graphify-out/graph.html` unless explicitly skipped, and merge into the global graph when possible.
 
-If semantic extraction fails for a chunk, warn and skip that chunk. Do not abort the whole AST graph.
+Never use headless `graphify extract --backend deepseek` for this interactive workflow. Headless backends (`ollama`, `claude-cli`, API-key providers) are only for explicit user requests or CI/scripted extraction.
 
 ## Querying
 

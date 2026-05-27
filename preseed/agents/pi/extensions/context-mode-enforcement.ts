@@ -2,18 +2,15 @@
  * Codeflare Pi context-mode enforcement.
  *
  * Pi-native equivalent of the Claude Code context-mode PreToolUse hook.
- * It keeps large/raw outputs out of the model context by blocking broad Bash
- * and large Read calls and directing the agent to ctx_* tools.
+ * It keeps large/raw command outputs out of the model context by blocking broad Bash
+ * and directing the agent to ctx_* tools. Read is intentionally not routed.
  */
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 
 type ExtensionAPI = { on: (event: string, handler: (event: any) => unknown) => void };
 
 const BYPASS_FILE = "/tmp/ctx-bypass";
-const MAX_READ_BYTES = 100 * 1024;
-const MAX_READ_LINES = 250;
-const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
 const ALLOWED_FIRST_WORDS = new Set(["git", "mkdir", "rm", "mv", "cd", "ls", "graphify"]);
 
 function stripHeredocs(command: string): string {
@@ -238,44 +235,11 @@ export function bashDenialReason(command: string): string | undefined {
   return undefined;
 }
 
-function extensionFor(path: string): string {
-  const lastDot = path.lastIndexOf(".");
-  return lastDot === -1 ? "" : path.slice(lastDot).toLowerCase();
-}
-
-function readDenialReason(input: Record<string, unknown>): string | undefined {
-  const path = typeof input.path === "string" ? input.path : undefined;
-  if (!path || IMAGE_EXTENSIONS.has(extensionFor(path))) return undefined;
-
-  const offset = typeof input.offset === "number" ? input.offset : undefined;
-  const limit = typeof input.limit === "number" ? input.limit : undefined;
-  if (limit !== undefined && limit > MAX_READ_LINES) {
-    return `Read of ${limit} lines from '${path}' violates context-mode routing. Use ctx_execute_file for analysis/large files, or Read with limit <= ${MAX_READ_LINES} only for exact edit snippets.`;
-  }
-  if (offset !== undefined && limit !== undefined && limit <= MAX_READ_LINES) return undefined;
-
-  try {
-    const stat = statSync(path);
-    if (stat.isFile() && stat.size <= MAX_READ_BYTES) return undefined;
-  } catch {
-    return undefined;
-  }
-
-  return `Large or unbounded Read of '${path}' violates context-mode routing. Use ctx_execute_file for analysis/large files. Use Read only for small exact snippets needed for editing.`;
-}
-
 export default function (pi: ExtensionAPI) {
   const onToolStart = (event: any) => {
     if (existsSync(BYPASS_FILE)) return;
 
     const toolName = String(event?.toolName ?? "").toLowerCase();
-    const input = (event?.input ?? event?.params ?? event?.args ?? {}) as Record<string, unknown>;
-    if (toolName === "read") {
-      const reason = readDenialReason(input);
-      if (!reason) return;
-      return { block: true, reason: `${reason} Bypass is user-only: touch ${BYPASS_FILE}.` };
-    }
-
     if (toolName !== "bash") return;
     const command = commandFromEvent(event);
     if (!command.trim()) return;
