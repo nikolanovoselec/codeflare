@@ -1580,21 +1580,19 @@ warm_pi_npm_dependencies() {
     if [ ! -f "$pi_npm_dir/package-lock.json" ] && [ -f "$pi_npm_preseed/package-lock.json" ]; then
         cp "$pi_npm_preseed/package-lock.json" "$pi_npm_dir/package-lock.json"
     fi
-    local missing=0
-    if [ ! -d "$pi_npm_dir/node_modules/@gotgenes/pi-subagents" ] || \
-       [ ! -d "$pi_npm_dir/node_modules/context-mode" ] || \
-       [ ! -d "$pi_npm_dir/node_modules/@gaodes/pi-graphify" ]; then
-        missing=1
-    fi
-    if [ "$missing" = "1" ]; then
-        # Copies the full preseed tree; overwrites any user modifications to
-        # the three pinned packages. Acceptable because versions are pinned and
-        # user-added packages live alongside (not inside) these directories.
-        echo "[entrypoint] Warming missing Pi extension npm dependencies from image cache"
-        mkdir -p "$pi_npm_dir/node_modules"
-        cp -a "$pi_npm_preseed/node_modules/." "$pi_npm_dir/node_modules/"
+    # Symlink node_modules to the image-local preseed cache instead of copying
+    # 433MB on every boot. The symlink is instant; PI_OFFLINE=1 prevents Pi
+    # from writing to it. R2 excludes **/node_modules/** so the symlink is
+    # recreated on each container start.
+    if [ -L "$pi_npm_dir/node_modules" ]; then
+        echo "[entrypoint] Pi extension npm dependencies symlinked (already present)"
+    elif [ -d "$pi_npm_dir/node_modules" ]; then
+        rm -rf "$pi_npm_dir/node_modules"
+        ln -s "$pi_npm_preseed/node_modules" "$pi_npm_dir/node_modules"
+        echo "[entrypoint] Pi extension npm dependencies symlinked (replaced stale copy)"
     else
-        echo "[entrypoint] Pi extension npm dependencies already present"
+        ln -s "$pi_npm_preseed/node_modules" "$pi_npm_dir/node_modules"
+        echo "[entrypoint] Pi extension npm dependencies symlinked"
     fi
 
     local pi_settings="${PI_SETTINGS_FILE:-$USER_HOME/.pi/agent/settings.json}"

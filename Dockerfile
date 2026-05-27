@@ -168,8 +168,8 @@ RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@la
 
 # Preinstall Pi extension npm dependencies into an image-local seed cache.
 # ~/.pi/agent/npm/node_modules is excluded from R2 sync, so without this Pi
-# performs an npm install on first launch in every fresh container (~90s on
-# mobile). Entrypoint copies this cache into the user home after R2 restore.
+# would run a slow npm install on first launch (~90s on mobile). Entrypoint
+# symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
 RUN cd /opt/codeflare/pi-agent/npm && \
     npm ci --omit=dev --no-audit --no-fund && \
