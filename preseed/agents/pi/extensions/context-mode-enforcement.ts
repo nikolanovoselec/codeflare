@@ -11,8 +11,8 @@ import { existsSync, statSync } from "node:fs";
 type ExtensionAPI = { on: (event: string, handler: (event: any) => unknown) => void };
 
 const BYPASS_FILE = "/tmp/ctx-bypass";
-const MAX_READ_BYTES = 20 * 1024;
-const MAX_READ_LINES = 120;
+const MAX_READ_BYTES = 100 * 1024;
+const MAX_READ_LINES = 250;
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
 const ALLOWED_FIRST_WORDS = new Set(["git", "mkdir", "rm", "mv", "cd", "ls", "graphify"]);
 

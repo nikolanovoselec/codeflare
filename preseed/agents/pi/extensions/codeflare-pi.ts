@@ -6,7 +6,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
@@ -81,7 +81,15 @@ function graphSummary(repo: string): string | undefined {
 }
 
 function isStructuralSearch(command: string): boolean {
-  return /(^|[;&|]\s*)(rg|grep|ag|ack)\b/.test(command) || /(^|[;&|]\s*)git\s+grep\b/.test(command) || /(^|[;&|]\s*)find\b.*\s-(name|path|iname|ipath|regex)\b/.test(command);
+  return /(^|[;&|]\s*)(rg|grep|ag|ack)\b/.test(command) || /(^|[;&|]\s*)git\s+grep\b/.test(command) || /(^|[;&|]\s*)find\b.*\s-(name|path|iname|ipath|regex)\b/.test(command) || /(^|[;&|]\s*)awk\b[^;&|]*\/.+\//.test(command);
+}
+
+function isGraphifyQuery(command: string): boolean {
+  return /(^|[;&|]\s*)graphify\s+(query|path|explain)\b/.test(command);
+}
+
+function isGraphifyTool(toolName: string): boolean {
+  return ["graphify_query", "graphify_path", "graphify_explain"].includes(toolName);
 }
 
 function commandText(event: any): string {
@@ -163,6 +171,7 @@ function newestVaultMtime(): number | undefined {
 
 export default function (pi: ExtensionAPI) {
   let searchCountThisTurn = 0;
+  let graphifyCountThisTurn = 0;
   const toolStartArgs = new Map<string, any>();
 
   function toolEventId(event: any): string | undefined {
@@ -240,7 +249,12 @@ export default function (pi: ExtensionAPI) {
     const toolName = String(event?.toolName ?? "").toLowerCase();
     const command = commandText(event);
 
-    const isShellSurface = toolName === "bash" || toolName.includes("ctx_execute") || toolName.includes("ctx_batch_execute");
+    if (isGraphifyTool(toolName) || isGraphifyQuery(command)) {
+      graphifyCountThisTurn++;
+      return;
+    }
+
+    const isShellSurface = toolName === "bash" || toolName.includes("ctx_execute") || toolName.includes("ctx_batch_execute") || toolName.includes("ctx_execute_file");
     if (isShellSurface) {
       const attributionReason = ensureNoAttributedCommit(command);
       if (attributionReason) return { block: true, reason: attributionReason };
@@ -248,13 +262,15 @@ export default function (pi: ExtensionAPI) {
       if (buildReason) return { block: true, reason: buildReason };
     }
 
-    if (toolName === "bash" && command) {
-      if (isStructuralSearch(command)) {
-        searchCountThisTurn++;
-        const repo = existsSync(GRAPHIFY_BYPASS) ? undefined : activeRepo(ctx);
-        if (repo && hasGraph(repo) && searchCountThisTurn > 3) {
-          return { block: true, reason: `Graphify graph exists for ${basename(repo)}. Query the graph before more structural searches, or user may create ${GRAPHIFY_BYPASS}.` };
-        }
+    if (isShellSurface && command && isStructuralSearch(command)) {
+      searchCountThisTurn++;
+      if (existsSync(GRAPHIFY_BYPASS)) {
+        try { unlinkSync(GRAPHIFY_BYPASS); } catch { /* best effort */ }
+        return;
+      }
+      const repo = activeRepo(ctx);
+      if (repo && hasGraph(repo) && searchCountThisTurn >= 3 && graphifyCountThisTurn === 0) {
+        return { block: true, reason: `Graphify graph exists for ${basename(repo)}. Query graphify_query, graphify_path, or graphify_explain before more structural searches, or ask the user to create ${GRAPHIFY_BYPASS}.` };
       }
     }
   };
@@ -295,5 +311,6 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_end", (_event, _ctx) => {
     searchCountThisTurn = 0;
+    graphifyCountThisTurn = 0;
   });
 }
