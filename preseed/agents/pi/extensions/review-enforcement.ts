@@ -76,6 +76,11 @@ function commandText(event: any): string {
   return "";
 }
 
+
+function isGhPrMerge(command: string): boolean {
+  return /(^|[;&|]\s*)gh\s+pr\s+merge\b/.test(command);
+}
+
 function isSddProject(repo: string): boolean {
   return existsSync(join(repo, "sdd", "README.md"));
 }
@@ -332,8 +337,22 @@ export default function (pi: ExtensionAPI) {
 
   const onAgentStart = (event: any, ctx: any) => {
     const toolName = String(event?.toolName || "").toLowerCase();
-    if (toolName !== "agent") return;
     const input = event?.input || event?.params || event?.args || {};
+    const command = commandText(event);
+    const isShellSurface = toolName === "bash" || toolName.includes("ctx_execute") || toolName.includes("ctx_batch_execute");
+    if (isShellSurface && isGhPrMerge(command)) {
+      const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
+      if (!repo || !isSddProject(repo) || consumeBypass()) return;
+      const pr = prState(repo);
+      if (!isEnforcedPr(pr)) return;
+      const head = pr.headRefOid;
+      if (!acked(repo, head)) {
+        return { block: true, reason: `PR-boundary review required before merge for ${basename(repo)} at ${head.slice(0, 12)}. Complete required reviewers or use the user-only ${REVIEW_BYPASS} bypass.` };
+      }
+      return;
+    }
+
+    if (toolName !== "agent") return;
     const type = String(input.subagent_type || input.subagentType || "");
     if (type !== "doc-updater") return;
     const state = hydratePending(ctx);
