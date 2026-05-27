@@ -319,7 +319,7 @@ Claude/MCP-specific transformed skill. Pi receives a separate
 **Adaptation pipeline**: For each non-CC agent, the generator: (1)
 concatenates applicable rules into a single instructions file, (2)
 remaps tool names in agent definition frontmatter, (3) removes
-`model` field from frontmatter, (4) replaces `~/.claude/` path
+`model` field from frontmatter for runtimes that do not support it while preserving Pi subagent model pins, (4) replaces `~/.claude/` path
 references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents). Pi additionally
 loads `preseed/agents/pi/manifest.json`, emits native runtime files

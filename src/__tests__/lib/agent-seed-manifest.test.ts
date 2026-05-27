@@ -342,10 +342,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(memoryHooks).toHaveLength(0);
   });
 
-  it('non-Claude agent definitions have no model field in frontmatter', () => {
+  it('non-Claude agent definitions without model support have no model field in frontmatter', () => {
     const nonClaudeAgents = AGENTS_SEEDED_CONFIGS.filter(
       (d) =>
         !d.key.startsWith('.claude/') &&
+        !d.key.startsWith('.pi/agent/agents/') &&
         d.key.includes('/agents/') &&
         !d.key.endsWith('AGENTS.md') &&
         !d.key.endsWith('GEMINI.md') &&
