@@ -412,3 +412,39 @@ CVE-2025-61725
 # bypass in cert chain validation. CLI tools in sandboxed container, not exposed
 # to untrusted certificate chains. Fix: Go 1.24.11 / 1.25.5.
 CVE-2025-61727
+
+# perl-modules-5.36 (Debian bookworm): Archive::Tar extracts symlinks with
+# attacker-controlled targets outside the extraction directory (symlink traversal
+# in _make_special_file). Impact: NONE - container does not extract untrusted tar
+# archives; perl is invoked only by codeflare-managed entrypoint scripts and
+# system package tooling. No fix available in Debian bookworm (requires Perl 5.38+
+# with Archive::Tar 3.08).
+CVE-2026-42496
+
+# perl-modules-5.36 (Debian bookworm): heap buffer overflow in Perl_study_chunk
+# (regcomp_study.c) when compiling regex with large quantified fixed substrings
+# on 32-bit builds - mincount * length overflows SSize_t, undersizing SvGROW.
+# Impact: NONE - container is 64-bit (x86_64), the overflow requires 32-bit
+# SSize_t; additionally, no untrusted regex patterns are compiled. No fix
+# available in Debian bookworm (requires Perl 5.44+).
+CVE-2026-8376
+
+# Go stdlib in rclone v1.73.5 (Go 1.25.x build): incomplete fix for URL
+# escaping inside HTML <meta> tag content attribute - ASCII whitespace around
+# '=' bypasses the escaper, leading to XSS. Impact: NONE - rclone does not
+# serve HTML or render URLs into HTML templates; it performs outbound R2 bisync
+# only. Fix: Go 1.25.10 / 1.26.3; rclone upstream has not rebuilt (pinned at
+# v1.73.5 for bisync stability).
+CVE-2026-39823
+
+# Go stdlib in rclone v1.73.5 (Go 1.25.x build): ReverseProxy forwards query
+# parameters hidden from Rewrite functions when GODEBUG urlmaxqueryparams limit
+# is exceeded. Impact: NONE - rclone does not use httputil.ReverseProxy; it is
+# an outbound-only CLI tool doing R2 bisync. Fix: Go 1.25.10 / 1.26.3.
+CVE-2026-39825
+
+# Go stdlib in rclone v1.73.5 (Go 1.25.x build): html/template incorrectly
+# escapes <script> blocks when the type attribute is empty or contains ASCII
+# whitespace. Impact: NONE - rclone does not use html/template or serve HTML;
+# it is an outbound-only CLI tool doing R2 bisync. Fix: Go 1.25.10 / 1.26.3.
+CVE-2026-39826
