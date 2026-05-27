@@ -161,6 +161,27 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
     assert.equal((result.stdout.match(/pi:update/g) || []).length, 1, 'pi update runs exactly once');
   });
 
+  it('REQ-AGENT-012 (Fast Start OFF removes settings-file update suppressors)', () => {
+    const toolConfigBlock = entrypoint.match(/# === Fast Start: tool-specific config files ===[\s\S]*?\nfi\n\n# Configure tab auto-start/);
+    assert.ok(toolConfigBlock, 'entrypoint must define the Fast Start tool-specific config block');
+
+    const fixture = mkdtempSync(join(tmpdir(), 'fast-start-config-'));
+    mkdirSync(join(fixture, '.gemini'), { recursive: true });
+    mkdirSync(join(fixture, '.codex'), { recursive: true });
+    writeFileSync(join(fixture, '.gemini/settings.json'), '{"general":{"enableAutoUpdate":false,"enableAutoUpdateNotification":false,"theme":"dark"},"other":true}\n');
+    writeFileSync(join(fixture, '.codex/version.json'), '{"dismissed_version":"999.0.0"}\n');
+
+    const script = `USER_HOME=${JSON.stringify(fixture)}\nFAST_CLI_START=false\n${toolConfigBlock[0].replace('# Configure tab auto-start', '')}\n`;
+    const result = spawnSync('bash', ['-lc', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const geminiSettings = JSON.parse(readFileSync(join(fixture, '.gemini/settings.json'), 'utf8'));
+    assert.equal(geminiSettings.general.enableAutoUpdate, undefined);
+    assert.equal(geminiSettings.general.enableAutoUpdateNotification, undefined);
+    assert.equal(geminiSettings.general.theme, 'dark');
+    assert.equal(geminiSettings.other, true);
+    assert.equal(existsSync(join(fixture, '.codex/version.json')), false);
+  });
+
   it('REQ-AGENT-001 AC5 (Pi npm warm-cache helper copies dependencies behaviorally)', () => {
     const match = entrypoint.match(/warm_pi_npm_dependencies\(\) \{[\s\S]*?\n\}/);
     assert.ok(match, 'entrypoint must define warm_pi_npm_dependencies');

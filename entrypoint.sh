@@ -1982,6 +1982,17 @@ if [ "${FAST_CLI_START:-true}" != "false" ]; then
     # Codex: dismiss version notification (excluded from rclone sync)
     mkdir -p "$USER_HOME/.codex"
     echo '{"dismissed_version":"999.0.0"}' > "$USER_HOME/.codex/version.json"
+else
+    # Fast Start OFF: remove Codeflare's settings-file suppressors so tools can
+    # run their normal update path. Keep unrelated Gemini settings intact.
+    if [ -f "$USER_HOME/.gemini/settings.json" ]; then
+        jq 'del(.general.enableAutoUpdate, .general.enableAutoUpdateNotification)' \
+            "$USER_HOME/.gemini/settings.json" > /tmp/gemini-settings.json 2>/dev/null && \
+            mv /tmp/gemini-settings.json "$USER_HOME/.gemini/settings.json"
+    fi
+    if [ -f "$USER_HOME/.codex/version.json" ] && grep -q '"dismissed_version"[[:space:]]*:[[:space:]]*"999\.0\.0"' "$USER_HOME/.codex/version.json"; then
+        rm -f "$USER_HOME/.codex/version.json"
+    fi
 fi
 
 # Configure tab auto-start
