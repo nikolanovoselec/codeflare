@@ -421,6 +421,13 @@ CVE-2025-61727
 # with Archive::Tar 3.08).
 CVE-2026-42496
 
+# perl-modules-5.36 / libperl5.36 (Debian bookworm): Archive::Tar before 3.10
+# allows memory exhaustion via crafted tar archives. Impact: NONE - container
+# does not extract untrusted tar archives; perl is invoked only by
+# codeflare-managed entrypoint scripts and system package tooling. No fix
+# available in Debian bookworm (requires Archive::Tar 3.10).
+CVE-2026-9538
+
 # perl-modules-5.36 (Debian bookworm): heap buffer overflow in Perl_study_chunk
 # (regcomp_study.c) when compiling regex with large quantified fixed substrings
 # on 32-bit builds - mincount * length overflows SSize_t, undersizing SvGROW.
