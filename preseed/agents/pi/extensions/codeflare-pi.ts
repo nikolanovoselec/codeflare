@@ -163,6 +163,20 @@ function newestVaultMtime(): number | undefined {
 
 export default function (pi: ExtensionAPI) {
   let searchCountThisTurn = 0;
+  const toolStartArgs = new Map<string, any>();
+
+  function toolEventId(event: any): string | undefined {
+    const id = event?.toolCallId ?? event?.toolUseId ?? event?.id;
+    return typeof id === "string" ? id : undefined;
+  }
+
+  function withStartArgs(event: any): any {
+    const id = toolEventId(event);
+    if (!id || event?.args || event?.input || event?.params) return event;
+    const args = toolStartArgs.get(id);
+    toolStartArgs.delete(id);
+    return args ? { ...event, args } : event;
+  }
 
   pi.registerCommand("sdd", {
     description: "Run Codeflare specification-driven development workflow",
@@ -221,7 +235,7 @@ export default function (pi: ExtensionAPI) {
     return { systemPrompt: parts.filter(Boolean).join("\n\n") };
   });
 
-  pi.on("tool_call", (event, ctx) => {
+  const onToolStart = (event: any, ctx: any) => {
     const toolName = String(event?.toolName ?? "").toLowerCase();
     const command = commandText(event);
 
@@ -242,6 +256,13 @@ export default function (pi: ExtensionAPI) {
         }
       }
     }
+  };
+
+  pi.on("tool_call", onToolStart);
+  pi.on("tool_execution_start", (event: any, ctx: any) => {
+    const id = toolEventId(event);
+    if (id) toolStartArgs.set(id, event?.args ?? event?.input ?? event?.params ?? {});
+    return onToolStart(event, ctx);
   });
 
   const onToolEnd = (event: any, ctx: any) => {
@@ -269,7 +290,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.on("tool_result", onToolEnd);
-  pi.on("tool_execution_end", onToolEnd);
+  pi.on("tool_execution_end", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
 
   pi.on("agent_end", (_event, _ctx) => {
     searchCountThisTurn = 0;
