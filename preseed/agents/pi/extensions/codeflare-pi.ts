@@ -9,6 +9,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
 
 const CACHE_DIR = "/home/user/.cache/codeflare-hooks";
 const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
@@ -84,7 +85,7 @@ function isStructuralSearch(command: string): boolean {
 }
 
 function commandText(event: any): string {
-  const input = event?.input ?? event?.params ?? {};
+  const input = event?.input ?? event?.params ?? event?.args ?? {};
   if (typeof input.command === "string") return input.command;
   if (typeof input.code === "string") return input.code;
   if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => String(cmd?.command ?? "")).join("\n");
@@ -243,19 +244,32 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  pi.on("tool_result", (event, ctx) => {
-    const toolName = String(event?.toolName ?? "").toLowerCase();
+  const onToolEnd = (event: any, ctx: any) => {
     const command = commandText(event);
     const cwd = ctx.sessionManager.getCwd();
-    const repo = updateActiveRepoFromPath(cwd);
+    const decision = isGitClone(command)
+      ? graphifyClonePromptDecision({
+        command,
+        cwd,
+        sessionId: String(ctx.sessionManager?.getSessionId?.() ?? process.ppid),
+        failed: isFailedToolExecution(event),
+        findGitRoot,
+        hasGraph,
+      })
+      : undefined;
+    const repo = updateActiveRepoFromPath(decision?.repo ?? cwd);
 
     if (repo && hasGraph(repo)) maybeMergeGlobalGraph(repo);
 
-    if (toolName === "bash" && isGitClone(command)) {
-      ctx.ui.notify("Repository cloned. Run /graphify to build a Codeflare graph if this will be a long-running project.", "info");
+    if (decision && !existsSync(decision.marker)) {
+      writeFileSync(decision.marker, "1", "utf8");
+      pi.sendUserMessage(renderGraphifyCloneDirective(decision.action), { deliverAs: "followUp" });
     }
 
-  });
+  };
+
+  pi.on("tool_result", onToolEnd);
+  pi.on("tool_execution_end", onToolEnd);
 
   pi.on("agent_end", (_event, _ctx) => {
     searchCountThisTurn = 0;

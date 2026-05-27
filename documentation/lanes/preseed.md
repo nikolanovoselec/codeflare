@@ -245,7 +245,7 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (7): package config, package lock, MCP config, four extension files.
+- Pi-native runtime assets (9): package config, package lock, MCP config, five extension files, and one native graphify skill override.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
@@ -296,8 +296,8 @@ files exist on disk.
 | Gemini | 58 |
 | Copilot | 13 |
 | OpenCode | 58 |
-| Pi | 65 |
-| **Total** | **361** |
+| Pi | 66 |
+| **Total** | **362** |
 
 **Excluded from non-CC transformed assets**: hooks (CC hook system),
 commands (CC slash commands), plugins (CC plugin system, including
@@ -308,8 +308,10 @@ not a separate rules/vault.md), `consult-llm` skill (depends on
 CC-specific MCP tool). Pi receives native TypeScript extensions for the
 runtime behaviors that cannot be represented as transformed prose:
 `/sdd`, `/graphify`, `/vault`, `/note`, graphify
-active-repo/global-graph maintenance, local-build blocking, and
-AI-attribution blocking. Pi receives a separate
+active-repo/global-graph maintenance and clone triage, local-build blocking,
+and AI-attribution blocking. Pi receives a dedicated native graphify skill
+that uses local AST extraction plus Pi `Agent` subagents instead of the
+Claude/MCP-specific transformed skill. Pi receives a separate
 `review-command.ts` for the user-invoked `/review` UX and
 `review-enforcement.ts` for PR-boundary review enforcement.
 
@@ -321,11 +323,12 @@ references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents). Pi additionally
 loads `preseed/agents/pi/manifest.json`, emits native runtime files
 to `.pi/agent/extensions/`, `.pi/agent/mcp.json`,
-`.pi/agent/npm/package.json`, and `.pi/agent/npm/package-lock.json`, and adapts Claude agent definitions into
+`.pi/agent/npm/package.json`, `.pi/agent/npm/package-lock.json`, and
+native Pi skill overrides under `.agents/skills/`, and adapts Claude agent definitions into
 `.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`.
 
-**Per-mode counts**: Default mode seeds 50 files, advanced mode
-seeds 356 files. Total array size is 361 (includes variant-per-mode
+**Per-mode counts**: Default mode seeds 52 files, advanced mode
+seeds 357 files. Total array size is 362 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the
@@ -471,7 +474,7 @@ The hook surfaces blocks as `hookSpecificOutput.permissionDecision: deny` with a
 
 ### Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
 
-The `/graphify` skill dispatches semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema.
+The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless `graphify extract --backend deepseek`; AST extraction uses local `graphify update`, and semantic extraction uses Pi `Agent` subagents from the running session. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema.
 
 Subagents run on **Sonnet** (`model: "sonnet"`). Haiku was the original choice (cost-matching with vault-extract economics) but produced 57% malformed nodes on the codeflare corpus - missing `id` fields, numeric IDs instead of strings, missing `source_file`. The extraction prompt requires reliable schema compliance across complex document types (spec files with REQ anchors, skill instructions with cross-references, ADR ledgers). Sonnet at ~3x per-agent cost with near-zero malformation is cheaper per valid node. Opus is never used from this skill.
 

@@ -235,6 +235,7 @@ function validateModes(manifest, label) {
 
 function piNativeKey(withinPi) {
   if (withinPi.startsWith('extensions/')) return `.pi/agent/${withinPi}`;
+  if (withinPi.startsWith('skills/')) return `.agents/${withinPi}`;
   if (withinPi === 'package.json') return '.pi/agent/npm/package.json';
   if (withinPi === 'package-lock.json') return '.pi/agent/npm/package-lock.json';
   if (withinPi === 'mcp.json') return '.pi/agent/mcp.json';
@@ -330,9 +331,13 @@ async function generate() {
   // --- Pi native runtime assets (extensions, MCP config, npm package metadata) ---
   const piManifestPath = path.join(piDir, 'manifest.json');
   let piNativeCount = 0;
+  const piNativeSkillKeys = new Set();
   try {
     const piManifest = JSON.parse(await fs.readFile(piManifestPath, 'utf8'));
     validateModes(piManifest, 'Pi');
+    for (const withinPi of Object.keys(piManifest)) {
+      if (withinPi.startsWith('skills/')) piNativeSkillKeys.add(withinPi.slice('skills/'.length));
+    }
     for (const [withinPi, entry] of Object.entries(piManifest)) {
       const absolutePath = path.join(piDir, withinPi);
       let content;
@@ -380,6 +385,7 @@ async function generate() {
         if (isClaudeOnlySkill(file.withinClaude)) continue;
 
         const relPath = file.withinClaude.slice('skills/'.length);
+        if (agentId === 'pi' && piNativeSkillKeys.has(relPath)) continue;
         const key = `${config.skillsPrefix}/${relPath}`;
 
         documents.push({

@@ -1354,9 +1354,10 @@ None.
 ### REQ-AGENT-043: Graphify Build Mode Dispatch
 
 <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md -->
-<!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch) → AC4-AC5) -->
+<!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md -->
+<!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch) → AC4-AC5) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi graphify skill override + clone triage helper -> AC1/AC7) -->
 
-**Intent:** Before a `/graphify` build dispatches semantic-extraction subagents, the user must explicitly choose between a free AST-only build and a full build that costs LLM tokens. The dispatched subagents run on Sonnet by default for reliable schema compliance.
+**Intent:** Before a `/graphify` build dispatches semantic-extraction subagents, the user must explicitly choose between a free AST-only build and a full build that costs LLM tokens. In Pi, this must use local AST extraction plus running-session Pi `Agent` subagents rather than headless DeepSeek extraction. The dispatched subagents run on Sonnet by default for reliable schema compliance.
 
 **Applies To:** Agent
 
@@ -1368,6 +1369,7 @@ None.
 4. In advanced session mode only, Part B semantic subagents use a model capable of reliable structured-output schema compliance so that the resulting graph nodes are well-formed.
 5. Opus is never used from this skill.
 6. The Part C merge step preserves all data structures produced by Part B subagents - including hyperedges - in the merged output; no field present in the semantic extraction result is silently dropped.
+7. Pi's native graphify skill does not instruct the agent to run headless `graphify extract --backend deepseek` for the interactive workflow; AST-only mode uses local `graphify update`, and Full mode uses Pi `Agent` subagents.
 
 **Constraints:**
 
@@ -1388,7 +1390,9 @@ None.
 ### REQ-AGENT-025: Post-Clone Graph Triage
 
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-clone-prompt.sh -->
-<!-- @test: host/__tests__/graphify-clone-prompt.test.js (clone-detect + graph-present/absent branch + idempotency marker → AC1-AC3) -->
+<!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
+<!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts -->
+<!-- @test: host/__tests__/graphify-clone-prompt.test.js (clone-detect + graph-present/absent branch + idempotency marker → AC1-AC3) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi graphify clone triage helper -> AC2) -->
 
 **Intent:** After the agent clones a repo, it must triage whether to build (or refresh) a knowledge graph for it before doing other work, so users on unfamiliar repos do not start cold.
 
@@ -1396,8 +1400,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. In advanced session mode only, a PostToolUse hook on `Bash` and `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute` matchers detects `git clone` and `gh repo clone` invocations (anchored token regex, not substring; rejects echoed false positives) and injects a directive.
-2. The directive branches on whether `<cloned-dir>/graphify-out/graph.json` already exists: if absent, the directive instructs the agent to prompt the user via `AskUserQuestion` and run a full `/graphify` build on confirmation; if present, the directive tells the agent to skip the prompt and run `graphify update .` (AST-only incremental refresh).
+1. In advanced session mode only, a PostToolUse hook on `Bash` and `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute` matchers detects `git clone` and `gh repo clone` invocations (anchored token regex, not substring; rejects echoed false positives) and injects a directive. Pi implements the same behavior with native tool lifecycle events and Pi follow-up messages.
+2. The directive branches on whether `<cloned-dir>/graphify-out/graph.json` already exists: if absent, the directive instructs the agent to prompt the user to choose AST-only (free/local) or Full semantic+AST; if present, the directive tells the agent to check freshness and offer AST-only update or Full refresh when stale.
 3. The hook is idempotent per cloned directory per session via a marker file under `/tmp/codeflare-graphify-prompted-<session_id>/`. The marker dir is session-scoped via `session_id` from the hook envelope (fallback `ppid-$PPID`) so a fresh session re-triages the same clone and stale markers do not persist across container restarts.
 
 **Constraints:**

@@ -16,6 +16,18 @@
       "advanced"
     ]
   },
+  "extensions/graphify-helpers.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/graphify/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/review-command.ts": {
     "modes": [
       "advanced"

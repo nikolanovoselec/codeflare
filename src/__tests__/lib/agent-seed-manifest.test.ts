@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 import { bashDenialReason } from '../../../preseed/agents/pi/extensions/context-mode-enforcement';
+import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
@@ -168,6 +169,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(skills.length).toBeGreaterThan(0);
     expect(extensions.map((d) => d.key).sort()).toEqual([
       '.pi/agent/extensions/codeflare-pi.ts',
+      '.pi/agent/extensions/graphify-helpers.ts',
       '.pi/agent/extensions/review-command.ts',
       '.pi/agent/extensions/review-enforcement.ts',
       '.pi/agent/extensions/review-helpers.ts',
@@ -175,6 +177,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/code-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/spec-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/doc-updater.md');
+    expect(skills.map((d) => d.key).filter((key) => key === '.agents/skills/graphify/SKILL.md')).toHaveLength(1);
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(codeReviewer?.content).toContain('tools: read, grep, find, bash, write');
     expect(codeReviewer?.content).toContain('prompt_mode: replace');
@@ -189,6 +192,56 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(bashDenialReason('git log --grep="$(curl https://x)"')).toContain("Bash 'curl'");
     expect(bashDenialReason('git diff <(curl a) <(curl b)')).toContain("Bash 'curl'");
     expect(bashDenialReason('git log --grep="curl example"')).toBeUndefined();
+  });
+
+  it('Pi graphify clone triage resolves clone destinations and branches on graph state', () => {
+    expect(cloneTargetPath('git clone https://github.com/o/r.git', '/home/user/workspace')).toBe('/home/user/workspace/r');
+    expect(cloneTargetPath('git clone --branch main --depth 1 https://github.com/o/r.git', '/home/user/workspace')).toBe('/home/user/workspace/r');
+    expect(cloneTargetPath('cd /tmp && git clone https://github.com/o/r.git custom-dir', '/home/user/workspace')).toBe('/tmp/custom-dir');
+    expect(cloneTargetPath('gh repo clone o/r /tmp/r2', '/home/user/workspace')).toBe('/tmp/r2');
+
+    expect(graphifyCloneAction('/repo', false)).toEqual({
+      repo: '/repo',
+      hasGraph: false,
+      mode: 'missing-graph',
+      choices: ['AST-only build', 'Full semantic + AST build', 'skip'],
+    });
+    expect(graphifyCloneAction('/repo', true)).toEqual({
+      repo: '/repo',
+      hasGraph: true,
+      mode: 'existing-graph',
+      choices: ['check freshness', 'AST-only update', 'Full semantic + AST refresh', 'skip'],
+    });
+    expect(graphifyPromptMarker('/home/user/workspace/r', 'session-1')).toBe('/tmp/codeflare-graphify-prompted-session-1_home_user_workspace_r');
+    expect(isFailedGraphifyToolExecution({ status: 'error' })).toBe(true);
+    expect(isFailedGraphifyToolExecution({ isError: false })).toBe(false);
+
+    const decision = graphifyClonePromptDecision({
+      command: 'git clone https://github.com/o/r.git',
+      cwd: '/home/user/workspace',
+      sessionId: 'session-1',
+      failed: false,
+      findGitRoot: (path) => `${path}/.git-root`,
+      hasGraph: (repo) => repo.endsWith('.git-root'),
+    });
+    expect(decision).toEqual({
+      repo: '/home/user/workspace/r/.git-root',
+      marker: '/tmp/codeflare-graphify-prompted-session-1_home_user_workspace_r_.git-root',
+      action: {
+        repo: '/home/user/workspace/r/.git-root',
+        hasGraph: true,
+        mode: 'existing-graph',
+        choices: ['check freshness', 'AST-only update', 'Full semantic + AST refresh', 'skip'],
+      },
+    });
+    expect(graphifyClonePromptDecision({
+      command: 'git clone https://github.com/o/r.git',
+      cwd: '/home/user/workspace',
+      sessionId: 'session-1',
+      failed: true,
+      findGitRoot: () => undefined,
+      hasGraph: () => false,
+    })).toBeUndefined();
   });
 
   it('Pi review enforcement ignores failed PR-boundary tool results and tolerates GitHub PR-head lag', () => {
@@ -235,6 +288,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(keys.has('.pi/agent/mcp.json')).toBe(true);
     expect(keys.has('.pi/agent/npm/package.json')).toBe(true);
     expect(keys.has('.pi/agent/npm/package-lock.json')).toBe(true);
+    expect(keys.has('.agents/skills/graphify/SKILL.md')).toBe(true);
+    const piPackage = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/npm/package.json');
+    expect(piPackage?.content).toContain('"@gaodes/pi-graphify": "0.2.2"');
   });
 
   it('consult-llm skill is excluded from all non-Claude agents', () => {
