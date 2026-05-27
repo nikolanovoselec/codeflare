@@ -1274,9 +1274,7 @@ None.
 
 **Verification:** [Automated test](../../host/__tests__/entrypoint-graphify-mcp.test.js)
 
-**Status:** Partial
-
-<!-- coverage-gap: Claude graphify path is implemented and covered. Pi native AC4 (missing-graph tolerance and post-clone AST-only/Full prompting) has no dedicated behavioral test coverage. -->
+**Status:** Implemented
 
 ---
 

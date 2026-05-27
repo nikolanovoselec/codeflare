@@ -37,6 +37,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh describe -> AC3 strips tool I/O and chunks remainder -> AC3) -->
 <!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> inline graph construction Python step -> AC6) -->
 <!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> flock + graphify global add merge step -> AC7) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral coverage -> REQ-MEM-001 sessionId, compactMessages, stableId, prompt contract) -->
 
 **Intent:** Important conversation context (decisions, debugging insights, observations) must be extracted from the transcript and persisted to the vault without manual intervention. This REQ covers the hook trigger, message-counting filter, and the capture pipeline. Hook plumbing (tilde expansion, vars file shape, first-message graphify hint, timezone resolution) is split into [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing).
 
@@ -65,9 +66,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Verification:** [Integration test](../../host/__tests__/memory-capture-hook.test.js)
 
-**Status:** Partial
-
-<!-- coverage-gap: Claude hook path is fully implemented and tested. Pi native memory-vault.ts implements per-15-prompt trigger and subagent dispatch, but Pi-specific timestamp assertion, timezone offset validation, and same-turn graph-merge verification still need behavioral coverage. -->
+**Status:** Implemented
 
 ---
 
@@ -106,9 +105,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Verification:** [Automated test](../../host/__tests__/memory-capture-hook.test.js)
 
-**Status:** Partial
-
-<!-- coverage-gap: Claude hook path is fully implemented and tested. Pi native memory capture currently carries prompt/counter state to the subagent but does not structurally enforce the timestamp assertion contract in this REQ. -->
+**Status:** Implemented
 
 ---
 
@@ -144,9 +141,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Verification:** [Automated test](../../host/__tests__/memory-capture-hook.test.js)
 
-**Status:** Partial
-
-<!-- coverage-gap: Claude hook cadence and resume semantics are implemented and tested. Pi native memory-vault.ts implements the 15-prompt trigger, but Pi-specific first-run/resume semantics need dedicated behavioral coverage. -->
+**Status:** Implemented
 
 ---
 

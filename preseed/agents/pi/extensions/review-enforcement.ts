@@ -163,9 +163,9 @@ function savePending(pending: PendingReview): void {
 }
 
 function isAncestor(repo: string, ancestor: string, current: string): boolean {
-  if (!ancestor) return false;
+  if (!ancestor || !/^[0-9a-f]{7,40}$/.test(ancestor)) return false;
   try {
-    return shell(`git merge-base ${ancestor} ${current}`, repo) === ancestor;
+    return execFileSync("git", ["merge-base", ancestor, current], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim() === ancestor;
   } catch {
     return false;
   }

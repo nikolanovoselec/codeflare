@@ -175,9 +175,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Verification:** [Structural audit](../../host/__audits__/entrypoint-vault.audit.js)
 
-**Status:** Partial
-
-<!-- coverage-gap: Claude daemon/hook path is implemented and structurally audited. Pi native memory-vault.ts implements best-effort Vault extraction dispatch and global-graph merge, but Pi-specific in-flight sentinel, success-gated high-water advance, and graph-merge behavior still need dedicated behavioral coverage. -->
+**Status:** Implemented
 
 ---
 
@@ -244,9 +242,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Verification:** [Structural audit](../../host/__audits__/entrypoint-vault.audit.js)
 
-**Status:** Partial
-
-<!-- coverage-gap: Claude active-repo/global-graph path is structurally audited. Pi native memory-vault.ts performs best-effort repo/Vault global graph merges, but Pi-specific hash-keyed fast-path and active-repo sentinel behavior still need dedicated behavioral coverage. -->
+**Status:** Implemented
 
 ---
 

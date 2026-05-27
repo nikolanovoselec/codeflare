@@ -16,6 +16,11 @@
       "advanced"
     ]
   },
+  "extensions/context-mode-enforcement.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/graphify-helpers.ts": {
     "modes": [
       "default",

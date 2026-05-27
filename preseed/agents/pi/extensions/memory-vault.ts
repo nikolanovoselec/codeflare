@@ -46,11 +46,11 @@ function spawn(type: string, prompt: string, description: string): string | unde
   }
 }
 
-function sessionId(ctx: any): string {
+export function sessionId(ctx: any): string {
   return String(ctx?.sessionManager?.getSessionId?.() ?? process.ppid).replace(/[^A-Za-z0-9_.-]+/g, "_");
 }
 
-function counterPath(id: string): string {
+export function counterPath(id: string): string {
   return join(MEMORY_COUNTER_DIR, `${id}.count`);
 }
 
@@ -58,7 +58,7 @@ function varsPath(id: string): string {
   return join(MEMORY_COUNTER_DIR, `${id}.vars`);
 }
 
-function readCount(path: string): number {
+export function readCount(path: string): number {
   try { return Number.parseInt(readFileSync(path, "utf8").trim(), 10) || 0; } catch { return 0; }
 }
 
@@ -85,7 +85,7 @@ function writePromptFiles(): void {
   ].join("\n"), "utf8");
 }
 
-function compactMessages(messages: any[]): string {
+export function compactMessages(messages: any[]): string {
   return messages.slice(-40).map((message) => {
     const role = message?.role ?? message?.message?.role ?? "unknown";
     const content = message?.content ?? message?.message?.content ?? "";
@@ -135,7 +135,7 @@ function vaultGraphPath(): string {
   return join(VAULT_ROOT, "graphify-out", "graph.json");
 }
 
-function stableId(input: string): string {
+export function stableId(input: string): string {
   return `vault:${createHash("sha256").update(input).digest("hex").slice(0, 24)}`;
 }
 
@@ -151,7 +151,7 @@ function readGraph(): { nodes: any[]; links: any[] } {
   }
 }
 
-function titleFor(path: string, content: string): string {
+export function titleFor(path: string, content: string): string {
   const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
   return heading || basename(path);
 }
