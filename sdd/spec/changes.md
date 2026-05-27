@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-05-27
 
-- REQ-AGENT-001 updated: Pi extension npm dependencies are preinstalled into an image-local cache and copied into user config after restore, avoiding Pi's first-launch npm install delay.
+- REQ-AGENT-001 updated: Pi extension npm dependencies are preinstalled into an image-local cache at build time; the entrypoint symlinks `node_modules` to the cache (zero-copy, instant), avoiding Pi's first-launch npm install delay.
 - REQ-AGENT-012 updated: Fast Start now suppresses Pi startup network/update checks, while disabling Fast Start restores Pi update paths alongside the other CLI agents.
 - REQ-AGENT-023 / REQ-AGENT-025 / REQ-AGENT-043 updated: Pi receives a native graphify package and skill override, post-clone graph triage through Pi lifecycle events, and an interactive build-mode split where AST-only uses the bounded graphify wrapper and Full mode uses Pi Agent semantic subagents instead of headless DeepSeek extraction. REQ-AGENT-023 remains Implemented after adding Pi AC4 behavioral coverage for missing-graph tolerance and post-clone prompting. REQ-AGENT-025 AC3 idempotency wording abstracted from concrete marker path to marker key.
 - Review scope fix: review agents now receive incremental diff scope (last-ack to current head) instead of the full PR diff against the base branch. Affects both Pi (review-enforcement.ts reviewBase field) and Claude (git-push-review-reminder.sh LAST_ACK_PR_HEAD check). Review bypass text clarified as USER-ONLY to prevent agent self-bypass.
