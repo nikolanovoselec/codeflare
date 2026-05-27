@@ -46,7 +46,7 @@ Multi-agent support, preseed system, and session modes.
 2. The `AgentType` type is enforced via Zod schema (`AgentTypeSchema`).
 3. Each agent's CLI is pre-installed in the container image as a global npm package (or native binary for Go-based agents).
 4. Node.js-based agent CLIs (Codex, Gemini, Copilot, Pi) are pre-warmed at image build time so V8's compile cache is populated before the user's first interactive launch. Claude Code ships as a native binary and needs no warm-up; Go-based agents (OpenCode) are natively compiled.
-5. Pi extension npm dependencies are installed into an image-local cache and copied into the user config after restore, so Pi starts without a first-launch package install.
+5. Pi extension npm dependencies are installed into an image-local cache at build time; the entrypoint symlinks `node_modules` to the cache (zero-copy, instant) so Pi starts without a first-launch package install.
 
 **Constraints:**
 
