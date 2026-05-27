@@ -33,10 +33,10 @@ Run from the repo root:
 
 ```bash
 bash /home/user/.pi/agent/scripts/safe-graphify-update.sh .
-graphify cluster-only . --no-viz
+graphify cluster-only .
 ```
 
-The safe wrapper runs bounded local code extraction and avoids unbounded graphify subprocesses in the 1-CPU container. This does not require any LLM API key. Use this by default for code-only repos or when the user chooses free/fast mode.
+The safe wrapper runs bounded local code extraction and avoids unbounded graphify subprocesses in the 1-CPU container. The follow-up clustering command intentionally generates `graphify-out/graph.html`; do not skip HTML visualization unless the user explicitly asks. This does not require any LLM API key. Use this by default for code-only repos or when the user chooses free/fast mode.
 
 After graph creation/update, merge into the global graph when possible:
 

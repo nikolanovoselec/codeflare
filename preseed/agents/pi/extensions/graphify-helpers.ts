@@ -28,7 +28,7 @@ export function renderGraphifyCloneDirective(action: GraphifyCloneAction): strin
   return [
     `Repository cloned at ${action.repo}; no graphify graph exists yet.`,
     "Ask the user to choose a graph build mode before long-running work:",
-    `1. AST-only — free, local, no LLM/API key; builds structural code graph with \`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh ${action.repo}\` then \`graphify cluster-only ${action.repo} --no-viz\`.`,
+    `1. AST-only — free, local, no LLM/API key; builds structural code graph with \`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh ${action.repo}\` then \`graphify cluster-only ${action.repo}\` so graph.html is generated unless the user explicitly asks to skip visualization.`,
     "2. Full semantic + AST — local AST plus bounded Pi Agent subagent waves for docs/papers/images, then merge and cluster.",
     "Do not use headless `graphify extract --backend deepseek` for this interactive workflow.",
   ].join("\n");

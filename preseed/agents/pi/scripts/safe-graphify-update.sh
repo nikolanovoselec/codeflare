@@ -13,3 +13,4 @@ CAP_KB="${GRAPHIFY_SAFE_RLIMIT_KB:-1500000}"
 ulimit -v "$CAP_KB"
 
 timeout "${GRAPHIFY_UPDATE_TIMEOUT:-120}" graphify update .
+timeout "${GRAPHIFY_CLUSTER_TIMEOUT:-120}" graphify cluster-only .
