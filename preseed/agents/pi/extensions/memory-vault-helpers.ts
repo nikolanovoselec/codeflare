@@ -49,3 +49,7 @@ export function shouldCapture(count: number): boolean {
 export function isFirstMessage(counterFileExists: boolean, messageCount: number): boolean {
   return !counterFileExists && messageCount === 1;
 }
+
+export default function () {
+  // Helper module only; loaded by Pi extension scanner as a no-op extension.
+}

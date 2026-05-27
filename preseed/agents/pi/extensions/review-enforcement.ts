@@ -69,10 +69,10 @@ function activeRepoFallback(): string | undefined {
 }
 
 function commandText(event: any): string {
-  const input = event?.input ?? event?.params ?? event?.args ?? {};
+  const input = event?.input || event?.params || event?.args || {};
   if (typeof input.command === "string") return input.command;
   if (typeof input.code === "string") return input.code;
-  if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => String(cmd?.command ?? "")).join("\n");
+  if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => String(cmd?.command || "")).join("\n");
   return "";
 }
 
@@ -152,7 +152,7 @@ function loadPending(repo: string): PendingReview | undefined {
   try {
     const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; reviewBase?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean; spawnedIds?: Record<string, string>; fallbackLanes?: string[] };
     if (!state.head || !state.baseRefName || !Array.isArray(state.lanes)) return undefined;
-    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, reviewBase: state.reviewBase, lanes: state.lanes, completed: new Set(state.completed ?? []), docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds ?? {}, fallbackLanes: new Set(state.fallbackLanes ?? []) };
+    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, reviewBase: state.reviewBase, lanes: state.lanes, completed: new Set(state.completed || []), docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds || {}, fallbackLanes: new Set(state.fallbackLanes || []) };
   } catch {
     return undefined;
   }
@@ -183,9 +183,9 @@ function changedFiles(repo: string, from: string, to: string): string[] | undefi
 }
 
 function mergeLaneState(repo: string, currentHead: string, previous?: PendingReview): { lanes: string[]; completed: Set<string> } {
-  const base = previous?.head ?? lastAckHead(repo);
+  const base = previous?.head || lastAckHead(repo);
   const changed = classifyReviewFiles(changedFiles(repo, base, currentHead));
-  const changedLanes = changed ?? ALL_REVIEW_LANES;
+  const changedLanes = changed || ALL_REVIEW_LANES;
   if (!previous) return { lanes: changedLanes, completed: new Set() };
 
   const incompletePrevious = previous.lanes.filter((lane) => !previous.completed.has(lane));
@@ -239,9 +239,9 @@ async function spawnInitialLanes(pending: PendingReview, pr: PrState, notify?: (
 
 function reviewPrompt(repo: string, pr: PrState, head: string, reviewBase?: string): string {
   if (reviewBase) {
-    return `Work in ${repo}. Review PR #${pr.number ?? "?"} for ${basename(repo)}. Scope is ONLY the incremental diff from ${reviewBase} to ${head}. Run: git diff --name-only ${reviewBase} ${head} to see changed files, then git diff ${reviewBase} ${head} -- <path> for each. Do NOT review the full PR diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
+    return `Work in ${repo}. Review PR #${pr.number || "?"} for ${basename(repo)}. Scope is ONLY the incremental diff from ${reviewBase} to ${head}. Run: git diff --name-only ${reviewBase} ${head} to see changed files, then git diff ${reviewBase} ${head} -- <path> for each. Do NOT review the full PR diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
   }
-  return `Work in ${repo}. Review PR #${pr.number ?? "?"} for ${basename(repo)} at head ${head}. Scope is the full PR diff (no prior review base). Run: git diff origin/${pr.baseRefName}...${head}. Report findings only; do not modify files.`;
+  return `Work in ${repo}. Review PR #${pr.number || "?"} for ${basename(repo)} at head ${head}. Scope is the full PR diff (no prior review base). Run: git diff origin/${pr.baseRefName}...${head}. Report findings only; do not modify files.`;
 }
 
 function directiveFor(repo: string, pr: PrState, lanes: string[], reviewBase?: string): string {
@@ -253,14 +253,14 @@ function directiveFor(repo: string, pr: PrState, lanes: string[], reviewBase?: s
   const scope = reviewBase
     ? `Scope is ONLY the incremental diff: git diff ${reviewBase} ${head}. Do NOT review the full PR diff against ${pr.baseRefName}.`
     : `Scope is the full PR diff: git diff origin/${pr.baseRefName}...${head} (no prior review base).`;
-  return `PR-boundary review required for ${basename(repo)} PR #${pr.number ?? "?"} at ${head.slice(0, 12)}. ${scope} Required lanes: ${laneText}. Run: ${sequence}. Acknowledgement is automatic after required lanes complete.`;
+  return `PR-boundary review required for ${basename(repo)} PR #${pr.number || "?"} at ${head.slice(0, 12)}. ${scope} Required lanes: ${laneText}. Run: ${sequence}. Acknowledgement is automatic after required lanes complete.`;
 }
 
 function docUpdaterPrompt(pending: PendingReview): string {
   if (pending.reviewBase) {
-    return `Work in ${pending.repo}. Review PR #${pending.prNumber ?? "?"} for ${basename(pending.repo)}. Scope is ONLY the incremental diff from ${pending.reviewBase} to ${pending.head}. Run: git diff ${pending.reviewBase} ${pending.head} -- documentation/ sdd/. Do NOT review the full PR diff against ${pending.baseRefName}. Report findings only; do not modify files.`;
+    return `Work in ${pending.repo}. Review PR #${pending.prNumber || "?"} for ${basename(pending.repo)}. Scope is ONLY the incremental diff from ${pending.reviewBase} to ${pending.head}. Run: git diff ${pending.reviewBase} ${pending.head} -- documentation/ sdd/. Do NOT review the full PR diff against ${pending.baseRefName}. Report findings only; do not modify files.`;
   }
-  return `Work in ${pending.repo}. Review PR #${pending.prNumber ?? "?"} for ${basename(pending.repo)} at head ${pending.head}. Scope is the full PR diff (no prior review base). Run: git diff origin/${pending.baseRefName}...${pending.head}. Report findings only; do not modify files.`;
+  return `Work in ${pending.repo}. Review PR #${pending.prNumber || "?"} for ${basename(pending.repo)} at head ${pending.head}. Scope is the full PR diff (no prior review base). Run: git diff origin/${pending.baseRefName}...${pending.head}. Report findings only; do not modify files.`;
 }
 
 function isCurrentPending(pending: PendingReview): boolean {
@@ -274,7 +274,7 @@ export default function (pi: ExtensionAPI) {
   const toolStartArgs = new Map<string, any>();
 
   function toolEventId(event: any): string | undefined {
-    const id = event?.toolCallId ?? event?.toolUseId ?? event?.id;
+    const id = event?.toolCallId || event?.toolUseId || event?.id;
     return typeof id === "string" ? id : undefined;
   }
 
@@ -283,13 +283,13 @@ export default function (pi: ExtensionAPI) {
     const cached = id ? toolStartArgs.get(id) : undefined;
     if (id) toolStartArgs.delete(id);
     if (commandText(event) || !cached) return event;
-    const current = event?.args ?? event?.input ?? event?.params ?? {};
+    const current = event?.args || event?.input || event?.params || {};
     return { ...event, args: { ...cached, ...current } };
   }
 
   function hydratePending(ctx: any): PendingReview | undefined {
     if (pending) return pending;
-    const repo = activeRepoFallback() ?? findGitRoot(ctx.sessionManager.getCwd());
+    const repo = activeRepoFallback() || findGitRoot(ctx.sessionManager.getCwd());
     pending = repo ? loadPending(repo) : undefined;
     return pending;
   }
@@ -331,10 +331,10 @@ export default function (pi: ExtensionAPI) {
   }
 
   const onAgentStart = (event: any, ctx: any) => {
-    const toolName = String(event?.toolName ?? "").toLowerCase();
+    const toolName = String(event?.toolName || "").toLowerCase();
     if (toolName !== "agent") return;
-    const input = event?.input ?? event?.params ?? event?.args ?? {};
-    const type = String(input.subagent_type ?? input.subagentType ?? "");
+    const input = event?.input || event?.params || event?.args || {};
+    const type = String(input.subagent_type || input.subagentType || "");
     if (type !== "doc-updater") return;
     const state = hydratePending(ctx);
     if (!state) return;
@@ -351,18 +351,18 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_call", onAgentStart);
   pi.on("tool_execution_start", (event: any, ctx: any) => {
     const id = toolEventId(event);
-    if (id) toolStartArgs.set(id, event?.args ?? event?.input ?? event?.params ?? {});
+    if (id) toolStartArgs.set(id, event?.args || event?.input || event?.params || {});
     return onAgentStart(event, ctx);
   });
 
   const onToolEnd = async (event: any, ctx: any) => {
-    const toolName = String(event?.toolName ?? "").toLowerCase();
+    const toolName = String(event?.toolName || "").toLowerCase();
     if (isFailedToolExecution(event)) return;
 
     if (toolName === "agent") {
-      const input = event?.input ?? event?.params ?? event?.args ?? {};
-      const type = String(input.subagent_type ?? input.subagentType ?? "");
-      const prompt = String(input.prompt ?? "");
+      const input = event?.input || event?.params || event?.args || {};
+      const type = String(input.subagent_type || input.subagentType || "");
+      const prompt = String(input.prompt || "");
       const state = hydratePending(ctx);
       if (type && state?.fallbackLanes.has(type) && input.run_in_background !== true) {
         await markCompleted(type, ctx, undefined, prompt);
@@ -374,12 +374,12 @@ export default function (pi: ExtensionAPI) {
     const isShellSurface = toolName === "bash" || toolName.includes("ctx_execute") || toolName.includes("ctx_batch_execute");
     if (!isShellSurface || !isPrBoundaryCommand(command)) return;
 
-    const repo = findGitRoot(cwdFromCommand(command) ?? ctx.sessionManager.getCwd()) ?? activeRepoFallback();
+    const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
     if (!repo || !isSddProject(repo) || consumeBypass()) return;
 
     const pr = prState(repo);
     if (!isEnforcedPr(pr)) return;
-    const head = localHead(repo) ?? pr.headRefOid;
+    const head = localHead(repo) || pr.headRefOid;
     const effectivePr = { ...pr, headRefOid: head };
     if (acked(repo, head)) return;
 
@@ -394,7 +394,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const reviewBase = previous?.head ?? lastAckHead(repo) || undefined;
+    const reviewBase = previous?.head || lastAckHead(repo) || undefined;
     const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
     resetBlockCount(repo);
     pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set() };
@@ -417,7 +417,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_execution_end", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
 
   const onSubagentCompleted = async (event: any, ctx: any) => {
-    const type = String(event?.type ?? "");
+    const type = String(event?.type || "");
     if (type) await markCompleted(type, ctx, typeof event?.id === "string" ? event.id : undefined);
   };
 
@@ -455,14 +455,14 @@ export default function (pi: ExtensionAPI) {
     }
 
     const service = subagentsService();
-    const currentState = loadPending(state.repo) ?? state;
+    const currentState = loadPending(state.repo) || state;
     for (const [lane, spawnedId] of Object.entries(currentState.spawnedIds)) {
       const record = service?.getRecord?.(spawnedId);
       if (record?.status === "completed" || record?.status === "steered") {
         await markCompleted(lane, ctx, spawnedId);
         return;
       }
-      if (["error", "stopped", "aborted"].includes(String(record?.status ?? ""))) {
+      if (["error", "stopped", "aborted"].includes(String(record?.status || ""))) {
         delete currentState.spawnedIds[lane];
         currentState.fallbackLanes.add(lane);
         currentState.spawned = Object.keys(currentState.spawnedIds).length > 0;
