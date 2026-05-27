@@ -37,7 +37,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh describe -> AC3 strips tool I/O and chunks remainder -> AC3) -->
 <!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> inline graph construction Python step -> AC6) -->
 <!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> flock + graphify global add merge step -> AC7) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral coverage -> REQ-MEM-001 sessionId, compactMessages, stableId, prompt contract) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests -> REQ-MEM-001 captureTimestamp AC4, compactMessages AC3, flock global merge AC7) -->
 
 **Intent:** Important conversation context (decisions, debugging insights, observations) must be extracted from the transcript and persisted to the vault without manual intervention. This REQ covers the hook trigger, message-counting filter, and the capture pipeline. Hook plumbing (tilde expansion, vars file shape, first-message graphify hint, timezone resolution) is split into [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing).
 
@@ -115,6 +115,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @test: host/__tests__/memory-capture-hook.test.js (input gating + first-run baseline + AC6 resume detection + 15-msg threshold + counter advance + tilde expansion + output protocol → AC1-AC6; AC6 covered by `AC6 - missing counter + transcript with >1 prompt force-fires capture from line 1` and `AC6 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)`) -->
 <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (describe `memory-capture counter location (REQ-MEM-002 AC6)` → asserts obsolete .memory/counter bisync filter absent, obsolete mkdir absent, MEMCAP_COUNTER_DIR default = /tmp/.memory-counter) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (isFirstMessage AC2 brand-new session + isResumedSession AC6 resume detection + shouldCapture 15-msg cadence -> AC2/AC5/AC6 Pi behavioral coverage) -->
 
 **Intent:** Memory capture must fire at a regular interval to balance context freshness against overhead.
 

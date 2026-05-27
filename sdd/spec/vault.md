@@ -217,6 +217,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (mcp-lazy resolution chain + active-repo hook structure + vault basename exclusion + fast-path skip → AC1-AC4) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-VAULT-004: titleFor heading extraction + wikilink concept nodes + PDF document nodes + flock global merge -> AC2/AC3 Pi vault graph content) -->
 
 **Intent:** A single `mcp__graphify__*` call returns nodes from the vault and from every per-repo graphify-out the session has touched, so cross-cutting questions ("did we ever discuss X with respect to Y") work without manually selecting a graph.
 
