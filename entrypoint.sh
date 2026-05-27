@@ -63,12 +63,14 @@ export TERM
 # === Fast Start: control auto-update behavior ===
 if [ "${FAST_CLI_START:-true}" = "false" ]; then
     # Unset Dockerfile-level vars so tools CAN auto-update
-    unset DISABLE_AUTOUPDATER OPENCODE_DISABLE_AUTOUPDATE DISABLE_INSTALLATION_CHECKS
+    unset DISABLE_AUTOUPDATER OPENCODE_DISABLE_AUTOUPDATE DISABLE_INSTALLATION_CHECKS PI_OFFLINE PI_SKIP_VERSION_CHECK
 else
     # Ensure all disable vars are set (use bundled versions)
     export DISABLE_AUTOUPDATER=1
     export OPENCODE_DISABLE_AUTOUPDATE=1
     export COPILOT_AUTO_UPDATE=false
+    export PI_OFFLINE=1
+    export PI_SKIP_VERSION_CHECK=1
 fi
 
 # User directories (local disk)
@@ -1544,11 +1546,25 @@ warm_pi_npm_dependencies() {
     fi
 }
 
+update_pi_when_fast_start_disabled() {
+    if [ "${FAST_CLI_START:-true}" != "false" ]; then
+        return 0
+    fi
+    if ! command -v pi >/dev/null 2>&1; then
+        echo "[entrypoint] Pi CLI not found; skipping Pi auto-update"
+        return 0
+    fi
+    echo "[entrypoint] Fast Start disabled; updating Pi and Pi packages"
+    PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi update || \
+        echo "[entrypoint] WARNING: Pi update failed; continuing startup"
+}
+
 # Warm Pi extension npm dependencies from the image-local seed cache.
 # R2 excludes **/node_modules/** by design, so restored ~/.pi/agent/npm has
 # package.json but no installed packages. Copying the image cache prevents Pi
 # from running a slow npm install on first launch.
 warm_pi_npm_dependencies
+update_pi_when_fast_start_disabled
 
 # Pre-accept Claude Code's bypass permissions consent
 # Claude Code stores this in ~/.claude.json (bypassPermissionsModeAccepted field)

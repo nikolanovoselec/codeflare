@@ -428,9 +428,9 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. A fast-start preference (default: enabled) controls whether agent CLIs skip auto-update checks at launch, and the user's choice is propagated into the container's runtime environment.
-2. When enabled, auto-update checks are disabled for all 5 AI tools, eliminating 5-30s startup delay.
+2. When enabled, auto-update checks are disabled for all 6 AI tools, eliminating 5-30s startup delay.
 3. Every supported agent CLI has a corresponding disable mechanism: each tool's native auto-update path is suppressed by the channel that tool exposes (environment variable for tools that expose one, on-disk settings file for tools that don't). For settings-file tools, user customizations are preserved across container restarts.
-4. When the fast-start preference is disabled, the suppression channels are not applied and each CLI runs its normal update check on launch.
+4. When the fast-start preference is disabled, the suppression channels are not applied, each CLI runs its normal update path on launch, and Pi runs `pi update` so Pi packages reconcile before the session starts.
 5. Users can toggle the preference from the session defaults area of the application settings.
 
 **Constraints:**
@@ -442,7 +442,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1)
 
-**Verification:** [Automated test](../../src/__tests__/routes/preferences.test.ts)
+**Verification:** [Automated test](../../src/__tests__/routes/preferences.test.ts), [Fast Start runtime test](../../host/__tests__/dockerfile-graphify.test.js)
 
 **Status:** Implemented
 

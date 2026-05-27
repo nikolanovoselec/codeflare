@@ -137,6 +137,30 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
     );
   });
 
+  it('REQ-AGENT-012 (Fast Start controls Pi update checks)', () => {
+    const fastStartBlock = entrypoint.match(/# === Fast Start: control auto-update behavior ===[\s\S]*?\nfi\n/);
+    assert.ok(fastStartBlock, 'entrypoint must define the Fast Start env-control block');
+    const updateFunction = entrypoint.match(/update_pi_when_fast_start_disabled\(\) \{[\s\S]*?\n\}/);
+    assert.ok(updateFunction, 'entrypoint must define update_pi_when_fast_start_disabled');
+
+    const script = `${fastStartBlock[0]}\n${updateFunction[0]}\n\n` +
+      `CALLS=${JSON.stringify(join(mkdtempSync(join(tmpdir(), 'pi-fast-start-')), 'calls.log'))}\n` +
+      `pi() { printf 'pi:%s offline=%s skip=%s\\n' \"$*\" \"\${PI_OFFLINE:-}\" \"\${PI_SKIP_VERSION_CHECK:-}\" >> \"$CALLS\"; }\n` +
+      `FAST_CLI_START=true\n${fastStartBlock[0]}\nupdate_pi_when_fast_start_disabled\n` +
+      `printf 'on:%s:%s\\n' \"$PI_OFFLINE\" \"$PI_SKIP_VERSION_CHECK\"\n` +
+      `FAST_CLI_START=false PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 DISABLE_AUTOUPDATER=1 OPENCODE_DISABLE_AUTOUPDATE=1 DISABLE_INSTALLATION_CHECKS=1\n` +
+      `${fastStartBlock[0]}\nupdate_pi_when_fast_start_disabled\n` +
+      `printf 'off:%s:%s:%s:%s:%s\\n' \"\${PI_OFFLINE-unset}\" \"\${PI_SKIP_VERSION_CHECK-unset}\" \"\${DISABLE_AUTOUPDATER-unset}\" \"\${OPENCODE_DISABLE_AUTOUPDATE-unset}\" \"\${DISABLE_INSTALLATION_CHECKS-unset}\"\n` +
+      `cat \"$CALLS\"\n`;
+
+    const result = spawnSync('bash', ['-lc', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /on:1:1/, 'Fast Start ON exports Pi offline flags');
+    assert.match(result.stdout, /off:unset:unset:unset:unset:unset/, 'Fast Start OFF unsets update suppressors');
+    assert.match(result.stdout, /pi:update offline= skip=/, 'Fast Start OFF runs pi update without truthy Pi offline flags');
+    assert.equal((result.stdout.match(/pi:update/g) || []).length, 1, 'pi update runs exactly once');
+  });
+
   it('REQ-AGENT-001 AC5 (Pi npm warm-cache helper copies dependencies behaviorally)', () => {
     const match = entrypoint.match(/warm_pi_npm_dependencies\(\) \{[\s\S]*?\n\}/);
     assert.ok(match, 'entrypoint must define warm_pi_npm_dependencies');

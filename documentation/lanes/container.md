@@ -90,7 +90,7 @@ Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-upda
 **User preference:** `fastStartEnabled` (default: `true`) in `UserPreferences`.
 **Container env var:** `FAST_CLI_START` (default: `'true'`).
 
-When enabled, `entrypoint.sh` disables auto-update checks for all 5 AI tools, eliminating 5-30s of startup delay per tool. Each tool has a different disable mechanism:
+When enabled, `entrypoint.sh` disables auto-update checks for all 6 AI tools, eliminating 5-30s of startup delay per tool. Each tool has a different disable mechanism:
 
 | Tool | Disable Mechanism | Type |
 |------|------------------|------|
@@ -99,12 +99,13 @@ When enabled, `entrypoint.sh` disables auto-update checks for all 5 AI tools, el
 | Copilot | `COPILOT_AUTO_UPDATE=false` | Env var |
 | Gemini | `~/.gemini/settings.json` -> `general.enableAutoUpdate: false` | Config file (jq merge) |
 | Codex | `~/.codex/version.json` -> `dismissed_version: "999.0.0"` | Config file (overwrite) |
+| Pi | `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1` | Env vars |
 
 **Gemini settings.json merge pattern:** Uses `jq '. * {"general":{"enableAutoUpdate":false,"enableAutoUpdateNotification":false}}'` to deep-merge into existing settings. This preserves user customizations since the file is synced via rclone from R2. If the file doesn't exist, creates it with only the auto-update keys.
 
 **Codex dismissed_version hack:** Writes `{"dismissed_version":"999.0.0"}` to trick the Codex version checker into thinking a future version was already dismissed. The `~/.codex/` directory is excluded from rclone sync, so this file is safe to recreate on every container start.
 
-When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the Dockerfile-level env vars (`DISABLE_AUTOUPDATER`, `DISABLE_INSTALLATION_CHECKS`) and the entrypoint-level `OPENCODE_DISABLE_AUTOUPDATE`, and skips writing config files and setting `COPILOT_AUTO_UPDATE`, allowing all tools to check for updates normally.
+When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the Dockerfile-level env vars (`DISABLE_AUTOUPDATER`, `DISABLE_INSTALLATION_CHECKS`) and the entrypoint-level update suppressors (`OPENCODE_DISABLE_AUTOUPDATE`, `PI_OFFLINE`, `PI_SKIP_VERSION_CHECK`), skips writing config files and setting `COPILOT_AUTO_UPDATE`, and runs `pi update` so Pi and Pi packages reconcile before the session starts.
 
 ### Auto-sleep (Configurable sleepAfter)
 
