@@ -270,7 +270,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 4. The hook script is delivered via the plugin but registered via the session settings merge, not the plugin loader.
 5. Memory-plugin source lives in the single preseed source tree.
 6. A build-time seed generator produces the runtime payload consumed by the Worker; memory-plugin files appear in that payload.
-7. Memory files are not adapted for non-Claude agents because they depend on Claude-specific MCP and hook surfaces.
+7. Claude memory plugin files are not generically adapted for non-Claude agents because they depend on Claude-specific MCP and hook surfaces; Pi receives native memory/vault runtime adapters where equivalent Pi lifecycle primitives exist.
 
 **Constraints:**
 

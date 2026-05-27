@@ -25,7 +25,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-<!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 describe -> name+agentType accept (all 6 types) + sanitize + Terminal default + SESSION_ID_PATTERN + KV write + 201 + 429 rate limit + 10/60_000 config -> AC1..AC5) -->
+<!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 describe -> name+agentType accept (all 7 types) + sanitize + Terminal default + SESSION_ID_PATTERN + KV write + 201 + 429 rate limit + 10/60_000 config -> AC1..AC5) -->
 ### REQ-SESSION-001: Session creation with name and agent type
 
 <!-- @impl: src/routes/session/crud.ts -->
@@ -37,7 +37,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. The session creation endpoint accepts a trimmed session name and optional AI agent type (one of: claude-code, codex, gemini, opencode, copilot, bash).
+1. The session creation endpoint accepts a trimmed session name and optional AI agent type (one of: claude-code, codex, gemini, opencode, copilot, bash, pi).
 2. A unique alphanumeric session ID (8-24 lowercase chars) is generated for each new session.
 3. The session record is persisted durably and retrievable by the user.
 4. The response returns the new session object with status 201.
