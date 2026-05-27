@@ -73,7 +73,9 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && ln -s "$(which fdfind)" /usr/local/bin/fd \
     && ln -s "$(which batcat)" /usr/local/bin/bat \
     # Symlink vim → neovim so both `vim` and `nvim` commands work
-    && ln -s "$(which nvim)" /usr/local/bin/vim
+    && ln -s "$(which nvim)" /usr/local/bin/vim \
+    # Remove yarn shipped by Node base image (unused, 5MB)
+    && rm -rf /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
 # Install rclone (pinned version — unpinned install.sh broke bisync, see documentation/storage-and-sync.md)
 RUN curl -fsSL https://downloads.rclone.org/v1.73.5/rclone-v1.73.5-linux-amd64.deb -o /tmp/rclone.deb \
@@ -163,6 +165,9 @@ RUN claude --version
 RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@latest @github/copilot@latest @earendil-works/pi-coding-agent@latest && \
     cd /usr/local/lib/node_modules/opencode-ai/node_modules && \
     find . -maxdepth 1 -name 'opencode-*' ! -name 'opencode-linux-x64' -type d -exec rm -rf {} + && \
+    cd /usr/local/lib/node_modules/@github/copilot && \
+    find prebuilds/ -maxdepth 1 -type d ! -name 'prebuilds' ! -name 'linux-x64' -exec rm -rf {} + && \
+    rm -rf mxc-bin/arm64 ripgrep/ clipboard/node_modules pvrecorder/node_modules sharp/node_modules && \
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
 
@@ -196,6 +201,9 @@ RUN cd /opt/codeflare/pi-agent/npm && \
 # this version deliberately after smoke-testing a new release.
 RUN npm install -g bun@1.3.14 && \
     bun --version && \
+    # Strip 258MB of non-linux platform binaries shipped in bun's npm package.
+    # Only the linux-x64 binary (bun.exe / bunx.exe hardlinked in bin/) is needed.
+    rm -rf /usr/local/lib/node_modules/bun/node_modules && \
     npm cache clean --force && rm -rf /root/.npm
 
 # Install context-mode globally and patch the esbuild ESM bundles.

@@ -1635,6 +1635,10 @@ update_pi_when_fast_start_disabled() {
 warm_pi_npm_dependencies
 update_pi_when_fast_start_disabled
 
+# Purge npm cache - regenerated on demand, 200MB+ of dead weight from
+# runtime npm install calls (Pi packages, context-mode, etc.)
+rm -rf "$USER_HOME/.npm" 2>/dev/null
+
 # Pre-accept Claude Code's bypass permissions consent
 # Claude Code stores this in ~/.claude.json (bypassPermissionsModeAccepted field)
 # This prevents the interactive "WARNING: Claude Code running in Bypass Permissions mode" prompt
