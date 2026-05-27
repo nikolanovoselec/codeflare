@@ -128,8 +128,8 @@ function ensureNoLocalBuild(command: string): string | undefined {
 
 function skillPrompt(name: string, fallback: string): string {
   const candidates = [
-    join(process.cwd(), ".agents", "skills", name, "SKILL.md"),
-    join("/home/user/.agents/skills", name, "SKILL.md"),
+    join(process.cwd(), ".pi", "agent", "skills", name, "SKILL.md"),
+    join("/home/user/.pi/agent/skills", name, "SKILL.md"),
   ];
   for (const path of candidates) {
     if (existsSync(path)) return readFileSync(path, "utf8");
