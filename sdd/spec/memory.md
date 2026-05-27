@@ -115,6 +115,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ### REQ-MEM-002: Capture triggers every 15 user messages
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
+<!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @test: host/__tests__/memory-capture-hook.test.js (input gating + first-run baseline + AC6 resume detection + 15-msg threshold + counter advance + tilde expansion + output protocol → AC1-AC6; AC6 covered by `AC6 - missing counter + transcript with >1 prompt force-fires capture from line 1` and `AC6 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)`) -->
 <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (describe `memory-capture counter location (REQ-MEM-002 AC6)` → asserts obsolete .memory/counter bisync filter absent, obsolete mkdir absent, MEMCAP_COUNTER_DIR default = /tmp/.memory-counter) -->
 
@@ -143,7 +144,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Verification:** [Automated test](../../host/__tests__/memory-capture-hook.test.js)
 
-**Status:** Implemented
+**Status:** Partial
+
+<!-- coverage-gap: Claude hook cadence and resume semantics are implemented and tested. Pi native memory-vault.ts implements the 15-prompt trigger, but Pi-specific first-run/resume semantics need dedicated behavioral coverage. -->
 
 ---
 

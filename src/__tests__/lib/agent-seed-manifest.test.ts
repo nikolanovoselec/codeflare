@@ -294,6 +294,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(keys.has('.pi/agent/npm/package.json')).toBe(true);
     expect(keys.has('.pi/agent/npm/package-lock.json')).toBe(true);
     expect(keys.has('.agents/skills/graphify/SKILL.md')).toBe(true);
+    expect(keys.has('.pi/agent/scripts/safe-graphify-update.sh')).toBe(true);
     const piPackage = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/npm/package.json');
     expect(piPackage?.content).toContain('"@gaodes/pi-graphify": "0.2.2"');
   });

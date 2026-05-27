@@ -188,8 +188,8 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerCommand("graphify", {
-    description: "Run Codeflare graphify workflow",
+  pi.registerCommand("codeflare-graphify", {
+    description: "Run Codeflare graphify workflow without shadowing the Pi graphify package command",
     handler: async (args, ctx) => {
       const repo = activeRepo(ctx) ?? ctx.sessionManager.getCwd();
       if (args.trim() === "refresh") {

@@ -1416,7 +1416,9 @@ None.
 
 **Verification:** [Automated test](../../host/__tests__/graphify-clone-prompt.test.js)
 
-**Status:** Implemented
+**Status:** Partial
+
+<!-- coverage-gap: Claude post-clone hook path is implemented and covered. Pi native codeflare-pi.ts implements clone triage through lifecycle events, but Pi-specific tool_execution_end arg-correlation, follow-up emission, same-session idempotency, and failed-clone suppression need dedicated behavioral coverage. -->
 
 ---
 

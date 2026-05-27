@@ -1544,6 +1544,25 @@ warm_pi_npm_dependencies() {
     else
         echo "[entrypoint] Pi extension npm dependencies already present"
     fi
+
+    local pi_settings="${PI_SETTINGS_FILE:-$USER_HOME/.pi/agent/settings.json}"
+    mkdir -p "$(dirname "$pi_settings")"
+    node - "$pi_settings" <<'NODE'
+const fs = require('fs');
+const path = process.argv[2];
+const required = [
+  'npm:@gotgenes/pi-subagents@7.8.1',
+  'npm:@gaodes/pi-graphify@0.2.2',
+  'npm:context-mode@1.0.151',
+];
+let settings = {};
+try { settings = JSON.parse(fs.readFileSync(path, 'utf8')); } catch { settings = {}; }
+const existing = Array.isArray(settings.packages) ? settings.packages : [];
+const byName = new Map();
+for (const spec of existing) byName.set(spec.replace(/@[^/@]+$/, ''), spec);
+for (const spec of required) byName.set(spec.replace(/@[^/@]+$/, ''), spec);
+fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()] }, null, 2) + '\n');
+NODE
 }
 
 update_pi_when_fast_start_disabled() {
