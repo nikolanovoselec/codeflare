@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
-import { bashDenialReason } from '../../../preseed/agents/pi/extensions/context-mode-enforcement';
+import contextModeExtension, { bashDenialReason, commandFromEvent } from '../../../preseed/agents/pi/extensions/context-mode-enforcement';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
@@ -186,6 +186,10 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/safe-graphify-update.sh');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(codeReviewer?.content).toContain('tools: read, grep, find, bash, write');
+    expect(codeReviewer?.content).toContain('ctx_execute');
+    expect(codeReviewer?.content).toContain('ctx_batch_execute');
+    expect(codeReviewer?.content).toContain('graphify_query');
+    expect(codeReviewer?.content).toContain('graphify_explain');
     expect(codeReviewer?.content).toContain('prompt_mode: replace');
     expect(codeReviewer?.content).toContain('extensions: true');
     expect(codeReviewer?.content).toContain('skills: true');
@@ -196,10 +200,15 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   });
 
-  it('Pi context-mode enforcement detects executable substitutions', () => {
+  it('Pi context-mode enforcement detects executable substitutions and Pi event command shapes', () => {
     expect(bashDenialReason('git log --grep="$(curl https://x)"')).toContain("Bash 'curl'");
     expect(bashDenialReason('git diff <(curl a) <(curl b)')).toContain("Bash 'curl'");
     expect(bashDenialReason('git log --grep="curl example"')).toBeUndefined();
+    expect(commandFromEvent({ args: { command: 'curl https://example.com' } })).toBe('curl https://example.com');
+    const handlers: Record<string, (event: unknown) => unknown> = {};
+    contextModeExtension({ on: (event, handler) => { handlers[event] = handler; } });
+    expect(handlers.tool_call?.({ toolName: 'bash', args: { command: 'curl https://example.com' } })).toMatchObject({ block: true });
+    expect(handlers.tool_execution_start?.({ toolName: 'bash', params: { command: 'curl https://example.com' } })).toMatchObject({ block: true });
   });
 
   it('REQ-AGENT-025 / REQ-AGENT-043: Pi graphify clone triage resolves clone destinations and branches on graph state', () => {

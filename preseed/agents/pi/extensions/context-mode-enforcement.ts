@@ -197,6 +197,11 @@ function words(segment: string): string[] {
     .filter(Boolean);
 }
 
+export function commandFromEvent(event: any): string {
+  const input = event?.input ?? event?.params ?? event?.args ?? {};
+  return typeof input.command === "string" ? input.command : "";
+}
+
 export function bashDenialReason(command: string): string | undefined {
   for (const segment of commandSegments(command)) {
     const [first, second] = words(segment);
@@ -260,22 +265,26 @@ function readDenialReason(input: Record<string, unknown>): string | undefined {
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.on("tool_call", (event: any) => {
+  const onToolStart = (event: any) => {
     if (existsSync(BYPASS_FILE)) return;
 
     const toolName = String(event?.toolName ?? "").toLowerCase();
+    const input = (event?.input ?? event?.params ?? event?.args ?? {}) as Record<string, unknown>;
     if (toolName === "read") {
-      const reason = readDenialReason((event?.input ?? {}) as Record<string, unknown>);
+      const reason = readDenialReason(input);
       if (!reason) return;
       return { block: true, reason: `${reason} Bypass is user-only: touch ${BYPASS_FILE}.` };
     }
 
     if (toolName !== "bash") return;
-    const command = String(event?.input?.command ?? "");
+    const command = commandFromEvent(event);
     if (!command.trim()) return;
 
     const reason = bashDenialReason(command);
     if (!reason) return;
     return { block: true, reason: `${reason} Bypass is user-only: touch ${BYPASS_FILE}.` };
-  });
+  };
+
+  pi.on("tool_call", onToolStart);
+  pi.on("tool_execution_start", onToolStart);
 }

@@ -59,7 +59,21 @@ const TOOL_MAP = {
   gemini: { Read: 'read_file', Write: 'write_file', Edit: 'replace', Bash: 'run_shell_command', Grep: 'search_file_content', Glob: 'glob' },
   copilot: { Read: 'read', Write: 'editFiles', Edit: 'editFiles', Bash: 'execute', Grep: 'search', Glob: 'search' },
   opencode: { Read: 'read', Write: 'write', Edit: 'edit', Bash: 'bash', Grep: 'search', Glob: 'glob' },
-  pi: { Read: 'read', Write: 'write', Edit: 'edit', Bash: 'bash', Grep: 'grep', Glob: 'find' },
+  pi: {
+    Read: 'read', Write: 'write', Edit: 'edit', Bash: 'bash', Grep: 'grep', Glob: 'find',
+    'mcp__context-mode__ctx_search': 'ctx_search',
+    'mcp__context-mode__ctx_batch_execute': 'ctx_batch_execute',
+    'mcp__context-mode__ctx_execute': 'ctx_execute',
+    'mcp__context-mode__ctx_execute_file': 'ctx_execute_file',
+    'mcp__context-mode__ctx_fetch_and_index': 'ctx_fetch_and_index',
+    'mcp__graphify__query_graph': 'graphify_query',
+    'mcp__graphify__get_node': 'graphify_explain',
+    'mcp__graphify__get_neighbors': 'graphify_explain',
+    'mcp__graphify__get_community': 'graphify_query',
+    'mcp__graphify__god_nodes': 'graphify_query',
+    'mcp__graphify__shortest_path': 'graphify_path',
+    'mcp__graphify__graph_stats': 'graphify_query',
+  },
 };
 
 const CLAUDE_ONLY_CATEGORIES = new Set(['hook', 'command', 'plugin']);
@@ -164,7 +178,11 @@ function adaptAgentFrontmatter(content, agentId) {
           const record = Object.fromEntries(remapped.map((t) => [t, true]));
           newLines.push(`tools: ${JSON.stringify(record)}`);
         } else if (agentId === 'pi') {
-          const allowed = ['read', 'grep', 'find', 'ls', 'bash', 'edit', 'write'];
+          const allowed = [
+            'read', 'grep', 'find', 'ls', 'bash', 'edit', 'write',
+            'ctx_search', 'ctx_batch_execute', 'ctx_execute', 'ctx_execute_file', 'ctx_fetch_and_index',
+            'graphify_query', 'graphify_path', 'graphify_explain',
+          ];
           const piTools = [...new Set(remapped.filter((t) => allowed.includes(t)))];
           newLines.push(`tools: ${piTools.length > 0 ? piTools.join(', ') : 'none'}`);
         } else {
