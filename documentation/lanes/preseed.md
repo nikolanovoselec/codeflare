@@ -200,7 +200,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`, `.agents/`)
 
-**Manifest structure (126 total source entries: 120 Claude + 6 Pi-native)**:
+**Manifest structure (127 total source entries: 120 Claude + 7 Pi-native)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -307,9 +307,9 @@ vault trigger/route content lives in that preseed rule as folded subsections,
 not a separate rules/vault.md), `consult-llm` skill (depends on
 CC-specific MCP tool). Pi receives native TypeScript extensions for the
 runtime behaviors that cannot be represented as transformed prose:
-`/sdd`, `/graphify`, `/vault`, `/note`, context-mode
-routing enforcement, graphify active-repo/global-graph maintenance,
-local-build blocking, and AI-attribution blocking. Pi receives a separate
+`/sdd`, `/graphify`, `/vault`, `/note`, graphify
+active-repo/global-graph maintenance, local-build blocking, and
+AI-attribution blocking. Pi receives a separate
 `review-command.ts` for the user-invoked `/review` UX and
 `review-enforcement.ts` for PR-boundary review enforcement.
 
