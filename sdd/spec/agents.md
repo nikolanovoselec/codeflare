@@ -57,7 +57,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-config.test.ts), [Automated test](../../host/__tests__/dockerfile-graphify.test.js)
+**Verification:** [Automated test](../../src/__tests__/lib/agent-config.test.ts), [Dockerfile test](../../host/__tests__/dockerfile-graphify.test.js)
 
 **Status:** Implemented
 
@@ -1274,7 +1274,9 @@ None.
 
 **Verification:** [Automated test](../../host/__tests__/entrypoint-graphify-mcp.test.js)
 
-**Status:** Implemented
+**Status:** Partial
+
+<!-- coverage-gap: Claude graphify path is implemented and covered. Pi native AC4 (missing-graph tolerance and post-clone AST-only/Full prompting) has no dedicated behavioral test coverage. -->
 
 ---
 
