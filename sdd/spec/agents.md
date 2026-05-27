@@ -1404,11 +1404,11 @@ None.
 
 1. In advanced session mode only, a PostToolUse hook on `Bash` and `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute` matchers detects `git clone` and `gh repo clone` invocations (anchored token regex, not substring; rejects echoed false positives) and injects a directive. Pi implements the same behavior with native tool lifecycle events and Pi follow-up messages.
 2. The directive branches on whether `<cloned-dir>/graphify-out/graph.json` already exists: if absent, the directive instructs the agent to prompt the user to choose AST-only (free/local) or Full semantic+AST; if present, the directive tells the agent to check freshness and offer AST-only update or Full refresh when stale.
-3. The hook is idempotent per cloned directory per session via a marker file under `/tmp/codeflare-graphify-prompted-<session_id>/`. The marker dir is session-scoped via `session_id` from the hook envelope (fallback `ppid-$PPID`) so a fresh session re-triages the same clone and stale markers do not persist across container restarts.
+3. The hook is idempotent per cloned directory per session via a marker key that includes both the session identifier and cloned repository path. A fresh session re-triages the same clone and stale markers do not persist across container restarts.
 
 **Constraints:**
 
-- The hook never invokes graphify directly. It only injects a directive instructing the agent to prompt the user via AskUserQuestion (or to run `graphify update` for the graph-present branch).
+- The hook never invokes graphify directly. It only injects a directive instructing the agent to prompt the user via AskUserQuestion (or to run the bounded graphify update wrapper for the graph-present branch).
 
 **Priority:** P1
 

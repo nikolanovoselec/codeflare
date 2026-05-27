@@ -65,8 +65,8 @@ function writePromptFiles(): void {
   writeFileSync(MEMORY_PROMPT_FILE, [
     "# Pi memory capture contract",
     "",
-    "1. Delete VARS_FILE first to drain the dedup gate.",
-    "2. Read the transcript slice in VARS_FILE.",
+    "1. Read VARS_FILE into memory.",
+    "2. Immediately delete VARS_FILE to drain the dedup gate.",
     "3. Extract durable observations only: user preferences, decisions, errors and fixes, open blockers, plans, commit/PR/head facts, rejected approaches, and important file paths.",
     "4. Write a detailed markdown note under /home/user/Vault/Raw/Sessions/ with an ISO timestamp filename.",
     "5. If graphify is available, update the Vault graph and merge /home/user/Vault/graphify-out/graph.json into the global graph under the user_vault label. Use best effort and never block the main turn.",
@@ -75,11 +75,12 @@ function writePromptFiles(): void {
   writeFileSync(VAULT_PROMPT_FILE, [
     "# Pi vault extraction contract",
     "",
-    "1. Delete VARS_FILE first to drain the dedup gate.",
-    "2. Read the changed Vault file list in VARS_FILE.",
-    "3. Build or update /home/user/Vault/graphify-out/graph.json from the changed notes using graphify where available.",
-    "4. Preserve the existing user_vault subgraph; merge new nodes/edges monotonically.",
-    "5. Merge the Vault graph into the global graph under the user_vault label and advance the high-water marker only after a successful extraction attempt.",
+    "1. Read VARS_FILE into memory.",
+    "2. Immediately delete VARS_FILE to drain the dedup gate.",
+    "3. Use the changed Vault file list from the in-memory vars payload.",
+    "4. Build or update /home/user/Vault/graphify-out/graph.json from the changed notes using graphify where available.",
+    "5. Preserve the existing user_vault subgraph; merge new nodes/edges monotonically.",
+    "6. Merge the Vault graph into the global graph under the user_vault label and advance the high-water marker only after a successful extraction attempt.",
   ].join("\n"), "utf8");
 }
 
@@ -170,7 +171,7 @@ export default function (pi: ExtensionAPI) {
       transcript: compactMessages(lastMessages),
     }, null, 2), "utf8");
 
-    const prompt = `PROMPT_FILE=${MEMORY_PROMPT_FILE}\nVARS_FILE=${vars}\nRun the Pi memory-capture contract. Delete VARS_FILE first, write the capture under /home/user/Vault/Raw/Sessions/, then best-effort update and merge the Vault/global graph.`;
+    const prompt = `PROMPT_FILE=${MEMORY_PROMPT_FILE}\nVARS_FILE=${vars}\nRun the Pi memory-capture contract. Read VARS_FILE into memory, delete it, write the capture under /home/user/Vault/Raw/Sessions/, then best-effort update and merge the Vault/global graph.`;
     const spawned = spawn("memory-capture", prompt, "Capture session memory");
     if (!spawned) pi.sendUserMessage(`Agent({ subagent_type: "memory-capture", prompt: ${JSON.stringify(prompt)}, description: "Capture session memory", run_in_background: false })`, { deliverAs: "followUp" });
   });
