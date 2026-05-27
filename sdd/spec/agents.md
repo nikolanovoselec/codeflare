@@ -419,7 +419,7 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: entrypoint.sh -->
 <!-- @impl: src/container/container-env.ts -->
-<!-- @test: src/__tests__/routes/preferences.test.ts (fastStartEnabled preference describe -> AC1/AC5 settings toggle + KV persistence) + src/__tests__/container/container-env.test.ts (buildEnvVars describe -> AC1 fast-start propagation to container runtime env) + src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008 AC5 describe -> AC4 fast-start applied on restart) -->
+<!-- @test: src/__tests__/routes/preferences.test.ts (fastStartEnabled preference describe -> AC1/AC5 settings toggle + KV persistence) + src/__tests__/container/container-env.test.ts (buildEnvVars describe -> AC1 fast-start propagation to container runtime env) + src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008 AC5 describe -> AC4 fast-start applied on restart) + host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-012 Fast Start controls Pi update checks + Fast Start OFF removes settings-file update suppressors -> AC2/AC3/AC4) -->
 
 **Intent:** Agent CLIs must start quickly by default, with an option for users who want automatic updates.
 
