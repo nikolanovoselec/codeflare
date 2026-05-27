@@ -1251,11 +1251,11 @@ None.
 **Acceptance Criteria:**
 
 1. The `graphifyy` Python package is installed in every container image at build time with the MCP, SQL, and PDF extras, pinned to a single version Dependabot tracks; version bumps rebuild the image in lockstep.
-2. The graphify MCP server is registered as a session-level capability in every session (default and advanced modes) and exposes the standard graphify tool surface for querying nodes, neighbours, communities, paths, and aggregate stats.
+2. Claude Code receives the graphify MCP server as a session-level capability in every session (default and advanced modes). Pi receives the equivalent native graphify tool package and native graphify skill override; MCP parity in Pi is optional and not required for the Pi graphify workflow.
 3. AC1 and AC2 hold across all paid tiers; the capability functions in sessions without context-mode preseeded because the agent-orchestrated `/graphify` skill keeps the main agent's context bounded via subagent chunking.
-4. The MCP server tolerates a missing graph artefact at startup, presents an empty graph initially, and rebinds within a short polling interval after a graph appears or changes on disk; sessions that clone a repo mid-session do not require a restart.
-5. In advanced session mode only, the user's current active repository is tracked so the MCP server scopes its bind to that repo; resolution walks up to the nearest ancestor containing a Git repository or a graph artefact.
-6. When the active-repo signal is absent or stale, the MCP server falls back to the most recently updated graph artefact in the user's workspace.
+4. The Claude MCP server and Pi native graphify surface both tolerate a missing graph artefact at startup: Claude presents an empty graph initially and rebinds after a graph appears or changes, while Pi prompts for AST-only or Full graph creation after clone and queries once `graphify-out/graph.json` exists.
+5. In advanced session mode only, the user's current active repository is tracked so graphify queries scope to that repo; resolution walks up to the nearest ancestor containing a Git repository or a graph artefact.
+6. When the active-repo signal is absent or stale, graphify falls back to the most recently updated graph artefact in the user's workspace.
 
 **Constraints:**
 
@@ -1355,7 +1355,7 @@ None.
 
 <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md -->
 <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md -->
-<!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch) → AC4-AC5) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi graphify skill override + clone triage helper -> AC1/AC7) -->
+<!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch) → AC4-AC5) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-043 Pi graphify skill override avoids headless DeepSeek and routes Full mode to Pi Agent subagents -> AC7) -->
 
 **Intent:** Before a `/graphify` build dispatches semantic-extraction subagents, the user must explicitly choose between a free AST-only build and a full build that costs LLM tokens. In Pi, this must use local AST extraction plus running-session Pi `Agent` subagents rather than headless DeepSeek extraction. The dispatched subagents run on Sonnet by default for reliable schema compliance.
 
@@ -1383,7 +1383,7 @@ None.
 
 **Status:** Partial
 
-<!-- coverage-gap: AC1-AC3 and AC6 are runtime behavioral checks not covered by the static SKILL.md content test. AC4-AC5 are verified by content test. -->
+<!-- coverage-gap: AC1-AC3 and AC6 are runtime behavioral checks not covered by the static SKILL.md content test. AC4-AC5 are verified by content test; AC7 is covered by the Pi seed/skill invariant test. -->
 
 ---
 

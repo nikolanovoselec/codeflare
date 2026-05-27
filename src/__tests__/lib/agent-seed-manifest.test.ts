@@ -194,7 +194,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(bashDenialReason('git log --grep="curl example"')).toBeUndefined();
   });
 
-  it('Pi graphify clone triage resolves clone destinations and branches on graph state', () => {
+  it('REQ-AGENT-025 / REQ-AGENT-043: Pi graphify clone triage resolves clone destinations and branches on graph state', () => {
     expect(cloneTargetPath('git clone https://github.com/o/r.git', '/home/user/workspace')).toBe('/home/user/workspace/r');
     expect(cloneTargetPath('git clone --branch main --depth 1 https://github.com/o/r.git', '/home/user/workspace')).toBe('/home/user/workspace/r');
     expect(cloneTargetPath('cd /tmp && git clone https://github.com/o/r.git custom-dir', '/home/user/workspace')).toBe('/tmp/custom-dir');
@@ -244,7 +244,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     })).toBeUndefined();
   });
 
-  it('Pi review enforcement ignores failed PR-boundary tool results and tolerates GitHub PR-head lag', () => {
+  it('REQ-AGENT-036: Pi review enforcement ignores failed PR-boundary tool results and tolerates GitHub PR-head lag', () => {
     expect(isFailedToolExecution({ isError: true })).toBe(true);
     expect(isFailedToolExecution({ status: 'error' })).toBe(true);
     expect(isFailedToolExecution({ isError: false, status: 'success' })).toBe(false);
@@ -253,7 +253,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isCurrentReviewHead('stale-head', 'current-pr-head', 'new-local-commit')).toBe(false);
   });
 
-  it('Pi review enforcement accepts only completions for the pending head and spawned agent id', () => {
+  it('REQ-AGENT-040: Pi review enforcement accepts only completions for the pending head and spawned agent id', () => {
     const state = {
       head: 'abc123',
       lanes: ['code-reviewer', 'doc-updater'],
@@ -272,7 +272,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isReviewCompletionForLane(state, 'spec-reviewer', 'spawned-spec')).toBe(false);
   });
 
-  it('Pi review enforcement classifies lanes by changed file surface', () => {
+  it('REQ-AGENT-040: Pi review enforcement classifies lanes by changed file surface', () => {
     expect(classifyReviewFiles(['documentation/lanes/preseed.md'])).toEqual(['doc-updater']);
     expect(classifyReviewFiles(['sdd/spec/agents.md'])).toEqual(['spec-reviewer', 'doc-updater']);
     expect(classifyReviewFiles(['preseed/agents/pi/extensions/review-enforcement.ts'])).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
@@ -283,7 +283,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isPrBoundaryCommand('gh pr view --json number')).toBe(false);
   });
 
-  it('Pi native runtime assets include MCP and npm package config', () => {
+  it('REQ-AGENT-023: Pi native runtime assets include graphify package, MCP config, and skill override', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
     expect(keys.has('.pi/agent/mcp.json')).toBe(true);
     expect(keys.has('.pi/agent/npm/package.json')).toBe(true);
