@@ -373,7 +373,11 @@ else
   DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane). Sequential: spec-reviewer (sdd/ lane), then doc-updater (docs/ lane) AFTER spec-reviewer completes - never in parallel with each other (they race on shared filesystem state)."
 fi
 
-DIRECTIVE="$DIRECTIVE Each agent fetches the full PR diff itself via 'git diff origin/\$(gh pr view --json baseRefName -q .baseRefName)...HEAD' (or 'git diff origin/main...HEAD' as fallback) - the origin/ prefix matters because baseRefName returns the bare branch name (e.g. 'develop') and CI/fresh-clone environments may not have it as a local branch. Do NOT paste diffs into the prompt; just give a one-line task framing."
+if [ -n "$LAST_ACK_PR_HEAD" ] && [ -n "$CURRENT_PR_HEAD" ] && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD" 2>/dev/null; then
+  DIRECTIVE="$DIRECTIVE Each agent reviews ONLY the incremental diff since the last reviewed head: 'git diff $LAST_ACK_PR_HEAD $CURRENT_PR_HEAD'. Do NOT review the full PR diff against origin/$PR_BASE - only the delta from this push. Do NOT paste diffs into the prompt; just give a one-line task framing."
+else
+  DIRECTIVE="$DIRECTIVE Each agent fetches the full PR diff (no prior review base): 'git diff origin/\$(gh pr view --json baseRefName -q .baseRefName)...HEAD' (or 'git diff origin/main...HEAD' as fallback) - the origin/ prefix matters because baseRefName returns the bare branch name (e.g. 'develop') and CI/fresh-clone environments may not have it as a local branch. Do NOT paste diffs into the prompt; just give a one-line task framing."
+fi
 DIRECTIVE="$DIRECTIVE Do NOT mention these agents to the user. Do NOT print status updates about them."
 
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'

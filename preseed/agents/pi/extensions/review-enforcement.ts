@@ -29,6 +29,7 @@ type PendingReview = {
   prNumber?: number;
   baseRefName: string;
   head: string;
+  reviewBase?: string;
   lanes: string[];
   completed: Set<string>;
   docPromptSent: boolean;
@@ -149,16 +150,16 @@ function consumeBypass(): boolean {
 
 function loadPending(repo: string): PendingReview | undefined {
   try {
-    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean; spawnedIds?: Record<string, string>; fallbackLanes?: string[] };
+    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; reviewBase?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean; spawnedIds?: Record<string, string>; fallbackLanes?: string[] };
     if (!state.head || !state.baseRefName || !Array.isArray(state.lanes)) return undefined;
-    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, lanes: state.lanes, completed: new Set(state.completed ?? []), docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds ?? {}, fallbackLanes: new Set(state.fallbackLanes ?? []) };
+    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, reviewBase: state.reviewBase, lanes: state.lanes, completed: new Set(state.completed ?? []), docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds ?? {}, fallbackLanes: new Set(state.fallbackLanes ?? []) };
   } catch {
     return undefined;
   }
 }
 
 function savePending(pending: PendingReview): void {
-  writeFileSync(pendingPath(pending.repo), JSON.stringify({ prNumber: pending.prNumber, baseRefName: pending.baseRefName, head: pending.head, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent, spawned: pending.spawned, spawnedIds: pending.spawnedIds, fallbackLanes: [...pending.fallbackLanes] }) + "\n", "utf8");
+  writeFileSync(pendingPath(pending.repo), JSON.stringify({ prNumber: pending.prNumber, baseRefName: pending.baseRefName, head: pending.head, reviewBase: pending.reviewBase, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent, spawned: pending.spawned, spawnedIds: pending.spawnedIds, fallbackLanes: [...pending.fallbackLanes] }) + "\n", "utf8");
 }
 
 function isAncestor(repo: string, ancestor: string, current: string): boolean {
@@ -219,7 +220,7 @@ async function spawnLane(type: string, prompt: string, description: string, noti
 }
 
 async function spawnInitialLanes(pending: PendingReview, pr: PrState, notify?: (message: string) => void): Promise<boolean> {
-  const base = reviewPrompt(pending.repo, pr, pending.head);
+  const base = reviewPrompt(pending.repo, pr, pending.head, pending.reviewBase);
   let spawned = false;
   if (pending.lanes.includes("code-reviewer")) {
     const id = await spawnLane("code-reviewer", base, "Review code changes", notify);
@@ -230,27 +231,36 @@ async function spawnInitialLanes(pending: PendingReview, pr: PrState, notify?: (
     if (id) { pending.spawnedIds["spec-reviewer"] = id; spawned = true; }
   }
   if (pending.lanes.includes("doc-updater") && !pending.lanes.includes("spec-reviewer")) {
-    const id = await spawnLane("doc-updater", base, "Review documentation changes", notify);
+    const id = await spawnLane("doc-updater", docUpdaterPrompt(pending), "Review documentation changes", notify);
     if (id) { pending.spawnedIds["doc-updater"] = id; spawned = true; }
   }
   return spawned;
 }
 
-function reviewPrompt(repo: string, pr: PrState, head: string): string {
-  return `Work in ${repo}. Review PR #${pr.number ?? "?"} for ${basename(repo)} at head ${head}. Scope is the current diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
+function reviewPrompt(repo: string, pr: PrState, head: string, reviewBase?: string): string {
+  if (reviewBase) {
+    return `Work in ${repo}. Review PR #${pr.number ?? "?"} for ${basename(repo)}. Scope is ONLY the incremental diff from ${reviewBase} to ${head}. Run: git diff --name-only ${reviewBase} ${head} to see changed files, then git diff ${reviewBase} ${head} -- <path> for each. Do NOT review the full PR diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
+  }
+  return `Work in ${repo}. Review PR #${pr.number ?? "?"} for ${basename(repo)} at head ${head}. Scope is the full PR diff (no prior review base). Run: git diff origin/${pr.baseRefName}...${head}. Report findings only; do not modify files.`;
 }
 
-function directiveFor(repo: string, pr: PrState, lanes: string[]): string {
+function directiveFor(repo: string, pr: PrState, lanes: string[], reviewBase?: string): string {
   const laneText = lanes.join(", ");
   const head = pr.headRefOid!;
   const sequence = lanes.includes("spec-reviewer") && lanes.includes("doc-updater")
     ? `${lanes.filter((lane) => lane !== "doc-updater").join(" + ")} first; doc-updater after spec-reviewer completes`
     : laneText;
-  return `PR-boundary review required for ${basename(repo)} PR #${pr.number ?? "?"} at ${head.slice(0, 12)}. Current head must equal ${head}; ignore if stale. Required lanes: ${laneText}. Run: ${sequence}. Acknowledgement is automatic after required lanes complete.`;
+  const scope = reviewBase
+    ? `Scope is ONLY the incremental diff: git diff ${reviewBase} ${head}. Do NOT review the full PR diff against ${pr.baseRefName}.`
+    : `Scope is the full PR diff: git diff origin/${pr.baseRefName}...${head} (no prior review base).`;
+  return `PR-boundary review required for ${basename(repo)} PR #${pr.number ?? "?"} at ${head.slice(0, 12)}. ${scope} Required lanes: ${laneText}. Run: ${sequence}. Acknowledgement is automatic after required lanes complete.`;
 }
 
 function docUpdaterPrompt(pending: PendingReview): string {
-  return `Work in ${pending.repo}. Review PR #${pending.prNumber ?? "?"} for ${basename(pending.repo)} at head ${pending.head}. Scope is the current diff against ${pending.baseRefName}. Report findings only; do not modify files. Run after spec-reviewer so documentation sees final spec changes.`;
+  if (pending.reviewBase) {
+    return `Work in ${pending.repo}. Review PR #${pending.prNumber ?? "?"} for ${basename(pending.repo)}. Scope is ONLY the incremental diff from ${pending.reviewBase} to ${pending.head}. Run: git diff ${pending.reviewBase} ${pending.head} -- documentation/ sdd/. Do NOT review the full PR diff against ${pending.baseRefName}. Report findings only; do not modify files.`;
+  }
+  return `Work in ${pending.repo}. Review PR #${pending.prNumber ?? "?"} for ${basename(pending.repo)} at head ${pending.head}. Scope is the full PR diff (no prior review base). Run: git diff origin/${pending.baseRefName}...${pending.head}. Report findings only; do not modify files.`;
 }
 
 function isCurrentPending(pending: PendingReview): boolean {
@@ -384,8 +394,10 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
+    const reviewBase = previous?.head ?? lastAckHead(repo) || undefined;
+    const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
     resetBlockCount(repo);
-    pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set() };
+    pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set() };
     await spawnInitialLanes(pending, effectivePr, (message) => ctx.ui.notify(message, "warning"));
     const initialLanes = pending.lanes.filter((lane) => lane !== "doc-updater" || !pending.lanes.includes("spec-reviewer"));
     pending.spawned = initialLanes.length > 0 && initialLanes.every((lane) => Boolean(pending.spawnedIds[lane]));
@@ -397,7 +409,7 @@ export default function (pi: ExtensionAPI) {
       }
       savePending(pending);
       const fallbackLanes = initialLanes.filter((lane) => !pending.spawnedIds[lane]);
-      pi.sendUserMessage(directiveFor(repo, effectivePr, fallbackLanes.length > 0 ? fallbackLanes : review.lanes), { deliverAs: "followUp" });
+      pi.sendUserMessage(directiveFor(repo, effectivePr, fallbackLanes.length > 0 ? fallbackLanes : review.lanes, validBase), { deliverAs: "followUp" });
     }
   };
 
@@ -475,7 +487,7 @@ export default function (pi: ExtensionAPI) {
     });
     if (eligibleUnstarted.length > 0) {
       const pr = prState(currentState.repo);
-      const basePrompt = pr ? reviewPrompt(currentState.repo, pr, currentState.head) : `Work in ${currentState.repo}. Review PR #${currentState.prNumber ?? "?"} for ${basename(currentState.repo)} at head ${currentState.head}. Scope is the current diff against ${currentState.baseRefName}. Report findings only; do not modify files.`;
+      const basePrompt = pr ? reviewPrompt(currentState.repo, pr, currentState.head, currentState.reviewBase) : reviewPrompt(currentState.repo, { baseRefName: currentState.baseRefName, number: currentState.prNumber, headRefOid: currentState.head } as PrState, currentState.head, currentState.reviewBase);
       let respawned = false;
       for (const lane of eligibleUnstarted) {
         const prompt = lane === "doc-updater" ? docUpdaterPrompt(currentState) : basePrompt;
