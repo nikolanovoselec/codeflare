@@ -132,8 +132,8 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
       'Dockerfile must install Pi extension dependencies into the image-local cache from the lockfile'
     );
     assert.ok(
-      entrypoint.includes('warm_pi_npm_dependencies') && entrypoint.includes('Warming missing Pi extension npm dependencies from image cache'),
-      'entrypoint must copy the image-local Pi npm cache into ~/.pi/agent/npm after restore'
+      entrypoint.includes('warm_pi_npm_dependencies') && entrypoint.includes('Pi extension npm dependencies symlinked'),
+      'entrypoint must symlink the image-local Pi npm cache into ~/.pi/agent/npm after restore'
     );
   });
 
