@@ -147,6 +147,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: entrypoint.sh::start_vault_monitor_daemon -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md -->
+<!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (three-marker pattern presence → AC2/AC6) -->
 
 **Intent:** A user adds a note in SilverBullet (or any other editor) and within roughly one daemon tick the new content shows up in `mcp__graphify__*` query results.
@@ -214,6 +215,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::_resolve_active -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
+<!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (mcp-lazy resolution chain + active-repo hook structure + vault basename exclusion + fast-path skip → AC1-AC4) -->
 
 **Intent:** A single `mcp__graphify__*` call returns nodes from the vault and from every per-repo graphify-out the session has touched, so cross-cutting questions ("did we ever discuss X with respect to Y") work without manually selecting a graph.

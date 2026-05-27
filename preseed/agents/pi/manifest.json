@@ -22,6 +22,11 @@
       "advanced"
     ]
   },
+  "extensions/memory-vault.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/graphify/SKILL.md": {
     "modes": [
       "default",

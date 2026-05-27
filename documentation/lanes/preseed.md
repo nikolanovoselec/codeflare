@@ -200,7 +200,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`, `.agents/`)
 
-**Manifest structure (127 total source entries: 120 Claude + 7 Pi-native)**:
+**Manifest structure (130 total source entries: 120 Claude + 10 Pi-native)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -245,7 +245,7 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (9): package config, package lock, MCP config, five extension files, and one native graphify skill override.
+- Pi-native runtime assets (10): package config, package lock, MCP config, six extension files, and one native graphify skill override.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
@@ -296,8 +296,8 @@ files exist on disk.
 | Gemini | 58 |
 | Copilot | 13 |
 | OpenCode | 58 |
-| Pi | 66 |
-| **Total** | **362** |
+| Pi | 67 |
+| **Total** | **363** |
 
 **Excluded from non-CC transformed assets**: hooks (CC hook system),
 commands (CC slash commands), plugins (CC plugin system, including
@@ -308,7 +308,8 @@ not a separate rules/vault.md), `consult-llm` skill (depends on
 CC-specific MCP tool). Pi receives native TypeScript extensions for the
 runtime behaviors that cannot be represented as transformed prose:
 `/sdd`, `/graphify`, `/vault`, `/note`, graphify
-active-repo/global-graph maintenance and clone triage, local-build blocking,
+active-repo/global-graph maintenance and clone triage, automatic memory capture,
+Vault graph extraction/global-graph merge, local-build blocking,
 and AI-attribution blocking. Pi receives a dedicated native graphify skill
 that uses local AST extraction plus Pi `Agent` subagents instead of the
 Claude/MCP-specific transformed skill. Pi receives a separate
@@ -328,7 +329,7 @@ native Pi skill overrides under `.agents/skills/`, and adapts Claude agent defin
 `.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`.
 
 **Per-mode counts**: Default mode seeds 52 files, advanced mode
-seeds 357 files. Total array size is 362 (includes variant-per-mode
+seeds 358 files. Total array size is 363 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the
