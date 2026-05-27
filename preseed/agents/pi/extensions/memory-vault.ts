@@ -5,8 +5,9 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const USER_HOME = "/home/user";
@@ -78,9 +79,9 @@ function writePromptFiles(): void {
     "1. Read VARS_FILE into memory.",
     "2. Immediately delete VARS_FILE to drain the dedup gate.",
     "3. Use the changed Vault file list from the in-memory vars payload.",
-    "4. Build or update /home/user/Vault/graphify-out/graph.json from the changed notes using graphify where available.",
+    "4. Enrich /home/user/Vault/graphify-out/graph.json from the changed notes when available tooling permits.",
     "5. Preserve the existing user_vault subgraph; merge new nodes/edges monotonically.",
-    "6. Merge the Vault graph into the global graph under the user_vault label and advance the high-water marker only after a successful extraction attempt.",
+    "6. Do not advance the high-water marker; the Pi extension advances it only after its deterministic graph write and global merge attempt.",
   ].join("\n"), "utf8");
 }
 
@@ -130,8 +131,70 @@ function readVaultMarker(): number {
   try { return Number.parseFloat(readFileSync(VAULT_MARKER_FILE, "utf8").trim()) || 0; } catch { return 0; }
 }
 
+function vaultGraphPath(): string {
+  return join(VAULT_ROOT, "graphify-out", "graph.json");
+}
+
+function stableId(input: string): string {
+  return `vault:${createHash("sha256").update(input).digest("hex").slice(0, 24)}`;
+}
+
+function readGraph(): { nodes: any[]; links: any[] } {
+  try {
+    const graph = JSON.parse(readFileSync(vaultGraphPath(), "utf8"));
+    return {
+      nodes: Array.isArray(graph.nodes) ? graph.nodes : [],
+      links: Array.isArray(graph.links) ? graph.links : Array.isArray(graph.edges) ? graph.edges : [],
+    };
+  } catch {
+    return { nodes: [], links: [] };
+  }
+}
+
+function titleFor(path: string, content: string): string {
+  const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  return heading || basename(path);
+}
+
+function writeDeterministicVaultGraph(changed: string[]): void {
+  const graph = readGraph();
+  const nodes = new Map(graph.nodes.map((node) => [String(node.id), node]));
+  const changedDocIds = new Set(changed.map((path) => stableId(relative(VAULT_ROOT, path))));
+  const nextLinks = graph.links.filter((link) => {
+    const source = String(link.source ?? link.from ?? "");
+    return !changedDocIds.has(source);
+  });
+
+  for (const path of changed) {
+    const rel = relative(VAULT_ROOT, path);
+    const docId = stableId(rel);
+    changedDocIds.add(docId);
+    const isText = /\.(md|txt|json|yaml|yml)$/i.test(path);
+    const content = isText ? readFileSync(path, "utf8") : "";
+    nodes.set(docId, {
+      id: docId,
+      label: titleFor(path, content),
+      type: /\.pdf$/i.test(path) ? "document" : "note",
+      path,
+      source: "user_vault",
+    });
+    if (isText) {
+      for (const match of content.matchAll(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g)) {
+        const targetLabel = match[1].trim();
+        if (!targetLabel) continue;
+        const targetId = stableId(`concept:${targetLabel}`);
+        nodes.set(targetId, { id: targetId, label: targetLabel, type: "concept", source: "user_vault" });
+        nextLinks.push({ source: docId, target: targetId, type: "mentions" });
+      }
+    }
+  }
+
+  mkdirSync(dirname(vaultGraphPath()), { recursive: true });
+  writeFileSync(vaultGraphPath(), JSON.stringify({ nodes: [...nodes.values()], links: nextLinks }, null, 2) + "\n", "utf8");
+}
+
 function bestEffortMergeGraphs(): void {
-  const vaultGraph = join(VAULT_ROOT, "graphify-out", "graph.json");
+  const vaultGraph = vaultGraphPath();
   if (existsSync(vaultGraph)) {
     try { addGraphToGlobal(vaultGraph, "user_vault", VAULT_ROOT); } catch { /* best effort */ }
   }
@@ -187,9 +250,17 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
+    const newest = Math.max(...changed.map((path) => statSync(path).mtimeMs));
+    try {
+      writeDeterministicVaultGraph(changed);
+      bestEffortMergeGraphs();
+      writeFileSync(VAULT_MARKER_FILE, String(newest), "utf8");
+    } catch {
+      return;
+    }
+
     if (existsSync(VAULT_VARS_FILE)) return;
 
-    const newest = Math.max(...changed.map((path) => statSync(path).mtimeMs));
     writeFileSync(VAULT_VARS_FILE, JSON.stringify({
       PROMPT_FILE: VAULT_PROMPT_FILE,
       VARS_FILE: VAULT_VARS_FILE,
@@ -198,7 +269,7 @@ export default function (pi: ExtensionAPI) {
       graphPath: join(VAULT_ROOT, "graphify-out", "graph.json"),
     }, null, 2), "utf8");
 
-    const prompt = `PROMPT_FILE=${VAULT_PROMPT_FILE}\nVARS_FILE=${VAULT_VARS_FILE}\nChanged files:\n${changed.slice(0, 80).join("\n")}\nRun the Pi vault-extract contract, then update ${VAULT_MARKER_FILE} to ${newest}.`;
+    const prompt = `PROMPT_FILE=${VAULT_PROMPT_FILE}\nVARS_FILE=${VAULT_VARS_FILE}\nChanged files:\n${changed.slice(0, 80).join("\n")}\nThe Pi extension already wrote the deterministic Vault graph and advanced ${VAULT_MARKER_FILE} to ${newest}. Run the Pi vault-extract contract only for optional semantic enrichment; do not run Python/processing shell commands and do not update the marker.`;
     const spawned = spawn("vault-extract", prompt, "Extract Vault graph changes");
     if (!spawned) pi.sendUserMessage(`Agent({ subagent_type: "vault-extract", prompt: ${JSON.stringify(prompt)}, description: "Extract Vault graph changes", run_in_background: false })`, { deliverAs: "followUp" });
     bestEffortMergeGraphs();
