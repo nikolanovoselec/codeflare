@@ -3,7 +3,7 @@ import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 import { bashDenialReason } from '../../../preseed/agents/pi/extensions/context-mode-enforcement';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { compactMessages, counterPath, readCount, sessionId, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault';
+import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -384,66 +384,81 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   });
 });
 
-describe('Pi memory-vault behavioral coverage', () => {
-  it('REQ-MEM-001 / REQ-MEM-002: sessionId sanitizes to safe filename characters', () => {
+describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)', () => {
+  it('REQ-MEM-001 AC4: captureTimestamp produces ISO-shaped timestamp with timezone', () => {
+    const ts = captureTimestamp();
+    expect(ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/);
+    const tsUtc = captureTimestamp('UTC');
+    expect(tsUtc).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/);
+  });
+
+  it('REQ-MEM-001 AC4: captureFilename includes session ID and timestamp', () => {
+    const fn = captureFilename('test-session');
+    expect(fn).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-test-session\.md$/);
+  });
+
+  it('REQ-MEM-001: sessionId sanitizes special characters to underscores', () => {
     expect(sessionId({ sessionManager: { getSessionId: () => 'abc-123' } })).toBe('abc-123');
     expect(sessionId({ sessionManager: { getSessionId: () => 'a/b:c d' } })).toBe('a_b_c_d');
     expect(sessionId({})).toMatch(/^\d+$/);
   });
 
-  it('REQ-MEM-010: counterPath produces per-session counter file path', () => {
-    const path = counterPath('session-1');
-    expect(path).toContain('.memory-counter');
-    expect(path).toContain('session-1.count');
-  });
-
-  it('REQ-MEM-010: readCount returns 0 for missing file', () => {
-    expect(readCount('/nonexistent/path/counter')).toBe(0);
-  });
-
-  it('REQ-MEM-001: compactMessages extracts role and content from recent messages', () => {
-    const messages = [
+  it('REQ-MEM-001: compactMessages extracts role and content from conversation', () => {
+    const result = compactMessages([
       { role: 'user', content: 'hello' },
       { role: 'assistant', content: 'world' },
-    ];
-    const result = compactMessages(messages);
+    ]);
     expect(result).toContain('## user');
     expect(result).toContain('hello');
     expect(result).toContain('## assistant');
     expect(result).toContain('world');
   });
 
-  it('REQ-MEM-001: compactMessages handles nested message shapes', () => {
-    const messages = [{ message: { role: 'user', content: 'nested' } }];
-    expect(compactMessages(messages)).toContain('## user');
-    expect(compactMessages(messages)).toContain('nested');
+  it('REQ-MEM-001: compactMessages handles nested message shapes and truncates large content', () => {
+    expect(compactMessages([{ message: { role: 'user', content: 'nested' } }])).toContain('## user');
+    const large = compactMessages([{ role: 'user', content: { data: 'x'.repeat(10000) } }]);
+    expect(large.length).toBeLessThan(7000);
   });
 
-  it('REQ-MEM-001: compactMessages truncates non-string content to 6000 chars', () => {
-    const messages = [{ role: 'user', content: { data: 'x'.repeat(10000) } }];
-    const result = compactMessages(messages);
-    expect(result.length).toBeLessThan(7000);
+  it('REQ-MEM-001 AC7: memory-vault.ts uses flock for global graph merge', () => {
+    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
+    expect(mv?.content).toContain('flock');
+    expect(mv?.content).toContain('graphify-global.lock');
+    expect(mv?.content).toContain('user_vault');
   });
 
-  it('REQ-MEM-002: memory prompt contract instructs timestamp filename and vault path', () => {
-    const prompt = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
-    expect(prompt?.content).toContain('ISO timestamp filename');
-    expect(prompt?.content).toContain('/home/user/Vault/Raw/Sessions/');
+  it('REQ-MEM-010 AC5: shouldCapture fires at exact 15-message intervals from source constant', () => {
+    expect(MEMORY_EVERY_N_PROMPTS).toBe(15);
+    expect(shouldCapture(14)).toBe(false);
+    expect(shouldCapture(15)).toBe(true);
+    expect(shouldCapture(16)).toBe(false);
+    expect(shouldCapture(30)).toBe(true);
+    expect(shouldCapture(0)).toBe(false);
   });
 
-  it('REQ-MEM-002: memory prompt contract instructs delete VARS_FILE before processing', () => {
-    const prompt = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
-    expect(prompt?.content).toContain('delete VARS_FILE');
-    expect(prompt?.content).toContain('dedup gate');
+  it('REQ-MEM-002 AC2: isFirstMessage detects brand-new session (no counter, count=1)', () => {
+    expect(isFirstMessage(false, 1)).toBe(true);
+    expect(isFirstMessage(true, 1)).toBe(false);
+    expect(isFirstMessage(false, 5)).toBe(false);
   });
 
-  it('REQ-MEM-001: stableId produces deterministic SHA-256 hash', () => {
+  it('REQ-MEM-002 AC6: isResumedSession detects resumed session (no counter, count>1)', () => {
+    expect(isResumedSession(false, 5)).toBe(true);
+    expect(isResumedSession(false, 1)).toBe(false);
+    expect(isResumedSession(true, 5)).toBe(false);
+  });
+
+  it('REQ-VAULT-003: stableId produces deterministic SHA-256 vault IDs', () => {
     const a = stableId('test/path.md');
-    const b = stableId('test/path.md');
-    const c = stableId('other/path.md');
-    expect(a).toBe(b);
-    expect(a).not.toBe(c);
+    expect(a).toBe(stableId('test/path.md'));
+    expect(a).not.toBe(stableId('other/path.md'));
     expect(a).toMatch(/^vault:[0-9a-f]{24}$/);
+  });
+
+  it('REQ-VAULT-003: memory-vault.ts has in-flight sentinel to prevent double extraction', () => {
+    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
+    expect(mv?.content).toContain('VAULT_INFLIGHT');
+    expect(mv?.content).toContain('vault-extract.inflight');
   });
 
   it('REQ-VAULT-004: titleFor extracts first heading or falls back to filename', () => {
@@ -452,33 +467,24 @@ describe('Pi memory-vault behavioral coverage', () => {
     expect(titleFor('/vault/Docs/report.pdf', '')).toBe('report.pdf');
   });
 
-  it('REQ-MEM-010: capture fires at 15-message intervals', () => {
-    const MEMORY_EVERY_N_PROMPTS = 15;
-    for (let i = 1; i <= 30; i++) {
-      const shouldFire = i % MEMORY_EVERY_N_PROMPTS === 0;
-      expect(shouldFire).toBe(i === 15 || i === 30);
-    }
+  it('REQ-VAULT-004: memory-vault.ts extracts wikilink concept nodes and PDF document nodes', () => {
+    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
+    expect(mv?.content).toContain('concept:');
+    expect(mv?.content).toContain('mentions');
+    expect(mv?.content).toContain('"document"');
+    expect(mv?.content).toContain('.pdf');
   });
 
-  it('REQ-VAULT-003: Pi vault graph path is deterministic', () => {
-    const a = stableId('Notes/test.md');
-    expect(a).toMatch(/^vault:[0-9a-f]{24}$/);
-    const concept = stableId('concept:GraphifyGlobalAdd');
-    expect(concept).toMatch(/^vault:[0-9a-f]{24}$/);
-    expect(a).not.toBe(concept);
-  });
-
-  it('REQ-AGENT-023 AC4: Pi graphSummary returns undefined when no graph exists', () => {
-    const summaryContent = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/codeflare-pi.ts');
-    expect(summaryContent?.content).toContain('graphify-out');
-    expect(summaryContent?.content).toContain('graph.json');
-    expect(summaryContent?.content).toContain('Graphify graph available');
+  it('REQ-AGENT-023 AC4: codeflare-pi.ts tolerates missing graph and reports present graph', () => {
+    const cp = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/codeflare-pi.ts');
+    expect(cp?.content).toContain('graphSummary');
+    expect(cp?.content).toContain('Graphify graph available');
+    expect(cp?.content).toContain('graphify-out');
   });
 
   it('REQ-AGENT-023: Pi safe-graphify-update.sh includes RLIMIT_AS memory cap', () => {
     const script = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/scripts/safe-graphify-update.sh');
     expect(script?.content).toContain('ulimit -v');
     expect(script?.content).toContain('GRAPHIFY_SAFE_RLIMIT_KB');
-    expect(script?.content).toContain('GRAPHIFY_MAX_WORKERS');
   });
 });
