@@ -404,7 +404,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("subagents:failed", onSubagentFailed);
   (pi as any).events?.on?.("subagents:failed", (event: any) => onSubagentFailed(event, { sessionManager: { getCwd: () => process.cwd() }, ui: { notify: () => undefined } }));
 
-  pi.on("agent_end", (_event, ctx) => {
+  pi.on("agent_end", async (_event, ctx) => {
     const state = hydratePending(ctx);
     if (!state) return;
     if (acked(state.repo, state.head) || consumeBypass()) {
@@ -417,18 +417,58 @@ export default function (pi: ExtensionAPI) {
       pending = undefined;
       return;
     }
-    const currentState = loadPending(state.repo) ?? state;
-    const hasUnstartedLane = currentState.lanes.some((lane) => {
-      if (currentState.completed.has(lane) || currentState.spawnedIds[lane]) return false;
-      return !(lane === "doc-updater" && currentState.lanes.includes("spec-reviewer") && !currentState.completed.has("spec-reviewer"));
-    });
-    if (!hasUnstartedLane && Object.keys(currentState.spawnedIds).length > 0) {
-      return;
-    }
+
     const service = subagentsService();
+    const currentState = loadPending(state.repo) ?? state;
+    for (const [lane, spawnedId] of Object.entries(currentState.spawnedIds)) {
+      const record = service?.getRecord?.(spawnedId);
+      if (record?.status === "completed" || record?.status === "steered") {
+        await markCompleted(lane, ctx, spawnedId);
+        return;
+      }
+      if (["error", "stopped", "aborted"].includes(String(record?.status ?? ""))) {
+        delete currentState.spawnedIds[lane];
+        currentState.fallbackLanes.add(lane);
+        currentState.spawned = Object.keys(currentState.spawnedIds).length > 0;
+        savePending(currentState);
+        ctx.ui.notify(`PR-boundary ${lane} ended with ${record.status} for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}; review remains pending.`, "warning");
+        return;
+      }
+      if (!record && !service?.hasRunning?.()) {
+        delete currentState.spawnedIds[lane];
+        currentState.spawned = Object.keys(currentState.spawnedIds).length > 0;
+        savePending(currentState);
+      }
+    }
+
     if (service?.hasRunning?.()) {
       return;
     }
+
+    const eligibleUnstarted = currentState.lanes.filter((lane) => {
+      if (currentState.completed.has(lane) || currentState.spawnedIds[lane]) return false;
+      return !(lane === "doc-updater" && currentState.lanes.includes("spec-reviewer") && !currentState.completed.has("spec-reviewer"));
+    });
+    if (eligibleUnstarted.length > 0) {
+      const pr = prState(currentState.repo);
+      const basePrompt = pr ? reviewPrompt(currentState.repo, pr, currentState.head) : `Work in ${currentState.repo}. Review PR #${currentState.prNumber ?? "?"} for ${basename(currentState.repo)} at head ${currentState.head}. Scope is the current diff against ${currentState.baseRefName}. Report findings only; do not modify files.`;
+      let respawned = false;
+      for (const lane of eligibleUnstarted) {
+        const prompt = lane === "doc-updater" ? docUpdaterPrompt(currentState) : basePrompt;
+        const id = await spawnLane(lane, prompt, lane === "doc-updater" ? "Review documentation changes" : lane === "spec-reviewer" ? "Review spec changes" : "Review code changes");
+        if (id) {
+          currentState.spawnedIds[lane] = id;
+          currentState.fallbackLanes.delete(lane);
+          respawned = true;
+        } else {
+          currentState.fallbackLanes.add(lane);
+        }
+      }
+      currentState.spawned = Object.keys(currentState.spawnedIds).length > 0;
+      savePending(currentState);
+      if (respawned) return;
+    }
+
     const count = incrementBlockCount(state.repo);
     if (count >= 3) {
       ctx.ui.notify(`Review enforcement circuit breaker opened after ${count} reminders for ${basename(state.repo)}.`, "warning");
