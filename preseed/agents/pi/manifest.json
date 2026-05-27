@@ -33,6 +33,12 @@
       "advanced"
     ]
   },
+  "scripts/safe-graphify-update.sh": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/review-command.ts": {
     "modes": [
       "advanced"

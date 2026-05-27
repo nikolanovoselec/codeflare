@@ -200,7 +200,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`, `.agents/`)
 
-**Manifest structure (130 total source entries: 120 Claude + 10 Pi-native)**:
+**Manifest structure (131 total source entries: 120 Claude + 11 Pi-native)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -245,7 +245,7 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (10): package config, package lock, MCP config, six extension files, and one native graphify skill override.
+- Pi-native runtime assets (11): package config, package lock, MCP config, six extension files, one native graphify skill override, and one Pi graphify wrapper script.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
@@ -296,8 +296,8 @@ files exist on disk.
 | Gemini | 58 |
 | Copilot | 13 |
 | OpenCode | 58 |
-| Pi | 67 |
-| **Total** | **363** |
+| Pi | 68 |
+| **Total** | **364** |
 
 **Excluded from non-CC transformed assets**: hooks (CC hook system),
 commands (CC slash commands), plugins (CC plugin system, including
@@ -323,13 +323,13 @@ remaps tool names in agent definition frontmatter, (3) removes
 references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents). Pi additionally
 loads `preseed/agents/pi/manifest.json`, emits native runtime files
-to `.pi/agent/extensions/`, `.pi/agent/mcp.json`,
+to `.pi/agent/extensions/`, `.pi/agent/scripts/`, `.pi/agent/mcp.json`,
 `.pi/agent/npm/package.json`, `.pi/agent/npm/package-lock.json`, and
 native Pi skill overrides under `.agents/skills/`, and adapts Claude agent definitions into
 `.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`.
 
 **Per-mode counts**: Default mode seeds 52 files, advanced mode
-seeds 358 files. Total array size is 363 (includes variant-per-mode
+seeds 359 files. Total array size is 364 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the

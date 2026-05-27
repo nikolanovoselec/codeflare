@@ -26,8 +26,8 @@ function ensureDirs(): void {
   mkdirSync(join(VAULT_ROOT, "Raw", "Sessions"), { recursive: true });
 }
 
-function shell(command: string, cwd = USER_HOME): string {
-  return execFileSync("bash", ["-lc", command], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+function addGraphToGlobal(graph: string, tag: string, cwd: string): void {
+  execFileSync("flock", ["-w", "5", GLOBAL_GRAPH_LOCK, "graphify", "global", "add", graph, "--as", tag], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
 function subagentsService(): any | undefined {
@@ -132,12 +132,12 @@ function readVaultMarker(): number {
 function bestEffortMergeGraphs(): void {
   const vaultGraph = join(VAULT_ROOT, "graphify-out", "graph.json");
   if (existsSync(vaultGraph)) {
-    try { shell(`flock -w 5 ${GLOBAL_GRAPH_LOCK} graphify global add ${JSON.stringify(vaultGraph)} --as user_vault`, VAULT_ROOT); } catch { /* best effort */ }
+    try { addGraphToGlobal(vaultGraph, "user_vault", VAULT_ROOT); } catch { /* best effort */ }
   }
   try {
     const repo = readFileSync(join(CACHE_DIR, "graphify-active-cwd"), "utf8").trim();
     const repoGraph = join(repo, "graphify-out", "graph.json");
-    if (repo && existsSync(repoGraph)) shell(`flock -w 5 ${GLOBAL_GRAPH_LOCK} graphify global add ${JSON.stringify(repoGraph)} --as ${JSON.stringify(basename(repo))}`, repo);
+    if (repo && existsSync(repoGraph)) addGraphToGlobal(repoGraph, basename(repo), repo);
   } catch { /* best effort */ }
 }
 
@@ -148,8 +148,7 @@ export default function (pi: ExtensionAPI) {
     ensureDirs();
     writePromptFiles();
     bestEffortMergeGraphs();
-    const newest = newestVaultMtime();
-    if (!existsSync(VAULT_MARKER_FILE)) writeFileSync(VAULT_MARKER_FILE, String(newest), "utf8");
+    if (!existsSync(VAULT_MARKER_FILE)) writeFileSync(VAULT_MARKER_FILE, "0", "utf8");
   });
 
   pi.on("before_agent_start", (event: any, ctx: any) => {

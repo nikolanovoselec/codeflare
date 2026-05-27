@@ -1234,6 +1234,7 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh -->
+<!-- @impl: preseed/agents/pi/scripts/safe-graphify-update.sh -->
 <!-- @impl: Dockerfile -->
 <!-- @impl: entrypoint.sh -->
 <!-- @test: host/__tests__/entrypoint-graphify-mcp.test.js (MCP server registration in ~/.claude.json → AC2) -->
@@ -1370,7 +1371,7 @@ None.
 4. In advanced session mode only, Part B semantic subagents use a model capable of reliable structured-output schema compliance so that the resulting graph nodes are well-formed.
 5. Opus is never used from this skill.
 6. The Part C merge step preserves all data structures produced by Part B subagents - including hyperedges - in the merged output; no field present in the semantic extraction result is silently dropped.
-7. Pi's native graphify skill does not instruct the agent to run headless `graphify extract --backend deepseek` for the interactive workflow; AST-only mode uses local `graphify update`, and Full mode uses Pi `Agent` subagents.
+7. Pi's native graphify skill does not instruct the agent to run headless `graphify extract --backend deepseek` for the interactive workflow; AST-only mode uses the Pi-owned bounded graphify update wrapper, and Full mode uses Pi `Agent` subagents.
 
 **Constraints:**
 

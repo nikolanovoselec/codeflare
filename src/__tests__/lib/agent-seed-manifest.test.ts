@@ -166,6 +166,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const skills = piDocs.filter((d) => d.key.startsWith('.agents/skills/'));
     const agents = piDocs.filter((d) => d.key.startsWith('.pi/agent/agents/') && !d.key.endsWith('AGENTS.md'));
     const extensions = piDocs.filter((d) => d.key.startsWith('.pi/agent/extensions/'));
+    const scripts = piDocs.filter((d) => d.key.startsWith('.pi/agent/scripts/'));
     expect(skills.length).toBeGreaterThan(0);
     expect(extensions.map((d) => d.key).sort()).toEqual([
       '.pi/agent/extensions/codeflare-pi.ts',
@@ -179,6 +180,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/spec-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/doc-updater.md');
     expect(skills.map((d) => d.key).filter((key) => key === '.agents/skills/graphify/SKILL.md')).toHaveLength(1);
+    expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/safe-graphify-update.sh');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(codeReviewer?.content).toContain('tools: read, grep, find, bash, write');
     expect(codeReviewer?.content).toContain('prompt_mode: replace');
@@ -186,6 +188,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(codeReviewer?.content).toContain('skills: true');
     expect(codeReviewer?.content).toContain('inherit_context: true');
     expect(codeReviewer?.content).toContain('run_in_background: false');
+    const memoryCapture = agents.find((d) => d.key === '.pi/agent/agents/memory-capture.md');
+    expect(memoryCapture?.content).toContain('model: sonnet');
 
   });
 

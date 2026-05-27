@@ -65,7 +65,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Verification:** [Integration test](../../host/__tests__/memory-capture-hook.test.js)
 
-**Status:** Implemented
+**Status:** Partial
+
+<!-- coverage-gap: Claude hook path is fully implemented and tested. Pi native memory-vault.ts implements per-15-prompt trigger and subagent dispatch, but Pi-specific timestamp assertion, timezone offset validation, and same-turn graph-merge verification still need behavioral coverage. -->
 
 ---
 
@@ -74,7 +76,6 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh -->
-<!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture-hook describe → tilde expansion + .vars schema + first-message graphify directive + timezone fallback chain → AC1-AC4) -->
 <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh describe → happy paths UTC + Europe/Zurich + offset-shape rejection → AC5) -->
 <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh describe → Europe/Zurich + ISO_TS ending in +0000 rejected → AC6) -->
@@ -104,7 +105,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Verification:** [Automated test](../../host/__tests__/memory-capture-hook.test.js)
 
-**Status:** Implemented
+**Status:** Partial
+
+<!-- coverage-gap: Claude hook path is fully implemented and tested. Pi native memory capture currently carries prompt/counter state to the subagent but does not structurally enforce the timestamp assertion contract in this REQ. -->
 
 ---
 

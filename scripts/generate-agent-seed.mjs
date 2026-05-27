@@ -138,7 +138,7 @@ function remapTools(toolsArray, agentId) {
 }
 
 /**
- * Adapt an agent definition's frontmatter: remap tools, remove model field.
+ * Adapt an agent definition's frontmatter: remap tools, remove model field unless the target supports model frontmatter.
  * Body content gets path adaptation only.
  */
 function adaptAgentFrontmatter(content, agentId) {
@@ -151,7 +151,7 @@ function adaptAgentFrontmatter(content, agentId) {
   let sawTools = false;
 
   for (const line of lines) {
-    if (line.startsWith('model:')) continue;
+    if (line.startsWith('model:') && agentId !== 'pi') continue;
 
     if (line.startsWith('tools:')) {
       sawTools = true;
@@ -236,6 +236,7 @@ function validateModes(manifest, label) {
 function piNativeKey(withinPi) {
   if (withinPi.startsWith('extensions/')) return `.pi/agent/${withinPi}`;
   if (withinPi.startsWith('skills/')) return `.agents/${withinPi}`;
+  if (withinPi.startsWith('scripts/')) return `.pi/agent/${withinPi}`;
   if (withinPi === 'package.json') return '.pi/agent/npm/package.json';
   if (withinPi === 'package-lock.json') return '.pi/agent/npm/package-lock.json';
   if (withinPi === 'mcp.json') return '.pi/agent/mcp.json';

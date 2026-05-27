@@ -32,7 +32,7 @@ Do **not** use headless `graphify extract --backend deepseek` for normal interac
 Run from the repo root:
 
 ```bash
-bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .
+bash /home/user/.pi/agent/scripts/safe-graphify-update.sh .
 graphify cluster-only . --no-viz
 ```
 

@@ -138,7 +138,7 @@ function maybeMergeGlobalGraph(repo: string): void {
   const graph = join(repo, "graphify-out", "graph.json");
   if (!existsSync(graph)) return;
   try {
-    shell(`flock -w 5 ${GLOBAL_GRAPH_LOCK} graphify global add ${JSON.stringify(graph)} --as ${JSON.stringify(basename(repo))}`, repo);
+    execFileSync("flock", ["-w", "5", GLOBAL_GRAPH_LOCK, "graphify", "global", "add", graph, "--as", basename(repo)], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   } catch {
     // Best effort; graphify CLI or global graph may be unavailable.
   }

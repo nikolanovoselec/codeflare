@@ -7,7 +7,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 - REQ-AGENT-001 updated: Pi extension npm dependencies are preinstalled into an image-local cache and copied into user config after restore, avoiding Pi's first-launch npm install delay.
 - REQ-AGENT-012 updated: Fast Start now suppresses Pi startup network/update checks, while disabling Fast Start restores Pi update paths alongside the other CLI agents.
 - REQ-AGENT-023 / REQ-AGENT-025 / REQ-AGENT-043 updated: Pi receives a native graphify package and skill override, post-clone graph triage through Pi lifecycle events, and an interactive build-mode split where AST-only uses the bounded graphify wrapper and Full mode uses Pi Agent semantic subagents instead of headless DeepSeek extraction.
-- REQ-MEM-001 / REQ-MEM-010 / REQ-VAULT-003 / REQ-VAULT-004 updated: Pi receives native lifecycle automation for per-15-prompt memory capture, Vault edit extraction, and best-effort Vault/repo graph merges into the unified global graph.
+- REQ-MEM-001 / REQ-MEM-010 / REQ-VAULT-003 / REQ-VAULT-004 updated: Pi receives native lifecycle automation for per-15-prompt memory capture, Vault edit extraction, and best-effort Vault/repo graph merges into the unified global graph. Memory capture is marked Partial until Pi-specific timestamp assertion and graph-merge behavior have dedicated coverage.
 
 ## 2026-05-26
 
