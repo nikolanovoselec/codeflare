@@ -1243,6 +1243,7 @@ None.
 <!-- @test: host/__tests__/safe-graphify-update.test.js -->
 <!-- @test: host/__tests__/entrypoint-devshm-prereq.test.js (REQ-AGENT-023 prereq: /dev/shm tmpfs mount in entrypoint.sh describe -> /dev/shm mountpoint after entrypoint runs + Python multiprocessing.Lock allocates + idempotent on warm boot -> AC1 graphify Python multiprocessing prerequisite) -->
 <!-- @test: host/__tests__/context-mode-version-pin.test.js (context-mode plugin.json version pin describe -> at least v1.0.151 -> regression sentinel for issue #671 fix surface; REQ-AGENT-005 AC4/AC5 context-mode version floor) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-023 Pi native runtime assets include graphify npm package, MCP config, and graphify skill override -> AC2 Pi-equivalent native graphify surface) -->
 
 **Intent:** Every container ships the graphify code-knowledge-graph capability as ambient infrastructure, so any session (default or advanced session mode) can query an existing graph or build a new one without per-tier provisioning.
 

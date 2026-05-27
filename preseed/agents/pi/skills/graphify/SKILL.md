@@ -32,11 +32,11 @@ Do **not** use headless `graphify extract --backend deepseek` for normal interac
 Run from the repo root:
 
 ```bash
-graphify update .
+bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .
 graphify cluster-only . --no-viz
 ```
 
-This re-extracts code structure only and does not require any LLM API key. Use this by default for code-only repos or when the user chooses free/fast mode.
+The safe wrapper runs bounded local code extraction and avoids unbounded graphify subprocesses in the 1-CPU container. This does not require any LLM API key. Use this by default for code-only repos or when the user chooses free/fast mode.
 
 After graph creation/update, merge into the global graph when possible:
 

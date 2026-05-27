@@ -21,14 +21,14 @@ export function renderGraphifyCloneDirective(action: GraphifyCloneAction): strin
     return [
       `Repository cloned at ${action.repo} and an existing graphify graph was found.`,
       "Check whether source files changed since the graph was built.",
-      "If stale, ask the user whether to run the free AST-only update (`graphify update .`) or a full AST + semantic refresh using Pi Agent subagents.",
+      "If stale, ask the user whether to run the free AST-only update (`bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .`) or a full AST + semantic refresh using Pi Agent subagents.",
       "If fresh, use `graphify_query`, `graphify_path`, and `graphify_explain` before broad text search.",
     ].join("\n");
   }
   return [
     `Repository cloned at ${action.repo}; no graphify graph exists yet.`,
     "Ask the user to choose a graph build mode before long-running work:",
-    "1. AST-only — free, local, no LLM/API key; builds structural code graph with `graphify update .` then `graphify cluster-only .`.",
+    "1. AST-only — free, local, no LLM/API key; builds structural code graph with `bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .` then `graphify cluster-only .`.",
     "2. Full semantic + AST — local AST plus bounded Pi Agent subagent waves for docs/papers/images, then merge and cluster.",
     "Do not use headless `graphify extract --backend deepseek` for this interactive workflow.",
   ].join("\n");
