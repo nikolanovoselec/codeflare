@@ -1632,8 +1632,13 @@ update_pi_when_fast_start_disabled() {
 # R2 excludes **/node_modules/** by design, so restored ~/.pi/agent/npm has
 # package.json but no installed packages. Copying the image cache prevents Pi
 # from running a slow npm install on first launch.
-warm_pi_npm_dependencies
-update_pi_when_fast_start_disabled
+# Non-fatal: under `set -euo pipefail` an unguarded failure here aborts the
+# entrypoint before the init-complete flag is written (see touch near end of
+# MAIN EXECUTION), which leaves the terminal server gated in "warming up"
+# forever and no session can attach. A failed Pi warm-up must degrade, not
+# block startup. Same cold-start discipline as PR #364/#365.
+warm_pi_npm_dependencies || echo "[entrypoint] WARNING: warm_pi_npm_dependencies failed; continuing startup"
+update_pi_when_fast_start_disabled || echo "[entrypoint] WARNING: update_pi_when_fast_start_disabled failed; continuing startup"
 
 # Purge npm cache - regenerated on demand, 200MB+ of dead weight from
 # runtime npm install calls (Pi packages, context-mode, etc.)
