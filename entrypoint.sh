@@ -1608,11 +1608,6 @@ const disabledPackageIds = new Set(['npm:context-mode']);
 const disabledPackages = [
   { source: 'npm:context-mode@1.0.151', extensions: [], skills: [] },
 ];
-const disabledExtensions = [
-  '-extensions/context-mode-enforcement.ts',
-  '-extensions/context-status-footer.ts',
-  '-extensions/enforce-ctx-mode-bash.ts',
-];
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;
@@ -1633,9 +1628,7 @@ for (const spec of existing) {
 }
 for (const spec of required) byName.set(identity(spec), spec);
 for (const spec of disabledPackages) byName.set(identity(spec.source), spec);
-const extensions = Array.isArray(settings.extensions) ? settings.extensions.filter((entry) => !disabledExtensions.includes(entry)) : [];
-for (const entry of disabledExtensions) extensions.push(entry);
-fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()], extensions }, null, 2) + '\n');
+fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()] }, null, 2) + '\n');
 NODE
 }
 

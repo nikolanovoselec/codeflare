@@ -17,6 +17,13 @@ import { ALL_REVIEW_LANES, classifyReviewFiles, isCurrentReviewHead, isFailedToo
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
+// Circuit-breaker bounds. A pending review for a given HEAD that cannot make
+// progress (e.g. the subagent service ctx went stale after a compaction) must
+// stop re-spawning and re-reminding instead of spiralling unbounded. Latch once
+// we exceed either bound; the counter is reset on real progress.
+const MAX_REVIEW_ATTEMPTS = 5;
+const MAX_REVIEW_AGE_MS = 20 * 60 * 1000;
+
 type PrState = {
   state?: string;
   baseRefName?: string;
@@ -157,6 +164,24 @@ function incrementBlockCount(repo: string): number {
   return count;
 }
 
+function breakerPath(repo: string): string {
+  return join(repo, ".git", "sdd-review-breaker");
+}
+
+// The breaker latch is keyed by HEAD: once open for a head, all enforcement for
+// that exact head becomes a no-op until a new head is pushed or the user acks/bypasses.
+function isBreakerOpen(repo: string, head: string): boolean {
+  try { return readFileSync(breakerPath(repo), "utf8").trim() === head; } catch { return false; }
+}
+
+function openBreaker(repo: string, head: string): void {
+  writeFileSync(breakerPath(repo), `${head}\n`, "utf8");
+}
+
+function clearBreaker(repo: string): void {
+  try { unlinkSync(breakerPath(repo)); } catch { /* best effort */ }
+}
+
 function consumeBypass(): boolean {
   if (!existsSync(REVIEW_BYPASS)) return false;
   try { unlinkSync(REVIEW_BYPASS); } catch { /* best effort */ }
@@ -272,7 +297,16 @@ async function subagentsService(): Promise<SubagentsServiceLike | undefined> {
   return (await importSubagentsAccessor())?.();
 }
 
+function isRealSessionCtx(ctx: unknown): boolean {
+  // pi-subagents builds the parent snapshot from this ctx and reads ctx.modelRegistry.
+  // A fabricated/background stub (e.g. the one synthesised for the subagents:completed
+  // event) lacks it; seeding such a ctx corrupts the service so that every subsequent
+  // spawn throws "extension ctx is stale". Only ever seed a genuine session ctx.
+  return Boolean(ctx && typeof ctx === "object" && (ctx as { modelRegistry?: unknown }).modelRegistry);
+}
+
 function refreshSubagentsContext(service: SubagentsServiceLike, ctx: unknown): void {
+  if (!isRealSessionCtx(ctx)) return;
   try {
     if (typeof service.runtime?.setSessionContext === "function") service.runtime.setSessionContext(ctx);
     else if (service.runtime && typeof service.runtime === "object") service.runtime.currentCtx = ctx;
@@ -348,6 +382,14 @@ export default function (pi: ExtensionAPI) {
   let pending: PendingReview | undefined;
   const toolStartArgs = new Map<string, any>();
 
+  // Background events (subagents:completed/failed) arrive without a usable session ctx.
+  // Remember the most recent real ctx from live handlers so doc-updater can still be
+  // spawned (and the service ctx re-seeded) when a reviewer completes off-turn.
+  let lastCtx: any;
+  const remember = (ctx: any): void => { if (isRealSessionCtx(ctx)) lastCtx = ctx; };
+  const completionCtx = (): any =>
+    isRealSessionCtx(lastCtx) ? lastCtx : { sessionManager: { getCwd: () => process.cwd() }, ui: { notify: () => undefined } };
+
   function toolEventId(event: any): string | undefined {
     const id = event?.toolCallId || event?.toolUseId || event?.id;
     return typeof id === "string" ? id : undefined;
@@ -411,6 +453,7 @@ export default function (pi: ExtensionAPI) {
     }
     publishReviewResult(state, type, result, ctx);
     state.completed.add(type);
+    resetBlockCount(state.repo); // a lane completing is progress: reset the breaker patience counter
     if (type === "spec-reviewer" && state.lanes.includes("doc-updater") && !state.docPromptSent) {
       state.docPromptSent = true;
       savePending(state);
@@ -433,6 +476,7 @@ export default function (pi: ExtensionAPI) {
     if (state.lanes.every((lane) => state.completed.has(lane))) {
       writeAck(state.repo, state.head);
       resetBlockCount(state.repo);
+      clearBreaker(state.repo);
       clearPending(state.repo);
       ctx.ui.notify(`PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.`, "info");
       publishReviewSummary(state, ctx);
@@ -444,8 +488,9 @@ export default function (pi: ExtensionAPI) {
     const toolName = String(event?.toolName || "").toLowerCase();
     const input = event?.input || event?.params || event?.args || {};
     const command = commandText(event);
-    const isShellSurface = toolName === "bash" || toolName.includes("ctx_execute") || toolName.includes("ctx_batch_execute");
-    if (isShellSurface && isGhPrMerge(command)) {
+    // commandText() pulls the command from bash (input.command) or, when context-mode is on,
+    // the ctx_* tools (code/commands). Gate on the command itself, never the tool name.
+    if (isGhPrMerge(command)) {
       const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
       if (!repo || !isSddProject(repo) || consumeBypass()) return;
       const pr = prState(repo);
@@ -495,8 +540,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     const command = commandText(event);
-    const isShellSurface = toolName === "bash" || toolName.includes("ctx_execute") || toolName.includes("ctx_batch_execute");
-    if (!isShellSurface || !isPrBoundaryCommand(command)) return;
+    if (!isPrBoundaryCommand(command)) return;
 
     const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
     if (!repo || !isSddProject(repo) || consumeBypass()) return;
@@ -506,6 +550,7 @@ export default function (pi: ExtensionAPI) {
     const head = localHead(repo) || pr.headRefOid;
     const effectivePr = { ...pr, headRefOid: head };
     if (acked(repo, head)) return;
+    if (isBreakerOpen(repo, head)) return; // breaker already gave up on this exact head; push a new commit to retry
 
     const previous = loadPending(repo);
     if (previous && previous.head === head) return;
@@ -521,6 +566,7 @@ export default function (pi: ExtensionAPI) {
     const reviewBase = previous?.head || lastAckHead(repo) || undefined;
     const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
     resetBlockCount(repo);
+    clearBreaker(repo); // new head under review: drop any stale breaker latch from a prior head
     pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set() };
     await spawnInitialLanes(pending, effectivePr, ctx, (message) => ctx.ui.notify(message, "warning"));
     const initialLanes = pending.lanes.filter((lane) => lane !== "doc-updater" || !pending.lanes.includes("spec-reviewer"));
@@ -548,7 +594,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.on("subagents:completed", onSubagentCompleted);
-  (pi as any).events?.on?.("subagents:completed", (event: any) => onSubagentCompleted(event, { sessionManager: { getCwd: () => process.cwd() }, ui: { notify: () => undefined } }));
+  (pi as any).events?.on?.("subagents:completed", (event: any) => onSubagentCompleted(event, completionCtx()));
 
   const onSubagentFailed = async (event: any, ctx: any) => {
     const state = hydratePending(ctx);
@@ -564,11 +610,13 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.on("subagents:failed", onSubagentFailed);
-  (pi as any).events?.on?.("subagents:failed", (event: any) => onSubagentFailed(event, { sessionManager: { getCwd: () => process.cwd() }, ui: { notify: () => undefined } }));
+  (pi as any).events?.on?.("subagents:failed", (event: any) => onSubagentFailed(event, completionCtx()));
 
   pi.on("agent_end", async (_event, ctx) => {
+    remember(ctx);
     const state = hydratePending(ctx);
     if (!state) return;
+    if (isBreakerOpen(state.repo, state.head)) { pending = undefined; return; } // latched: do no further work for this head
     if (acked(state.repo, state.head) || consumeBypass()) {
       clearPending(state.repo);
       pending = undefined;
@@ -583,6 +631,7 @@ export default function (pi: ExtensionAPI) {
     const service = await subagentsService();
     const currentState = loadPending(state.repo) || state;
     for (const [lane, spawnedId] of Object.entries(currentState.spawnedIds)) {
+      if (currentState.completed.has(lane)) continue; // already reconciled; don't let it shadow still-pending lanes
       const record = service?.getRecord?.(spawnedId);
       if (record?.status === "completed" || record?.status === "steered") {
         await markCompleted(lane, ctx, spawnedId, undefined, record.result);
@@ -606,6 +655,21 @@ export default function (pi: ExtensionAPI) {
     const STALL_TIMEOUT_MS = 10 * 60 * 1000;
     const pendingAge = Date.now() - (currentState.spawnedAt ?? Date.now());
     if (service?.hasRunning?.() && pendingAge < STALL_TIMEOUT_MS) {
+      return;
+    }
+
+    // Reviewers are not running (or have stalled past the timeout). Count this fruitless
+    // decision cycle and latch the breaker once we exceed the attempt or age bound, so a
+    // review that can never complete (e.g. stale subagent ctx after compaction) stops
+    // re-spawning and re-reminding on every agent_end instead of spiralling unbounded.
+    // The counter is reset on real progress (markCompleted) and when a new head is pushed.
+    const attempts = incrementBlockCount(currentState.repo);
+    if (attempts >= MAX_REVIEW_ATTEMPTS || pendingAge >= MAX_REVIEW_AGE_MS) {
+      openBreaker(currentState.repo, currentState.head);
+      clearPending(currentState.repo);
+      resetBlockCount(currentState.repo);
+      pending = undefined;
+      ctx.ui.notify(`Review enforcement gave up for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)} after ${attempts} attempts; merge stays blocked. Push a new commit to retry, or use the user-only ${REVIEW_BYPASS} bypass.`, "warning");
       return;
     }
 
@@ -633,14 +697,7 @@ export default function (pi: ExtensionAPI) {
       if (respawned) return;
     }
 
-    const count = incrementBlockCount(currentState.repo);
-    if (count >= 3) {
-      ctx.ui.notify(`Review enforcement circuit breaker opened after ${count} reminders for ${basename(currentState.repo)}.`, "warning");
-      pending = undefined;
-      return;
-    }
     const remaining = currentState.lanes.filter((lane) => !currentState.completed.has(lane)).join(", ") || "none";
-    const reminder = `PR-boundary review still pending for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}. Remaining lanes: ${remaining}. Reminder ${count}/3. Automatic reviewer spawn will retry; user-only bypass: ${REVIEW_BYPASS}.`;
-    ctx.ui.notify(reminder, "warning");
+    ctx.ui.notify(`PR-boundary review still pending for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}. Remaining lanes: ${remaining}. Attempt ${attempts}/${MAX_REVIEW_ATTEMPTS}. Automatic reviewer spawn will retry; user-only bypass: ${REVIEW_BYPASS}.`, "warning");
   });
 }

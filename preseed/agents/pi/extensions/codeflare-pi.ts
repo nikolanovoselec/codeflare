@@ -21,11 +21,6 @@ const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
 const CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.151";
 const CONTEXT_MODE_PACKAGE_ID = "npm:context-mode";
 const CONTEXT_MODE_DISABLED_PACKAGE = { source: CONTEXT_MODE_PACKAGE, extensions: [], skills: [] };
-const CONTEXT_MODE_EXTENSION_EXCLUDES = [
-  "-extensions/context-mode-enforcement.ts",
-  "-extensions/context-status-footer.ts",
-  "-extensions/enforce-ctx-mode-bash.ts",
-];
 
 type PiSettings = {
   packages?: Array<string | { source?: string; extensions?: string[]; skills?: string[]; [key: string]: unknown }>;
@@ -246,11 +241,7 @@ function setContextModeEnabled(enabled: boolean): "enabled" | "disabled" {
   const settings = readPiSettings();
   const packages = (settings.packages ?? []).filter((entry) => !isContextModePackage(entry));
   packages.push(enabled ? CONTEXT_MODE_PACKAGE : CONTEXT_MODE_DISABLED_PACKAGE);
-
-  const extensions = (settings.extensions ?? []).filter((entry) => !CONTEXT_MODE_EXTENSION_EXCLUDES.includes(entry));
-  for (const entry of CONTEXT_MODE_EXTENSION_EXCLUDES) extensions.push(entry);
-
-  writePiSettings({ ...settings, packages, extensions });
+  writePiSettings({ ...settings, packages });
   return enabled ? "enabled" : "disabled";
 }
 
@@ -395,15 +386,17 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const isShellSurface = toolName === "bash" || toolName.includes("ctx_execute") || toolName.includes("ctx_batch_execute") || toolName.includes("ctx_execute_file");
-    if (isShellSurface) {
+    // A shell command ran if the tool carried one (bash input.command, or the ctx_* tools'
+    // code/commands when context-mode is on). Detect by command content, not tool name, so
+    // this works whether or not context-mode is active.
+    if (command) {
       const attributionReason = ensureNoAttributedCommit(command);
       if (attributionReason) return { block: true, reason: attributionReason };
       const buildReason = ensureNoLocalBuild(command);
       if (buildReason) return { block: true, reason: buildReason };
     }
 
-    if (isShellSurface && command && isStructuralSearch(command)) {
+    if (command && isStructuralSearch(command)) {
       searchCountThisTurn++;
       if (existsSync(GRAPHIFY_BYPASS)) {
         try { unlinkSync(GRAPHIFY_BYPASS); } catch { /* best effort */ }
