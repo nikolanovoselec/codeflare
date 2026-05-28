@@ -421,6 +421,15 @@ CVE-2025-61727
 # with Archive::Tar 3.08).
 CVE-2026-42496
 
+# perl-modules-5.36 / libperl5.36 (Debian bookworm): Archive::Tar before 3.08
+# extracts hardlinks with attacker-controlled targets, allowing files outside
+# the extraction directory to be linked (hardlink traversal). Impact: NONE -
+# container does not extract untrusted tar archives; perl is invoked only by
+# codeflare-managed entrypoint scripts and system package tooling. Same exposure
+# profile as CVE-2026-42496 above. No fix available in Debian bookworm (requires
+# Perl 5.38+ with Archive::Tar 3.08).
+CVE-2026-42497
+
 # perl-modules-5.36 / libperl5.36 (Debian bookworm): Archive::Tar before 3.10
 # allows memory exhaustion via crafted tar archives. Impact: NONE - container
 # does not extract untrusted tar archives; perl is invoked only by
