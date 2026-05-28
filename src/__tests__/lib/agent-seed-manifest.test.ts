@@ -169,6 +169,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const scripts = piDocs.filter((d) => d.key.startsWith('.pi/agent/scripts/'));
     expect(skills.length).toBeGreaterThan(0);
     expect(extensions.map((d) => d.key).sort()).toEqual([
+      '.pi/agent/extensions/codeflare-commands.ts',
       '.pi/agent/extensions/codeflare-pi.ts',
       '.pi/agent/extensions/graphify-helpers.ts',
       '.pi/agent/extensions/memory-vault-helpers.ts',
@@ -183,6 +184,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/doc-updater.md');
     expect(skills.map((d) => d.key).filter((key) => key === '.pi/agent/skills/graphify/SKILL.md')).toHaveLength(1);
     expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/safe-graphify-update.sh');
+    // Pi-native first-class residents: the review skill and codeflare-commands extension
+    // are emitted directly (not transformed from Claude), so the Pi manifest -> seed pipeline
+    // must surface them.
+    expect(skills.map((d) => d.key)).toContain('.pi/agent/skills/review/SKILL.md');
+    expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/codeflare-commands.ts');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(codeReviewer?.content).toContain('tools: read, grep, find, bash, write');
     // context-mode helper tools are kept (Pi-native names), inert when context-mode is off
@@ -318,10 +324,46 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(piPackage?.content).toContain('"@gaodes/pi-graphify": "0.2.2"');
   });
 
+  // Pi as a first-class resident: the Pi manifest's prompts/* entries are emitted
+  // as native runtime assets under .pi/agent/prompts/* (piNativeKey maps prompts/* ->
+  // .pi/agent/prompts/*). These are the memory-capture and vault-extract subagent prompts.
+  it('REQ-AGENT-023: Pi native prompt assets are seeded under .pi/agent/prompts/', () => {
+    const prompts = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/prompts/'));
+    const keys = prompts.map((d) => d.key).sort();
+    expect(keys).toEqual([
+      '.pi/agent/prompts/memory-agent-prompt.md',
+      '.pi/agent/prompts/vault-extract-prompt.md',
+    ]);
+    // prompts/* maps to .pi/agent/prompts/* (not .claude/, not stripped) and the
+    // bodies are non-empty markdown carried verbatim from the Pi preseed tree.
+    for (const doc of prompts) {
+      expect(doc.contentType).toBe('text/markdown; charset=utf-8');
+      expect(doc.content.length).toBeGreaterThan(0);
+      // advanced-only per the Pi manifest (memory/vault capture is a Pro-only delta).
+      expect(doc.modes).toEqual(['advanced']);
+    }
+  });
+
   it('consult-llm skill is excluded from all non-Claude agents', () => {
     const nonClaude = AGENTS_SEEDED_CONFIGS.filter((d) => !d.key.startsWith('.claude/'));
     for (const doc of nonClaude) {
       expect(doc.key).not.toContain('consult-llm');
+    }
+  });
+
+  // Pi-native and transformed Pi *.md documents (skills, prompts, agent definitions,
+  // instructions) must not carry Claude model names: the Pi runtime supplies its own model,
+  // and adaptAgentFrontmatter strips `model:` pins. Scoped to *.md only -- the .ts extension
+  // sources (e.g. codeflare-pi.ts) legitimately contain an attribution-detection regex that
+  // matches these tokens, so they are intentionally excluded.
+  it('REQ-AGENT-007: Pi markdown documents contain no Claude model names', () => {
+    const piMarkdown = AGENTS_SEEDED_CONFIGS.filter(
+      (d) => d.key.startsWith('.pi/agent/') && d.key.endsWith('.md')
+    );
+    expect(piMarkdown.length).toBeGreaterThan(0);
+    const modelName = /\b(sonnet|opus|haiku)\b/i;
+    for (const doc of piMarkdown) {
+      expect(modelName.test(doc.content), `${doc.key} should not name a Claude model`).toBe(false);
     }
   });
 
@@ -436,6 +478,94 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(compactMessages([{ message: { role: 'user', content: 'nested' } }])).toContain('## user');
     const large = compactMessages([{ role: 'user', content: { data: 'x'.repeat(10000) } }]);
     expect(large.length).toBeLessThan(7000);
+  });
+
+  // compactMessages is the AD58 transcript prefilter (memory-vault-helpers.ts): keep user +
+  // assistant TEXT only, drop tool_use / tool_result / thinking blocks, take the last 200
+  // turns, cap each turn at 8000 chars. Tested directly as a pure function over fake message arrays.
+  describe('REQ-MEM-001: compactMessages prefilter (AD58)', () => {
+    it('drops tool_use / tool_result / thinking blocks but keeps the text block of the same turn', () => {
+      const result = compactMessages([
+        {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'SECRET-REASONING-should-be-dropped' },
+            { type: 'text', text: 'visible-assistant-reply' },
+            { type: 'tool_use', name: 'Bash', input: { command: 'TOOL-USE-should-be-dropped' } },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'tool_result', content: 'TOOL-RESULT-should-be-dropped' },
+            { type: 'text', text: 'visible-user-followup' },
+          ],
+        },
+      ]);
+      expect(result).toContain('visible-assistant-reply');
+      expect(result).toContain('visible-user-followup');
+      expect(result).not.toContain('SECRET-REASONING-should-be-dropped');
+      expect(result).not.toContain('TOOL-USE-should-be-dropped');
+      expect(result).not.toContain('TOOL-RESULT-should-be-dropped');
+    });
+
+    it('drops a turn whose only blocks are tool_use / tool_result (no text survives)', () => {
+      const result = compactMessages([
+        { role: 'assistant', content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/x' } }] },
+        { role: 'user', content: [{ type: 'tool_result', content: 'file bytes' }] },
+      ]);
+      expect(result).toBe('');
+    });
+
+    it('keeps only user and assistant turns, dropping other roles', () => {
+      const result = compactMessages([
+        { role: 'system', content: 'system-prompt-should-be-dropped' },
+        { role: 'user', content: 'kept-user' },
+        { role: 'tool', content: 'tool-role-should-be-dropped' },
+        { role: 'assistant', content: 'kept-assistant' },
+      ]);
+      expect(result).toContain('## user');
+      expect(result).toContain('kept-user');
+      expect(result).toContain('## assistant');
+      expect(result).toContain('kept-assistant');
+      expect(result).not.toContain('system-prompt-should-be-dropped');
+      expect(result).not.toContain('tool-role-should-be-dropped');
+    });
+
+    it('handles both string content and array-of-text-blocks content', () => {
+      const result = compactMessages([
+        { role: 'user', content: 'plain-string-content' },
+        { role: 'assistant', content: [{ type: 'text', text: 'first-block' }, { type: 'text', text: 'second-block' }] },
+      ]);
+      expect(result).toContain('plain-string-content');
+      // multiple text blocks in one turn are newline-joined into a single turn body
+      expect(result).toContain('first-block');
+      expect(result).toContain('second-block');
+      expect(result.indexOf('first-block')).toBeLessThan(result.indexOf('second-block'));
+    });
+
+    it('caps output to the last 200 turns', () => {
+      const messages = Array.from({ length: 250 }, (_, i) => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `turn-${i}`,
+      }));
+      const result = compactMessages(messages);
+      const turnCount = result.split('\n\n').length;
+      expect(turnCount).toBe(200);
+      // the earliest 50 turns are dropped; the last 200 survive
+      expect(result).not.toContain('turn-0\n');
+      expect(result).not.toContain('turn-49\n');
+      expect(result).toContain('turn-50');
+      expect(result).toContain('turn-249');
+    });
+
+    it('truncates a single turn longer than 8000 chars to 8000 chars of body', () => {
+      const result = compactMessages([{ role: 'user', content: 'a'.repeat(10000) }]);
+      // body is "## user\n" (8 chars) + the truncated content
+      const body = result.slice('## user\n'.length);
+      expect(body.length).toBe(8000);
+      expect(result.length).toBeLessThan(10000);
+    });
   });
 
   it('REQ-MEM-001 AC7: memory-vault.ts uses flock for global graph merge', () => {
