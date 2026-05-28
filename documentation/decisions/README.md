@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD59 throughout the codebase and documentation. 44 ADRs carry active content (AD4 superseded by AD56 + AD57; AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD63 throughout the codebase and documentation. 48 ADRs carry active content (AD4 superseded by AD56 + AD57; AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -70,6 +70,10 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) | 135-second shutdown budget for final bisync | Storage |
 | [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) | Sonnet (not haiku) for memory capture, plus jq-prefilter and chunked-scratchpad pipeline | Memory |
 | [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key) | Zero-UI vault encryption with per-session DO-storage key | Security |
+| [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter) | Pi memory capture reuses the AD58 contract and transcript prefilter | Memory |
+| [AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) | Pi `/review` ships as a dedicated native skill (Claude commands do not deploy to Pi) | Architecture |
+| [AD62](#ad62-pi-model-name-genericization-with-codeflare_memory_model-lever) | Pi model-name genericization with `CODEFLARE_MEMORY_MODEL` lever | Architecture |
+| [AD63](#ad63-pi-safe-graphify-updatesh-is-fail-closed-and-two-step) | Pi `safe-graphify-update.sh` is fail-closed and two-step | Architecture |
 
 ---
 
@@ -1072,6 +1076,99 @@ Three smaller decisions bundled in:
 **Alternative considered:** Server-side encryption only (rclone bisync to R2 SSE-C, leave IDB plaintext). Rejected - R2 SSE-C already covers at-rest on R2; the gap is the browser cache, which is where the new requirement lives.
 
 **Related REQ:** REQ-VAULT-008 (zero-UI vault encryption + cold-start payload + IDB lifecycle), REQ-VAULT-005 (Worker proxy exposes vault editor).
+
+---
+
+### AD60: Pi memory capture reuses the AD58 contract and transcript prefilter
+
+**Category:** Memory
+
+**Status:** Active (2026-05-29)
+
+**Context:** AD58 raised Claude-side memory-capture quality with three coupled changes (jq prefilter, chunked scratchpad, sonnet-tier model) because the background capture agent was reading raw transcript JSONL, burning its working memory on tool I/O, and confabulating citations. Making Pi a first-class codeflare resident meant Pi had to capture memory at the same fidelity. The Pi extension previously carried a thin inline capture contract embedded in `memory-vault.ts` and sliced the raw last-40 transcript entries, which reproduced exactly the two failure modes AD58 fixed: recency bias from raw tool records and weak citation discipline.
+
+**Decision:** Pi memory capture reuses the AD58 capture contract rather than maintaining a divergent Pi-specific one. Two full contracts are deployed as Pi-native preseed assets: `preseed/agents/pi/prompts/memory-agent-prompt.md` (the capture-agent contract) and `preseed/agents/pi/prompts/vault-extract-prompt.md` (the Vault-graph extraction contract). The generator maps `prompts/` to `.pi/agent/prompts/`, so both land at `~/.pi/agent/prompts/*.md`. `memory-vault.ts` no longer embeds an inline contract; it reads these files at spawn time. The raw last-40 transcript slice is replaced by a prefilter that keeps only user and assistant text and drops tool-call and thinking blocks before the capture subagent is spawned, mirroring AD58's jq prefilter intent on the Pi tool surface.
+
+**Consequences:**
+- Pi captures inherit the AD58-grade contract verbatim, so cross-session memory written from Pi sessions carries the same citation discipline and arc-coverage as Claude sessions; both populate the same unified graph.
+- The capture contract has a single owner in source. A future change to the AD58 contract updates the Claude agent files and the Pi prompts from the same intent; the Pi copies are deployed prompts, not a fork.
+- The prefilter shifts work to spawn time. The transcript is reduced to user/assistant text before the subagent reads it, so the subagent never sees raw tool I/O and recency bias is structurally prevented as on the Claude path.
+- Stale captures written by the old thin-contract Pi path are not migrated; they remain as historical record.
+
+**Alternative considered:** Keep the thin inline Pi contract and ratchet its prompt. Rejected for the same reason AD58 rejected prompt-only tightening: recency bias is a function of feeding raw tool records to the model, not a prompt-comprehension gap, and a divergent contract drifts from the AD58 source of truth over time.
+
+**Related REQ:** REQ-MEM-001 (conversation context automatically captured to Vault).
+
+---
+
+### AD61: Pi `/review` ships as a dedicated native skill
+
+**Category:** Architecture
+
+**Status:** Active (2026-05-29)
+
+**Context:** The Claude `/review` UX is a slash command (`preseed/agents/claude/commands/review.md`) carrying a multi-phase review workflow. Slash commands are a Claude Code primitive; the generator does not deploy commands to other agents (see the "Excluded from non-CC transformed assets" list in [preseed.md](../lanes/preseed.md#multi-agent-preseed)). On Pi this left the user-invoked `/review` workflow with no home: PR-boundary enforcement was covered by `review-enforcement.ts`, and the transformed `git-review-pipeline` skill carries the enforcement spine, but neither reproduces the full user-driven review flow (scope flags, phased perspectives, reality-filter triage) that the Claude command provides.
+
+**Decision:** Ship the Pi `/review` workflow as a dedicated Pi-native skill at `preseed/agents/pi/skills/review/SKILL.md` (full 11-phase workflow), deployed to `~/.pi/agent/skills/review/SKILL.md`. The native skill is distinct from `review-enforcement.ts` (PR-boundary HEAD watching) and from the transformed `git-review-pipeline` enforcement skill: the skill owns the user-requested review UX, while the enforcement extension owns the automatic PR-boundary gate. The Pi `review/SKILL.md` joins the Pi manifest as a native skill override so the generator does not also emit a transformed copy of any same-named Claude skill into the Pi skill set.
+
+**Consequences:**
+- Pi users get the full `/review` flow at parity with the Claude command, expressed in Pi-native tool and subagent vocabulary.
+- The Pi-native skill count rises to two (graphify + review); both are native overrides the generator excludes from the transformed-skill emit for Pi.
+- The review surface is split by responsibility on Pi: the native skill is the user-invoked path, `review-enforcement.ts` is the automatic PR-boundary path, and they do not duplicate each other's logic.
+
+**Alternative considered:** Transform the Claude `/review` command into a Pi instruction file. Rejected because commands are deliberately excluded from non-CC transforms, and a command is a different surface from a skill; folding command prose into the single Pi instructions file would bury an on-demand workflow in always-on context.
+
+**Alternative considered:** Rely solely on `git-review-pipeline` for both enforcement and user-invoked review on Pi. Rejected because the enforcement spine does not carry the phased user-review UX (scope flags, per-perspective passes, reality-filter), so Pi users would lose the `/review` experience entirely.
+
+**Related REQ:** REQ-AGENT-015 (`/review` command for multi-perspective codebase review), REQ-AGENT-044 (review-agent discipline enforcement).
+
+---
+
+### AD62: Pi model-name genericization with `CODEFLARE_MEMORY_MODEL` lever
+
+**Category:** Architecture
+
+**Status:** Active (2026-05-29)
+
+**Context:** Codeflare is forkable and runs six AI tools; hardcoding a specific model name (for example a `sonnet` or `haiku` literal) into Pi-bound prose or extension code couples the deployment to one vendor's model lineup and goes stale as model names change. AD58 pins the capture model for Claude via agent-definition frontmatter, but Pi subagents are spawned programmatically from `memory-vault.ts`, and the generator strips the `model` frontmatter field for runtimes that do not support it. Pi therefore needed a model-selection mechanism that names no model in the shipped artifact.
+
+**Decision:** Two coupled changes. (1) Genericize model references in Pi-bound prose: Pi-facing documentation and extension code describe model selection by role ("higher-fidelity model", "session model") rather than by literal model name. The generator removes `model` frontmatter for runtimes that do not support it while preserving Pi subagent model pins where the runtime does. (2) Introduce the optional `CODEFLARE_MEMORY_MODEL` container env var (documented in [configuration.md](../lanes/configuration.md#container-environment)). When set, `memory-vault.ts` passes it as the `model` option to `service.spawn(...)` for the `memory-capture` and `vault-extract` subagents; when unset, no override is passed and the subagents inherit the session model. The lever pins capture/extract fidelity per AD58 without a hardcoded model name anywhere in the preseed.
+
+**Consequences:**
+- The Pi preseed artifact names no specific model. An operator who wants AD58-grade capture fidelity on Pi sets one env var; the default behavior (inherit session model) is sensible with no configuration.
+- Fork-friendliness is preserved: a fork running a different model lineup sets `CODEFLARE_MEMORY_MODEL` to whatever its highest-fidelity model is, with no source edit.
+- The Claude and Pi capture paths reach the same outcome (AD58 fidelity) through runtime-appropriate mechanisms: frontmatter pin on Claude, env-var lever on Pi.
+- The lever is capture-scoped. It does not change the session's primary model and is read only by the memory/Vault-extract spawn path.
+
+**Alternative considered:** Hardcode the AD58 model literal into the Pi extension. Rejected because it staleness-couples the fork to one vendor's naming and contradicts the no-hardcoded-model-name discipline; a model rename would silently break or mislabel the pin.
+
+**Alternative considered:** Reuse `SESSION_MODE` or another existing variable to imply the capture model. Rejected as overloading: `SESSION_MODE` already controls memory persistence and rclone filters, and conflating model fidelity with session mode would make both harder to reason about.
+
+**Related REQ:** REQ-MEM-001 (conversation context automatically captured to Vault), REQ-AGENT-001 (support multiple AI coding agents).
+
+---
+
+### AD63: Pi `safe-graphify-update.sh` is fail-closed and two-step
+
+**Category:** Architecture
+
+**Status:** Active (2026-05-29)
+
+**Context:** AD53's graphify hot-reload wrapper hardens `graphify update` on the 1 vCPU container by capping virtual memory (`ulimit -v`) and worker count so a runaway AST rebuild dies with ENOMEM instead of OOM-killing the session. The Claude wrapper (`preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh`) is a single-step `graphify update` invocation. The Pi wrapper, deployed to `~/.pi/agent/scripts/safe-graphify-update.sh`, runs in a different launch context (Pi extension dispatch, where the working directory and environment are not guaranteed to match the Claude hook environment) and feeds a structural gate in `codeflare-pi.ts`. Applying the Claude wrapper's fail-open posture verbatim risked silently updating against the wrong directory or proceeding with an unbounded address space if the `ulimit` call failed.
+
+**Decision:** The Pi wrapper deliberately diverges from the Claude single-step wrapper on two axes. (1) Fail-closed hardening: a `cd` guard aborts if the target repository directory cannot be entered, the `RLIMIT_AS` `ulimit` is fail-closed (if the limit cannot be applied the wrapper aborts rather than running unbounded), a `command -v graphify` check aborts when the CLI is absent, and `GRAPHIFY_VIZ_NODE_LIMIT=100000` is re-exported so the visualization is always generated. (2) Two-step execution: the wrapper runs `graphify update` (AST extraction) and then a cluster-only pass, rather than the Claude wrapper's single `update`. Separately, `codeflare-pi.ts`'s `graphSummary` skips graphs over 30 MB and applies a 5-second git timeout, and the structural gate that consumes the wrapper fails open (a missing or failed graph never blocks the user) even though the wrapper itself fails closed.
+
+**Consequences:**
+- A misresolved working directory or a failed memory cap aborts the Pi update with a clear error instead of corrupting the graph or risking an OOM, which matters more on Pi because the launch context is less constrained than the Claude hook environment.
+- The two-step update keeps the cluster data fresh as a distinct pass, so the structural gate reads a consistent graph.
+- The two wrappers intentionally differ. The divergence is documented here so a future maintainer does not "unify" them and reintroduce the fail-open behavior on the Pi launch path.
+- Layering is deliberate: the wrapper fails closed (correctness of the build), while the `codeflare-pi.ts` structural gate fails open (never lock the user out). The 30 MB skip and 5-second git timeout bound the gate's own cost on large repos.
+
+**Alternative considered:** Share one wrapper between Claude and Pi. Rejected because the launch contexts differ (hook environment vs Pi extension dispatch) and the Pi path needs the `cd` guard and fail-closed `ulimit` that the Claude single-step path does not; a shared wrapper would either over-constrain Claude or under-protect Pi.
+
+**Alternative considered:** Make the Pi wrapper fail-open like the Claude one and rely on the `codeflare-pi.ts` gate to absorb failures. Rejected because fail-open at the wrapper means a failed memory cap runs unbounded and a misresolved directory updates the wrong graph silently; the gate's fail-open is about not blocking the user, not about tolerating a corrupt build.
+
+**Related REQ:** REQ-AGENT-023 (knowledge-graph capability via graphify), REQ-AGENT-043 (graphify build-mode dispatch).
 
 ---
 

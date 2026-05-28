@@ -200,7 +200,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
-**Manifest structure (131 total source entries: 120 Claude + 11 Pi-native)**:
+**Manifest structure (137 total source entries: 120 Claude + 17 Pi-native)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -245,14 +245,39 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (11): package config, package lock, MCP config, six extension files, one native graphify skill override ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7), and one Pi graphify wrapper script.
+- Pi-native runtime assets (17): package config, package lock, MCP
+  config, nine extension files (including `codeflare-commands.ts`, which
+  provides the Pi `/debug`, `/deploy`, and `/brainstorm` commands since
+  Claude slash commands do not deploy to Pi), two native skill overrides
+  (graphify -
+  [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7 - and `review`), two
+  capture-contract prompts (`memory-agent-prompt.md`,
+  `vault-extract-prompt.md`), and one Pi graphify wrapper script
+  (`safe-graphify-update.sh`). The
+  generator maps each manifest key to its deployed location by directory
+  prefix: `extensions/` -> `.pi/agent/extensions/`, `skills/` ->
+  `.pi/agent/skills/`, `scripts/` -> `.pi/agent/scripts/`, `prompts/`
+  -> `.pi/agent/prompts/`, with `package.json` / `package-lock.json`
+  -> `.pi/agent/npm/` and `mcp.json` / `settings.json` rooted directly
+  under `.pi/agent/`.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
   separate from PR-boundary enforcement: the command reviews a requested
   scope, while `review-enforcement.ts` watches PR HEADs, resolves the
   active repo from native GitHub workflow commands, and requires review
-  subagent completion for SDD PRs targeting `main`/`master`.
+  subagent completion for SDD PRs targeting `main`/`master`. Because Claude
+  slash commands do not deploy to Pi, the user-invoked `/review` workflow
+  ships as the dedicated `skills/review/SKILL.md` native skill (full
+  11-phase flow) rather than relying only on the transformed
+  `git-review-pipeline` enforcement skill. Pi memory capture is driven by
+  two deployed contracts - `prompts/memory-agent-prompt.md` (the
+  capture-agent contract) and `prompts/vault-extract-prompt.md` (the
+  Vault-graph extraction contract) - which carry the full AD58-grade
+  capture instructions; `memory-vault.ts` reads them from
+  `~/.pi/agent/prompts/*.md` and prefilters the transcript to
+  user/assistant text (dropping tool and thinking blocks) before spawning
+  the capture subagent.
   Pi subagents are provided by `@gotgenes/pi-subagents`; the generator
   adapts Claude agent definitions into `.pi/agent/agents/*.md`.
   The container image preinstalls Pi extension npm dependencies into an
@@ -296,8 +321,8 @@ files exist on disk.
 | Gemini | 58 |
 | Copilot | 13 |
 | OpenCode | 58 |
-| Pi | 70 |
-| **Total** | **366** |
+| Pi | 74 |
+| **Total** | **370** |
 
 **Excluded from non-CC transformed assets**: hooks (CC hook system),
 commands (CC slash commands), plugins (CC plugin system, including
@@ -307,7 +332,7 @@ vault trigger/route content lives in that preseed rule as folded subsections,
 not a separate rules/vault.md), `consult-llm` skill (depends on
 CC-specific MCP tool). Pi receives native TypeScript extensions for the
 runtime behaviors that cannot be represented as transformed prose:
-`/sdd`, `/graphify`, `/vault`, `/note`, graphify
+`/sdd`, `/graphify`, `/vault`, `/note`, `/debug`, `/deploy`, `/brainstorm`, graphify
 active-repo/global-graph maintenance and clone triage, automatic memory capture,
 Vault graph extraction/global-graph merge, local-build blocking,
 and AI-attribution blocking. Pi receives a dedicated native graphify skill
@@ -324,12 +349,13 @@ references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents). Pi additionally
 loads `preseed/agents/pi/manifest.json`, emits native runtime files
 to `.pi/agent/extensions/`, `.pi/agent/scripts/`, `.pi/agent/mcp.json`,
-`.pi/agent/npm/package.json`, `.pi/agent/npm/package-lock.json`, and
+`.pi/agent/npm/package.json`, `.pi/agent/npm/package-lock.json`,
+capture-contract prompts to `.pi/agent/prompts/`, and
 native Pi skill overrides under `~/.pi/agent/skills/`, and adapts Claude agent definitions into
 `.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`. Pi's generated agent frontmatter deliberately drops context-mode tools so those subagents run against the native Pi tool surface.
 
 **Per-mode counts**: Default mode seeds 53 files, advanced mode
-seeds 361 files. Total array size is 366 (includes variant-per-mode
+seeds 365 files. Total array size is 370 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the
