@@ -319,6 +319,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewEnforcement).toContain('Symbol.for("@gotgenes/pi-subagents:service")');
     expect(reviewEnforcement).toContain('refreshSubagentsContext');
     expect(reviewEnforcement).toContain('stale session context');
+    expect(reviewEnforcement).toContain('sdd-review-results');
+    expect(reviewEnforcement).toContain('pr-boundary-review-result');
+    expect(reviewEnforcement).toContain('pr-boundary-review-summary');
     expect(reviewEnforcement).toContain('automatic spawn will retry');
     expect(reviewEnforcement).not.toContain('Agent({ subagent_type');
     expect(reviewEnforcement).not.toContain('sendUserMessage(directiveFor');

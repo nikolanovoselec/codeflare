@@ -257,7 +257,10 @@ All preseed content is deployed via the manifest pipeline:
   keeps the lanes pending and retries automatic spawn instead of injecting
   manual `Agent(...)` follow-up instructions into the main conversation; if
   the service holds a stale session context after reload/session replacement,
-  the extension refreshes it from the current event before spawning.
+  the extension refreshes it from the current event before spawning. Reviewer
+  outputs are persisted under `.git/sdd-review-results/<head>/<lane>.md` and
+  surfaced as visible per-lane completion messages plus a final acknowledgement
+  summary so findings are not hidden in subagent transcripts.
   The native `/sdd` command uses `sdd-helpers.ts` to enforce the Claude
   command-file hard gates before dispatching: help/unknown subcommands,
   clean working tree, `clean`/`mode` requiring `sdd/`, and existing-spec

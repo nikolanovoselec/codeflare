@@ -983,6 +983,7 @@ None.
 4. On trigger, `code-reviewer` may run in parallel with `spec-reviewer`; `doc-updater` starts only after `spec-reviewer` completes on any project containing `sdd/`.
 5. In a fix-push cascade (multiple pushes inside one turn), the gate advances the ack pointer through each push whose review window completed all lanes required by that push's diff; bypassed pushes (no spawns in window, per REQ-AGENT-041) are absorbed into the next complete window's cumulative review.
 6. In Pi runtime, if the subagent service is temporarily unavailable or holds a stale session context after reload/session replacement, PR-boundary enforcement refreshes the service context from the current extension event when possible, preserves pending lanes, retries automatic spawn, and never injects manual `Agent(...)` follow-up instructions into the main conversation.
+7. Pi PR-boundary enforcement persists each completed reviewer's output under `.git/sdd-review-results/<head>/<lane>.md`, displays a visible per-lane completion message, starts `doc-updater` visibly after `spec-reviewer`, and displays an acknowledgement summary with the result file paths.
 
 **Constraints:**
 

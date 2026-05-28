@@ -9,7 +9,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -116,6 +116,14 @@ function pendingPath(repo: string): string {
   return join(repo, ".git", "sdd-review-pending.json");
 }
 
+function reviewResultsDir(repo: string, head: string): string {
+  return join(repo, ".git", "sdd-review-results", head);
+}
+
+function reviewResultPath(repo: string, head: string, lane: string): string {
+  return join(reviewResultsDir(repo, head), `${lane}.md`);
+}
+
 function blockCountPath(repo: string): string {
   return join(repo, ".git", "sdd-review-block-count");
 }
@@ -153,6 +161,21 @@ function consumeBypass(): boolean {
   if (!existsSync(REVIEW_BYPASS)) return false;
   try { unlinkSync(REVIEW_BYPASS); } catch { /* best effort */ }
   return true;
+}
+
+function stringifyReviewResult(result: unknown): string {
+  if (typeof result === "string") return result.trim();
+  if (result == null) return "";
+  try { return JSON.stringify(result, null, 2); } catch { return String(result); }
+}
+
+function persistReviewResult(state: PendingReview, lane: string, result: unknown): string {
+  const dir = reviewResultsDir(state.repo, state.head);
+  mkdirSync(dir, { recursive: true });
+  const text = stringifyReviewResult(result) || "No findings reported.";
+  const path = reviewResultPath(state.repo, state.head, lane);
+  writeFileSync(path, [`# PR-boundary ${lane}`, "", `Repo: ${basename(state.repo)}`, `Head: ${state.head}`, `PR: ${state.prNumber || "?"}`, "", text, ""].join("\n"), "utf8");
+  return path;
 }
 
 function loadPending(repo: string): PendingReview | undefined {
@@ -203,9 +226,15 @@ function mergeLaneState(repo: string, currentHead: string, previous?: PendingRev
   return { lanes, completed };
 }
 
+type SubagentRecordLike = {
+  status?: string;
+  result?: unknown;
+  error?: unknown;
+};
+
 type SubagentsServiceLike = {
   spawn?: (type: string, prompt: string, options?: Record<string, unknown>) => string;
-  getRecord?: (id: string) => { status?: string } | undefined;
+  getRecord?: (id: string) => SubagentRecordLike | undefined;
   hasRunning?: () => boolean;
   runtime?: { currentCtx?: unknown; setSessionContext?: (ctx: unknown) => void };
 };
@@ -336,25 +365,59 @@ export default function (pi: ExtensionAPI) {
     return pending;
   }
 
-  async function markCompleted(type: string, ctx: any, completionId?: string, prompt?: string): Promise<void> {
+  function publishReviewResult(state: PendingReview, lane: string, result: unknown, ctx: any): void {
+    const path = persistReviewResult(state, lane, result);
+    const text = stringifyReviewResult(result) || "No findings reported.";
+    ctx.ui.notify(`PR-boundary ${lane} completed for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Findings saved: ${path}`, "info");
+    try {
+      pi.sendMessage({
+        customType: "pr-boundary-review-result",
+        content: `PR-boundary ${lane} completed for ${basename(state.repo)} at ${state.head.slice(0, 12)}.\nFindings saved: ${path}\n\n${text}`,
+        display: true,
+        details: { repo: state.repo, head: state.head, lane, path, result: text },
+      });
+    } catch {
+      // UI notification + persisted result file are the reliable surfaces.
+    }
+  }
+
+  function publishReviewSummary(state: PendingReview, ctx: any): void {
+    const paths = state.lanes.map((lane) => `- ${lane}: ${reviewResultPath(state.repo, state.head, lane)}`).join("\n");
+    try {
+      pi.sendMessage({
+        customType: "pr-boundary-review-summary",
+        content: `PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.\nReviewer findings:\n${paths}`,
+        display: true,
+        details: { repo: state.repo, head: state.head, paths },
+      });
+    } catch {
+      ctx.ui.notify(`PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Findings saved under ${reviewResultsDir(state.repo, state.head)}.`, "info");
+    }
+  }
+
+  async function markCompleted(type: string, ctx: any, completionId?: string, prompt?: string, result?: unknown): Promise<void> {
     const state = hydratePending(ctx);
     if (!state || !state.lanes.includes(type)) return;
     if (!isReviewCompletionForLane({ ...state, fallbackLanes: [...state.fallbackLanes] }, type, completionId, prompt)) return;
+    if (state.completed.has(type)) return;
     if (!isCurrentPending(state)) {
       clearPending(state.repo);
       pending = undefined;
       return;
     }
+    publishReviewResult(state, type, result, ctx);
     state.completed.add(type);
     if (type === "spec-reviewer" && state.lanes.includes("doc-updater") && !state.docPromptSent) {
       state.docPromptSent = true;
       savePending(state);
       const docPrompt = docUpdaterPrompt(state);
+      ctx.ui.notify(`PR-boundary spec-reviewer completed; starting doc-updater for ${basename(state.repo)} at ${state.head.slice(0, 12)}.`, "info");
       const spawnedId = await spawnLane("doc-updater", docPrompt, "Review documentation changes", ctx, (message) => ctx.ui.notify(message, "warning"));
       if (spawnedId) {
         state.spawnedIds["doc-updater"] = spawnedId;
         state.spawned = true;
         savePending(state);
+        ctx.ui.notify(`PR-boundary doc-updater started for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Agent: ${spawnedId}`, "info");
       } else {
         state.fallbackLanes.add("doc-updater");
         savePending(state);
@@ -368,6 +431,7 @@ export default function (pi: ExtensionAPI) {
       resetBlockCount(state.repo);
       clearPending(state.repo);
       ctx.ui.notify(`PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.`, "info");
+      publishReviewSummary(state, ctx);
       pending = undefined;
     }
   }
@@ -476,7 +540,7 @@ export default function (pi: ExtensionAPI) {
 
   const onSubagentCompleted = async (event: any, ctx: any) => {
     const type = String(event?.type || "");
-    if (type) await markCompleted(type, ctx, typeof event?.id === "string" ? event.id : undefined);
+    if (type) await markCompleted(type, ctx, typeof event?.id === "string" ? event.id : undefined, undefined, event?.result);
   };
 
   pi.on("subagents:completed", onSubagentCompleted);
@@ -517,7 +581,7 @@ export default function (pi: ExtensionAPI) {
     for (const [lane, spawnedId] of Object.entries(currentState.spawnedIds)) {
       const record = service?.getRecord?.(spawnedId);
       if (record?.status === "completed" || record?.status === "steered") {
-        await markCompleted(lane, ctx, spawnedId);
+        await markCompleted(lane, ctx, spawnedId, undefined, record.result);
         return;
       }
       if (["error", "stopped", "aborted"].includes(String(record?.status || ""))) {
