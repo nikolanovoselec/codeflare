@@ -183,8 +183,11 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
   });
 
   it('REQ-AGENT-001 AC5 (Pi npm warm-cache helper copies dependencies behaviorally)', () => {
-    const match = entrypoint.match(/warm_pi_npm_dependencies\(\) \{[\s\S]*?\n\}/);
-    assert.ok(match, 'entrypoint must define warm_pi_npm_dependencies');
+    const start = entrypoint.indexOf('warm_pi_npm_dependencies() {');
+    const end = entrypoint.indexOf('\n\nupdate_pi_when_fast_start_disabled()', start);
+    assert.notEqual(start, -1, 'entrypoint must define warm_pi_npm_dependencies');
+    assert.notEqual(end, -1, 'warm_pi_npm_dependencies must precede update_pi_when_fast_start_disabled');
+    const warmFunction = entrypoint.slice(start, end);
 
     const fixture = mkdtempSync(join(tmpdir(), 'pi-npm-warm-'));
     const preseed = join(fixture, 'preseed');
@@ -194,7 +197,7 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
     writeFileSync(join(preseed, 'package.json'), '{"name":"fixture"}\n');
     writeFileSync(join(preseed, 'node_modules/@gaodes/pi-graphify/package.json'), '{}\n');
 
-    const script = `${match[0]}\nexport USER_HOME=${JSON.stringify(join(fixture, 'home'))}\nexport PI_NPM_PRESEED=${JSON.stringify(preseed)}\nexport PI_NPM_DIR=${JSON.stringify(target)}\nwarm_pi_npm_dependencies\n`;
+    const script = `${warmFunction}\nexport USER_HOME=${JSON.stringify(join(fixture, 'home'))}\nexport PI_NPM_PRESEED=${JSON.stringify(preseed)}\nexport PI_NPM_DIR=${JSON.stringify(target)}\nwarm_pi_npm_dependencies\n`;
     const result = spawnSync('bash', ['-lc', script], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     assert.ok(existsSync(join(target, 'package.json')), 'package.json copied');
