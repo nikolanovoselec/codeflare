@@ -966,7 +966,7 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
-<!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes describes -> AC1/AC2/AC3 shared helper + lane mapping + conservative fallback to all-three-lanes) + host/__tests__/enforce-review-spawn.test.js (lane gating describe -> AC4 sequential spec-reviewer then doc-updater + AC5 fix-push cascade ack-pointer advancement) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi native runtime assets include review-enforcement.ts lane-classifier/pending-state markers -> AC1/AC2/AC5) -->
+<!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes describes -> AC1/AC2/AC3 shared helper + lane mapping + conservative fallback to all-three-lanes) + host/__tests__/enforce-review-spawn.test.js (lane gating describe -> AC4 sequential spec-reviewer then doc-updater + AC5 fix-push cascade ack-pointer advancement) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi native runtime assets include review-enforcement.ts lane-classifier/pending-state markers and automatic reviewer spawn retry behavior -> AC1/AC2/AC5/AC6) -->
 
 **Intent:** Once a PR-boundary trigger fires (REQ-AGENT-036), a shared lane classifier picks the minimal correct set of review agents from the diff so the in-turn nudge and turn-end gate agree, and a fix-push cascade can advance the ack pointer without losing review coverage.
 
@@ -979,6 +979,7 @@ None.
 3. Conservative branches (empty diff, missing prior ack, divergent merge-base) and a missing or unsourceable helper both fall back to all-three-lanes (`code-reviewer spec-reviewer doc-updater`), so a partially-deployed install never disables enforcement.
 4. On trigger, `code-reviewer` may run in parallel with `spec-reviewer`; `doc-updater` starts only after `spec-reviewer` completes on any project containing `sdd/`.
 5. In a fix-push cascade (multiple pushes inside one turn), the gate advances the ack pointer through each push whose review window completed all lanes required by that push's diff; bypassed pushes (no spawns in window, per REQ-AGENT-041) are absorbed into the next complete window's cumulative review.
+6. In Pi runtime, if the subagent service is temporarily unavailable, PR-boundary enforcement preserves the pending lanes and retries automatic spawn without injecting manual `Agent(...)` follow-up instructions into the main conversation.
 
 **Constraints:**
 

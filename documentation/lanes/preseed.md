@@ -252,7 +252,11 @@ All preseed content is deployed via the manifest pipeline:
   separate from PR-boundary enforcement: the command reviews a requested
   scope, while `review-enforcement.ts` watches PR HEADs, resolves the
   active repo from native GitHub workflow commands, and requires review
-  subagent completion for SDD PRs targeting `main`/`master`. Pi context-mode
+  subagent completion for SDD PRs targeting `main`/`master`. If Pi's
+  subagent service is unavailable at trigger time, PR-boundary enforcement
+  keeps the lanes pending and retries automatic spawn instead of injecting
+  manual `Agent(...)` follow-up instructions into the main conversation.
+  Pi context-mode
   enforcement routes large/raw Bash and Read calls to `ctx_*` tools, permits
   Read snippets up to 240 lines or files up to 100 KB, and allowlists the
   bounded safe graphify wrapper.

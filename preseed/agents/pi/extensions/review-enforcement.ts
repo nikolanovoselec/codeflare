@@ -3,7 +3,7 @@
  *
  * Native Pi counterpart to Claude Code's PR-boundary review hooks.
  * It watches pushes/PR creation/PR merges for SDD projects with an open PR to
- * main/master, computes the minimal required review lanes, emits Agent calls
+ * main/master, computes the minimal required review lanes, spawns Pi subagents
  * for only those lanes, persists progress under .git/, and acknowledges the PR
  * head only after the required lanes complete.
  */
@@ -202,25 +202,29 @@ function mergeLaneState(repo: string, currentHead: string, previous?: PendingRev
   return { lanes, completed };
 }
 
-function agentCall(type: string, prompt: string, description: string): string {
-  return `Agent({ subagent_type: ${JSON.stringify(type)}, prompt: ${JSON.stringify(prompt)}, description: ${JSON.stringify(description)}, run_in_background: false })`;
-}
+type SubagentsServiceLike = {
+  spawn?: (type: string, prompt: string, options?: Record<string, unknown>) => string;
+  getRecord?: (id: string) => { status?: string } | undefined;
+  hasRunning?: () => boolean;
+};
 
-function subagentsService(): any | undefined {
-  return (globalThis as Record<symbol, unknown>)[Symbol.for("@gotgenes/pi-subagents:service")];
+function subagentsService(): SubagentsServiceLike | undefined {
+  const service = (globalThis as Record<symbol, unknown>)[Symbol.for("@gotgenes/pi-subagents:service")];
+  if (!service || typeof service !== "object") return undefined;
+  return service as SubagentsServiceLike;
 }
 
 async function spawnLane(type: string, prompt: string, description: string, notify?: (message: string) => void): Promise<string | undefined> {
   const service = subagentsService();
   if (!service?.spawn) {
-    notify?.(`Pi subagent service unavailable; falling back for ${type}.`);
+    notify?.(`Pi subagent service unavailable for ${type}; review remains pending and automatic spawn will retry.`);
     return undefined;
   }
   try {
     const id = service.spawn(type, prompt, { description, inheritContext: false });
     return typeof id === "string" ? id : undefined;
   } catch (error) {
-    notify?.(`Failed to spawn ${type}: ${error instanceof Error ? error.message : String(error)}`);
+    notify?.(`Failed to spawn ${type}; review remains pending and automatic spawn will retry: ${error instanceof Error ? error.message : String(error)}`);
     return undefined;
   }
 }
@@ -249,18 +253,6 @@ function reviewPrompt(repo: string, pr: PrState, head: string, reviewBase?: stri
     return `Work in ${repo}. Review PR #${pr.number || "?"} for ${basename(repo)}. Scope is ONLY the incremental diff from ${reviewBase} to ${head}. Run: git diff --name-only ${reviewBase} ${head} to see changed files, then git diff ${reviewBase} ${head} -- <path> for each. Do NOT review the full PR diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
   }
   return `Work in ${repo}. Review PR #${pr.number || "?"} for ${basename(repo)} at head ${head}. Scope is the full PR diff (no prior review base). Run: git diff origin/${pr.baseRefName}...${head}. Report findings only; do not modify files.`;
-}
-
-function directiveFor(repo: string, pr: PrState, lanes: string[], reviewBase?: string): string {
-  const laneText = lanes.join(", ");
-  const head = pr.headRefOid!;
-  const sequence = lanes.includes("spec-reviewer") && lanes.includes("doc-updater")
-    ? `${lanes.filter((lane) => lane !== "doc-updater").join(" + ")} first; doc-updater after spec-reviewer completes`
-    : laneText;
-  const scope = reviewBase
-    ? `Scope is ONLY the incremental diff: git diff ${reviewBase} ${head}. Do NOT review the full PR diff against ${pr.baseRefName}.`
-    : `Scope is the full PR diff: git diff origin/${pr.baseRefName}...${head} (no prior review base).`;
-  return `PR-boundary review required for ${basename(repo)} PR #${pr.number || "?"} at ${head.slice(0, 12)}. ${scope} Required lanes: ${laneText}. Run: ${sequence}. Acknowledgement is automatic after required lanes complete.`;
 }
 
 function docUpdaterPrompt(pending: PendingReview): string {
@@ -323,7 +315,7 @@ export default function (pi: ExtensionAPI) {
       } else {
         state.fallbackLanes.add("doc-updater");
         savePending(state);
-        pi.sendUserMessage(agentCall("doc-updater", docPrompt, "Review documentation changes"), { deliverAs: "followUp" });
+        ctx.ui.notify(`PR-boundary doc-updater spawn pending for ${basename(state.repo)} at ${state.head.slice(0, 12)}; automatic spawn will retry.`, "warning");
       }
       return;
     }
@@ -430,7 +422,9 @@ export default function (pi: ExtensionAPI) {
       }
       savePending(pending);
       const fallbackLanes = initialLanes.filter((lane) => !pending.spawnedIds[lane]);
-      pi.sendUserMessage(directiveFor(repo, effectivePr, fallbackLanes.length > 0 ? fallbackLanes : review.lanes, validBase), { deliverAs: "followUp" });
+      if (fallbackLanes.length > 0) {
+        ctx.ui.notify(`PR-boundary automatic reviewer spawn pending for ${basename(repo)} at ${head.slice(0, 12)}. Lanes: ${fallbackLanes.join(", ")}.`, "warning");
+      }
     }
   };
 
@@ -535,8 +529,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     const remaining = currentState.lanes.filter((lane) => !currentState.completed.has(lane)).join(", ") || "none";
-    const reminder = `PR-boundary review still pending for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}. Remaining lanes: ${remaining}. Reminder ${count}/3.`;
+    const reminder = `PR-boundary review still pending for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}. Remaining lanes: ${remaining}. Reminder ${count}/3. Automatic reviewer spawn will retry; user-only bypass: ${REVIEW_BYPASS}.`;
     ctx.ui.notify(reminder, "warning");
-    pi.sendUserMessage(`${reminder}\nComplete the remaining subagents or use the user-only bypass ${REVIEW_BYPASS}.`, { deliverAs: "followUp" });
   });
 }

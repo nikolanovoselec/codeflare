@@ -310,6 +310,15 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isPrBoundaryCommand('gh pr view --json number')).toBe(false);
   });
 
+  it('REQ-AGENT-040: Pi review enforcement keeps PR-boundary reviewer spawning automatic', () => {
+    const reviewEnforcement = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/extensions/review-enforcement.ts')?.content ?? '';
+    expect(reviewEnforcement).toContain('Symbol.for("@gotgenes/pi-subagents:service")');
+    expect(reviewEnforcement).toContain('automatic spawn will retry');
+    expect(reviewEnforcement).not.toContain('Agent({ subagent_type');
+    expect(reviewEnforcement).not.toContain('sendUserMessage(directiveFor');
+    expect(reviewEnforcement).not.toContain('Complete the remaining subagents');
+  });
+
   it('REQ-AGENT-023: Pi native runtime assets include graphify package, MCP config, and skill override', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
     expect(keys.has('.pi/agent/mcp.json')).toBe(true);
