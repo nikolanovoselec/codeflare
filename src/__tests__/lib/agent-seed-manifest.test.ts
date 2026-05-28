@@ -315,10 +315,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   it('REQ-AGENT-040: Pi review enforcement keeps PR-boundary reviewer spawning automatic', () => {
     const reviewEnforcement = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/extensions/review-enforcement.ts')?.content ?? '';
     expect(reviewEnforcement).toContain('Symbol.for("@gotgenes/pi-subagents:service")');
+    expect(reviewEnforcement).toContain('refreshSubagentsContext');
+    expect(reviewEnforcement).toContain('stale session context');
     expect(reviewEnforcement).toContain('automatic spawn will retry');
     expect(reviewEnforcement).not.toContain('Agent({ subagent_type');
     expect(reviewEnforcement).not.toContain('sendUserMessage(directiveFor');
     expect(reviewEnforcement).not.toContain('Complete the remaining subagents');
+    expect(reviewEnforcement).not.toContain('error.message : String(error)}`');
   });
 
   it('REQ-AGENT-021: Pi /sdd command enforces command-file hard gates before dispatch', () => {

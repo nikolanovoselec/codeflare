@@ -255,7 +255,9 @@ All preseed content is deployed via the manifest pipeline:
   subagent completion for SDD PRs targeting `main`/`master`. If Pi's
   subagent service is unavailable at trigger time, PR-boundary enforcement
   keeps the lanes pending and retries automatic spawn instead of injecting
-  manual `Agent(...)` follow-up instructions into the main conversation.
+  manual `Agent(...)` follow-up instructions into the main conversation; if
+  the service holds a stale session context after reload/session replacement,
+  the extension refreshes it from the current event before spawning.
   The native `/sdd` command uses `sdd-helpers.ts` to enforce the Claude
   command-file hard gates before dispatching: help/unknown subcommands,
   clean working tree, `clean`/`mode` requiring `sdd/`, and existing-spec

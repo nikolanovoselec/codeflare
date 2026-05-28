@@ -982,7 +982,7 @@ None.
 3. Conservative branches (empty diff, missing prior ack, divergent merge-base) and a missing or unsourceable helper both fall back to all-three-lanes (`code-reviewer spec-reviewer doc-updater`), so a partially-deployed install never disables enforcement.
 4. On trigger, `code-reviewer` may run in parallel with `spec-reviewer`; `doc-updater` starts only after `spec-reviewer` completes on any project containing `sdd/`.
 5. In a fix-push cascade (multiple pushes inside one turn), the gate advances the ack pointer through each push whose review window completed all lanes required by that push's diff; bypassed pushes (no spawns in window, per REQ-AGENT-041) are absorbed into the next complete window's cumulative review.
-6. In Pi runtime, if the subagent service is temporarily unavailable, PR-boundary enforcement preserves the pending lanes and retries automatic spawn without injecting manual `Agent(...)` follow-up instructions into the main conversation.
+6. In Pi runtime, if the subagent service is temporarily unavailable or holds a stale session context after reload/session replacement, PR-boundary enforcement refreshes the service context from the current extension event when possible, preserves pending lanes, retries automatic spawn, and never injects manual `Agent(...)` follow-up instructions into the main conversation.
 
 **Constraints:**
 

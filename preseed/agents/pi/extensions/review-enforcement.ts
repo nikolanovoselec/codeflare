@@ -11,7 +11,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { pathToFileURL } from "node:url";
+import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ALL_REVIEW_LANES, classifyReviewFiles, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from "./review-helpers";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -206,42 +207,84 @@ type SubagentsServiceLike = {
   spawn?: (type: string, prompt: string, options?: Record<string, unknown>) => string;
   getRecord?: (id: string) => { status?: string } | undefined;
   hasRunning?: () => boolean;
+  runtime?: { currentCtx?: unknown; setSessionContext?: (ctx: unknown) => void };
 };
 
-function subagentsService(): SubagentsServiceLike | undefined {
-  const service = (globalThis as Record<symbol, unknown>)[Symbol.for("@gotgenes/pi-subagents:service")];
-  if (!service || typeof service !== "object") return undefined;
-  return service as SubagentsServiceLike;
+let importedSubagentsAccessor: (() => SubagentsServiceLike | undefined) | undefined;
+
+async function importSubagentsAccessor(): Promise<(() => SubagentsServiceLike | undefined) | undefined> {
+  if (importedSubagentsAccessor) return importedSubagentsAccessor;
+  const candidates = [
+    join(getAgentDir(), "npm", "node_modules", "@gotgenes", "pi-subagents", "src", "service", "service.ts"),
+    "/home/user/.pi/agent/npm/node_modules/@gotgenes/pi-subagents/src/service/service.ts",
+  ];
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    try {
+      const module = await import(pathToFileURL(candidate).href) as { getSubagentsService?: () => SubagentsServiceLike | undefined };
+      if (typeof module.getSubagentsService === "function") {
+        importedSubagentsAccessor = module.getSubagentsService;
+        return importedSubagentsAccessor;
+      }
+    } catch {
+      // Try the next candidate; fallback notification happens in spawnLane.
+    }
+  }
+  return undefined;
 }
 
-async function spawnLane(type: string, prompt: string, description: string, notify?: (message: string) => void): Promise<string | undefined> {
-  const service = subagentsService();
+async function subagentsService(): Promise<SubagentsServiceLike | undefined> {
+  const service = (globalThis as Record<symbol, unknown>)[Symbol.for("@gotgenes/pi-subagents:service")];
+  if (service && typeof service === "object" && typeof (service as SubagentsServiceLike).spawn === "function") return service as SubagentsServiceLike;
+  return (await importSubagentsAccessor())?.();
+}
+
+function refreshSubagentsContext(service: SubagentsServiceLike, ctx: unknown): void {
+  try {
+    if (typeof service.runtime?.setSessionContext === "function") service.runtime.setSessionContext(ctx);
+    else if (service.runtime && typeof service.runtime === "object") service.runtime.currentCtx = ctx;
+  } catch {
+    // Best effort; spawnLane handles any remaining service error without leaking internals.
+  }
+}
+
+function spawnFailureMessage(type: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("extension ctx is stale")) {
+    return `Failed to spawn ${type}; Pi subagent service had a stale session context. Review remains pending and automatic spawn will retry after reload.`;
+  }
+  return `Failed to spawn ${type}; review remains pending and automatic spawn will retry.`;
+}
+
+async function spawnLane(type: string, prompt: string, description: string, ctx: unknown, notify?: (message: string) => void): Promise<string | undefined> {
+  const service = await subagentsService();
   if (!service?.spawn) {
     notify?.(`Pi subagent service unavailable for ${type}; review remains pending and automatic spawn will retry.`);
     return undefined;
   }
   try {
+    refreshSubagentsContext(service, ctx);
     const id = service.spawn(type, prompt, { description, inheritContext: false });
     return typeof id === "string" ? id : undefined;
   } catch (error) {
-    notify?.(`Failed to spawn ${type}; review remains pending and automatic spawn will retry: ${error instanceof Error ? error.message : String(error)}`);
+    notify?.(spawnFailureMessage(type, error));
     return undefined;
   }
 }
 
-async function spawnInitialLanes(pending: PendingReview, pr: PrState, notify?: (message: string) => void): Promise<boolean> {
+async function spawnInitialLanes(pending: PendingReview, pr: PrState, ctx: unknown, notify?: (message: string) => void): Promise<boolean> {
   const base = reviewPrompt(pending.repo, pr, pending.head, pending.reviewBase);
   let spawned = false;
   if (pending.lanes.includes("code-reviewer")) {
-    const id = await spawnLane("code-reviewer", base, "Review code changes", notify);
+    const id = await spawnLane("code-reviewer", base, "Review code changes", ctx, notify);
     if (id) { pending.spawnedIds["code-reviewer"] = id; spawned = true; }
   }
   if (pending.lanes.includes("spec-reviewer")) {
-    const id = await spawnLane("spec-reviewer", base, "Review spec changes", notify);
+    const id = await spawnLane("spec-reviewer", base, "Review spec changes", ctx, notify);
     if (id) { pending.spawnedIds["spec-reviewer"] = id; spawned = true; }
   }
   if (pending.lanes.includes("doc-updater") && !pending.lanes.includes("spec-reviewer")) {
-    const id = await spawnLane("doc-updater", docUpdaterPrompt(pending), "Review documentation changes", notify);
+    const id = await spawnLane("doc-updater", docUpdaterPrompt(pending), "Review documentation changes", ctx, notify);
     if (id) { pending.spawnedIds["doc-updater"] = id; spawned = true; }
   }
   if (spawned) pending.spawnedAt = Date.now();
@@ -307,7 +350,7 @@ export default function (pi: ExtensionAPI) {
       state.docPromptSent = true;
       savePending(state);
       const docPrompt = docUpdaterPrompt(state);
-      const spawnedId = await spawnLane("doc-updater", docPrompt, "Review documentation changes", (message) => ctx.ui.notify(message, "warning"));
+      const spawnedId = await spawnLane("doc-updater", docPrompt, "Review documentation changes", ctx, (message) => ctx.ui.notify(message, "warning"));
       if (spawnedId) {
         state.spawnedIds["doc-updater"] = spawnedId;
         state.spawned = true;
@@ -411,7 +454,7 @@ export default function (pi: ExtensionAPI) {
     const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
     resetBlockCount(repo);
     pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set() };
-    await spawnInitialLanes(pending, effectivePr, (message) => ctx.ui.notify(message, "warning"));
+    await spawnInitialLanes(pending, effectivePr, ctx, (message) => ctx.ui.notify(message, "warning"));
     const initialLanes = pending.lanes.filter((lane) => lane !== "doc-updater" || !pending.lanes.includes("spec-reviewer"));
     pending.spawned = initialLanes.length > 0 && initialLanes.every((lane) => Boolean(pending.spawnedIds[lane]));
     savePending(pending);
@@ -469,7 +512,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const service = subagentsService();
+    const service = await subagentsService();
     const currentState = loadPending(state.repo) || state;
     for (const [lane, spawnedId] of Object.entries(currentState.spawnedIds)) {
       const record = service?.getRecord?.(spawnedId);
@@ -508,7 +551,7 @@ export default function (pi: ExtensionAPI) {
       let respawned = false;
       for (const lane of eligibleUnstarted) {
         const prompt = lane === "doc-updater" ? docUpdaterPrompt(currentState) : basePrompt;
-        const id = await spawnLane(lane, prompt, lane === "doc-updater" ? "Review documentation changes" : lane === "spec-reviewer" ? "Review spec changes" : "Review code changes", (message) => ctx.ui.notify(message, "warning"));
+        const id = await spawnLane(lane, prompt, lane === "doc-updater" ? "Review documentation changes" : lane === "spec-reviewer" ? "Review spec changes" : "Review code changes", ctx, (message) => ctx.ui.notify(message, "warning"));
         if (id) {
           currentState.spawnedIds[lane] = id;
           currentState.fallbackLanes.delete(lane);
