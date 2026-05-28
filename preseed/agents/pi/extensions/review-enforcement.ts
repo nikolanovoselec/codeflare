@@ -169,6 +169,10 @@ function stringifyReviewResult(result: unknown): string {
   try { return JSON.stringify(result, null, 2); } catch { return String(result); }
 }
 
+function toolResultPayload(event: any): unknown {
+  return event?.result ?? event?.output ?? event?.content ?? event?.message ?? event?.data;
+}
+
 function persistReviewResult(state: PendingReview, lane: string, result: unknown): string {
   const dir = reviewResultsDir(state.repo, state.head);
   mkdirSync(dir, { recursive: true });
@@ -485,7 +489,7 @@ export default function (pi: ExtensionAPI) {
       const prompt = String(input.prompt || "");
       const state = hydratePending(ctx);
       if (type && state?.fallbackLanes.has(type) && input.run_in_background !== true) {
-        await markCompleted(type, ctx, undefined, prompt);
+        await markCompleted(type, ctx, undefined, prompt, toolResultPayload(event));
       }
       return;
     }
