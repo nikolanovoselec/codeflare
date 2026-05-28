@@ -9,7 +9,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -205,6 +205,17 @@ function persistReviewResult(state: PendingReview, lane: string, result: unknown
   const path = reviewResultPath(state.repo, state.head, lane);
   writeFileSync(path, [`# PR-boundary ${lane}`, "", `Repo: ${basename(state.repo)}`, `Head: ${state.head}`, `PR: ${state.prNumber || "?"}`, "", text, ""].join("\n"), "utf8");
   return path;
+}
+
+// Keep only the current head's results under .git/sdd-review-results/ so old PR HEADs do
+// not accumulate across a long-lived branch. Best-effort; never throws.
+function pruneReviewResults(repo: string, keepHead: string): void {
+  try {
+    const base = join(repo, ".git", "sdd-review-results");
+    for (const entry of readdirSync(base)) {
+      if (entry !== keepHead) rmSync(join(base, entry), { recursive: true, force: true });
+    }
+  } catch { /* best effort: dir may not exist yet */ }
 }
 
 function loadPending(repo: string): PendingReview | undefined {
@@ -572,6 +583,7 @@ export default function (pi: ExtensionAPI) {
     const initialLanes = pending.lanes.filter((lane) => lane !== "doc-updater" || !pending.lanes.includes("spec-reviewer"));
     pending.spawned = initialLanes.length > 0 && initialLanes.every((lane) => Boolean(pending.spawnedIds[lane]));
     savePending(pending);
+    pruneReviewResults(repo, head); // a new head is under review; drop stale prior-head result dirs
     ctx.ui.notify(`PR-boundary review required for ${basename(repo)} at ${head.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
     if (!pending.spawned) {
       for (const lane of initialLanes) {
@@ -590,7 +602,17 @@ export default function (pi: ExtensionAPI) {
 
   const onSubagentCompleted = async (event: any, ctx: any) => {
     const type = String(event?.type || "");
-    if (type) await markCompleted(type, ctx, typeof event?.id === "string" ? event.id : undefined, undefined, event?.result);
+    if (!type) return;
+    // Persist the result the instant the reviewer finishes, before the completion gate. If
+    // completion-detection later no-ops (stale PR state, id mismatch), the findings are already
+    // on disk instead of surviving only in the /tmp subagent transcript.
+    if (event?.result != null) {
+      const state = hydratePending(ctx);
+      if (state && state.lanes.includes(type)) {
+        try { persistReviewResult(state, type, event.result); } catch { /* best effort */ }
+      }
+    }
+    await markCompleted(type, ctx, typeof event?.id === "string" ? event.id : undefined, undefined, event?.result);
   };
 
   pi.on("subagents:completed", onSubagentCompleted);
@@ -611,6 +633,19 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("subagents:failed", onSubagentFailed);
   (pi as any).events?.on?.("subagents:failed", (event: any) => onSubagentFailed(event, completionCtx()));
+
+  // pi-subagents seeds its spawn ctx only on session_start, not on compaction. Auto-compaction
+  // reloads/replaces the session and leaves that ctx stale, so later reviewer spawns throw
+  // "extension ctx is stale". Re-seed the service with the fresh ctx on both lifecycle points:
+  // session_start covers reload/replacement, session_compact covers in-place compaction.
+  const reseedSubagentsCtx = async (ctx: any): Promise<void> => {
+    remember(ctx);
+    if (!isRealSessionCtx(ctx)) return;
+    const service = await subagentsService();
+    if (service) refreshSubagentsContext(service, ctx);
+  };
+  pi.on("session_start", async (_event: any, ctx: any) => { await reseedSubagentsCtx(ctx); });
+  pi.on("session_compact", async (_event: any, ctx: any) => { await reseedSubagentsCtx(ctx); });
 
   pi.on("agent_end", async (_event, ctx) => {
     remember(ctx);
