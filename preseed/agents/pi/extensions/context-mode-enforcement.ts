@@ -2,15 +2,19 @@
  * Codeflare Pi context-mode enforcement.
  *
  * Pi-native equivalent of the Claude Code context-mode PreToolUse hook.
- * It keeps large/raw command outputs out of the model context by blocking broad Bash
- * and directing the agent to ctx_* tools. Read is intentionally not routed.
+ * It keeps large/raw outputs out of the model context by blocking broad Bash
+ * and large Read calls and directing the agent to ctx_* tools.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 
 type ExtensionAPI = { on: (event: string, handler: (event: any) => unknown) => void };
 
 const BYPASS_FILE = "/tmp/ctx-bypass";
+const SAFE_GRAPHIFY_UPDATE = "/home/user/.pi/agent/scripts/safe-graphify-update.sh";
+const MAX_READ_BYTES = 100 * 1024;
+const MAX_READ_LINES = 240;
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
 const ALLOWED_FIRST_WORDS = new Set(["git", "mkdir", "rm", "mv", "cd", "ls", "graphify"]);
 
 function stripHeredocs(command: string): string {
@@ -194,13 +198,29 @@ function words(segment: string): string[] {
     .filter(Boolean);
 }
 
+function extensionFor(path: string): string {
+  const lastDot = path.lastIndexOf(".");
+  return lastDot === -1 ? "" : path.slice(lastDot).toLowerCase();
+}
+
+function inputFromEvent(event: any): Record<string, unknown> {
+  return (event?.input ?? event?.params ?? event?.args ?? {}) as Record<string, unknown>;
+}
+
 export function commandFromEvent(event: any): string {
-  const input = event?.input ?? event?.params ?? event?.args ?? {};
+  const input = inputFromEvent(event);
   return typeof input.command === "string" ? input.command : "";
+}
+
+function isSafeGraphifyUpdateSegment(segment: string): boolean {
+  const [first, second] = words(segment);
+  return first === "bash" && second === SAFE_GRAPHIFY_UPDATE;
 }
 
 export function bashDenialReason(command: string): string | undefined {
   for (const segment of commandSegments(command)) {
+    if (isSafeGraphifyUpdateSegment(segment)) continue;
+
     const [first, second] = words(segment);
     if (!first) continue;
     if (ALLOWED_FIRST_WORDS.has(first)) continue;
@@ -235,11 +255,38 @@ export function bashDenialReason(command: string): string | undefined {
   return undefined;
 }
 
+export function readDenialReason(input: Record<string, unknown>): string | undefined {
+  const path = typeof input.path === "string" ? input.path : undefined;
+  if (!path || IMAGE_EXTENSIONS.has(extensionFor(path))) return undefined;
+
+  const offset = typeof input.offset === "number" ? input.offset : undefined;
+  const limit = typeof input.limit === "number" ? input.limit : undefined;
+  if (limit !== undefined && limit > MAX_READ_LINES) {
+    return `Read of ${limit} lines from '${path}' violates context-mode routing. Use ctx_execute_file for analysis/large files, or Read with limit <= ${MAX_READ_LINES} only for exact edit snippets.`;
+  }
+  if (offset !== undefined && limit !== undefined && limit <= MAX_READ_LINES) return undefined;
+
+  try {
+    const stat = statSync(path);
+    if (stat.isFile() && stat.size <= MAX_READ_BYTES) return undefined;
+  } catch {
+    return undefined;
+  }
+
+  return `Large or unbounded Read of '${path}' violates context-mode routing. Use ctx_execute_file for analysis/large files. Use Read only for files up to 100 KB or snippets up to ${MAX_READ_LINES} lines needed for editing.`;
+}
+
 export default function (pi: ExtensionAPI) {
   const onToolStart = (event: any) => {
     if (existsSync(BYPASS_FILE)) return;
 
     const toolName = String(event?.toolName ?? "").toLowerCase();
+    if (toolName === "read") {
+      const reason = readDenialReason(inputFromEvent(event));
+      if (!reason) return;
+      return { block: true, reason: `${reason} Bypass is user-only: touch ${BYPASS_FILE}.` };
+    }
+
     if (toolName !== "bash") return;
     const command = commandFromEvent(event);
     if (!command.trim()) return;

@@ -70,13 +70,26 @@ function hasGraph(repo: string): boolean {
 function graphSummary(repo: string): string | undefined {
   const graphPath = join(repo, "graphify-out", "graph.json");
   if (!existsSync(graphPath)) return undefined;
+  const layout = "Repo graphs live under <repo>/graphify-out/graph.json, never /home/user/workspace/graphify-out. Vault graph: /home/user/Vault/graphify-out/graph.json. Global graph: /home/user/.graphify/global-graph.json.";
   try {
-    const graph = JSON.parse(readFileSync(graphPath, "utf8")) as { nodes?: unknown[]; links?: unknown[]; edges?: unknown[] };
+    const graph = JSON.parse(readFileSync(graphPath, "utf8")) as { nodes?: unknown[]; links?: unknown[]; edges?: unknown[]; built_at_commit?: string };
     const nodes = Array.isArray(graph.nodes) ? graph.nodes.length : 0;
     const links = Array.isArray(graph.links) ? graph.links.length : Array.isArray(graph.edges) ? graph.edges.length : 0;
-    return `Graphify graph available for ${basename(repo)}: ${nodes} nodes, ${links} links at ${graphPath}. Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
+    const built = typeof graph.built_at_commit === "string" ? graph.built_at_commit : undefined;
+    let freshness = "";
+    if (built) {
+      try {
+        const head = shell("git rev-parse HEAD", repo);
+        freshness = built === head
+          ? ` Fresh at ${head.slice(0, 12)}.`
+          : ` Stale: built at ${built.slice(0, 12)}, repo HEAD is ${head.slice(0, 12)}.`;
+      } catch {
+        freshness = ` Built at ${built.slice(0, 12)}.`;
+      }
+    }
+    return `Graphify repo graph available for ${basename(repo)}: ${nodes} nodes, ${links} links at ${graphPath}.${freshness} ${layout} Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
   } catch {
-    return `Graphify graph available for ${basename(repo)} at ${graphPath}. Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
+    return `Graphify repo graph available for ${basename(repo)} at ${graphPath}. ${layout} Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
   }
 }
 

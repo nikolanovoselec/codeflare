@@ -23,6 +23,6 @@ if (!apiKey) {
 }
 ```
 
-## Agent Support
+## Review Support
 
-- Use **security-reviewer** agent for comprehensive security audits
+- Security audits are handled through explicit user requests or the review workflow; do not spawn review agents proactively.

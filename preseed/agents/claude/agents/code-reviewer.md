@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-description: Expert code review specialist. Proactively reviews code for quality, security, and maintainability. Use immediately after writing or modifying code. MUST BE USED for all code changes.
+description: Expert code review specialist for PR-boundary review enforcement, /review workflows, and explicit user-requested audits. Reviews code quality, security, and maintainability without modifying files.
 tools: ["Read", "Grep", "Glob", "Bash", "Write", "mcp__consult-llm__consult_llm", "mcp__context-mode__ctx_search", "mcp__context-mode__ctx_batch_execute", "mcp__context-mode__ctx_execute", "mcp__context-mode__ctx_execute_file", "mcp__context-mode__ctx_fetch_and_index", "mcp__graphify__query_graph", "mcp__graphify__get_node", "mcp__graphify__get_neighbors", "mcp__graphify__get_community", "mcp__graphify__god_nodes", "mcp__graphify__shortest_path", "mcp__graphify__graph_stats"]
 model: opus
 ---

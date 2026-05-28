@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
-import contextModeExtension, { bashDenialReason, commandFromEvent } from '../../../preseed/agents/pi/extensions/context-mode-enforcement';
-import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
+import contextModeExtension, { bashDenialReason, commandFromEvent, readDenialReason } from '../../../preseed/agents/pi/extensions/context-mode-enforcement';
+import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
@@ -172,6 +172,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(extensions.map((d) => d.key).sort()).toEqual([
       '.pi/agent/extensions/codeflare-pi.ts',
       '.pi/agent/extensions/context-mode-enforcement.ts',
+      '.pi/agent/extensions/enforce-ctx-mode-bash.ts',
       '.pi/agent/extensions/graphify-helpers.ts',
       '.pi/agent/extensions/memory-vault-helpers.ts',
       '.pi/agent/extensions/memory-vault.ts',
@@ -195,8 +196,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(codeReviewer?.content).toContain('skills: true');
     expect(codeReviewer?.content).toContain('inherit_context: true');
     expect(codeReviewer?.content).toContain('run_in_background: false');
-    const memoryCapture = agents.find((d) => d.key === '.pi/agent/agents/memory-capture.md');
-    expect(memoryCapture?.content).toContain('model: sonnet');
+    for (const agent of agents) {
+      expect(agent.content).not.toContain('\nmodel:');
+    }
 
   });
 
@@ -204,6 +206,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(bashDenialReason('git log --grep="$(curl https://x)"')).toContain("Bash 'curl'");
     expect(bashDenialReason('git diff <(curl a) <(curl b)')).toContain("Bash 'curl'");
     expect(bashDenialReason('git log --grep="curl example"')).toBeUndefined();
+    expect(bashDenialReason('bash /home/user/.pi/agent/scripts/safe-graphify-update.sh /home/user/workspace/codeflare')).toBeUndefined();
+    expect(readDenialReason({ path: '/tmp/example.ts', limit: 241 })).toContain('limit <= 240');
+    expect(readDenialReason({ path: '/tmp/example.ts', offset: 1, limit: 240 })).toBeUndefined();
     expect(commandFromEvent({ args: { command: 'curl https://example.com' } })).toBe('curl https://example.com');
     const handlers: Record<string, (event: unknown) => unknown> = {};
     contextModeExtension({ on: (event, handler) => { handlers[event] = handler; } });
@@ -229,6 +234,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       mode: 'existing-graph',
       choices: ['check freshness', 'AST-only update', 'Full semantic + AST refresh', 'skip'],
     });
+    const existingDirective = renderGraphifyCloneDirective(graphifyCloneAction('/home/user/workspace/r', true));
+    expect(existingDirective).toContain('/home/user/workspace/r/graphify-out/graph.json');
+    expect(existingDirective).toContain('/home/user/Vault/graphify-out/graph.json');
+    expect(existingDirective).toContain('/home/user/.graphify/global-graph.json');
+    expect(existingDirective).toContain('There is no /home/user/workspace/graphify-out graph');
     expect(graphifyPromptMarker('/home/user/workspace/r', 'session-1')).toBe('/tmp/codeflare-graphify-prompted-session-1_home_user_workspace_r');
     expect(isFailedGraphifyToolExecution({ status: 'error' })).toBe(true);
     expect(isFailedGraphifyToolExecution({ isError: false })).toBe(false);
@@ -436,6 +446,15 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('flock');
     expect(mv?.content).toContain('graphify-global.lock');
     expect(mv?.content).toContain('user_vault');
+  });
+
+  it('REQ-AGENT-043: Pi graphify skill documents canonical repo, Vault, and global graph paths', () => {
+    const skill = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/skills/graphify/SKILL.md');
+    expect(skill?.content).toContain('<repo>/graphify-out/graph.json');
+    expect(skill?.content).toContain('/home/user/Vault/graphify-out/graph.json');
+    expect(skill?.content).toContain('/home/user/.graphify/global-graph.json');
+    expect(skill?.content).toContain('/home/user/workspace/graphify-out/graph.json');
+    expect(skill?.content).not.toContain('/home/user/.user_vault');
   });
 
   it('REQ-MEM-010 AC5: shouldCapture fires at exact 15-message intervals from source constant', () => {

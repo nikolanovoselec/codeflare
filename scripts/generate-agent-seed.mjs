@@ -152,7 +152,8 @@ function remapTools(toolsArray, agentId) {
 }
 
 /**
- * Adapt an agent definition's frontmatter: remap tools, remove model field unless the target supports model frontmatter.
+ * Adapt an agent definition's frontmatter: remap tools and remove Claude-specific
+ * model pins so transformed agents default to the active runtime model.
  * Body content gets path adaptation only.
  */
 function adaptAgentFrontmatter(content, agentId) {
@@ -165,7 +166,7 @@ function adaptAgentFrontmatter(content, agentId) {
   let sawTools = false;
 
   for (const line of lines) {
-    if (line.startsWith('model:') && agentId !== 'pi') continue;
+    if (line.startsWith('model:')) continue;
 
     if (line.startsWith('tools:')) {
       sawTools = true;

@@ -200,7 +200,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
-**Manifest structure (131 total source entries: 120 Claude + 11 Pi-native)**:
+**Manifest structure (134 total source entries: 120 Claude + 14 Pi-native)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -245,14 +245,17 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (11): package config, package lock, MCP config, six extension files, one native graphify skill override ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7), and one Pi graphify wrapper script.
+- Pi-native runtime assets (14): package config, package lock, MCP config, nine extension files (including the `enforce-ctx-mode-bash.ts` legacy shim that overwrites stale local copies during recreation), one native graphify skill override ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7), and one Pi graphify wrapper script.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
   separate from PR-boundary enforcement: the command reviews a requested
   scope, while `review-enforcement.ts` watches PR HEADs, resolves the
   active repo from native GitHub workflow commands, and requires review
-  subagent completion for SDD PRs targeting `main`/`master`.
+  subagent completion for SDD PRs targeting `main`/`master`. Pi context-mode
+  enforcement routes large/raw Bash and Read calls to `ctx_*` tools, permits
+  Read snippets up to 240 lines or files up to 100 KB, and allowlists the
+  bounded safe graphify wrapper.
   Pi subagents are provided by `@gotgenes/pi-subagents`; the generator
   adapts Claude agent definitions into `.pi/agent/agents/*.md`.
   The container image preinstalls Pi extension npm dependencies into an
@@ -319,7 +322,7 @@ Claude/MCP-specific transformed skill. Pi receives a separate
 **Adaptation pipeline**: For each non-CC agent, the generator: (1)
 concatenates applicable rules into a single instructions file, (2)
 remaps tool names in agent definition frontmatter, (3) removes
-`model` field from frontmatter for runtimes that do not support it while preserving Pi subagent model pins, (4) replaces `~/.claude/` path
+Claude-specific `model` fields from transformed agent frontmatter so non-Claude runtimes (including Pi) default to their active session model, (4) replaces `~/.claude/` path
 references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents). Pi additionally
 loads `preseed/agents/pi/manifest.json`, emits native runtime files
@@ -328,8 +331,8 @@ to `.pi/agent/extensions/`, `.pi/agent/scripts/`, `.pi/agent/mcp.json`,
 native Pi skill overrides under `~/.pi/agent/skills/`, and adapts Claude agent definitions into
 `.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`.
 
-**Per-mode counts**: Default mode seeds 52 files, advanced mode
-seeds 359 files. Total array size is 364 (includes variant-per-mode
+**Per-mode counts**: Default mode seeds 53 files, advanced mode
+seeds 362 files. Total array size is 367 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the
@@ -475,7 +478,7 @@ The hook surfaces blocks as `hookSpecificOutput.permissionDecision: deny` with a
 
 ### Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
 
-The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless `graphify extract --backend deepseek`; AST extraction uses local `graphify update`, and semantic extraction uses Pi `Agent` subagents from the running session. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema.
+The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless `graphify extract --backend deepseek`; AST extraction uses the allowlisted safe wrapper (`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh <repo>`), and semantic extraction uses Pi `Agent` subagents from the running session. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema. Pi guidance treats `<repo>/graphify-out/graph.json` as the repo graph, `/home/user/Vault/graphify-out/graph.json` as the Vault graph, and `/home/user/.graphify/global-graph.json` as the merged graph; `/home/user/workspace/graphify-out/graph.json` is never a valid graph location.
 
 Subagents run on **Sonnet** (`model: "sonnet"`). Haiku was the original choice (cost-matching with vault-extract economics) but produced 57% malformed nodes on the codeflare corpus - missing `id` fields, numeric IDs instead of strings, missing `source_file`. The extraction prompt requires reliable schema compliance across complex document types (spec files with REQ anchors, skill instructions with cross-references, ADR ledgers). Sonnet at ~3x per-agent cost with near-zero malformation is cheaper per valid node. Opus is never used from this skill.
 

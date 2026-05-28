@@ -19,16 +19,18 @@ export function graphifyCloneAction(repo: string, hasGraph: boolean): GraphifyCl
 export function renderGraphifyCloneDirective(action: GraphifyCloneAction): string {
   if (action.mode === "existing-graph") {
     return [
-      `Repository cloned at ${action.repo} and an existing graphify graph was found.`,
-      "Check whether source files changed since the graph was built.",
+      `Repository cloned at ${action.repo} and an existing graphify graph was found at ${action.repo}/graphify-out/graph.json.`,
+      "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is /home/user/Vault/graphify-out/graph.json; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
+      "Check whether source files changed since the graph was built by comparing graph.json built_at_commit to git HEAD.",
       `If stale, ask the user whether to run the free AST-only update (\`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh ${action.repo}\`) or a full AST + semantic refresh using Pi Agent subagents.`,
-      "If fresh, use `graphify_query`, `graphify_path`, and `graphify_explain` before broad text search.",
+      `If fresh, use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` before broad text search. If a native graphify tool looks at the workspace root, fall back to the CLI with \`--graph ${action.repo}/graphify-out/graph.json\`.`,
     ].join("\n");
   }
   return [
-    `Repository cloned at ${action.repo}; no graphify graph exists yet.`,
+    `Repository cloned at ${action.repo}; no graphify graph exists yet at ${action.repo}/graphify-out/graph.json.`,
+    "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is /home/user/Vault/graphify-out/graph.json; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
     "Ask the user to choose a graph build mode before long-running work:",
-    `1. AST-only — free, local, no LLM/API key; builds structural code graph with \`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh ${action.repo}\` then \`graphify cluster-only ${action.repo}\` so graph.html is generated unless the user explicitly asks to skip visualization.`,
+    `1. AST-only — free, local, no LLM/API key; builds structural code graph with \`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh ${action.repo}\` so graph.html is generated unless the user explicitly asks to skip visualization.`,
     "2. Full semantic + AST — local AST plus bounded Pi Agent subagent waves for docs/papers/images, then merge and cluster.",
     "Do not use headless `graphify extract --backend deepseek` for this interactive workflow.",
   ].join("\n");

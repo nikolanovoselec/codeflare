@@ -1,6 +1,6 @@
 ---
 name: spec-reviewer
-description: Specification maintenance agent. Keeps sdd/ valid as the single source of truth. Updates spec when code changes, validates quality, removes stale content. Project-agnostic — auto-detects sdd/ folder. Only runs when sdd/ exists.
+description: Specification maintenance agent for PR-boundary review enforcement, /review workflows, /sdd clean, and explicit user-requested spec audits. Keeps sdd/ valid as the single source of truth when invoked.
 tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "mcp__context-mode__ctx_search", "mcp__context-mode__ctx_batch_execute", "mcp__context-mode__ctx_execute", "mcp__context-mode__ctx_execute_file", "mcp__context-mode__ctx_fetch_and_index", "mcp__graphify__query_graph", "mcp__graphify__get_node", "mcp__graphify__get_neighbors", "mcp__graphify__get_community", "mcp__graphify__god_nodes", "mcp__graphify__shortest_path", "mcp__graphify__graph_stats"]
 model: sonnet
 ---

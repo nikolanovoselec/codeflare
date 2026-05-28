@@ -1558,7 +1558,7 @@ None.
 **Acceptance Criteria:**
 
 1. Agent definitions use correct frontmatter format per agent (e.g., `tools` as record `{read: true}` for OpenCode, as array or comma-separated names according to the target schema).
-2. `model` field is removed from frontmatter for non-CC agents where the target runtime resolves model selection independently.
+2. `model` field is removed from transformed frontmatter for every non-CC agent, including Pi, so the target runtime resolves model selection from the active session/default model rather than inheriting Claude model pins.
 3. Path references (e.g., `~/.claude/`) are replaced with agent-specific config paths, including Pi's `.pi/agent/agents/` subagent path.
 4. File extensions match agent conventions (e.g., `.agent.md` for Copilot agents and `.md` for Pi subagents).
 5. Pi subagent transforms emit Pi-compatible frontmatter for tools, prompt mode, extension/skill inheritance, context inheritance, and background defaults.

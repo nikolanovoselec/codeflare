@@ -18,4 +18,4 @@ When you change a public API, route signature, env var, CI workflow, or architec
 
 ## Security
 
-For any change touching auth, user input, secrets, file uploads, or external API integrations: invoke the `security-reviewer` agent before the commit lands. Never hardcode secrets — use env vars.
+For any change touching auth, user input, secrets, file uploads, or external API integrations: apply the security checklist and document the verification path. PR-boundary review enforcement handles reviewer spawning; do not invoke review agents manually unless the user explicitly asks. Never hardcode secrets — use env vars.

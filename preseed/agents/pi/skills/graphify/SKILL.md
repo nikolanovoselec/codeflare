@@ -15,12 +15,20 @@ Do **not** use headless `graphify extract --backend deepseek` for normal interac
 - Full semantic extraction uses the running Pi session's `Agent` subagents in bounded waves.
 - Query existing graphs with Pi native tools: `graphify_query`, `graphify_path`, `graphify_explain`.
 
+## Canonical graph layout
+
+- Repo graph: `<repo>/graphify-out/graph.json` inside the checked-out repository, e.g. `/home/user/workspace/codeflare/graphify-out/graph.json`.
+- Vault graph: `/home/user/Vault/graphify-out/graph.json`.
+- Global graph: `/home/user/.graphify/global-graph.json`, merged from the active repo graph and the Vault graph under the existing `user_vault` tag.
+- There is no graph at `/home/user/workspace/graphify-out/graph.json`. If Pi's cwd is `/home/user/workspace`, resolve the active repo from `/home/user/.cache/codeflare-hooks/graphify-active-cwd` or the child git root before querying.
+- If a native graphify tool looks at the workspace root, fall back to the CLI with `--graph <repo>/graphify-out/graph.json`.
+
 ## Triage
 
 1. Resolve repo root. Prefer `/home/user/.cache/codeflare-hooks/graphify-active-cwd` when present; otherwise use the current git root.
 2. Check `<repo>/graphify-out/graph.json`.
 3. If graph exists:
-   - Check freshness with `graphify check-update <repo>` or compare changed files since the graph build.
+   - Check freshness by comparing `built_at_commit` in graph.json with `git rev-parse HEAD`.
    - If stale, ask whether to run AST-only update or full semantic refresh.
    - If fresh, use graph query tools before broad grep/find.
 4. If graph is missing, ask the user to choose:
@@ -33,10 +41,9 @@ Run from the repo root:
 
 ```bash
 bash /home/user/.pi/agent/scripts/safe-graphify-update.sh .
-graphify cluster-only .
 ```
 
-The safe wrapper runs bounded local code extraction and avoids unbounded graphify subprocesses in the 1-CPU container. The follow-up clustering command intentionally generates `graphify-out/graph.html`; do not skip HTML visualization unless the user explicitly asks. This does not require any LLM API key. Use this by default for code-only repos or when the user chooses free/fast mode.
+The safe wrapper is allowlisted by Pi context-mode enforcement. It runs bounded local code extraction and clustering, avoids unbounded graphify subprocesses in the 1-CPU container, and intentionally generates `graphify-out/graph.html`; do not skip HTML visualization unless the user explicitly asks. This does not require any LLM API key. Use this by default for code-only repos or when the user chooses free/fast mode.
 
 After graph creation/update, merge into the global graph when possible:
 
@@ -64,10 +71,16 @@ Never use headless `graphify extract --backend deepseek` for this interactive wo
 
 ## Querying
 
-Use native Pi graphify tools:
+Use native Pi graphify tools first:
 
 - `graphify_query({ question, mode: "bfs" })` for broad context.
 - `graphify_query({ question, mode: "dfs" })` or `graphify_path` for paths.
 - `graphify_explain({ concept })` for a node and its neighbors.
 
-If the graph is under a child repo while Pi cwd is `/home/user/workspace`, run from the repo root or pass the graph path via CLI (`graphify query ... --graph <repo>/graphify-out/graph.json`) until native tools resolve active repo automatically.
+When the active repo is a child of `/home/user/workspace` and a native tool reports `/home/user/workspace/graphify-out/graph.json` missing, use the CLI fallback:
+
+```bash
+graphify query "<question>" --graph <repo>/graphify-out/graph.json
+graphify path "A" "B" --graph <repo>/graphify-out/graph.json
+graphify explain "X" --graph <repo>/graphify-out/graph.json
+```
