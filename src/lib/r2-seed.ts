@@ -128,24 +128,12 @@ function isPiContextModeKey(key: string): boolean {
   return key === PI_CONTEXT_MODE_EXTENSION_KEY;
 }
 
-function stripPiContextModeTools(content: string): string {
-  return content.replace(/^tools: .*$/m, (line) =>
-    line
-      .replace(/, ctx_search/g, '')
-      .replace(/, ctx_batch_execute/g, '')
-      .replace(/, ctx_execute_file/g, '')
-      .replace(/, ctx_execute/g, '')
-      .replace(/, ctx_fetch_and_index/g, '')
-  );
-}
-
 function normalizePiSeedDocument(doc: SeedDocument): SeedDocument | null {
   if (isPiContextModeKey(doc.key)) return null;
 
-  if (doc.key.startsWith('.pi/agent/agents/')) {
-    const content = stripPiContextModeTools(doc.content);
-    return content === doc.content ? doc : { ...doc, content };
-  }
+  // Pi agents keep the context-mode tool declarations remapped from the shared agent
+  // frontmatter: inert when context-mode is off (the ctx_* tools are absent and Pi
+  // drops them), usable when /ctx enables it. No Pi-specific stripping.
 
   if (doc.key === '.pi/agent/mcp.json') {
     try {

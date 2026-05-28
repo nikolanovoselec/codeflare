@@ -185,8 +185,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/safe-graphify-update.sh');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(codeReviewer?.content).toContain('tools: read, grep, find, bash, write');
-    expect(codeReviewer?.content).not.toContain('ctx_execute');
-    expect(codeReviewer?.content).not.toContain('ctx_batch_execute');
+    // context-mode helper tools are kept (Pi-native names), inert when context-mode is off
+    expect(codeReviewer?.content).toContain('ctx_execute');
+    expect(codeReviewer?.content).toContain('ctx_batch_execute');
     expect(codeReviewer?.content).toContain('graphify_query');
     expect(codeReviewer?.content).toContain('graphify_explain');
     expect(codeReviewer?.content).toContain('prompt_mode: replace');
@@ -203,13 +204,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   });
 
-  it('Pi agent tools do not require context-mode', () => {
+  it('Pi agents use Pi-native tool names and keep declared context-mode tools (not stripped, never mcp-prefixed)', () => {
     const agents = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/agents/') && !d.key.endsWith('AGENTS.md'));
+    const toolsLine = (content: string) => content.match(/^tools:.*$/m)?.[0] ?? '';
     for (const agent of agents) {
-      expect(agent.content).not.toContain('ctx_execute');
-      expect(agent.content).not.toContain('ctx_batch_execute');
-      expect(agent.content).not.toContain('ctx_search');
+      // the Claude->Pi remap is complete: the tools line carries Pi-native names, no mcp__ prefixes
+      expect(toolsLine(agent.content)).not.toContain('mcp__');
     }
+    // an agent that declares context-mode tools upstream keeps them under Pi-native names,
+    // so context-mode (when /ctx enables it) is usable instead of a dead-end redirect
+    const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
+    expect(toolsLine(codeReviewer?.content ?? '')).toContain('ctx_execute');
+    expect(toolsLine(codeReviewer?.content ?? '')).toContain('ctx_batch_execute');
   });
 
   it('REQ-AGENT-025 / REQ-AGENT-043: Pi graphify clone triage resolves clone destinations and branches on graph state', () => {

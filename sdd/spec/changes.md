@@ -2,6 +2,11 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-29
+
+- REQ-AGENT-005 AC4 updated: Pi agents now declare the context-mode helper tools (`ctx_execute`, `ctx_batch_execute`, `ctx_execute_file`, `ctx_search`, `ctx_fetch_and_index`) in their frontmatter instead of having them stripped. The shared Claude agent definitions are remapped to Pi-native tool names in `generate-agent-seed.mjs` (TOOL_MAP.pi + the Pi allowlist) and the deploy-time strip in `r2-seed.ts` was removed. The declarations are inert when context-mode is disabled (the tools do not exist so Pi drops them) and usable when `/ctx on` enables it, closing the dead-end where an agent could be told to route to a ctx tool it did not have. No Pi-specific agent variants; Pi stays fully functional with context-mode off.
+- Pi review-enforcement and context-mode decoupling (no REQ behavior change; both behavior-preserving for users): the PR-boundary review circuit breaker now latches to stop the unbounded reminder/respawn spiral, the subagents service is only seeded with a real session ctx, and the always-excluded local context-mode enforcement extensions were deleted with shell-command detection switched from ctx_* tool-name matching to command-content matching so the extensions run identically with context-mode off or on.
+
 ## 2026-05-28
 
 - REQ-SESSION-015 Constraints updated: best-effort entrypoint steps executed before the init-complete flag is written must be guarded against `set -euo pipefail` failure; a degraded warm-up is preferable to PID 1 dying before the flag write (production regression fixed by PR #440).

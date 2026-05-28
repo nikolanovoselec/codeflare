@@ -68,6 +68,11 @@ const TOOL_MAP = {
     'mcp__graphify__god_nodes': 'graphify_query',
     'mcp__graphify__shortest_path': 'graphify_path',
     'mcp__graphify__graph_stats': 'graphify_query',
+    'mcp__context-mode__ctx_execute': 'ctx_execute',
+    'mcp__context-mode__ctx_batch_execute': 'ctx_batch_execute',
+    'mcp__context-mode__ctx_execute_file': 'ctx_execute_file',
+    'mcp__context-mode__ctx_search': 'ctx_search',
+    'mcp__context-mode__ctx_fetch_and_index': 'ctx_fetch_and_index',
   },
 };
 
@@ -177,6 +182,10 @@ function adaptAgentFrontmatter(content, agentId) {
           const allowed = [
             'read', 'grep', 'find', 'ls', 'bash', 'edit', 'write',
             'graphify_query', 'graphify_path', 'graphify_explain',
+            // context-mode helpers: declared in the shared agent frontmatter and remapped
+            // to Pi-native names above. Harmless when context-mode is off (the tools do not
+            // exist, so Pi drops them), usable when /ctx enables it. No Pi-specific agent edits.
+            'ctx_execute', 'ctx_batch_execute', 'ctx_execute_file', 'ctx_search', 'ctx_fetch_and_index',
           ];
           const piTools = [...new Set(remapped.filter((t) => allowed.includes(t)))];
           const dropped = remapped.filter((t) => !allowed.includes(t));
