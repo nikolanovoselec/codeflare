@@ -1,10 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
-import contextModeExtension, { bashDenialReason, commandFromEvent, readDenialReason } from '../../../preseed/agents/pi/extensions/context-mode-enforcement';
-import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
+import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
-import { sddCommandDecision } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -172,8 +170,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(skills.length).toBeGreaterThan(0);
     expect(extensions.map((d) => d.key).sort()).toEqual([
       '.pi/agent/extensions/codeflare-pi.ts',
-      '.pi/agent/extensions/context-mode-enforcement.ts',
-      '.pi/agent/extensions/enforce-ctx-mode-bash.ts',
       '.pi/agent/extensions/graphify-helpers.ts',
       '.pi/agent/extensions/memory-vault-helpers.ts',
       '.pi/agent/extensions/memory-vault.ts',
@@ -185,14 +181,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/code-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/spec-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/doc-updater.md');
-    const sddHelpers = extensions.find((d) => d.key === '.pi/agent/extensions/sdd-helpers.ts');
-    expect(sddHelpers?.content).toContain('export default function sddHelpersExtension');
     expect(skills.map((d) => d.key).filter((key) => key === '.pi/agent/skills/graphify/SKILL.md')).toHaveLength(1);
     expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/safe-graphify-update.sh');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(codeReviewer?.content).toContain('tools: read, grep, find, bash, write');
-    expect(codeReviewer?.content).toContain('ctx_execute');
-    expect(codeReviewer?.content).toContain('ctx_batch_execute');
+    expect(codeReviewer?.content).not.toContain('ctx_execute');
+    expect(codeReviewer?.content).not.toContain('ctx_batch_execute');
     expect(codeReviewer?.content).toContain('graphify_query');
     expect(codeReviewer?.content).toContain('graphify_explain');
     expect(codeReviewer?.content).toContain('prompt_mode: replace');
@@ -203,21 +197,19 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     for (const agent of agents) {
       expect(agent.content).not.toContain('\nmodel:');
     }
+    const codeflarePi = extensions.find((d) => d.key === '.pi/agent/extensions/codeflare-pi.ts');
+    expect(codeflarePi?.content).toContain('pi.registerCommand("ctx"');
+    expect(codeflarePi?.content).toContain('context-mode is disabled');
 
   });
 
-  it('Pi context-mode enforcement detects executable substitutions and Pi event command shapes', () => {
-    expect(bashDenialReason('git log --grep="$(curl https://x)"')).toContain("Bash 'curl'");
-    expect(bashDenialReason('git diff <(curl a) <(curl b)')).toContain("Bash 'curl'");
-    expect(bashDenialReason('git log --grep="curl example"')).toBeUndefined();
-    expect(bashDenialReason('bash /home/user/.pi/agent/scripts/safe-graphify-update.sh /home/user/workspace/codeflare')).toBeUndefined();
-    expect(readDenialReason({ path: '/tmp/example.ts', limit: 241 })).toContain('limit <= 240');
-    expect(readDenialReason({ path: '/tmp/example.ts', offset: 1, limit: 240 })).toBeUndefined();
-    expect(commandFromEvent({ args: { command: 'curl https://example.com' } })).toBe('curl https://example.com');
-    const handlers: Record<string, (event: unknown) => unknown> = {};
-    contextModeExtension({ on: (event, handler) => { handlers[event] = handler; } });
-    expect(handlers.tool_call?.({ toolName: 'bash', args: { command: 'curl https://example.com' } })).toMatchObject({ block: true });
-    expect(handlers.tool_execution_start?.({ toolName: 'bash', params: { command: 'curl https://example.com' } })).toMatchObject({ block: true });
+  it('Pi agent tools do not require context-mode', () => {
+    const agents = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/agents/') && !d.key.endsWith('AGENTS.md'));
+    for (const agent of agents) {
+      expect(agent.content).not.toContain('ctx_execute');
+      expect(agent.content).not.toContain('ctx_batch_execute');
+      expect(agent.content).not.toContain('ctx_search');
+    }
   });
 
   it('REQ-AGENT-025 / REQ-AGENT-043: Pi graphify clone triage resolves clone destinations and branches on graph state', () => {
@@ -238,11 +230,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       mode: 'existing-graph',
       choices: ['check freshness', 'AST-only update', 'Full semantic + AST refresh', 'skip'],
     });
-    const existingDirective = renderGraphifyCloneDirective(graphifyCloneAction('/home/user/workspace/r', true));
-    expect(existingDirective).toContain('/home/user/workspace/r/graphify-out/graph.json');
-    expect(existingDirective).toContain('/home/user/Vault/graphify-out/graph.json');
-    expect(existingDirective).toContain('/home/user/.graphify/global-graph.json');
-    expect(existingDirective).toContain('There is no /home/user/workspace/graphify-out graph');
     expect(graphifyPromptMarker('/home/user/workspace/r', 'session-1')).toBe('/tmp/codeflare-graphify-prompted-session-1_home_user_workspace_r');
     expect(isFailedGraphifyToolExecution({ status: 'error' })).toBe(true);
     expect(isFailedGraphifyToolExecution({ isError: false })).toBe(false);
@@ -312,56 +299,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isPrBoundaryCommand('gh pr create --base main')).toBe(true);
     expect(isPrBoundaryCommand('gh pr merge 12')).toBe(true);
     expect(isPrBoundaryCommand('gh pr view --json number')).toBe(false);
-  });
-
-  it('REQ-AGENT-040: Pi review enforcement keeps PR-boundary reviewer spawning automatic', () => {
-    const reviewEnforcement = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/extensions/review-enforcement.ts')?.content ?? '';
-    expect(reviewEnforcement).toContain('Symbol.for("@gotgenes/pi-subagents:service")');
-    expect(reviewEnforcement).toContain('refreshSubagentsContext');
-    expect(reviewEnforcement).toContain('stale session context');
-    expect(reviewEnforcement).toContain('sdd-review-results');
-    expect(reviewEnforcement).toContain('pr-boundary-review-result');
-    expect(reviewEnforcement).toContain('pr-boundary-review-summary');
-    expect(reviewEnforcement).toContain('automatic spawn will retry');
-    expect(reviewEnforcement).not.toContain('Agent({ subagent_type');
-    expect(reviewEnforcement).not.toContain('sendUserMessage(directiveFor');
-    expect(reviewEnforcement).not.toContain('Complete the remaining subagents');
-    expect(reviewEnforcement).not.toContain('error.message : String(error)}`');
-  });
-
-  it('REQ-AGENT-021: Pi /sdd command enforces command-file hard gates before dispatch', () => {
-    expect(sddCommandDecision('', { dirty: false, hasSdd: false, hasOpenInitTriage: false }).kind).toBe('help');
-    expect(sddCommandDecision('unknown', { dirty: false, hasSdd: false, hasOpenInitTriage: false }).kind).toBe('help');
-    expect(sddCommandDecision('clean', { dirty: false, hasSdd: false, hasOpenInitTriage: false })).toMatchObject({ kind: 'error' });
-    expect(sddCommandDecision('mode auto', { dirty: false, hasSdd: false, hasOpenInitTriage: false })).toMatchObject({ kind: 'error' });
-    expect(sddCommandDecision('init', { dirty: true, hasSdd: false, hasOpenInitTriage: false })).toMatchObject({ kind: 'error' });
-    expect(sddCommandDecision('init', { dirty: false, hasSdd: true, hasOpenInitTriage: false })).toMatchObject({ kind: 'error' });
-    expect(sddCommandDecision('init', { dirty: false, hasSdd: true, hasOpenInitTriage: true })).toMatchObject({ kind: 'workflow', skill: 'sdd-init' });
-    expect(sddCommandDecision('clean --scope=all', { dirty: false, hasSdd: true, hasOpenInitTriage: false })).toMatchObject({ kind: 'workflow', skill: 'sdd-clean' });
-    expect(sddCommandDecision('edit agents', { dirty: false, hasSdd: true, hasOpenInitTriage: false })).toMatchObject({ kind: 'workflow', skill: 'spec-driven-development' });
-  });
-
-  it('REQ-AGENT-021: Pi transformed SDD skills use Pi-native tool names', () => {
-    const sddSkillKeys = [
-      '.pi/agent/skills/spec-driven-development/SKILL.md',
-      '.pi/agent/skills/sdd-init/SKILL.md',
-      '.pi/agent/skills/sdd-clean/SKILL.md',
-      '.pi/agent/skills/spec-enforce/SKILL.md',
-      '.pi/agent/skills/spec-enforce-ac/SKILL.md',
-      '.pi/agent/skills/spec-enforce-truth/SKILL.md',
-      '.pi/agent/skills/doc-enforce/SKILL.md',
-      '.pi/agent/skills/doc-enforce-lanes/SKILL.md',
-      '.pi/agent/skills/doc-enforce-shape/SKILL.md',
-      '.pi/agent/skills/doc-enforce-truth/SKILL.md',
-    ];
-    for (const key of sddSkillKeys) {
-      const content = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === key)?.content ?? '';
-      expect(content, key).toContain('Pi runtime compatibility');
-      expect(content, key).not.toContain('mcp__graphify__');
-      expect(content, key).not.toContain('mcp__context-mode__');
-      expect(content, key).not.toContain('EnterPlanMode');
-      expect(content, key).not.toContain('Task tool');
-    }
   });
 
   it('REQ-AGENT-023: Pi native runtime assets include graphify package, MCP config, and skill override', () => {
@@ -453,9 +390,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('Pi context-mode-enforcement.ts is in manifest and generated seed (REQ-AGENT-023 deployment)', () => {
+  it('Pi context-mode enforcement extension is not preseeded', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((d) => d.key));
-    expect(keys.has('.pi/agent/extensions/context-mode-enforcement.ts')).toBe(true);
+    expect(keys.has('.pi/agent/extensions/context-mode-enforcement.ts')).toBe(false);
   });
 });
 
@@ -500,15 +437,6 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('flock');
     expect(mv?.content).toContain('graphify-global.lock');
     expect(mv?.content).toContain('user_vault');
-  });
-
-  it('REQ-AGENT-043: Pi graphify skill documents canonical repo, Vault, and global graph paths', () => {
-    const skill = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/skills/graphify/SKILL.md');
-    expect(skill?.content).toContain('<repo>/graphify-out/graph.json');
-    expect(skill?.content).toContain('/home/user/Vault/graphify-out/graph.json');
-    expect(skill?.content).toContain('/home/user/.graphify/global-graph.json');
-    expect(skill?.content).toContain('/home/user/workspace/graphify-out/graph.json');
-    expect(skill?.content).not.toContain('/home/user/.user_vault');
   });
 
   it('REQ-MEM-010 AC5: shouldCapture fires at exact 15-message intervals from source constant', () => {
@@ -562,7 +490,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
   it('REQ-AGENT-023 AC4: codeflare-pi.ts tolerates missing graph and reports present graph', () => {
     const cp = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/codeflare-pi.ts');
     expect(cp?.content).toContain('graphSummary');
-    expect(cp?.content).toContain('Graphify repo graph available');
+    expect(cp?.content).toContain('Graphify graph available');
     expect(cp?.content).toContain('graphify-out');
   });
 

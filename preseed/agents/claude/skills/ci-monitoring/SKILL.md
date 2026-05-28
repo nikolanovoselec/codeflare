@@ -14,9 +14,9 @@ Use **one continuous bounded monitor** per pushed HEAD. Do not manually issue re
 
 The monitor writes a status line to a temp log and `tail -f`s that log until the monitor process exits. This gives the user continuous progress without flooding the conversation with repeated tool calls.
 
-### Context-mode / Pi session
+### Pi / Bash session
 
-Run via `ctx_execute(language: "shell", code: "...")` because native Bash may deny `gh`, `while`, `tail`, or long shell snippets.
+Run the monitor through the native Bash tool. Do not depend on context-mode or `ctx_*` tools; Pi must be able to monitor CI with Bash alone.
 
 ```bash
 cd <repo>
@@ -53,9 +53,9 @@ tail -n +1 -f "$LOG" --pid=$pid
 wait $pid
 ```
 
-### Non-context-mode session
+### Other shell surfaces
 
-Use the same shell body through Bash when Bash is not restricted.
+Use the same shell body through the shell tool provided by the current runtime.
 
 ## Reading the result
 

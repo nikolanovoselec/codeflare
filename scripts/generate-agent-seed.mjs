@@ -61,11 +61,6 @@ const TOOL_MAP = {
   opencode: { Read: 'read', Write: 'write', Edit: 'edit', Bash: 'bash', Grep: 'search', Glob: 'glob' },
   pi: {
     Read: 'read', Write: 'write', Edit: 'edit', Bash: 'bash', Grep: 'grep', Glob: 'find',
-    'mcp__context-mode__ctx_search': 'ctx_search',
-    'mcp__context-mode__ctx_batch_execute': 'ctx_batch_execute',
-    'mcp__context-mode__ctx_execute': 'ctx_execute',
-    'mcp__context-mode__ctx_execute_file': 'ctx_execute_file',
-    'mcp__context-mode__ctx_fetch_and_index': 'ctx_fetch_and_index',
     'mcp__graphify__query_graph': 'graphify_query',
     'mcp__graphify__get_node': 'graphify_explain',
     'mcp__graphify__get_neighbors': 'graphify_explain',
@@ -181,7 +176,6 @@ function adaptAgentFrontmatter(content, agentId) {
         } else if (agentId === 'pi') {
           const allowed = [
             'read', 'grep', 'find', 'ls', 'bash', 'edit', 'write',
-            'ctx_search', 'ctx_batch_execute', 'ctx_execute', 'ctx_execute_file', 'ctx_fetch_and_index',
             'graphify_query', 'graphify_path', 'graphify_explain',
           ];
           const piTools = [...new Set(remapped.filter((t) => allowed.includes(t)))];
@@ -228,7 +222,7 @@ const PI_SDD_SKILLS = new Set([
   'doc-enforce-truth',
 ]);
 
-const PI_SDD_COMPATIBILITY_NOTE = `\n## Pi runtime compatibility\n\nThis transformed Pi skill uses Pi-native tool names and workflows:\n\n- Use \`ctx_execute\`, \`ctx_batch_execute\`, \`ctx_search\`, and \`ctx_execute_file\` directly for context-mode work; do not use Claude MCP names.\n- Use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` directly. If a native graphify tool resolves the workspace root instead of the active repo, use the CLI fallback with \`--graph <repo>/graphify-out/graph.json\`.\n- Use Pi's \`Agent\` tool for subagents. For Plan Mode, invoke the \`Plan\` agent or produce an explicit plan and wait for user approval before source edits.\n`;
+const PI_SDD_COMPATIBILITY_NOTE = `\n## Pi runtime compatibility\n\nThis transformed Pi skill uses Pi-native tool names and workflows:\n\n- Use Bash/Read/Grep/Find/Edit/Write directly; do not assume context-mode \`ctx_*\` tools exist.\n- Use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` directly. If a native graphify tool resolves the workspace root instead of the active repo, use the CLI fallback with \`--graph <repo>/graphify-out/graph.json\`.\n- Use Pi's \`Agent\` tool for subagents. For Plan Mode, invoke the \`Plan\` agent or produce an explicit plan and wait for user approval before source edits.\n`;
 
 function adaptPiSkillContent(content, withinClaude) {
   let next = adaptPaths(content, 'pi');

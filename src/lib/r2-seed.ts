@@ -118,9 +118,48 @@ export async function seedGettingStartedDocs(
  * mode). See REQ-AGENT-005 and the context-mode preseed plugin README.
  */
 const CONTEXT_MODE_KEY_PREFIX = '.claude/plugins/context-mode/';
+const PI_CONTEXT_MODE_EXTENSION_KEY = '.pi/agent/extensions/context-mode-enforcement.ts';
 
 function isContextModeKey(key: string): boolean {
   return key.startsWith(CONTEXT_MODE_KEY_PREFIX);
+}
+
+function isPiContextModeKey(key: string): boolean {
+  return key === PI_CONTEXT_MODE_EXTENSION_KEY;
+}
+
+function stripPiContextModeTools(content: string): string {
+  return content.replace(/^tools: .*$/m, (line) =>
+    line
+      .replace(/, ctx_search/g, '')
+      .replace(/, ctx_batch_execute/g, '')
+      .replace(/, ctx_execute_file/g, '')
+      .replace(/, ctx_execute/g, '')
+      .replace(/, ctx_fetch_and_index/g, '')
+  );
+}
+
+function normalizePiSeedDocument(doc: SeedDocument): SeedDocument | null {
+  if (isPiContextModeKey(doc.key)) return null;
+
+  if (doc.key.startsWith('.pi/agent/agents/')) {
+    const content = stripPiContextModeTools(doc.content);
+    return content === doc.content ? doc : { ...doc, content };
+  }
+
+  if (doc.key === '.pi/agent/mcp.json') {
+    try {
+      const parsed = JSON.parse(doc.content) as { mcpServers?: Record<string, unknown> };
+      if (parsed.mcpServers && 'context-mode' in parsed.mcpServers) {
+        delete parsed.mcpServers['context-mode'];
+        return { ...doc, content: `${JSON.stringify(parsed, null, 2)}\n` };
+      }
+    } catch {
+      return doc;
+    }
+  }
+
+  return doc;
 }
 
 /**
@@ -137,9 +176,10 @@ export function getConfigsForMode(
 ): SeedDocument[] {
   const docs = AGENTS_SEEDED_CONFIGS.filter((doc) => {
     if (!doc.modes.includes(mode)) return false;
+    if (isPiContextModeKey(doc.key)) return false;
     if (!contextModeEnabled && isContextModeKey(doc.key)) return false;
     return true;
-  });
+  }).map(normalizePiSeedDocument).filter((doc): doc is SeedDocument => doc !== null);
   const seen = new Set<string>();
   for (const doc of docs) {
     if (seen.has(doc.key)) throw new Error(`Duplicate key "${doc.key}" in mode "${mode}"`);
@@ -165,13 +205,14 @@ export function getPreseedKeysNotInMode(
     AGENTS_SEEDED_CONFIGS
       .filter((doc) => {
         if (!doc.modes.includes(mode)) return false;
+        if (isPiContextModeKey(doc.key)) return false;
         if (!contextModeEnabled && isContextModeKey(doc.key)) return false;
         return true;
       })
       .map((doc) => doc.key)
   );
   return AGENTS_SEEDED_CONFIGS
-    .filter((doc) => !doc.modes.includes(mode) || (!contextModeEnabled && isContextModeKey(doc.key)))
+    .filter((doc) => isPiContextModeKey(doc.key) || !doc.modes.includes(mode) || (!contextModeEnabled && isContextModeKey(doc.key)))
     .map((doc) => doc.key)
     .filter((k) => !keysInMode.has(k));
 }

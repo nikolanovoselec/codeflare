@@ -18,21 +18,7 @@ This environment has limited resources (1 CPU core). Never run `npm test` or any
 
 ## Shell execution (applies to every step)
 
-Every shell snippet in this skill (`gh ...`, `git ...`, `wrangler ...`, etc.)
-runs through one of two transparent paths:
-
-- **Context-mode session** — `enforce-ctx-mode.sh` denies `gh`, `echo`,
-  `while`, `head`, `tail`, `awk`, `sed`, `cat` in the native Bash tool. Route
-  them through `mcp__context-mode__ctx_execute(language: "shell", code: "<body>")`
-  for single commands, or `mcp__context-mode__ctx_batch_execute(commands: [...])`
-  for multi-command sequences. The sandbox interior is unrestricted shell;
-  output stays in sandbox FTS5 (near-zero context burn).
-- **Non-context-mode session** — same command body via the Bash tool directly.
-  No routing layer, no denial list, same observable result.
-
-Both paths produce identical output. The user does not need to know which path
-their session is using; the snippet bodies in this file work unchanged in
-either. Code blocks below are written in their bare shell form for clarity.
+Every shell snippet in this skill (`gh ...`, `git ...`, `wrangler ...`, etc.) runs through the native Bash tool. Do not depend on context-mode or `ctx_*` tools; the snippet bodies in this file must work unchanged when context-mode is absent. Other runtimes should use their equivalent shell tool.
 
 User-paste blocks (where the user pastes a command into a *second terminal
 tab* to keep secrets off the chat) are unaffected by either path — those

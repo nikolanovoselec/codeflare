@@ -16,16 +16,6 @@
       "advanced"
     ]
   },
-  "extensions/context-mode-enforcement.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/enforce-ctx-mode-bash.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "extensions/graphify-helpers.ts": {
     "modes": [
       "default",

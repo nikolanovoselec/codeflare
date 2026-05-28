@@ -190,16 +190,15 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
     const preseed = join(fixture, 'preseed');
     const target = join(fixture, 'home/.pi/agent/npm');
     mkdirSync(join(preseed, 'node_modules/@gotgenes/pi-subagents'), { recursive: true });
-    mkdirSync(join(preseed, 'node_modules/context-mode'), { recursive: true });
     mkdirSync(join(preseed, 'node_modules/@gaodes/pi-graphify'), { recursive: true });
     writeFileSync(join(preseed, 'package.json'), '{"name":"fixture"}\n');
-    writeFileSync(join(preseed, 'node_modules/context-mode/package.json'), '{}\n');
+    writeFileSync(join(preseed, 'node_modules/@gaodes/pi-graphify/package.json'), '{}\n');
 
     const script = `${match[0]}\nexport USER_HOME=${JSON.stringify(join(fixture, 'home'))}\nexport PI_NPM_PRESEED=${JSON.stringify(preseed)}\nexport PI_NPM_DIR=${JSON.stringify(target)}\nwarm_pi_npm_dependencies\n`;
     const result = spawnSync('bash', ['-lc', script], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     assert.ok(existsSync(join(target, 'package.json')), 'package.json copied');
-    assert.ok(existsSync(join(target, 'node_modules/context-mode/package.json')), 'node_modules copied');
+    assert.ok(existsSync(join(target, 'node_modules/@gaodes/pi-graphify/package.json')), 'node_modules copied');
 
     writeFileSync(join(target, 'package.json'), '{"name":"user-custom"}\n');
     writeFileSync(join(preseed, 'package.json'), '{"name":"fixture","version":"2"}\n');

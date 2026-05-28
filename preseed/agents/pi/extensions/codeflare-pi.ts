@@ -17,6 +17,21 @@ const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
 const GRAPHIFY_BYPASS = "/tmp/graphify-bypass";
+const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
+const CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.151";
+const CONTEXT_MODE_PACKAGE_ID = "npm:context-mode";
+const CONTEXT_MODE_DISABLED_PACKAGE = { source: CONTEXT_MODE_PACKAGE, extensions: [], skills: [] };
+const CONTEXT_MODE_EXTENSION_EXCLUDES = [
+  "-extensions/context-mode-enforcement.ts",
+  "-extensions/context-status-footer.ts",
+  "-extensions/enforce-ctx-mode-bash.ts",
+];
+
+type PiSettings = {
+  packages?: Array<string | { source?: string; extensions?: string[]; skills?: string[]; [key: string]: unknown }>;
+  extensions?: string[];
+  [key: string]: unknown;
+};
 
 function ensureCacheDir(): void {
   mkdirSync(CACHE_DIR, { recursive: true });
@@ -194,6 +209,58 @@ function maybeMergeGlobalGraph(repo: string): void {
   }
 }
 
+function packageSource(entry: string | { source?: string } | undefined): string | undefined {
+  if (typeof entry === "string") return entry;
+  return typeof entry?.source === "string" ? entry.source : undefined;
+}
+
+function packageIdentity(source: string): string {
+  return source.replace(/@[^/@]+$/, "");
+}
+
+function readPiSettings(): PiSettings {
+  try {
+    return JSON.parse(readFileSync(PI_SETTINGS_FILE, "utf8")) as PiSettings;
+  } catch {
+    return {};
+  }
+}
+
+function writePiSettings(settings: PiSettings): void {
+  writeFileSync(PI_SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+}
+
+function isContextModePackage(entry: string | { source?: string } | undefined): boolean {
+  const source = packageSource(entry);
+  return Boolean(source && packageIdentity(source) === CONTEXT_MODE_PACKAGE_ID);
+}
+
+function contextModeEnabled(settings = readPiSettings()): boolean {
+  return (settings.packages ?? []).some((entry) => {
+    if (!isContextModePackage(entry)) return false;
+    return typeof entry === "string" || entry.extensions === undefined || entry.skills === undefined;
+  });
+}
+
+function setContextModeEnabled(enabled: boolean): "enabled" | "disabled" {
+  const settings = readPiSettings();
+  const packages = (settings.packages ?? []).filter((entry) => !isContextModePackage(entry));
+  packages.push(enabled ? CONTEXT_MODE_PACKAGE : CONTEXT_MODE_DISABLED_PACKAGE);
+
+  const extensions = (settings.extensions ?? []).filter((entry) => !CONTEXT_MODE_EXTENSION_EXCLUDES.includes(entry));
+  for (const entry of CONTEXT_MODE_EXTENSION_EXCLUDES) extensions.push(entry);
+
+  writePiSettings({ ...settings, packages, extensions });
+  return enabled ? "enabled" : "disabled";
+}
+
+function contextModeStatusText(): string {
+  const enabled = contextModeEnabled();
+  return enabled
+    ? "context-mode is enabled for this running Pi session. It will be disabled again on the next Codeflare container start. Use `/ctx off` to disable now."
+    : "context-mode is disabled. Use `/ctx on` to enable it for this running Pi session, then Pi will reload resources.";
+}
+
 function newestVaultMtime(): number | undefined {
   if (!existsSync(VAULT_ROOT)) return undefined;
   let newest = 0;
@@ -275,6 +342,26 @@ export default function (pi: ExtensionAPI) {
     description: "Capture a note into the persistent Vault",
     handler: async (args, ctx) => {
       await sendWorkflowMessage(ctx, `/note ${args}`.trim(), `${skillPrompt("vault-note-capture", "Capture the user's note into ~/Vault/Notes.")}\n\nNote text: ${args}`);
+    },
+  });
+
+  pi.registerCommand("ctx", {
+    description: "Show, enable, or disable context-mode for this running Pi session. Usage: /ctx status|on|off",
+    handler: async (args, ctx) => {
+      const action = args.trim().toLowerCase().split(/\s+/, 1)[0] || "status";
+      if (["on", "enable", "enabled"].includes(action)) {
+        setContextModeEnabled(true);
+        ctx.ui.notify("context-mode enabled for this session; reloading Pi resources...", "info");
+        await ctx.reload();
+        return;
+      }
+      if (["off", "disable", "disabled"].includes(action)) {
+        setContextModeEnabled(false);
+        ctx.ui.notify("context-mode disabled; reloading Pi resources...", "info");
+        await ctx.reload();
+        return;
+      }
+      ctx.ui.notify(contextModeStatusText(), "info");
     },
   });
 

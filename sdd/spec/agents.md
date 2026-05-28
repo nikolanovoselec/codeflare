@@ -175,7 +175,7 @@ Multi-agent support, preseed system, and session modes.
 <!-- @impl: entrypoint.sh -->
 <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint-context-mode describe → mode-gated context-mode preseed + hooks → AC4/AC5/AC6) -->
 
-**Intent:** Pro mode must provide a significantly enhanced agent experience over Standard - more rules, skills, agent definitions, commands, hooks, and persistent memory. The context-mode helper tools are universally available to every user on demand, while context-mode's automatic context-window-reduction behavior is reserved for the Custom subscription tier.
+**Intent:** Pro mode must provide a significantly enhanced agent experience over Standard - more rules, skills, agent definitions, commands, hooks, and persistent memory. Pi sessions must remain fully functional without context-mode; context-mode behavior, where still available in Claude Code, is optional and tier-gated.
 
 **Applies To:** User
 
@@ -184,9 +184,10 @@ Multi-agent support, preseed system, and session modes.
 1. Pro mode delivers a strict superset of the content Standard mode delivers, covering memory persistence, language rules, agent definitions, slash commands, cherry-picked skills, the discipline triad (spec, docs, tests), and the commit-attribution and PR-boundary review hooks. The canonical per-content-category matrix lives in [documentation/preseed.md](../../documentation/lanes/preseed.md#session-modes); the spec lane documents the user-observable contract only.
 2. Pro mode enables persistent memory (the `.memory/` directory is included in storage sync); Standard mode excludes it so memory does not persist across container restarts.
 3. Pro-mode hooks fire uniformly regardless of which tool surface invoked the underlying command, so coverage is identical whether the user is on Custom tier (commands route through context-mode) or any other tier (commands run directly): commit attribution is blocked before the commit lands, the SDD review pipeline is triggered at every PR-to-`main` boundary event, the turn cannot end while a PR HEAD remains unreviewed, and memory capture runs on the user-prompt cadence.
-4. The context-mode helper tools are available to every user on every session regardless of subscription tier or session mode, so the agent can always invoke them on demand.
-5. Custom-tier Pro users additionally receive context-mode's automatic context-window-reduction behavior: large tool output stays out of the conversation window unless the agent explicitly retrieves it, and commands that would flood the window are redirected to the equivalent helper tool. Any other tier-and-mode combination receives the helper tools without the automatic redirection.
-6. Downgrading away from Custom tier, or switching away from Pro mode, removes the Custom-tier-only behavior on the next reconcile so the automatic redirection no longer fires.
+4. Pi agent configs do not require context-mode helper tools or context-mode MCP registration; native Bash/Read/Grep/Find/Edit/Write plus graphify tools provide the supported Pi surface.
+5. Pi always starts with context-mode disabled. The Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off`; `/ctx on` enables the context-mode package for the current running session and reloads resources, while the next Codeflare container start resets Pi back to disabled.
+6. Custom-tier Claude Code users may receive context-mode's automatic context-window-reduction behavior: large tool output stays out of the conversation window unless the agent explicitly retrieves it, and commands that would flood the window are redirected to the equivalent helper tool.
+7. Downgrading away from Custom tier, switching away from Pro mode, or using Pi removes the Custom-tier-only behavior on the next reconcile so automatic context-mode redirection no longer fires.
 
 **Constraints:**
 
@@ -708,21 +709,19 @@ None.
 <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md -->
 <!-- @impl: preseed/agents/claude/rules/tdd-discipline.md -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
-<!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts -->
-<!-- @impl: scripts/generate-agent-seed.mjs -->
-<!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (spec-discipline + documentation-discipline + tdd-discipline + graph-first advanced-only describes -> AC1 Pro-mode rule preseed) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-021: Pi /sdd command hard gates + Pi transformed SDD skills use native tool names -> AC2/AC3/AC4) -->
+<!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (spec-discipline + documentation-discipline + tdd-discipline + graph-first advanced-only describes -> AC1 Pro-mode rule preseed) -->
 
-**Intent:** Pro users need the spec-driven-development workflow available out of the box, with every sub-command working identically across Bash and context-mode MCP tool surfaces so the workflow does not silently behave differently across container environments.
+**Intent:** Pro users need the spec-driven-development workflow available out of the box, with every sub-command working through the native shell/file tools available in the active runtime so the workflow still works when context-mode is absent.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Pro mode preseeds the `spec-driven-development` skill, the `sdd-init` and `sdd-clean` sub-command skills, the `vault-operations` skill, the `ci-monitoring` skill, the `/sdd` command, the `spec-discipline`, `documentation-discipline`, and `tdd-discipline` rules (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
-2. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works under both Bash and the context-mode MCP tool family (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_search`).
-3. Discovery commands producing more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) route through context-mode's ctx_execute family in context-mode environments and through Bash in plain environments, with the agent selecting the right wrapper for its environment.
-4. Pi-transformed SDD skills replace Claude MCP tool names and Plan Mode surfaces with Pi-native `ctx_*`, `graphify_*`, and `Agent`/`Plan` terminology, and the native `/sdd` command enforces the command-file hard gates (help, unknown subcommand, clean working tree, `clean`/`mode` require `sdd/`, existing-spec `init` handling) before dispatching to the workflow skill.
-5. After pushes that trigger GitHub Actions, the `ci-monitoring` skill uses one continuous tail-followed monitor for the pushed HEAD and provides equivalent commands for context-mode (`ctx_execute`) and normal Bash sessions; agents do not emit repeated chat-visible polling calls.
+2. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works in Pi without context-mode by using native Bash/Read/Grep/Find/Write/Edit tools; context-management helper tools, when present in another runtime, are optional rather than required.
+3. Discovery commands producing more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) run through native discovery tools in Pi without context-mode, with any runtime-specific output-management wrapper treated as an optional optimization.
+4. Pi-transformed SDD skills replace Claude MCP tool names and Plan Mode surfaces with Pi-native graphify tools and `Agent`/`Plan` terminology, and the native `/sdd` command enforces the command-file hard gates (help, unknown subcommand, clean working tree, `clean`/`mode` require `sdd/`, existing-spec `init` handling) before dispatching to the workflow skill.
+5. After pushes that trigger GitHub Actions, the `ci-monitoring` skill uses one continuous tail-followed monitor for the pushed HEAD through native Bash; agents do not emit repeated chat-visible polling calls and do not require context-mode.
 
 **Constraints:**
 
@@ -970,7 +969,7 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
-<!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes describes -> AC1/AC2/AC3 shared helper + lane mapping + conservative fallback to all-three-lanes) + host/__tests__/enforce-review-spawn.test.js (lane gating describe -> AC4 sequential spec-reviewer then doc-updater + AC5 fix-push cascade ack-pointer advancement) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi native runtime assets include review-enforcement.ts lane-classifier/pending-state markers and automatic reviewer spawn retry behavior -> AC1/AC2/AC5/AC6) -->
+<!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes describes -> AC1/AC2/AC3 shared helper + lane mapping + conservative fallback to all-three-lanes) + host/__tests__/enforce-review-spawn.test.js (lane gating describe -> AC4 sequential spec-reviewer then doc-updater + AC5 fix-push cascade ack-pointer advancement) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi native runtime assets include review-enforcement.ts lane-classifier/pending-state markers -> AC1/AC2/AC5) -->
 
 **Intent:** Once a PR-boundary trigger fires (REQ-AGENT-036), a shared lane classifier picks the minimal correct set of review agents from the diff so the in-turn nudge and turn-end gate agree, and a fix-push cascade can advance the ack pointer without losing review coverage.
 
@@ -983,8 +982,6 @@ None.
 3. Conservative branches (empty diff, missing prior ack, divergent merge-base) and a missing or unsourceable helper both fall back to all-three-lanes (`code-reviewer spec-reviewer doc-updater`), so a partially-deployed install never disables enforcement.
 4. On trigger, `code-reviewer` may run in parallel with `spec-reviewer`; `doc-updater` starts only after `spec-reviewer` completes on any project containing `sdd/`.
 5. In a fix-push cascade (multiple pushes inside one turn), the gate advances the ack pointer through each push whose review window completed all lanes required by that push's diff; bypassed pushes (no spawns in window, per REQ-AGENT-041) are absorbed into the next complete window's cumulative review.
-6. In Pi runtime, if the subagent service is temporarily unavailable or holds a stale session context after reload/session replacement, PR-boundary enforcement refreshes the service context from the current extension event when possible, preserves pending lanes, retries automatic spawn, and never injects manual `Agent(...)` follow-up instructions into the main conversation.
-7. Pi PR-boundary enforcement persists each completed reviewer's output under `.git/sdd-review-results/<head>/<lane>.md`, displays a visible per-lane completion message, starts `doc-updater` visibly after `spec-reviewer`, and displays an acknowledgement summary with the result file paths.
 
 **Constraints:**
 
@@ -1330,9 +1327,8 @@ None.
 ### REQ-AGENT-042: Graphify Hard-Block Enforcement
 
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/enforce-graphify.sh -->
-<!-- @impl: preseed/agents/pi/extensions/context-mode-enforcement.ts -->
+<!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
 <!-- @test: host/__tests__/enforce-graphify.test.js (3-call threshold + bypass surfaces + sentinel resolution → AC1-AC7) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi context-mode enforcement: bashDenialReason, commandFromEvent, tool_call/tool_execution_start blocking) -->
 
 **Intent:** The graph-first soft-nudge in REQ-AGENT-024 informs but never blocks. When an agent ignores it across multiple calls, a hard-block hook denies further structural searches until a graph query is made, with explicit user-only bypass surfaces for legitimate edge cases.
 
@@ -1343,7 +1339,7 @@ None.
 1. The hard-block hook fires on PreToolUse for `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, and `mcp__context-mode__ctx_execute_file` matchers in advanced session mode only.
 2. After 3 SEARCH-classified tool calls in one turn with no intervening `mcp__graphify__*` call (or `graphify query|path|explain` CLI invocation), the next SEARCH call is denied.
 3. SEARCH classification matches `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, and `awk` with `/regex/` body.
-4. The shell parser reuses the context-mode enforcement hook's `extract_subs` / `normalize_command` / chain-op splitter so substitution, heredocs, quoted regions, and pipeline segments cannot slip past.
+4. The shell parser handles substitutions, heredocs, quoted regions, and pipeline segments so chained or embedded searches cannot slip past.
 5. Active-repo resolution reads the sentinel at `~/.cache/codeflare-hooks/graphify-active-cwd` (REQ-VAULT-004 AC1) and gates on `<active-repo>/graphify-out/graph.json` existing, falling back to the tool-call envelope `.cwd` when the sentinel is absent.
 6. The vault entry in `~/.graphify/global-graph.json` is NOT enforcement-eligible: a session whose active repo has no graph does not trigger the hard-block, so the user can grep freely in repos they have not yet graphified.
 7. Two user-only bypass surfaces are available: `touch /tmp/graphify-bypass` (one-shot, auto-deleted) and the magic phrase `skip graph` in a user message; any unexpected error inside the hook returns exit 0 so the user is never locked out.
@@ -1564,7 +1560,7 @@ None.
 **Acceptance Criteria:**
 
 1. Agent definitions use correct frontmatter format per agent (e.g., `tools` as record `{read: true}` for OpenCode, as array or comma-separated names according to the target schema).
-2. `model` field is removed from transformed frontmatter for every non-CC agent, including Pi, so the target runtime resolves model selection from the active session/default model rather than inheriting Claude model pins.
+2. `model` field is removed from frontmatter for non-CC agents where the target runtime resolves model selection independently.
 3. Path references (e.g., `~/.claude/`) are replaced with agent-specific config paths, including Pi's `.pi/agent/agents/` subagent path.
 4. File extensions match agent conventions (e.g., `.agent.md` for Copilot agents and `.md` for Pi subagents).
 5. Pi subagent transforms emit Pi-compatible frontmatter for tools, prompt mode, extension/skill inheritance, context inheritance, and background defaults.

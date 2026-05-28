@@ -44,10 +44,10 @@ deployed on Recreate or new bucket creation.
 | git-review-pipeline skill (SDD PR-boundary review pipeline) | No | Yes | Yes |
 | SDD template scaffolding (12 files for `/sdd init`) | No | Yes | Yes |
 | Known marketplaces plugin config | Yes | Yes | Yes |
-| context-mode MCP server (`ctx_*` helper tools, always-on) | Yes | Yes | Yes |
-| context-mode plugin folder (auto-routing hooks for context-window reduction) | No | No | Yes |
+| context-mode helper package (`ctx_*` tools) | Disabled by default in Pi; optional `/ctx on` for current session | Disabled by default in Pi; optional `/ctx on` for current session | Disabled by default in Pi; optional `/ctx on` for current session |
+| context-mode plugin folder (Claude Code auto-routing hooks for context-window reduction) | No | No | Yes |
 
-The Custom-tier column reflects the extra delivery surface for users on the `unlimited` subscription tier in Advanced mode. The context-mode helper tools (`ctx_*`) are universally available so the agent can always invoke them on demand; the plugin folder that adds automatic context-window-reduction routing is delivered only to Advanced + Custom users.
+The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Pi always starts with context-mode disabled so the native Pi tool surface is stable; the Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off` for temporary per-session opt-in. The next Codeflare container start resets Pi back to disabled.
 
 **Storage**: `sessionMode?: 'default' | 'advanced'` in
 `UserPreferences` (KV). Undefined = `'default'`.
@@ -200,7 +200,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
-**Manifest structure (134 total source entries: 120 Claude + 14 Pi-native)**:
+**Manifest structure (131 total source entries: 120 Claude + 11 Pi-native)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -245,29 +245,14 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (15): package config, package lock, MCP config, ten extension files (including the `enforce-ctx-mode-bash.ts` legacy shim that overwrites stale local copies during recreation and `sdd-helpers.ts` for `/sdd` command hard gates), one native graphify skill override ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7), and one Pi graphify wrapper script.
+- Pi-native runtime assets (11): package config, package lock, MCP config, six extension files, one native graphify skill override ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7), and one Pi graphify wrapper script.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
   separate from PR-boundary enforcement: the command reviews a requested
   scope, while `review-enforcement.ts` watches PR HEADs, resolves the
   active repo from native GitHub workflow commands, and requires review
-  subagent completion for SDD PRs targeting `main`/`master`. If Pi's
-  subagent service is unavailable at trigger time, PR-boundary enforcement
-  keeps the lanes pending and retries automatic spawn instead of injecting
-  manual `Agent(...)` follow-up instructions into the main conversation; if
-  the service holds a stale session context after reload/session replacement,
-  the extension refreshes it from the current event before spawning. Reviewer
-  outputs are persisted under `.git/sdd-review-results/<head>/<lane>.md` and
-  surfaced as visible per-lane completion messages plus a final acknowledgement
-  summary so findings are not hidden in subagent transcripts.
-  The native `/sdd` command uses `sdd-helpers.ts` to enforce the Claude
-  command-file hard gates before dispatching: help/unknown subcommands,
-  clean working tree, `clean`/`mode` requiring `sdd/`, and existing-spec
-  `init` handling. Pi context-mode
-  enforcement routes large/raw Bash and Read calls to `ctx_*` tools, permits
-  Read snippets up to 240 lines or files up to 100 KB, and allowlists the
-  bounded safe graphify wrapper.
+  subagent completion for SDD PRs targeting `main`/`master`.
   Pi subagents are provided by `@gotgenes/pi-subagents`; the generator
   adapts Claude agent definitions into `.pi/agent/agents/*.md`.
   The container image preinstalls Pi extension npm dependencies into an
@@ -311,8 +296,8 @@ files exist on disk.
 | Gemini | 58 |
 | Copilot | 13 |
 | OpenCode | 58 |
-| Pi | 72 |
-| **Total** | **368** |
+| Pi | 70 |
+| **Total** | **366** |
 
 **Excluded from non-CC transformed assets**: hooks (CC hook system),
 commands (CC slash commands), plugins (CC plugin system, including
@@ -320,11 +305,7 @@ codeflare-memory and codeflare-vault), `preseed/agents/claude/rules/memory.md` (
 CC-specific `mcp__graphify__*` tools and the vault hook system; the
 vault trigger/route content lives in that preseed rule as folded subsections,
 not a separate rules/vault.md), `consult-llm` skill (depends on
-CC-specific MCP tool). Pi skill transformation additionally rewrites
-Claude MCP references inside transformed skill bodies to Pi-native
-`ctx_*` / `graphify_*` tool names and replaces Claude Plan Mode / Task-tool
-phrasing with Pi `Agent` / `Plan` terminology for the SDD framework skill
-family. Pi receives native TypeScript extensions for the
+CC-specific MCP tool). Pi receives native TypeScript extensions for the
 runtime behaviors that cannot be represented as transformed prose:
 `/sdd`, `/graphify`, `/vault`, `/note`, graphify
 active-repo/global-graph maintenance and clone triage, automatic memory capture,
@@ -338,17 +319,17 @@ Claude/MCP-specific transformed skill. Pi receives a separate
 **Adaptation pipeline**: For each non-CC agent, the generator: (1)
 concatenates applicable rules into a single instructions file, (2)
 remaps tool names in agent definition frontmatter, (3) removes
-Claude-specific `model` fields from transformed agent frontmatter so non-Claude runtimes (including Pi) default to their active session model, (4) replaces `~/.claude/` path
+`model` field from frontmatter for runtimes that do not support it while preserving Pi subagent model pins, (4) replaces `~/.claude/` path
 references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents). Pi additionally
 loads `preseed/agents/pi/manifest.json`, emits native runtime files
 to `.pi/agent/extensions/`, `.pi/agent/scripts/`, `.pi/agent/mcp.json`,
 `.pi/agent/npm/package.json`, `.pi/agent/npm/package-lock.json`, and
 native Pi skill overrides under `~/.pi/agent/skills/`, and adapts Claude agent definitions into
-`.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`.
+`.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`. Pi's generated agent frontmatter deliberately drops context-mode tools so those subagents run against the native Pi tool surface.
 
 **Per-mode counts**: Default mode seeds 53 files, advanced mode
-seeds 363 files. Total array size is 368 (includes variant-per-mode
+seeds 361 files. Total array size is 366 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the
@@ -439,7 +420,7 @@ is done via `settings.json` (see above).
 ## Third-party plugin: context-mode
 
 [context-mode](https://github.com/mksglu/context-mode) is registered
-as an optional MCP server (`ctx_*` helper tools) for every user.
+as an optional Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi does not load context-mode by default; `/ctx on` enables the package for the current running Pi session and reloads resources, while `/ctx off` disables it again.
 The npm package is fetched by the user's own container from the npm
 registry on first invocation; Codeflare does not redistribute the
 source. Commercial users receive only the MCP server registration:
@@ -494,7 +475,7 @@ The hook surfaces blocks as `hookSpecificOutput.permissionDecision: deny` with a
 
 ### Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
 
-The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless `graphify extract --backend deepseek`; AST extraction uses the allowlisted safe wrapper (`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh <repo>`), and semantic extraction uses Pi `Agent` subagents from the running session. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema. Pi guidance treats `<repo>/graphify-out/graph.json` as the repo graph, `/home/user/Vault/graphify-out/graph.json` as the Vault graph, and `/home/user/.graphify/global-graph.json` as the merged graph; `/home/user/workspace/graphify-out/graph.json` is never a valid graph location.
+The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless `graphify extract --backend deepseek`; AST extraction uses local `graphify update`, and semantic extraction uses Pi `Agent` subagents from the running session. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema.
 
 Subagents run on **Sonnet** (`model: "sonnet"`). Haiku was the original choice (cost-matching with vault-extract economics) but produced 57% malformed nodes on the codeflare corpus - missing `id` fields, numeric IDs instead of strings, missing `source_file`. The extraction prompt requires reliable schema compliance across complex document types (spec files with REQ anchors, skill instructions with cross-references, ADR ledgers). Sonnet at ~3x per-agent cost with near-zero malformation is cheaper per valid node. Opus is never used from this skill.
 

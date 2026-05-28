@@ -84,7 +84,7 @@ Reruns community detection on existing `graph.json`. No extraction, no tokens.
  - For source changes: `bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .` (AST-only, free, no token cost; wraps `graphify update` with `GRAPHIFY_MAX_WORKERS=1` + `ulimit -v 1500000` so a runaway rebuild on a large repo cannot OOM-kill the codeflare session).
  - For repos larger than 2000 files: `graphify cluster-only . --no-viz` (AST-only first build).
 
-5. **Context-mode coexistence.** When context-mode is active (custom tier), subagent Read/Grep calls during extraction route through `mcp__context-mode__ctx_execute` automatically. When it is not, graphify's own subagent-chunking model still bounds your main context. Both regimes work; no per-tier branching needed in this skill.
+5. **Context boundedness.** Graphify's own subagent-chunking model bounds the main session context, so extraction works without context-mode or `ctx_*` tools. No per-tier branching is needed in this skill.
 
 6. **AskUserQuestion on clone - YES/NO only, NOT mode.** A PostToolUse hook (`graphify-clone-prompt.sh`) injects a directive after `git clone` / `gh repo clone`. At clone time you ask **one** yes/no question: "Build a graphify knowledge graph for `<dir>`?". Recommend YES for repos with more than 50 files. **Do NOT ask about build mode (AST-only vs Full) at clone time** - that question is owned by note #8 below and fires from inside the skill *after* it loads, when the corpus has actually been detected and the cost surface (file counts, image counts, agent count) can be surfaced in the prompt. Asking the mode question both at clone time AND inside the skill is a duplicate-question bug; the user sees the same prompt twice. Respect a NO without arguing.
 

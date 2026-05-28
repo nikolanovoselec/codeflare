@@ -141,4 +141,4 @@ Passes 4 and 5 are the legacy-import bridge. On a project where every REQ alread
 
 ## Tool surface compatibility
 
-Same as `sdd-init` — discovery commands >20 lines route through `ctx_execute` in context-mode environments; file writes always via Write/Edit. MCP graph tools are tool-agnostic.
+Same as `sdd-init` — discovery commands run through the native Bash/Grep/Glob/Read tools available in the current runtime; file writes always use Write/Edit. Graph tools are shell-surface agnostic.

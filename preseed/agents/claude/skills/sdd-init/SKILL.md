@@ -249,13 +249,12 @@ Only `accept` and `correct` promote anything to the official spec. Each decision
 
 ## Tool surface compatibility (binding for every `/sdd` sub-command)
 
-Two surfaces — plain Bash and context-mode MCP. Every phase below MUST work on both.
+Use the native tools available in the current runtime. Every phase below MUST work when context-mode is absent.
 
 - **Behavioural contract is tool-agnostic.** Skill describes WHAT, not WHICH shell wrapper.
-- **In context-mode environments**, discovery commands >20 lines (e.g. `gh pr list --state all --limit 200`, `git log --follow`, full-tree scans, `npm view <pkg> peerDependencies`) MUST go through `mcp__context-mode__ctx_batch_execute` or `mcp__context-mode__ctx_execute`. Bare Bash will be denied.
-- **In plain Bash environments**, same commands run via Bash directly.
-- **File writes always use Write/Edit** — both surfaces accept these natively. Never construct file contents inside `ctx_execute` shell heredocs.
-- **Scaffold-only lockfile carveout** (`npm install --package-lock-only --ignore-scripts --no-audit --no-fund` and equivalents) runs through `ctx_execute` in context-mode — output exceeds 20 lines. The `no-local-builds` rule permits this single resolution-only call at scaffold time.
+- **Discovery commands** (e.g. `gh pr list --state all --limit 200`, `git log --follow`, full-tree scans, `npm view <pkg> peerDependencies`) run through Bash/Grep/Glob/Read in runtimes without context-mode. Extra output-management tools are optional helpers, never required.
+- **File writes always use Write/Edit.** Never construct durable file contents inside shell heredocs unless explicitly writing a throwaway intermediate.
+- **Scaffold-only lockfile carveout** (`npm install --package-lock-only --ignore-scripts --no-audit --no-fund` and equivalents) is permitted as a resolution-only call at scaffold time by the `no-local-builds` rule.
 
 ## Behavioral enumeration (Phase 4)
 
@@ -325,7 +324,7 @@ The four passes run in one in-memory cycle. The user already accepted the full d
 
 Fallback behaviour: walk every drafted REQ; for every other REQ whose Intent or ACs reference the same concept by literal string, propose a `Dependencies:` entry. Same for CON-*. ADR-seed + glossary-seed derived by re-reading the draft, extracting nouns/vendors/protocols. The source-evidence pass (5d) still runs but loses graphify's symbol resolution; it falls back to `Grep` against inferred paths. Print: `Note: enrichment used in-memory heuristic ({reason}). Cross-link density may be lower than a graphify-backed run.` Append same notice to `sdd/spec/changes.md`.
 
-MCP graph tools are tool-agnostic across Bash and context-mode — no shell-wrapper required for graph queries. The fallback uses no shell tool at all.
+Graph tools are independent of the shell surface — no shell wrapper is required for graph queries. The fallback uses no shell tool at all.
 
 ## Phase 6 — Documentation lane emission and audit (binding)
 

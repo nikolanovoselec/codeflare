@@ -1603,15 +1603,39 @@ const path = process.argv[2];
 const required = [
   'npm:@gotgenes/pi-subagents@7.8.1',
   'npm:@gaodes/pi-graphify@0.2.2',
-  'npm:context-mode@1.0.151',
 ];
+const disabledPackageIds = new Set(['npm:context-mode']);
+const disabledPackages = [
+  { source: 'npm:context-mode@1.0.151', extensions: [], skills: [] },
+];
+const disabledExtensions = [
+  '-extensions/context-mode-enforcement.ts',
+  '-extensions/context-status-footer.ts',
+  '-extensions/enforce-ctx-mode-bash.ts',
+];
+function sourceOf(entry) {
+  if (typeof entry === 'string') return entry;
+  return entry && typeof entry.source === 'string' ? entry.source : undefined;
+}
+function identity(source) {
+  return source.replace(/@[^/@]+$/, '');
+}
 let settings = {};
 try { settings = JSON.parse(fs.readFileSync(path, 'utf8')); } catch { settings = {}; }
 const existing = Array.isArray(settings.packages) ? settings.packages : [];
 const byName = new Map();
-for (const spec of existing) byName.set(spec.replace(/@[^/@]+$/, ''), spec);
-for (const spec of required) byName.set(spec.replace(/@[^/@]+$/, ''), spec);
-fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()] }, null, 2) + '\n');
+for (const spec of existing) {
+  const source = sourceOf(spec);
+  if (!source) continue;
+  const id = identity(source);
+  if (disabledPackageIds.has(id)) continue;
+  byName.set(id, spec);
+}
+for (const spec of required) byName.set(identity(spec), spec);
+for (const spec of disabledPackages) byName.set(identity(spec.source), spec);
+const extensions = Array.isArray(settings.extensions) ? settings.extensions.filter((entry) => !disabledExtensions.includes(entry)) : [];
+for (const entry of disabledExtensions) extensions.push(entry);
+fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()], extensions }, null, 2) + '\n');
 NODE
 }
 
