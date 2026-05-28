@@ -1,5 +1,3 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-
 export type SddSubcommand = "init" | "edit" | "add" | "clean" | "mode";
 
 export type SddRepoState = {
@@ -36,7 +34,7 @@ export function sddSkillForSubcommand(subcommand: SddSubcommand): string {
   return "spec-driven-development";
 }
 
-export default function sddHelpersExtension(_pi: ExtensionAPI): void {
+export default function sddHelpersExtension(_pi?: unknown): void {
   // Helper module imported by codeflare-pi.ts. Pi loads every file in
   // extensions/ as an extension, so expose a no-op factory too.
 }
