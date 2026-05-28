@@ -634,19 +634,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("subagents:failed", onSubagentFailed);
   (pi as any).events?.on?.("subagents:failed", (event: any) => onSubagentFailed(event, completionCtx()));
 
-  // pi-subagents seeds its spawn ctx only on session_start, not on compaction. Auto-compaction
-  // reloads/replaces the session and leaves that ctx stale, so later reviewer spawns throw
-  // "extension ctx is stale". Re-seed the service with the fresh ctx on both lifecycle points:
-  // session_start covers reload/replacement, session_compact covers in-place compaction.
-  const reseedSubagentsCtx = async (ctx: any): Promise<void> => {
-    remember(ctx);
-    if (!isRealSessionCtx(ctx)) return;
-    const service = await subagentsService();
-    if (service) refreshSubagentsContext(service, ctx);
-  };
-  pi.on("session_start", async (_event: any, ctx: any) => { await reseedSubagentsCtx(ctx); });
-  pi.on("session_compact", async (_event: any, ctx: any) => { await reseedSubagentsCtx(ctx); });
-
   pi.on("agent_end", async (_event, ctx) => {
     remember(ctx);
     const state = hydratePending(ctx);
