@@ -15,8 +15,9 @@ const USER_HOME = "/home/user";
 const VAULT_ROOT = join(USER_HOME, "Vault");
 const CACHE_DIR = join(USER_HOME, ".cache", "codeflare-hooks");
 const MEMORY_COUNTER_DIR = "/tmp/.memory-counter";
-const MEMORY_PROMPT_FILE = join(CACHE_DIR, "pi-memory-agent-prompt.md");
-const VAULT_PROMPT_FILE = join(CACHE_DIR, "pi-vault-extract-prompt.md");
+const PROMPTS_DIR = join(USER_HOME, ".pi", "agent", "prompts");
+const MEMORY_PROMPT_FILE = join(PROMPTS_DIR, "memory-agent-prompt.md");
+const VAULT_PROMPT_FILE = join(PROMPTS_DIR, "vault-extract-prompt.md");
 const VAULT_MARKER_FILE = join(CACHE_DIR, "pi-vault-extract.last");
 const VAULT_VARS_FILE = join(CACHE_DIR, "vault-extract.vars");
 const VAULT_INFLIGHT = join(CACHE_DIR, "vault-extract.inflight");
@@ -36,11 +37,15 @@ function subagentsService(): any | undefined {
   return (globalThis as Record<symbol, unknown>)[Symbol.for("@gotgenes/pi-subagents:service")];
 }
 
-function spawn(type: string, prompt: string, description: string): string | undefined {
+function spawn(type: string, prompt: string, description: string, model?: string): string | undefined {
   const service = subagentsService();
   if (!service?.spawn) return undefined;
   try {
-    const id = service.spawn(type, prompt, { description, inheritContext: false });
+    const options: Record<string, unknown> = { description, inheritContext: false };
+    // Optional fidelity pin (no hardcoded model name): set CODEFLARE_MEMORY_MODEL in the
+    // container env to run the capture/extract agents on a higher-fidelity model per AD58.
+    if (model) options.model = model;
+    const id = service.spawn(type, prompt, options);
     return typeof id === "string" ? id : undefined;
   } catch {
     return undefined;
@@ -52,29 +57,6 @@ function counterPath(id: string): string { return join(MEMORY_COUNTER_DIR, `${id
 function varsPath(id: string): string { return join(MEMORY_COUNTER_DIR, `${id}.vars`); }
 function readCount(path: string): number {
   try { return Number.parseInt(readFileSync(path, "utf8").trim(), 10) || 0; } catch { return 0; }
-}
-
-function writePromptFiles(): void {
-  writeFileSync(MEMORY_PROMPT_FILE, [
-    "# Pi memory capture contract",
-    "",
-    "1. Read VARS_FILE into memory.",
-    "2. Immediately delete VARS_FILE to drain the dedup gate.",
-    "3. Extract durable observations only: user preferences, decisions, errors and fixes, open blockers, plans, commit/PR/head facts, rejected approaches, and important file paths.",
-    "4. Write a detailed markdown note under /home/user/Vault/Raw/Sessions/ with an ISO timestamp filename.",
-    "5. If graphify is available, update the Vault graph and merge /home/user/Vault/graphify-out/graph.json into the global graph under the user_vault label. Use best effort and never block the main turn.",
-  ].join("\n"), "utf8");
-
-  writeFileSync(VAULT_PROMPT_FILE, [
-    "# Pi vault extraction contract",
-    "",
-    "1. Read VARS_FILE into memory.",
-    "2. Immediately delete VARS_FILE to drain the dedup gate.",
-    "3. Use the changed Vault file list from the in-memory vars payload.",
-    "4. Enrich /home/user/Vault/graphify-out/graph.json from the changed notes when available tooling permits.",
-    "5. Preserve the existing user_vault subgraph; merge new nodes/edges monotonically.",
-    "6. Do not advance the high-water marker; the Pi extension advances it only after its deterministic graph write and global merge attempt.",
-  ].join("\n"), "utf8");
 }
 
 function compactMessages(messages: any[]): string { return compactMessagesHelper(messages); }
@@ -191,14 +173,12 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", () => {
     ensureDirs();
-    writePromptFiles();
     bestEffortMergeGraphs();
     if (!existsSync(VAULT_MARKER_FILE)) writeFileSync(VAULT_MARKER_FILE, "0", "utf8");
   });
 
   pi.on("before_agent_start", (event: any, ctx: any) => {
     ensureDirs();
-    writePromptFiles();
     const prompt = String(event?.prompt ?? "");
     if (prompt.startsWith("Agent(") || prompt.startsWith("PROMPT_FILE=") || prompt.includes('"directive"') || prompt.includes("subagent_type") || prompt.startsWith("[silent]")) return;
 
@@ -232,7 +212,7 @@ export default function (pi: ExtensionAPI) {
       }, null, 2), "utf8");
 
       const p = `PROMPT_FILE=${MEMORY_PROMPT_FILE}\nVARS_FILE=${vars}\nResumed session detected. Capture from transcript start. Use captureFilename from vars for the output file.`;
-      const spawned = spawn("memory-capture", p, "Capture resumed session memory");
+      const spawned = spawn("memory-capture", p, "Capture resumed session memory", process.env.CODEFLARE_MEMORY_MODEL);
       if (!spawned) pi.sendUserMessage(`Agent({ subagent_type: "memory-capture", prompt: ${JSON.stringify(p)}, description: "Capture resumed session memory", run_in_background: false })`, { deliverAs: "followUp" });
       return;
     }
@@ -255,7 +235,7 @@ export default function (pi: ExtensionAPI) {
     }, null, 2), "utf8");
 
     const p = `PROMPT_FILE=${MEMORY_PROMPT_FILE}\nVARS_FILE=${vars}\nRun the Pi memory-capture contract. Use captureFilename from vars for the output file. Write to /home/user/Vault/Raw/Sessions/.`;
-    const spawned = spawn("memory-capture", p, "Capture session memory");
+    const spawned = spawn("memory-capture", p, "Capture session memory", process.env.CODEFLARE_MEMORY_MODEL);
     if (!spawned) pi.sendUserMessage(`Agent({ subagent_type: "memory-capture", prompt: ${JSON.stringify(p)}, description: "Capture session memory", run_in_background: false })`, { deliverAs: "followUp" });
   });
 
@@ -291,7 +271,7 @@ export default function (pi: ExtensionAPI) {
     }, null, 2), "utf8");
 
     const vaultPrompt = `PROMPT_FILE=${VAULT_PROMPT_FILE}\nVARS_FILE=${VAULT_VARS_FILE}\nChanged files:\n${changed.slice(0, 80).join("\n")}\nThe Pi extension already wrote the deterministic Vault graph and advanced ${VAULT_MARKER_FILE} to ${newest}. Run the Pi vault-extract contract only for optional semantic enrichment; do not run Python/processing shell commands and do not update the marker.`;
-    const spawned = spawn("vault-extract", vaultPrompt, "Extract Vault graph changes");
+    const spawned = spawn("vault-extract", vaultPrompt, "Extract Vault graph changes", process.env.CODEFLARE_MEMORY_MODEL);
     if (!spawned) pi.sendUserMessage(`Agent({ subagent_type: "vault-extract", prompt: ${JSON.stringify(vaultPrompt)}, description: "Extract Vault graph changes", run_in_background: false })`, { deliverAs: "followUp" });
     try { unlinkSync(VAULT_INFLIGHT); } catch { /* best effort */ }
     bestEffortMergeGraphs();

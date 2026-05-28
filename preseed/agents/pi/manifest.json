@@ -4,6 +4,11 @@
       "advanced"
     ]
   },
+  "extensions/codeflare-commands.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "package.json": {
     "modes": [
       "default",
@@ -43,9 +48,24 @@
       "advanced"
     ]
   },
+  "skills/review/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "scripts/safe-graphify-update.sh": {
     "modes": [
       "default",
+      "advanced"
+    ]
+  },
+  "prompts/memory-agent-prompt.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "prompts/vault-extract-prompt.md": {
+    "modes": [
       "advanced"
     ]
   },

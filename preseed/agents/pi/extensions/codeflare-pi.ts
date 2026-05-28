@@ -17,6 +17,7 @@ const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
 const GRAPHIFY_BYPASS = "/tmp/graphify-bypass";
+const LOCAL_BUILD_BYPASS = "/tmp/local-build-bypass";
 const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
 const CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.151";
 const CONTEXT_MODE_PACKAGE_ID = "npm:context-mode";
@@ -43,7 +44,7 @@ function findGitRoot(startDir: string): string | undefined {
 }
 
 function shell(command: string, cwd: string): string {
-  return execFileSync("bash", ["-lc", command], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  return execFileSync("bash", ["-lc", command], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 5000 }).trim();
 }
 
 function currentBranch(repo: string): string | undefined {
@@ -83,6 +84,11 @@ function graphSummary(repo: string): string | undefined {
   if (!existsSync(graphPath)) return undefined;
   const layout = "Repo graphs live under <repo>/graphify-out/graph.json, never /home/user/workspace/graphify-out. Vault graph: /home/user/Vault/graphify-out/graph.json. Global graph: /home/user/.graphify/global-graph.json.";
   try {
+    // Skip the synchronous parse on very large graphs; reading a multi-MB graph at
+    // session start would block the agent. 30MB mirrors the Claude session-start guard.
+    if (statSync(graphPath).size > 31457280) {
+      return `Graphify repo graph available for ${basename(repo)} at ${graphPath} (large graph; node counts skipped). ${layout} Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
+    }
     const graph = JSON.parse(readFileSync(graphPath, "utf8")) as { nodes?: unknown[]; links?: unknown[]; edges?: unknown[]; built_at_commit?: string };
     const nodes = Array.isArray(graph.nodes) ? graph.nodes.length : 0;
     const links = Array.isArray(graph.links) ? graph.links.length : Array.isArray(graph.edges) ? graph.edges.length : 0;
@@ -133,21 +139,25 @@ function isGitPush(command: string): boolean {
 }
 
 function ensureNoAttributedCommit(command: string): string | undefined {
-  if (!/(^|[;&|]\s*)(git\s+commit|gh\s+pr\s+create)\b/.test(command)) return undefined;
-  if (/Co-Authored-By:|Generated with|🤖|🧠|Claude|ChatGPT/i.test(command)) {
-    return "Codeflare blocks AI attribution in commits/PRs. Remove Co-Authored-By, generated-by text, and emoji attribution.";
+  if (!/(^|[;&|]\s*)(git\s+(commit|merge|tag|notes)|gh\s+(pr|issue|release)\s+\w+)\b/.test(command)) return undefined;
+  // Match the canonical block-attributed-commits.sh detection set. Deliberately NOT bare
+  // "Claude": that false-positives on git/gh commands naming preseed/agents/claude/ paths.
+  if (/co-authored-by|noreply@anthropic|claude\s+(sonnet|opus|haiku|code)|generated with[^\n]*claude|🤖|🧠|ChatGPT/i.test(command)) {
+    return "Codeflare blocks AI attribution in commits, PRs, issues, releases, and tags. Remove Co-Authored-By, generated-by text, model-name attribution, and emoji attribution.";
   }
   return undefined;
 }
 
 function ensureNoLocalBuild(command: string): string | undefined {
-  if (/\b(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev)\b/.test(command)) {
-    return "Local builds/tests/linters/dev servers are blocked in the 1-CPU container. Push and verify with CI instead.";
+  const isBuild = /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev)\b/.test(command)
+    || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|prettier|wrangler\s+dev)\b/.test(command);
+  if (!isBuild) return undefined;
+  // User-only escape hatch (consume-on-use), mirrors Claude's /tmp/local-build-bypass.
+  if (existsSync(LOCAL_BUILD_BYPASS)) {
+    try { unlinkSync(LOCAL_BUILD_BYPASS); } catch { /* best effort */ }
+    return undefined;
   }
-  if (/\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|wrangler\s+dev)\b/.test(command)) {
-    return "Local test/build/lint/dev commands are blocked in the 1-CPU container. Push and verify with CI instead.";
-  }
-  return undefined;
+  return "Local builds/tests/linters/dev servers are blocked in the 1-CPU container. Push and verify with CI instead. User override: create /tmp/local-build-bypass.";
 }
 
 function sddRepoState(repo: string): SddRepoState {
@@ -398,14 +408,16 @@ export default function (pi: ExtensionAPI) {
 
     if (command && isStructuralSearch(command)) {
       searchCountThisTurn++;
-      if (existsSync(GRAPHIFY_BYPASS)) {
-        try { unlinkSync(GRAPHIFY_BYPASS); } catch { /* best effort */ }
-        return;
-      }
-      const repo = activeRepo(ctx);
-      if (repo && hasGraph(repo) && searchCountThisTurn >= 3 && graphifyCountThisTurn === 0) {
-        return { block: true, reason: `Graphify graph exists for ${basename(repo)}. Query graphify_query, graphify_path, or graphify_explain before more structural searches, or ask the user to create ${GRAPHIFY_BYPASS}.` };
-      }
+      try {
+        if (existsSync(GRAPHIFY_BYPASS)) {
+          try { unlinkSync(GRAPHIFY_BYPASS); } catch { /* best effort */ }
+          return;
+        }
+        const repo = activeRepo(ctx);
+        if (repo && hasGraph(repo) && searchCountThisTurn >= 3 && graphifyCountThisTurn === 0) {
+          return { block: true, reason: `Graphify graph exists for ${basename(repo)}. Query graphify_query, graphify_path, or graphify_explain before more structural searches, or ask the user to create ${GRAPHIFY_BYPASS}.` };
+        }
+      } catch { /* fail open: never block a tool call on an internal gate error */ }
     }
   };
 

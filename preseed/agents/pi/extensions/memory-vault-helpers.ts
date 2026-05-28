@@ -17,11 +17,28 @@ export function titleFor(path: string, content: string): string {
 }
 
 export function compactMessages(messages: any[]): string {
-  return messages.slice(-40).map((message) => {
+  // Prefilter the transcript before handing it to the capture agent: keep user + assistant
+  // TEXT only, dropping tool_use / tool_result / thinking blocks. This mirrors the AD58
+  // prefilter rationale (kill tool/recency noise, preserve the conversational arc) instead of
+  // the old raw last-40-message JSON slice that degraded capture quality on long sessions.
+  const turns: string[] = [];
+  for (const message of messages) {
     const role = message?.role ?? message?.message?.role ?? "unknown";
-    const content = message?.content ?? message?.message?.content ?? "";
-    return `## ${role}\n${typeof content === "string" ? content : JSON.stringify(content).slice(0, 6000)}`;
-  }).join("\n\n");
+    if (role !== "user" && role !== "assistant") continue;
+    const raw = message?.content ?? message?.message?.content ?? "";
+    let text = "";
+    if (typeof raw === "string") {
+      text = raw;
+    } else if (Array.isArray(raw)) {
+      text = raw
+        .filter((block: any) => (block?.type ?? "text") === "text" && typeof block?.text === "string")
+        .map((block: any) => block.text)
+        .join("\n");
+    }
+    text = text.trim();
+    if (text) turns.push(`## ${role}\n${text.slice(0, 8000)}`);
+  }
+  return turns.slice(-200).join("\n\n");
 }
 
 export function captureTimestamp(tz?: string): string {

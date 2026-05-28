@@ -57,11 +57,9 @@ async function dispatchReview(args: string, ctx: ExtensionCommandContext): Promi
 
   const command = `/review ${trimmed}`;
   const reviewInstructions = [
-    skillPrompt("git-review-pipeline", "Run the Codeflare review pipeline."),
+    skillPrompt("review", "Run the Codeflare multi-phase review workflow for the requested scope and report findings."),
     "",
     "This is the user-invoked /review command, not the PR-boundary enforcement hook.",
-    "Review the requested scope and report findings clearly. If --deep is present, use deep behavioral REQ verification guidance. If --verify-high is present, include high-severity second-opinion guidance where the configured tool surface supports it.",
-    "",
     `User command: ${command}`,
   ].join("\n");
 

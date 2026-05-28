@@ -17,7 +17,7 @@ Vault/
 ├── CONFIG.md         <- PRESEED: SilverBullet #meta config page (overwrite each boot)
 ├── STYLES.md         <- PRESEED: codeflare editor theme (overwrite each boot)
 ├── Raw/
-│   ├── Sessions/     <- AGENT-OWNED: written by capture agent (sonnet), one .md per 15-prompt batch
+│   ├── Sessions/     <- AGENT-OWNED: written by the capture agent, one .md per 15-prompt batch
 │   └── Pasted/       <- USER-OWNED, OPTIONAL: manual archive only; NOT the SB drag-drop target
 ├── Notes/            <- USER-OWNED: curated prose; SB attachments land next to the note
 ├── Inbox/            <- USER-OWNED: SB Quick Note lands under Inbox/YYYY-MM-DD/
@@ -58,7 +58,7 @@ Prefer the unified graph (`mcp__graphify__*`) for any cross-session lookup; it i
 
 ## Vault-monitor hook
 
-`vault-monitor-hook.sh` is a UserPromptSubmit hook that detects user edits in the vault. It exits 0 silently on most prompts; when it emits `additionalContext`, spawn the background **sonnet** per the directive (sonnet not haiku — haiku confabulated adjacent IDs in benchmarking; per AD58). The sonnet agent's first step is to delete the marker file (dedup gate).
+`vault-monitor-hook.sh` is a UserPromptSubmit hook that detects user edits in the vault. It exits 0 silently on most prompts; when it emits `additionalContext`, spawn the background vault-extract agent per the directive (run it on a higher-fidelity model, not the smallest tier; smaller models confabulated adjacent IDs in benchmarking; per AD58). The agent's first step is to delete the marker file (dedup gate).
 
 ## Worker proxy boundary
 
