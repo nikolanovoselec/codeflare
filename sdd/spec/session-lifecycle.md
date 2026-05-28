@@ -526,6 +526,7 @@ None.
 <!-- @impl: entrypoint.sh -->
 <!-- @test: host/__tests__/prewarm-readiness.test.js (1013 reject + init-flag gate → AC2) -->
 <!-- @test: src/__tests__/container/index.test.ts (DO-side prewarm contract → AC1) -->
+<!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (REQ-SESSION-015 describe → guarded warm-up calls still reach init-flag write on failure + regression sentinel that unguarded form aborts before flag → Constraints fault-containment invariant) -->
 
 **Intent:** A new container must bind its serving port quickly so Cloudflare's port-wait check succeeds, yet must refuse real terminal traffic until initial state restore and pre-warm are complete; the readiness gate sits between the port bind and the first accepted WebSocket upgrade.
 
