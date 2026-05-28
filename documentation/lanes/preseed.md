@@ -245,7 +245,7 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (14): package config, package lock, MCP config, nine extension files (including the `enforce-ctx-mode-bash.ts` legacy shim that overwrites stale local copies during recreation), one native graphify skill override ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7), and one Pi graphify wrapper script.
+- Pi-native runtime assets (15): package config, package lock, MCP config, ten extension files (including the `enforce-ctx-mode-bash.ts` legacy shim that overwrites stale local copies during recreation and `sdd-helpers.ts` for `/sdd` command hard gates), one native graphify skill override ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7), and one Pi graphify wrapper script.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
@@ -256,7 +256,10 @@ All preseed content is deployed via the manifest pipeline:
   subagent service is unavailable at trigger time, PR-boundary enforcement
   keeps the lanes pending and retries automatic spawn instead of injecting
   manual `Agent(...)` follow-up instructions into the main conversation.
-  Pi context-mode
+  The native `/sdd` command uses `sdd-helpers.ts` to enforce the Claude
+  command-file hard gates before dispatching: help/unknown subcommands,
+  clean working tree, `clean`/`mode` requiring `sdd/`, and existing-spec
+  `init` handling. Pi context-mode
   enforcement routes large/raw Bash and Read calls to `ctx_*` tools, permits
   Read snippets up to 240 lines or files up to 100 KB, and allowlists the
   bounded safe graphify wrapper.
@@ -303,8 +306,8 @@ files exist on disk.
 | Gemini | 58 |
 | Copilot | 13 |
 | OpenCode | 58 |
-| Pi | 68 |
-| **Total** | **364** |
+| Pi | 72 |
+| **Total** | **368** |
 
 **Excluded from non-CC transformed assets**: hooks (CC hook system),
 commands (CC slash commands), plugins (CC plugin system, including
@@ -312,7 +315,11 @@ codeflare-memory and codeflare-vault), `preseed/agents/claude/rules/memory.md` (
 CC-specific `mcp__graphify__*` tools and the vault hook system; the
 vault trigger/route content lives in that preseed rule as folded subsections,
 not a separate rules/vault.md), `consult-llm` skill (depends on
-CC-specific MCP tool). Pi receives native TypeScript extensions for the
+CC-specific MCP tool). Pi skill transformation additionally rewrites
+Claude MCP references inside transformed skill bodies to Pi-native
+`ctx_*` / `graphify_*` tool names and replaces Claude Plan Mode / Task-tool
+phrasing with Pi `Agent` / `Plan` terminology for the SDD framework skill
+family. Pi receives native TypeScript extensions for the
 runtime behaviors that cannot be represented as transformed prose:
 `/sdd`, `/graphify`, `/vault`, `/note`, graphify
 active-repo/global-graph maintenance and clone triage, automatic memory capture,
@@ -336,7 +343,7 @@ native Pi skill overrides under `~/.pi/agent/skills/`, and adapts Claude agent d
 `.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`.
 
 **Per-mode counts**: Default mode seeds 53 files, advanced mode
-seeds 362 files. Total array size is 367 (includes variant-per-mode
+seeds 363 files. Total array size is 368 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the

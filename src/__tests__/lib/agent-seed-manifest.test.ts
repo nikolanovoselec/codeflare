@@ -4,6 +4,7 @@ import contextModeExtension, { bashDenialReason, commandFromEvent, readDenialRea
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import { sddCommandDecision } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -179,6 +180,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/review-command.ts',
       '.pi/agent/extensions/review-enforcement.ts',
       '.pi/agent/extensions/review-helpers.ts',
+      '.pi/agent/extensions/sdd-helpers.ts',
     ]);
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/code-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/spec-reviewer.md');
@@ -317,6 +319,41 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewEnforcement).not.toContain('Agent({ subagent_type');
     expect(reviewEnforcement).not.toContain('sendUserMessage(directiveFor');
     expect(reviewEnforcement).not.toContain('Complete the remaining subagents');
+  });
+
+  it('REQ-AGENT-021: Pi /sdd command enforces command-file hard gates before dispatch', () => {
+    expect(sddCommandDecision('', { dirty: false, hasSdd: false, hasOpenInitTriage: false }).kind).toBe('help');
+    expect(sddCommandDecision('unknown', { dirty: false, hasSdd: false, hasOpenInitTriage: false }).kind).toBe('help');
+    expect(sddCommandDecision('clean', { dirty: false, hasSdd: false, hasOpenInitTriage: false })).toMatchObject({ kind: 'error' });
+    expect(sddCommandDecision('mode auto', { dirty: false, hasSdd: false, hasOpenInitTriage: false })).toMatchObject({ kind: 'error' });
+    expect(sddCommandDecision('init', { dirty: true, hasSdd: false, hasOpenInitTriage: false })).toMatchObject({ kind: 'error' });
+    expect(sddCommandDecision('init', { dirty: false, hasSdd: true, hasOpenInitTriage: false })).toMatchObject({ kind: 'error' });
+    expect(sddCommandDecision('init', { dirty: false, hasSdd: true, hasOpenInitTriage: true })).toMatchObject({ kind: 'workflow', skill: 'sdd-init' });
+    expect(sddCommandDecision('clean --scope=all', { dirty: false, hasSdd: true, hasOpenInitTriage: false })).toMatchObject({ kind: 'workflow', skill: 'sdd-clean' });
+    expect(sddCommandDecision('edit agents', { dirty: false, hasSdd: true, hasOpenInitTriage: false })).toMatchObject({ kind: 'workflow', skill: 'spec-driven-development' });
+  });
+
+  it('REQ-AGENT-021: Pi transformed SDD skills use Pi-native tool names', () => {
+    const sddSkillKeys = [
+      '.pi/agent/skills/spec-driven-development/SKILL.md',
+      '.pi/agent/skills/sdd-init/SKILL.md',
+      '.pi/agent/skills/sdd-clean/SKILL.md',
+      '.pi/agent/skills/spec-enforce/SKILL.md',
+      '.pi/agent/skills/spec-enforce-ac/SKILL.md',
+      '.pi/agent/skills/spec-enforce-truth/SKILL.md',
+      '.pi/agent/skills/doc-enforce/SKILL.md',
+      '.pi/agent/skills/doc-enforce-lanes/SKILL.md',
+      '.pi/agent/skills/doc-enforce-shape/SKILL.md',
+      '.pi/agent/skills/doc-enforce-truth/SKILL.md',
+    ];
+    for (const key of sddSkillKeys) {
+      const content = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === key)?.content ?? '';
+      expect(content, key).toContain('Pi runtime compatibility');
+      expect(content, key).not.toContain('mcp__graphify__');
+      expect(content, key).not.toContain('mcp__context-mode__');
+      expect(content, key).not.toContain('EnterPlanMode');
+      expect(content, key).not.toContain('Task tool');
+    }
   });
 
   it('REQ-AGENT-023: Pi native runtime assets include graphify package, MCP config, and skill override', () => {

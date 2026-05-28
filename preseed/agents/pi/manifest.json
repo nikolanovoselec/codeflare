@@ -32,6 +32,11 @@
       "advanced"
     ]
   },
+  "extensions/sdd-helpers.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/memory-vault.ts": {
     "modes": [
       "advanced"

@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync,
 import { basename, dirname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
+import { sddCommandDecision, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
 
 const CACHE_DIR = "/home/user/.cache/codeflare-hooks";
 const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
@@ -139,6 +140,34 @@ function ensureNoLocalBuild(command: string): string | undefined {
   return undefined;
 }
 
+function sddRepoState(repo: string): SddRepoState {
+  return {
+    dirty: isDirtyWorkingTree(repo),
+    hasSdd: existsSync(join(repo, "sdd")),
+    hasOpenInitTriage: hasOpenInitTriage(repo),
+  };
+}
+
+function isDirtyWorkingTree(repo: string): boolean {
+  try {
+    return shell("git status --porcelain", repo).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function hasOpenInitTriage(repo: string): boolean {
+  const candidates = [join(repo, "sdd", "spec", ".init-triage.md"), join(repo, "sdd", ".init-triage.md")];
+  for (const path of candidates) {
+    try {
+      if (existsSync(path) && /\*\*Status:\*\*\s*open\b/i.test(readFileSync(path, "utf8"))) return true;
+    } catch {
+      // Ignore unreadable transition files; the skill will surface a clearer finding.
+    }
+  }
+  return false;
+}
+
 function skillPrompt(name: string, fallback: string): string {
   const candidates = [
     join(process.cwd(), ".pi", "agent", "skills", name, "SKILL.md"),
@@ -203,10 +232,22 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("sdd", {
     description: "Run Codeflare specification-driven development workflow",
+    getArgumentCompletions: (prefix) => {
+      const commands = ["init", "edit", "add", "clean", "mode"];
+      return commands.filter((command) => command.startsWith(prefix)).map((value) => ({ value, label: value }));
+    },
     handler: async (args, ctx) => {
-      const subcommand = args.trim().split(/\s+/, 1)[0] || "help";
-      const skill = subcommand === "init" ? "sdd-init" : subcommand === "clean" ? "sdd-clean" : "spec-driven-development";
-      await sendWorkflowMessage(ctx, `/sdd ${args}`.trim(), `${skillPrompt(skill, "Use the Codeflare SDD workflow.")}\n\nUser command: /sdd ${args}`);
+      const repo = activeRepo(ctx) ?? ctx.sessionManager.getCwd();
+      const decision = sddCommandDecision(args, sddRepoState(repo));
+      if (decision.kind === "help") {
+        ctx.ui.notify(decision.message || SDD_HELP_TEXT, "info");
+        return;
+      }
+      if (decision.kind === "error") {
+        ctx.ui.notify(decision.message, "warning");
+        return;
+      }
+      await sendWorkflowMessage(ctx, decision.normalizedCommand, `${skillPrompt(decision.skill, "Use the Codeflare SDD workflow.")}\n\nUser command: ${decision.normalizedCommand}`);
     },
   });
 

@@ -215,8 +215,60 @@ function adaptAgentFrontmatter(content, agentId) {
   return `---\n${newLines.join('\n')}\n---\n${adaptPaths(body, agentId)}`;
 }
 
-/** Adapt skill content (path replacement only — skills have no tools/model in frontmatter). */
-function adaptSkillContent(content, agentId) {
+const PI_SDD_SKILLS = new Set([
+  'spec-driven-development',
+  'sdd-init',
+  'sdd-clean',
+  'spec-enforce',
+  'spec-enforce-ac',
+  'spec-enforce-truth',
+  'doc-enforce',
+  'doc-enforce-lanes',
+  'doc-enforce-shape',
+  'doc-enforce-truth',
+]);
+
+const PI_SDD_COMPATIBILITY_NOTE = `\n## Pi runtime compatibility\n\nThis transformed Pi skill uses Pi-native tool names and workflows:\n\n- Use \`ctx_execute\`, \`ctx_batch_execute\`, \`ctx_search\`, and \`ctx_execute_file\` directly for context-mode work; do not use Claude MCP names.\n- Use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` directly. If a native graphify tool resolves the workspace root instead of the active repo, use the CLI fallback with \`--graph <repo>/graphify-out/graph.json\`.\n- Use Pi's \`Agent\` tool for subagents. For Plan Mode, invoke the \`Plan\` agent or produce an explicit plan and wait for user approval before source edits.\n`;
+
+function adaptPiSkillContent(content, withinClaude) {
+  let next = adaptPaths(content, 'pi');
+  const replacements = [
+    ['mcp__graphify__god_nodes(top_n=50)', 'graphify_query("top 50 most-connected nodes / god nodes")'],
+    ['mcp__graphify__god_nodes(top_n=20)', 'graphify_query("top 20 most-connected nodes / god nodes")'],
+    ['mcp__graphify__get_neighbors(<concept-or-symbol>)', 'graphify_explain(<concept-or-symbol>)'],
+    ['mcp__graphify__get_node(<symbol>)', 'graphify_explain(<symbol>)'],
+    ['mcp__graphify__shortest_path', 'graphify_path'],
+    ['mcp__graphify__query_graph', 'graphify_query'],
+    ['mcp__graphify__get_neighbors', 'graphify_explain'],
+    ['mcp__graphify__get_node', 'graphify_explain'],
+    ['mcp__graphify__god_nodes', 'graphify_query'],
+    ['mcp__graphify__*', 'Pi graphify tools'],
+    ['mcp__context-mode__ctx_batch_execute', 'ctx_batch_execute'],
+    ['mcp__context-mode__ctx_execute_file', 'ctx_execute_file'],
+    ['mcp__context-mode__ctx_execute', 'ctx_execute'],
+    ['mcp__context-mode__ctx_search', 'ctx_search'],
+    ['mcp__context-mode__ctx_fetch_and_index', 'ctx_fetch_and_index'],
+    ['Claude Code: `EnterPlanMode`', 'Pi: use the `Plan` agent'],
+    ['`EnterPlanMode`', 'the Pi `Plan` agent'],
+    ['Task tool', 'Agent tool'],
+    ['Claude Code', 'Pi'],
+  ];
+  for (const [from, to] of replacements) next = next.replaceAll(from, to);
+
+  const skillName = withinClaude.match(/^skills\/([^/]+)\//)?.[1];
+  if (PI_SDD_SKILLS.has(skillName)) {
+    const parts = next.split('\n---\n');
+    if (parts.length >= 3) {
+      return `${parts[0]}\n---\n${parts.slice(1).join('\n---\n')}${PI_SDD_COMPATIBILITY_NOTE}`;
+    }
+    return `${next}${PI_SDD_COMPATIBILITY_NOTE}`;
+  }
+  return next;
+}
+
+/** Adapt skill content for the target runtime. */
+function adaptSkillContent(content, agentId, withinClaude) {
+  if (agentId === 'pi') return adaptPiSkillContent(content, withinClaude);
   return adaptPaths(content, agentId);
 }
 
@@ -416,7 +468,7 @@ async function generate() {
         documents.push({
           key,
           contentType: inferContentType(file.withinClaude),
-          content: adaptSkillContent(file.content, agentId),
+          content: adaptSkillContent(file.content, agentId, file.withinClaude),
           modes: file.modes,
         });
       }

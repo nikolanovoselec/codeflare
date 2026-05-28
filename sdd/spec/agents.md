@@ -708,7 +708,9 @@ None.
 <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md -->
 <!-- @impl: preseed/agents/claude/rules/tdd-discipline.md -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (spec-discipline + documentation-discipline + tdd-discipline + graph-first advanced-only describes -> AC1 Pro-mode rule preseed) -->
+<!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts -->
+<!-- @impl: scripts/generate-agent-seed.mjs -->
+<!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (spec-discipline + documentation-discipline + tdd-discipline + graph-first advanced-only describes -> AC1 Pro-mode rule preseed) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-021: Pi /sdd command hard gates + Pi transformed SDD skills use native tool names -> AC2/AC3/AC4) -->
 
 **Intent:** Pro users need the spec-driven-development workflow available out of the box, with every sub-command working identically across Bash and context-mode MCP tool surfaces so the workflow does not silently behave differently across container environments.
 
@@ -719,6 +721,7 @@ None.
 1. Pro mode preseeds the `spec-driven-development` skill, the `sdd-init` and `sdd-clean` sub-command skills, the `vault-operations` skill, the `/sdd` command, the `spec-discipline`, `documentation-discipline`, and `tdd-discipline` rules (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
 2. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works under both Bash and the context-mode MCP tool family (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_search`).
 3. Discovery commands producing more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) route through context-mode's ctx_execute family in context-mode environments and through Bash in plain environments, with the agent selecting the right wrapper for its environment.
+4. Pi-transformed SDD skills replace Claude MCP tool names and Plan Mode surfaces with Pi-native `ctx_*`, `graphify_*`, and `Agent`/`Plan` terminology, and the native `/sdd` command enforces the command-file hard gates (help, unknown subcommand, clean working tree, `clean`/`mode` require `sdd/`, existing-spec `init` handling) before dispatching to the workflow skill.
 
 **Constraints:**
 
