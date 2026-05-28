@@ -257,7 +257,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Constraints:**
 
-- Hooks, commands, and plugins are excluded from generic transformed agents because they are Claude-specific surfaces; Pi is the native-runtime exception and receives Pi extension/package/MCP/subagent adapters instead of copied Claude hooks.
+- Hooks, commands, and plugins are excluded from generic transformed agents because they are Claude-specific surfaces; Pi is the native-runtime exception and receives Pi-native equivalents (extension/package/MCP/subagent adapters, native command handlers for Claude-only slash commands, and Pi-native skills) instead of copied Claude hooks and commands. Specific Pi command/skill reimplementations live in [REQ-AGENT-050](#req-agent-050-pi-native-review-workflow-skill) and [REQ-AGENT-051](#req-agent-051-pi-debug-deploy-and-brainstorm-commands).
 - `rules/memory.md` and `consult-llm` skill are excluded from non-CC agents (they depend on CC-specific MCP).
 - Generic non-CC agents get a strictly-smaller config than Claude Code, since CC is the source-of-truth lane and those agents drop CC-specific content. Pi may receive additional Pi-native runtime adapters when equivalent Pi primitives exist.
 - The per-agent format transforms (frontmatter shape, removed fields, path rewrites, file extensions) live in [REQ-AGENT-030](#req-agent-030-multi-agent-format-transforms).
@@ -520,6 +520,8 @@ Multi-agent support, preseed system, and session modes.
 ### REQ-AGENT-015: /review command for multi-perspective codebase review
 
 <!-- @impl: preseed/agents/claude/commands/review.md -->
+<!-- @impl: preseed/agents/pi/skills/review/SKILL.md -->
+<!-- @impl: preseed/agents/pi/extensions/review-command.ts -->
 
 **Intent:** Comprehensive code review using specialized AI agents catches issues a single reviewer would miss.
 
@@ -537,7 +539,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Constraints:**
 
-None.
+- On Claude this workflow ships as the `commands/review.md` slash command; on Pi (where Claude slash commands do not deploy) the same workflow is delivered through the dedicated Pi-native `review` skill injected by the `/review` command handler, per [REQ-AGENT-050](#req-agent-050-pi-native-review-workflow-skill).
 
 **Priority:** P1
 
@@ -826,6 +828,108 @@ None.
 **Verification:** [Backend route tests](../../src/__tests__/routes/session-batch-status.test.ts), [Seed hash persistence + AC8 mode/tier propagation](../../src/__tests__/routes/storage-seed.test.ts), [Store upgrade flow + AC7 failure path](../../web-ui/src/__tests__/stores/session.test.ts), [Dashboard UI AC5](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionDropdown AC5](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionStatCard AC6](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [AC1 hash determinism](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-050: Pi-Native `/review` Workflow Skill
+
+<!-- @impl: preseed/agents/pi/skills/review/SKILL.md -->
+<!-- @impl: preseed/agents/pi/extensions/review-command.ts -->
+<!-- @impl: preseed/agents/pi/manifest.json -->
+
+**Intent:** Pi users running `/review` must get the same multi-perspective review workflow that Claude users get from `commands/review.md`. Because Claude slash commands do not deploy to Pi, the `/review` command must inject a dedicated Pi-native review skill rather than the PR-boundary enforcement pipeline.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The Pi `/review` command injects a dedicated Pi-native `review` skill that mirrors the Claude `commands/review.md` workflow, instead of injecting the `git-review-pipeline` enforcement skill.
+2. The Pi `review` skill is the user-invoked review workflow (multi-perspective specialist subagents, cross-reference, architecture-decision filter, optional external verification, interactive triage), explicitly distinct from PR-boundary enforcement; it does not run the `git-review-pipeline`.
+3. The skill scopes review by `--all` or `--diff` parsed from the appended command line, prints help and runs no phases when neither flag is present, and supports the `--deep` and `--verify-high` flags.
+4. The skill is static-analysis only: it never runs builds, tests, or linters (the container has 1 vCPU).
+5. The skill maps Claude primitives to Pi-native ones: subagents spawn via Pi's `Agent` tool with `subagent_type`, graph queries use Pi-native `graphify_query`/`graphify_path`/`graphify_explain` (with a `--graph <repo>/graphify-out/graph.json` CLI fallback), and plan entry uses the `Plan` agent or an explicit written-and-approved plan.
+6. The skill is delivered advanced-only via the Pi manifest (`skills/review/SKILL.md`) through the standard seed pipeline.
+
+**Constraints:**
+
+- The skill mirrors the Claude `/review` interactive-triage contract from [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review): findings are never auto-applied; the user confirms each fix.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review)
+
+**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+
+**Status:** Partial
+
+<!-- coverage-gap: AC1-AC6 land with the new skill file and review-command.ts change; the manifest-presence assertion for skills/review/SKILL.md is being added to agent-seed-manifest.test.ts in parallel. The runtime workflow phases (AC2-AC5) are skill-content behavior with no dedicated automated test yet. -->
+
+---
+
+### REQ-AGENT-051: Pi `/debug`, `/deploy`, and `/brainstorm` Commands
+
+<!-- @impl: preseed/agents/pi/extensions/codeflare-commands.ts -->
+<!-- @impl: preseed/agents/pi/manifest.json -->
+
+**Intent:** Workflows that Claude ships as slash commands (`/debug`, `/deploy`, `/brainstorm`) are unavailable in Pi because Claude commands do not deploy to Pi. Pi must reimplement them as native command handlers so Pi users get the same systematic debugging, deploy-and-verify, and structured-brainstorming workflows.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A Pi extension registers three native commands via `pi.registerCommand`: `debug`, `deploy`, and `brainstorm`.
+2. Each command injects its adapted workflow text plus the user's input, rather than loading a SKILL.md, because these workflows have no Pi skill file.
+3. `/debug` runs a systematic root-cause debugging workflow (no fixes before root cause is established; the 3-Fix Rule).
+4. `/deploy` runs the push, stale-CI cancellation, CI monitoring, deploy, and live-URL verification workflow.
+5. `/brainstorm` runs a structured option-generation workflow that produces trade-offs and a recommendation.
+6. The extension is delivered advanced-only via the Pi manifest (`extensions/codeflare-commands.ts`) through the standard seed pipeline.
+
+**Constraints:**
+
+- These commands adapt the Claude command workflows to Pi-native tool surfaces; they are not generic transforms of the Claude command files (Claude commands are not deployed to Pi).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
+
+**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+
+**Status:** Partial
+
+<!-- coverage-gap: AC1/AC2/AC6 (command registration + manifest presence) are being added to agent-seed-manifest.test.ts in parallel; AC3-AC5 are injected-workflow content with no dedicated automated test yet. -->
+
+---
+
+### REQ-AGENT-052: Pi Commit-Attribution and Local-Build Hook Hardening
+
+<!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
+
+**Intent:** Pi's PreToolUse guards that block AI attribution and local builds must cover the same surfaces and detection set as the canonical Claude hooks, so an attributed commit, PR, issue, release, or tag cannot slip through a previously-unguarded subcommand and a local build is not silently allowed.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. The attribution guard fires not only on `git commit` and `gh pr create` but across `git merge`, `git tag`, `git notes`, and the `gh pr`, `gh issue`, and `gh release` subcommand families.
+2. The attribution detection set is aligned to the canonical `block-attributed-commits.sh`: it matches `Co-Authored-By`, `noreply@anthropic`, model-name attribution (`claude sonnet|opus|haiku|code`), `generated with ... claude`, the robot/brain emoji, and `ChatGPT`.
+3. The attribution guard does not match a bare `Claude`, so `git`/`gh` commands that name `preseed/agents/claude/` paths are not false-positives.
+4. The local-build guard covers the package-manager build/test/lint/typecheck/dev verbs plus `pytest`, `vitest`, `go test`, `swift test`, `cargo test`, `tsc`, `eslint`, `oxlint`, `prettier`, and `wrangler dev`.
+5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one command through; the block message names the override path.
+
+**Constraints:**
+
+- The attribution and local-build detection sets are kept aligned with the canonical Claude hook scripts (`block-attributed-commits.sh`, the no-local-builds rule); divergence is a regression.
+- The bypass sentinel is user-only and consume-on-use, mirroring the `/tmp/graphify-bypass` discipline in [REQ-AGENT-042](#req-agent-042-graphify-hard-block-enforcement) AC7.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)
+
+**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+
+**Status:** Partial
+
+<!-- coverage-gap: the widened attribution/local-build detection regexes and the /tmp/local-build-bypass consume-on-use behavior in codeflare-pi.ts have no dedicated automated test yet; coverage is being added in parallel. -->
 
 ---
 
@@ -1238,6 +1342,7 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh -->
 <!-- @impl: preseed/agents/pi/scripts/safe-graphify-update.sh -->
+<!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
 <!-- @impl: Dockerfile -->
 <!-- @impl: entrypoint.sh -->
 <!-- @test: host/__tests__/entrypoint-graphify-mcp.test.js (MCP server registration in ~/.claude.json → AC2) -->
@@ -1269,7 +1374,8 @@ None.
 - The ambient MCP capability is available in every session mode; the graph-first agent discipline (REQ-AGENT-024) and active-repo tracking (AC5) are mode-gated to advanced.
 - Per-branch graphs are not supported; users refresh the graph after a branch checkout.
 - Optional backend-provider and office extras are not installed by default; users who need them install upstream extras manually.
-- Preseed surfaces that invoke `graphify update` (prompts, skills, commands, hooks) call the bounded wrapper rather than the bare CLI, so a runaway rebuild cannot OOM-kill the container session.
+- Preseed surfaces that invoke `graphify update` (prompts, skills, commands, hooks) call the bounded wrapper rather than the bare CLI, so a runaway rebuild cannot OOM-kill the container session. The Pi-owned wrapper fails closed: it aborts before running graphify if the target directory is missing, if the `RLIMIT_AS` cap cannot be applied, or if the `graphify` CLI is not on PATH, and it re-exports `GRAPHIFY_VIZ_NODE_LIMIT` so the HTML visualization is always generated even when the inherited env was scrubbed by a sandboxed exec.
+- The Pi session-start graph summary is bounded against blocking: graphs larger than 30MB report availability without a synchronous parse, the git probes are wrapped with a short timeout, and the structural-search gate is fail-open (any unexpected error never locks the user out of search).
 - The container entrypoint ensures `/dev/shm` is present and tmpfs-mounted at boot. Graphify's AST extractor uses Python's `concurrent.futures.ProcessPoolExecutor`, which allocates a `multiprocessing.Lock` that requires POSIX shared memory at `/dev/shm`; on a cold Firecracker microVM boot the rootfs ships without the mountpoint directory and the executor fails at startup. The same prerequisite covers the memory-capture hook's chunker and the vault-extract subagent's writer.
 
 **Priority:** P1

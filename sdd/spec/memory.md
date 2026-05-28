@@ -33,6 +33,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh -->
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
+<!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts -->
+<!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md -->
 <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - user-message counting describe -> counts only real user prompts excluding tool_results and command wrappers -> AC2) -->
 <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh describe -> AC3 strips tool I/O and chunks remainder -> AC3) -->
 <!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> inline graph construction Python step -> AC6) -->
@@ -255,6 +257,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ### REQ-MEM-008: Memory prompt files preseeded via manifest pipeline
 
 <!-- @impl: preseed/agents/claude/manifest.json -->
+<!-- @impl: preseed/agents/pi/manifest.json -->
+<!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md -->
+<!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md -->
 <!-- @impl: scripts/generate-agent-seed.mjs -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json describe → memory plugin files in AGENTS_SEEDED_CONFIGS → AC1-AC7) -->
 
@@ -270,7 +275,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 4. The hook script is delivered via the plugin but registered via the session settings merge, not the plugin loader.
 5. Memory-plugin source lives in the single preseed source tree.
 6. A build-time seed generator produces the runtime payload consumed by the Worker; memory-plugin files appear in that payload.
-7. Claude memory plugin files are not generically adapted for non-Claude agents because they depend on Claude-specific MCP and hook surfaces; Pi receives native memory/vault runtime adapters where equivalent Pi lifecycle primitives exist.
+7. Claude memory plugin files are not generically adapted for non-Claude agents because they depend on Claude-specific MCP and hook surfaces; Pi receives native memory/vault runtime adapters where equivalent Pi lifecycle primitives exist, including its capture-contract and vault-extract prompt files, which ship through the Pi manifest to `~/.pi/agent/prompts/` rather than being written inline at runtime (see [REQ-MEM-014](#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever)).
 
 **Constraints:**
 
@@ -385,3 +390,42 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Verification:** [Automated test](../../host/__tests__/memory-context-inject.test.js)
 
 **Status:** Implemented
+
+---
+
+### REQ-MEM-014: Pi capture contract, transcript prefilter, and model-fidelity lever
+
+<!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md -->
+<!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md -->
+<!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
+<!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts -->
+<!-- @impl: scripts/generate-agent-seed.mjs -->
+
+**Intent:** Pi's memory-capture and vault-extract subagents must follow the same full capture contract as the Claude memory plugin (AD58 parity) - chunk the transcript, accumulate per-chunk observations, synthesise a structured note, and cite REQ/ADR/SHA/PR identifiers verbatim - rather than the thin inline contract Pi previously carried. The transcript handed to the capture agent must be prefiltered to preserve the conversational arc, and the capture/extract agents must be able to run on a higher-fidelity model without a hardcoded model name.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi ships a full capture-contract prompt file and a vault-extract prompt file (chunk then per-chunk scratchpad then synthesise; frontmatter plus Context / Decisions / Observations / References template; verbatim REQ/ADR/SHA/PR citation discipline; wikilink shaping), replacing the prior thin inline contract that the extension wrote at runtime.
+2. The Pi extension points its prompt-file constants at the deployed prompt files under `~/.pi/agent/prompts/` and no longer writes the prompt contracts inline.
+3. The seed generator maps `prompts/` source files to the deployed `~/.pi/agent/prompts/` location, and both prompt files are delivered advanced-only via the Pi manifest.
+4. Before the transcript is handed to the capture agent, it is prefiltered to user and assistant text only - tool-use, tool-result, and thinking blocks are dropped - bounded to the last 200 turns at up to 8000 characters per turn, replacing the prior raw last-40-message JSON slice.
+5. The capture/extract subagent spawn accepts an optional model argument sourced from the `CODEFLARE_MEMORY_MODEL` container environment variable; when unset, the runtime default model is used and no model name is hardcoded.
+
+**Constraints:**
+
+- The model-fidelity lever is the Pi-runtime expression of the AD58 rationale (capture must cite identifiers verbatim, which benefits from a higher-fidelity model); Claude pins the model at the subagent-definition level per [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) while Pi reads it from the environment so no model name is committed.
+- The prefilter mirrors the Claude prefilter rationale (drop tool/recency noise, preserve the conversational arc); it does not change the capture cadence or the dedup-gate carrier-file protocol.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-008](#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline)
+
+**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+
+**Status:** Partial
+
+<!-- coverage-gap: the compactMessages prefilter rewrite (AC4) and the prompt-file-relocation constants (AC2) are exercised by the Pi behavioral tests in agent-seed-manifest.test.ts; the CODEFLARE_MEMORY_MODEL spawn lever (AC5) and the prompts/ manifest-mapping (AC3) coverage is being added in parallel. -->
+
+
