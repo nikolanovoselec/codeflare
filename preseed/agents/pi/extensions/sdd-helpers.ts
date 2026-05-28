@@ -1,3 +1,5 @@
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
 export type SddSubcommand = "init" | "edit" | "add" | "clean" | "mode";
 
 export type SddRepoState = {
@@ -32,6 +34,11 @@ export function sddSkillForSubcommand(subcommand: SddSubcommand): string {
   if (subcommand === "init") return "sdd-init";
   if (subcommand === "clean") return "sdd-clean";
   return "spec-driven-development";
+}
+
+export default function sddHelpersExtension(_pi: ExtensionAPI): void {
+  // Helper module imported by codeflare-pi.ts. Pi loads every file in
+  // extensions/ as an extension, so expose a no-op factory too.
 }
 
 export function sddCommandDecision(args: string, state: SddRepoState): SddCommandDecision {
