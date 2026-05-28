@@ -540,6 +540,7 @@ None.
 
 - The terminal server must bind its serving port within Cloudflare's container port-wait window; slow initialization (R2 sync, MCP config merges) must not block the port bind.
 - The container must not signal readiness (PTY pre-warm complete) until the initial sync either succeeds or times out.
+- Any best-effort setup step executed before the init-complete flag is written (e.g. agent npm dependency warm-up, fast-start update suppression) must be guarded so that its failure does not abort the entrypoint under `set -euo pipefail`; a degraded warm-up is always preferable to PID 1 dying before the flag is written.
 
 **Priority:** P0
 

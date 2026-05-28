@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-28
+
+- REQ-SESSION-015 Constraints updated: best-effort entrypoint steps executed before the init-complete flag is written must be guarded against `set -euo pipefail` failure; a degraded warm-up is preferable to PID 1 dying before the flag write (production regression fixed by PR #440).
+
 ## 2026-05-27
 
 - REQ-AGENT-001 updated: Pi extension npm dependencies are preinstalled into an image-local cache at build time; the entrypoint symlinks `node_modules` to the cache (zero-copy, instant), avoiding Pi's first-launch npm install delay.
