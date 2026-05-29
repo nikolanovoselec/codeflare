@@ -276,21 +276,25 @@ All preseed content is deployed via the manifest pipeline:
   `.git/sdd-review-results/<head>/`. Each result file uses a common
   `## Findings` section followed by a severity-count Review Summary table.
   While internal durable lanes run, Pi displays a compact footer status
-  (`Review <head> --> code | spec | docs`, rendering only required lanes and turning a
-  lane label green when that lane finishes), so operators can diagnose background review progress without visible generic
-  Agent tasks. Duplicate lane-result and summary announcements are suppressed
-  for the same repo/head/lane result. After all lanes finish, Pi publishes one
-  merged chat summary with `## Review Summary`, `## Findings`, and
-  `## Finding Details` sections. That chat summary aggregates severity counts
-  across code/spec/docs, lists all findings sorted by criticality, and avoids
-  per-lane result-file links; the per-lane `.md` files remain the durable
-  evidence store. Timed-out or failed durable lanes are recorded as failed and
-  do not produce the required result file, so the PR head remains unacked until
-  a later review run succeeds, per
-  [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch).
-  If legitimate MEDIUM/HIGH/CRITICAL findings remain, Pi then requests a
-  fix-and-push pass. Implements
+  (`Review <head> --> code | spec | docs`, rendering only required lanes and
+  turning a lane label green when that lane finishes). Operators can diagnose
+  background review progress without visible generic Agent tasks. Duplicate
+  lane-result and summary announcements are suppressed for the same
+  repo/head/lane result.
+
+  After all lanes finish, Pi publishes one merged chat summary with
+  `## Review Summary`, `## Findings`, and `## Finding Details` sections. That
+  chat summary aggregates severity counts across code/spec/docs, lists all
+  findings sorted by criticality, and avoids per-lane result-file links; the
+  per-lane `.md` files remain the durable evidence store. If legitimate
+  MEDIUM/HIGH/CRITICAL findings remain, Pi then requests a fix-and-push pass.
+  Implements
   [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop).
+
+  Timed-out or failed durable lanes are recorded as failed and do not produce
+  the required result file. The PR head remains unacked until a later review run
+  succeeds, per
+  [REQ-AGENT-054](../../sdd/spec/agents.md#req-agent-054-pi-durable-review-lane-failure-handling).
 
   Merge enforcement does not depend on third-party subagent task IDs or
   in-memory service records. Because Claude slash commands do not deploy to Pi, the user-invoked `/review` workflow

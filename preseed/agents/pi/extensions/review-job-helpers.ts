@@ -217,14 +217,8 @@ export function cleanReviewText(text: string): string {
     .trim();
 }
 
-function compactReviewText(text: string | undefined, maxLength = 140): string {
-  const clean = cleanReviewText(text || "");
-  if (clean.length <= maxLength) return clean;
-  return `${clean.slice(0, maxLength - 1).trimEnd()}…`;
-}
-
 function markdownTableCell(value: string | undefined): string {
-  return compactReviewText(value || "—", 120)
+  return cleanReviewText(value || "—")
     .replace(/\\/g, "\\\\")
     .replace(/\|/g, "\\|");
 }
@@ -338,11 +332,11 @@ function mergedFindingsTable(findings: ReviewFinding[]): string {
 function mergedFindingsList(findings: ReviewFinding[]): string {
   if (findings.length === 0) return "No findings.";
   return findings.map((finding) => {
-    const location = finding.file ? ` (${compactReviewText(finding.file, 90)})` : "";
-    const issue = compactReviewText(finding.issue, 180);
-    const fix = compactReviewText(finding.fix, 180);
+    const location = finding.file ? ` (${cleanReviewText(finding.file)})` : "";
+    const issue = cleanReviewText(finding.issue || "");
+    const fix = cleanReviewText(finding.fix || "");
     const details = [issue && `Issue: ${issue}`, fix && `Fix: ${fix}`].filter(Boolean).join(" ");
-    return `- **${finding.severity}** ${laneReviewLabel(finding.lane)} — ${compactReviewText(finding.title, 120)}${location}${details ? `. ${details}` : ""}`;
+    return `- **${finding.severity}** ${laneReviewLabel(finding.lane)} — ${cleanReviewText(finding.title)}${location}${details ? `. ${details}` : ""}`;
   }).join("\n");
 }
 

@@ -399,9 +399,6 @@ async function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: stri
   pending.spawnedAt = pending.spawnedAt || now;
   savePending(pending);
   updateReviewStatus(pending, ctx);
-  if (result.launched.length > 0) {
-    ctx.ui.notify(`PR-boundary durable reviewers started for ${basename(pending.repo)} at ${pending.head.slice(0, 12)} (${reason}): ${result.launched.join(", ")}. State: ${reviewJobDir(pending.repo, pending.head)}`, "info");
-  }
 }
 
 function reviewHeadStatus(pending: PendingReview): ReviewHeadStatus {
@@ -644,8 +641,22 @@ export default function (pi: ExtensionAPI) {
     const marker = join(reviewJobDir(state.repo, state.head), "autofix.requested");
     mkdirSync(dirname(marker), { recursive: true });
     try { closeSync(openSync(marker, "wx")); } catch { return; }
-    // The merged review summary already contains all actionable findings and the
-    // recommendation. Do not emit a second fix prompt block into chat.
+    try {
+      pi.sendMessage({
+        customType: "codeflare-review-autofix-request",
+        content: [
+          `Fix legitimate PR-boundary review findings for ${basename(state.repo)} at ${state.head}.`,
+          "Use the merged review summary immediately above as the actionable finding list.",
+          "Fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
+          "Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.",
+          "Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
+        ].join("\n"),
+        display: false,
+        details: { repo: state.repo, head: state.head },
+      }, { triggerTurn: true, deliverAs: "followUp" });
+    } catch {
+      // Best effort: the visible merged summary still tells the user what to fix.
+    }
   }
 
   function publishReviewResultFile(state: PendingReview, lane: string, ctx: any): void {

@@ -1091,7 +1091,7 @@ None.
 4. The initial review wave starts `code-reviewer` and `spec-reviewer` together when both lanes are required. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewInitialLanes -->
 5. `doc-updater` starts only after `spec-reviewer` completes on SDD projects. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewEligibleLanes -->
 6. A fix-push cascade preserves the first unreviewed review base for cumulative review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::selectReviewBase -->
-7. Pi acknowledges a PR head only after durable result files exist for every required lane; timed-out or failed durable lanes do not produce the required result file and leave the PR head unacked until a later review run succeeds. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::completedDurableReviewLanes --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::runDurableLane -->
+7. Pi acknowledges a PR head only after durable result files exist for every required lane. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::completedDurableReviewLanes -->
 
 **Constraints:**
 
@@ -1133,6 +1133,34 @@ None.
 None.
 
 **Priority:** P2
+
+**Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
+
+**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-054: Pi Durable Review Lane Failure Handling
+
+<!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (durable lane recovery + result-file gating tests -> AC1/AC2) -->
+
+**Intent:** Pi operators need durable PR-boundary review failures to fail closed without falsely acknowledging a PR head.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When a durable Pi review lane times out or records a failure, the lane is persisted as failed instead of completed. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::runDurableLane -->
+2. Failed or timed-out durable lanes do not produce the required result file, so the PR head remains unacked until a later review run writes every required lane result file. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::completedDurableReviewLanes -->
+
+**Constraints:**
+
+None.
+
+**Priority:** P1
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
