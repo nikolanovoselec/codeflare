@@ -41,6 +41,24 @@ export function compactMessages(messages: any[]): string {
   return turns.slice(-200).join("\n\n");
 }
 
+// Parse Pi session JSONL content into the message objects compactMessages expects.
+// Pi persists each turn on disk (for /resume) as { type: "message", message: { role, content } };
+// non-message entries (session header, compaction, custom, model_change, thinking_level_change)
+// and malformed lines are skipped. Returns [] when nothing parses. This is the durable source
+// that replaces the volatile in-memory message list, so a capture after a reload still sees the
+// full conversation instead of an empty buffer.
+export function parseSessionMessages(content: string): any[] {
+  const messages: any[] = [];
+  for (const line of content.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (entry?.type === "message" && entry.message) messages.push(entry.message);
+    } catch { /* skip a malformed line, keep the rest */ }
+  }
+  return messages;
+}
+
 export function captureTimestamp(tz?: string): string {
   const now = new Date();
   if (tz) {

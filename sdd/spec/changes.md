@@ -2,6 +2,11 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-30
+
+- REQ-AGENT-053 AC8 added: Pi durable PR-boundary review lanes now additively load the graphify package (always) and the context-mode package (only when `/ctx on` enables it), plus the `codeflare-pi` guard extension (local-build blocker, attribution, graphify gate), so reviewers gain `graphify_*` and, when enabled, `ctx_*` tools. The lane keeps `noExtensions` so the `review-enforcement` extension (which clobbers a process-global run token on load) and the `@gotgenes/pi-subagents` package never load in-process; `codeflare-pi`'s per-session global-graph merge is skipped inside lanes via a depth counter. Also consolidated the triplicated `reviewResultPath`/`reviewResultsDir` into a single `review-jobs.ts` source and removed dead pre-durable spawn helpers (`startReviewLaneSpawns`, `isReviewCompletionForLane`, `isCurrentReviewHead`).
+- REQ-MEM-001 AC8 added: memory capture now reads the durable on-disk session transcript instead of a volatile in-memory buffer. Pi's `memory-vault.ts` was building the capture from a module-level `lastMessages` array populated only on `agent_end`, so the first capture after any Pi reload/resume saw an empty buffer and wrote a hollow "no substantive content in range" note even though Pi's full session JSONL (the same file `/resume` reads) sat on disk. It now reads `ctx.sessionManager.getSessionFile()` and parses it via the new `parseSessionMessages` helper, with a skip-empty guard that suppresses the capture entirely when the resolved transcript is blank. The Claude capture subagent (`memory-capture.md`) additionally gains the context-mode execute tools alongside Bash so its prefilter/merge pipeline runs whether or not a shell-routing gate is active.
+
 ## 2026-05-29
 
 - REQ-AGENT-040 updated: Pi PR-boundary review enforcement now uses Codeflare-owned durable review jobs instead of third-party subagent service records. This keeps merge enforcement recoverable across reloads and independent of ephemeral Agent IDs.

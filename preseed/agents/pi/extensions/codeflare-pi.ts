@@ -474,6 +474,10 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_start", (_event, ctx) => {
+    // Durable PR-boundary review lanes load this extension in-process for the build-blocker and
+    // other guards, but must not re-run the per-repo global-graph merge (redundant; the main
+    // session already merged it). The lane runner sets this depth counter around the session.
+    if (((globalThis as { __codeflareReviewLaneDepth?: number }).__codeflareReviewLaneDepth ?? 0) > 0) return;
     const repo = activeRepo(ctx);
     if (repo) maybeMergeGlobalGraph(repo);
     const summary = repo ? graphSummary(repo) : undefined;

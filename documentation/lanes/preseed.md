@@ -305,9 +305,13 @@ All preseed content is deployed via the manifest pipeline:
   capture-agent contract) and `prompts/vault-extract-prompt.md` (the
   Vault-graph extraction contract) - which carry the full AD58-grade
   capture instructions; `memory-vault.ts` reads them from
-  `~/.pi/agent/prompts/*.md` and prefilters the transcript to
-  user/assistant text (dropping tool and thinking blocks) before spawning
-  the capture subagent.
+  `~/.pi/agent/prompts/*.md`, reads the conversation from the durable
+  on-disk session transcript Pi persists for `/resume`
+  (`ctx.sessionManager.getSessionFile()` parsed via `parseSessionMessages`,
+  not a volatile in-memory buffer), and prefilters it to user/assistant
+  text (dropping tool and thinking blocks) before spawning the capture
+  subagent; an empty resolved transcript skips the capture instead of
+  writing a hollow note.
   Pi subagents are provided by `@gotgenes/pi-subagents`; the generator
   adapts Claude agent definitions into `.pi/agent/agents/*.md`.
   The container image preinstalls Pi extension npm dependencies into an

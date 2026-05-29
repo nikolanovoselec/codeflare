@@ -32,6 +32,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh -->
+<!-- @impl: preseed/agents/claude/agents/memory-capture.md -->
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts -->
 <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md -->
@@ -39,7 +40,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh describe -> AC3 strips tool I/O and chunks remainder -> AC3) -->
 <!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> inline graph construction Python step -> AC6) -->
 <!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> flock + graphify global add merge step -> AC7) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests -> REQ-MEM-001 captureTimestamp AC4, compactMessages AC3, flock global merge AC7) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests -> REQ-MEM-001 captureTimestamp AC4, compactMessages AC3, flock global merge AC7; parseSessionMessages helper unit tests + memory-vault.ts content asserts getSessionFile / parseSessionMessagesHelper / readSessionMessages + skip-empty guard -> AC8) -->
 
 **Intent:** Important conversation context (decisions, debugging insights, observations) must be extracted from the transcript and persisted to the vault without manual intervention. This REQ covers the hook trigger, message-counting filter, and the capture pipeline. Hook plumbing (tilde expansion, vars file shape, first-message graphify hint, timezone resolution) is split into [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing).
 
@@ -54,6 +55,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections.
 6. Graph nodes and edges are extracted from the rendered capture and merged into the unified global graph.
 7. The merge into the unified global graph is serialised and atomic, so the new content is queryable on the same turn it is written.
+8. The capture sources the conversation from the durable on-disk session transcript that each runtime already persists for session resume, never from a volatile in-memory buffer. A capture triggered immediately after a reload or resume therefore sees the full conversation; if the resolved transcript is empty the capture is skipped rather than writing a placeholder "no substantive content" note.
 
 **Constraints:**
 
@@ -61,6 +63,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
 - The capture agent is sonnet per AD58, pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model.
 - The capture agent itself is the LLM that produces the extracted graph (the upstream headless extract CLI is not invoked) to avoid duplicating inference cost.
+- The capture subagent's pipeline must run whether or not a shell-routing gate (context-mode) is active: the subagent definition carries both the Bash tools and the context-mode execute tools and uses whichever the session permits, so a gated Bash call never silently aborts the capture.
+- The durable transcript source is per-runtime: the Claude capture reads the transcript JSONL slice the hook passes by line range; the Pi capture reads its persisted session file via `getSessionFile()` and parses the message entries. Both skip the capture when the resolved transcript is empty.
 
 **Priority:** P0
 
