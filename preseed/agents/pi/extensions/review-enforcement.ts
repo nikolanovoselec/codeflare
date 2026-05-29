@@ -11,9 +11,10 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { durableReviewEligibleLanes, durableReviewInitialLanes } from "./review-job-helpers";
+import { completedDurableReviewLanes, failedDurableReviewLanes, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
@@ -296,53 +297,7 @@ function mergeLaneState(repo: string, currentHead: string, previous?: PendingRev
   return { lanes, completed };
 }
 
-type SubagentRecordLike = {
-  status?: string;
-  result?: unknown;
-  error?: unknown;
-};
-
-type SubagentsServiceLike = {
-  spawn?: (type: string, prompt: string, options?: Record<string, unknown>) => string;
-  getRecord?: (id: string) => SubagentRecordLike | undefined;
-  hasRunning?: () => boolean;
-  runtime?: { currentCtx?: unknown; setSessionContext?: (ctx: unknown) => void };
-};
-
-let importedSubagentsAccessor: (() => SubagentsServiceLike | undefined) | undefined;
-
-async function importSubagentsAccessor(): Promise<(() => SubagentsServiceLike | undefined) | undefined> {
-  if (importedSubagentsAccessor) return importedSubagentsAccessor;
-  const candidates = [
-    join(getAgentDir(), "npm", "node_modules", "@gotgenes", "pi-subagents", "src", "service", "service.ts"),
-    "/home/user/.pi/agent/npm/node_modules/@gotgenes/pi-subagents/src/service/service.ts",
-  ];
-  for (const candidate of candidates) {
-    if (!existsSync(candidate)) continue;
-    try {
-      const module = await import(pathToFileURL(candidate).href) as { getSubagentsService?: () => SubagentsServiceLike | undefined };
-      if (typeof module.getSubagentsService === "function") {
-        importedSubagentsAccessor = module.getSubagentsService;
-        return importedSubagentsAccessor;
-      }
-    } catch {
-      // Try the next candidate; fallback notification happens in spawnLane.
-    }
-  }
-  return undefined;
-}
-
-async function subagentsService(): Promise<SubagentsServiceLike | undefined> {
-  const service = (globalThis as Record<symbol, unknown>)[Symbol.for("@gotgenes/pi-subagents:service")];
-  if (service && typeof service === "object" && typeof (service as SubagentsServiceLike).spawn === "function") return service as SubagentsServiceLike;
-  return (await importSubagentsAccessor())?.();
-}
-
 function isRealSessionCtx(ctx: unknown): boolean {
-  // pi-subagents builds the parent snapshot from this ctx and reads ctx.modelRegistry.
-  // A fabricated/background stub (e.g. the one synthesised for the subagents:completed
-  // event) lacks it; seeding such a ctx corrupts the service so that every subsequent
-  // spawn throws "extension ctx is stale". Only ever seed a genuine session ctx.
   return Boolean(ctx && typeof ctx === "object" && (ctx as { modelRegistry?: unknown }).modelRegistry);
 }
 
@@ -361,7 +316,9 @@ function docUpdaterPrompt(pending: PendingReview): string {
 }
 
 function shouldRequestLane(pending: PendingReview, lane: string, now = Date.now()): boolean {
-  if (pending.completed.has(lane) || pending.spawnedIds[lane]) return false;
+  if (pending.completed.has(lane)) return false;
+  if (completedDurableReviewLanes(pending.repo, pending.head, [lane]).includes(lane)) return false;
+  if (runningDurableReviewLanes(pending.repo, pending.head, [lane]).includes(lane)) return false;
   const lastRequested = pending.requestedAt[lane] || 0;
   return lastRequested === 0 || now - lastRequested >= REVIEW_REQUEST_RETRY_MS;
 }
@@ -374,66 +331,36 @@ function descriptionForLane(lane: string): string {
   return lane === "doc-updater" ? "Review documentation changes" : lane === "spec-reviewer" ? "Review spec changes" : "Review code changes";
 }
 
-function refreshSubagentsContext(service: SubagentsServiceLike, ctx: unknown): void {
-  if (!isRealSessionCtx(ctx)) return;
-  try {
-    if (typeof service.runtime?.setSessionContext === "function") service.runtime.setSessionContext(ctx);
-    else if (service.runtime && typeof service.runtime === "object") service.runtime.currentCtx = ctx;
-  } catch {
-    // Best effort. A spawn failure below leaves the lane pending for retry.
-  }
-}
-
 async function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: string[], ctx: any, reason: string): Promise<void> {
   if (lanes.length === 0) return;
 
-  // This intentionally does NOT inject a user/follow-up instruction for the main
-  // agent to call the Agent tool. That approach looked visible, but it was still
-  // a prompt that the parent assistant could ignore, duplicate, or accidentally
-  // deliver into an already-running reviewer lane. PR-boundary review is an
-  // enforcement workflow, not a request for the assistant to remember to launch
-  // reviewers. The extension therefore spawns reviewers itself through the
-  // published pi-subagents service, records the returned IDs in pending state,
-  // and relies on the normal subagents lifecycle events to persist findings and
-  // unblock doc-updater after spec-reviewer. User-visible surfaces are the start
-  // notification below, the standard task-completion notification emitted by
-  // pi-subagents, and the persisted result files under .git/sdd-review-results/.
-  const service = await subagentsService();
-  if (!service?.spawn) {
-    const now = Date.now();
-    for (const lane of lanes) pending.requestedAt[lane] = now;
-    savePending(pending);
-    ctx.ui.notify(`PR-boundary reviewer service unavailable for ${basename(pending.repo)} at ${pending.head.slice(0, 12)} (${reason}); review remains pending.`, "warning");
-    return;
-  }
-
-  refreshSubagentsContext(service, ctx);
   const now = Date.now();
   const requests: ReviewSpawnRequest[] = lanes
     .filter((lane) => shouldRequestLane(pending, lane, now))
     .map((lane) => ({ lane, prompt: promptForLane(pending, pr, lane), description: descriptionForLane(lane) }));
-  const result = startReviewLaneSpawns({
-    state: {
-      completed: [...pending.completed],
-      spawnedIds: pending.spawnedIds,
-      fallbackLanes: [...pending.fallbackLanes],
-      requestedAt: pending.requestedAt,
-      spawned: pending.spawned,
-      reviewStartedAt: pending.reviewStartedAt,
-      spawnedAt: pending.spawnedAt,
+  if (requests.length === 0) return;
+
+  const result = startDurableReviewLanes(
+    ctx.pi ?? (globalThis as { __codeflarePi?: ExtensionAPI }).__codeflarePi,
+    ctx,
+    {
+      repo: pending.repo,
+      prNumber: pending.prNumber,
+      baseRefName: pending.baseRefName,
+      head: pending.head,
+      reviewBase: pending.reviewBase,
+      lanes: pending.lanes,
     },
     requests,
-    service,
-    now,
-  });
-  pending.spawnedIds = result.state.spawnedIds;
-  pending.fallbackLanes = new Set(result.state.fallbackLanes);
-  pending.requestedAt = result.state.requestedAt;
-  pending.spawned = result.state.spawned;
-  pending.spawnedAt = result.state.spawnedAt;
+  );
+  for (const request of requests) pending.requestedAt[request.lane] = now;
+  for (const lane of result.launched) delete pending.requestedAt[lane];
+  pending.spawned = true;
+  pending.spawnedIds = { ...pending.spawnedIds, ...Object.fromEntries(result.launched.map((lane) => [lane, `durable:${lane}`])) };
+  pending.spawnedAt = pending.spawnedAt || now;
   savePending(pending);
   if (result.launched.length > 0) {
-    ctx.ui.notify(`PR-boundary reviewers started for ${basename(pending.repo)} at ${pending.head.slice(0, 12)}: ${result.launched.join(", ")}.`, "info");
+    ctx.ui.notify(`PR-boundary durable reviewers started for ${basename(pending.repo)} at ${pending.head.slice(0, 12)} (${reason}): ${result.launched.join(", ")}. State: ${reviewJobDir(pending.repo, pending.head)}`, "info");
   }
 }
 
@@ -449,6 +376,7 @@ function reviewHeadStatus(pending: PendingReview): ReviewHeadStatus {
 }
 
 export default function (pi: ExtensionAPI) {
+  (globalThis as { __codeflarePi?: ExtensionAPI }).__codeflarePi = pi;
   let pending: PendingReview | undefined;
   const toolStartArgs = new Map<string, any>();
   const shouldProcessPrBoundaryToolEnd = createReadyOnceTracker();
@@ -533,10 +461,25 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  async function markCompleted(type: string, ctx: any, completionId?: string, prompt?: string, result?: unknown): Promise<void> {
+  function publishReviewResultFile(state: PendingReview, lane: string, ctx: any): void {
+    const path = reviewResultPath(state.repo, state.head, lane);
+    const text = existsSync(path) ? readFileSync(path, "utf8") : "No findings reported.";
+    ctx.ui.notify(`PR-boundary ${lane} completed for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Findings saved: ${path}`, "info");
+    try {
+      pi.sendMessage({
+        customType: "pr-boundary-review-result",
+        content: `PR-boundary ${lane} completed for ${basename(state.repo)} at ${state.head.slice(0, 12)}.\nFindings saved: ${path}\n\n${text}`,
+        display: true,
+        details: { repo: state.repo, head: state.head, lane, path, result: text },
+      });
+    } catch {
+      // UI notification + persisted result file are the reliable surfaces.
+    }
+  }
+
+  async function markCompleted(type: string, ctx: any, _completionId?: string, _prompt?: string, result?: unknown): Promise<void> {
     const state = hydratePending(ctx);
     if (!state || !state.lanes.includes(type)) return;
-    if (!isReviewCompletionForLane({ ...state, fallbackLanes: [...state.fallbackLanes] }, type, completionId, prompt)) return;
     if (state.completed.has(type)) return;
     // Only a definitively-moved PR ("stale") discards the window; "unknown" (gh
     // failed) falls through so the completion is still recorded and acked rather
@@ -545,7 +488,8 @@ export default function (pi: ExtensionAPI) {
       discardStale(state, ctx);
       return;
     }
-    publishReviewResult(state, type, result, ctx);
+    if (result !== undefined) publishReviewResult(state, type, result, ctx);
+    else publishReviewResultFile(state, type, ctx);
     state.completed.add(type);
     resetBlockCount(state.repo); // a lane completing is progress: reset the breaker patience counter
     if (type === "spec-reviewer" && state.lanes.includes("doc-updater") && !state.docPromptSent) {
@@ -681,7 +625,7 @@ export default function (pi: ExtensionAPI) {
     resetBlockCount(repo);
     clearBreaker(repo); // new head under review: drop any stale breaker latch from a prior head
     pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set(), requestedAt: {}, reviewStartedAt: Date.now() };
-    const initialLanes = pending.lanes.filter((lane) => lane !== "doc-updater" || !pending.lanes.includes("spec-reviewer"));
+    const initialLanes = durableReviewInitialLanes(pending.lanes);
     savePending(pending);
     pruneReviewResults(repo, head); // a new head is under review; drop stale prior-head result dirs
     ctx.ui.notify(`PR-boundary review required for ${basename(repo)} at ${head.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
@@ -697,41 +641,24 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_result", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
   pi.on("tool_execution_end", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
 
-  const onSubagentCompleted = async (event: any, ctx: any) => {
-    const type = String(event?.type || "");
-    if (!type) return;
-    const completionId = typeof event?.id === "string" ? event.id : undefined;
-    if (event?.result != null) {
-      const state = hydratePending(ctx);
-      if (state && isReviewCompletionForLane({ ...state, fallbackLanes: [...state.fallbackLanes] }, type, completionId)) {
-        try { persistReviewResult(state, type, event.result); } catch { /* best effort */ }
-      }
-    }
-    await markCompleted(type, ctx, completionId, undefined, event?.result);
-  };
-
-  pi.on("subagents:completed", onSubagentCompleted);
-  (pi as any).events?.on?.("subagents:completed", (event: any) => onSubagentCompleted(event, completionCtx()));
-
-  const onSubagentFailed = async (event: any, ctx: any) => {
+  const onDurableLaneCompleted = async (event: any, ctx: any) => {
+    const lane = String(event?.lane || "");
+    const head = String(event?.head || "");
     const state = hydratePending(ctx);
-    // Only re-queue a failed lane when the head is confirmed current. On "stale"
-    // or "unknown" we skip here; agent_end owns the retry/breaker path and
-    // preserves the persisted window on "unknown", so the failed lane is still
-    // reconciled on a later cycle once the PR head can be confirmed.
-    if (!state || reviewHeadStatus(state) !== "current") return;
-    const id = typeof event?.id === "string" ? event.id : undefined;
-    const lane = Object.entries(state.spawnedIds).find(([, spawnedId]) => spawnedId === id)?.[0];
-    if (!lane) return;
-    delete state.spawnedIds[lane];
-    state.fallbackLanes.add(lane);
-    state.spawned = Object.keys(state.spawnedIds).length > 0;
-    savePending(state);
-    ctx.ui.notify(`PR-boundary ${lane} failed for ${basename(state.repo)} at ${state.head.slice(0, 12)}; review remains pending.`, "warning");
+    if (!lane || !state || state.head !== head) return;
+    await markCompleted(lane, ctx);
   };
 
-  pi.on("subagents:failed", onSubagentFailed);
-  (pi as any).events?.on?.("subagents:failed", (event: any) => onSubagentFailed(event, completionCtx()));
+  const onDurableLaneFailed = async (event: any, ctx: any) => {
+    const lane = String(event?.lane || "");
+    const head = String(event?.head || "");
+    const state = hydratePending(ctx);
+    if (!lane || !state || state.head !== head) return;
+    ctx.ui.notify(`PR-boundary durable ${lane} failed for ${basename(state.repo)} at ${state.head.slice(0, 12)}; review remains pending. State: ${reviewJobDir(state.repo, state.head)}`, "warning");
+  };
+
+  (pi as any).events?.on?.(REVIEW_JOBS_EVENT_LANE_COMPLETED, (event: any) => onDurableLaneCompleted(event, completionCtx()));
+  (pi as any).events?.on?.(REVIEW_JOBS_EVENT_LANE_FAILED, (event: any) => onDurableLaneFailed(event, completionCtx()));
 
   pi.on("agent_end", async (_event, ctx) => {
     remember(ctx);
@@ -756,40 +683,25 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const service = await subagentsService();
     const currentState = loadPending(state.repo) || state;
-    let trackedReviewerRunning = false;
-    for (const [lane, spawnedId] of Object.entries(currentState.spawnedIds)) {
-      if (currentState.completed.has(lane)) continue; // already reconciled; don't let it shadow still-pending lanes
-      const record = service?.getRecord?.(spawnedId);
-      if (record?.status === "completed" || record?.status === "steered") {
-        await markCompleted(lane, ctx, spawnedId, undefined, record.result);
+    for (const lane of completedDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes)) {
+      if (!currentState.completed.has(lane)) {
+        await markCompleted(lane, ctx);
         return;
-      }
-      if (record?.status === "running" || record?.status === "queued") {
-        trackedReviewerRunning = true;
-        continue;
-      }
-      if (["error", "stopped", "aborted"].includes(String(record?.status || ""))) {
-        delete currentState.spawnedIds[lane];
-        currentState.fallbackLanes.add(lane);
-        currentState.spawned = Object.keys(currentState.spawnedIds).length > 0;
-        savePending(currentState);
-        ctx.ui.notify(`PR-boundary ${lane} ended with ${record.status} for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}; review remains pending.`, "warning");
-        return;
-      }
-      if (!record) {
-        delete currentState.spawnedIds[lane];
-        currentState.spawned = Object.keys(currentState.spawnedIds).length > 0;
-        savePending(currentState);
       }
     }
 
-    const STALL_TIMEOUT_MS = 10 * 60 * 1000;
-    const pendingAge = Date.now() - currentState.reviewStartedAt;
-    if (trackedReviewerRunning && pendingAge < STALL_TIMEOUT_MS) {
-      return;
+    const running = runningDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes)
+      .filter((lane) => !currentState.completed.has(lane));
+    if (running.length > 0) return;
+
+    const failed = failedDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes)
+      .filter((lane) => !currentState.completed.has(lane));
+    if (failed.length > 0) {
+      ctx.ui.notify(`PR-boundary durable review lane(s) failed for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}: ${failed.join(", ")}. Retrying eligible lanes; state: ${reviewJobDir(currentState.repo, currentState.head)}`, "warning");
     }
+
+    const pendingAge = Date.now() - currentState.reviewStartedAt;
 
     // Reviewers are not running (or have stalled past the timeout). Count this fruitless
     // decision cycle and latch the breaker once we exceed the attempt or age bound, so a
@@ -806,10 +718,14 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const eligibleUnstarted = currentState.lanes.filter((lane) => {
-      if (!shouldRequestLane(currentState, lane)) return false;
-      return !(lane === "doc-updater" && currentState.lanes.includes("spec-reviewer") && !currentState.completed.has("spec-reviewer"));
-    });
+    const eligibleUnstarted = durableReviewEligibleLanes({
+      lanes: currentState.lanes,
+      completed: [...currentState.completed, ...completedDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes)],
+      running: runningDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes),
+      requestedAt: currentState.requestedAt,
+      now: Date.now(),
+      retryMs: REVIEW_REQUEST_RETRY_MS,
+    }).filter((lane) => shouldRequestLane(currentState, lane));
     if (eligibleUnstarted.length > 0) {
       const currentPr = prState(currentState.repo) || { baseRefName: currentState.baseRefName, number: currentState.prNumber, headRefOid: currentState.head } as PrState;
       await spawnReviewLanes(currentState, currentPr, eligibleUnstarted, ctx, "pending reviewer retry");

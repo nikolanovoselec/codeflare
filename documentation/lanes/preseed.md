@@ -200,7 +200,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
-**Manifest structure (137 total source entries: 120 Claude + 17 Pi-native)**:
+**Manifest structure (139 total source entries: 120 Claude + 19 Pi-native)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -245,10 +245,11 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (17): package config, package lock, MCP
-  config, nine extension files (including `codeflare-commands.ts`, which
+- Pi-native runtime assets (19): package config, package lock, MCP
+  config, eleven extension files (including `codeflare-commands.ts`, which
   provides the Pi `/debug`, `/deploy`, and `/brainstorm` commands since
-  Claude slash commands do not deploy to Pi), two native skill overrides
+  Claude slash commands do not deploy to Pi, plus durable review-job helpers
+  for PR-boundary enforcement), two native skill overrides
   (graphify -
   [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7 - and `review`), two
   capture-contract prompts (`memory-agent-prompt.md`,
@@ -265,9 +266,12 @@ All preseed content is deployed via the manifest pipeline:
   skills still come from the Claude source tree. `/review` is deliberately
   separate from PR-boundary enforcement: the command reviews a requested
   scope, while `review-enforcement.ts` watches PR HEADs, resolves the
-  active repo from native GitHub workflow commands, and requires review
-  subagent completion for SDD PRs targeting `main`/`master`. Because Claude
-  slash commands do not deploy to Pi, the user-invoked `/review` workflow
+  active repo from native GitHub workflow commands, and requires durable
+  review-job completion for SDD PRs targeting `main`/`master`. The durable
+  runner in `review-jobs.ts` writes job state under `.git/codeflare-review-jobs/<head>/`
+  and public findings under `.git/sdd-review-results/<head>/`, so merge
+  enforcement does not depend on third-party subagent task IDs or in-memory
+  service records. Because Claude slash commands do not deploy to Pi, the user-invoked `/review` workflow
   ships as the dedicated `skills/review/SKILL.md` native skill (full
   11-phase flow) rather than relying only on the transformed
   `git-review-pipeline` enforcement skill. Pi memory capture is driven by
@@ -591,7 +595,7 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 The `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. It triggers at PR-boundary events: `gh pr create` runs in the session, OR a push lands on a branch that already has an open PR (the hook calls `gh pr view` to check). Enforcement only fires when the open PR targets `main` or `master`. PRs into intermediate branches (`develop`, `staging`) are silently deferred until that branch's own PR-to-`main` opens.
 
-The Claude hook and Pi native enforcement both track the most recently acknowledged PR HEAD SHA in `.git/sdd-last-ack-pr-head`. Pi also persists in-flight lane state in `.git/sdd-review-pending.json`. Acknowledgment advances only when the full required pipeline (code-reviewer + spec-reviewer + doc-updater, or the reduced lane set for doc/spec-only changes) is observed for the current PR HEAD.
+The Claude hook and Pi native enforcement both track the most recently acknowledged PR HEAD SHA in `.git/sdd-last-ack-pr-head`. Pi also persists compatibility pending state in `.git/sdd-review-pending.json` and durable runner state in `.git/codeflare-review-jobs/<head>/`. Acknowledgment advances only when result files exist for the full required pipeline (code-reviewer + spec-reviewer + doc-updater, or the reduced lane set for doc/spec-only changes) for the current PR HEAD.
 
 Three USER-ONLY bypass methods exist (the agent must never invoke these autonomously): the user runs `touch /tmp/review-bypass` (one-shot sentinel; per-session, not committed, auto-deleted on use), the user says "skip review" in a message, or the user waits for the 3-strike circuit breaker to clear after 3 blocks on the same un-acknowledged PR HEAD.
 
@@ -600,6 +604,7 @@ If enforcement fires spuriously after a legitimate pipeline completed and local 
 ```bash
 git rev-parse HEAD > .git/sdd-last-ack-pr-head
 rm -f .git/sdd-review-block-count .git/sdd-review-pending.json
+rm -rf .git/codeflare-review-jobs/$(git rev-parse HEAD)
 ```
 
 The legacy v4 timestamp file `.git/sdd-last-ack-push` (if present from a prior install) is auto-deleted on the first v5 invocation, so no manual cleanup is needed for the v4 to v5 migration path.

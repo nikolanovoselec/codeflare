@@ -79,6 +79,16 @@
       "advanced"
     ]
   },
+  "extensions/review-jobs.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/review-job-helpers.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/review-helpers.ts": {
     "modes": [
       "advanced"

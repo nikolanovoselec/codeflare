@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { allDurableReviewLanesComplete, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewResultPath } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -177,6 +178,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/review-command.ts',
       '.pi/agent/extensions/review-enforcement.ts',
       '.pi/agent/extensions/review-helpers.ts',
+      '.pi/agent/extensions/review-job-helpers.ts',
+      '.pi/agent/extensions/review-jobs.ts',
       '.pi/agent/extensions/sdd-helpers.ts',
     ]);
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/code-reviewer.md');
@@ -222,6 +225,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       expect(doc.content, `${doc.key} must not assume ExtensionCommandContext has sendUserMessage`).not.toContain('ctx.sendUserMessage(');
       expect(doc.content, `${doc.key} must fall back to ExtensionAPI.sendUserMessage`).toContain('pi.sendUserMessage');
     }
+  });
+
+  it('REQ-AGENT-040: Pi PR-boundary enforcement is backed by durable review jobs, not third-party subagent internals', () => {
+    const reviewEnforcement = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/review-enforcement.ts');
+    const reviewJobs = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/review-jobs.ts');
+    const reviewJobHelpers = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/review-job-helpers.ts');
+    expect(reviewEnforcement?.content).toContain('startDurableReviewLanes');
+    expect(reviewEnforcement?.content).not.toContain('@gotgenes/pi-subagents');
+    expect(reviewEnforcement?.content).not.toContain('get_subagent_result');
+    expect(reviewJobs?.content).toContain('createAgentSession');
+    expect(reviewJobs?.content).toContain('codeflare-review-jobs');
+    expect(reviewJobHelpers?.content).toContain('durableReviewInitialLanes');
   });
 
   it('Pi agents use Pi-native tool names and keep declared context-mode tools (not stripped, never mcp-prefixed)', () => {
@@ -375,6 +390,34 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(shouldProcess('tool-2', true)).toBe(true);
     expect(shouldProcess('tool-3', true)).toBe(true);
     expect(shouldProcess('tool-1', true)).toBe(true);
+  });
+
+  it('REQ-AGENT-040: durable Pi review jobs sequence spec before docs and ack only after every lane completes', () => {
+    const lanes = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
+    expect(durableReviewInitialLanes(lanes)).toEqual(['code-reviewer', 'spec-reviewer']);
+    expect(durableReviewEligibleLanes({
+      lanes,
+      completed: ['code-reviewer'],
+      running: [],
+      requestedAt: {},
+      now: 1000,
+      retryMs: 60_000,
+    })).toEqual(['spec-reviewer']);
+    expect(durableReviewEligibleLanes({
+      lanes,
+      completed: ['code-reviewer', 'spec-reviewer'],
+      running: [],
+      requestedAt: {},
+      now: 1000,
+      retryMs: 60_000,
+    })).toEqual(['doc-updater']);
+    expect(allDurableReviewLanesComplete(lanes, ['code-reviewer', 'spec-reviewer'])).toBe(false);
+    expect(allDurableReviewLanesComplete(lanes, ['code-reviewer', 'spec-reviewer', 'doc-updater'])).toBe(true);
+  });
+
+  it('REQ-AGENT-040: durable Pi review job paths are under .git and result paths stay on the existing review surface', () => {
+    expect(durableReviewJobDir('/repo', 'abc123')).toBe('/repo/.git/codeflare-review-jobs/abc123');
+    expect(durableReviewResultPath('/repo', 'abc123', 'code-reviewer')).toBe('/repo/.git/sdd-review-results/abc123/code-reviewer.md');
   });
 
   it('REQ-AGENT-040: Pi review enforcement spawns reviewers with bounded background options', () => {
