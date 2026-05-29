@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
-import { classifyReviewFiles, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { classifyReviewFiles, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -299,7 +299,17 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isReviewCompletionForLane({ ...state, fallbackLanes: [] }, 'doc-updater', undefined, 'Review head abc123')).toBe(true);
     expect(isReviewCompletionForLane({ ...state, fallbackLanes: [] }, 'doc-updater', undefined, 'Review head stale')).toBe(false);
     expect(isReviewCompletionForLane({ ...state, fallbackLanes: [] }, 'doc-updater')).toBe(false);
+    expect(isReviewCompletionForLane({ head: 'abc123', lanes: ['code-reviewer'], spawned: false }, 'code-reviewer')).toBe(false);
+    expect(isReviewCompletionForLane({ head: 'abc123', lanes: ['code-reviewer'], spawned: false }, 'code-reviewer', undefined, 'Review head abc123')).toBe(true);
     expect(isReviewCompletionForLane(state, 'spec-reviewer', 'spawned-spec')).toBe(false);
+  });
+
+  it('REQ-AGENT-040: Pi review enforcement extracts visible background Agent IDs for pending lanes', () => {
+    expect(extractBackgroundAgentId({ details: { agentId: 'abc12345-1234-abc' } })).toBe('abc12345-1234-abc');
+    expect(extractBackgroundAgentId({
+      content: [{ type: 'text', text: 'Agent started in background.\nAgent ID: def67890-4321-cba\nType: code-reviewer' }],
+    })).toBe('def67890-4321-cba');
+    expect(extractBackgroundAgentId({ content: [{ type: 'text', text: 'No agent id here' }] })).toBeUndefined();
   });
 
   it('REQ-AGENT-040: Pi review enforcement classifies lanes by changed file surface', () => {

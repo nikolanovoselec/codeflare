@@ -20,13 +20,35 @@ export type ReviewCompletionState = {
   fallbackLanes?: string[];
 };
 
+export function extractBackgroundAgentId(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const record = result as Record<string, any>;
+  const direct = record.details?.agentId || record.agentId;
+  if (typeof direct === "string" && direct.length > 0) return direct;
+
+  const textParts: string[] = [];
+  const collectText = (value: unknown): void => {
+    if (typeof value === "string") textParts.push(value);
+    else if (Array.isArray(value)) value.forEach(collectText);
+    else if (value && typeof value === "object") {
+      const maybeText = (value as Record<string, unknown>).text;
+      if (typeof maybeText === "string") textParts.push(maybeText);
+    }
+  };
+  collectText(record.content);
+  collectText(record.result);
+  collectText(record.output);
+  const match = textParts.join("\n").match(/Agent ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{3,})/i);
+  return match?.[1];
+}
+
 export function isReviewCompletionForLane(state: ReviewCompletionState, type: string, completionId?: string, prompt?: string): boolean {
   if (!state.lanes.includes(type)) return false;
   const spawnedId = state.spawnedIds?.[type];
   if (spawnedId) return completionId === spawnedId;
   if (state.fallbackLanes?.includes(type)) return prompt !== undefined && prompt.includes(state.head);
   if (state.spawned) return prompt !== undefined && prompt.includes(state.head);
-  return true;
+  return prompt !== undefined && prompt.includes(state.head);
 }
 
 export function classifyReviewFiles(files: string[] | undefined): string[] | undefined {
