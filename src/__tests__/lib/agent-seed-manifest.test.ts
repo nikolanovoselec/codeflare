@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { allDurableReviewLanesComplete, compactDurableReviewStatus, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewResultPath, formatDurableReviewResult, recoverDurableReviewLaneState } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewResultPath, durableReviewStatusSegments, recoverDurableReviewLaneState } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -447,41 +447,53 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     });
   });
 
-  it('REQ-AGENT-052: durable Pi review results use a shared findings and summary-table format', () => {
-    const result = formatDurableReviewResult(
+  it('REQ-AGENT-053: durable Pi review results derive structured severity state from findings', () => {
+    const model = durableReviewResultModel(
       { repo: '/repo/codeflare', head: 'abc123456789', prNumber: 443 },
       'spec-reviewer',
       '[HIGH] stale rule\n[LOW] wording nit\n\n## Review Summary\nold table'
     );
-    expect(result).toContain('# PR-boundary spec-reviewer');
-    expect(result).toContain('## Findings');
-    expect(result).toContain('[HIGH] stale rule');
-    expect(result).not.toContain('old table');
-    expect(result).toContain('## Review Summary');
-    expect(result).toContain('| HIGH     | 1 | warn |');
-    expect(result).toContain('| LOW      | 1 | note |');
+    expect(model).toMatchObject({
+      repoName: 'codeflare',
+      head: 'abc123456789',
+      prNumber: 443,
+      lane: 'spec-reviewer',
+      counts: { critical: 0, high: 1, medium: 0, low: 1 },
+      recommendation: 'fix',
+    });
   });
 
-  it('REQ-AGENT-052: durable Pi review announcements use a stable per-lane dedupe key', () => {
+  it('REQ-AGENT-053: durable Pi review announcements use a stable per-lane dedupe key', () => {
     expect(durableReviewMessageKey({ customType: 'pr-boundary-review-result', repo: '/repo', head: 'abc', lane: 'code-reviewer', path: '/repo/.git/sdd-review-results/abc/code-reviewer.md' }))
       .toBe(durableReviewMessageKey({ customType: 'pr-boundary-review-result', repo: '/repo', head: 'abc', lane: 'code-reviewer', path: '/repo/.git/sdd-review-results/abc/code-reviewer.md' }));
     expect(durableReviewMessageKey({ customType: 'pr-boundary-review-result', repo: '/repo', head: 'abc', lane: 'code-reviewer', path: '/repo/.git/sdd-review-results/abc/code-reviewer.md' }))
       .not.toBe(durableReviewMessageKey({ customType: 'pr-boundary-review-result', repo: '/repo', head: 'abc', lane: 'spec-reviewer', path: '/repo/.git/sdd-review-results/abc/spec-reviewer.md' }));
   });
 
-  it('REQ-AGENT-052: durable Pi review status stays compact for mobile footers', () => {
-    expect(compactDurableReviewStatus({
-      head: 'abcdef123456',
+  it('REQ-AGENT-053: durable Pi review severity helpers identify actionable findings for the fix loop', () => {
+    const counts = countReviewSeverities('[CRITICAL] broken\n[HIGH] risky\n[MEDIUM] incomplete\n[LOW] typo');
+    expect(counts).toEqual({ critical: 1, high: 1, medium: 1, low: 1 });
+    expect(actionableReviewCount(counts)).toBe(3);
+    expect(durableReviewRecommendation(counts)).toBe('fix');
+    expect(durableReviewRecommendation({ critical: 0, high: 0, medium: 0, low: 1 })).toBe('review');
+    expect(durableReviewRecommendation({ critical: 0, high: 0, medium: 0, low: 0 })).toBe('none');
+  });
+
+  it('REQ-AGENT-053: durable Pi review status derives lane states for mobile footers', () => {
+    expect(durableReviewStatusSegments({
       lanes: ['code-reviewer', 'spec-reviewer', 'doc-updater'],
       completed: ['code-reviewer'],
       running: ['spec-reviewer'],
-    })).toBe('PRR abcdef1 c✓ s… d·');
-    expect(compactDurableReviewStatus({
-      head: 'abcdef123456',
+    })).toEqual([
+      { lane: 'code-reviewer', label: 'code', state: 'completed' },
+      { lane: 'spec-reviewer', label: 'spec', state: 'running' },
+      { lane: 'doc-updater', label: 'docs', state: 'pending' },
+    ]);
+    expect(durableReviewStatusSegments({
       lanes: ['doc-updater'],
       completed: [],
       running: ['doc-updater'],
-    })).toBe('PRR abcdef1 d…');
+    })).toEqual([{ lane: 'doc-updater', label: 'docs', state: 'running' }]);
   });
 
   it('REQ-AGENT-040: durable Pi review job paths are under .git and result paths stay on the existing review surface', () => {

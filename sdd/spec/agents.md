@@ -1107,14 +1107,14 @@ None.
 
 ---
 
-### REQ-AGENT-052: Pi Durable Review Status and Result Formatting
+### REQ-AGENT-053: Pi Durable Review Status, Result Formatting, and Fix Loop
 
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (durable review result format + compact status + announcement-key tests -> AC1/AC2/AC3) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (durable review result format + compact status + announcement-key + summary/actionability tests -> AC1/AC2/AC3/AC4/AC5) -->
 
-**Intent:** Pi operators need consistent PR-boundary review output and a compact indication that internal durable lanes are active, without relying on visible generic Agent tasks.
+**Intent:** Pi operators need consistent PR-boundary review output, a compact indication that internal durable lanes are active, and an automatic next-fix prompt when actionable findings remain.
 
 **Applies To:** User
 
@@ -1123,6 +1123,8 @@ None.
 1. Durable PR-boundary result files use a shared `## Findings` plus severity-count Review Summary table format. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatDurableReviewResult -->
 2. Pi exposes compact durable-lane progress in the footer while PR-boundary review runs, rendering only lanes required for the current review job. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::compactDurableReviewStatus -->
 3. Pi suppresses duplicate PR-boundary review result and summary announcements for the same repo, head, lane, and result path. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::installReviewMessageDedupe -->
+4. After all required lanes complete, Pi publishes a linked summary table with each lane's result file, severity counts, and a recommendation. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewSummaryMarkdown -->
+5. When completed review results contain legitimate `MEDIUM`, `HIGH`, or `CRITICAL` findings, Pi requests an automatic fix-and-push pass for those findings only; the next PR-boundary review uses the pushed fix diff. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestReviewAutofix -->
 
 **Constraints:**
 

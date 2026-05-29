@@ -13,7 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { compactDurableReviewStatus, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey } from "./review-job-helpers";
+import { actionableReviewCount, compactDurableReviewStatus, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, type ReviewSeverityCounts } from "./review-job-helpers";
 import { completedDurableReviewLanes, failedDurableReviewLanes, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -490,7 +490,13 @@ export default function (pi: ExtensionAPI) {
     try {
       const completed = state.lanes.filter((lane) => state.completed.has(lane) || existsSync(reviewResultPath(state.repo, state.head, lane)));
       const running = runningDurableReviewLanes(state.repo, state.head, state.lanes).concat(Object.keys(state.spawnedIds));
-      ctx.ui.setStatus("codeflare-review", compactDurableReviewStatus({ head: state.head, lanes: state.lanes, completed, running }));
+      ctx.ui.setStatus("codeflare-review", compactDurableReviewStatus({
+        head: state.head,
+        lanes: state.lanes,
+        completed,
+        running,
+        style: { done: (label) => ctx.ui.theme.fg("success", label) },
+      }));
     } catch {
       // Status display is best-effort; persisted review state is authoritative.
     }
@@ -500,18 +506,72 @@ export default function (pi: ExtensionAPI) {
     try { ctx.ui.setStatus("codeflare-review", ""); } catch { /* best effort */ }
   }
 
+  function severityCell(counts: ReviewSeverityCounts): string {
+    return `C${counts.critical} H${counts.high} M${counts.medium} L${counts.low}`;
+  }
+
+  function reviewSummaryRows(state: PendingReview): Array<{ lane: string; path: string; counts: ReviewSeverityCounts; recommendation: string }> {
+    return state.lanes.map((lane) => {
+      const path = reviewResultPath(state.repo, state.head, lane);
+      const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+      const counts = countReviewSeverities(text);
+      const recommendation = durableReviewRecommendation(counts);
+      return { lane, path, counts, recommendation };
+    });
+  }
+
+  function reviewSummaryMarkdown(state: PendingReview): string {
+    const rows = reviewSummaryRows(state);
+    const table = [
+      "| Lane | Result | Severities | Recommendation |",
+      "|---|---|---:|---|",
+      ...rows.map((row) => `| ${row.lane} | [open](${row.path}) | ${severityCell(row.counts)} | ${row.recommendation} |`),
+    ].join("\n");
+    const actionable = rows.reduce((total, row) => total + actionableReviewCount(row.counts), 0);
+    const next = actionable > 0
+      ? `Recommendation: automatically fix ${actionable} actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff.`
+      : "Recommendation: no actionable MEDIUM/HIGH/CRITICAL findings remain.";
+    return `PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.\n\n${table}\n\n${next}`;
+  }
+
   function publishReviewSummary(state: PendingReview, ctx: any): void {
     if (!claimReviewAnnouncement(state, "summary")) return;
-    const paths = state.lanes.map((lane) => `- ${lane}: ${reviewResultPath(state.repo, state.head, lane)}`).join("\n");
+    const content = reviewSummaryMarkdown(state);
     try {
       pi.sendMessage({
         customType: "pr-boundary-review-summary",
-        content: `PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.\nReviewer findings:\n${paths}`,
+        content,
         display: true,
-        details: { repo: state.repo, head: state.head, paths },
+        details: { repo: state.repo, head: state.head, summary: content },
       });
     } catch {
       ctx.ui.notify(`PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Findings saved under ${reviewResultsDir(state.repo, state.head)}.`, "info");
+    }
+  }
+
+  function requestReviewAutofix(state: PendingReview): void {
+    const rows = reviewSummaryRows(state).filter((row) => actionableReviewCount(row.counts) > 0);
+    if (rows.length === 0) return;
+    const marker = join(reviewJobDir(state.repo, state.head), "autofix.requested");
+    mkdirSync(dirname(marker), { recursive: true });
+    try { closeSync(openSync(marker, "wx")); } catch { return; }
+    const files = rows.map((row) => `- ${row.lane}: ${row.path} (${severityCell(row.counts)})`).join("\n");
+    try {
+      pi.sendUserMessage?.([
+        `Fix legitimate PR-boundary review findings for ${basename(state.repo)} at ${state.head}.`,
+        "",
+        "Review result files:",
+        files,
+        "",
+        "Instructions:",
+        "- Fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
+        "- Ignore non-actionable/process-only anti-spiral findings if they conflict with the user's explicit continuous-fix instruction.",
+        "- Do not rerun or start CI monitoring unless the user explicitly asks or a merge/deploy gate requires it.",
+        "- Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
+        "- The next PR-boundary review should cover only the pushed fix diff.",
+      ].join("\n"));
+    } catch {
+      // Best effort: summary table still tells the assistant/user what to fix.
     }
   }
 
@@ -563,6 +623,7 @@ export default function (pi: ExtensionAPI) {
       clearPending(state.repo);
       ctx.ui.notify(`PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.`, "info");
       publishReviewSummary(state, ctx);
+      requestReviewAutofix(state);
       clearReviewStatus(ctx);
       pending = undefined;
     }

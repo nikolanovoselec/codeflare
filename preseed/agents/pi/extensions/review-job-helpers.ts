@@ -57,28 +57,57 @@ export type ReviewSeverityCounts = {
   low: number;
 };
 
+export type DurableReviewRecommendation = "fix" | "review" | "none";
+
+export type DurableReviewStatusState = "completed" | "running" | "pending";
+
+export type DurableReviewStatusSegment = {
+  lane: string;
+  label: string;
+  state: DurableReviewStatusState;
+};
+
+export type DurableReviewStatusStyle = {
+  done?: (text: string) => string;
+  running?: (text: string) => string;
+  pending?: (text: string) => string;
+};
+
+export function durableReviewStatusSegments(input: {
+  lanes: string[];
+  completed: string[];
+  running: string[];
+}): DurableReviewStatusSegment[] {
+  const completed = new Set(input.completed);
+  const running = new Set(input.running);
+  const labels: Array<[string, string]> = [
+    ["code-reviewer", "code"],
+    ["spec-reviewer", "spec"],
+    ["doc-updater", "docs"],
+  ];
+  return labels
+    .filter(([lane]) => input.lanes.includes(lane))
+    .map(([lane, label]) => ({
+      lane,
+      label,
+      state: completed.has(lane) ? "completed" : running.has(lane) ? "running" : "pending",
+    }));
+}
+
 export function compactDurableReviewStatus(input: {
   head: string;
   lanes: string[];
   completed: string[];
   running: string[];
+  style?: DurableReviewStatusStyle;
 }): string {
-  const completed = new Set(input.completed);
-  const running = new Set(input.running);
-  const code = (lane: string): string => {
-    if (completed.has(lane)) return "✓";
-    if (running.has(lane)) return "…";
-    return "·";
+  const styledLabel = (segment: DurableReviewStatusSegment): string => {
+    if (segment.state === "completed") return input.style?.done?.(segment.label) ?? segment.label;
+    if (segment.state === "running") return input.style?.running?.(segment.label) ?? segment.label;
+    return input.style?.pending?.(segment.label) ?? segment.label;
   };
-  const labels: Array<[string, string]> = [
-    ["code-reviewer", "c"],
-    ["spec-reviewer", "s"],
-    ["doc-updater", "d"],
-  ];
-  const parts = labels
-    .filter(([lane]) => input.lanes.includes(lane))
-    .map(([lane, label]) => `${label}${code(lane)}`);
-  return `PRR ${input.head.slice(0, 7)} ${parts.join(" ")}`;
+  const parts = durableReviewStatusSegments(input).map(styledLabel);
+  return `Review ${input.head.slice(0, 7)} --> ${parts.join(" | ")}`;
 }
 
 export function stripExistingReviewSummary(text: string): string {
@@ -97,6 +126,16 @@ export function countReviewSeverities(text: string): ReviewSeverityCounts {
     else if (severity === "LOW") counts.low += 1;
   }
   return counts;
+}
+
+export function actionableReviewCount(counts: ReviewSeverityCounts): number {
+  return counts.critical + counts.high + counts.medium;
+}
+
+export function durableReviewRecommendation(counts: ReviewSeverityCounts): DurableReviewRecommendation {
+  if (counts.critical > 0 || counts.high > 0 || counts.medium > 0) return "fix";
+  if (counts.low > 0) return "review";
+  return "none";
 }
 
 export function reviewSummaryTable(counts: ReviewSeverityCounts): string {
@@ -123,21 +162,44 @@ export function reviewSummaryTable(counts: ReviewSeverityCounts): string {
   ].join("\n");
 }
 
-export function formatDurableReviewResult(job: { repo: string; head: string; prNumber?: number }, lane: string, text: string): string {
+export type DurableReviewResultModel = {
+  repoName: string;
+  head: string;
+  prNumber?: number;
+  lane: string;
+  body: string;
+  counts: ReviewSeverityCounts;
+  recommendation: DurableReviewRecommendation;
+};
+
+export function durableReviewResultModel(job: { repo: string; head: string; prNumber?: number }, lane: string, text: string): DurableReviewResultModel {
   const body = stripExistingReviewSummary(text.trim()) || "No findings reported.";
   const counts = countReviewSeverities(body);
+  return {
+    repoName: basename(job.repo),
+    head: job.head,
+    prNumber: job.prNumber,
+    lane,
+    body,
+    counts,
+    recommendation: durableReviewRecommendation(counts),
+  };
+}
+
+export function formatDurableReviewResult(job: { repo: string; head: string; prNumber?: number }, lane: string, text: string): string {
+  const model = durableReviewResultModel(job, lane, text);
   return [
-    `# PR-boundary ${lane}`,
+    `# PR-boundary ${model.lane}`,
     "",
-    `Repo: ${basename(job.repo)}`,
-    `Head: ${job.head}`,
-    `PR: ${job.prNumber || "?"}`,
+    `Repo: ${model.repoName}`,
+    `Head: ${model.head}`,
+    `PR: ${model.prNumber || "?"}`,
     "",
     "## Findings",
     "",
-    body,
+    model.body,
     "",
-    reviewSummaryTable(counts),
+    reviewSummaryTable(model.counts),
     "",
   ].join("\n");
 }

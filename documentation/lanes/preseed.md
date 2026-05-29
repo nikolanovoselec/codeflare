@@ -276,11 +276,13 @@ All preseed content is deployed via the manifest pipeline:
   `.git/sdd-review-results/<head>/`. Each result file uses a common
   `## Findings` section followed by a severity-count Review Summary table.
   While internal durable lanes run, Pi displays a compact footer status
-  (`PRR <head> c… s… d·`, where `…` is running, `✓` is done, and `·` is pending),
-  so operators can diagnose background review progress without visible generic
+  (`Review <head> --> code | spec | docs`, rendering only required lanes and turning a
+  lane label green when that lane finishes), so operators can diagnose background review progress without visible generic
   Agent tasks. Duplicate lane-result and summary announcements are suppressed
-  for the same repo/head/lane result. Implements
-  [REQ-AGENT-052](../../sdd/spec/agents.md#req-agent-052-pi-durable-review-status-and-result-formatting).
+  for the same repo/head/lane result. After all lanes finish, the summary message
+  links each result file, shows severity counts, and requests a fix-and-push pass
+  when legitimate MEDIUM/HIGH/CRITICAL findings remain. Implements
+  [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop).
 
   Merge enforcement does not depend on third-party subagent task IDs or
   in-memory service records. Because Claude slash commands do not deploy to Pi, the user-invoked `/review` workflow
