@@ -369,49 +369,73 @@ function promptForLane(pending: PendingReview, pr: PrState, lane: string): strin
   return lane === "doc-updater" ? docUpdaterPrompt(pending) : reviewPrompt(pending.repo, pr, pending.head, pending.reviewBase);
 }
 
-function visibleReviewDispatchPrompt(pending: PendingReview, pr: PrState, lanes: string[]): string {
-  const calls = lanes.map((lane) => {
-    const description = lane === "doc-updater" ? "Review documentation changes" : lane === "spec-reviewer" ? "Review spec changes" : "Review code changes";
-    return [
-      `- ${lane}:`,
-      `  subagent_type: ${lane}`,
-      `  description: ${description}`,
-      "  run_in_background: true",
-      "  inherit_context: false",
-      "  max_turns: 8",
-      `  prompt: ${promptForLane(pending, pr, lane)}`,
-    ].join("\n");
-  }).join("\n");
-
-  return `PR-boundary review is required for ${basename(pending.repo)} PR #${pending.prNumber || "?"} at head ${pending.head}.\n\nUse the Agent tool now to start exactly these background reviewers; do not answer with prose instead of spawning them. Keep doc-updater sequential: only spawn it when this message explicitly lists doc-updater.\n\n${calls}\n\nAfter each background reviewer completes, summarize its findings for the user. Do not merge until every required lane is complete and acknowledged.`;
+function descriptionForLane(lane: string): string {
+  return lane === "doc-updater" ? "Review documentation changes" : lane === "spec-reviewer" ? "Review spec changes" : "Review code changes";
 }
 
-function requestVisibleReviewLanes(pi: ExtensionAPI, pending: PendingReview, pr: PrState, lanes: string[], ctx: any, reason: string): void {
+function refreshSubagentsContext(service: SubagentsServiceLike, ctx: unknown): void {
+  if (!isRealSessionCtx(ctx)) return;
+  try {
+    if (typeof service.runtime?.setSessionContext === "function") service.runtime.setSessionContext(ctx);
+    else if (service.runtime && typeof service.runtime === "object") service.runtime.currentCtx = ctx;
+  } catch {
+    // Best effort. A spawn failure below leaves the lane pending for retry.
+  }
+}
+
+async function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: string[], ctx: any, reason: string): Promise<void> {
   if (lanes.length === 0) return;
 
-  // Why this indirection exists:
-  // Earlier Pi PR-boundary enforcement tried to spawn reviewers directly through
-  // the low-level pi-subagents service. That produced `.git/sdd-review-pending.json`
-  // entries with internal IDs, but those runs were not reliably surfaced through
-  // the normal Agent tool UX (`get_subagent_result`, task notifications, and the
-  // visible background-agent widget). The user saw only the warning "review
-  // required" and had no reliable way to inspect or steer the reviewers; worse,
-  // doc-updater stayed blocked because completion bookkeeping was waiting for the
-  // hidden internal IDs. The fix is to make the parent agent use the public Agent
-  // tool for reviewer launches. That keeps all reviewer tasks visible, gives the
-  // parent session the real Agent IDs, and lets this extension track completion
-  // from the same `subagents:completed` events that ordinary background agents use.
-  // We persist `requestedAt` so the extension can retry if the injected follow-up
-  // is ignored, without spamming a new reviewer request on every `agent_end`.
-  const now = Date.now();
-  for (const lane of lanes) pending.requestedAt[lane] = now;
-  savePending(pending);
+  // This intentionally does NOT inject a user/follow-up instruction for the main
+  // agent to call the Agent tool. That approach looked visible, but it was still
+  // a prompt that the parent assistant could ignore, duplicate, or accidentally
+  // deliver into an already-running reviewer lane. PR-boundary review is an
+  // enforcement workflow, not a request for the assistant to remember to launch
+  // reviewers. The extension therefore spawns reviewers itself through the
+  // published pi-subagents service, records the returned IDs in pending state,
+  // and relies on the normal subagents lifecycle events to persist findings and
+  // unblock doc-updater after spec-reviewer. User-visible surfaces are the start
+  // notification below, the standard task-completion notification emitted by
+  // pi-subagents, and the persisted result files under .git/sdd-review-results/.
+  const service = await subagentsService();
+  if (!service?.spawn) {
+    const now = Date.now();
+    for (const lane of lanes) pending.requestedAt[lane] = now;
+    savePending(pending);
+    ctx.ui.notify(`PR-boundary reviewer service unavailable for ${basename(pending.repo)} at ${pending.head.slice(0, 12)} (${reason}); review remains pending.`, "warning");
+    return;
+  }
 
-  ctx.ui.notify(`PR-boundary reviewer launch requested for ${basename(pending.repo)} at ${pending.head.slice(0, 12)}. Lanes: ${lanes.join(", ")}.`, "warning");
-  try {
-    pi.sendUserMessage(visibleReviewDispatchPrompt(pending, pr, lanes), { deliverAs: "followUp" });
-  } catch {
-    ctx.ui.notify(`Unable to enqueue visible reviewer launch (${reason}); review remains pending and will retry.`, "warning");
+  refreshSubagentsContext(service, ctx);
+  let launched: string[] = [];
+  const now = Date.now();
+  for (const lane of lanes) {
+    if (!shouldRequestLane(pending, lane, now)) continue;
+    pending.requestedAt[lane] = now;
+    try {
+      const id = service.spawn(lane, promptForLane(pending, pr, lane), {
+        description: descriptionForLane(lane),
+        inheritContext: false,
+        maxTurns: 8,
+        bypassQueue: true,
+      });
+      if (typeof id === "string" && id.length > 0) {
+        pending.spawnedIds[lane] = id;
+        delete pending.requestedAt[lane];
+        pending.fallbackLanes.delete(lane);
+        pending.spawned = true;
+        pending.spawnedAt = pending.spawnedAt || Date.now();
+        launched = [...launched, `${lane}:${id}`];
+      } else {
+        pending.fallbackLanes.add(lane);
+      }
+    } catch {
+      pending.fallbackLanes.add(lane);
+    }
+  }
+  savePending(pending);
+  if (launched.length > 0) {
+    ctx.ui.notify(`PR-boundary reviewers started for ${basename(pending.repo)} at ${pending.head.slice(0, 12)}: ${launched.join(", ")}.`, "info");
   }
 }
 
@@ -425,6 +449,7 @@ export default function (pi: ExtensionAPI) {
   let pending: PendingReview | undefined;
   const toolStartArgs = new Map<string, any>();
   const processedPrBoundaryToolEndIds = new Set<string>();
+  const processedPrBoundaryToolEndOrder: string[] = [];
 
   // Background events (subagents:completed/failed) arrive without a usable session ctx.
   // Remember the most recent real ctx from live handlers so doc-updater can still be
@@ -442,6 +467,7 @@ export default function (pi: ExtensionAPI) {
   function withStartArgs(event: any): any {
     const id = toolEventId(event);
     const cached = id ? toolStartArgs.get(id) : undefined;
+    if (id) toolStartArgs.delete(id);
     if (commandText(event) || !cached) return event;
     const current = event?.args || event?.input || event?.params || {};
     const merged = { ...cached, ...current };
@@ -451,6 +477,18 @@ export default function (pi: ExtensionAPI) {
       input: { ...(event?.input || {}), ...merged },
       params: { ...(event?.params || {}), ...merged },
     };
+  }
+
+  function markPrBoundaryToolEnd(id: string | undefined): boolean {
+    if (!id) return true;
+    if (processedPrBoundaryToolEndIds.has(id)) return false;
+    processedPrBoundaryToolEndIds.add(id);
+    processedPrBoundaryToolEndOrder.push(id);
+    while (processedPrBoundaryToolEndOrder.length > 200) {
+      const stale = processedPrBoundaryToolEndOrder.shift();
+      if (stale) processedPrBoundaryToolEndIds.delete(stale);
+    }
+    return true;
   }
 
 
@@ -508,7 +546,7 @@ export default function (pi: ExtensionAPI) {
       state.docPromptSent = true;
       savePending(state);
       const currentPr = prState(state.repo) || { baseRefName: state.baseRefName, number: state.prNumber, headRefOid: state.head } as PrState;
-      requestVisibleReviewLanes(pi, state, currentPr, ["doc-updater"], ctx, "spec-reviewer completion");
+      await spawnReviewLanes(state, currentPr, ["doc-updater"], ctx, "spec-reviewer completion");
       return;
     }
     savePending(state);
@@ -606,9 +644,7 @@ export default function (pi: ExtensionAPI) {
 
     const command = commandText(event);
     if (!isPrBoundaryCommand(command)) return;
-    const toolEndId = toolEventId(event);
-    if (toolEndId && processedPrBoundaryToolEndIds.has(toolEndId)) return;
-    if (toolEndId) processedPrBoundaryToolEndIds.add(toolEndId);
+    if (!markPrBoundaryToolEnd(toolEventId(event))) return;
 
     const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
     if (!repo || !isSddProject(repo) || consumeBypass()) return;
@@ -620,21 +656,22 @@ export default function (pi: ExtensionAPI) {
     if (acked(repo, head)) return;
     if (isBreakerOpen(repo, head)) return; // breaker already gave up on this exact head; push a new commit to retry
 
-    const previous = loadPending(repo);
-    if (previous && previous.head === head) return;
-    if (previous && !isAncestor(repo, previous.head, head)) clearPending(repo);
+    const rawPrevious = loadPending(repo);
+    if (rawPrevious && rawPrevious.head === head) return;
+    const reusablePrevious = rawPrevious && isAncestor(repo, rawPrevious.head, head) ? rawPrevious : undefined;
+    if (rawPrevious && !reusablePrevious) clearPending(repo);
 
-    const review = mergeLaneState(repo, head, previous && isAncestor(repo, previous.head, head) ? previous : undefined);
+    const review = mergeLaneState(repo, head, reusablePrevious);
     if (review.lanes.length === 0) {
       writeAck(repo, head);
       clearPending(repo);
       return;
     }
 
-    const priorIncomplete = previous?.lanes.some((lane) => !previous.completed.has(lane));
+    const priorIncomplete = reusablePrevious?.lanes.some((lane) => !reusablePrevious.completed.has(lane));
     const reviewBase = priorIncomplete
-      ? previous?.reviewBase || lastAckHead(repo) || (isGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined)
-      : previous?.head || lastAckHead(repo) || (isGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined);
+      ? reusablePrevious?.reviewBase || lastAckHead(repo) || (isGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined)
+      : reusablePrevious?.head || lastAckHead(repo) || (isGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined);
     const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
     resetBlockCount(repo);
     clearBreaker(repo); // new head under review: drop any stale breaker latch from a prior head
@@ -643,16 +680,15 @@ export default function (pi: ExtensionAPI) {
     savePending(pending);
     pruneReviewResults(repo, head); // a new head is under review; drop stale prior-head result dirs
     ctx.ui.notify(`PR-boundary review required for ${basename(repo)} at ${head.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
-    requestVisibleReviewLanes(pi, pending, effectivePr, initialLanes, ctx, "initial PR-boundary trigger");
+    await spawnReviewLanes(pending, effectivePr, initialLanes, ctx, "initial PR-boundary trigger");
   };
 
   // Pi emits both `tool_result` and `tool_execution_end` for the same tool call.
   // PR-boundary command handling has side effects (pending-state creation,
-  // warnings, and visible Agent launch requests), so `onToolEnd` dedupes that
-  // command path by tool-call ID. Agent launch-result handling intentionally
-  // remains allowed on both terminal surfaces: whichever surface carries the
-  // Agent ID registers the lane, and a registered lane is idempotently ignored
-  // on the other surface.
+  // warnings, and automatic reviewer spawns), so that command path is deduped by
+  // tool-call ID. Agent-result handling remains idempotent for foreground/manual
+  // fallback lanes, but normal PR-boundary dispatch no longer depends on prompts
+  // asking the assistant to call the Agent tool.
   pi.on("tool_result", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
   pi.on("tool_execution_end", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
 
@@ -760,11 +796,11 @@ export default function (pi: ExtensionAPI) {
     });
     if (eligibleUnstarted.length > 0) {
       const currentPr = prState(currentState.repo) || { baseRefName: currentState.baseRefName, number: currentState.prNumber, headRefOid: currentState.head } as PrState;
-      requestVisibleReviewLanes(pi, currentState, currentPr, eligibleUnstarted, ctx, "pending reviewer retry");
+      await spawnReviewLanes(currentState, currentPr, eligibleUnstarted, ctx, "pending reviewer retry");
       return;
     }
 
     const remaining = currentState.lanes.filter((lane) => !currentState.completed.has(lane)).join(", ") || "none";
-    ctx.ui.notify(`PR-boundary review still pending for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}. Remaining lanes: ${remaining}. Attempt ${attempts}/${MAX_REVIEW_ATTEMPTS}. Visible reviewer launch will retry if no Agent ID is registered; user-only bypass: ${REVIEW_BYPASS}.`, "warning");
+    ctx.ui.notify(`PR-boundary review still pending for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}. Remaining lanes: ${remaining}. Attempt ${attempts}/${MAX_REVIEW_ATTEMPTS}. Automatic reviewer spawn will retry if no Agent ID is registered; user-only bypass: ${REVIEW_BYPASS}.`, "warning");
   });
 }
