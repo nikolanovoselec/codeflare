@@ -154,8 +154,10 @@ function ensureNoLocalBuild(command: string): string | undefined {
   if (!isBuild) return undefined;
   // User-only escape hatch (consume-on-use), mirrors Claude's /tmp/local-build-bypass.
   if (existsSync(LOCAL_BUILD_BYPASS)) {
-    try { unlinkSync(LOCAL_BUILD_BYPASS); } catch { /* best effort */ }
-    return undefined;
+    try {
+      unlinkSync(LOCAL_BUILD_BYPASS);
+      return undefined;
+    } catch { /* could not consume the sentinel; keep blocking so a stuck file cannot permanently disable the gate */ }
   }
   return "Local builds/tests/linters/dev servers are blocked in the 1-CPU container. Push and verify with CI instead. User override: create /tmp/local-build-bypass.";
 }
@@ -283,6 +285,7 @@ export default function (pi: ExtensionAPI) {
   let searchCountThisTurn = 0;
   let graphifyCountThisTurn = 0;
   const toolStartArgs = new Map<string, any>();
+  const gatedToolIds = new Set<string>();
 
   function toolEventId(event: any): string | undefined {
     const id = event?.toolCallId ?? event?.toolUseId ?? event?.id;
@@ -410,8 +413,10 @@ export default function (pi: ExtensionAPI) {
       searchCountThisTurn++;
       try {
         if (existsSync(GRAPHIFY_BYPASS)) {
-          try { unlinkSync(GRAPHIFY_BYPASS); } catch { /* best effort */ }
-          return;
+          try {
+            unlinkSync(GRAPHIFY_BYPASS);
+            return;
+          } catch { /* could not consume the sentinel; fall through to the normal graph-first gate */ }
         }
         const repo = activeRepo(ctx);
         if (repo && hasGraph(repo) && searchCountThisTurn >= 3 && graphifyCountThisTurn === 0) {
@@ -421,10 +426,22 @@ export default function (pi: ExtensionAPI) {
     }
   };
 
-  pi.on("tool_call", onToolStart);
+  // onToolStart is the pre-execution gate. Pi can surface one tool invocation as both
+  // `tool_call` and `tool_execution_start`; running the gate (with its consume-on-use bypass and
+  // per-turn counters) on both passes would double-count searches and consume a bypass on the
+  // first pass only to block on the second. Gate exactly once per invocation, keyed by tool id,
+  // while still gating tools that surface only one of the two events. Monotonic: this only
+  // suppresses a redundant second pass, it never skips gating an invocation.
+  pi.on("tool_call", (event: any, ctx: any) => {
+    const id = toolEventId(event);
+    if (id) gatedToolIds.add(id);
+    return onToolStart(event, ctx);
+  });
   pi.on("tool_execution_start", (event: any, ctx: any) => {
     const id = toolEventId(event);
     if (id) toolStartArgs.set(id, event?.args ?? event?.input ?? event?.params ?? {});
+    if (id && gatedToolIds.has(id)) return;
+    if (id) gatedToolIds.add(id);
     return onToolStart(event, ctx);
   });
 
@@ -458,5 +475,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_end", (_event, _ctx) => {
     searchCountThisTurn = 0;
     graphifyCountThisTurn = 0;
+    gatedToolIds.clear();
   });
 }

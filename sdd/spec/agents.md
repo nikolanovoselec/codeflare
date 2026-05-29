@@ -862,7 +862,7 @@ None.
 
 **Status:** Partial
 
-<!-- coverage-gap: AC1-AC6 land with the new skill file and review-command.ts change; the manifest-presence assertion for skills/review/SKILL.md is being added to agent-seed-manifest.test.ts in parallel. The runtime workflow phases (AC2-AC5) are skill-content behavior with no dedicated automated test yet. -->
+<!-- coverage-gap: AC6 (manifest-presence of skills/review/SKILL.md) is covered by agent-seed-manifest.test.ts. AC1-AC5 (flag parsing and the runtime workflow phases) are skill-content behavior injected at command time, with no dedicated automated test. -->
 
 ---
 
@@ -896,7 +896,7 @@ None.
 
 **Status:** Partial
 
-<!-- coverage-gap: AC1/AC2/AC6 (command registration + manifest presence) are being added to agent-seed-manifest.test.ts in parallel; AC3-AC5 are injected-workflow content with no dedicated automated test yet. -->
+<!-- coverage-gap: AC6 (manifest-presence of codeflare-commands.ts) is covered by agent-seed-manifest.test.ts. AC1-AC5 (the debug/deploy/brainstorm registration and their injected-workflow content) are runtime behavior with no dedicated automated test. -->
 
 ---
 
@@ -929,7 +929,7 @@ None.
 
 **Status:** Partial
 
-<!-- coverage-gap: the widened attribution/local-build detection regexes and the /tmp/local-build-bypass consume-on-use behavior in codeflare-pi.ts have no dedicated automated test yet; coverage is being added in parallel. -->
+<!-- coverage-gap: the widened attribution/local-build detection regexes and the /tmp/local-build-bypass consume-on-use behavior in codeflare-pi.ts are runtime gate behavior with no dedicated automated test. -->
 
 ---
 

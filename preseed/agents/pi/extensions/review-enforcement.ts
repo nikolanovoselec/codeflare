@@ -48,7 +48,7 @@ type PendingReview = {
 };
 
 function shell(command: string, cwd: string): string {
-  return execFileSync("bash", ["-lc", command], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  return execFileSync("bash", ["-lc", command], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 5000 }).trim();
 }
 
 function findGitRoot(startDir: string): string | undefined {
@@ -184,8 +184,12 @@ function clearBreaker(repo: string): void {
 
 function consumeBypass(): boolean {
   if (!existsSync(REVIEW_BYPASS)) return false;
-  try { unlinkSync(REVIEW_BYPASS); } catch { /* best effort */ }
-  return true;
+  try {
+    unlinkSync(REVIEW_BYPASS);
+    return true;
+  } catch {
+    return false; // cannot consume the sentinel; do not grant a bypass that would persist and leave the merge gate permanently open
+  }
 }
 
 function stringifyReviewResult(result: unknown): string {

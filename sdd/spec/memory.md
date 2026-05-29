@@ -426,6 +426,6 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Status:** Partial
 
-<!-- coverage-gap: the compactMessages prefilter rewrite (AC4) and the prompt-file-relocation constants (AC2) are exercised by the Pi behavioral tests in agent-seed-manifest.test.ts; the CODEFLARE_MEMORY_MODEL spawn lever (AC5) and the prompts/ manifest-mapping (AC3) coverage is being added in parallel. -->
+<!-- coverage-gap: the compactMessages prefilter (AC4) and the prompts/ manifest-mapping to ~/.pi/agent/prompts/ (AC2/AC3) are exercised by the Pi behavioral tests in agent-seed-manifest.test.ts. The CODEFLARE_MEMORY_MODEL spawn lever (AC5) is runtime spawn behavior with no dedicated automated test. -->
 
 

@@ -474,10 +474,11 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(result).toContain('world');
   });
 
-  it('REQ-MEM-001: compactMessages handles nested message shapes and truncates large content', () => {
+  it('REQ-MEM-001: compactMessages handles nested message shapes and drops non-string/array content', () => {
     expect(compactMessages([{ message: { role: 'user', content: 'nested' } }])).toContain('## user');
-    const large = compactMessages([{ role: 'user', content: { data: 'x'.repeat(10000) } }]);
-    expect(large.length).toBeLessThan(7000);
+    // Object content is neither a string nor a text-block array, so the turn carries no text and is dropped.
+    const dropped = compactMessages([{ role: 'user', content: { data: 'x'.repeat(10000) } }]);
+    expect(dropped).toBe('');
   });
 
   // compactMessages is the AD58 transcript prefilter (memory-vault-helpers.ts): keep user +
