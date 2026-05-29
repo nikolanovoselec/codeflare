@@ -462,7 +462,9 @@ export default function (pi: ExtensionAPI) {
     const originalNotify = ui.notify.bind(ui);
     ui.notify = (message: string, type?: string): void => {
       const text = String(message || "");
-      if (/^PR-boundary .* completed for /.test(text) || /^PR-boundary review acknowledged for /.test(text)) return;
+      const isDuplicateLaneToast = /^PR-boundary .* completed for /.test(text);
+      const isDuplicateAckToast = /^PR-boundary review acknowledged for /.test(text) && !text.includes("Findings saved under");
+      if (isDuplicateLaneToast || isDuplicateAckToast) return;
       originalNotify(message, type);
     };
   };
