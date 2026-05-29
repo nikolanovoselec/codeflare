@@ -1047,7 +1047,7 @@ None.
 **Acceptance Criteria:**
 
 1. PR-boundary review fires only for PRs targeting `main` or `master` (a new PR opens with that target via `gh pr create`, or a push lands on a branch with an open PR to that target).
-2. PUSH_LINE detection recognises both `git push` and `gh pr merge` across all three tool surfaces (Bash, `mcp__*__ctx_batch_execute`, `mcp__*__ctx_execute` with `language=shell`); the `gh pr merge` surface is required because a server-side merge into `develop` advances the develop->main PR HEAD without producing a local `git push` line.
+2. PUSH_LINE detection recognises local pushes (`git push`, including `git -C <repo> push`) and PR-head-moving GitHub CLI operations (`gh pr create`, `gh pr merge`, `gh pr update-branch`, `gh repo sync`) across Pi's normal Bash and context-mode shell surfaces; metadata-only PR commands do not trigger review.
 3. PRs into intermediate integration branches (`develop`, `staging`, etc.) do NOT trigger reviews; the case is deferred until the integration branch's own PR-to-`main` opens or syncs, where the cumulative review covers everything that landed.
 4. A plain push to a branch with no open PR does NOT trigger reviews.
 5. Direct pushes to `main` are expected to be prevented by GitHub branch protection (require PR before merge); the review pipeline is not engineered to compensate for a bypass that the upstream platform already blocks.
@@ -1112,7 +1112,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (durable review result format + compact status + announcement-key + summary/actionability tests -> AC1/AC2/AC3/AC4/AC5) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (compact status + announcement-key + actionability tests -> AC2/AC3/AC5) -->
 
 **Intent:** Pi operators need consistent PR-boundary review output, a compact indication that internal durable lanes are active, and an automatic next-fix prompt when actionable findings remain.
 

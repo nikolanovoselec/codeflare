@@ -3,7 +3,7 @@ export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"
 export function isPrBoundaryCommand(command: string): boolean {
   return /(^|[;&|]\s*)git(?:\s+-C\s+\S+)?\s+push\b/.test(command)
     || /(^|[;&|]\s*)gh\s+repo\s+sync\b/.test(command)
-    || /(^|[;&|]\s*)gh\s+pr\s+(create|merge|ready|reopen|edit|update-branch)\b/.test(command);
+    || /(^|[;&|]\s*)gh\s+pr\s+(create|merge|update-branch)\b/.test(command);
 }
 
 export function isFailedToolExecution(event: any): boolean {

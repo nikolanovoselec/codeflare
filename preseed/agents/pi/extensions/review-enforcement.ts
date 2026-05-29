@@ -351,7 +351,10 @@ function updateReviewStatus(state: PendingReview, ctx: any): void {
       lanes: state.lanes,
       completed,
       running,
-      style: { done: (label: string) => ctx.ui.theme.fg("success", label) },
+      style: {
+        done: (label: string) => ctx.ui.theme.fg("success", label),
+        running: (label: string) => ctx.ui.theme.fg("warning", label),
+      },
     }));
   } catch {
     // Status display is best-effort; persisted review state is authoritative.
@@ -409,12 +412,13 @@ function reviewHeadStatus(pending: PendingReview): ReviewHeadStatus {
 
 function installReviewMessageDedupe(pi: ExtensionAPI): void {
   const globalState = globalThis as {
-    __codeflareReviewMessageDedupeInstalled?: boolean;
     __codeflareReviewMessageKeys?: Set<string>;
+    __codeflareReviewPatchedPis?: WeakSet<object>;
   };
-  if (globalState.__codeflareReviewMessageDedupeInstalled) return;
-  globalState.__codeflareReviewMessageDedupeInstalled = true;
   globalState.__codeflareReviewMessageKeys = globalState.__codeflareReviewMessageKeys || new Set<string>();
+  globalState.__codeflareReviewPatchedPis = globalState.__codeflareReviewPatchedPis || new WeakSet<object>();
+  if (globalState.__codeflareReviewPatchedPis.has(pi as unknown as object)) return;
+  globalState.__codeflareReviewPatchedPis.add(pi as unknown as object);
   const originalSendMessage = (pi as unknown as { sendMessage?: (message: any) => void }).sendMessage?.bind(pi);
   if (!originalSendMessage) return;
   (pi as unknown as { sendMessage: (message: any) => void }).sendMessage = (message: any): void => {
@@ -534,15 +538,15 @@ export default function (pi: ExtensionAPI) {
   function reviewSummaryMarkdown(state: PendingReview): string {
     const rows = reviewSummaryRows(state);
     const table = [
-      "| Lane | Result | Severities | Recommendation |",
-      "|---|---|---:|---|",
-      ...rows.map((row) => `| ${row.lane} | [open](${row.path}) | ${severityCell(row.counts)} | ${row.recommendation} |`),
+      "| Lane | Findings document | Critical | High | Medium | Low | Recommendation |",
+      "|---|---|---:|---:|---:|---:|---|",
+      ...rows.map((row) => `| ${row.lane} | [open](${row.path}) | ${row.counts.critical} | ${row.counts.high} | ${row.counts.medium} | ${row.counts.low} | ${row.recommendation} |`),
     ].join("\n");
     const actionable = rows.reduce((total, row) => total + actionableReviewCount(row.counts), 0);
     const next = actionable > 0
       ? `Recommendation: automatically fix ${actionable} actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff.`
       : "Recommendation: no actionable MEDIUM/HIGH/CRITICAL findings remain.";
-    return `PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.\n\n${table}\n\n${next}`;
+    return `PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.\n\n## Review Results\n\n${table}\n\n${next}`;
   }
 
   function publishReviewSummary(state: PendingReview, ctx: any): void {

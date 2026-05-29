@@ -355,8 +355,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(classifyReviewFiles(['preseed/agents/pi/extensions/review-enforcement.ts'])).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
     expect(classifyReviewFiles(undefined)).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
     expect(isPrBoundaryCommand('git push origin develop')).toBe(true);
+    expect(isPrBoundaryCommand('git -C /repo/codeflare push origin develop')).toBe(true);
+    expect(isPrBoundaryCommand('gh repo sync owner/repo')).toBe(true);
     expect(isPrBoundaryCommand('gh pr create --base main')).toBe(true);
     expect(isPrBoundaryCommand('gh pr merge 12')).toBe(true);
+    expect(isPrBoundaryCommand('gh pr update-branch 12')).toBe(true);
+    expect(isPrBoundaryCommand('gh pr edit 12 --title metadata-only')).toBe(false);
     expect(isPrBoundaryCommand('gh pr view --json number')).toBe(false);
   });
 
