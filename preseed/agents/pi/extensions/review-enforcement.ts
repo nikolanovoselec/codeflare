@@ -66,9 +66,11 @@ function findGitRoot(startDir: string): string | undefined {
 }
 
 function cwdFromCommand(command: string): string | undefined {
-  const match = command.match(/(?:^|[;&|]\s*)cd\s+([^;&|]+)\s*&&/);
-  if (!match) return undefined;
-  return match[1].trim().replace(/^(["'])(.*)\1$/, "$2");
+  const cdMatch = command.match(/(?:^|[;&|]\s*)cd\s+([^;&|]+)\s*&&/);
+  if (cdMatch) return cdMatch[1].trim().replace(/^(["'])(.*)\1$/, "$2");
+  const gitCMatch = command.match(/(?:^|[;&|]\s*)git\s+-C\s+("[^"]+"|'[^']+'|\S+)/);
+  if (gitCMatch) return gitCMatch[1].trim().replace(/^(["'])(.*)\1$/, "$2");
+  return undefined;
 }
 
 function activeRepoFallback(): string | undefined {
@@ -279,8 +281,17 @@ function previousRemoteHead(repo: string, currentHead: string): string | undefin
   }
 }
 
+function isLocalGitPushCommand(command: string): boolean {
+  return /(^|[;&|]\s*)git(?:\s+-C\s+\S+)?\s+push\b/.test(command);
+}
+
 function isGitPushCommand(command: string): boolean {
-  return /(^|[;&|]\s*)git\s+push\b/.test(command);
+  return isLocalGitPushCommand(command) || /(^|[;&|]\s*)gh\s+repo\s+sync\b/.test(command);
+}
+
+function reviewCandidateHead(repo: string, pr: PrState, command?: string): string {
+  if (command && isLocalGitPushCommand(command)) return localHead(repo) || pr.headRefOid || "";
+  return pr.headRefOid || "";
 }
 
 function mergeLaneState(repo: string, currentHead: string, previous?: PendingReview): { lanes: string[]; completed: Set<string> } {
@@ -329,6 +340,26 @@ function promptForLane(pending: PendingReview, pr: PrState, lane: string): strin
 
 function descriptionForLane(lane: string): string {
   return lane === "doc-updater" ? "Review documentation changes" : lane === "spec-reviewer" ? "Review spec changes" : "Review code changes";
+}
+
+function updateReviewStatus(state: PendingReview, ctx: any): void {
+  try {
+    const completed = state.lanes.filter((lane) => state.completed.has(lane) || existsSync(reviewResultPath(state.repo, state.head, lane)));
+    const running = runningDurableReviewLanes(state.repo, state.head, state.lanes).concat(Object.keys(state.spawnedIds));
+    ctx.ui.setStatus("codeflare-review", compactDurableReviewStatus({
+      head: state.head,
+      lanes: state.lanes,
+      completed,
+      running,
+      style: { done: (label: string) => ctx.ui.theme.fg("success", label) },
+    }));
+  } catch {
+    // Status display is best-effort; persisted review state is authoritative.
+  }
+}
+
+function clearReviewStatus(ctx: any): void {
+  try { ctx.ui.setStatus("codeflare-review", undefined); } catch { /* best effort */ }
 }
 
 async function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: string[], ctx: any, reason: string): Promise<void> {
@@ -484,26 +515,6 @@ export default function (pi: ExtensionAPI) {
     } catch {
       // UI notification + persisted result file are the reliable surfaces.
     }
-  }
-
-  function updateReviewStatus(state: PendingReview, ctx: any): void {
-    try {
-      const completed = state.lanes.filter((lane) => state.completed.has(lane) || existsSync(reviewResultPath(state.repo, state.head, lane)));
-      const running = runningDurableReviewLanes(state.repo, state.head, state.lanes).concat(Object.keys(state.spawnedIds));
-      ctx.ui.setStatus("codeflare-review", compactDurableReviewStatus({
-        head: state.head,
-        lanes: state.lanes,
-        completed,
-        running,
-        style: { done: (label) => ctx.ui.theme.fg("success", label) },
-      }));
-    } catch {
-      // Status display is best-effort; persisted review state is authoritative.
-    }
-  }
-
-  function clearReviewStatus(ctx: any): void {
-    try { ctx.ui.setStatus("codeflare-review", ""); } catch { /* best effort */ }
   }
 
   function severityCell(counts: ReviewSeverityCounts): string {
@@ -718,7 +729,8 @@ export default function (pi: ExtensionAPI) {
 
     const pr = prState(repo);
     if (!isEnforcedPr(pr)) return;
-    const head = localHead(repo) || pr.headRefOid;
+    const head = reviewCandidateHead(repo, pr, command);
+    if (!head) return;
     const effectivePr = { ...pr, headRefOid: head };
     if (acked(repo, head)) return;
     if (isBreakerOpen(repo, head)) return; // breaker already gave up on this exact head; push a new commit to retry
@@ -739,7 +751,7 @@ export default function (pi: ExtensionAPI) {
     const reviewBase = selectReviewBase({
       previous: reusablePrevious ? { ...reusablePrevious, completed: [...reusablePrevious.completed] } : undefined,
       lastAck: lastAckHead(repo) || undefined,
-      previousRemoteHead: isGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined,
+      previousRemoteHead: isLocalGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined,
     });
     const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
     resetBlockCount(repo);
@@ -787,7 +799,35 @@ export default function (pi: ExtensionAPI) {
     if (!isActiveRun()) return;
     remember(ctx);
     const state = hydratePending(ctx);
-    if (!state) return;
+    if (!state) {
+      const repo = activeRepoFallback() || findGitRoot(ctx.sessionManager.getCwd());
+      if (!repo || !isSddProject(repo) || consumeBypass()) return;
+      const pr = prState(repo);
+      if (!isEnforcedPr(pr)) return;
+      const head = reviewCandidateHead(repo, pr);
+      if (!head) return;
+      const effectivePr = { ...pr, headRefOid: head };
+      if (acked(repo, head) || isBreakerOpen(repo, head)) return;
+
+      const review = mergeLaneState(repo, head, undefined);
+      if (review.lanes.length === 0) {
+        writeAck(repo, head);
+        clearPending(repo);
+        return;
+      }
+      const reviewBase = selectReviewBase({ lastAck: lastAckHead(repo) || undefined });
+      const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
+      resetBlockCount(repo);
+      clearBreaker(repo);
+      pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set(), requestedAt: {}, reviewStartedAt: Date.now() };
+      const initialLanes = durableReviewInitialLanes(pending.lanes);
+      savePending(pending);
+      updateReviewStatus(pending, ctx);
+      pruneReviewResults(repo, head);
+      ctx.ui.notify(`PR-boundary review catch-up required for ${basename(repo)} at ${head.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
+      await spawnReviewLanes(pending, effectivePr, initialLanes, ctx, "agent_end catch-up");
+      return;
+    }
     if (isBreakerOpen(state.repo, state.head)) { pending = undefined; return; } // latched: do no further work for this head
     if (acked(state.repo, state.head) || consumeBypass()) {
       clearPending(state.repo);
