@@ -11,10 +11,10 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { actionableReviewCount, compactDurableReviewStatus, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, durableReviewSummaryModel, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
+import { actionableReviewCount, compactDurableReviewStatus, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -412,26 +412,35 @@ function reviewHeadStatus(pending: PendingReview): ReviewHeadStatus {
 }
 
 function installReviewMessageDedupe(pi: ExtensionAPI): void {
+  const patchVersion = 3;
   const globalState = globalThis as {
     __codeflareReviewMessageKeys?: Set<string>;
-    __codeflareReviewPatchedPis?: WeakSet<object>;
+    __codeflareReviewSendMessagePatchVersions?: WeakMap<object, number>;
+    __codeflareReviewOriginalSendMessages?: WeakMap<object, (message: any, options?: any) => void>;
   };
+  const piObject = pi as unknown as object;
   globalState.__codeflareReviewMessageKeys = globalState.__codeflareReviewMessageKeys || new Set<string>();
-  globalState.__codeflareReviewPatchedPis = globalState.__codeflareReviewPatchedPis || new WeakSet<object>();
-  if (globalState.__codeflareReviewPatchedPis.has(pi as unknown as object)) return;
-  globalState.__codeflareReviewPatchedPis.add(pi as unknown as object);
-  const originalSendMessage = (pi as unknown as { sendMessage?: (message: any) => void }).sendMessage?.bind(pi);
-  if (!originalSendMessage) return;
-  (pi as unknown as { sendMessage: (message: any) => void }).sendMessage = (message: any): void => {
+  globalState.__codeflareReviewSendMessagePatchVersions = globalState.__codeflareReviewSendMessagePatchVersions || new WeakMap<object, number>();
+  globalState.__codeflareReviewOriginalSendMessages = globalState.__codeflareReviewOriginalSendMessages || new WeakMap<object, (message: any, options?: any) => void>();
+  if (globalState.__codeflareReviewSendMessagePatchVersions.get(piObject) === patchVersion) return;
+  const currentSendMessage = (pi as unknown as { sendMessage?: (message: any, options?: any) => void }).sendMessage?.bind(pi);
+  if (!currentSendMessage) return;
+  const originalSendMessage = globalState.__codeflareReviewOriginalSendMessages.get(piObject) || currentSendMessage;
+  globalState.__codeflareReviewOriginalSendMessages.set(piObject, originalSendMessage);
+  (pi as unknown as { sendMessage: (message: any, options?: any) => void }).sendMessage = (message: any, options?: any): void => {
     const customType = String(message?.customType || "");
-    if (customType === "pr-boundary-review-result" || customType === "pr-boundary-review-summary" || customType === "codeflare-review-summary-v2") {
+    if (customType === "pr-boundary-review-result" || customType === "pr-boundary-review-summary" || customType === "codeflare-review-summary-v2") return;
+    if (customType === "codeflare-review-summary-v3") {
       const details = message?.details || {};
       const key = durableReviewMessageKey({ customType, repo: details.repo, head: details.head, lane: details.lane, path: details.path });
       if (globalState.__codeflareReviewMessageKeys?.has(key)) return;
+      originalSendMessage(message, options);
       globalState.__codeflareReviewMessageKeys?.add(key);
+      return;
     }
-    originalSendMessage(message);
+    originalSendMessage(message, options);
   };
+  globalState.__codeflareReviewSendMessagePatchVersions.set(piObject, patchVersion);
 }
 
 export default function (pi: ExtensionAPI) {
@@ -446,7 +455,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerMessageRenderer("pr-boundary-review-result", () => new Text("", 0, 0));
   pi.registerMessageRenderer("pr-boundary-review-summary", () => new Text("", 0, 0));
-  pi.registerMessageRenderer("codeflare-review-summary-v2", (message: any) => new Text(String(message.content || ""), 0, 0));
+  pi.registerMessageRenderer("codeflare-review-summary-v2", () => new Text("", 0, 0));
+  pi.registerMessageRenderer("codeflare-review-summary-v3", (message: any) => new Markdown(String(message.content || ""), 0, 0, getMarkdownTheme()));
 
   // Background events (subagents:completed/failed) arrive without a usable session ctx.
   // Remember the most recent real ctx from live handlers so doc-updater can still be
@@ -463,7 +473,8 @@ export default function (pi: ExtensionAPI) {
     ui.notify = (message: string, type?: string): void => {
       const text = String(message || "");
       const isDuplicateLaneToast = /^PR-boundary .* completed for /.test(text);
-      const isDuplicateAckToast = /^PR-boundary review acknowledged for /.test(text) && !text.includes("Findings saved under");
+      const isSummaryFallback = text.includes("Findings saved under") || text.includes("Merged summary saved:");
+      const isDuplicateAckToast = /^PR-boundary review acknowledged for /.test(text) && !isSummaryFallback;
       if (isDuplicateLaneToast || isDuplicateAckToast) return;
       originalNotify(message, type);
     };
@@ -538,38 +549,47 @@ export default function (pi: ExtensionAPI) {
     return `C${counts.critical} H${counts.high} M${counts.medium} L${counts.low}`;
   }
 
-  function reviewSummaryRows(state: PendingReview): DurableReviewSummaryRow[] {
+  function reviewSummaryRecords(state: PendingReview): DurableReviewSummaryRecord[] {
     return state.lanes.map((lane) => {
       const path = reviewResultPath(state.repo, state.head, lane);
       const text = existsSync(path) ? readFileSync(path, "utf8") : "";
       const counts = countReviewSeverities(text);
       const recommendation = durableReviewRecommendation(counts);
-      return { lane, path, counts, recommendation };
+      return { lane, path, text, counts, recommendation };
     });
   }
 
+  function reviewSummaryRows(state: PendingReview): DurableReviewSummaryRow[] {
+    return reviewSummaryRecords(state).map(({ text: _text, ...row }) => row);
+  }
+
   function reviewSummaryMarkdown(state: PendingReview): string {
-    const summary = durableReviewSummaryModel(reviewSummaryRows(state));
-    const table = [
-      `| ${summary.columns.join(" | ")} |`,
-      "|---|---|---:|---:|---:|---:|---|",
-      ...summary.rows.map((row) => `| ${row.lane} | [open](${row.path}) | ${row.counts.critical} | ${row.counts.high} | ${row.counts.medium} | ${row.counts.low} | ${row.recommendation} |`),
-    ].join("\n");
-    return `PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.\n\n## Review Results\n\n${table}\n\nRecommendation: ${summary.recommendation}.`;
+    return formatMergedReviewSummary({
+      repoName: basename(state.repo),
+      head: state.head,
+      records: reviewSummaryRecords(state),
+    });
   }
 
   function publishReviewSummary(state: PendingReview, ctx: any): void {
-    if (!claimReviewAnnouncement(state, "summary-v2")) return;
+    if (!claimReviewAnnouncement(state, "summary-v3")) return;
     const content = reviewSummaryMarkdown(state);
+    const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
+    try {
+      mkdirSync(dirname(summaryPath), { recursive: true });
+      writeFileSync(summaryPath, `${content}\n`, "utf8");
+    } catch {
+      // Chat summary is authoritative; the persisted merged summary is best-effort.
+    }
     try {
       pi.sendMessage({
-        customType: "codeflare-review-summary-v2",
+        customType: "codeflare-review-summary-v3",
         content,
         display: true,
         details: { repo: state.repo, head: state.head, summary: content },
       });
     } catch {
-      ctx.ui.notify(`PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Findings saved under ${reviewResultsDir(state.repo, state.head)}.`, "info");
+      ctx.ui.notify(`PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Merged summary saved: ${summaryPath}`, "info");
     }
   }
 

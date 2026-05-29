@@ -73,6 +73,36 @@ export type DurableReviewSummaryModel = {
   recommendation: string;
 };
 
+export type DurableReviewSummaryRecord = DurableReviewSummaryRow & {
+  text: string;
+};
+
+export type ReviewFindingSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+
+export type ReviewFinding = {
+  lane: string;
+  severity: ReviewFindingSeverity;
+  title: string;
+  file?: string;
+  issue?: string;
+  fix?: string;
+};
+
+export type MergedReviewSummaryInput = {
+  repoName: string;
+  head: string;
+  records: DurableReviewSummaryRecord[];
+};
+
+export type MergedReviewSummaryModel = {
+  repoName: string;
+  head: string;
+  headShort: string;
+  counts: ReviewSeverityCounts;
+  findings: ReviewFinding[];
+  recommendation: string;
+};
+
 export type DurableReviewStatusState = "completed" | "running" | "pending";
 
 export type DurableReviewStatusSegment = {
@@ -130,7 +160,13 @@ export function stripExistingReviewSummary(text: string): string {
 
 export function countReviewSeverities(text: string): ReviewSeverityCounts {
   const counts: ReviewSeverityCounts = { critical: 0, high: 0, medium: 0, low: 0 };
+  let inFence = false;
   for (const line of text.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
     const match = line.match(/^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:\*\*)?\[?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\]?\b/i);
     if (!match) continue;
     const severity = match[1].toUpperCase();
@@ -162,6 +198,190 @@ export function durableReviewSummaryModel(rows: DurableReviewSummaryRow[]): Dura
       ? `automatically fix ${actionable} actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff`
       : "no actionable MEDIUM/HIGH/CRITICAL findings remain",
   };
+}
+
+export function laneReviewLabel(lane: string): string {
+  if (lane === "code-reviewer") return "code";
+  if (lane === "spec-reviewer") return "spec";
+  if (lane === "doc-updater") return "docs";
+  return lane;
+}
+
+export function cleanReviewText(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactReviewText(text: string | undefined, maxLength = 140): string {
+  const clean = cleanReviewText(text || "");
+  if (clean.length <= maxLength) return clean;
+  return `${clean.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function markdownTableCell(value: string | undefined): string {
+  return compactReviewText(value || "—", 120).replace(/\|/g, "\\|");
+}
+
+function reviewFindingBody(text: string): string {
+  const withoutSummary = stripExistingReviewSummary(text);
+  const match = withoutSummary.match(/(?:^|\n)## Findings\s*\n+([\s\S]*)$/i);
+  return (match?.[1] || withoutSummary).trim();
+}
+
+function reviewField(block: string, field: string): string | undefined {
+  const labels = ["File", "Issue", "Fix", "Recommendation", "Evidence"];
+  const lines = block.split("\n");
+  const labelPattern = new RegExp(`^\\s*${field}:\\s*`, "i");
+  const start = lines.findIndex((line) => labelPattern.test(line));
+  if (start === -1) return undefined;
+  const first = lines[start].replace(labelPattern, "");
+  const rest: string[] = [first];
+  for (const line of lines.slice(start + 1)) {
+    if (labels.some((label) => new RegExp(`^\\s*${label}:\\s*`, "i").test(line))) break;
+    if (/^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:\*\*)?\[?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\]?\b/i.test(line)) break;
+    if (/^\s*##\s+/.test(line) || /^\s*```/.test(line)) break;
+    rest.push(line);
+  }
+  const value = rest.join("\n").trim();
+  return value || undefined;
+}
+
+function findingHeaderMatches(body: string): RegExpMatchArray[] {
+  const matches: RegExpMatchArray[] = [];
+  const header = /^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:\*\*)?\[?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\]?\s*(?:\*\*)?\s*(.+?)\s*$/gim;
+  let inFence = false;
+  let offset = 0;
+  for (const line of body.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      offset += line.length + 1;
+      continue;
+    }
+    if (!inFence) {
+      header.lastIndex = 0;
+      const match = header.exec(line);
+      if (match) {
+        match.index = offset + (match.index || 0);
+        matches.push(match);
+      }
+    }
+    offset += line.length + 1;
+  }
+  return matches;
+}
+
+export function extractReviewFindings(lane: string, text: string): ReviewFinding[] {
+  const body = reviewFindingBody(text);
+  if (!body || /^No findings\.?$/i.test(body)) return [];
+  const matches = findingHeaderMatches(body);
+  return matches.map((match, index) => {
+    const severity = match[1].toUpperCase() === "BLOCKING" ? "CRITICAL" : match[1].toUpperCase() as ReviewFindingSeverity;
+    const start = match.index || 0;
+    const end = matches[index + 1]?.index ?? body.length;
+    const block = body.slice(start, end).trim();
+    const file = cleanReviewText(reviewField(block, "File") || "") || undefined;
+    const issue = cleanReviewText(reviewField(block, "Issue") || "") || undefined;
+    const fix = cleanReviewText(reviewField(block, "Fix") || "") || undefined;
+    return {
+      lane,
+      severity,
+      title: cleanReviewText(match[2]),
+      file,
+      issue,
+      fix,
+    };
+  });
+}
+
+export function sortReviewFindingsByCriticality(findings: ReviewFinding[]): ReviewFinding[] {
+  const rank = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 } satisfies Record<ReviewFindingSeverity, number>;
+  return [...findings].sort((a, b) => rank[a.severity] - rank[b.severity] || laneReviewLabel(a.lane).localeCompare(laneReviewLabel(b.lane)) || a.title.localeCompare(b.title));
+}
+
+export function aggregateReviewSeverityCounts(rows: Array<{ counts: ReviewSeverityCounts }>): ReviewSeverityCounts {
+  return rows.reduce((counts, row) => ({
+    critical: counts.critical + row.counts.critical,
+    high: counts.high + row.counts.high,
+    medium: counts.medium + row.counts.medium,
+    low: counts.low + row.counts.low,
+  }), { critical: 0, high: 0, medium: 0, low: 0 });
+}
+
+function mergedReviewSummaryTable(counts: ReviewSeverityCounts): string {
+  const status = (count: number, active: string): string => count > 0 ? active : "pass";
+  return [
+    "| Severity | Count | Status |",
+    "|----------|-------|--------|",
+    `| CRITICAL | ${counts.critical} | ${status(counts.critical, "block")} |`,
+    `| HIGH | ${counts.high} | ${status(counts.high, "warn")} |`,
+    `| MEDIUM | ${counts.medium} | ${status(counts.medium, "info")} |`,
+    `| LOW | ${counts.low} | ${status(counts.low, "note")} |`,
+  ].join("\n");
+}
+
+function mergedFindingsTable(findings: ReviewFinding[]): string {
+  if (findings.length === 0) return "No findings.";
+  return [
+    "| Severity | Lane | Finding | File | Fix |",
+    "|----------|------|---------|------|-----|",
+    ...findings.map((finding) => `| ${finding.severity} | ${laneReviewLabel(finding.lane)} | ${markdownTableCell(finding.title)} | ${markdownTableCell(finding.file)} | ${markdownTableCell(finding.fix || finding.issue)} |`),
+  ].join("\n");
+}
+
+function mergedFindingsList(findings: ReviewFinding[]): string {
+  if (findings.length === 0) return "No findings.";
+  return findings.map((finding) => {
+    const location = finding.file ? ` (${compactReviewText(finding.file, 90)})` : "";
+    const issue = compactReviewText(finding.issue, 180);
+    const fix = compactReviewText(finding.fix, 180);
+    const details = [issue && `Issue: ${issue}`, fix && `Fix: ${fix}`].filter(Boolean).join(" ");
+    return `- **${finding.severity}** ${laneReviewLabel(finding.lane)} — ${compactReviewText(finding.title, 120)}${location}${details ? `. ${details}` : ""}`;
+  }).join("\n");
+}
+
+export function mergedReviewRecommendation(counts: ReviewSeverityCounts): string {
+  const actionable = actionableReviewCount(counts);
+  if (actionable > 0) return `automatically fix ${actionable} actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff`;
+  if (counts.low > 0) return "review LOW findings when convenient; no MEDIUM/HIGH/CRITICAL findings remain";
+  return "no findings remain";
+}
+
+export function mergedReviewSummaryModel(input: MergedReviewSummaryInput): MergedReviewSummaryModel {
+  const counts = aggregateReviewSeverityCounts(input.records);
+  return {
+    repoName: input.repoName,
+    head: input.head,
+    headShort: input.head.slice(0, 12),
+    counts,
+    findings: sortReviewFindingsByCriticality(input.records.flatMap((record) => extractReviewFindings(record.lane, record.text))),
+    recommendation: mergedReviewRecommendation(counts),
+  };
+}
+
+export function formatMergedReviewSummary(input: MergedReviewSummaryInput): string {
+  const model = mergedReviewSummaryModel(input);
+  return [
+    `PR-boundary review acknowledged for ${model.repoName} at ${model.headShort}.`,
+    "",
+    "## Review Summary",
+    "",
+    mergedReviewSummaryTable(model.counts),
+    "",
+    "## Findings",
+    "",
+    mergedFindingsTable(model.findings),
+    "",
+    "## Finding Details",
+    "",
+    mergedFindingsList(model.findings),
+    "",
+    `Recommendation: ${model.recommendation}.`,
+  ].join("\n");
 }
 
 export function reviewSummaryTable(counts: ReviewSeverityCounts): string {

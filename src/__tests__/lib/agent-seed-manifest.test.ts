@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewResultPath, durableReviewStatusSegments, durableReviewSummaryModel, recoverDurableReviewLaneState } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewResultPath, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, mergedReviewSummaryModel, recoverDurableReviewLaneState } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -490,6 +490,69 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         { lane: 'doc-updater', path: '/tmp/docs.md', counts: { critical: 0, high: 0, medium: 0, low: 0 }, recommendation: 'none' },
       ],
       actionable: 1,
+      recommendation: 'automatically fix 1 actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff',
+    });
+  });
+
+  it('REQ-AGENT-053: merged Pi review summaries model actionable findings without per-lane document links', () => {
+    const codeText = [
+      '# PR-boundary code-reviewer',
+      '',
+      '## Findings',
+      '',
+      '[MEDIUM] Summary fallback notification is filtered out',
+      'File: `preseed/agents/pi/extensions/review-enforcement.ts:465`',
+      '',
+      'Issue: Duplicate-toast filtering also catches the summary fallback.',
+      '',
+      'Fix: Allow the explicit fallback summary notification through.',
+      '',
+      '```ts',
+      '[HIGH] inside a code fence is an example, not a separate finding',
+      '```',
+      '',
+      '## Review Summary',
+      '',
+      '| Severity | Count | Status |',
+      '|----------|-------|--------|',
+      '| MEDIUM | 1 | info |',
+    ].join('\n');
+    const docsText = '# PR-boundary doc-updater\n\n## Findings\n\nNo findings.\n';
+
+    expect(extractReviewFindings('code-reviewer', codeText)).toEqual([
+      {
+        lane: 'code-reviewer',
+        severity: 'MEDIUM',
+        title: 'Summary fallback notification is filtered out',
+        file: 'preseed/agents/pi/extensions/review-enforcement.ts:465',
+        issue: 'Duplicate-toast filtering also catches the summary fallback.',
+        fix: 'Allow the explicit fallback summary notification through.',
+      },
+    ]);
+    expect(extractReviewFindings('doc-updater', docsText)).toEqual([]);
+
+    expect(mergedReviewSummaryModel({
+      repoName: 'codeflare',
+      head: '6769bca06f843a50e2d991563afc58498fd7cf81',
+      records: [
+        { lane: 'code-reviewer', path: '/tmp/code-reviewer.md', text: codeText, counts: { critical: 0, high: 0, medium: 1, low: 0 }, recommendation: 'fix' },
+        { lane: 'doc-updater', path: '/tmp/doc-updater.md', text: docsText, counts: { critical: 0, high: 0, medium: 0, low: 0 }, recommendation: 'none' },
+      ],
+    })).toEqual({
+      repoName: 'codeflare',
+      head: '6769bca06f843a50e2d991563afc58498fd7cf81',
+      headShort: '6769bca06f84',
+      counts: { critical: 0, high: 0, medium: 1, low: 0 },
+      findings: [
+        {
+          lane: 'code-reviewer',
+          severity: 'MEDIUM',
+          title: 'Summary fallback notification is filtered out',
+          file: 'preseed/agents/pi/extensions/review-enforcement.ts:465',
+          issue: 'Duplicate-toast filtering also catches the summary fallback.',
+          fix: 'Allow the explicit fallback summary notification through.',
+        },
+      ],
       recommendation: 'automatically fix 1 actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff',
     });
   });
