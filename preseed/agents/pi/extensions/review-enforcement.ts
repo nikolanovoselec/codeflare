@@ -864,7 +864,7 @@ export default function (pi: ExtensionAPI) {
     const head = String(event?.head || "");
     const state = hydratePending(ctx);
     if (!lane || !state || state.head !== head) return;
-    ctx.ui.notify(`PR-boundary durable ${lane} failed for ${basename(state.repo)} at ${state.head.slice(0, 12)}; review remains pending. State: ${reviewJobDir(state.repo, state.head)}`, "warning");
+    updateReviewStatus(state, ctx);
   };
 
   (pi as any).events?.on?.(REVIEW_JOBS_EVENT_LANE_COMPLETED, (event: any) => onDurableLaneCompleted(event, completionCtx()));

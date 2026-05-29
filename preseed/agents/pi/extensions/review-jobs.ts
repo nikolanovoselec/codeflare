@@ -62,7 +62,6 @@ type ReviewRunnerContext = {
 
 const runningLanes = new Set<string>();
 const DURABLE_LANE_TIMEOUT_MS = 10 * 60 * 1000;
-const DURABLE_LANE_MAX_ASSISTANT_TURNS = 24;
 
 function now(): number {
   return Date.now();
@@ -267,20 +266,13 @@ async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: D
       resourceLoader,
     } as never);
 
-    let assistantTurns = 0;
-    let turnCapHit = false;
     const unsubscribe = session.subscribe((event: any) => {
       appendTranscript(transcriptPath, event);
       if (event?.type === "message_end") {
         const message = event.message as { role?: string; content?: unknown } | undefined;
         if (message?.role === "assistant") {
-          assistantTurns += 1;
           const text = extractTextContent(message.content);
           if (text.trim()) finalText = text;
-          if (assistantTurns >= DURABLE_LANE_MAX_ASSISTANT_TURNS && !text.trim()) {
-            turnCapHit = true;
-            session.agent.abort();
-          }
         }
       }
     });
@@ -293,7 +285,6 @@ async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: D
     try {
       await session.prompt(request.prompt);
       if (timedOut) throw new Error(`durable review lane timed out after ${DURABLE_LANE_TIMEOUT_MS}ms`);
-      if (turnCapHit) throw new Error(`durable review lane exceeded ${DURABLE_LANE_MAX_ASSISTANT_TURNS} assistant turns without a final result`);
     } finally {
       clearTimeout(timeout);
       unsubscribe();
