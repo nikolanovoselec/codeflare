@@ -5,7 +5,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 ## 2026-05-29
 
 - REQ-AGENT-040 updated: Pi PR-boundary review enforcement now uses Codeflare-owned durable review jobs instead of third-party subagent service records. This keeps merge enforcement recoverable across reloads and independent of ephemeral Agent IDs.
-- REQ-AGENT-053 added: PR-boundary durable review results use a shared findings-plus-summary-table format for every lane, Pi displays compact footer status while internal durable review lanes run, and actionable findings trigger an automatic fix-and-push pass.
+- REQ-AGENT-053 updated: PR-boundary durable review result files keep the shared findings-plus-summary-table lane format, while Pi chat publishes one merged aggregate summary with all code/spec/docs findings sorted by criticality and no per-lane result-file links; compact footer status and automatic fix-and-push behavior remain.
 - REQ-AGENT-036 updated: Pi PR-boundary detection covers `git -C <repo> push` plus PR-head-moving GitHub CLI operations, while metadata-only PR commands remain non-triggers.
 - REQ-AGENT-021 updated: CI monitoring is on-demand for explicit user requests or deploy/merge gates instead of starting after every routine push.
 - REQ-AGENT-030 / REQ-AGENT-050 / REQ-AGENT-051 updated: Pi native command shims (`/sdd`, `/review`, `/debug`, `/deploy`, `/brainstorm`, `/vault`, `/note`) now dispatch workflow prompts through a compatibility helper that uses `ctx.sendUserMessage` when the active command context provides it and falls back to `pi.sendUserMessage` otherwise. This keeps the commands working both with context-mode disabled and after `/ctx on` reloads Pi resources.
