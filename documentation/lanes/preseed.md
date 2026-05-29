@@ -279,10 +279,13 @@ All preseed content is deployed via the manifest pipeline:
   (`Review <head> --> code | spec | docs`, rendering only required lanes and turning a
   lane label green when that lane finishes), so operators can diagnose background review progress without visible generic
   Agent tasks. Duplicate lane-result and summary announcements are suppressed
-  for the same repo/head/lane result. After all lanes finish, the summary message
-  renders a `Review Results` table with a findings-document link, per-severity
-  counts, and a recommendation for each lane, then requests a fix-and-push pass
-  when legitimate MEDIUM/HIGH/CRITICAL findings remain. Implements
+  for the same repo/head/lane result. After all lanes finish, Pi publishes one
+  merged chat summary with `## Review Summary`, `## Findings`, and
+  `## Finding Details` sections. That chat summary aggregates severity counts
+  across code/spec/docs, lists all findings sorted by criticality, and avoids
+  per-lane result-file links; the per-lane `.md` files remain the durable
+  evidence store. If legitimate MEDIUM/HIGH/CRITICAL findings remain, Pi then
+  requests a fix-and-push pass. Implements
   [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop).
 
   Merge enforcement does not depend on third-party subagent task IDs or

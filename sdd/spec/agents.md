@@ -1092,6 +1092,7 @@ None.
 5. `doc-updater` starts only after `spec-reviewer` completes on SDD projects. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewEligibleLanes -->
 6. A fix-push cascade preserves the first unreviewed review base for cumulative review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::selectReviewBase -->
 7. Pi acknowledges a PR head only after durable result files exist for every required lane. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::completedDurableReviewLanes -->
+8. Durable Pi review lanes fail closed when the lane runner times out or records a failure; the PR head remains unacked until a later review run writes required result files. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::runDurableLane -->
 
 **Constraints:**
 
@@ -1112,7 +1113,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (result model + compact status + announcement-key + summary/actionability tests -> AC1/AC2/AC3/AC4/AC5) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (result model + compact status + announcement-key + summary/actionability tests -> AC1/AC2/AC3/AC4/AC5/AC6/AC7) -->
 
 **Intent:** Pi operators need consistent PR-boundary review output, a compact indication that internal durable lanes are active, and an automatic next-fix prompt when actionable findings remain.
 
@@ -1123,8 +1124,10 @@ None.
 1. Durable PR-boundary result files use a shared `## Findings` plus severity-count Review Summary table format. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatDurableReviewResult -->
 2. Pi exposes compact durable-lane progress in the footer while PR-boundary review runs, rendering only lanes required for the current review job. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::compactDurableReviewStatus -->
 3. Pi suppresses duplicate PR-boundary review result and summary announcements for the same repo, head, lane, and result path. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::installReviewMessageDedupe -->
-4. After all required lanes complete, Pi publishes a merged review summary with aggregate severity counts and a criticality-sorted findings table/list across code, spec, and documentation lanes; the chat summary does not require per-lane result-file links. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewSummaryMarkdown -->
-5. When completed review results contain legitimate `MEDIUM`, `HIGH`, or `CRITICAL` findings, Pi requests an automatic fix-and-push pass for those findings only; the next PR-boundary review uses the pushed fix diff. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestReviewAutofix -->
+4. After all required lanes complete, Pi publishes a merged chat summary instead of separate per-lane chat result blocks. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewSummaryMarkdown -->
+5. The merged chat summary reports aggregate severity counts across code, spec, and documentation lanes. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergedReviewSummaryModel -->
+6. The merged chat summary renders findings across code, spec, and documentation lanes sorted by criticality and does not require per-lane result-file links in chat. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary -->
+7. When completed review results contain legitimate `MEDIUM`, `HIGH`, or `CRITICAL` findings, Pi requests an automatic fix-and-push pass for those findings only; the next PR-boundary review uses the pushed fix diff. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestReviewAutofix -->
 
 **Constraints:**
 
