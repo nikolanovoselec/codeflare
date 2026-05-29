@@ -309,6 +309,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(extractBackgroundAgentId({
       content: [{ type: 'text', text: 'Agent started in background.\nAgent ID: def67890-4321-cba\nType: code-reviewer' }],
     })).toBe('def67890-4321-cba');
+    expect(extractBackgroundAgentId({
+      content: [{ type: 'text', text: 'Agent started in background.\nAgent ID: 1386d8ec-28ca-48e7-9abc-0123456789ab\nType: code-reviewer' }],
+    })).toBe('1386d8ec-28ca-48e7-9abc-0123456789ab');
     expect(extractBackgroundAgentId({ content: [{ type: 'text', text: 'No agent id here' }] })).toBeUndefined();
   });
 

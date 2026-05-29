@@ -258,6 +258,29 @@ function changedFiles(repo: string, from: string, to: string): string[] | undefi
   }
 }
 
+function currentBranch(repo: string): string | undefined {
+  try {
+    return execFileSync("git", ["branch", "--show-current"], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function previousRemoteHead(repo: string, currentHead: string): string | undefined {
+  const branch = currentBranch(repo);
+  if (!branch) return undefined;
+  try {
+    const out = execFileSync("git", ["reflog", "show", "--format=%H", `refs/remotes/origin/${branch}`, "-n", "4"], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return out.split("\n").map((line) => line.trim()).find((head) => head && head !== currentHead && isAncestor(repo, head, currentHead));
+  } catch {
+    return undefined;
+  }
+}
+
+function isGitPushCommand(command: string): boolean {
+  return /(^|[;&|]\s*)git\s+push\b/.test(command);
+}
+
 function mergeLaneState(repo: string, currentHead: string, previous?: PendingReview): { lanes: string[]; completed: Set<string> } {
   const base = previous?.head || lastAckHead(repo);
   const changed = classifyReviewFiles(changedFiles(repo, base, currentHead));
@@ -324,9 +347,9 @@ function isRealSessionCtx(ctx: unknown): boolean {
 
 function reviewPrompt(repo: string, pr: PrState, head: string, reviewBase?: string): string {
   if (reviewBase) {
-    return `Work in ${repo}. Review PR #${pr.number || "?"} for ${basename(repo)}. Scope is ONLY the incremental diff from ${reviewBase} to ${head}. Run: git diff --name-only ${reviewBase} ${head} to see changed files, then git diff ${reviewBase} ${head} -- <path> for each. Do NOT review the full PR diff against ${pr.baseRefName}. Report findings only; do not modify files.`;
+    return `Work in ${repo}. Review PR #${pr.number || "?"} for ${basename(repo)}. Scope is ONLY the incremental diff from ${reviewBase} to ${head}. First run: git diff --name-only ${reviewBase} ${head}. Review only those changed files, then run: git diff ${reviewBase} ${head} -- <path> for each changed file. Do NOT review the full PR diff against ${pr.baseRefName}. Do NOT scan unrelated repo files except minimal direct context for a finding. Report findings only; do not modify files.`;
   }
-  return `Work in ${repo}. Review PR #${pr.number || "?"} for ${basename(repo)} at head ${head}. Scope is the full PR diff (no prior review base). Run: git diff origin/${pr.baseRefName}...${head}. Report findings only; do not modify files.`;
+  return `Work in ${repo}. Review PR #${pr.number || "?"} for ${basename(repo)} at head ${head}. Scope is the full PR diff because no prior review base is known. First run: git diff --name-only origin/${pr.baseRefName}...${head}. Review only those changed files, then run: git diff origin/${pr.baseRefName}...${head} -- <path> for each changed file. Do NOT scan unrelated repo files except minimal direct context for a finding. Report findings only; do not modify files.`;
 }
 
 function docUpdaterPrompt(pending: PendingReview): string {
@@ -355,6 +378,7 @@ function visibleReviewDispatchPrompt(pending: PendingReview, pr: PrState, lanes:
       `  description: ${description}`,
       "  run_in_background: true",
       "  inherit_context: false",
+      "  max_turns: 8",
       `  prompt: ${promptForLane(pending, pr, lane)}`,
     ].join("\n");
   }).join("\n");
@@ -420,7 +444,13 @@ export default function (pi: ExtensionAPI) {
     if (id) toolStartArgs.delete(id);
     if (commandText(event) || !cached) return event;
     const current = event?.args || event?.input || event?.params || {};
-    return { ...event, args: { ...cached, ...current } };
+    const merged = { ...cached, ...current };
+    return {
+      ...event,
+      args: merged,
+      input: { ...(event?.input || {}), ...merged },
+      params: { ...(event?.params || {}), ...merged },
+    };
   }
 
   function hydratePending(ctx: any): PendingReview | undefined {
@@ -596,7 +626,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const reviewBase = previous?.head || lastAckHead(repo) || undefined;
+    const reviewBase = previous?.head || lastAckHead(repo) || (isGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined);
     const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
     resetBlockCount(repo);
     clearBreaker(repo); // new head under review: drop any stale breaker latch from a prior head
@@ -608,7 +638,7 @@ export default function (pi: ExtensionAPI) {
     requestVisibleReviewLanes(pi, pending, effectivePr, initialLanes, ctx, "initial PR-boundary trigger");
   };
 
-  pi.on("tool_result", onToolEnd);
+  pi.on("tool_result", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
   pi.on("tool_execution_end", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
 
   const onSubagentCompleted = async (event: any, ctx: any) => {

@@ -38,7 +38,9 @@ export function extractBackgroundAgentId(result: unknown): string | undefined {
   collectText(record.content);
   collectText(record.result);
   collectText(record.output);
-  const match = textParts.join("\n").match(/Agent ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{3,})/i);
+  const match = textParts.join("\n").match(
+    /Agent ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-(?:[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{3,4}))\b/i,
+  );
   return match?.[1];
 }
 
