@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewResultPath, durableReviewStatusSegments, recoverDurableReviewLaneState } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewResultPath, durableReviewStatusSegments, durableReviewSummaryModel, recoverDurableReviewLaneState } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -354,6 +354,10 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(classifyReviewFiles(['sdd/spec/agents.md'])).toEqual(['spec-reviewer', 'doc-updater']);
     expect(classifyReviewFiles(['preseed/agents/pi/extensions/review-enforcement.ts'])).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
     expect(classifyReviewFiles(undefined)).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
+
+  });
+
+  it('REQ-AGENT-036: Pi PR-boundary command detection covers head-moving surfaces and ignores metadata-only PR commands', () => {
     expect(isPrBoundaryCommand('git push origin develop')).toBe(true);
     expect(isPrBoundaryCommand('git -C /repo/codeflare push origin develop')).toBe(true);
     expect(isPrBoundaryCommand('gh repo sync owner/repo')).toBe(true);
@@ -472,6 +476,22 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       .toBe(durableReviewMessageKey({ customType: 'pr-boundary-review-result', repo: '/repo', head: 'abc', lane: 'code-reviewer', path: '/repo/.git/sdd-review-results/abc/code-reviewer.md' }));
     expect(durableReviewMessageKey({ customType: 'pr-boundary-review-result', repo: '/repo', head: 'abc', lane: 'code-reviewer', path: '/repo/.git/sdd-review-results/abc/code-reviewer.md' }))
       .not.toBe(durableReviewMessageKey({ customType: 'pr-boundary-review-result', repo: '/repo', head: 'abc', lane: 'spec-reviewer', path: '/repo/.git/sdd-review-results/abc/spec-reviewer.md' }));
+  });
+
+  it('REQ-AGENT-053: durable Pi review summary model reports table columns, per-lane counts, and fix recommendation', () => {
+    const summary = durableReviewSummaryModel([
+      { lane: 'code-reviewer', path: '/tmp/code.md', counts: { critical: 0, high: 1, medium: 0, low: 0 }, recommendation: 'fix' },
+      { lane: 'doc-updater', path: '/tmp/docs.md', counts: { critical: 0, high: 0, medium: 0, low: 0 }, recommendation: 'none' },
+    ]);
+    expect(summary).toEqual({
+      columns: ['Lane', 'Findings document', 'Critical', 'High', 'Medium', 'Low', 'Recommendation'],
+      rows: [
+        { lane: 'code-reviewer', path: '/tmp/code.md', counts: { critical: 0, high: 1, medium: 0, low: 0 }, recommendation: 'fix' },
+        { lane: 'doc-updater', path: '/tmp/docs.md', counts: { critical: 0, high: 0, medium: 0, low: 0 }, recommendation: 'none' },
+      ],
+      actionable: 1,
+      recommendation: 'automatically fix 1 actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff',
+    });
   });
 
   it('REQ-AGENT-053: durable Pi review severity helpers identify actionable findings for the fix loop', () => {

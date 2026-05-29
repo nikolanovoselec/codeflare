@@ -1038,7 +1038,7 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
-<!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh — PR-OPEN trigger (base-gated) describe + PR-SYNC trigger (base-gated) describe -> AC1 PR target main/master only + AC3 intermediate branches deferred + git-push-review-reminder.sh — MCP shell tool input shapes (issue #317) describe -> AC2 PUSH_LINE detection across Bash/MCP surfaces) + host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — PR state gating describe -> AC1/AC6 PR-state HEAD check + AC4 no-PR push no-op + enforce-review-spawn.sh — vibe-coding gate describe -> AC7 non-SDD projects exit silently + enforce-review-spawn.sh — MCP shell tool input shapes (issue #319) describe -> AC2 PUSH_LINE detection across Bash/MCP surfaces) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi native runtime assets include review-enforcement.ts trigger/ctx-surface markers -> AC2 + review head classification separates a moved-on PR from an unreadable gh query -> AC6 Pi head-currency classification) -->
+<!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh — PR-OPEN trigger (base-gated) describe + PR-SYNC trigger (base-gated) describe -> AC1 PR target main/master only + AC5 intermediate branches deferred + git-push-review-reminder.sh — MCP shell tool input shapes (issue #317) describe -> AC2 PUSH_LINE detection across Bash/MCP surfaces) + host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — PR state gating describe -> AC1/AC6 + enforce-review-spawn.sh — vibe-coding gate describe -> AC7 non-SDD projects exit silently + enforce-review-spawn.sh — MCP shell tool input shapes (issue #319) describe -> AC2 PUSH_LINE detection across Bash/MCP surfaces) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi PR-boundary command detection -> AC2/AC3/AC4) -->
 
 **Intent:** Review agents must fire only on PR-boundary events that actually target shipping code. Trigger detection runs across every tool surface that can move HEAD, ignores intermediate-branch and no-PR pushes so vibe-coding mode and integration-branch development stay friction-free, and assumes upstream branch protection guards direct pushes to `main`. Lane classification + agent dispatch live in [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch); bypass surfaces live in [REQ-AGENT-041](#req-agent-041-pr-boundary-review-bypass-surfaces).
 
@@ -1046,12 +1046,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. PR-boundary review fires only for PRs targeting `main` or `master` (a new PR opens with that target via `gh pr create`, or a push lands on a branch with an open PR to that target).
-2. PUSH_LINE detection recognises local pushes (`git push`, including `git -C <repo> push`) and PR-head-moving GitHub CLI operations (`gh pr create`, `gh pr merge`, `gh pr update-branch`, `gh repo sync`) across Pi's normal Bash and context-mode shell surfaces; metadata-only PR commands do not trigger review.
-3. PRs into intermediate integration branches (`develop`, `staging`, etc.) do NOT trigger reviews; the case is deferred until the integration branch's own PR-to-`main` opens or syncs, where the cumulative review covers everything that landed.
-4. A plain push to a branch with no open PR does NOT trigger reviews.
-5. Direct pushes to `main` are expected to be prevented by GitHub branch protection (require PR before merge); the review pipeline is not engineered to compensate for a bypass that the upstream platform already blocks.
-6. Layer 2 false-positive filtering validates that the candidate push belongs to the currently open PR; same-session pushes may use local HEAD as the candidate SHA while GitHub's PR API catches up, with every directive carrying a freshness gate for the exact head. A pending review window is discarded only when the open PR has definitively moved on or closed, and always with a visible warning; when the PR state cannot be read (the `gh` query fails), the window is left intact and retried, so a transient query failure never drops the merge gate or leaves a reviewed head un-acked.
+1. PR-boundary review fires only for open PRs targeting `main` or `master`.
+2. Local push detection recognises `git push` and `git -C <repo> push` across Pi's normal Bash and context-mode shell surfaces.
+3. GitHub CLI detection recognises PR-head-moving operations: `gh pr create`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`.
+4. Metadata-only PR commands do not trigger review.
+5. PRs into intermediate integration branches (`develop`, `staging`, etc.) do NOT trigger reviews; the case is deferred until the integration branch's own PR-to-`main` opens or syncs, where the cumulative review covers everything that landed.
+6. A plain push to a branch with no open PR does NOT trigger reviews.
 7. On non-SDD projects (no `sdd/` folder) no review agents run at all; every hook exits silently and the workflow proceeds friction-free (vibe-coding mode).
 
 **Constraints:**
@@ -1112,7 +1112,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (compact status + announcement-key + actionability tests -> AC2/AC3/AC5) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (result model + compact status + announcement-key + summary/actionability tests -> AC1/AC2/AC3/AC4/AC5) -->
 
 **Intent:** Pi operators need consistent PR-boundary review output, a compact indication that internal durable lanes are active, and an automatic next-fix prompt when actionable findings remain.
 

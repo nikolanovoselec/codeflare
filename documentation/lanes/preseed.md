@@ -608,7 +608,7 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 ### Resetting Review-Spawn Checkpoints
 
-The `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. It triggers at PR-boundary events: `gh pr create` runs in the session, OR a push lands on a branch that already has an open PR (the hook calls `gh pr view` to check). Enforcement only fires when the open PR targets `main` or `master`. PRs into intermediate branches (`develop`, `staging`) are silently deferred until that branch's own PR-to-`main` opens.
+The `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. It triggers at PR-boundary events that can move an open PR head: `git push`, `git -C <repo> push`, `gh pr create`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`. Metadata-only PR commands such as `gh pr edit` do not trigger review. Enforcement only fires when the open PR targets `main` or `master`. PRs into intermediate branches (`develop`, `staging`) are silently deferred until that branch's own PR-to-`main` opens.
 
 The Claude hook and Pi native enforcement both track the most recently acknowledged PR HEAD SHA in `.git/sdd-last-ack-pr-head`. Pi also persists compatibility pending state in `.git/sdd-review-pending.json` and durable runner state in `.git/codeflare-review-jobs/<head>/`. Acknowledgment advances only when result files exist for the full required pipeline (code-reviewer + spec-reviewer + doc-updater, or the reduced lane set for doc/spec-only changes) for the current PR HEAD.
 

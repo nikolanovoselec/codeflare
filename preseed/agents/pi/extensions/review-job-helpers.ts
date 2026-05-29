@@ -59,6 +59,20 @@ export type ReviewSeverityCounts = {
 
 export type DurableReviewRecommendation = "fix" | "review" | "none";
 
+export type DurableReviewSummaryRow = {
+  lane: string;
+  path: string;
+  counts: ReviewSeverityCounts;
+  recommendation: DurableReviewRecommendation;
+};
+
+export type DurableReviewSummaryModel = {
+  columns: string[];
+  rows: DurableReviewSummaryRow[];
+  actionable: number;
+  recommendation: string;
+};
+
 export type DurableReviewStatusState = "completed" | "running" | "pending";
 
 export type DurableReviewStatusSegment = {
@@ -136,6 +150,18 @@ export function durableReviewRecommendation(counts: ReviewSeverityCounts): Durab
   if (counts.critical > 0 || counts.high > 0 || counts.medium > 0) return "fix";
   if (counts.low > 0) return "review";
   return "none";
+}
+
+export function durableReviewSummaryModel(rows: DurableReviewSummaryRow[]): DurableReviewSummaryModel {
+  const actionable = rows.reduce((total, row) => total + actionableReviewCount(row.counts), 0);
+  return {
+    columns: ["Lane", "Findings document", "Critical", "High", "Medium", "Low", "Recommendation"],
+    rows,
+    actionable,
+    recommendation: actionable > 0
+      ? `automatically fix ${actionable} actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff`
+      : "no actionable MEDIUM/HIGH/CRITICAL findings remain",
+  };
 }
 
 export function reviewSummaryTable(counts: ReviewSeverityCounts): string {

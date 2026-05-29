@@ -13,7 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { actionableReviewCount, compactDurableReviewStatus, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, type ReviewSeverityCounts } from "./review-job-helpers";
+import { actionableReviewCount, compactDurableReviewStatus, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, durableReviewSummaryModel, type ReviewSeverityCounts } from "./review-job-helpers";
 import { completedDurableReviewLanes, failedDurableReviewLanes, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -507,18 +507,7 @@ export default function (pi: ExtensionAPI) {
   function publishReviewResult(state: PendingReview, lane: string, result: unknown, ctx: any): void {
     const path = persistReviewResult(state, lane, result);
     if (!claimReviewAnnouncement(state, lane)) return;
-    const text = stringifyReviewResult(result) || "No findings reported.";
     ctx.ui.notify(`PR-boundary ${lane} completed for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Findings saved: ${path}`, "info");
-    try {
-      pi.sendMessage({
-        customType: "pr-boundary-review-result",
-        content: `PR-boundary ${lane} completed for ${basename(state.repo)} at ${state.head.slice(0, 12)}.\nFindings saved: ${path}\n\n${text}`,
-        display: true,
-        details: { repo: state.repo, head: state.head, lane, path, result: text },
-      });
-    } catch {
-      // UI notification + persisted result file are the reliable surfaces.
-    }
   }
 
   function severityCell(counts: ReviewSeverityCounts): string {
@@ -536,17 +525,13 @@ export default function (pi: ExtensionAPI) {
   }
 
   function reviewSummaryMarkdown(state: PendingReview): string {
-    const rows = reviewSummaryRows(state);
+    const summary = durableReviewSummaryModel(reviewSummaryRows(state));
     const table = [
-      "| Lane | Findings document | Critical | High | Medium | Low | Recommendation |",
+      `| ${summary.columns.join(" | ")} |`,
       "|---|---|---:|---:|---:|---:|---|",
-      ...rows.map((row) => `| ${row.lane} | [open](${row.path}) | ${row.counts.critical} | ${row.counts.high} | ${row.counts.medium} | ${row.counts.low} | ${row.recommendation} |`),
+      ...summary.rows.map((row) => `| ${row.lane} | [open](${row.path}) | ${row.counts.critical} | ${row.counts.high} | ${row.counts.medium} | ${row.counts.low} | ${row.recommendation} |`),
     ].join("\n");
-    const actionable = rows.reduce((total, row) => total + actionableReviewCount(row.counts), 0);
-    const next = actionable > 0
-      ? `Recommendation: automatically fix ${actionable} actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff.`
-      : "Recommendation: no actionable MEDIUM/HIGH/CRITICAL findings remain.";
-    return `PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.\n\n## Review Results\n\n${table}\n\n${next}`;
+    return `PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.\n\n## Review Results\n\n${table}\n\nRecommendation: ${summary.recommendation}.`;
   }
 
   function publishReviewSummary(state: PendingReview, ctx: any): void {
@@ -593,18 +578,7 @@ export default function (pi: ExtensionAPI) {
   function publishReviewResultFile(state: PendingReview, lane: string, ctx: any): void {
     const path = reviewResultPath(state.repo, state.head, lane);
     if (!claimReviewAnnouncement(state, lane)) return;
-    const text = existsSync(path) ? readFileSync(path, "utf8") : "No findings reported.";
     ctx.ui.notify(`PR-boundary ${lane} completed for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Findings saved: ${path}`, "info");
-    try {
-      pi.sendMessage({
-        customType: "pr-boundary-review-result",
-        content: `PR-boundary ${lane} completed for ${basename(state.repo)} at ${state.head.slice(0, 12)}.\nFindings saved: ${path}\n\n${text}`,
-        display: true,
-        details: { repo: state.repo, head: state.head, lane, path, result: text },
-      });
-    } catch {
-      // UI notification + persisted result file are the reliable surfaces.
-    }
   }
 
   async function markCompleted(type: string, ctx: any, _completionId?: string, _prompt?: string, result?: unknown): Promise<void> {
