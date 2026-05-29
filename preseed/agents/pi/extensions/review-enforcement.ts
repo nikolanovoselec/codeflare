@@ -12,6 +12,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { actionableReviewCount, compactDurableReviewStatus, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, durableReviewSummaryModel, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { completedDurableReviewLanes, failedDurableReviewLanes, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
@@ -423,7 +424,7 @@ function installReviewMessageDedupe(pi: ExtensionAPI): void {
   if (!originalSendMessage) return;
   (pi as unknown as { sendMessage: (message: any) => void }).sendMessage = (message: any): void => {
     const customType = String(message?.customType || "");
-    if (customType === "pr-boundary-review-result" || customType === "pr-boundary-review-summary") {
+    if (customType === "pr-boundary-review-result" || customType === "pr-boundary-review-summary" || customType === "codeflare-review-summary-v2") {
       const details = message?.details || {};
       const key = durableReviewMessageKey({ customType, repo: details.repo, head: details.head, lane: details.lane, path: details.path });
       if (globalState.__codeflareReviewMessageKeys?.has(key)) return;
@@ -443,31 +444,9 @@ export default function (pi: ExtensionAPI) {
   const toolStartArgs = new Map<string, any>();
   const shouldProcessPrBoundaryToolEnd = createReadyOnceTracker();
 
-  const suppressDuplicateReviewMessage = (message: any): any | undefined => {
-    if (message?.role !== "custom") return undefined;
-    const customType = String(message?.customType || "");
-    if (customType !== "pr-boundary-review-result" && customType !== "pr-boundary-review-summary") return undefined;
-
-    const details = message?.details || {};
-    const key = durableReviewMessageKey({ customType, repo: details.repo, head: details.head, lane: details.lane, path: details.path });
-    const globalState = globalThis as { __codeflareReviewMessageKeys?: Set<string> };
-    globalState.__codeflareReviewMessageKeys = globalState.__codeflareReviewMessageKeys || new Set<string>();
-
-    const isLegacySummary = customType === "pr-boundary-review-summary" && !String(message?.content || "").includes("## Review Results");
-    const isLaneResult = customType === "pr-boundary-review-result";
-    const isDuplicate = globalState.__codeflareReviewMessageKeys.has(key);
-    if (!isLegacySummary && !isLaneResult && !isDuplicate) {
-      globalState.__codeflareReviewMessageKeys.add(key);
-      return undefined;
-    }
-
-    globalState.__codeflareReviewMessageKeys.add(key);
-    return {
-      ...message,
-      display: false,
-      content: "",
-    };
-  };
+  pi.registerMessageRenderer("pr-boundary-review-result", () => new Text("", 0, 0));
+  pi.registerMessageRenderer("pr-boundary-review-summary", () => new Text("", 0, 0));
+  pi.registerMessageRenderer("codeflare-review-summary-v2", (message: any) => new Text(String(message.content || ""), 0, 0));
 
   // Background events (subagents:completed/failed) arrive without a usable session ctx.
   // Remember the most recent real ctx from live handlers so doc-updater can still be
@@ -565,7 +544,7 @@ export default function (pi: ExtensionAPI) {
     const content = reviewSummaryMarkdown(state);
     try {
       pi.sendMessage({
-        customType: "pr-boundary-review-summary",
+        customType: "codeflare-review-summary-v2",
         content,
         display: true,
         details: { repo: state.repo, head: state.head, summary: content },
@@ -676,15 +655,6 @@ export default function (pi: ExtensionAPI) {
       return { block: true, reason: "PR-boundary review order violation: doc-updater must run only after spec-reviewer completes for this PR HEAD." };
     }
   };
-
-  pi.on("message_start", (event: any) => {
-    const message = suppressDuplicateReviewMessage(event?.message);
-    if (message) return { message };
-  });
-  pi.on("message_end", (event: any) => {
-    const message = suppressDuplicateReviewMessage(event?.message);
-    if (message) return { message };
-  });
 
   pi.on("tool_call", onAgentStart);
   pi.on("tool_execution_start", (event: any, ctx: any) => {
