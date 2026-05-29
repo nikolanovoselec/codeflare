@@ -48,7 +48,17 @@ function helpText(): string {
   ].join("\n");
 }
 
-async function dispatchReview(args: string, ctx: ExtensionCommandContext): Promise<void> {
+async function sendUserPrompt(pi: ExtensionAPI, ctx: ExtensionCommandContext, message: string): Promise<void> {
+  await ctx.waitForIdle();
+  const contextSender = (ctx as ExtensionCommandContext & { sendUserMessage?: (content: string) => void | Promise<void> }).sendUserMessage;
+  if (typeof contextSender === "function") {
+    await contextSender.call(ctx, message);
+    return;
+  }
+  pi.sendUserMessage(message);
+}
+
+async function dispatchReview(pi: ExtensionAPI, args: string, ctx: ExtensionCommandContext): Promise<void> {
   const trimmed = args.trim();
   if (!/(^|\s)--(all|diff)(\s|$)/.test(trimmed)) {
     ctx.ui.notify(helpText(), "warning");
@@ -63,13 +73,12 @@ async function dispatchReview(args: string, ctx: ExtensionCommandContext): Promi
     `User command: ${command}`,
   ].join("\n");
 
-  await ctx.waitForIdle();
-  await ctx.sendUserMessage(reviewInstructions);
+  await sendUserPrompt(pi, ctx, reviewInstructions);
 }
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("review", {
     description: "Run Codeflare review workflow",
-    handler: dispatchReview,
+    handler: (args, ctx) => dispatchReview(pi, args, ctx),
   });
 }

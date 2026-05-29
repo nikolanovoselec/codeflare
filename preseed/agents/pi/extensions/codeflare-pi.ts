@@ -299,9 +299,15 @@ function skillPrompt(name: string, fallback: string): string {
   return fallback;
 }
 
-async function sendWorkflowMessage(ctx: ExtensionCommandContext, title: string, body: string): Promise<void> {
+async function sendWorkflowMessage(pi: ExtensionAPI, ctx: ExtensionCommandContext, title: string, body: string): Promise<void> {
   await ctx.waitForIdle();
-  await ctx.sendUserMessage(`${title}\n\n${body}`);
+  const message = `${title}\n\n${body}`;
+  const contextSender = (ctx as ExtensionCommandContext & { sendUserMessage?: (content: string) => void | Promise<void> }).sendUserMessage;
+  if (typeof contextSender === "function") {
+    await contextSender.call(ctx, message);
+    return;
+  }
+  pi.sendUserMessage(message);
 }
 
 function maybeMergeGlobalGraph(repo: string): void {
@@ -416,7 +422,7 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify(decision.message, "warning");
         return;
       }
-      await sendWorkflowMessage(ctx, decision.normalizedCommand, `${skillPrompt(decision.skill, "Use the Codeflare SDD workflow.")}\n\nUser command: ${decision.normalizedCommand}`);
+      await sendWorkflowMessage(pi, ctx, decision.normalizedCommand, `${skillPrompt(decision.skill, "Use the Codeflare SDD workflow.")}\n\nUser command: ${decision.normalizedCommand}`);
     },
   });
 
@@ -425,10 +431,10 @@ export default function (pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const repo = activeRepo(ctx) ?? ctx.sessionManager.getCwd();
       if (args.trim() === "refresh") {
-        await sendWorkflowMessage(ctx, "/graphify refresh", `Refresh the graphify graph for ${repo}. Use the safe AST-only update first, then merge ${repo}/graphify-out/graph.json into the global graph if present.`);
+        await sendWorkflowMessage(pi, ctx, "/graphify refresh", `Refresh the graphify graph for ${repo}. Use the safe AST-only update first, then merge ${repo}/graphify-out/graph.json into the global graph if present.`);
         return;
       }
-      await sendWorkflowMessage(ctx, `/graphify ${args}`.trim(), `${skillPrompt("graphify", "Use graphify to build/query the project graph.")}\n\nTarget repo: ${repo}\nUser command: /graphify ${args}`);
+      await sendWorkflowMessage(pi, ctx, `/graphify ${args}`.trim(), `${skillPrompt("graphify", "Use graphify to build/query the project graph.")}\n\nTarget repo: ${repo}\nUser command: /graphify ${args}`);
     },
   });
 
@@ -436,14 +442,14 @@ export default function (pi: ExtensionAPI) {
     description: "Run Codeflare vault operations",
     handler: async (args, ctx) => {
       const action = args.trim() || "status";
-      await sendWorkflowMessage(ctx, `/vault ${action}`, `${skillPrompt("vault-operations", "Use Codeflare vault operations.")}\n\nIf action is index, update the Vault graph at ~/Vault/graphify-out and merge it into the global graph.`);
+      await sendWorkflowMessage(pi, ctx, `/vault ${action}`, `${skillPrompt("vault-operations", "Use Codeflare vault operations.")}\n\nIf action is index, update the Vault graph at ~/Vault/graphify-out and merge it into the global graph.`);
     },
   });
 
   pi.registerCommand("note", {
     description: "Capture a note into the persistent Vault",
     handler: async (args, ctx) => {
-      await sendWorkflowMessage(ctx, `/note ${args}`.trim(), `${skillPrompt("vault-note-capture", "Capture the user's note into ~/Vault/Notes.")}\n\nNote text: ${args}`);
+      await sendWorkflowMessage(pi, ctx, `/note ${args}`.trim(), `${skillPrompt("vault-note-capture", "Capture the user's note into ~/Vault/Notes.")}\n\nNote text: ${args}`);
     },
   });
 

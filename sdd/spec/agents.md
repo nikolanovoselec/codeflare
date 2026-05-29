@@ -712,6 +712,7 @@ None.
 <!-- @impl: preseed/agents/claude/rules/tdd-discipline.md -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
 <!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (spec-discipline + documentation-discipline + tdd-discipline + graph-first advanced-only describes -> AC1 Pro-mode rule preseed) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi command extensions dispatch through both ctx and pi user-message APIs -> AC2 /sdd command works with and without context-mode) -->
 
 **Intent:** Pro users need the spec-driven-development workflow available out of the box, with every sub-command working through the native shell/file tools available in the active runtime so the workflow still works when context-mode is absent.
 
@@ -733,7 +734,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-ecc-rules.test.ts)
+**Verification:** [Automated tests](../../src/__tests__/lib/agent-seed-ecc-rules.test.ts), [Pi command dispatch tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 
@@ -862,7 +863,7 @@ None.
 
 **Status:** Partial
 
-<!-- coverage-gap: AC6 (manifest-presence of skills/review/SKILL.md) is covered by agent-seed-manifest.test.ts. AC1-AC5 (flag parsing and the runtime workflow phases) are skill-content behavior injected at command time, with no dedicated automated test. -->
+<!-- coverage-gap: AC6 (manifest-presence of skills/review/SKILL.md) and command-dispatch API compatibility are covered by agent-seed-manifest.test.ts. AC1-AC5 (flag parsing and the runtime workflow phases) are skill-content behavior injected at command time, with no dedicated automated test. -->
 
 ---
 
@@ -896,7 +897,7 @@ None.
 
 **Status:** Partial
 
-<!-- coverage-gap: AC6 (manifest-presence of codeflare-commands.ts) is covered by agent-seed-manifest.test.ts. AC1-AC5 (the debug/deploy/brainstorm registration and their injected-workflow content) are runtime behavior with no dedicated automated test. -->
+<!-- coverage-gap: AC6 (manifest-presence of codeflare-commands.ts) and command-dispatch API compatibility are covered by agent-seed-manifest.test.ts. AC1-AC5 (the debug/deploy/brainstorm registration and their injected-workflow content) are runtime behavior with no dedicated automated test. -->
 
 ---
 

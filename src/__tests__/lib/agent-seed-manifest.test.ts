@@ -210,6 +210,20 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   });
 
+  it('REQ-AGENT-030 / REQ-AGENT-050 / REQ-AGENT-051: Pi command extensions dispatch through both ctx and pi user-message APIs', () => {
+    const commandExtensionKeys = [
+      '.pi/agent/extensions/codeflare-pi.ts',
+      '.pi/agent/extensions/codeflare-commands.ts',
+      '.pi/agent/extensions/review-command.ts',
+    ];
+    const docs = AGENTS_SEEDED_CONFIGS.filter((d) => commandExtensionKeys.includes(d.key));
+    expect(docs.map((d) => d.key).sort()).toEqual(commandExtensionKeys.sort());
+    for (const doc of docs) {
+      expect(doc.content, `${doc.key} must not assume ExtensionCommandContext has sendUserMessage`).not.toContain('ctx.sendUserMessage(');
+      expect(doc.content, `${doc.key} must fall back to ExtensionAPI.sendUserMessage`).toContain('pi.sendUserMessage');
+    }
+  });
+
   it('Pi agents use Pi-native tool names and keep declared context-mode tools (not stripped, never mcp-prefixed)', () => {
     const agents = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/agents/') && !d.key.endsWith('AGENTS.md'));
     const toolsLine = (content: string) => content.match(/^tools:.*$/m)?.[0] ?? '';

@@ -89,38 +89,45 @@ const BRAINSTORM_WORKFLOW = [
   "Step 5 - Recommendation: after hearing the user's priorities, recommend ONE approach with reasoning. If the user agrees, hand off to Plan Mode for implementation planning. If the user wants changes, revise and present again.",
 ].join("\n");
 
-async function dispatchDebug(args: string, ctx: ExtensionCommandContext): Promise<void> {
-  const instructions = [`/debug`, "", DEBUG_WORKFLOW, "", `User input: ${args.trim()}`].join("\n");
+async function sendUserPrompt(pi: ExtensionAPI, ctx: ExtensionCommandContext, message: string): Promise<void> {
   await ctx.waitForIdle();
-  await ctx.sendUserMessage(instructions);
+  const contextSender = (ctx as ExtensionCommandContext & { sendUserMessage?: (content: string) => void | Promise<void> }).sendUserMessage;
+  if (typeof contextSender === "function") {
+    await contextSender.call(ctx, message);
+    return;
+  }
+  pi.sendUserMessage(message);
 }
 
-async function dispatchDeploy(args: string, ctx: ExtensionCommandContext): Promise<void> {
+async function dispatchDebug(pi: ExtensionAPI, args: string, ctx: ExtensionCommandContext): Promise<void> {
+  const instructions = [`/debug`, "", DEBUG_WORKFLOW, "", `User input: ${args.trim()}`].join("\n");
+  await sendUserPrompt(pi, ctx, instructions);
+}
+
+async function dispatchDeploy(pi: ExtensionAPI, args: string, ctx: ExtensionCommandContext): Promise<void> {
   const target = args.trim() || "integration";
   const instructions = [`/deploy`, "", DEPLOY_WORKFLOW, "", `User input: ${target}`].join("\n");
-  await ctx.waitForIdle();
-  await ctx.sendUserMessage(instructions);
+  await sendUserPrompt(pi, ctx, instructions);
 }
 
-async function dispatchBrainstorm(args: string, ctx: ExtensionCommandContext): Promise<void> {
+async function dispatchBrainstorm(pi: ExtensionAPI, args: string, ctx: ExtensionCommandContext): Promise<void> {
   const instructions = [`/brainstorm`, "", BRAINSTORM_WORKFLOW, "", `User input: ${args.trim()}`].join("\n");
-  await ctx.waitForIdle();
-  await ctx.sendUserMessage(instructions);
+  await sendUserPrompt(pi, ctx, instructions);
 }
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("debug", {
     description: "Systematic root-cause debugging (no fixes before Phase 1; 3-Fix Rule)",
-    handler: dispatchDebug,
+    handler: (args, ctx) => dispatchDebug(pi, args, ctx),
   });
 
   pi.registerCommand("deploy", {
     description: "Push, cancel stale CI, monitor CI, deploy, and verify the live URL",
-    handler: dispatchDeploy,
+    handler: (args, ctx) => dispatchDeploy(pi, args, ctx),
   });
 
   pi.registerCommand("brainstorm", {
     description: "Structured option-generation with trade-offs and a recommendation",
-    handler: dispatchBrainstorm,
+    handler: (args, ctx) => dispatchBrainstorm(pi, args, ctx),
   });
 }
