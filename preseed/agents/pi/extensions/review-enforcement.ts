@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, w
 import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { ALL_REVIEW_LANES, classifyReviewFiles, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from "./review-helpers";
+import { ALL_REVIEW_LANES, classifyReviewFiles, createBoundedOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns, type ReviewSpawnRequest } from "./review-helpers";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
@@ -407,35 +407,31 @@ async function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: stri
   }
 
   refreshSubagentsContext(service, ctx);
-  let launched: string[] = [];
   const now = Date.now();
-  for (const lane of lanes) {
-    if (!shouldRequestLane(pending, lane, now)) continue;
-    pending.requestedAt[lane] = now;
-    try {
-      const id = service.spawn(lane, promptForLane(pending, pr, lane), {
-        description: descriptionForLane(lane),
-        inheritContext: false,
-        maxTurns: 8,
-        bypassQueue: true,
-      });
-      if (typeof id === "string" && id.length > 0) {
-        pending.spawnedIds[lane] = id;
-        delete pending.requestedAt[lane];
-        pending.fallbackLanes.delete(lane);
-        pending.spawned = true;
-        pending.spawnedAt = pending.spawnedAt || Date.now();
-        launched = [...launched, `${lane}:${id}`];
-      } else {
-        pending.fallbackLanes.add(lane);
-      }
-    } catch {
-      pending.fallbackLanes.add(lane);
-    }
-  }
+  const requests: ReviewSpawnRequest[] = lanes
+    .filter((lane) => shouldRequestLane(pending, lane, now))
+    .map((lane) => ({ lane, prompt: promptForLane(pending, pr, lane), description: descriptionForLane(lane) }));
+  const result = startReviewLaneSpawns({
+    state: {
+      completed: [...pending.completed],
+      spawnedIds: pending.spawnedIds,
+      fallbackLanes: [...pending.fallbackLanes],
+      requestedAt: pending.requestedAt,
+      spawned: pending.spawned,
+      spawnedAt: pending.spawnedAt,
+    },
+    requests,
+    service,
+    now,
+  });
+  pending.spawnedIds = result.state.spawnedIds;
+  pending.fallbackLanes = new Set(result.state.fallbackLanes);
+  pending.requestedAt = result.state.requestedAt;
+  pending.spawned = result.state.spawned;
+  pending.spawnedAt = result.state.spawnedAt;
   savePending(pending);
-  if (launched.length > 0) {
-    ctx.ui.notify(`PR-boundary reviewers started for ${basename(pending.repo)} at ${pending.head.slice(0, 12)}: ${launched.join(", ")}.`, "info");
+  if (result.launched.length > 0) {
+    ctx.ui.notify(`PR-boundary reviewers started for ${basename(pending.repo)} at ${pending.head.slice(0, 12)}: ${result.launched.join(", ")}.`, "info");
   }
 }
 
@@ -448,8 +444,7 @@ function isCurrentPending(pending: PendingReview): boolean {
 export default function (pi: ExtensionAPI) {
   let pending: PendingReview | undefined;
   const toolStartArgs = new Map<string, any>();
-  const processedPrBoundaryToolEndIds = new Set<string>();
-  const processedPrBoundaryToolEndOrder: string[] = [];
+  const shouldProcessPrBoundaryToolEnd = createBoundedOnceTracker();
 
   // Background events (subagents:completed/failed) arrive without a usable session ctx.
   // Remember the most recent real ctx from live handlers so doc-updater can still be
@@ -477,18 +472,6 @@ export default function (pi: ExtensionAPI) {
       input: { ...(event?.input || {}), ...merged },
       params: { ...(event?.params || {}), ...merged },
     };
-  }
-
-  function markPrBoundaryToolEnd(id: string | undefined): boolean {
-    if (!id) return true;
-    if (processedPrBoundaryToolEndIds.has(id)) return false;
-    processedPrBoundaryToolEndIds.add(id);
-    processedPrBoundaryToolEndOrder.push(id);
-    while (processedPrBoundaryToolEndOrder.length > 200) {
-      const stale = processedPrBoundaryToolEndOrder.shift();
-      if (stale) processedPrBoundaryToolEndIds.delete(stale);
-    }
-    return true;
   }
 
 
@@ -644,7 +627,7 @@ export default function (pi: ExtensionAPI) {
 
     const command = commandText(event);
     if (!isPrBoundaryCommand(command)) return;
-    if (!markPrBoundaryToolEnd(toolEventId(event))) return;
+    if (!shouldProcessPrBoundaryToolEnd(toolEventId(event))) return;
 
     const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
     if (!repo || !isSddProject(repo) || consumeBypass()) return;
@@ -658,7 +641,7 @@ export default function (pi: ExtensionAPI) {
 
     const rawPrevious = loadPending(repo);
     if (rawPrevious && rawPrevious.head === head) return;
-    const reusablePrevious = rawPrevious && isAncestor(repo, rawPrevious.head, head) ? rawPrevious : undefined;
+    const reusablePrevious = reusablePendingReview(rawPrevious, head, (ancestor, current) => isAncestor(repo, ancestor, current));
     if (rawPrevious && !reusablePrevious) clearPending(repo);
 
     const review = mergeLaneState(repo, head, reusablePrevious);
@@ -668,10 +651,11 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const priorIncomplete = reusablePrevious?.lanes.some((lane) => !reusablePrevious.completed.has(lane));
-    const reviewBase = priorIncomplete
-      ? reusablePrevious?.reviewBase || lastAckHead(repo) || (isGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined)
-      : reusablePrevious?.head || lastAckHead(repo) || (isGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined);
+    const reviewBase = selectReviewBase({
+      previous: reusablePrevious ? { ...reusablePrevious, completed: [...reusablePrevious.completed] } : undefined,
+      lastAck: lastAckHead(repo) || undefined,
+      previousRemoteHead: isGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined,
+    });
     const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
     resetBlockCount(repo);
     clearBreaker(repo); // new head under review: drop any stale breaker latch from a prior head

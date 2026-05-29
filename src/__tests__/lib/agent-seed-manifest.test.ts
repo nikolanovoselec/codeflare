@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
-import { classifyReviewFiles, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { classifyReviewFiles, createBoundedOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -326,12 +326,101 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isPrBoundaryCommand('gh pr view --json number')).toBe(false);
   });
 
-  it('REQ-AGENT-040: Pi review enforcement starts reviewers automatically instead of prompt-dispatching', () => {
-    const reviewEnforcement = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/review-enforcement.ts');
-    expect(reviewEnforcement?.content).toContain('service.spawn(lane');
-    expect(reviewEnforcement?.content).toContain('processedPrBoundaryToolEndIds');
-    expect(reviewEnforcement?.content).not.toContain('Use the Agent tool now');
-    expect(reviewEnforcement?.content).not.toContain('pi.sendUserMessage');
+  it('REQ-AGENT-040: Pi review enforcement dedupes paired terminal events and evicts old ids', () => {
+    const shouldProcess = createBoundedOnceTracker(2);
+    expect(shouldProcess('tool-1')).toBe(true);
+    expect(shouldProcess('tool-1')).toBe(false);
+    expect(shouldProcess('tool-2')).toBe(true);
+    expect(shouldProcess('tool-3')).toBe(true);
+    expect(shouldProcess('tool-1')).toBe(true);
+    expect(shouldProcess(undefined)).toBe(true);
+  });
+
+  it('REQ-AGENT-040: Pi review enforcement spawns reviewers with bounded background options', () => {
+    const calls: Array<{ lane: string; prompt: string; options: Record<string, unknown> }> = [];
+    const result = startReviewLaneSpawns({
+      state: {
+        completed: [],
+        spawnedIds: {},
+        fallbackLanes: [],
+        requestedAt: {},
+        spawned: false,
+      },
+      requests: [
+        { lane: 'code-reviewer', prompt: 'Review head abc123', description: 'Review code changes' },
+        { lane: 'spec-reviewer', prompt: 'Review head abc123', description: 'Review spec changes' },
+      ],
+      service: {
+        spawn: (lane, prompt, options) => {
+          calls.push({ lane, prompt, options });
+          return `${lane}-id`;
+        },
+      },
+      now: 1000,
+    });
+
+    expect(calls).toEqual([
+      {
+        lane: 'code-reviewer',
+        prompt: 'Review head abc123',
+        options: { description: 'Review code changes', inheritContext: false, maxTurns: 8, bypassQueue: true },
+      },
+      {
+        lane: 'spec-reviewer',
+        prompt: 'Review head abc123',
+        options: { description: 'Review spec changes', inheritContext: false, maxTurns: 8, bypassQueue: true },
+      },
+    ]);
+    expect(result.launched).toEqual(['code-reviewer:code-reviewer-id', 'spec-reviewer:spec-reviewer-id']);
+    expect(result.state.spawnedIds).toEqual({
+      'code-reviewer': 'code-reviewer-id',
+      'spec-reviewer': 'spec-reviewer-id',
+    });
+    expect(result.state.spawned).toBe(true);
+    expect(result.state.spawnedAt).toBe(1000);
+  });
+
+  it('REQ-AGENT-040: Pi review enforcement skips already-started lanes and preserves fallback lanes on spawn failure', () => {
+    const result = startReviewLaneSpawns({
+      state: {
+        completed: [],
+        spawnedIds: { 'code-reviewer': 'existing-code-id' },
+        fallbackLanes: [],
+        requestedAt: {},
+        spawned: true,
+        spawnedAt: 500,
+      },
+      requests: [
+        { lane: 'code-reviewer', prompt: 'Review head abc123', description: 'Review code changes' },
+        { lane: 'spec-reviewer', prompt: 'Review head abc123', description: 'Review spec changes' },
+      ],
+      service: { spawn: () => undefined },
+      now: 1000,
+    });
+
+    expect(result.launched).toEqual([]);
+    expect(result.state.spawnedIds).toEqual({ 'code-reviewer': 'existing-code-id' });
+    expect(result.state.fallbackLanes).toEqual(['spec-reviewer']);
+    expect(result.state.requestedAt).toEqual({ 'spec-reviewer': 1000 });
+    expect(result.state.spawnedAt).toBe(500);
+  });
+
+  it('REQ-AGENT-040: Pi review enforcement selects the unreviewed incremental review base', () => {
+    const previous = {
+      head: 'old-head',
+      reviewBase: 'first-unreviewed-base',
+      lanes: ['code-reviewer', 'spec-reviewer'],
+      completed: ['code-reviewer'],
+    };
+    expect(reusablePendingReview(previous, 'new-head', (ancestor, current) => ancestor === 'old-head' && current === 'new-head')).toBe(previous);
+    expect(selectReviewBase({ previous, lastAck: 'last-ack', previousRemoteHead: 'remote-prev' })).toBe('first-unreviewed-base');
+    expect(selectReviewBase({
+      previous: { ...previous, completed: ['code-reviewer', 'spec-reviewer'] },
+      lastAck: 'last-ack',
+      previousRemoteHead: 'remote-prev',
+    })).toBe('old-head');
+    expect(reusablePendingReview(previous, 'rebased-head', () => false)).toBeUndefined();
+    expect(selectReviewBase({ previous: undefined, lastAck: undefined, previousRemoteHead: 'remote-prev' })).toBe('remote-prev');
   });
 
   it('REQ-AGENT-023: Pi native runtime assets include graphify package, MCP config, and skill override', () => {

@@ -20,6 +20,25 @@ export type ReviewCompletionState = {
   fallbackLanes?: string[];
 };
 
+export type ReviewSpawnRequest = {
+  lane: string;
+  prompt: string;
+  description: string;
+};
+
+export type ReviewSpawnSnapshot = {
+  completed: string[];
+  spawnedIds: Record<string, string>;
+  fallbackLanes: string[];
+  requestedAt: Record<string, number>;
+  spawned: boolean;
+  spawnedAt?: number;
+};
+
+export type ReviewSpawnService = {
+  spawn: (lane: string, prompt: string, options: Record<string, unknown>) => string | undefined;
+};
+
 export function extractBackgroundAgentId(result: unknown): string | undefined {
   if (!result || typeof result !== "object") return undefined;
   const record = result as Record<string, any>;
@@ -51,6 +70,87 @@ export function isReviewCompletionForLane(state: ReviewCompletionState, type: st
   if (state.fallbackLanes?.includes(type)) return prompt !== undefined && prompt.includes(state.head);
   if (state.spawned) return prompt !== undefined && prompt.includes(state.head);
   return prompt !== undefined && prompt.includes(state.head);
+}
+
+export function createBoundedOnceTracker(limit = 200): (id: string | undefined) => boolean {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  return (id: string | undefined): boolean => {
+    if (!id) return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    order.push(id);
+    while (order.length > limit) {
+      const stale = order.shift();
+      if (stale) seen.delete(stale);
+    }
+    return true;
+  };
+}
+
+export function reusablePendingReview<T extends { head: string }>(previous: T | undefined, currentHead: string, isAncestor: (ancestor: string, current: string) => boolean): T | undefined {
+  if (!previous || previous.head === currentHead) return previous;
+  return isAncestor(previous.head, currentHead) ? previous : undefined;
+}
+
+export function selectReviewBase(params: {
+  previous?: { head: string; reviewBase?: string; lanes: string[]; completed: string[] };
+  lastAck?: string;
+  previousRemoteHead?: string;
+}): string | undefined {
+  const priorIncomplete = params.previous?.lanes.some((lane) => !params.previous?.completed.includes(lane));
+  if (priorIncomplete) return params.previous?.reviewBase || params.lastAck || params.previousRemoteHead;
+  return params.previous?.head || params.lastAck || params.previousRemoteHead;
+}
+
+export function startReviewLaneSpawns(input: {
+  state: ReviewSpawnSnapshot;
+  requests: ReviewSpawnRequest[];
+  service: ReviewSpawnService;
+  now: number;
+}): { state: ReviewSpawnSnapshot; launched: string[] } {
+  const completed = new Set(input.state.completed);
+  let next: ReviewSpawnSnapshot = {
+    completed: input.state.completed,
+    spawnedIds: { ...input.state.spawnedIds },
+    fallbackLanes: [...input.state.fallbackLanes],
+    requestedAt: { ...input.state.requestedAt },
+    spawned: input.state.spawned,
+    spawnedAt: input.state.spawnedAt,
+  };
+  let launched: string[] = [];
+
+  for (const request of input.requests) {
+    if (completed.has(request.lane) || next.spawnedIds[request.lane]) continue;
+    next = { ...next, requestedAt: { ...next.requestedAt, [request.lane]: input.now } };
+    let id: string | undefined;
+    try {
+      id = input.service.spawn(request.lane, request.prompt, {
+        description: request.description,
+        inheritContext: false,
+        maxTurns: 8,
+        bypassQueue: true,
+      });
+    } catch {
+      id = undefined;
+    }
+    if (typeof id === "string" && id.length > 0) {
+      const { [request.lane]: _removed, ...requestedAt } = next.requestedAt;
+      next = {
+        ...next,
+        spawnedIds: { ...next.spawnedIds, [request.lane]: id },
+        requestedAt,
+        fallbackLanes: next.fallbackLanes.filter((lane) => lane !== request.lane),
+        spawned: true,
+        spawnedAt: next.spawnedAt || input.now,
+      };
+      launched = [...launched, `${request.lane}:${id}`];
+    } else if (!next.fallbackLanes.includes(request.lane)) {
+      next = { ...next, fallbackLanes: [...next.fallbackLanes, request.lane] };
+    }
+  }
+
+  return { state: next, launched };
 }
 
 export function classifyReviewFiles(files: string[] | undefined): string[] | undefined {
