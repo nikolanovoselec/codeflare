@@ -1,3 +1,34 @@
+export type DurableReviewLaneSnapshot = {
+  lane: string;
+  status: "pending" | "running" | "completed" | "failed";
+  startedAt?: number;
+  completedAt?: number;
+  resultPath?: string;
+  transcriptPath?: string;
+  error?: string;
+};
+
+export function recoverDurableReviewLaneState(input: {
+  lane: string;
+  current?: DurableReviewLaneSnapshot;
+  resultExists: boolean;
+  resultPath?: string;
+  activeInMemory: boolean;
+}): DurableReviewLaneSnapshot {
+  if (input.current?.status !== "completed" && input.resultExists) {
+    return { ...input.current, lane: input.lane, status: "completed", resultPath: input.resultPath };
+  }
+  if (input.current?.status === "running" && !input.activeInMemory) {
+    return {
+      lane: input.lane,
+      status: "pending",
+      startedAt: input.current.startedAt,
+      transcriptPath: input.current.transcriptPath,
+    };
+  }
+  return input.current ?? { lane: input.lane, status: "pending" };
+}
+
 export function durableReviewInitialLanes(lanes: string[]): string[] {
   const hasSpec = lanes.includes("spec-reviewer");
   return lanes.filter((lane) => lane !== "doc-updater" || !hasSpec);

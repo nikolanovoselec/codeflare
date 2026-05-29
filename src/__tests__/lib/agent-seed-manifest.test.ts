@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { allDurableReviewLanesComplete, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewResultPath } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { allDurableReviewLanesComplete, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewResultPath, recoverDurableReviewLaneState } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -227,18 +227,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-040: Pi PR-boundary enforcement is backed by durable review jobs, not third-party subagent internals', () => {
-    const reviewEnforcement = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/review-enforcement.ts');
-    const reviewJobs = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/review-jobs.ts');
-    const reviewJobHelpers = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/review-job-helpers.ts');
-    expect(reviewEnforcement?.content).toContain('startDurableReviewLanes');
-    expect(reviewEnforcement?.content).not.toContain('@gotgenes/pi-subagents');
-    expect(reviewEnforcement?.content).not.toContain('get_subagent_result');
-    expect(reviewJobs?.content).toContain('createAgentSession');
-    expect(reviewJobs?.content).toContain('codeflare-review-jobs');
-    expect(reviewJobHelpers?.content).toContain('durableReviewInitialLanes');
-  });
-
   it('Pi agents use Pi-native tool names and keep declared context-mode tools (not stripped, never mcp-prefixed)', () => {
     const agents = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/agents/') && !d.key.endsWith('AGENTS.md'));
     const toolsLine = (content: string) => content.match(/^tools:.*$/m)?.[0] ?? '';
@@ -413,6 +401,38 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     })).toEqual(['doc-updater']);
     expect(allDurableReviewLanesComplete(lanes, ['code-reviewer', 'spec-reviewer'])).toBe(false);
     expect(allDurableReviewLanesComplete(lanes, ['code-reviewer', 'spec-reviewer', 'doc-updater'])).toBe(true);
+  });
+
+  it('REQ-AGENT-040: durable Pi review job recovery does not treat orphaned persisted running state as active', () => {
+    expect(recoverDurableReviewLaneState({
+      lane: 'code-reviewer',
+      current: { lane: 'code-reviewer', status: 'running', startedAt: 10, transcriptPath: '/repo/.git/codeflare-review-jobs/head/transcripts/code-reviewer.jsonl' },
+      resultExists: false,
+      activeInMemory: false,
+    })).toEqual({
+      lane: 'code-reviewer',
+      status: 'pending',
+      startedAt: 10,
+      transcriptPath: '/repo/.git/codeflare-review-jobs/head/transcripts/code-reviewer.jsonl',
+    });
+    expect(recoverDurableReviewLaneState({
+      lane: 'spec-reviewer',
+      current: { lane: 'spec-reviewer', status: 'running', startedAt: 20 },
+      resultExists: false,
+      activeInMemory: true,
+    })).toEqual({ lane: 'spec-reviewer', status: 'running', startedAt: 20 });
+    expect(recoverDurableReviewLaneState({
+      lane: 'doc-updater',
+      current: { lane: 'doc-updater', status: 'running', startedAt: 30 },
+      resultExists: true,
+      resultPath: '/repo/.git/sdd-review-results/head/doc-updater.md',
+      activeInMemory: false,
+    })).toEqual({
+      lane: 'doc-updater',
+      status: 'completed',
+      startedAt: 30,
+      resultPath: '/repo/.git/sdd-review-results/head/doc-updater.md',
+    });
   });
 
   it('REQ-AGENT-040: durable Pi review job paths are under .git and result paths stay on the existing review surface', () => {

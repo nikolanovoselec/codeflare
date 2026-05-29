@@ -16,6 +16,7 @@ import {
   SessionManager,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import { recoverDurableReviewLaneState } from "./review-job-helpers";
 import type { ReviewSpawnRequest } from "./review-helpers";
 
 export const REVIEW_JOBS_EVENT_LANE_COMPLETED = "codeflare-review-jobs:lane-completed";
@@ -120,6 +121,17 @@ function readLane(repo: string, head: string, lane: string): DurableReviewLane |
   return readJson<DurableReviewLane>(reviewLanePath(repo, head, lane));
 }
 
+function normalizeLaneState(repo: string, head: string, lane: string, current?: DurableReviewLane): DurableReviewLane {
+  const resultPath = reviewResultPath(repo, head, lane);
+  return recoverDurableReviewLaneState({
+    lane,
+    current,
+    resultExists: existsSync(resultPath),
+    resultPath,
+    activeInMemory: runningLanes.has(laneKey(repo, head, lane)),
+  });
+}
+
 function deriveStatus(laneState: Record<string, DurableReviewLane>, lanes: string[]): DurableReviewJob["status"] {
   if (lanes.some((lane) => laneState[lane]?.status === "failed")) return "failed";
   if (lanes.every((lane) => laneState[lane]?.status === "completed")) return "completed";
@@ -131,7 +143,7 @@ export function ensureDurableReviewJob(input: DurableReviewJobInput): DurableRev
   const startedAt = existing?.startedAt ?? now();
   const laneState = Object.fromEntries(input.lanes.map((lane) => {
     const current = existing?.laneState?.[lane] ?? readLane(input.repo, input.head, lane);
-    return [lane, current ?? { lane, status: "pending" as const }];
+    return [lane, normalizeLaneState(input.repo, input.head, lane, current)];
   }));
   const job: DurableReviewJob = {
     repo: input.repo,
@@ -160,8 +172,7 @@ export function failedDurableReviewLanes(repo: string, head: string, lanes: stri
 }
 
 export function runningDurableReviewLanes(repo: string, head: string, lanes: string[]): string[] {
-  const job = readDurableReviewJob(repo, head);
-  return lanes.filter((lane) => job?.laneState?.[lane]?.status === "running" || runningLanes.has(laneKey(repo, head, lane)));
+  return lanes.filter((lane) => runningLanes.has(laneKey(repo, head, lane)));
 }
 
 function stripFrontmatter(text: string): string {
@@ -213,7 +224,7 @@ function formatResult(job: DurableReviewJobInput, lane: string, text: string): s
   ].join("\n");
 }
 
-function markLane(jobInput: DurableReviewJobInput, lane: DurableReviewLane): DurableReviewJob {
+export function recordDurableReviewLane(jobInput: DurableReviewJobInput, lane: DurableReviewLane): DurableReviewJob {
   writeLane(jobInput.repo, jobInput.head, lane);
   const current = ensureDurableReviewJob(jobInput);
   const laneState = { ...current.laneState, [lane.lane]: lane };
@@ -234,7 +245,7 @@ async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: D
 
   const transcriptPath = reviewLaneTranscriptPath(job.repo, job.head, request.lane);
   const resultPath = reviewResultPath(job.repo, job.head, request.lane);
-  markLane(job, request.lane, { lane: request.lane, status: "running", startedAt: now(), transcriptPath });
+  recordDurableReviewLane(job, { lane: request.lane, status: "running", startedAt: now(), transcriptPath });
 
   let finalText = "";
   try {
@@ -288,11 +299,11 @@ async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: D
 
     mkdirSync(dirname(resultPath), { recursive: true });
     writeFileSync(resultPath, formatResult(job, request.lane, finalText), "utf8");
-    markLane(job, request.lane, { lane: request.lane, status: "completed", startedAt: readLane(job.repo, job.head, request.lane)?.startedAt, completedAt: now(), transcriptPath, resultPath });
+    recordDurableReviewLane(job, { lane: request.lane, status: "completed", startedAt: readLane(job.repo, job.head, request.lane)?.startedAt, completedAt: now(), transcriptPath, resultPath });
     pi.events.emit(REVIEW_JOBS_EVENT_LANE_COMPLETED, { repo: job.repo, head: job.head, lane: request.lane, resultPath, result: finalText });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    markLane(job, request.lane, { lane: request.lane, status: "failed", startedAt: readLane(job.repo, job.head, request.lane)?.startedAt, completedAt: now(), transcriptPath, error: message });
+    recordDurableReviewLane(job, { lane: request.lane, status: "failed", startedAt: readLane(job.repo, job.head, request.lane)?.startedAt, completedAt: now(), transcriptPath, error: message });
     pi.events.emit(REVIEW_JOBS_EVENT_LANE_FAILED, { repo: job.repo, head: job.head, lane: request.lane, error: message });
   } finally {
     runningLanes.delete(key);
@@ -304,7 +315,7 @@ export function startDurableReviewLanes(pi: ExtensionAPI, ctx: ReviewRunnerConte
   const launched: string[] = [];
   for (const request of requests) {
     const current = job.laneState[request.lane] ?? readLane(job.repo, job.head, request.lane);
-    if (current?.status === "completed" || current?.status === "running") continue;
+    if (current?.status === "completed" || runningLanes.has(laneKey(job.repo, job.head, request.lane))) continue;
     launched.push(request.lane);
     void runDurableLane(pi, ctx, jobInput, request);
   }

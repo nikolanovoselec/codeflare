@@ -1088,8 +1088,13 @@ None.
 1. Layer 1 lane classification uses one internally shared classifier per runtime surface so the in-turn nudge and the turn-end gate agree on which review agents the diff requires.
 2. Lane mapping: docs-only (no sdd, no source) → `doc-updater`; `sdd/` touched without source (with or without docs) → `spec-reviewer` then `doc-updater`; any source touch → all three agents.
 3. Conservative branches (empty diff, missing prior ack, divergent merge-base) and a missing or unsourceable helper both fall back to all-three-lanes (`code-reviewer spec-reviewer doc-updater`), so a partially-deployed install never disables enforcement.
-4. On trigger, `code-reviewer` may run in parallel with `spec-reviewer`; `doc-updater` starts only after `spec-reviewer` completes on any project containing `sdd/`. Pi launches PR-boundary reviewers automatically from the extension through Codeflare-owned durable review jobs, not by asking the assistant to call `Agent` and not by depending on third-party subagent task IDs. Each push produces one review window.
-5. In a fix-push cascade (multiple pushes inside one turn), the gate advances the ack pointer through each push whose review window completed all lanes required by that push's diff; bypassed pushes (no spawns in window, per REQ-AGENT-041) are absorbed into the next complete window's cumulative review. Pi preserves the first unreviewed review base while prior lanes are incomplete, discards stale non-ancestor pending state, and acknowledges a head only after durable result files exist for every required lane.
+4. On trigger, `code-reviewer` may run in parallel with `spec-reviewer`. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewInitialLanes -->
+5. On any project containing `sdd/`, `doc-updater` starts only after `spec-reviewer` completes. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewEligibleLanes -->
+6. Pi launches PR-boundary reviewers from Codeflare-owned durable review jobs rather than assistant prompt-dispatch or third-party subagent task IDs. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewForPending -->
+7. In a fix-push cascade, the gate advances the ack pointer through each push whose review window completed all lanes required by that push's diff. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::markCompleted -->
+8. Bypassed pushes are absorbed into the next complete window's cumulative review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::selectReviewBase -->
+9. Pi preserves the first unreviewed review base while prior lanes are incomplete and discards stale non-ancestor pending state. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reusablePendingReview -->
+10. Pi acknowledges a PR head only after durable result files exist for every required lane. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::markCompleted -->
 
 **Constraints:**
 
