@@ -535,6 +535,11 @@ export function allDurableReviewLanesComplete(lanes: string[], completed: string
   return lanes.every((lane) => done.has(lane));
 }
 
+export function durableReviewAckReady(input: { lanes: string[]; resultLanes: string[] }): boolean {
+  const resultLanes = new Set(input.resultLanes);
+  return input.lanes.every((lane) => resultLanes.has(lane));
+}
+
 export function durableReviewJobDir(repo: string, head: string): string {
   return `${repo}/.git/codeflare-review-jobs/${head}`;
 }
