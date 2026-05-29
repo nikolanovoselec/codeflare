@@ -143,7 +143,9 @@ REQ-VAULT-007): Core environment rules (`cloudflare-environment`,
 `no-local-builds`, `git-workflow`) in both modes - `git-workflow` is
 the umbrella core rule that delegates branched mechanics to the
 `ci-monitoring`, `git-review-pipeline`, `pr-workflow`, and
-`deploy-credentials` skills. The discipline triad -
+`deploy-credentials` skills. CI monitoring is on-demand: routine pushes do not
+start a monitor unless the user asks, or a deploy/merge gate needs a fresh CI
+result. The discipline triad -
 `spec-discipline`, `documentation-discipline`, `tdd-discipline` - is
 advanced-only core-minimum rules (Pro-mode SDD workflow opt-in:
 identity, status vocabulary, severity, and skill pointers; detection

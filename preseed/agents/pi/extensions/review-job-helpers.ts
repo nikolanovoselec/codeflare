@@ -15,8 +15,17 @@ export function recoverDurableReviewLaneState(input: {
   resultPath?: string;
   activeInMemory: boolean;
 }): DurableReviewLaneSnapshot {
-  if (input.current?.status !== "completed" && input.resultExists) {
+  if (input.resultExists) {
     return { ...input.current, lane: input.lane, status: "completed", resultPath: input.resultPath };
+  }
+  if (input.current?.status === "completed") {
+    return {
+      lane: input.lane,
+      status: "pending",
+      startedAt: input.current.startedAt,
+      completedAt: input.current.completedAt,
+      transcriptPath: input.current.transcriptPath,
+    };
   }
   if (input.current?.status === "running" && !input.activeInMemory) {
     return {

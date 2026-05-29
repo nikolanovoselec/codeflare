@@ -1,16 +1,16 @@
 ---
 name: ci-monitoring
-description: Post-push CI monitoring. Runs one continuous tail-followed GitHub Actions monitor per push in a background task (native Bash run_in_background, or ctx_execute + setsid when Bash gh is routing-gated), with bounded timeout, failure triage, and stale-run cancellation. Invoked after every git push that targets a branch with CI workflows.
+description: On-demand CI monitoring. Runs one continuous tail-followed GitHub Actions monitor in a background task only when the user explicitly asks to monitor CI, or when a deploy/merge action requires a fresh CI result.
 version: 1.3.0
 ---
 
-# CI Monitoring After Push
+# On-Demand CI Monitoring
 
-A single push can trigger multiple GitHub Actions workflows (PR Checks, Fuzz, CodeQL, etc.). You MUST wait for ALL workflows for the pushed HEAD to finish before claiming green or deploying.
+A single push can trigger multiple GitHub Actions workflows (PR Checks, Fuzz, CodeQL, etc.). Do not auto-start this monitor after routine pushes. Start it only when the user explicitly asks to monitor CI, or when you are about to deploy/merge and need a fresh CI result. You MUST wait for ALL workflows for the monitored HEAD to finish before claiming green or deploying.
 
 ## Continuous background monitor pattern
 
-Use **one continuous bounded monitor** per pushed HEAD. Do not manually issue repeated short polling calls in the conversation. Run it as a background task so the main session stays free for other work and can end its turn while CI runs.
+When monitoring is requested, use **one continuous bounded monitor** per pushed HEAD. Do not manually issue repeated short polling calls in the conversation. Run it as a background task so the main session stays free for other work and can end its turn while CI runs.
 
 The monitor writes a status line to a temp log and `tail -f`s that log until the monitor process exits, giving continuous progress without flooding the main conversation.
 

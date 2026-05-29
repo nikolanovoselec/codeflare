@@ -9,7 +9,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
@@ -359,6 +359,7 @@ async function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: stri
   pending.spawnedIds = { ...pending.spawnedIds, ...Object.fromEntries(result.launched.map((lane) => [lane, `durable:${lane}`])) };
   pending.spawnedAt = pending.spawnedAt || now;
   savePending(pending);
+  updateReviewStatus(pending, ctx);
   if (result.launched.length > 0) {
     ctx.ui.notify(`PR-boundary durable reviewers started for ${basename(pending.repo)} at ${pending.head.slice(0, 12)} (${reason}): ${result.launched.join(", ")}. State: ${reviewJobDir(pending.repo, pending.head)}`, "info");
   }
@@ -431,8 +432,20 @@ export default function (pi: ExtensionAPI) {
     return pending;
   }
 
+  function claimReviewAnnouncement(state: PendingReview, lane: string): boolean {
+    const path = join(reviewJobDir(state.repo, state.head), "announced", `${lane}.sent`);
+    mkdirSync(dirname(path), { recursive: true });
+    try {
+      closeSync(openSync(path, "wx"));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function publishReviewResult(state: PendingReview, lane: string, result: unknown, ctx: any): void {
     const path = persistReviewResult(state, lane, result);
+    if (!claimReviewAnnouncement(state, lane)) return;
     const text = stringifyReviewResult(result) || "No findings reported.";
     ctx.ui.notify(`PR-boundary ${lane} completed for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Findings saved: ${path}`, "info");
     try {
@@ -445,6 +458,24 @@ export default function (pi: ExtensionAPI) {
     } catch {
       // UI notification + persisted result file are the reliable surfaces.
     }
+  }
+
+  function updateReviewStatus(state: PendingReview, ctx: any): void {
+    try {
+      const running = new Set(runningDurableReviewLanes(state.repo, state.head, state.lanes));
+      const parts = state.lanes.map((lane) => {
+        if (state.completed.has(lane) || existsSync(reviewResultPath(state.repo, state.head, lane))) return `${lane}:done`;
+        if (running.has(lane) || state.spawnedIds[lane]) return `${lane}:running`;
+        return `${lane}:pending`;
+      });
+      ctx.ui.setStatus("codeflare-review", `PR review ${state.head.slice(0, 12)} ${parts.join(" ")}`);
+    } catch {
+      // Status display is best-effort; persisted review state is authoritative.
+    }
+  }
+
+  function clearReviewStatus(ctx: any): void {
+    try { ctx.ui.setStatus("codeflare-review", ""); } catch { /* best effort */ }
   }
 
   function publishReviewSummary(state: PendingReview, ctx: any): void {
@@ -463,6 +494,7 @@ export default function (pi: ExtensionAPI) {
 
   function publishReviewResultFile(state: PendingReview, lane: string, ctx: any): void {
     const path = reviewResultPath(state.repo, state.head, lane);
+    if (!claimReviewAnnouncement(state, lane)) return;
     const text = existsSync(path) ? readFileSync(path, "utf8") : "No findings reported.";
     ctx.ui.notify(`PR-boundary ${lane} completed for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Findings saved: ${path}`, "info");
     try {
@@ -491,6 +523,7 @@ export default function (pi: ExtensionAPI) {
     if (result !== undefined) publishReviewResult(state, type, result, ctx);
     else publishReviewResultFile(state, type, ctx);
     state.completed.add(type);
+    updateReviewStatus(state, ctx);
     resetBlockCount(state.repo); // a lane completing is progress: reset the breaker patience counter
     if (type === "spec-reviewer" && state.lanes.includes("doc-updater") && !state.docPromptSent) {
       state.docPromptSent = true;
@@ -507,6 +540,7 @@ export default function (pi: ExtensionAPI) {
       clearPending(state.repo);
       ctx.ui.notify(`PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.`, "info");
       publishReviewSummary(state, ctx);
+      clearReviewStatus(ctx);
       pending = undefined;
     }
   }
@@ -627,6 +661,7 @@ export default function (pi: ExtensionAPI) {
     pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set(), requestedAt: {}, reviewStartedAt: Date.now() };
     const initialLanes = durableReviewInitialLanes(pending.lanes);
     savePending(pending);
+    updateReviewStatus(pending, ctx);
     pruneReviewResults(repo, head); // a new head is under review; drop stale prior-head result dirs
     ctx.ui.notify(`PR-boundary review required for ${basename(repo)} at ${head.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
     await spawnReviewLanes(pending, effectivePr, initialLanes, ctx, "initial PR-boundary trigger");

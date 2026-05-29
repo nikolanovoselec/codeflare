@@ -422,6 +422,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       activeInMemory: true,
     })).toEqual({ lane: 'spec-reviewer', status: 'running', startedAt: 20 });
     expect(recoverDurableReviewLaneState({
+      lane: 'spec-reviewer',
+      current: { lane: 'spec-reviewer', status: 'completed', startedAt: 20, completedAt: 30, transcriptPath: '/repo/.git/codeflare-review-jobs/head/transcripts/spec-reviewer.jsonl' },
+      resultExists: false,
+      activeInMemory: false,
+    })).toEqual({
+      lane: 'spec-reviewer',
+      status: 'pending',
+      startedAt: 20,
+      completedAt: 30,
+      transcriptPath: '/repo/.git/codeflare-review-jobs/head/transcripts/spec-reviewer.jsonl',
+    });
+    expect(recoverDurableReviewLaneState({
       lane: 'doc-updater',
       current: { lane: 'doc-updater', status: 'running', startedAt: 30 },
       resultExists: true,

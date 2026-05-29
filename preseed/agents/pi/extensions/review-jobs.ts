@@ -162,8 +162,7 @@ export function ensureDurableReviewJob(input: DurableReviewJobInput): DurableRev
 }
 
 export function completedDurableReviewLanes(repo: string, head: string, lanes: string[]): string[] {
-  const job = readDurableReviewJob(repo, head);
-  return lanes.filter((lane) => job?.laneState?.[lane]?.status === "completed" || existsSync(reviewResultPath(repo, head, lane)));
+  return lanes.filter((lane) => existsSync(reviewResultPath(repo, head, lane)));
 }
 
 export function failedDurableReviewLanes(repo: string, head: string, lanes: string[]): string[] {
@@ -210,8 +209,58 @@ function extractTextContent(content: unknown): string {
   }).join("");
 }
 
+type ReviewSeverityCounts = {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+};
+
+function stripExistingReviewSummary(text: string): string {
+  return text.replace(/\n+## Review Summary[\s\S]*$/i, "").trim();
+}
+
+function countReviewSeverities(text: string): ReviewSeverityCounts {
+  const counts: ReviewSeverityCounts = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const line of text.split("\n")) {
+    const match = line.match(/^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:\*\*)?\[?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\]?\b/i);
+    if (!match) continue;
+    const severity = match[1].toUpperCase();
+    if (severity === "BLOCKING" || severity === "CRITICAL") counts.critical += 1;
+    else if (severity === "HIGH") counts.high += 1;
+    else if (severity === "MEDIUM") counts.medium += 1;
+    else if (severity === "LOW") counts.low += 1;
+  }
+  return counts;
+}
+
+function reviewSummaryTable(counts: ReviewSeverityCounts): string {
+  const verdict = counts.critical > 0
+    ? "BLOCKING — critical findings must be resolved before merge."
+    : counts.high > 0
+      ? "WARNING — high findings should be resolved before merge."
+      : counts.medium > 0
+        ? "INFO — medium findings should be reviewed."
+        : counts.low > 0
+          ? "NOTE — low findings only."
+          : "PASS — no findings reported.";
+  return [
+    "## Review Summary",
+    "",
+    "| Severity | Count | Status |",
+    "|----------|-------|--------|",
+    `| CRITICAL | ${counts.critical} | ${counts.critical > 0 ? "block" : "pass"} |`,
+    `| HIGH     | ${counts.high} | ${counts.high > 0 ? "warn" : "pass"} |`,
+    `| MEDIUM   | ${counts.medium} | ${counts.medium > 0 ? "info" : "pass"} |`,
+    `| LOW      | ${counts.low} | ${counts.low > 0 ? "note" : "pass"} |`,
+    "",
+    `Verdict: ${verdict}`,
+  ].join("\n");
+}
+
 function formatResult(job: DurableReviewJobInput, lane: string, text: string): string {
-  const body = text.trim() || "No findings reported.";
+  const body = stripExistingReviewSummary(text.trim()) || "No findings reported.";
+  const counts = countReviewSeverities(body);
   return [
     `# PR-boundary ${lane}`,
     "",
@@ -219,7 +268,11 @@ function formatResult(job: DurableReviewJobInput, lane: string, text: string): s
     `Head: ${job.head}`,
     `PR: ${job.prNumber || "?"}`,
     "",
+    "## Findings",
+    "",
     body,
+    "",
+    reviewSummaryTable(counts),
     "",
   ].join("\n");
 }
@@ -255,7 +308,8 @@ async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: D
       "# Codeflare PR-boundary durable review job",
       "You are running inside Codeflare's durable PR-boundary review gate.",
       "Report findings only. Do not modify files. Do not spawn subagents. Do not run builds, tests, linters, or dev servers.",
-      "Your final answer is persisted as the review result for this lane, so include every finding you want enforced.",
+      "Use severity prefixes [CRITICAL], [HIGH], [MEDIUM], or [LOW] for findings. Use [CRITICAL] for merge-blocking findings.",
+      "Your final answer is persisted as the review result for this lane. Codeflare adds the standard Review Summary table after your findings, so do not add your own summary table.",
     ].join("\n");
 
     const resourceLoader = new DefaultResourceLoader({
