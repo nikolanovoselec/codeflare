@@ -15,7 +15,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { actionableReviewCount, compactDurableReviewStatus, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, durableReviewSummaryModel, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
-import { completedDurableReviewLanes, failedDurableReviewLanes, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
+import { completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
@@ -452,7 +452,24 @@ export default function (pi: ExtensionAPI) {
   // Remember the most recent real ctx from live handlers so doc-updater can still be
   // spawned (and the service ctx re-seeded) when a reviewer completes off-turn.
   let lastCtx: any;
-  const remember = (ctx: any): void => { if (isRealSessionCtx(ctx)) lastCtx = ctx; };
+  const installReviewNotifyFilter = (ctx: any): void => {
+    const ui = ctx?.ui;
+    if (!ui?.notify) return;
+    const globalState = globalThis as { __codeflareReviewPatchedUis?: WeakSet<object> };
+    globalState.__codeflareReviewPatchedUis = globalState.__codeflareReviewPatchedUis || new WeakSet<object>();
+    if (globalState.__codeflareReviewPatchedUis.has(ui)) return;
+    globalState.__codeflareReviewPatchedUis.add(ui);
+    const originalNotify = ui.notify.bind(ui);
+    ui.notify = (message: string, type?: string): void => {
+      const text = String(message || "");
+      if (/^PR-boundary .* completed for /.test(text) || /^PR-boundary review acknowledged for /.test(text)) return;
+      originalNotify(message, type);
+    };
+  };
+  const remember = (ctx: any): void => {
+    installReviewNotifyFilter(ctx);
+    if (isRealSessionCtx(ctx)) lastCtx = ctx;
+  };
   const completionCtx = (): any =>
     isRealSessionCtx(lastCtx) ? lastCtx : { sessionManager: { getCwd: () => process.cwd() }, ui: { notify: () => undefined } };
 
@@ -540,7 +557,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function publishReviewSummary(state: PendingReview, ctx: any): void {
-    if (!claimReviewAnnouncement(state, "summary")) return;
+    if (!claimReviewAnnouncement(state, "summary-v2")) return;
     const content = reviewSummaryMarkdown(state);
     try {
       pi.sendMessage({
@@ -552,6 +569,46 @@ export default function (pi: ExtensionAPI) {
     } catch {
       ctx.ui.notify(`PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Findings saved under ${reviewResultsDir(state.repo, state.head)}.`, "info");
     }
+  }
+
+  function completedStateFromDurableJob(repo: string, head: string): PendingReview | undefined {
+    const job = readDurableReviewJob(repo, head);
+    if (!job?.lanes?.length) return undefined;
+    if (!job.lanes.every((lane) => existsSync(reviewResultPath(repo, head, lane)))) return undefined;
+    return {
+      repo,
+      prNumber: job.prNumber,
+      baseRefName: job.baseRefName,
+      head,
+      reviewBase: job.reviewBase,
+      lanes: job.lanes,
+      completed: new Set(job.lanes),
+      docPromptSent: true,
+      spawned: true,
+      spawnedIds: {},
+      fallbackLanes: new Set(),
+      requestedAt: {},
+      reviewStartedAt: job.startedAt,
+      spawnedAt: job.startedAt,
+    };
+  }
+
+  function publishFinalSummaryIfReady(repo: string, head: string, ctx: any): void {
+    const state = completedStateFromDurableJob(repo, head);
+    if (!state) return;
+    publishReviewSummary(state, ctx);
+    requestReviewAutofix(state);
+  }
+
+  function publishSummaryForCurrentPr(ctx: any): boolean {
+    const repo = activeRepoFallback() || findGitRoot(ctx.sessionManager.getCwd());
+    if (!repo || !isSddProject(repo)) return false;
+    const pr = prState(repo);
+    if (!isEnforcedPr(pr)) return false;
+    const head = reviewCandidateHead(repo, pr);
+    if (!head || !acked(repo, head)) return false;
+    publishFinalSummaryIfReady(repo, head, ctx);
+    return true;
   }
 
   function requestReviewAutofix(state: PendingReview): void {
@@ -615,7 +672,6 @@ export default function (pi: ExtensionAPI) {
       resetBlockCount(state.repo);
       clearBreaker(state.repo);
       clearPending(state.repo);
-      ctx.ui.notify(`PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}.`, "info");
       publishReviewSummary(state, ctx);
       requestReviewAutofix(state);
       clearReviewStatus(ctx);
@@ -625,6 +681,7 @@ export default function (pi: ExtensionAPI) {
 
   const onAgentStart = (event: any, ctx: any) => {
     if (!isActiveRun()) return;
+    remember(ctx);
     const toolName = String(event?.toolName || "").toLowerCase();
     const input = event?.input || event?.params || event?.args || {};
     const command = commandText(event);
@@ -656,6 +713,11 @@ export default function (pi: ExtensionAPI) {
     }
   };
 
+  pi.on("session_start", (_event: any, ctx: any) => {
+    remember(ctx);
+    publishSummaryForCurrentPr(ctx);
+  });
+
   pi.on("tool_call", onAgentStart);
   pi.on("tool_execution_start", (event: any, ctx: any) => {
     const id = toolEventId(event);
@@ -665,6 +727,7 @@ export default function (pi: ExtensionAPI) {
 
   const onToolEnd = async (event: any, ctx: any) => {
     if (!isActiveRun()) return;
+    remember(ctx);
     const toolName = String(event?.toolName || "").toLowerCase();
     if (isFailedToolExecution(event)) return;
 
@@ -783,6 +846,7 @@ export default function (pi: ExtensionAPI) {
     remember(ctx);
     const state = hydratePending(ctx);
     if (!state) {
+      if (publishSummaryForCurrentPr(ctx)) return;
       const repo = activeRepoFallback() || findGitRoot(ctx.sessionManager.getCwd());
       if (!repo || !isSddProject(repo) || consumeBypass()) return;
       const pr = prState(repo);
@@ -790,7 +854,11 @@ export default function (pi: ExtensionAPI) {
       const head = reviewCandidateHead(repo, pr);
       if (!head) return;
       const effectivePr = { ...pr, headRefOid: head };
-      if (acked(repo, head) || isBreakerOpen(repo, head)) return;
+      if (acked(repo, head)) {
+        publishFinalSummaryIfReady(repo, head, ctx);
+        return;
+      }
+      if (isBreakerOpen(repo, head)) return;
 
       const review = mergeLaneState(repo, head, undefined);
       if (review.lanes.length === 0) {
@@ -812,7 +880,13 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     if (isBreakerOpen(state.repo, state.head)) { pending = undefined; return; } // latched: do no further work for this head
-    if (acked(state.repo, state.head) || consumeBypass()) {
+    if (acked(state.repo, state.head)) {
+      publishFinalSummaryIfReady(state.repo, state.head, ctx);
+      clearPending(state.repo);
+      pending = undefined;
+      return;
+    }
+    if (consumeBypass()) {
       clearPending(state.repo);
       pending = undefined;
       return;
