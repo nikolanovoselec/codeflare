@@ -14,16 +14,16 @@ Use **one continuous bounded monitor** per pushed HEAD. Do not manually issue re
 
 The monitor writes a status line to a temp log and `tail -f`s that log until the monitor process exits, giving continuous progress without flooding the main conversation.
 
-### Toolset selection — runs under Bash *or* `ctx_*`
+### Toolset selection - runs under Bash *or* `ctx_*`
 
-The monitor is a plain shell body (below) and runs identically under either toolset; only the launch wrapper differs. `gh` and `node` work fine **inside** a `ctx_execute` shell subprocess — a context-mode routing gate only intercepts the Bash *tool*, not the binaries — so a session that cannot run `gh` through the Bash tool can still run the exact same monitor through `ctx_*`. Pick whichever the session supports; never fall back to manual chat polling.
+The monitor is a plain shell body (below) and runs identically under either toolset; only the launch wrapper differs. `gh` and `node` work fine **inside** a `ctx_execute` shell subprocess (a context-mode routing gate only intercepts the Bash *tool*, not the binaries), so a session that cannot run `gh` through the Bash tool can still run the exact same monitor through `ctx_*`. Pick whichever the session supports; never fall back to manual chat polling.
 
 - **Native Bash tool** (default when the Bash tool can run `gh`/`node`): launch the shell body with `run_in_background: true`. The harness detaches it and re-invokes you on exit. Retrieve that task's result before any CI claim.
-- **context-mode `ctx_*` tools** (use when a Bash `git push`/`gh`/`node` call is rejected with a "violates routing" / context-mode error — e.g. Claude Code + context-mode): run the **same** shell body through `ctx_execute` with `language: "shell"` and `background: true`, wrapped in `setsid` so it survives the turn ending. Read the terminal `CI_RESULT` line from the log before any CI claim.
+- **context-mode `ctx_*` tools** (use when a Bash `git push`/`gh`/`node` call is rejected with a "violates routing" / context-mode error, e.g. Claude Code + context-mode): run the **same** shell body through `ctx_execute` with `language: "shell"` and `background: true`, wrapped in `setsid` so it survives the turn ending. Read the terminal `CI_RESULT` line from the log before any CI claim.
 
 Detection rule: if a `git push`/`gh` Bash call returns a routing-gate error, use the `ctx_*` path; otherwise use the Bash path. Either way it is exactly **one** continuous background monitor per HEAD.
 
-### The monitor (shell body — identical for both toolsets)
+### The monitor (shell body, identical for both toolsets)
 
 ```bash
 cd <repo>
@@ -65,7 +65,7 @@ wait $pid
 The body above is launch-neutral. Wrap it per toolset:
 
 - **Bash tool:** pass the body verbatim as the command with `run_in_background: true`. The `( … ) & … tail -f … --pid` shape keeps the call alive until the loop exits; the harness notifies you on completion.
-- **`ctx_execute` (context-mode):** detach the body from the turn so it outlives the session stopping —
+- **`ctx_execute` (context-mode):** detach the body from the turn so it outlives the session stopping:
 
   ```bash
   setsid bash -c '<body>' >/dev/null 2>&1 &
