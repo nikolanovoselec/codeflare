@@ -743,7 +743,10 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event: any, ctx: any) => {
     remember(ctx);
     const state = hydratePending(ctx);
-    if (state && reviewHeadStatus(state) === "stale") discardStale(state, ctx);
+    if (state) {
+      if (reviewHeadStatus(state) === "stale") discardStale(state, ctx);
+      else updateReviewStatus(state, ctx);
+    }
     publishSummaryForCurrentPr(ctx);
   });
 
