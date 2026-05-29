@@ -464,3 +464,11 @@ CVE-2026-39825
 # whitespace. Impact: NONE - rclone does not use html/template or serve HTML;
 # it is an outbound-only CLI tool doing R2 bisync. Fix: Go 1.25.10 / 1.26.3.
 CVE-2026-39826
+
+# python3-pip-whl 23.0.1+dfsg-1 (Debian bookworm): pip path traversal via a
+# malicious entry point name during wheel installation. Impact: NONE - the
+# container never pip-installs attacker-controlled wheels; python3/pip ships as
+# part of the Debian toolchain and python is added only for ECC observe hooks
+# (stdlib only, same exposure profile as the cpython entries above). No untrusted
+# wheel is installed at runtime. No fixed version available in Debian bookworm.
+CVE-2026-8643
