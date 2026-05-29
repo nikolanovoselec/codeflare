@@ -644,24 +644,8 @@ export default function (pi: ExtensionAPI) {
     const marker = join(reviewJobDir(state.repo, state.head), "autofix.requested");
     mkdirSync(dirname(marker), { recursive: true });
     try { closeSync(openSync(marker, "wx")); } catch { return; }
-    const files = rows.map((row) => `- ${row.lane}: ${row.path} (${severityCell(row.counts)})`).join("\n");
-    try {
-      pi.sendUserMessage?.([
-        `Fix legitimate PR-boundary review findings for ${basename(state.repo)} at ${state.head}.`,
-        "",
-        "Review result files:",
-        files,
-        "",
-        "Instructions:",
-        "- Fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
-        "- Ignore non-actionable/process-only anti-spiral findings if they conflict with the user's explicit continuous-fix instruction.",
-        "- Do not rerun or start CI monitoring unless the user explicitly asks or a merge/deploy gate requires it.",
-        "- Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
-        "- The next PR-boundary review should cover only the pushed fix diff.",
-      ].join("\n"));
-    } catch {
-      // Best effort: summary table still tells the assistant/user what to fix.
-    }
+    // The merged review summary already contains all actionable findings and the
+    // recommendation. Do not emit a second fix prompt block into chat.
   }
 
   function publishReviewResultFile(state: PendingReview, lane: string, ctx: any): void {

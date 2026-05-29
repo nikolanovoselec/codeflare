@@ -1091,8 +1091,7 @@ None.
 4. The initial review wave starts `code-reviewer` and `spec-reviewer` together when both lanes are required. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewInitialLanes -->
 5. `doc-updater` starts only after `spec-reviewer` completes on SDD projects. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewEligibleLanes -->
 6. A fix-push cascade preserves the first unreviewed review base for cumulative review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::selectReviewBase -->
-7. Pi acknowledges a PR head only after durable result files exist for every required lane. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::completedDurableReviewLanes -->
-8. Durable Pi review lanes fail closed when the lane runner times out or records a failure; the PR head remains unacked until a later review run writes required result files. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::runDurableLane -->
+7. Pi acknowledges a PR head only after durable result files exist for every required lane; timed-out or failed durable lanes do not produce the required result file and leave the PR head unacked until a later review run succeeds. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::completedDurableReviewLanes --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::runDurableLane -->
 
 **Constraints:**
 

@@ -284,8 +284,12 @@ All preseed content is deployed via the manifest pipeline:
   `## Finding Details` sections. That chat summary aggregates severity counts
   across code/spec/docs, lists all findings sorted by criticality, and avoids
   per-lane result-file links; the per-lane `.md` files remain the durable
-  evidence store. If legitimate MEDIUM/HIGH/CRITICAL findings remain, Pi then
-  requests a fix-and-push pass. Implements
+  evidence store. Timed-out or failed durable lanes are recorded as failed and
+  do not produce the required result file, so the PR head remains unacked until
+  a later review run succeeds, per
+  [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch).
+  If legitimate MEDIUM/HIGH/CRITICAL findings remain, Pi then requests a
+  fix-and-push pass. Implements
   [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop).
 
   Merge enforcement does not depend on third-party subagent task IDs or
