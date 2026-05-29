@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD63 throughout the codebase and documentation. 48 ADRs carry active content (AD4 superseded by AD56 + AD57; AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD64 throughout the codebase and documentation. 49 ADRs carry active content (AD4 superseded by AD56 + AD57; AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -74,6 +74,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) | Pi `/review` ships as a dedicated native skill (Claude commands do not deploy to Pi) | Architecture |
 | [AD62](#ad62-pi-model-name-genericization-with-codeflare_memory_model-lever) | Pi model-name genericization with `CODEFLARE_MEMORY_MODEL` lever | Architecture |
 | [AD63](#ad63-pi-safe-graphify-updatesh-is-fail-closed-and-two-step) | Pi `safe-graphify-update.sh` is fail-closed and two-step | Architecture |
+| [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) | Durable review lanes load extensions additively behind the `noExtensions` shield | Agents |
 
 ---
 

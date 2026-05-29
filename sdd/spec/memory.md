@@ -70,7 +70,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
-**Verification:** [Integration test](../../host/__tests__/memory-capture-hook.test.js)
+**Verification:** [Integration test](../../host/__tests__/memory-capture-hook.test.js), [Pi behavioral tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 

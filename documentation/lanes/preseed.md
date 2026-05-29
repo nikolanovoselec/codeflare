@@ -393,7 +393,7 @@ to `.pi/agent/extensions/`, `.pi/agent/scripts/`, `.pi/agent/mcp.json`,
 `.pi/agent/npm/package.json`, `.pi/agent/npm/package-lock.json`,
 capture-contract prompts to `.pi/agent/prompts/`, and
 native Pi skill overrides under `~/.pi/agent/skills/`, and adapts Claude agent definitions into
-`.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`. Pi's generated agent frontmatter deliberately drops context-mode tools so those subagents run against the native Pi tool surface.
+`.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`. Pi's generated agent frontmatter deliberately drops context-mode tools so those `@gotgenes/pi-subagents` subagents run against the native Pi tool surface. This applies to subagent frontmatter only; the durable PR-boundary review lanes are a separate `createAgentSession` path that loads context-mode additively when it is enabled (see AD64), so "review runs without ctx tools" is not categorical.
 
 **Per-mode counts**: Default mode seeds 53 files, advanced mode
 seeds 365 files. Total array size is 370 (includes variant-per-mode
@@ -487,7 +487,7 @@ is done via `settings.json` (see above).
 ## Third-party plugin: context-mode
 
 [context-mode](https://github.com/mksglu/context-mode) is registered
-as an optional Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi does not load context-mode by default; `/ctx on` enables the package for the current running Pi session and reloads resources, while `/ctx off` disables it again.
+as an optional Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi does not load context-mode by default; `/ctx on` enables the package for the current running Pi session and reloads resources, while `/ctx off` disables it again. Durable PR-boundary review lanes inherit this state: when context-mode is enabled in Pi settings, `runDurableLane` additively loads it into the lane via `additionalExtensionPaths` (see AD64), so reviewers gain `ctx_*` tools only when the main session has `/ctx on`; with it off, lanes run without them.
 The npm package is fetched by the user's own container from the npm
 registry on first invocation; Codeflare does not redistribute the
 source. Commercial users receive only the MCP server registration:
