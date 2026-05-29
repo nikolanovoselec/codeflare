@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { allDurableReviewLanesComplete, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewResultPath, recoverDurableReviewLaneState } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { allDurableReviewLanesComplete, compactDurableReviewStatus, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewResultPath, formatDurableReviewResult, recoverDurableReviewLaneState } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -445,6 +445,30 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       startedAt: 30,
       resultPath: '/repo/.git/sdd-review-results/head/doc-updater.md',
     });
+  });
+
+  it('REQ-AGENT-040: durable Pi review results use a shared findings and summary-table format', () => {
+    const result = formatDurableReviewResult(
+      { repo: '/repo/codeflare', head: 'abc123456789', prNumber: 443 },
+      'spec-reviewer',
+      '[HIGH] stale rule\n[LOW] wording nit\n\n## Review Summary\nold table'
+    );
+    expect(result).toContain('# PR-boundary spec-reviewer');
+    expect(result).toContain('## Findings');
+    expect(result).toContain('[HIGH] stale rule');
+    expect(result).not.toContain('old table');
+    expect(result).toContain('## Review Summary');
+    expect(result).toContain('| HIGH     | 1 | warn |');
+    expect(result).toContain('| LOW      | 1 | note |');
+  });
+
+  it('REQ-AGENT-040: durable Pi review status stays compact for mobile footers', () => {
+    expect(compactDurableReviewStatus({
+      head: 'abcdef123456',
+      lanes: ['code-reviewer', 'spec-reviewer', 'doc-updater'],
+      completed: ['code-reviewer'],
+      running: ['spec-reviewer'],
+    })).toBe('PRR abcdef1 c✓ s… d·');
   });
 
   it('REQ-AGENT-040: durable Pi review job paths are under .git and result paths stay on the existing review surface', () => {

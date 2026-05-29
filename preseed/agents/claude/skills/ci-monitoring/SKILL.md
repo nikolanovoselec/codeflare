@@ -93,4 +93,4 @@ gh run list --branch <branch> --limit 12 --json databaseId,status \
 
 ## Binding invocation rule
 
-After every `git push` that targets a branch with CI workflows configured, invoke this skill immediately, start the **one** background monitor for the pushed HEAD via whichever launch wrapper the session supports (native Bash `run_in_background`, or `ctx_execute` + `setsid` when Bash `gh` is routing-gated), and retrieve terminal status before claiming green or deploying.
+Invoke this skill only when the user explicitly asks to monitor CI, or when a deploy/merge gate requires a fresh CI result. Routine pushes must not start a monitor. When this skill is invoked, start the **one** background monitor for the target HEAD via whichever launch wrapper the session supports (native Bash `run_in_background`, or `ctx_execute` + `setsid` when Bash `gh` is routing-gated), and retrieve terminal status before claiming green or deploying.

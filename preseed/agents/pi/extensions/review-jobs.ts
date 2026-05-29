@@ -8,7 +8,7 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -16,7 +16,7 @@ import {
   SessionManager,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { recoverDurableReviewLaneState } from "./review-job-helpers";
+import { formatDurableReviewResult, recoverDurableReviewLaneState } from "./review-job-helpers";
 import type { ReviewSpawnRequest } from "./review-helpers";
 
 export const REVIEW_JOBS_EVENT_LANE_COMPLETED = "codeflare-review-jobs:lane-completed";
@@ -209,73 +209,6 @@ function extractTextContent(content: unknown): string {
   }).join("");
 }
 
-type ReviewSeverityCounts = {
-  critical: number;
-  high: number;
-  medium: number;
-  low: number;
-};
-
-function stripExistingReviewSummary(text: string): string {
-  return text.replace(/\n+## Review Summary[\s\S]*$/i, "").trim();
-}
-
-function countReviewSeverities(text: string): ReviewSeverityCounts {
-  const counts: ReviewSeverityCounts = { critical: 0, high: 0, medium: 0, low: 0 };
-  for (const line of text.split("\n")) {
-    const match = line.match(/^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:\*\*)?\[?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\]?\b/i);
-    if (!match) continue;
-    const severity = match[1].toUpperCase();
-    if (severity === "BLOCKING" || severity === "CRITICAL") counts.critical += 1;
-    else if (severity === "HIGH") counts.high += 1;
-    else if (severity === "MEDIUM") counts.medium += 1;
-    else if (severity === "LOW") counts.low += 1;
-  }
-  return counts;
-}
-
-function reviewSummaryTable(counts: ReviewSeverityCounts): string {
-  const verdict = counts.critical > 0
-    ? "BLOCKING — critical findings must be resolved before merge."
-    : counts.high > 0
-      ? "WARNING — high findings should be resolved before merge."
-      : counts.medium > 0
-        ? "INFO — medium findings should be reviewed."
-        : counts.low > 0
-          ? "NOTE — low findings only."
-          : "PASS — no findings reported.";
-  return [
-    "## Review Summary",
-    "",
-    "| Severity | Count | Status |",
-    "|----------|-------|--------|",
-    `| CRITICAL | ${counts.critical} | ${counts.critical > 0 ? "block" : "pass"} |`,
-    `| HIGH     | ${counts.high} | ${counts.high > 0 ? "warn" : "pass"} |`,
-    `| MEDIUM   | ${counts.medium} | ${counts.medium > 0 ? "info" : "pass"} |`,
-    `| LOW      | ${counts.low} | ${counts.low > 0 ? "note" : "pass"} |`,
-    "",
-    `Verdict: ${verdict}`,
-  ].join("\n");
-}
-
-function formatResult(job: DurableReviewJobInput, lane: string, text: string): string {
-  const body = stripExistingReviewSummary(text.trim()) || "No findings reported.";
-  const counts = countReviewSeverities(body);
-  return [
-    `# PR-boundary ${lane}`,
-    "",
-    `Repo: ${basename(job.repo)}`,
-    `Head: ${job.head}`,
-    `PR: ${job.prNumber || "?"}`,
-    "",
-    "## Findings",
-    "",
-    body,
-    "",
-    reviewSummaryTable(counts),
-    "",
-  ].join("\n");
-}
 
 export function recordDurableReviewLane(jobInput: DurableReviewJobInput, lane: DurableReviewLane): DurableReviewJob {
   writeLane(jobInput.repo, jobInput.head, lane);
@@ -352,7 +285,7 @@ async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: D
     }
 
     mkdirSync(dirname(resultPath), { recursive: true });
-    writeFileSync(resultPath, formatResult(job, request.lane, finalText), "utf8");
+    writeFileSync(resultPath, formatDurableReviewResult(job, request.lane, finalText), "utf8");
     recordDurableReviewLane(job, { lane: request.lane, status: "completed", startedAt: readLane(job.repo, job.head, request.lane)?.startedAt, completedAt: now(), transcriptPath, resultPath });
     pi.events.emit(REVIEW_JOBS_EVENT_LANE_COMPLETED, { repo: job.repo, head: job.head, lane: request.lane, resultPath, result: finalText });
   } catch (error) {

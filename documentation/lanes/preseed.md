@@ -145,7 +145,7 @@ the umbrella core rule that delegates branched mechanics to the
 `ci-monitoring`, `git-review-pipeline`, `pr-workflow`, and
 `deploy-credentials` skills. CI monitoring is on-demand: routine pushes do not
 start a monitor unless the user asks, or a deploy/merge gate needs a fresh CI
-result. The discipline triad -
+result ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC5). The discipline triad -
 `spec-discipline`, `documentation-discipline`, `tdd-discipline` - is
 advanced-only core-minimum rules (Pro-mode SDD workflow opt-in:
 identity, status vocabulary, severity, and skill pointers; detection
@@ -271,9 +271,13 @@ All preseed content is deployed via the manifest pipeline:
   active repo from native GitHub workflow commands, and requires durable
   review-job completion for SDD PRs targeting `main`/`master`. The durable
   runner in `review-jobs.ts` writes job state under `.git/codeflare-review-jobs/<head>/`
-  and public findings under `.git/sdd-review-results/<head>/`, so merge
-  enforcement does not depend on third-party subagent task IDs or in-memory
-  service records. Because Claude slash commands do not deploy to Pi, the user-invoked `/review` workflow
+  and public findings under `.git/sdd-review-results/<head>/`. Each result file
+  uses a common `## Findings` section followed by a severity-count Review Summary
+  table. While internal durable lanes run, Pi displays a compact footer status
+  (`PRR <head> c… s… d·`, where `…` is running, `✓` is done, and `·` is pending),
+  so operators can diagnose background review progress without visible generic
+  Agent tasks. Merge enforcement does not depend on third-party subagent task IDs
+  or in-memory service records. Because Claude slash commands do not deploy to Pi, the user-invoked `/review` workflow
   ships as the dedicated `skills/review/SKILL.md` native skill (full
   11-phase flow) rather than relying only on the transformed
   `git-review-pipeline` enforcement skill. Pi memory capture is driven by

@@ -13,7 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { durableReviewEligibleLanes, durableReviewInitialLanes } from "./review-job-helpers";
+import { compactDurableReviewStatus, durableReviewEligibleLanes, durableReviewInitialLanes } from "./review-job-helpers";
 import { completedDurableReviewLanes, failedDurableReviewLanes, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -462,13 +462,9 @@ export default function (pi: ExtensionAPI) {
 
   function updateReviewStatus(state: PendingReview, ctx: any): void {
     try {
-      const running = new Set(runningDurableReviewLanes(state.repo, state.head, state.lanes));
-      const parts = state.lanes.map((lane) => {
-        if (state.completed.has(lane) || existsSync(reviewResultPath(state.repo, state.head, lane))) return `${lane}:done`;
-        if (running.has(lane) || state.spawnedIds[lane]) return `${lane}:running`;
-        return `${lane}:pending`;
-      });
-      ctx.ui.setStatus("codeflare-review", `PR review ${state.head.slice(0, 12)} ${parts.join(" ")}`);
+      const completed = state.lanes.filter((lane) => state.completed.has(lane) || existsSync(reviewResultPath(state.repo, state.head, lane)));
+      const running = runningDurableReviewLanes(state.repo, state.head, state.lanes).concat(Object.keys(state.spawnedIds));
+      ctx.ui.setStatus("codeflare-review", compactDurableReviewStatus({ head: state.head, lanes: state.lanes, completed, running }));
     } catch {
       // Status display is best-effort; persisted review state is authoritative.
     }
@@ -479,6 +475,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function publishReviewSummary(state: PendingReview, ctx: any): void {
+    if (!claimReviewAnnouncement(state, "summary")) return;
     const paths = state.lanes.map((lane) => `- ${lane}: ${reviewResultPath(state.repo, state.head, lane)}`).join("\n");
     try {
       pi.sendMessage({
