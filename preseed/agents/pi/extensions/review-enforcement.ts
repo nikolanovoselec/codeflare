@@ -46,6 +46,7 @@ type PendingReview = {
   spawnedIds: Record<string, string>;
   fallbackLanes: Set<string>;
   requestedAt: Record<string, number>;
+  reviewStartedAt: number;
   spawnedAt?: number;
 };
 
@@ -226,16 +227,16 @@ function pruneReviewResults(repo: string, keepHead: string): void {
 
 function loadPending(repo: string): PendingReview | undefined {
   try {
-    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; reviewBase?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean; spawnedIds?: Record<string, string>; fallbackLanes?: string[]; requestedAt?: Record<string, number>; spawnedAt?: number };
+    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; reviewBase?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean; spawnedIds?: Record<string, string>; fallbackLanes?: string[]; requestedAt?: Record<string, number>; reviewStartedAt?: number; spawnedAt?: number };
     if (!state.head || !state.baseRefName || !Array.isArray(state.lanes)) return undefined;
-    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, reviewBase: state.reviewBase, lanes: state.lanes, completed: new Set(state.completed || []), docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds || {}, fallbackLanes: new Set(state.fallbackLanes || []), requestedAt: state.requestedAt || {}, spawnedAt: state.spawnedAt };
+    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, reviewBase: state.reviewBase, lanes: state.lanes, completed: new Set(state.completed || []), docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds || {}, fallbackLanes: new Set(state.fallbackLanes || []), requestedAt: state.requestedAt || {}, reviewStartedAt: state.reviewStartedAt || state.spawnedAt || Date.now(), spawnedAt: state.spawnedAt };
   } catch {
     return undefined;
   }
 }
 
 function savePending(pending: PendingReview): void {
-  writeFileSync(pendingPath(pending.repo), JSON.stringify({ prNumber: pending.prNumber, baseRefName: pending.baseRefName, head: pending.head, reviewBase: pending.reviewBase, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent, spawned: pending.spawned, spawnedIds: pending.spawnedIds, fallbackLanes: [...pending.fallbackLanes], requestedAt: pending.requestedAt, spawnedAt: pending.spawnedAt }) + "\n", "utf8");
+  writeFileSync(pendingPath(pending.repo), JSON.stringify({ prNumber: pending.prNumber, baseRefName: pending.baseRefName, head: pending.head, reviewBase: pending.reviewBase, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent, spawned: pending.spawned, spawnedIds: pending.spawnedIds, fallbackLanes: [...pending.fallbackLanes], requestedAt: pending.requestedAt, reviewStartedAt: pending.reviewStartedAt, spawnedAt: pending.spawnedAt }) + "\n", "utf8");
 }
 
 function isAncestor(repo: string, ancestor: string, current: string): boolean {
@@ -418,6 +419,7 @@ async function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: stri
       fallbackLanes: [...pending.fallbackLanes],
       requestedAt: pending.requestedAt,
       spawned: pending.spawned,
+      reviewStartedAt: pending.reviewStartedAt,
       spawnedAt: pending.spawnedAt,
     },
     requests,
@@ -659,7 +661,7 @@ export default function (pi: ExtensionAPI) {
     const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
     resetBlockCount(repo);
     clearBreaker(repo); // new head under review: drop any stale breaker latch from a prior head
-    pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set(), requestedAt: {} };
+    pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set(), requestedAt: {}, reviewStartedAt: Date.now() };
     const initialLanes = pending.lanes.filter((lane) => lane !== "doc-updater" || !pending.lanes.includes("spec-reviewer"));
     savePending(pending);
     pruneReviewResults(repo, head); // a new head is under review; drop stale prior-head result dirs
@@ -754,7 +756,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     const STALL_TIMEOUT_MS = 10 * 60 * 1000;
-    const pendingAge = Date.now() - (currentState.spawnedAt ?? Date.now());
+    const pendingAge = Date.now() - currentState.reviewStartedAt;
     if (trackedReviewerRunning && pendingAge < STALL_TIMEOUT_MS) {
       return;
     }

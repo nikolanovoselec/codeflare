@@ -345,6 +345,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         fallbackLanes: [],
         requestedAt: {},
         spawned: false,
+        reviewStartedAt: 900,
       },
       requests: [
         { lane: 'code-reviewer', prompt: 'Review head abc123', description: 'Review code changes' },
@@ -377,6 +378,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       'spec-reviewer': 'spec-reviewer-id',
     });
     expect(result.state.spawned).toBe(true);
+    expect(result.state.reviewStartedAt).toBe(900);
     expect(result.state.spawnedAt).toBe(1000);
   });
 
@@ -388,6 +390,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         fallbackLanes: [],
         requestedAt: {},
         spawned: true,
+        reviewStartedAt: 400,
         spawnedAt: 500,
       },
       requests: [
@@ -402,6 +405,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(result.state.spawnedIds).toEqual({ 'code-reviewer': 'existing-code-id' });
     expect(result.state.fallbackLanes).toEqual(['spec-reviewer']);
     expect(result.state.requestedAt).toEqual({ 'spec-reviewer': 1000 });
+    expect(result.state.reviewStartedAt).toBe(400);
     expect(result.state.spawnedAt).toBe(500);
   });
 

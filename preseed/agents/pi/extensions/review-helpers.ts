@@ -32,6 +32,7 @@ export type ReviewSpawnSnapshot = {
   fallbackLanes: string[];
   requestedAt: Record<string, number>;
   spawned: boolean;
+  reviewStartedAt: number;
   spawnedAt?: number;
 };
 
@@ -116,6 +117,7 @@ export function startReviewLaneSpawns(input: {
     fallbackLanes: [...input.state.fallbackLanes],
     requestedAt: { ...input.state.requestedAt },
     spawned: input.state.spawned,
+    reviewStartedAt: input.state.reviewStartedAt,
     spawnedAt: input.state.spawnedAt,
   };
   let launched: string[] = [];
