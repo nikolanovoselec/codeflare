@@ -3,7 +3,7 @@ import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-see
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
-import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -963,6 +963,53 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('flock');
     expect(mv?.content).toContain('graphify-global.lock');
     expect(mv?.content).toContain('user_vault');
+  });
+
+  // parseSessionMessages reads Pi's durable on-disk session JSONL (the file Pi persists for
+  // /resume) into the message objects compactMessages expects. This is the source that replaces
+  // the volatile in-memory buffer that produced empty captures after a reload.
+  describe('REQ-MEM-001: parseSessionMessages durable transcript source', () => {
+    it('extracts message-entry payloads and drops session header / compaction / custom entries', () => {
+      const jsonl = [
+        JSON.stringify({ type: 'session', id: 'abc', cwd: '/x', timestamp: 't' }),
+        JSON.stringify({ type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'real-user-turn' }] } }),
+        JSON.stringify({ type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: 'real-assistant-turn' }] } }),
+        JSON.stringify({ type: 'message', message: { role: 'toolResult', content: [{ type: 'tool_result', content: 'noise' }] } }),
+        JSON.stringify({ type: 'compaction', summary: 'compaction-should-be-dropped' }),
+        JSON.stringify({ type: 'custom', customType: 'x', data: {} }),
+      ].join('\n');
+      const messages = parseSessionMessages(jsonl);
+      expect(messages.map((m) => m.role)).toEqual(['user', 'assistant', 'toolResult']);
+      // round-trips through compactMessages: user + assistant text kept, toolResult role dropped
+      const transcript = compactMessages(messages);
+      expect(transcript).toContain('real-user-turn');
+      expect(transcript).toContain('real-assistant-turn');
+      expect(transcript).not.toContain('noise');
+      expect(transcript).not.toContain('compaction-should-be-dropped');
+    });
+
+    it('skips malformed lines and blank lines without throwing, returns [] for empty input', () => {
+      expect(parseSessionMessages('')).toEqual([]);
+      expect(parseSessionMessages('\n  \n')).toEqual([]);
+      const jsonl = [
+        '{ this is not json',
+        JSON.stringify({ type: 'message', message: { role: 'user', content: 'kept' } }),
+        '',
+      ].join('\n');
+      const messages = parseSessionMessages(jsonl);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].content).toBe('kept');
+    });
+  });
+
+  it('REQ-MEM-001: memory-vault.ts capture reads the durable on-disk session, not volatile state', () => {
+    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
+    // Durable source: capture pulls the transcript from the persisted session file Pi writes for /resume.
+    expect(mv?.content).toContain('getSessionFile');
+    expect(mv?.content).toContain('parseSessionMessagesHelper');
+    expect(mv?.content).toContain('readSessionMessages');
+    // Skip-empty guard: a blank transcript must never produce a hollow "no substantive content" note.
+    expect(mv?.content).toContain('if (!transcript.trim()) return;');
   });
 
   it('REQ-MEM-010 AC5: shouldCapture fires at exact 15-message intervals from source constant', () => {

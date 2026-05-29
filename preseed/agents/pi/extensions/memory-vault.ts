@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { captureFilename, captureTimestamp, compactMessages as compactMessagesHelper, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId as sessionIdHelper, shouldCapture, stableId as stableIdHelper, titleFor as titleForHelper } from "./memory-vault-helpers";
+import { captureFilename, captureTimestamp, compactMessages as compactMessagesHelper, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages as parseSessionMessagesHelper, sessionId as sessionIdHelper, shouldCapture, stableId as stableIdHelper, titleFor as titleForHelper } from "./memory-vault-helpers";
 
 const USER_HOME = "/home/user";
 const VAULT_ROOT = join(USER_HOME, "Vault");
@@ -60,6 +60,26 @@ function readCount(path: string): number {
 }
 
 function compactMessages(messages: any[]): string { return compactMessagesHelper(messages); }
+
+// Read the durable on-disk session transcript that Pi already persists for /resume
+// (the identical source Claude's capture reads from its transcript.jsonl). `lastMessages`
+// is volatile module state that is empty right after a Pi reload, which made the first
+// capture-boundary prompt after every resume produce an empty "no substantive content"
+// note even though the full conversation was sitting on disk the whole time. The session
+// file survives the reload, so reading it is the fix. Falls back to the in-memory messages
+// if the file is missing or unreadable.
+function readSessionMessages(ctx: any, fallback: any[]): any[] {
+  try {
+    const file = ctx?.sessionManager?.getSessionFile?.();
+    if (file && existsSync(file)) {
+      // Pi session JSONL entries are { type: "message", message: { role, content } };
+      // compactMessages drops non user/assistant roles (e.g. toolResult) downstream.
+      const messages = parseSessionMessagesHelper(readFileSync(file, "utf8"));
+      if (messages.length > 0) return messages;
+    }
+  } catch { /* fall through to the in-memory fallback */ }
+  return fallback;
+}
 
 function newestVaultMtime(): number {
   if (!existsSync(VAULT_ROOT)) return 0;
@@ -196,6 +216,8 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (isResumedSession(counterExists, count)) {
+      const transcript = compactMessages(readSessionMessages(ctx, lastMessages));
+      if (!transcript.trim()) return; // nothing durable to capture; never write a hollow note
       const ts = captureTimestamp(tz);
       const filename = captureFilename(id, tz);
       const vars = varsPath(id);
@@ -208,7 +230,7 @@ export default function (pi: ExtensionAPI) {
         captureFilename: filename,
         resumedSession: true,
         latestPrompt: prompt,
-        transcript: compactMessages(lastMessages),
+        transcript,
       }, null, 2), "utf8");
 
       const p = `PROMPT_FILE=${MEMORY_PROMPT_FILE}\nVARS_FILE=${vars}\nResumed session detected. Capture from transcript start. Use captureFilename from vars for the output file.`;
@@ -219,6 +241,8 @@ export default function (pi: ExtensionAPI) {
 
     if (!shouldCapture(count)) return;
 
+    const transcript = compactMessages(readSessionMessages(ctx, lastMessages));
+    if (!transcript.trim()) return; // nothing durable to capture; never write a hollow note
     const ts = captureTimestamp(tz);
     const filename = captureFilename(id, tz);
     const vars = varsPath(id);
@@ -231,7 +255,7 @@ export default function (pi: ExtensionAPI) {
       captureFilename: filename,
       resumedSession: false,
       latestPrompt: prompt,
-      transcript: compactMessages(lastMessages),
+      transcript,
     }, null, 2), "utf8");
 
     const p = `PROMPT_FILE=${MEMORY_PROMPT_FILE}\nVARS_FILE=${vars}\nRun the Pi memory-capture contract. Use captureFilename from vars for the output file. Write to /home/user/Vault/Raw/Sessions/.`;
