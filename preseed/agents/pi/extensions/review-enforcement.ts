@@ -13,7 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { actionableReviewCount, compactDurableReviewStatus, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, durableReviewSummaryModel, type ReviewSeverityCounts } from "./review-job-helpers";
+import { actionableReviewCount, compactDurableReviewStatus, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, durableReviewSummaryModel, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { completedDurableReviewLanes, failedDurableReviewLanes, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -514,7 +514,7 @@ export default function (pi: ExtensionAPI) {
     return `C${counts.critical} H${counts.high} M${counts.medium} L${counts.low}`;
   }
 
-  function reviewSummaryRows(state: PendingReview): Array<{ lane: string; path: string; counts: ReviewSeverityCounts; recommendation: string }> {
+  function reviewSummaryRows(state: PendingReview): DurableReviewSummaryRow[] {
     return state.lanes.map((lane) => {
       const path = reviewResultPath(state.repo, state.head, lane);
       const text = existsSync(path) ? readFileSync(path, "utf8") : "";

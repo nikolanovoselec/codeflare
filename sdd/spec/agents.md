@@ -1046,13 +1046,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. PR-boundary review fires only for open PRs targeting `main` or `master`.
-2. Local push detection recognises `git push` and `git -C <repo> push` across Pi's normal Bash and context-mode shell surfaces.
-3. GitHub CLI detection recognises PR-head-moving operations: `gh pr create`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`.
-4. Metadata-only PR commands do not trigger review.
-5. PRs into intermediate integration branches (`develop`, `staging`, etc.) do NOT trigger reviews; the case is deferred until the integration branch's own PR-to-`main` opens or syncs, where the cumulative review covers everything that landed.
-6. A plain push to a branch with no open PR does NOT trigger reviews.
-7. On non-SDD projects (no `sdd/` folder) no review agents run at all; every hook exits silently and the workflow proceeds friction-free (vibe-coding mode).
+1. PR-boundary review fires only for open PRs targeting `main` or `master`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isEnforcedPr -->
+2. Local push detection recognises `git push` and `git -C <repo> push` across Pi's normal Bash and context-mode shell surfaces. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand -->
+3. GitHub CLI detection recognises PR-head-moving operations: `gh pr create`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand -->
+4. Metadata-only PR commands do not trigger review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand -->
+5. PRs into intermediate integration branches (`develop`, `staging`, etc.) do NOT trigger reviews; the case is deferred until the integration branch's own PR-to-`main` opens or syncs, where the cumulative review covers everything that landed. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isEnforcedPr -->
+6. A pending review window is discarded only when the open PR has definitively moved on or closed; if the PR state cannot be read, the window is left intact for retry. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewHead -->
+7. On non-SDD projects (no `sdd/` folder) no review agents run at all; every hook exits silently and the workflow proceeds friction-free (vibe-coding mode). <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isSddProject -->
 
 **Constraints:**
 
