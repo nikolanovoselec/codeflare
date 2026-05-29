@@ -715,6 +715,10 @@ export default function (pi: ExtensionAPI) {
 
   const onSubagentFailed = async (event: any, ctx: any) => {
     const state = hydratePending(ctx);
+    // Only re-queue a failed lane when the head is confirmed current. On "stale"
+    // or "unknown" we skip here; agent_end owns the retry/breaker path and
+    // preserves the persisted window on "unknown", so the failed lane is still
+    // reconciled on a later cycle once the PR head can be confirmed.
     if (!state || reviewHeadStatus(state) !== "current") return;
     const id = typeof event?.id === "string" ? event.id : undefined;
     const lane = Object.entries(state.spawnedIds).find(([, spawnedId]) => spawnedId === id)?.[0];
