@@ -1,7 +1,7 @@
 ---
 name: ci-monitoring
-description: Post-push CI monitoring. Runs one continuous tail-followed GitHub Actions monitor per push in a background task, with bounded timeout, failure triage, and stale-run cancellation. Invoked after every git push that targets a branch with CI workflows.
-version: 1.2.0
+description: Post-push CI monitoring. Runs one continuous tail-followed GitHub Actions monitor per push in a background task (native Bash run_in_background, or ctx_execute + setsid when Bash gh is routing-gated), with bounded timeout, failure triage, and stale-run cancellation. Invoked after every git push that targets a branch with CI workflows.
+version: 1.3.0
 ---
 
 # CI Monitoring After Push
@@ -10,21 +10,20 @@ A single push can trigger multiple GitHub Actions workflows (PR Checks, Fuzz, Co
 
 ## Continuous background monitor pattern
 
-Use **one continuous bounded monitor** per pushed HEAD. Do not manually issue repeated short polling calls in the conversation.
+Use **one continuous bounded monitor** per pushed HEAD. Do not manually issue repeated short polling calls in the conversation. Run it as a background task so the main session stays free for other work and can end its turn while CI runs.
 
-Run that monitor in a background task/subagent so the main session stays open for more work. The background task runs the same Bash monitor below; do not rewrite it into manual polling.
+The monitor writes a status line to a temp log and `tail -f`s that log until the monitor process exits, giving continuous progress without flooding the main conversation.
 
-The monitor writes a status line to a temp log and `tail -f`s that log until the monitor process exits. This gives continuous progress without flooding the main conversation with repeated tool calls.
+### Toolset selection — runs under Bash *or* `ctx_*`
 
-### Background task wrapper
+The monitor is a plain shell body (below) and runs identically under either toolset; only the launch wrapper differs. `gh` and `node` work fine **inside** a `ctx_execute` shell subprocess — a context-mode routing gate only intercepts the Bash *tool*, not the binaries — so a session that cannot run `gh` through the Bash tool can still run the exact same monitor through `ctx_*`. Pick whichever the session supports; never fall back to manual chat polling.
 
-When the runtime supports background agents/tasks, launch one immediately after the push with `run_in_background: true`. The background task's only job is to run the Bash monitor below for `<repo>`, `<branch>`, and the pushed `HEAD`, then report the terminal `CI_RESULT ...` line. The main agent can continue working, but must retrieve the background result before claiming green or deploying.
+- **Native Bash tool** (default when the Bash tool can run `gh`/`node`): launch the shell body with `run_in_background: true`. The harness detaches it and re-invokes you on exit. Retrieve that task's result before any CI claim.
+- **context-mode `ctx_*` tools** (use when a Bash `git push`/`gh`/`node` call is rejected with a "violates routing" / context-mode error — e.g. Claude Code + context-mode): run the **same** shell body through `ctx_execute` with `language: "shell"` and `background: true`, wrapped in `setsid` so it survives the turn ending. Read the terminal `CI_RESULT` line from the log before any CI claim.
 
-If no background task facility exists, fall back to running the Bash monitor directly.
+Detection rule: if a `git push`/`gh` Bash call returns a routing-gate error, use the `ctx_*` path; otherwise use the Bash path. Either way it is exactly **one** continuous background monitor per HEAD.
 
-### Pi / Bash session
-
-Inside the background task, run the monitor through the native Bash tool. Do not depend on context-mode or `ctx_*` tools; Pi must be able to monitor CI with Bash alone.
+### The monitor (shell body — identical for both toolsets)
 
 ```bash
 cd <repo>
@@ -61,9 +60,18 @@ tail -n +1 -f "$LOG" --pid=$pid
 wait $pid
 ```
 
-### Other shell surfaces
+### Launch wrappers
 
-Use the same shell body through the shell tool provided by the current runtime.
+The body above is launch-neutral. Wrap it per toolset:
+
+- **Bash tool:** pass the body verbatim as the command with `run_in_background: true`. The `( … ) & … tail -f … --pid` shape keeps the call alive until the loop exits; the harness notifies you on completion.
+- **`ctx_execute` (context-mode):** detach the body from the turn so it outlives the session stopping —
+
+  ```bash
+  setsid bash -c '<body>' >/dev/null 2>&1 &
+  ```
+
+  invoked via `ctx_execute(language: "shell", background: true)`. The detached monitor keeps appending to its `$LOG` after the turn ends; read that log to retrieve the terminal `CI_RESULT` line. (Inside the ctx subprocess `gh`/`node` are not gated.)
 
 ## Reading the result
 
@@ -85,4 +93,4 @@ gh run list --branch <branch> --limit 12 --json databaseId,status \
 
 ## Binding invocation rule
 
-After every `git push` that targets a branch with CI workflows configured, invoke this skill immediately, start the background monitor for the pushed HEAD, and retrieve terminal status before claiming green or deploying.
+After every `git push` that targets a branch with CI workflows configured, invoke this skill immediately, start the **one** background monitor for the pushed HEAD via whichever launch wrapper the session supports (native Bash `run_in_background`, or `ctx_execute` + `setsid` when Bash `gh` is routing-gated), and retrieve terminal status before claiming green or deploying.
