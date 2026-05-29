@@ -676,7 +676,8 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     if (result !== undefined) publishReviewResult(state, type, result, ctx);
-    else publishReviewResultFile(state, type, ctx);
+    else if (existsSync(reviewResultPath(state.repo, state.head, type))) publishReviewResultFile(state, type, ctx);
+    else return;
     state.completed.add(type);
     updateReviewStatus(state, ctx);
     resetBlockCount(state.repo); // a lane completing is progress: reset the breaker patience counter
