@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewResultPath, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, mergedReviewSummaryModel, recoverDurableReviewLaneState } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewResultPath, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, mergedReviewSummaryModel, recoverDurableReviewLaneState } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -530,14 +530,19 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       },
     ]);
     expect(extractReviewFindings('doc-updater', docsText)).toEqual([]);
+    const codeCounts = countReviewSeverities(codeText);
+    const docCounts = countReviewSeverities(docsText);
+    expect(codeCounts).toEqual({ critical: 0, high: 0, medium: 1, low: 0 });
+    expect(docCounts).toEqual({ critical: 0, high: 0, medium: 0, low: 0 });
 
+    const records = [
+      { lane: 'code-reviewer', path: '/tmp/code-reviewer.md', text: codeText, counts: codeCounts, recommendation: durableReviewRecommendation(codeCounts) },
+      { lane: 'doc-updater', path: '/tmp/doc-updater.md', text: docsText, counts: docCounts, recommendation: durableReviewRecommendation(docCounts) },
+    ];
     expect(mergedReviewSummaryModel({
       repoName: 'codeflare',
       head: '6769bca06f843a50e2d991563afc58498fd7cf81',
-      records: [
-        { lane: 'code-reviewer', path: '/tmp/code-reviewer.md', text: codeText, counts: { critical: 0, high: 0, medium: 1, low: 0 }, recommendation: 'fix' },
-        { lane: 'doc-updater', path: '/tmp/doc-updater.md', text: docsText, counts: { critical: 0, high: 0, medium: 0, low: 0 }, recommendation: 'none' },
-      ],
+      records,
     })).toEqual({
       repoName: 'codeflare',
       head: '6769bca06f843a50e2d991563afc58498fd7cf81',
@@ -555,6 +560,21 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       ],
       recommendation: 'automatically fix 1 actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff',
     });
+    const escapedSummary = formatMergedReviewSummary({
+      repoName: 'codeflare',
+      head: '6769bca06f843a50e2d991563afc58498fd7cf81',
+      records: [
+        {
+          lane: 'code-reviewer',
+          path: '/tmp/code-reviewer.md',
+          text: '[HIGH] Pipe and backslash\nFile: `a|b\\c.ts`\nFix: Replace `x|y\\z` safely.',
+          counts: { critical: 0, high: 1, medium: 0, low: 0 },
+          recommendation: 'fix',
+        },
+      ],
+    });
+    expect(escapedSummary).toContain('a\\|b\\\\c.ts');
+    expect(escapedSummary).toContain('Replace x\\|y\\\\z safely.');
   });
 
   it('REQ-AGENT-053: durable Pi review severity helpers identify actionable findings for the fix loop', () => {

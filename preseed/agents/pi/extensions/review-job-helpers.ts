@@ -224,7 +224,9 @@ function compactReviewText(text: string | undefined, maxLength = 140): string {
 }
 
 function markdownTableCell(value: string | undefined): string {
-  return compactReviewText(value || "—", 120).replace(/\|/g, "\\|");
+  return compactReviewText(value || "—", 120)
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|");
 }
 
 function reviewFindingBody(text: string): string {

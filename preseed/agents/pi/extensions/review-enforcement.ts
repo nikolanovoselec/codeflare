@@ -233,7 +233,11 @@ function loadPending(repo: string): PendingReview | undefined {
   try {
     const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; reviewBase?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean; spawnedIds?: Record<string, string>; fallbackLanes?: string[]; requestedAt?: Record<string, number>; reviewStartedAt?: number; spawnedAt?: number };
     if (!state.head || !state.baseRefName || !Array.isArray(state.lanes)) return undefined;
-    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, reviewBase: state.reviewBase, lanes: state.lanes, completed: new Set(state.completed || []), docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds || {}, fallbackLanes: new Set(state.fallbackLanes || []), requestedAt: state.requestedAt || {}, reviewStartedAt: state.reviewStartedAt || state.spawnedAt || Date.now(), spawnedAt: state.spawnedAt };
+    const completed = new Set([
+      ...(state.completed || []),
+      ...completedDurableReviewLanes(repo, state.head, state.lanes),
+    ]);
+    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, reviewBase: state.reviewBase, lanes: state.lanes, completed, docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds || {}, fallbackLanes: new Set(state.fallbackLanes || []), requestedAt: state.requestedAt || {}, reviewStartedAt: state.reviewStartedAt || state.spawnedAt || Date.now(), spawnedAt: state.spawnedAt };
   } catch {
     return undefined;
   }
@@ -493,6 +497,7 @@ export default function (pi: ExtensionAPI) {
   const discardStale = (state: PendingReview, ctx: any): void => {
     clearPending(state.repo);
     pending = undefined;
+    clearReviewStatus(ctx);
     ctx.ui.notify(`PR-boundary review state for ${basename(state.repo)} at ${state.head.slice(0, 12)} discarded: the open PR no longer points at this head.`, "warning");
   };
 
@@ -737,6 +742,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", (_event: any, ctx: any) => {
     remember(ctx);
+    const state = hydratePending(ctx);
+    if (state && reviewHeadStatus(state) === "stale") discardStale(state, ctx);
     publishSummaryForCurrentPr(ctx);
   });
 
