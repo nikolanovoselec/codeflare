@@ -103,6 +103,31 @@ export type MergedReviewSummaryModel = {
   recommendation: string;
 };
 
+export type ReviewAutofixMessage = {
+  customType: "codeflare-review-autofix-request";
+  content: string;
+  display: false;
+  details: { repo: string; head: string };
+};
+
+export type ReviewAutofixOptions = {
+  triggerTurn: true;
+  deliverAs: "followUp";
+};
+
+export type ReviewAutofixRequest = {
+  message: ReviewAutofixMessage;
+  options: ReviewAutofixOptions;
+};
+
+export type ReviewAutofixSender = {
+  sendMessage: (message: ReviewAutofixMessage, options: ReviewAutofixOptions) => void;
+};
+
+export type ReviewAutofixRow = {
+  counts: ReviewSeverityCounts;
+};
+
 export type DurableReviewStatusState = "completed" | "running" | "pending";
 
 export type DurableReviewStatusSegment = {
@@ -116,6 +141,42 @@ export type DurableReviewStatusStyle = {
   running?: (text: string) => string;
   pending?: (text: string) => string;
 };
+
+export function reviewAutofixRequest(repo: string, head: string): ReviewAutofixRequest {
+  return {
+    message: {
+      customType: "codeflare-review-autofix-request",
+      content: [
+        `Fix legitimate PR-boundary review findings for ${basename(repo)} at ${head}.`,
+        "Use the merged review summary immediately above as the actionable finding list.",
+        "Fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
+        "Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.",
+        "Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
+      ].join("\n"),
+      display: false,
+      details: { repo, head },
+    },
+    options: { triggerTurn: true, deliverAs: "followUp" },
+  };
+}
+
+export function sendReviewAutofixRequest(sender: ReviewAutofixSender, repo: string, head: string): void {
+  const request = reviewAutofixRequest(repo, head);
+  sender.sendMessage(request.message, request.options);
+}
+
+export function requestReviewAutofixForRows(input: {
+  sender: ReviewAutofixSender;
+  repo: string;
+  head: string;
+  rows: ReviewAutofixRow[];
+  claim: () => boolean;
+}): boolean {
+  if (!input.rows.some((row) => actionableReviewCount(row.counts) > 0)) return false;
+  if (!input.claim()) return false;
+  sendReviewAutofixRequest(input.sender, input.repo, input.head);
+  return true;
+}
 
 export function durableReviewStatusSegments(input: {
   lanes: string[];

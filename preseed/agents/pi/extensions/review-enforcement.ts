@@ -14,7 +14,7 @@ import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { actionableReviewCount, compactDurableReviewStatus, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
+import { compactDurableReviewStatus, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -636,24 +636,23 @@ export default function (pi: ExtensionAPI) {
   }
 
   function requestReviewAutofix(state: PendingReview): void {
-    const rows = reviewSummaryRows(state).filter((row) => actionableReviewCount(row.counts) > 0);
-    if (rows.length === 0) return;
     const marker = join(reviewJobDir(state.repo, state.head), "autofix.requested");
-    mkdirSync(dirname(marker), { recursive: true });
-    try { closeSync(openSync(marker, "wx")); } catch { return; }
     try {
-      pi.sendMessage({
-        customType: "codeflare-review-autofix-request",
-        content: [
-          `Fix legitimate PR-boundary review findings for ${basename(state.repo)} at ${state.head}.`,
-          "Use the merged review summary immediately above as the actionable finding list.",
-          "Fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
-          "Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.",
-          "Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
-        ].join("\n"),
-        display: false,
-        details: { repo: state.repo, head: state.head },
-      }, { triggerTurn: true, deliverAs: "followUp" });
+      requestReviewAutofixForRows({
+        sender: pi,
+        repo: state.repo,
+        head: state.head,
+        rows: reviewSummaryRows(state),
+        claim: () => {
+          mkdirSync(dirname(marker), { recursive: true });
+          try {
+            closeSync(openSync(marker, "wx"));
+            return true;
+          } catch {
+            return false;
+          }
+        },
+      });
     } catch {
       // Best effort: the visible merged summary still tells the user what to fix.
     }

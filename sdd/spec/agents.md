@@ -1145,7 +1145,7 @@ None.
 ### REQ-AGENT-054: Pi Durable Review Lane Failure Handling
 
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (durable lane recovery + result-file gating tests -> AC1/AC2) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (durable lane recovery + result-file gating tests -> AC1/AC2/AC3) -->
 
 **Intent:** Pi operators need durable PR-boundary review failures to fail closed without falsely acknowledging a PR head.
 
@@ -1154,7 +1154,8 @@ None.
 **Acceptance Criteria:**
 
 1. When a durable Pi review lane times out or records a failure, the lane is persisted as failed instead of completed. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::runDurableLane -->
-2. Failed or timed-out durable lanes do not produce the required result file, so the PR head remains unacked until a later review run writes every required lane result file. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::completedDurableReviewLanes -->
+2. Failed or timed-out durable lanes do not satisfy the required result-file gate. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::completedDurableReviewLanes -->
+3. A PR head remains unacked until a later review run writes every required lane result file. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::markCompleted -->
 
 **Constraints:**
 

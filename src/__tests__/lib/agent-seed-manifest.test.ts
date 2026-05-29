@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewResultPath, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, mergedReviewSummaryModel, recoverDurableReviewLaneState } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewResultPath, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -411,7 +411,20 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(allDurableReviewLanesComplete(lanes, ['code-reviewer', 'spec-reviewer', 'doc-updater'])).toBe(true);
   });
 
-  it('REQ-AGENT-040: durable Pi review job recovery does not treat orphaned persisted running state as active', () => {
+  it('REQ-AGENT-040 / REQ-AGENT-054: durable Pi review job recovery does not treat orphaned persisted running state as active and keeps failed lanes unacked', () => {
+    expect(recoverDurableReviewLaneState({
+      lane: 'code-reviewer',
+      current: { lane: 'code-reviewer', status: 'failed', startedAt: 5, completedAt: 6, error: 'timeout' },
+      resultExists: false,
+      activeInMemory: false,
+    })).toEqual({
+      lane: 'code-reviewer',
+      status: 'failed',
+      startedAt: 5,
+      completedAt: 6,
+      error: 'timeout',
+    });
+    expect(allDurableReviewLanesComplete(['code-reviewer'], [])).toBe(false);
     expect(recoverDurableReviewLaneState({
       lane: 'code-reviewer',
       current: { lane: 'code-reviewer', status: 'running', startedAt: 10, transcriptPath: '/repo/.git/codeflare-review-jobs/head/transcripts/code-reviewer.jsonl' },
@@ -575,6 +588,57 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     });
     expect(escapedSummary).toContain('a\\|b\\\\c.ts');
     expect(escapedSummary).toContain('Replace x\\|y\\\\z safely.');
+  });
+
+  it('REQ-AGENT-053: hidden autofix requests send one follow-up only for actionable findings and only after marker claim', () => {
+    const sent: Array<{ message: unknown; options: unknown }> = [];
+    const sender = { sendMessage: (message: unknown, options: unknown) => sent.push({ message, options }) };
+
+    sendReviewAutofixRequest(sender, '/repo/codeflare', 'abc123');
+    expect(sent).toEqual([
+      {
+        message: {
+          customType: 'codeflare-review-autofix-request',
+          content: [
+            'Fix legitimate PR-boundary review findings for codeflare at abc123.',
+            'Use the merged review summary immediately above as the actionable finding list.',
+            'Fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.',
+            'Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.',
+            'Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.',
+          ].join('\n'),
+          display: false,
+          details: { repo: '/repo/codeflare', head: 'abc123' },
+        },
+        options: { triggerTurn: true, deliverAs: 'followUp' },
+      },
+    ]);
+
+    sent.length = 0;
+    expect(requestReviewAutofixForRows({
+      sender,
+      repo: '/repo/codeflare',
+      head: 'abc123',
+      rows: [{ counts: { critical: 0, high: 0, medium: 1, low: 0 } }],
+      claim: () => true,
+    })).toBe(true);
+    expect(sent).toHaveLength(1);
+
+    sent.length = 0;
+    expect(requestReviewAutofixForRows({
+      sender,
+      repo: '/repo/codeflare',
+      head: 'abc123',
+      rows: [{ counts: { critical: 0, high: 0, medium: 0, low: 1 } }],
+      claim: () => true,
+    })).toBe(false);
+    expect(requestReviewAutofixForRows({
+      sender,
+      repo: '/repo/codeflare',
+      head: 'abc123',
+      rows: [{ counts: { critical: 0, high: 1, medium: 0, low: 0 } }],
+      claim: () => false,
+    })).toBe(false);
+    expect(sent).toHaveLength(0);
   });
 
   it('REQ-AGENT-053: durable Pi review severity helpers identify actionable findings for the fix loop', () => {
