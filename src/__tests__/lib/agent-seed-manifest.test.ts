@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
-import { classifyReviewFiles, createBoundedOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { classifyReviewFiles, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -336,6 +336,16 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(shouldProcess(undefined)).toBe(true);
   });
 
+  it('REQ-AGENT-040: Pi review enforcement only consumes a terminal event id after command context is ready', () => {
+    const shouldProcess = createReadyOnceTracker(2);
+    expect(shouldProcess('tool-1', false)).toBe(false);
+    expect(shouldProcess('tool-1', true)).toBe(true);
+    expect(shouldProcess('tool-1', true)).toBe(false);
+    expect(shouldProcess('tool-2', true)).toBe(true);
+    expect(shouldProcess('tool-3', true)).toBe(true);
+    expect(shouldProcess('tool-1', true)).toBe(true);
+  });
+
   it('REQ-AGENT-040: Pi review enforcement spawns reviewers with bounded background options', () => {
     const calls: Array<{ lane: string; prompt: string; options: Record<string, unknown> }> = [];
     const result = startReviewLaneSpawns({
@@ -418,6 +428,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     };
     expect(reusablePendingReview(previous, 'new-head', (ancestor, current) => ancestor === 'old-head' && current === 'new-head')).toBe(previous);
     expect(selectReviewBase({ previous, lastAck: 'last-ack', previousRemoteHead: 'remote-prev' })).toBe('first-unreviewed-base');
+    expect(selectReviewBase({
+      previous: { ...previous, reviewBase: undefined },
+      lastAck: 'last-ack',
+      previousRemoteHead: 'remote-prev',
+    })).toBeUndefined();
     expect(selectReviewBase({
       previous: { ...previous, completed: ['code-reviewer', 'spec-reviewer'] },
       lastAck: 'last-ack',

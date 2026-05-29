@@ -89,6 +89,14 @@ export function createBoundedOnceTracker(limit = 200): (id: string | undefined) 
   };
 }
 
+export function createReadyOnceTracker(limit = 200): (id: string | undefined, ready: boolean) => boolean {
+  const shouldProcess = createBoundedOnceTracker(limit);
+  return (id: string | undefined, ready: boolean): boolean => {
+    if (!ready) return false;
+    return shouldProcess(id);
+  };
+}
+
 export function reusablePendingReview<T extends { head: string }>(previous: T | undefined, currentHead: string, isAncestor: (ancestor: string, current: string) => boolean): T | undefined {
   if (!previous || previous.head === currentHead) return previous;
   return isAncestor(previous.head, currentHead) ? previous : undefined;
@@ -100,7 +108,7 @@ export function selectReviewBase(params: {
   previousRemoteHead?: string;
 }): string | undefined {
   const priorIncomplete = params.previous?.lanes.some((lane) => !params.previous?.completed.includes(lane));
-  if (priorIncomplete) return params.previous?.reviewBase || params.lastAck || params.previousRemoteHead;
+  if (priorIncomplete) return params.previous?.reviewBase;
   return params.previous?.head || params.lastAck || params.previousRemoteHead;
 }
 

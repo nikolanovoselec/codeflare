@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, w
 import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { ALL_REVIEW_LANES, classifyReviewFiles, createBoundedOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, classifyReviewFiles, createReadyOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns, type ReviewSpawnRequest } from "./review-helpers";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
@@ -446,7 +446,7 @@ function isCurrentPending(pending: PendingReview): boolean {
 export default function (pi: ExtensionAPI) {
   let pending: PendingReview | undefined;
   const toolStartArgs = new Map<string, any>();
-  const shouldProcessPrBoundaryToolEnd = createBoundedOnceTracker();
+  const shouldProcessPrBoundaryToolEnd = createReadyOnceTracker();
 
   // Background events (subagents:completed/failed) arrive without a usable session ctx.
   // Remember the most recent real ctx from live handlers so doc-updater can still be
@@ -464,16 +464,20 @@ export default function (pi: ExtensionAPI) {
   function withStartArgs(event: any): any {
     const id = toolEventId(event);
     const cached = id ? toolStartArgs.get(id) : undefined;
-    if (id) toolStartArgs.delete(id);
-    if (commandText(event) || !cached) return event;
+    if (commandText(event) || !cached) {
+      if (id && commandText(event)) toolStartArgs.delete(id);
+      return event;
+    }
     const current = event?.args || event?.input || event?.params || {};
     const merged = { ...cached, ...current };
-    return {
+    const enriched = {
       ...event,
       args: merged,
       input: { ...(event?.input || {}), ...merged },
       params: { ...(event?.params || {}), ...merged },
     };
+    if (id && commandText(enriched)) toolStartArgs.delete(id);
+    return enriched;
   }
 
 
@@ -629,7 +633,6 @@ export default function (pi: ExtensionAPI) {
 
     const command = commandText(event);
     if (!isPrBoundaryCommand(command)) return;
-    if (!shouldProcessPrBoundaryToolEnd(toolEventId(event))) return;
 
     const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
     if (!repo || !isSddProject(repo) || consumeBypass()) return;
@@ -643,6 +646,7 @@ export default function (pi: ExtensionAPI) {
 
     const rawPrevious = loadPending(repo);
     if (rawPrevious && rawPrevious.head === head) return;
+    if (!shouldProcessPrBoundaryToolEnd(toolEventId(event), true)) return;
     const reusablePrevious = reusablePendingReview(rawPrevious, head, (ancestor, current) => isAncestor(repo, ancestor, current));
     if (rawPrevious && !reusablePrevious) clearPending(repo);
 
