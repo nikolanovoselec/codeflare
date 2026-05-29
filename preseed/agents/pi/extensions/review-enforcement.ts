@@ -424,6 +424,7 @@ function isCurrentPending(pending: PendingReview): boolean {
 export default function (pi: ExtensionAPI) {
   let pending: PendingReview | undefined;
   const toolStartArgs = new Map<string, any>();
+  const processedPrBoundaryToolEndIds = new Set<string>();
 
   // Background events (subagents:completed/failed) arrive without a usable session ctx.
   // Remember the most recent real ctx from live handlers so doc-updater can still be
@@ -441,7 +442,6 @@ export default function (pi: ExtensionAPI) {
   function withStartArgs(event: any): any {
     const id = toolEventId(event);
     const cached = id ? toolStartArgs.get(id) : undefined;
-    if (id) toolStartArgs.delete(id);
     if (commandText(event) || !cached) return event;
     const current = event?.args || event?.input || event?.params || {};
     const merged = { ...cached, ...current };
@@ -452,6 +452,7 @@ export default function (pi: ExtensionAPI) {
       params: { ...(event?.params || {}), ...merged },
     };
   }
+
 
   function hydratePending(ctx: any): PendingReview | undefined {
     if (pending) return pending;
@@ -580,6 +581,7 @@ export default function (pi: ExtensionAPI) {
 
       const background = input.run_in_background === true || input.runInBackground === true;
       if (background) {
+        if (state.spawnedIds[type]) return;
         const agentId = extractBackgroundAgentId(event) || extractBackgroundAgentId(toolResultPayload(event));
         if (agentId) {
           state.spawnedIds[type] = agentId;
@@ -604,6 +606,9 @@ export default function (pi: ExtensionAPI) {
 
     const command = commandText(event);
     if (!isPrBoundaryCommand(command)) return;
+    const toolEndId = toolEventId(event);
+    if (toolEndId && processedPrBoundaryToolEndIds.has(toolEndId)) return;
+    if (toolEndId) processedPrBoundaryToolEndIds.add(toolEndId);
 
     const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
     if (!repo || !isSddProject(repo) || consumeBypass()) return;
@@ -626,7 +631,10 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const reviewBase = previous?.head || lastAckHead(repo) || (isGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined);
+    const priorIncomplete = previous?.lanes.some((lane) => !previous.completed.has(lane));
+    const reviewBase = priorIncomplete
+      ? previous?.reviewBase || lastAckHead(repo) || (isGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined)
+      : previous?.head || lastAckHead(repo) || (isGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined);
     const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
     resetBlockCount(repo);
     clearBreaker(repo); // new head under review: drop any stale breaker latch from a prior head
@@ -638,6 +646,13 @@ export default function (pi: ExtensionAPI) {
     requestVisibleReviewLanes(pi, pending, effectivePr, initialLanes, ctx, "initial PR-boundary trigger");
   };
 
+  // Pi emits both `tool_result` and `tool_execution_end` for the same tool call.
+  // PR-boundary command handling has side effects (pending-state creation,
+  // warnings, and visible Agent launch requests), so `onToolEnd` dedupes that
+  // command path by tool-call ID. Agent launch-result handling intentionally
+  // remains allowed on both terminal surfaces: whichever surface carries the
+  // Agent ID registers the lane, and a registered lane is idempotently ignored
+  // on the other surface.
   pi.on("tool_result", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
   pi.on("tool_execution_end", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
 
