@@ -40,6 +40,16 @@ export function recoverDurableReviewLaneState(input: {
   return input.current ?? { lane: input.lane, status: "pending" };
 }
 
+export function durableReviewMessageKey(input: {
+  customType: string;
+  repo?: string;
+  head?: string;
+  lane?: string;
+  path?: string;
+}): string {
+  return [input.customType, input.repo || "", input.head || "", input.lane || "summary", input.path || ""].join("\u0000");
+}
+
 export type ReviewSeverityCounts = {
   critical: number;
   high: number;
@@ -60,7 +70,15 @@ export function compactDurableReviewStatus(input: {
     if (running.has(lane)) return "…";
     return "·";
   };
-  return `PRR ${input.head.slice(0, 7)} c${code("code-reviewer")} s${code("spec-reviewer")} d${code("doc-updater")}`;
+  const labels: Array<[string, string]> = [
+    ["code-reviewer", "c"],
+    ["spec-reviewer", "s"],
+    ["doc-updater", "d"],
+  ];
+  const parts = labels
+    .filter(([lane]) => input.lanes.includes(lane))
+    .map(([lane, label]) => `${label}${code(lane)}`);
+  return `PRR ${input.head.slice(0, 7)} ${parts.join(" ")}`;
 }
 
 export function stripExistingReviewSummary(text: string): string {

@@ -269,15 +269,21 @@ All preseed content is deployed via the manifest pipeline:
   separate from PR-boundary enforcement: the command reviews a requested
   scope, while `review-enforcement.ts` watches PR HEADs, resolves the
   active repo from native GitHub workflow commands, and requires durable
-  review-job completion for SDD PRs targeting `main`/`master`. The durable
-  runner in `review-jobs.ts` writes job state under `.git/codeflare-review-jobs/<head>/`
-  and public findings under `.git/sdd-review-results/<head>/`. Each result file
-  uses a common `## Findings` section followed by a severity-count Review Summary
-  table. While internal durable lanes run, Pi displays a compact footer status
+  review-job completion for SDD PRs targeting `main`/`master`.
+
+  The durable runner in `review-jobs.ts` writes job state under
+  `.git/codeflare-review-jobs/<head>/` and public findings under
+  `.git/sdd-review-results/<head>/`. Each result file uses a common
+  `## Findings` section followed by a severity-count Review Summary table.
+  While internal durable lanes run, Pi displays a compact footer status
   (`PRR <head> c… s… d·`, where `…` is running, `✓` is done, and `·` is pending),
   so operators can diagnose background review progress without visible generic
-  Agent tasks. Merge enforcement does not depend on third-party subagent task IDs
-  or in-memory service records. Because Claude slash commands do not deploy to Pi, the user-invoked `/review` workflow
+  Agent tasks. Duplicate lane-result and summary announcements are suppressed
+  for the same repo/head/lane result. Implements
+  [REQ-AGENT-052](../../sdd/spec/agents.md#req-agent-052-pi-durable-review-status-and-result-formatting).
+
+  Merge enforcement does not depend on third-party subagent task IDs or
+  in-memory service records. Because Claude slash commands do not deploy to Pi, the user-invoked `/review` workflow
   ships as the dedicated `skills/review/SKILL.md` native skill (full
   11-phase flow) rather than relying only on the transformed
   `git-review-pipeline` enforcement skill. Pi memory capture is driven by

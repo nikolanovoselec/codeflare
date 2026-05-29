@@ -13,7 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { compactDurableReviewStatus, durableReviewEligibleLanes, durableReviewInitialLanes } from "./review-job-helpers";
+import { compactDurableReviewStatus, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey } from "./review-job-helpers";
 import { completedDurableReviewLanes, failedDurableReviewLanes, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -376,8 +376,34 @@ function reviewHeadStatus(pending: PendingReview): ReviewHeadStatus {
   });
 }
 
+function installReviewMessageDedupe(pi: ExtensionAPI): void {
+  const globalState = globalThis as {
+    __codeflareReviewMessageDedupeInstalled?: boolean;
+    __codeflareReviewMessageKeys?: Set<string>;
+  };
+  if (globalState.__codeflareReviewMessageDedupeInstalled) return;
+  globalState.__codeflareReviewMessageDedupeInstalled = true;
+  globalState.__codeflareReviewMessageKeys = globalState.__codeflareReviewMessageKeys || new Set<string>();
+  const originalSendMessage = (pi as unknown as { sendMessage?: (message: any) => void }).sendMessage?.bind(pi);
+  if (!originalSendMessage) return;
+  (pi as unknown as { sendMessage: (message: any) => void }).sendMessage = (message: any): void => {
+    const customType = String(message?.customType || "");
+    if (customType === "pr-boundary-review-result" || customType === "pr-boundary-review-summary") {
+      const details = message?.details || {};
+      const key = durableReviewMessageKey({ customType, repo: details.repo, head: details.head, lane: details.lane, path: details.path });
+      if (globalState.__codeflareReviewMessageKeys?.has(key)) return;
+      globalState.__codeflareReviewMessageKeys?.add(key);
+    }
+    originalSendMessage(message);
+  };
+}
+
 export default function (pi: ExtensionAPI) {
-  (globalThis as { __codeflarePi?: ExtensionAPI }).__codeflarePi = pi;
+  installReviewMessageDedupe(pi);
+  const runToken = Symbol("codeflare-review-enforcement");
+  (globalThis as { __codeflarePi?: ExtensionAPI; __codeflareReviewEnforcementRun?: symbol }).__codeflarePi = pi;
+  (globalThis as { __codeflareReviewEnforcementRun?: symbol }).__codeflareReviewEnforcementRun = runToken;
+  const isActiveRun = (): boolean => (globalThis as { __codeflareReviewEnforcementRun?: symbol }).__codeflareReviewEnforcementRun === runToken;
   let pending: PendingReview | undefined;
   const toolStartArgs = new Map<string, any>();
   const shouldProcessPrBoundaryToolEnd = createReadyOnceTracker();
@@ -543,6 +569,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   const onAgentStart = (event: any, ctx: any) => {
+    if (!isActiveRun()) return;
     const toolName = String(event?.toolName || "").toLowerCase();
     const input = event?.input || event?.params || event?.args || {};
     const command = commandText(event);
@@ -582,6 +609,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   const onToolEnd = async (event: any, ctx: any) => {
+    if (!isActiveRun()) return;
     const toolName = String(event?.toolName || "").toLowerCase();
     if (isFailedToolExecution(event)) return;
 
@@ -674,6 +702,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_execution_end", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
 
   const onDurableLaneCompleted = async (event: any, ctx: any) => {
+    if (!isActiveRun()) return;
     const lane = String(event?.lane || "");
     const head = String(event?.head || "");
     const state = hydratePending(ctx);
@@ -682,6 +711,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   const onDurableLaneFailed = async (event: any, ctx: any) => {
+    if (!isActiveRun()) return;
     const lane = String(event?.lane || "");
     const head = String(event?.head || "");
     const state = hydratePending(ctx);
@@ -693,6 +723,7 @@ export default function (pi: ExtensionAPI) {
   (pi as any).events?.on?.(REVIEW_JOBS_EVENT_LANE_FAILED, (event: any) => onDurableLaneFailed(event, completionCtx()));
 
   pi.on("agent_end", async (_event, ctx) => {
+    if (!isActiveRun()) return;
     remember(ctx);
     const state = hydratePending(ctx);
     if (!state) return;
