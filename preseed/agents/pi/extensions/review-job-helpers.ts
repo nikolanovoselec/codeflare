@@ -544,8 +544,23 @@ export function durableReviewJobDir(repo: string, head: string): string {
   return `${repo}/.git/codeflare-review-jobs/${head}`;
 }
 
-export function durableReviewResultPath(repo: string, head: string, lane: string): string {
-  return `${repo}/.git/sdd-review-results/${head}/${lane}.md`;
+// Package source strings a durable review lane should load as additionalExtensionPaths.
+// graphify always (if configured) - reviewers benefit from graphify_query/path/explain.
+// context-mode only when enabled (bare-string form, or an object entry without an
+// `extensions` filter - mirrors codeflare-pi's contextModeEnabled), so lanes inherit /ctx on.
+// Never @gotgenes/pi-subagents (the lane must not spawn subagents).
+export function laneExtensionSources(
+  packages: Array<string | { source?: string; extensions?: unknown }>,
+): string[] {
+  const sources: string[] = [];
+  for (const entry of packages) {
+    const source = typeof entry === "string" ? entry : entry?.source ?? "";
+    if (!source) continue;
+    const enabled = typeof entry === "string" || entry.extensions === undefined;
+    if (source.includes("@gaodes/pi-graphify")) sources.push(source);
+    else if (source.includes("context-mode") && enabled) sources.push(source);
+  }
+  return sources;
 }
 
 export default function () {

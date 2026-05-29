@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
-import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewResultPath, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
@@ -295,9 +295,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isFailedToolExecution({ isError: true })).toBe(true);
     expect(isFailedToolExecution({ status: 'error' })).toBe(true);
     expect(isFailedToolExecution({ isError: false, status: 'success' })).toBe(false);
-    expect(isCurrentReviewHead('new-local-head', 'old-github-head', 'new-local-head')).toBe(true);
-    expect(isCurrentReviewHead('reviewed-pr-head', 'reviewed-pr-head', 'new-local-commit')).toBe(true);
-    expect(isCurrentReviewHead('stale-head', 'current-pr-head', 'new-local-commit')).toBe(false);
   });
 
   it('REQ-AGENT-036 AC6: review head classification separates a moved-on PR from an unreadable gh query', () => {
@@ -315,27 +312,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h2', prOpenAtBase: false, prHead: undefined, prQueryFailed: true })).toBe('unknown');
     // gh failed and local HEAD is also unreadable -> still unknown, not stale.
     expect(classifyReviewHead({ pendingHead: 'h1', localHead: undefined, prOpenAtBase: false, prHead: undefined, prQueryFailed: true })).toBe('unknown');
-  });
-
-  it('REQ-AGENT-040: Pi review enforcement accepts only completions for the pending head and spawned agent id', () => {
-    const state = {
-      head: 'abc123',
-      lanes: ['code-reviewer', 'doc-updater'],
-      spawned: true,
-      spawnedIds: { 'code-reviewer': 'spawned-code' },
-      fallbackLanes: ['doc-updater'],
-    };
-
-    expect(isReviewCompletionForLane(state, 'code-reviewer', 'other-code')).toBe(false);
-    expect(isReviewCompletionForLane(state, 'code-reviewer', 'spawned-code')).toBe(true);
-    expect(isReviewCompletionForLane(state, 'doc-updater')).toBe(false);
-    expect(isReviewCompletionForLane(state, 'doc-updater', undefined, 'Review head abc123')).toBe(true);
-    expect(isReviewCompletionForLane({ ...state, fallbackLanes: [] }, 'doc-updater', undefined, 'Review head abc123')).toBe(true);
-    expect(isReviewCompletionForLane({ ...state, fallbackLanes: [] }, 'doc-updater', undefined, 'Review head stale')).toBe(false);
-    expect(isReviewCompletionForLane({ ...state, fallbackLanes: [] }, 'doc-updater')).toBe(false);
-    expect(isReviewCompletionForLane({ head: 'abc123', lanes: ['code-reviewer'], spawned: false }, 'code-reviewer')).toBe(false);
-    expect(isReviewCompletionForLane({ head: 'abc123', lanes: ['code-reviewer'], spawned: false }, 'code-reviewer', undefined, 'Review head abc123')).toBe(true);
-    expect(isReviewCompletionForLane(state, 'spec-reviewer', 'spawned-spec')).toBe(false);
   });
 
   it('REQ-AGENT-040: Pi review enforcement extracts visible background Agent IDs for pending lanes', () => {
@@ -671,80 +647,36 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   it('REQ-AGENT-040: durable Pi review job paths are under .git and result paths stay on the existing review surface', () => {
     expect(durableReviewJobDir('/repo', 'abc123')).toBe('/repo/.git/codeflare-review-jobs/abc123');
-    expect(durableReviewResultPath('/repo', 'abc123', 'code-reviewer')).toBe('/repo/.git/sdd-review-results/abc123/code-reviewer.md');
   });
 
-  it('REQ-AGENT-040: Pi review enforcement spawns reviewers with bounded background options', () => {
-    const calls: Array<{ lane: string; prompt: string; options: Record<string, unknown> }> = [];
-    const result = startReviewLaneSpawns({
-      state: {
-        completed: [],
-        spawnedIds: {},
-        fallbackLanes: [],
-        requestedAt: {},
-        spawned: false,
-        reviewStartedAt: 900,
-      },
-      requests: [
-        { lane: 'code-reviewer', prompt: 'Review head abc123', description: 'Review code changes' },
-        { lane: 'spec-reviewer', prompt: 'Review head abc123', description: 'Review spec changes' },
-      ],
-      service: {
-        spawn: (lane, prompt, options) => {
-          calls.push({ lane, prompt, options });
-          return `${lane}-id`;
-        },
-      },
-      now: 1000,
-    });
-
-    expect(calls).toEqual([
-      {
-        lane: 'code-reviewer',
-        prompt: 'Review head abc123',
-        options: { description: 'Review code changes', inheritContext: false, maxTurns: 8, bypassQueue: true },
-      },
-      {
-        lane: 'spec-reviewer',
-        prompt: 'Review head abc123',
-        options: { description: 'Review spec changes', inheritContext: false, maxTurns: 8, bypassQueue: true },
-      },
+  it('REQ-AGENT-053 AC8: durable review lanes load graphify always, context-mode only when enabled, never subagents', () => {
+    const enabledCtx = [
+      'npm:@gaodes/pi-graphify@0.2.2',
+      'npm:@gotgenes/pi-subagents@7.8.1',
+      'npm:context-mode@1.0.151',
+    ];
+    // graphify always; context-mode enabled (bare string); subagents never.
+    expect(laneExtensionSources(enabledCtx)).toEqual([
+      'npm:@gaodes/pi-graphify@0.2.2',
+      'npm:context-mode@1.0.151',
     ]);
-    expect(result.launched).toEqual(['code-reviewer:code-reviewer-id', 'spec-reviewer:spec-reviewer-id']);
-    expect(result.state.spawnedIds).toEqual({
-      'code-reviewer': 'code-reviewer-id',
-      'spec-reviewer': 'spec-reviewer-id',
-    });
-    expect(result.state.spawned).toBe(true);
-    expect(result.state.reviewStartedAt).toBe(900);
-    expect(result.state.spawnedAt).toBe(1000);
-  });
 
-  it('REQ-AGENT-040: Pi review enforcement skips already-started lanes and preserves fallback lanes on spawn failure', () => {
-    const result = startReviewLaneSpawns({
-      state: {
-        completed: [],
-        spawnedIds: { 'code-reviewer': 'existing-code-id' },
-        fallbackLanes: [],
-        requestedAt: {},
-        spawned: true,
-        reviewStartedAt: 400,
-        spawnedAt: 500,
-      },
-      requests: [
-        { lane: 'code-reviewer', prompt: 'Review head abc123', description: 'Review code changes' },
-        { lane: 'spec-reviewer', prompt: 'Review head abc123', description: 'Review spec changes' },
-      ],
-      service: { spawn: () => undefined },
-      now: 1000,
-    });
+    const disabledCtx = [
+      'npm:@gaodes/pi-graphify@0.2.2',
+      'npm:@gotgenes/pi-subagents@7.8.1',
+      { source: 'npm:context-mode@1.0.151', extensions: [], skills: [] },
+    ];
+    // context-mode in disabled filter form -> only graphify.
+    expect(laneExtensionSources(disabledCtx)).toEqual(['npm:@gaodes/pi-graphify@0.2.2']);
 
-    expect(result.launched).toEqual([]);
-    expect(result.state.spawnedIds).toEqual({ 'code-reviewer': 'existing-code-id' });
-    expect(result.state.fallbackLanes).toEqual(['spec-reviewer']);
-    expect(result.state.requestedAt).toEqual({ 'spec-reviewer': 1000 });
-    expect(result.state.reviewStartedAt).toBe(400);
-    expect(result.state.spawnedAt).toBe(500);
+    // object graphify entry without an extensions filter is still enabled.
+    expect(laneExtensionSources([{ source: 'npm:@gaodes/pi-graphify@0.2.2' }])).toEqual([
+      'npm:@gaodes/pi-graphify@0.2.2',
+    ]);
+
+    // empty / unrelated packages -> nothing.
+    expect(laneExtensionSources([])).toEqual([]);
+    expect(laneExtensionSources(['npm:@gotgenes/pi-subagents@7.8.1', '', { source: '' }])).toEqual([]);
   });
 
   it('REQ-AGENT-040: Pi review enforcement selects the unreviewed incremental review base', () => {

@@ -1172,6 +1172,30 @@ Three smaller decisions bundled in:
 
 ---
 
+### AD64: Durable review lanes load extensions additively behind the `noExtensions` shield
+
+**Category:** Architecture
+
+**Status:** Active (2026-05-30)
+
+**Context:** PR-boundary review enforcement (REQ-AGENT-040/053/054) runs each lane as an in-process `createAgentSession` (`review-jobs.ts::runDurableLane`) with `DefaultResourceLoader({ noExtensions: true })`. That shield exists because extension factories run synchronously during load (pi's `loader.js` `await factory(api)`), and `review-enforcement.ts`'s factory writes a process-global run token (`__codeflareReviewEnforcementRun`) at load time; if a lane loaded that extension in the same process it would overwrite the token and silently disable the **main** session's enforcement (the merge gate). `@gotgenes/pi-subagents` similarly couples in-process state. But the blunt `noExtensions: true` also stripped every useful capability, leaving lanes with only the 7 built-in tools: reviewers had no `graphify_*`, no `ctx_*`, and none of `codeflare-pi`'s guards. A transient `gh pr view` failure once dropped the merge gate by mis-classifying a live head as stale (the "failure #13" referenced in `review-helpers.ts`); `classifyReviewHead` now separates `stale` from `unknown` to keep the gate fail-closed, and the durable `.git/`-persisted state makes that classification recoverable.
+
+**Decision:** Keep `noExtensions: true` and load capabilities **additively** via `additionalExtensionPaths` (which still load under `noExtensions`): always the graphify package, the `context-mode` package only when enabled in Pi settings (so lanes inherit `/ctx on`), and `codeflare-pi.ts` as a local file (for the local-build blocker, attribution gate, and graphify-first gate). `review-enforcement` and `@gotgenes/pi-subagents` are never added, so neither clobbers the main session. Lane source selection is the pure `review-job-helpers.ts::laneExtensionSources`. `codeflare-pi`'s `session_start` global-graph merge is skipped inside lanes via a `globalThis.__codeflareReviewLaneDepth` counter set by `runDurableLane`, avoiding a redundant `graphify global add` subprocess per lane on the 1 vCPU container.
+
+**Consequences:**
+- Reviewers gain graphify and (when enabled) context-mode, and run under the same build-blocker/graphify-first gates as the main agent.
+- The `noExtensions` shield is load-bearing and must stay; a future maintainer must not "simplify" by removing it, because that reloads `review-enforcement`'s clobbering factory in-process.
+- `extensionsOverride` cannot substitute for this: it filters after factories have already run, so it cannot prevent the load-time global clobber.
+- graphify tools spawn bounded Python; lanes are steered (system prompt) to read-only `graphify_query/path/explain`.
+
+**Alternative considered:** Remove `noExtensions` and filter `review-enforcement` out with `extensionsOverride`. Rejected: factories run during load, so the clobber happens before the filter.
+
+**Alternative considered:** Self-guard `review-enforcement` to no-op when loaded in a lane. Rejected as the primary mechanism: it does not cover `@gotgenes/pi-subagents`' in-process coupling, and the additive allowlist is simpler and strictly scopes what a lane can load.
+
+**Related REQ:** REQ-AGENT-053 (durable review status/result/fix loop, AC8), REQ-AGENT-040 (PR-boundary lane classification and dispatch), REQ-AGENT-054 (durable lane failure handling).
+
+---
+
 ## Related Documentation
 
 - [Architecture — System Components](../lanes/architecture.md#system-components) - Component overview

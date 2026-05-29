@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-30
+
+- REQ-AGENT-053 AC8 added: Pi durable PR-boundary review lanes now additively load the graphify package (always) and the context-mode package (only when `/ctx on` enables it), plus the `codeflare-pi` guard extension (local-build blocker, attribution, graphify gate), so reviewers gain `graphify_*` and, when enabled, `ctx_*` tools. The lane keeps `noExtensions` so the `review-enforcement` extension (which clobbers a process-global run token on load) and the `@gotgenes/pi-subagents` package never load in-process; `codeflare-pi`'s per-session global-graph merge is skipped inside lanes via a depth counter. Also consolidated the triplicated `reviewResultPath`/`reviewResultsDir` into a single `review-jobs.ts` source and removed dead pre-durable spawn helpers (`startReviewLaneSpawns`, `isReviewCompletionForLane`, `isCurrentReviewHead`).
+
 ## 2026-05-29
 
 - REQ-AGENT-040 updated: Pi PR-boundary review enforcement now uses Codeflare-owned durable review jobs instead of third-party subagent service records. This keeps merge enforcement recoverable across reloads and independent of ephemeral Agent IDs.

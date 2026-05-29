@@ -16,7 +16,7 @@ import {
   SessionManager,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { formatDurableReviewResult, recoverDurableReviewLaneState } from "./review-job-helpers";
+import { formatDurableReviewResult, laneExtensionSources, recoverDurableReviewLaneState } from "./review-job-helpers";
 import type { ReviewSpawnRequest } from "./review-helpers";
 
 export const REVIEW_JOBS_EVENT_LANE_COMPLETED = "codeflare-review-jobs:lane-completed";
@@ -67,6 +67,19 @@ function now(): number {
   return Date.now();
 }
 
+// Pi agent settings.json `packages` drives which extension packages a lane may load.
+// Read best-effort; the lane resolves these against the same agentDir the loader uses.
+function readPiAgentPackages(): Array<string | { source?: string; extensions?: unknown }> {
+  try {
+    const settings = JSON.parse(readFileSync(join(getAgentDir(), "settings.json"), "utf8")) as {
+      packages?: Array<string | { source?: string; extensions?: unknown }>;
+    };
+    return settings.packages ?? [];
+  } catch {
+    return [];
+  }
+}
+
 function safeWriteJson(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
@@ -90,8 +103,12 @@ export function reviewLaneTranscriptPath(repo: string, head: string, lane: strin
   return join(reviewJobDir(repo, head), "transcripts", `${lane}.jsonl`);
 }
 
+export function reviewResultsDir(repo: string, head: string): string {
+  return join(repo, ".git", "sdd-review-results", head);
+}
+
 export function reviewResultPath(repo: string, head: string, lane: string): string {
-  return join(repo, ".git", "sdd-review-results", head, `${lane}.md`);
+  return join(reviewResultsDir(repo, head), `${lane}.md`);
 }
 
 function laneKey(repo: string, head: string, lane: string): string {
@@ -229,6 +246,10 @@ async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: D
   const key = laneKey(job.repo, job.head, request.lane);
   if (runningLanes.has(key)) return;
   runningLanes.add(key);
+  // Mark that a durable review lane is loading in this process so codeflare-pi can skip
+  // its per-session global-graph merge. Counter (not boolean) so concurrent lanes are safe.
+  const laneDepth = globalThis as { __codeflareReviewLaneDepth?: number };
+  laneDepth.__codeflareReviewLaneDepth = (laneDepth.__codeflareReviewLaneDepth ?? 0) + 1;
 
   const transcriptPath = reviewLaneTranscriptPath(job.repo, job.head, request.lane);
   const resultPath = reviewResultPath(job.repo, job.head, request.lane);
@@ -242,15 +263,26 @@ async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: D
       "# Codeflare PR-boundary durable review job",
       "You are running inside Codeflare's durable PR-boundary review gate.",
       "Report findings only. Do not modify files. Do not spawn subagents. Do not run builds, tests, linters, or dev servers.",
+      "If graphify tools are available, use only graphify_query, graphify_path, and graphify_explain for read-only lookups; do not build, update, or watch graphs.",
       "Use severity prefixes [CRITICAL], [HIGH], [MEDIUM], or [LOW] for findings. Use [CRITICAL] for merge-blocking findings.",
       "Your final answer is persisted as the review result for this lane. Codeflare adds the standard Review Summary table after your findings, so do not add your own summary table.",
     ].join("\n");
+
+    // Keep noExtensions (so review-enforcement/subagents never load in-process), but additively
+    // load codeflare-pi (build-blocker + guards) and the graphify/context-mode packages so the
+    // reviewer has graphify_query and, when /ctx on, ctx_* tools.
+    const codeflarePiPath = join(getAgentDir(), "extensions", "codeflare-pi.ts");
+    const additionalExtensionPaths = [
+      ...(existsSync(codeflarePiPath) ? [codeflarePiPath] : []),
+      ...laneExtensionSources(readPiAgentPackages()),
+    ];
 
     const resourceLoader = new DefaultResourceLoader({
       cwd: job.repo,
       agentDir: getAgentDir(),
       systemPrompt,
       noExtensions: true,
+      additionalExtensionPaths,
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
@@ -301,6 +333,7 @@ async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: D
     pi.events.emit(REVIEW_JOBS_EVENT_LANE_FAILED, { repo: job.repo, head: job.head, lane: request.lane, error: message });
   } finally {
     runningLanes.delete(key);
+    laneDepth.__codeflareReviewLaneDepth = (laneDepth.__codeflareReviewLaneDepth ?? 1) - 1;
   }
 }
 
