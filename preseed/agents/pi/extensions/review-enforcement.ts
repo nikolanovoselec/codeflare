@@ -443,6 +443,32 @@ export default function (pi: ExtensionAPI) {
   const toolStartArgs = new Map<string, any>();
   const shouldProcessPrBoundaryToolEnd = createReadyOnceTracker();
 
+  const suppressDuplicateReviewMessage = (message: any): any | undefined => {
+    if (message?.role !== "custom") return undefined;
+    const customType = String(message?.customType || "");
+    if (customType !== "pr-boundary-review-result" && customType !== "pr-boundary-review-summary") return undefined;
+
+    const details = message?.details || {};
+    const key = durableReviewMessageKey({ customType, repo: details.repo, head: details.head, lane: details.lane, path: details.path });
+    const globalState = globalThis as { __codeflareReviewMessageKeys?: Set<string> };
+    globalState.__codeflareReviewMessageKeys = globalState.__codeflareReviewMessageKeys || new Set<string>();
+
+    const isLegacySummary = customType === "pr-boundary-review-summary" && !String(message?.content || "").includes("## Review Results");
+    const isLaneResult = customType === "pr-boundary-review-result";
+    const isDuplicate = globalState.__codeflareReviewMessageKeys.has(key);
+    if (!isLegacySummary && !isLaneResult && !isDuplicate) {
+      globalState.__codeflareReviewMessageKeys.add(key);
+      return undefined;
+    }
+
+    globalState.__codeflareReviewMessageKeys.add(key);
+    return {
+      ...message,
+      display: false,
+      content: "",
+    };
+  };
+
   // Background events (subagents:completed/failed) arrive without a usable session ctx.
   // Remember the most recent real ctx from live handlers so doc-updater can still be
   // spawned (and the service ctx re-seeded) when a reviewer completes off-turn.
@@ -650,6 +676,15 @@ export default function (pi: ExtensionAPI) {
       return { block: true, reason: "PR-boundary review order violation: doc-updater must run only after spec-reviewer completes for this PR HEAD." };
     }
   };
+
+  pi.on("message_start", (event: any) => {
+    const message = suppressDuplicateReviewMessage(event?.message);
+    if (message) return { message };
+  });
+  pi.on("message_end", (event: any) => {
+    const message = suppressDuplicateReviewMessage(event?.message);
+    if (message) return { message };
+  });
 
   pi.on("tool_call", onAgentStart);
   pi.on("tool_execution_start", (event: any, ctx: any) => {
