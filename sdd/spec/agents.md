@@ -723,7 +723,7 @@ None.
 2. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works in Pi without context-mode by using native Bash/Read/Grep/Find/Write/Edit tools; context-management helper tools, when present in another runtime, are optional rather than required.
 3. Discovery commands producing more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) run through native discovery tools in Pi without context-mode, with any runtime-specific output-management wrapper treated as an optional optimization.
 4. Pi-transformed SDD skills replace Claude MCP tool names and Plan Mode surfaces with Pi-native graphify tools and `Agent`/`Plan` terminology, and the native `/sdd` command enforces the command-file hard gates (help, unknown subcommand, clean working tree, `clean`/`mode` require `sdd/`, existing-spec `init` handling) before dispatching to the workflow skill.
-5. After pushes that trigger GitHub Actions, the `ci-monitoring` skill uses one continuous tail-followed monitor for the pushed HEAD through native Bash; agents do not emit repeated chat-visible polling calls and do not require context-mode.
+5. After pushes that trigger GitHub Actions, the `ci-monitoring` skill uses one background continuous tail-followed monitor for the pushed HEAD through native Bash; agents do not emit repeated chat-visible polling calls, do not block the main session while CI runs, and do not require context-mode.
 
 **Constraints:**
 

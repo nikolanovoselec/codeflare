@@ -6,7 +6,7 @@
 
 | Event | Skill |
 |---|---|
-| After `git push` to a branch with CI | `ci-monitoring` (one continuous tail-followed monitor until green; never repeated chat-visible polling or `gh run watch`) |
+| After `git push` to a branch with CI | `ci-monitoring` (one background continuous tail-followed monitor until green; never repeated chat-visible polling or `gh run watch`) |
 | PR-boundary event with `sdd/` present | `git-review-pipeline` (spec/doc/code review pipeline) |
 | User asks to open a PR | `pr-workflow` (body template + REQ backlinks + test plan) |
 | Need gh/wrangler access, creds unclear | `deploy-credentials` (env-var table + check-then-fallback) |
@@ -18,6 +18,6 @@
 
 ## Hard obligations
 
-- After every push that triggers CI: invoke `ci-monitoring` once, run its continuous tail-followed monitor to completion, and confirm every row `completed` + `success` before reporting green.
+- After every push that triggers CI: invoke `ci-monitoring` once, run its continuous tail-followed monitor in a background task, and confirm every row `completed` + `success` before reporting green or deploying.
 - Never deploy to integration until every CI run is green.
 - Skipping `ci-monitoring` is HIGH `ci-monitoring-skill-not-invoked` (caught by the next downstream agent).
