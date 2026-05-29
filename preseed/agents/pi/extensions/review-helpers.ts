@@ -12,6 +12,27 @@ export function isCurrentReviewHead(pendingHead: string, prHead: string | undefi
   return prHead === pendingHead || localHead === pendingHead;
 }
 
+export type ReviewHeadStatus = "current" | "stale" | "unknown";
+
+// Decide whether a pending review window still applies to the live PR head.
+// Critically separates a PR that has definitively moved on / closed ("stale",
+// safe to discard) from a PR state we could not read because `gh` failed
+// ("unknown"). A transient `gh pr view` failure must never be mistaken for a
+// stale head, because discarding pending state without an ack drops the merge
+// gate and leaves a reviewed head un-acked (see pi-failure.md failure #13).
+export function classifyReviewHead(params: {
+  pendingHead: string;
+  localHead: string | undefined;
+  prOpenAtBase: boolean;
+  prHead: string | undefined;
+  prQueryFailed: boolean;
+}): ReviewHeadStatus {
+  if (params.localHead === params.pendingHead) return "current";
+  if (params.prQueryFailed) return "unknown";
+  if (params.prOpenAtBase && params.prHead === params.pendingHead) return "current";
+  return "stale";
+}
+
 export type ReviewCompletionState = {
   head: string;
   lanes: string[];

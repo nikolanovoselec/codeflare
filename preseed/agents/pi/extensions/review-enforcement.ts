@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, w
 import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { ALL_REVIEW_LANES, classifyReviewFiles, createReadyOnceTracker, extractBackgroundAgentId, isCurrentReviewHead, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, isReviewCompletionForLane, reusablePendingReview, selectReviewBase, startReviewLaneSpawns, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
@@ -437,10 +437,15 @@ async function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: stri
   }
 }
 
-function isCurrentPending(pending: PendingReview): boolean {
+function reviewHeadStatus(pending: PendingReview): ReviewHeadStatus {
   const current = prState(pending.repo);
-  if (!isEnforcedPr(current)) return false;
-  return isCurrentReviewHead(pending.head, current.headRefOid, localHead(pending.repo));
+  return classifyReviewHead({
+    pendingHead: pending.head,
+    localHead: localHead(pending.repo),
+    prOpenAtBase: isEnforcedPr(current),
+    prHead: current?.headRefOid,
+    prQueryFailed: current === undefined,
+  });
 }
 
 export default function (pi: ExtensionAPI) {
@@ -455,6 +460,16 @@ export default function (pi: ExtensionAPI) {
   const remember = (ctx: any): void => { if (isRealSessionCtx(ctx)) lastCtx = ctx; };
   const completionCtx = (): any =>
     isRealSessionCtx(lastCtx) ? lastCtx : { sessionManager: { getCwd: () => process.cwd() }, ui: { notify: () => undefined } };
+
+  // Pending state may only be discarded when the PR has DEFINITIVELY moved on
+  // (reviewHeadStatus === "stale"), and always with a visible warning. An
+  // indeterminate "unknown" (gh query failed) must preserve state and retry, so
+  // a transient failure can never silently drop the review gate without an ack.
+  const discardStale = (state: PendingReview, ctx: any): void => {
+    clearPending(state.repo);
+    pending = undefined;
+    ctx.ui.notify(`PR-boundary review state for ${basename(state.repo)} at ${state.head.slice(0, 12)} discarded: the open PR no longer points at this head.`, "warning");
+  };
 
   function toolEventId(event: any): string | undefined {
     const id = event?.toolCallId || event?.toolUseId || event?.id;
@@ -523,9 +538,11 @@ export default function (pi: ExtensionAPI) {
     if (!state || !state.lanes.includes(type)) return;
     if (!isReviewCompletionForLane({ ...state, fallbackLanes: [...state.fallbackLanes] }, type, completionId, prompt)) return;
     if (state.completed.has(type)) return;
-    if (!isCurrentPending(state)) {
-      clearPending(state.repo);
-      pending = undefined;
+    // Only a definitively-moved PR ("stale") discards the window; "unknown" (gh
+    // failed) falls through so the completion is still recorded and acked rather
+    // than the whole review window being lost on a transient query failure.
+    if (reviewHeadStatus(state) === "stale") {
+      discardStale(state, ctx);
       return;
     }
     publishReviewResult(state, type, result, ctx);
@@ -573,9 +590,8 @@ export default function (pi: ExtensionAPI) {
     if (type !== "doc-updater") return;
     const state = hydratePending(ctx);
     if (!state) return;
-    if (!isCurrentPending(state)) {
-      clearPending(state.repo);
-      pending = undefined;
+    if (reviewHeadStatus(state) === "stale") {
+      discardStale(state, ctx);
       return;
     }
     if (state.lanes.includes("spec-reviewer") && !state.completed.has("spec-reviewer")) {
@@ -600,9 +616,8 @@ export default function (pi: ExtensionAPI) {
       const prompt = String(input.prompt || "");
       const state = hydratePending(ctx);
       if (!type || !state?.lanes.includes(type) || !prompt.includes(state.head)) return;
-      if (!isCurrentPending(state)) {
-        clearPending(state.repo);
-        pending = undefined;
+      if (reviewHeadStatus(state) === "stale") {
+        discardStale(state, ctx);
         return;
       }
 
@@ -700,7 +715,7 @@ export default function (pi: ExtensionAPI) {
 
   const onSubagentFailed = async (event: any, ctx: any) => {
     const state = hydratePending(ctx);
-    if (!state || !isCurrentPending(state)) return;
+    if (!state || reviewHeadStatus(state) !== "current") return;
     const id = typeof event?.id === "string" ? event.id : undefined;
     const lane = Object.entries(state.spawnedIds).find(([, spawnedId]) => spawnedId === id)?.[0];
     if (!lane) return;
@@ -724,8 +739,15 @@ export default function (pi: ExtensionAPI) {
       pending = undefined;
       return;
     }
-    if (!isCurrentPending(state)) {
-      clearPending(state.repo);
+    const headStatus = reviewHeadStatus(state);
+    if (headStatus === "stale") {
+      discardStale(state, ctx);
+      return;
+    }
+    if (headStatus === "unknown") {
+      // gh could not confirm the PR head this cycle. Keep the persisted window
+      // (merge gate stays fail-closed) and retry on the next agent_end instead of
+      // discarding review state on a transient failure.
       pending = undefined;
       return;
     }
