@@ -21,7 +21,7 @@ Do **not** use headless `graphify extract --backend deepseek` for normal interac
 - Vault graph: `/home/user/Vault/graphify-out/graph.json`.
 - Global graph: `/home/user/.graphify/global-graph.json`, merged from the active repo graph and the Vault graph under the existing `user_vault` tag.
 - There is no graph at `/home/user/workspace/graphify-out/graph.json`. If Pi's cwd is `/home/user/workspace`, resolve the active repo from `/home/user/.cache/codeflare-hooks/graphify-active-cwd` or the child git root before querying.
-- If a native graphify tool looks at the workspace root, fall back to the CLI with `--graph <repo>/graphify-out/graph.json`.
+- Codeflare's Pi extension keeps that active-repo sentinel branch-aware (`<repo>:<branch>@<head>`) in session context and automatically retries `graphify_query`, `graphify_path`, and `graphify_explain` against `<repo>/graphify-out/graph.json` when the native tool first resolves `/home/user/workspace/graphify-out/graph.json`. If the automatic retry also fails, fall back manually to the CLI with `--graph <repo>/graphify-out/graph.json`.
 
 ## Triage
 
@@ -77,7 +77,7 @@ Use native Pi graphify tools first:
 - `graphify_query({ question, mode: "dfs" })` or `graphify_path` for paths.
 - `graphify_explain({ concept })` for a node and its neighbors.
 
-When the active repo is a child of `/home/user/workspace` and a native tool reports `/home/user/workspace/graphify-out/graph.json` missing, use the CLI fallback:
+When the active repo is a child of `/home/user/workspace`, Codeflare's Pi extension should automatically retry native graph query/path/explain calls against the active repo graph. If the automatic retry still reports `/home/user/workspace/graphify-out/graph.json` missing, use the CLI fallback:
 
 ```bash
 graphify query "<question>" --graph <repo>/graphify-out/graph.json

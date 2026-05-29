@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
+import { effectiveCwdForCommand, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
 import { sddCommandDecision, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
 
 const CACHE_DIR = "/home/user/.cache/codeflare-hooks";
@@ -55,6 +55,30 @@ function currentBranch(repo: string): string | undefined {
   }
 }
 
+function currentHead(repo: string): string | undefined {
+  try {
+    return shell("git rev-parse HEAD", repo) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function unquoteShellToken(value: string): string {
+  return value.trim().replace(/^("|')(.*)\1$/, "$2");
+}
+
+function effectivePathForCommand(command: string, cwd: string): string {
+  const gitC = command.match(/(?:^|[;&|]\s*)git\s+-C\s+("[^"]+"|'[^']+'|[^\s;&|]+)/);
+  if (gitC?.[1]) return resolve(cwd, unquoteShellToken(gitC[1]));
+  return resolve(effectiveCwdForCommand(command, cwd));
+}
+
+function repoIdentity(repo: string): string {
+  const branch = currentBranch(repo) ?? "detached";
+  const head = currentHead(repo);
+  return head ? `${basename(repo)}:${branch}@${head.slice(0, 12)}` : `${basename(repo)}:${branch}`;
+}
+
 function updateActiveRepoFromPath(path: string): string | undefined {
   const repo = findGitRoot(path);
   if (!repo) return undefined;
@@ -93,18 +117,18 @@ function graphSummary(repo: string): string | undefined {
     const nodes = Array.isArray(graph.nodes) ? graph.nodes.length : 0;
     const links = Array.isArray(graph.links) ? graph.links.length : Array.isArray(graph.edges) ? graph.edges.length : 0;
     const built = typeof graph.built_at_commit === "string" ? graph.built_at_commit : undefined;
+    const branch = currentBranch(repo);
+    const branchText = branch ? ` Branch: ${branch}.` : "";
     let freshness = "";
     if (built) {
-      try {
-        const head = shell("git rev-parse HEAD", repo);
-        freshness = built === head
+      const head = currentHead(repo);
+      freshness = head
+        ? built === head
           ? ` Fresh at ${head.slice(0, 12)}.`
-          : ` Stale: built at ${built.slice(0, 12)}, repo HEAD is ${head.slice(0, 12)}.`;
-      } catch {
-        freshness = ` Built at ${built.slice(0, 12)}.`;
-      }
+          : ` Stale: built at ${built.slice(0, 12)}, repo HEAD is ${head.slice(0, 12)}.`
+        : ` Built at ${built.slice(0, 12)}.`;
     }
-    return `Graphify repo graph available for ${basename(repo)}: ${nodes} nodes, ${links} links at ${graphPath}.${freshness} ${layout} Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
+    return `Graphify repo graph available for ${repoIdentity(repo)}: ${nodes} nodes, ${links} links at ${graphPath}.${branchText}${freshness} ${layout} Pi automatically retries graphify_query/path/explain against this active repo graph if the native tool resolves /home/user/workspace/graphify-out. Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
   } catch {
     return `Graphify repo graph available for ${basename(repo)} at ${graphPath}. ${layout} Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
   }
@@ -128,6 +152,80 @@ function commandText(event: any): string {
   if (typeof input.code === "string") return input.code;
   if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => String(cmd?.command ?? "")).join("\n");
   return "";
+}
+
+function resultText(event: any): string {
+  const content = event?.content;
+  if (Array.isArray(content)) {
+    return content.map((item) => item?.type === "text" ? String(item.text ?? "") : "").join("\n");
+  }
+  return typeof content === "string" ? content : "";
+}
+
+function graphifyToolInput(event: any): Record<string, unknown> {
+  const input = event?.input ?? event?.params ?? event?.args ?? {};
+  return input && typeof input === "object" ? input : {};
+}
+
+function missingWorkspaceGraphError(event: any): boolean {
+  if (event?.isError !== true) return false;
+  return /graph file not found:\s*\/home\/user\/workspace\/graphify-out\/graph\.json/.test(resultText(event));
+}
+
+function graphifyFallbackArgs(toolName: string, input: Record<string, unknown>, graphPath: string): { args: string[]; details: Record<string, unknown> } | undefined {
+  if (toolName === "graphify_query") {
+    if (typeof input.question !== "string" || !input.question.trim()) return undefined;
+    const mode = input.mode === "dfs" ? "dfs" : "bfs";
+    const budget = typeof input.budget === "number" && Number.isFinite(input.budget) ? Math.floor(input.budget) : 2000;
+    return {
+      args: ["query", input.question, ...(mode === "dfs" ? ["--dfs"] : []), "--budget", String(budget), "--graph", graphPath],
+      details: { question: input.question, mode },
+    };
+  }
+  if (toolName === "graphify_path") {
+    if (typeof input.from !== "string" || typeof input.to !== "string") return undefined;
+    return {
+      args: ["path", input.from, input.to, "--graph", graphPath],
+      details: { from: input.from, to: input.to },
+    };
+  }
+  if (toolName === "graphify_explain") {
+    if (typeof input.concept !== "string" || !input.concept.trim()) return undefined;
+    return {
+      args: ["explain", input.concept, "--graph", graphPath],
+      details: { concept: input.concept },
+    };
+  }
+  return undefined;
+}
+
+function fallbackGraphifyToolResult(event: any, ctx: ExtensionContext): { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; isError: false } | undefined {
+  const toolName = String(event?.toolName ?? "").toLowerCase();
+  if (!isGraphifyTool(toolName) || !missingWorkspaceGraphError(event)) return undefined;
+  const repo = activeRepo(ctx);
+  if (!repo || !hasGraph(repo)) return undefined;
+
+  const graphPath = join(repo, "graphify-out", "graph.json");
+  const fallback = graphifyFallbackArgs(toolName, graphifyToolInput(event), graphPath);
+  if (!fallback) return undefined;
+
+  try {
+    const output = execFileSync("graphify", fallback.args, {
+      cwd: repo,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 60000,
+      maxBuffer: 1024 * 1024,
+    }).trim();
+    const identity = repoIdentity(repo);
+    return {
+      content: [{ type: "text", text: `${output}\n\n[Codeflare Pi fallback: queried ${graphPath} for active repo ${identity} because the native tool resolved /home/user/workspace/graphify-out.]` }],
+      details: { ...fallback.details, result: output, repo, graph: graphPath, activeRepo: identity },
+      isError: false,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function isGitClone(command: string): boolean {
@@ -401,8 +499,12 @@ export default function (pi: ExtensionAPI) {
 
     // A shell command ran if the tool carried one (bash input.command, or the ctx_* tools'
     // code/commands when context-mode is on). Detect by command content, not tool name, so
-    // this works whether or not context-mode is active.
+    // this works whether or not context-mode is active. Also resolve command-local `cd ... &&`
+    // and `git -C ...` forms into the active-repo sentinel before graph-first gating fires.
     if (command) {
+      try {
+        updateActiveRepoFromPath(effectivePathForCommand(command, ctx.sessionManager.getCwd()));
+      } catch { /* active-repo tracking must never block the tool */ }
       const attributionReason = ensureNoAttributedCommit(command);
       if (attributionReason) return { block: true, reason: attributionReason };
       const buildReason = ensureNoLocalBuild(command);
@@ -458,7 +560,7 @@ export default function (pi: ExtensionAPI) {
         hasGraph,
       })
       : undefined;
-    const repo = updateActiveRepoFromPath(decision?.repo ?? cwd);
+    const repo = updateActiveRepoFromPath(decision?.repo ?? (command ? effectivePathForCommand(command, cwd) : cwd));
 
     if (repo && hasGraph(repo)) maybeMergeGlobalGraph(repo);
 
@@ -469,7 +571,11 @@ export default function (pi: ExtensionAPI) {
 
   };
 
-  pi.on("tool_result", onToolEnd);
+  pi.on("tool_result", (event: any, ctx: any) => {
+    const fallback = fallbackGraphifyToolResult(event, ctx);
+    onToolEnd(event, ctx);
+    return fallback;
+  });
   pi.on("tool_execution_end", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
 
   pi.on("agent_end", (_event, _ctx) => {

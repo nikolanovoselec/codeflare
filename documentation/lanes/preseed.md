@@ -337,7 +337,14 @@ active-repo/global-graph maintenance and clone triage, automatic memory capture,
 Vault graph extraction/global-graph merge, local-build blocking,
 and AI-attribution blocking. Pi receives a dedicated native graphify skill
 that uses local AST extraction plus Pi `Agent` subagents instead of the
-Claude/MCP-specific transformed skill. Pi receives a separate
+Claude/MCP-specific transformed skill. The Pi runtime adapter also makes
+native `graphify_query` / `graphify_path` / `graphify_explain` active-repo
+aware: if the packaged graphify tool resolves the session cwd
+(`~/workspace`) and reports `/home/user/workspace/graphify-out/graph.json`
+missing, Codeflare retries the same query through the graphify CLI with
+`--graph <active-repo>/graphify-out/graph.json`. The active repo identity
+injected into Pi context includes repository basename, checked-out branch,
+and HEAD prefix. Pi receives a separate
 `review-command.ts` for the user-invoked `/review` UX and
 `review-enforcement.ts` for PR-boundary review enforcement.
 
@@ -491,13 +498,28 @@ In advanced session mode, `enforce-graphify.sh` is a second PreToolUse hook on t
 Mechanics:
 
 - **Matchers**: `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_execute_file`. Covers both standard tiers (where `Grep`/`Bash` fire natively) and custom tier (where `enforce-ctx-mode.sh` denies `Grep` and forces routing through the `ctx_execute*` family).
-- **Gating**: two-step active-repo resolution. The hook first reads `~/.cache/codeflare-hooks/graphify-active-cwd` (the sentinel `graphify-active-repo.sh` maintains on every Bash/Edit/Write/ctx_execute tool call) and checks `<active-repo>/graphify-out/graph.json`. If the sentinel is absent or stale, it falls back to the tool-call envelope `.cwd`. In codeflare the session cwd is always `~/workspace` (parent of all repos, never a sub-repo), so the sentinel is the load-bearing signal; the envelope-cwd fallback exists for vanilla graphify usage outside codeflare. Vault-only-in-global is intentionally NOT enforcement-eligible: a session whose active repo has no graph triggers no hard-block, so the user can grep freely in repos they have not yet graphified.
+- **Gating**: two-step active-repo resolution. The hook first reads `~/.cache/codeflare-hooks/graphify-active-cwd` (the sentinel `graphify-active-repo.sh` maintains on every Bash/Edit/Write/ctx_execute tool call) and checks `<active-repo>/graphify-out/graph.json`. If the sentinel is absent or stale, it falls back to the tool-call envelope `.cwd`. In codeflare the session cwd is always `~/workspace` (parent of all repos, never a sub-repo), so the sentinel is the load-bearing signal; the envelope-cwd fallback exists for vanilla graphify usage outside codeflare. Pi updates the same sentinel from command-local `cd ... &&` and `git -C ...` forms and injects the active repo as `<repo>:<branch>@<head>` in session context. Vault-only-in-global is intentionally NOT enforcement-eligible: a session whose active repo has no graph triggers no hard-block, so the user can grep freely in repos they have not yet graphified.
 - **Threshold**: blocks the next structural search after 3 grep-class tool calls in the same turn (counted by walking the transcript backward to the last real user prompt) when no `mcp__graphify__*` call (or `graphify query|path|explain` CLI invocation) has been made.
 - **Classification**: SEARCH = first-word `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, or `awk` with `/regex/` body. The shell parser reuses `extract_subs` + `normalize_command` + chain-op splitter from `enforce-ctx-mode.sh`, so command/process substitution, heredocs, quoted regions, and pipeline segments cannot slip past.
 - **User-only bypass**: `touch /tmp/graphify-bypass` (one-shot, auto-deleted on use) or include `skip graph` (case-insensitive) in a user message. The agent must never create the sentinel.
 - **Fail-safe**: any unexpected error returns exit 0 with no output. Never locks the user out.
 
 The hook surfaces blocks as `hookSpecificOutput.permissionDecision: deny` with a `BLOCKED: <N> structural searches since last user prompt, 0 graphify queries...` reason so the agent's next-turn context carries the directive to consult the graph.
+
+### Pi active-repo query fallback ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
+
+Pi sessions run from `~/workspace`, while checked-out repositories live under
+child directories. The packaged Pi graphify tools execute from the Pi session
+cwd, so they can initially look for `/home/user/workspace/graphify-out/graph.json`.
+`codeflare-pi.ts` handles that mismatch in the `tool_result` hook: when
+`graphify_query`, `graphify_path`, or `graphify_explain` fails specifically with
+that missing workspace-root graph, the extension resolves the active repository
+from `~/.cache/codeflare-hooks/graphify-active-cwd`, verifies that
+`<repo>/graphify-out/graph.json` exists, and retries the equivalent CLI command
+with `--graph <repo>/graphify-out/graph.json`. The patched result is returned to
+Pi as a successful tool result, with details recording the repo path, graph path,
+branch, and HEAD prefix. If the retry fails too, the original tool error is left
+unchanged so the agent can fall back manually.
 
 ### Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
 

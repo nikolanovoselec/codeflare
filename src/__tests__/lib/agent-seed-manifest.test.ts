@@ -629,6 +629,9 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(cp?.content).toContain('graphSummary');
     expect(cp?.content).toContain('Graphify repo graph available');
     expect(cp?.content).toContain('graphify-out');
+    expect(cp?.content).toContain('fallbackGraphifyToolResult');
+    expect(cp?.content).toContain('/home/user/workspace/graphify-out');
+    expect(cp?.content).toContain('--graph');
   });
 
   it('REQ-AGENT-023: Pi safe-graphify-update.sh includes RLIMIT_AS memory cap', () => {

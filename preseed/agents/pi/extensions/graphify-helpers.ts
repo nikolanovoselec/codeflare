@@ -23,7 +23,7 @@ export function renderGraphifyCloneDirective(action: GraphifyCloneAction): strin
       "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is /home/user/Vault/graphify-out/graph.json; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
       "Check whether source files changed since the graph was built by comparing graph.json built_at_commit to git HEAD.",
       `If stale, ask the user whether to run the free AST-only update (\`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh ${action.repo}\`) or a full AST + semantic refresh using Pi Agent subagents.`,
-      `If fresh, use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` before broad text search. If a native graphify tool looks at the workspace root, fall back to the CLI with \`--graph ${action.repo}/graphify-out/graph.json\`.`,
+      `If fresh, use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` before broad text search. Codeflare Pi automatically retries those native tools against \`${action.repo}/graphify-out/graph.json\` if the first attempt looks at the workspace root; if that retry still fails, fall back to the CLI with \`--graph ${action.repo}/graphify-out/graph.json\`.`,
     ].join("\n");
   }
   return [
