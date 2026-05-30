@@ -335,7 +335,18 @@ if [ -z "$VER" ]; then
   exit 1
 fi
 echo "[Dockerfile] installing graphifyy==$VER with [mcp,sql,pdf] extras"
+# graphifyy 0.8.25+ pulls tree-sitter-dm, an sdist-only grammar (no manylinux
+# wheel), which uv compiles from source. This final runtime stage has no C
+# compiler (gcc lives only in the discarded `builder` stage), so install gcc
+# just for this build and purge it in the same layer: the runtime image stays
+# lean and free of an extra toolchain attack surface. Without this, the build
+# fails with "x86_64-linux-gnu-gcc: No such file or directory".
+apt-get update
+apt-get install -y --no-install-recommends gcc g++
 uv tool install "graphifyy[mcp,sql,pdf]==$VER"
+apt-get purge -y gcc g++
+apt-get autoremove -y
+rm -rf /var/lib/apt/lists/*
 
 # Expose the graphify CLI on the system PATH so non-interactive bash
 # subshells (hook scripts, memory-capture sonnet, vault-extract sonnet,
