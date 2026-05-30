@@ -436,7 +436,6 @@ Multi-agent support, preseed system, and session modes.
 
 **Constraints:**
 
-- Gemini settings file is synced via rclone, so jq merge must preserve user customizations.
 - Codex `~/.codex/` directory is excluded from sync, so `version.json` is safe to recreate on every start.
 - Restored user-added Pi packages outside the Codeflare image cache may require Fast Start OFF once so Pi can reconcile package state.
 
@@ -469,7 +468,7 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 
 - The shim must not block or hang; it must exit immediately with a non-zero code.
-- All CLI tools that attempt browser-based OAuth (Claude Code, OpenCode) must be covered.
+- All CLI tools that attempt browser-based OAuth (Claude Code, OpenCode, Antigravity) must be covered.
 
 **Priority:** P1
 
