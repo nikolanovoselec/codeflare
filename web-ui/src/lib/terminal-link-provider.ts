@@ -1,5 +1,6 @@
 import type { Terminal as XTerm, ILink, IDisposable } from '@xterm/xterm';
 import { isTouchDevice } from './mobile';
+import { MAX_URL_CONTINUATION_ROWS } from './constants';
 
 /** Minimal interface for xterm's buffer line */
 export interface XTermLine {
@@ -97,7 +98,7 @@ function findLogicalLineStart(
 
   // Heuristic: continue upward for app-wrapped lines
   let heuristic = 0;
-  while (start > 0 && heuristic < 10) {
+  while (start > 0 && heuristic < MAX_URL_CONTINUATION_ROWS) {
     const prevLine = buffer.getLine(start - 1);
     if (!prevLine) break;
     const prevText = prevLine.translateToString(true);
@@ -160,7 +161,7 @@ export function registerMultiLineLinkProvider(terminal: XTerm): IDisposable {
 
       // Phase 2: Heuristic expansion for application-inserted newlines
       let heuristicCount = 0;
-      while (nextIdx < buffer.length && heuristicCount < 10) {
+      while (nextIdx < buffer.length && heuristicCount < MAX_URL_CONTINUATION_ROWS) {
         const nextLine = buffer.getLine(nextIdx);
         if (!nextLine) break;
         const nextText = nextLine.translateToString(true);

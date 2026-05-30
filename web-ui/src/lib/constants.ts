@@ -87,6 +87,19 @@ export const BUTTON_LABEL_VISIBLE_DURATION_MS = 3000;
 /** Interval for checking URLs in the terminal buffer (ms) */
 export const URL_CHECK_INTERVAL_MS = 2000;
 
+/**
+ * Max number of application-wrapped rows to join when reconstructing a single
+ * URL that a TUI printed across multiple lines with its own newlines (not
+ * terminal soft-wraps). OAuth/device-auth URLs are long: Antigravity's Google
+ * sign-in URL alone spans ~13 narrow-mobile rows, and URLs with more scopes go
+ * further. The previous cap of 10 silently truncated such URLs mid-string,
+ * producing an `invalid_scope` error on the provider. The per-step heuristic
+ * (stops at whitespace, non-URL chars, a new https://, or internal spaces) is
+ * the real boundary detector; this is only a backstop against pathological
+ * buffers, so it can be generous.
+ */
+export const MAX_URL_CONTINUATION_ROWS = 60;
+
 // =============================================================================
 // Terminal URL Detection
 // =============================================================================

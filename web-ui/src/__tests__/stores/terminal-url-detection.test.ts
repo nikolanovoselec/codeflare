@@ -23,6 +23,7 @@ import {
   registerUrlDetectionDeps,
   startUrlDetection,
   stopUrlDetection,
+  getLastUrlFromBuffer,
 } from '../../stores/terminal-url-detection';
 
 describe('terminal-url-detection', () => {
@@ -91,5 +92,61 @@ describe('terminal-url-detection', () => {
     // After stop, both URL signals should be cleared
     expect(setAuthUrl).toHaveBeenCalledWith(null);
     expect(setNormalUrl).toHaveBeenCalledWith(null);
+  });
+
+  it('joins a long OAuth URL whose tail wraps past the viewport edge (no truncation)', () => {
+    // Regression: a real Antigravity Google sign-in URL printed by `agy` wraps
+    // across ~13 narrow-mobile rows. With the on-screen keyboard open `rows` is
+    // small, so the URL's tail lands below the visible viewport. The previous
+    // join loop was bounded by `viewportY + rows + 3` and cut the URL mid-string
+    // (".../auth/cclog+https%3A%2F%2Fwww.googleapi"), which Google rejected with
+    // invalid_scope. The fix follows continuation rows to buffer.length instead.
+    const scopes = [
+      'cloud-platform',
+      'userinfo.email',
+      'userinfo.profile',
+      'cclog',
+      'experimentsandconfigs',
+    ];
+    const scopeParam = scopes
+      .map((s) => `https%3A%2F%2Fwww.googleapis.com%2Fauth%2F${s}`)
+      .join('+');
+    const fullUrl =
+      'https://accounts.google.com/o/oauth2/auth?response_type=code&scope=' +
+      scopeParam +
+      '+openid&state=_M7OFsKu7L5FTcCCgWnG1A';
+
+    // Slice the URL into 50-char physical rows. Row 0 is the logical line start
+    // (isWrapped:false); every subsequent row is a soft-wrap continuation.
+    const WIDTH = 50;
+    const rowTexts: string[] = [];
+    for (let p = 0; p < fullUrl.length; p += WIDTH) {
+      rowTexts.push(fullUrl.slice(p, p + WIDTH));
+    }
+    const lines = rowTexts.map((text, idx) => ({
+      isWrapped: idx > 0,
+      translateToString: () => text,
+    }));
+
+    const mockTerminal = {
+      // rows tiny (mobile keyboard) so viewportY+rows+3 stops well short of the
+      // URL tail; buffer.length spans every continuation row.
+      cols: WIDTH,
+      rows: 4,
+      buffer: {
+        active: {
+          length: lines.length,
+          viewportY: 0,
+          getLine: (i: number) => lines[i],
+        },
+      },
+    } as unknown as Terminal;
+
+    const detected = getLastUrlFromBuffer(mockTerminal);
+    expect(detected).toBe(fullUrl);
+    // Explicit guard against the historical cut point.
+    expect(detected).not.toMatch(/googleapi$/);
+    expect(detected).toContain('experimentsandconfigs');
+    expect(detected).toContain('state=_M7OFsKu7L5FTcCCgWnG1A');
   });
 });

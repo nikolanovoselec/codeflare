@@ -1,5 +1,5 @@
 import type { Terminal } from '@xterm/xterm';
-import { ACTIONABLE_URL_PATTERNS, URL_CHECK_INTERVAL_MS } from '../lib/constants';
+import { ACTIONABLE_URL_PATTERNS, URL_CHECK_INTERVAL_MS, MAX_URL_CONTINUATION_ROWS } from '../lib/constants';
 import { getBufferActive } from '../lib/xterm-internals';
 
 /**
@@ -86,7 +86,12 @@ export function getLastUrlFromBuffer(term: Terminal): string | null {
 
     let fullText = line.translateToString(true);
     let j = i + 1;
-    while (j < endLine) {
+    // Once a logical line begins, follow its continuation rows to completion
+    // against buffer.length rather than the viewport edge (endLine): a long
+    // URL whose tail scrolls just below the visible viewport must still be
+    // joined in full, otherwise it is detected truncated. This matters on
+    // mobile where the on-screen keyboard shrinks `rows` (and thus endLine).
+    while (j < buffer.length) {
       const nextLine = buffer.getLine(j);
       if (!nextLine?.isWrapped) break;
       fullText += nextLine.translateToString(true);
@@ -94,7 +99,7 @@ export function getLastUrlFromBuffer(term: Terminal): string | null {
     }
 
     let heuristicCount = 0;
-    while (j < endLine && heuristicCount < 10) {
+    while (j < buffer.length && heuristicCount < MAX_URL_CONTINUATION_ROWS) {
       const nextLine = buffer.getLine(j);
       if (!nextLine) break;
       const nextText = nextLine.translateToString(true);
@@ -110,7 +115,7 @@ export function getLastUrlFromBuffer(term: Terminal): string | null {
       }
       j++;
       heuristicCount++;
-      while (j < endLine) {
+      while (j < buffer.length) {
         const wrapped = buffer.getLine(j);
         if (!wrapped?.isWrapped) break;
         fullText += wrapped.translateToString(true);
