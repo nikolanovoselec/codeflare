@@ -5,7 +5,7 @@
 // without actually building an image (forbidden locally, 1 vCPU).
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { join, resolve, dirname } from 'node:path';
@@ -90,9 +90,9 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
   });
 
   it('REQ-AGENT-001 AC3 (Node-based agent CLIs pre-installed globally via npm)', () => {
-    // Three Node-based agents: Codex, Gemini, Copilot. Claude Code is a
-    // native binary and OpenCode is Go-based; only the Node trio is
-    // installed via npm at image build time.
+    // Node-based agents: Codex, Copilot. Claude Code is a native binary;
+    // OpenCode and Antigravity (agy) are Go binaries (curl/separate handling).
+    // Only the Node pair is installed via npm at image build time.
     const installLine = dockerfile.match(/npm install -g[^\n]+/);
     assert.ok(installLine, 'Dockerfile must `npm install -g ...` at least one agent CLI');
     assert.ok(
@@ -100,12 +100,16 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
       'Dockerfile must install the Codex CLI'
     );
     assert.ok(
-      /@google\/gemini-cli/.test(dockerfile) || /gemini/.test(installLine[0]),
-      'Dockerfile must install the Gemini CLI'
-    );
-    assert.ok(
       /@github\/copilot/.test(dockerfile) || /copilot/.test(installLine[0]),
       'Dockerfile must install the Copilot CLI'
+    );
+    assert.ok(
+      /curl -fsSL https:\/\/antigravity\.google\/cli\/install\.sh \| bash/.test(dockerfile),
+      'Dockerfile must install Antigravity (agy) via curl'
+    );
+    assert.ok(
+      !/@google\/gemini-cli/.test(dockerfile),
+      'Dockerfile must NOT install the removed Gemini CLI'
     );
   });
 
@@ -166,19 +170,12 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
     assert.ok(toolConfigBlock, 'entrypoint must define the Fast Start tool-specific config block');
 
     const fixture = mkdtempSync(join(tmpdir(), 'fast-start-config-'));
-    mkdirSync(join(fixture, '.gemini'), { recursive: true });
     mkdirSync(join(fixture, '.codex'), { recursive: true });
-    writeFileSync(join(fixture, '.gemini/settings.json'), '{"general":{"enableAutoUpdate":false,"enableAutoUpdateNotification":false,"theme":"dark"},"other":true}\n');
     writeFileSync(join(fixture, '.codex/version.json'), '{"dismissed_version":"999.0.0"}\n');
 
     const script = `USER_HOME=${JSON.stringify(fixture)}\nFAST_CLI_START=false\n${toolConfigBlock[0].replace('# Configure tab auto-start', '')}\n`;
     const result = spawnSync('bash', ['-lc', script], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
-    const geminiSettings = JSON.parse(readFileSync(join(fixture, '.gemini/settings.json'), 'utf8'));
-    assert.equal(geminiSettings.general.enableAutoUpdate, undefined);
-    assert.equal(geminiSettings.general.enableAutoUpdateNotification, undefined);
-    assert.equal(geminiSettings.general.theme, 'dark');
-    assert.equal(geminiSettings.other, true);
     assert.equal(existsSync(join(fixture, '.codex/version.json')), false);
   });
 
