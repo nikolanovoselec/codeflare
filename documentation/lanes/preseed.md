@@ -202,7 +202,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
-**Manifest structure (140 total source entries: 120 Claude + 20 Pi-native)**:
+**Manifest structure** (Claude configs plus Pi-native assets; exact counts live in the manifests, not here):
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -247,16 +247,16 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
-- Pi-native runtime assets (19): package config, package lock, MCP
-  config, twelve extension files (including `codeflare-commands.ts`, which
+- Pi-native runtime assets: package config, package lock, MCP
+  config, extension files (including `codeflare-commands.ts`, which
   provides the Pi `/debug`, `/deploy`, and `/brainstorm` commands since
   Claude slash commands do not deploy to Pi, plus durable review-job helpers
   for PR-boundary enforcement, and `startup-header.ts`, which replaces Pi's
-  built-in startup header with a custom boxed session header), two native skill overrides
+  built-in startup header with a custom boxed session header), native skill overrides
   (graphify -
-  [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7 - and `review`), two
+  [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7 - and `review`),
   capture-contract prompts (`memory-agent-prompt.md`,
-  `vault-extract-prompt.md`), and one Pi graphify wrapper script
+  `vault-extract-prompt.md`), and the Pi graphify wrapper script
   (`safe-graphify-update.sh`). The
   generator maps each manifest key to its deployed location by directory
   prefix: `extensions/` -> `.pi/agent/extensions/`, `skills/` ->
