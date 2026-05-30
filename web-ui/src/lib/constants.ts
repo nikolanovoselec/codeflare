@@ -88,15 +88,16 @@ export const BUTTON_LABEL_VISIBLE_DURATION_MS = 3000;
 export const URL_CHECK_INTERVAL_MS = 2000;
 
 /**
- * Max number of application-wrapped rows to join when reconstructing a single
- * URL that a TUI printed across multiple lines with its own newlines (not
- * terminal soft-wraps). OAuth/device-auth URLs are long: Antigravity's Google
- * sign-in URL alone spans ~13 narrow-mobile rows, and URLs with more scopes go
- * further. The previous cap of 10 silently truncated such URLs mid-string,
- * producing an `invalid_scope` error on the provider. The per-step heuristic
- * (stops at whitespace, non-URL chars, a new https://, or internal spaces) is
- * the real boundary detector; this is only a backstop against pathological
- * buffers, so it can be generous.
+ * Max number of rows to join when reconstructing a single logical URL that
+ * spans multiple terminal rows, whether via terminal soft-wraps (the
+ * `isWrapped` flag) or a TUI printing its own newlines. A single shared budget
+ * bounds the total rows joined per logical line across both passes. OAuth/
+ * device-auth URLs are long: Antigravity's Google sign-in URL alone spans ~13
+ * narrow-mobile rows, and URLs with more scopes go further. The previous cap of
+ * 10 silently truncated such URLs mid-string, producing an `invalid_scope`
+ * error on the provider. The per-step heuristic (stops at whitespace, non-URL
+ * chars, a new https://, or internal spaces) is the real boundary detector;
+ * this is only a backstop against pathological buffers, so it can be generous.
  */
 export const MAX_URL_CONTINUATION_ROWS = 60;
 
