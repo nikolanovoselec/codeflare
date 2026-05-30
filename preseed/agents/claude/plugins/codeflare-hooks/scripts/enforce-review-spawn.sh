@@ -791,6 +791,17 @@ requires_lane() {
 # can never reach `main` through this path; the gate just stops nagging while
 # reviewers work. Paired behavioural rule (rules/git-workflow.md): the agent
 # must NOT push again or start a new wave while a wave is in flight.
+#
+# Stuck-open bound: a spawn that NEVER emits a completion marker (subagent
+# crashed, session killed, transcript truncated) would otherwise suppress the
+# gate forever for this PR HEAD. To prevent that, an in-flight spawn only
+# counts as in-flight while it is RECENT -- within IN_FLIGHT_STALE_LINES of the
+# transcript tail. A genuine review completes within a turn or two (a few
+# hundred transcript lines); once an uncompleted spawn falls that far behind as
+# the session keeps appending, it is treated as orphaned and enforcement
+# re-fires (which then hits its own 3-strike breaker). The durable-review merge
+# gate (REQ-AGENT-040 AC7) is the backstop either way.
+IN_FLIGHT_STALE_LINES=1200
 lane_in_flight() {
   local lane="$1"
   local spawn_line
@@ -800,6 +811,13 @@ lane_in_flight() {
       && index($0, "\"subagent_type\":\"" a "\"") { print NR }
   ' "$TRANSCRIPT" | tail -1)
   [ -n "$spawn_line" ] || return 1  # never spawned -> not in flight
+  # Staleness bound: an uncompleted spawn far behind the transcript tail is
+  # treated as orphaned (dead subagent), not in-flight, so the gate re-fires.
+  local total
+  total=$(wc -l < "$TRANSCRIPT" 2>/dev/null || echo 0)
+  if [ "$((total - spawn_line))" -gt "$IN_FLIGHT_STALE_LINES" ] 2>/dev/null; then
+    return 1
+  fi
   local line_content tool_use_id
   line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
   tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
@@ -809,7 +827,7 @@ lane_in_flight() {
       | grep -qF 'completed</status>'; then
     return 1  # completed -> not in flight
   fi
-  return 0  # spawned, no completion yet -> in flight
+  return 0  # spawned recently, no completion yet -> in flight
 }
 
 for _lane in $REQUIRED_LANES; do
