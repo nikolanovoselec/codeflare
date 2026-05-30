@@ -253,7 +253,7 @@ describe('CreateSessionDialog', () => {
       expect(onSelect).toHaveBeenCalledWith('copilot');
     });
 
-    it('lists agents in order with Bash last', () => {
+    it('lists coding agents alphabetically by label with Bash last', () => {
       render(() => (
         <CreateSessionDialog
           isOpen={true}
@@ -264,15 +264,18 @@ describe('CreateSessionDialog', () => {
 
       const buttons = screen.getByTestId('create-session-dialog').querySelectorAll('.csd-agent-btn');
       const order = Array.from(buttons).map((btn) => btn.getAttribute('data-testid'));
+      // Coding agents sorted A->Z by display label; Bash (non-agent fallback) pinned last.
       expect(order).toEqual([
+        'csd-agent-antigravity',
         'csd-agent-claude-code',
         'csd-agent-codex',
-        'csd-agent-antigravity',
         'csd-agent-copilot',
         'csd-agent-opencode',
         'csd-agent-pi',
         'csd-agent-bash',
       ]);
+      // Regression guard: Antigravity must precede Claude Code.
+      expect(order.indexOf('csd-agent-antigravity')).toBeLessThan(order.indexOf('csd-agent-claude-code'));
     });
 
     it('calls onSelect with correct agent type when clicked', () => {
