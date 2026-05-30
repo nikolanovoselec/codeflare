@@ -58,6 +58,16 @@ except (json.JSONDecodeError, KeyError, TypeError, OSError) as e:
 extraction = json.loads(chunk_path.read_text(encoding='utf-8'))
 G_new = build_from_json(extraction)
 
+# nx.compose raises "All graphs must be directed or undirected" if the two
+# operands disagree. G_new is directed, but a prior vault-graph.json written
+# by an older release (or any blob lacking `directed: true`) loads as an
+# undirected Graph. Normalise both to directed before composing so the merge
+# never crashes on a legacy on-disk graph.
+if not G_prior.is_directed():
+    G_prior = G_prior.to_directed()
+if not G_new.is_directed():
+    G_new = G_new.to_directed()
+
 # REQ-MEM-009 AC2: hash-keyed union - nx.compose dedupes nodes by ID
 # (existing IDs keep their attributes; new IDs append). Edges are
 # unioned by (source, target) tuple.

@@ -82,6 +82,27 @@ print(len(hits))
   assert.equal(r.stdout.trim(), '1', 'merge-vault-graph.py must call nx.compose exactly once');
 });
 
+test('REQ-MEM-009 AC2: script normalises both operands to directed before nx.compose (no crash on an undirected prior graph)', () => {
+  // build_from_json returns an undirected Graph, and a prior vault-graph.json
+  // written by an older release (directed:false, or lacking the flag) also
+  // loads undirected. nx.compose raises "All graphs must be directed or
+  // undirected" when its operands disagree, so the script must call
+  // .to_directed() on both G_prior and G_new first. Gut-check: delete the two
+  // normalisation calls and this drops to 0.
+  const r = pyAst(`
+calls = [n for n in ast.walk(tree)
+         if isinstance(n, ast.Call)
+         and isinstance(n.func, ast.Attribute)
+         and n.func.attr == 'to_directed']
+print(len(calls))
+`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(
+    Number(r.stdout.trim()) >= 2,
+    'script must call .to_directed() on both G_prior and G_new so nx.compose never raises on an undirected prior graph',
+  );
+});
+
 test('REQ-MEM-009 AC4: script wraps the vault-graph.json load in try/except so missing/corrupt files reset to a fresh DiGraph', () => {
   const r = pyAst(`
 tries = [n for n in ast.walk(tree) if isinstance(n, ast.Try)]
