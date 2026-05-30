@@ -915,14 +915,14 @@ None.
 **Acceptance Criteria:**
 
 1. The attribution guard fires not only on `git commit` and `gh pr create` but across `git merge`, `git tag`, `git notes`, and the `gh pr`, `gh issue`, and `gh release` subcommand families.
-2. The attribution detection set is aligned to the canonical `block-attributed-commits.sh`: it matches `Co-Authored-By`, `noreply@anthropic`, model-name attribution (`claude sonnet|opus|haiku|code`), `generated with ... claude`, the robot/brain emoji, and `ChatGPT`.
+2. The attribution detection set matches attribution signatures only. The canonical `block-attributed-commits.sh` set is `Co-Authored-By`, `noreply@anthropic`, `generated with ... claude`, and the robot emoji; the Pi guard (`codeflare-pi.ts`) additionally matches the brain emoji and `ChatGPT` as a deliberate superset (a Pi session may run a non-Claude model). Bare model/product names (`claude code`, `claude opus`, `claude sonnet`, `claude haiku`) are deliberately NOT matched: they false-positive on legitimate prose (e.g. a PR titled "Claude Code parity") and on git/gh commands naming `preseed/agents/claude/` paths.
 3. The attribution guard does not match a bare `Claude`, so `git`/`gh` commands that name `preseed/agents/claude/` paths are not false-positives.
 4. The local-build guard covers the package-manager build/test/lint/typecheck/dev verbs plus `pytest`, `vitest`, `go test`, `swift test`, `cargo test`, `tsc`, `eslint`, `oxlint`, `prettier`, and `wrangler dev`.
 5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one command through; the block message names the override path.
 
 **Constraints:**
 
-- The attribution and local-build detection sets are kept aligned with the canonical Claude hook scripts (`block-attributed-commits.sh`, the no-local-builds rule); divergence is a regression.
+- The attribution and local-build detection sets are kept aligned with the canonical Claude hook scripts (`block-attributed-commits.sh`, the no-local-builds rule); divergence is a regression, except the documented Pi superset (brain emoji + `ChatGPT`) in AC2.
 - The bypass sentinel is user-only and consume-on-use, mirroring the `/tmp/graphify-bypass` discipline in [REQ-AGENT-042](#req-agent-042-graphify-hard-block-enforcement) AC7.
 
 **Priority:** P1
