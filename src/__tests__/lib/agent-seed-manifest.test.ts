@@ -1048,7 +1048,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('STYLES.md');
   });
 
-  it('REQ-MEM-010 AC5: shouldCapture matches Claude delta threshold semantics', () => {
+  it('REQ-MEM-002 AC3/AC4: shouldCapture matches Claude delta threshold semantics', () => {
     expect(MEMORY_EVERY_N_PROMPTS).toBe(15);
     expect(shouldCapture(14)).toBe(false);
     expect(shouldCapture(15)).toBe(true);

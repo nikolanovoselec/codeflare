@@ -311,14 +311,15 @@ All preseed content is deployed via the manifest pipeline:
   (`ctx.sessionManager.getSessionFile()` parsed via `parseSessionMessages`,
   not a volatile in-memory buffer), counts only Claude-compatible real
   user prompts (synthetic `<task-notification>` / command wrappers are
-  ignored), and prefilters to user/assistant text before spawning the
-  capture subagent. A missing `/tmp` counter with more than one real user
-  prompt force-fires resumed-session capture, matching Claude. Vault
-  indexing uses the shared `vault-extract.last` high-water marker and the
-  same exclusions as Claude (`Raw/Sessions/`, `graphify-out/`,
-  `.silverbullet/`, and the four preseed root pages), so the Vault
-  indexing agent only runs after user-curated Vault changes; an empty
-  resolved transcript skips capture instead of writing a hollow note.
+  ignored), and prefilters to user/assistant text (dropping tool and
+  thinking blocks) before spawning the capture subagent once the delta
+  since the last capture reaches 15 real user prompts (`delta >= 15`); an
+  empty resolved transcript skips capture instead of writing a hollow note.
+  A missing `/tmp` counter with more than one real user prompt force-fires
+  resumed-session capture, matching Claude. Vault indexing uses the shared
+  `vault-extract.last` high-water marker and excludes `Raw/Sessions/`,
+  `graphify-out/`, `.silverbullet/`, and the four preseed root pages, so the
+  Vault indexing agent only runs after user-curated Vault changes.
   Pi subagents are provided by `@gotgenes/pi-subagents`; the generator
   adapts Claude agent definitions into `.pi/agent/agents/*.md`.
   The container image preinstalls Pi extension npm dependencies into an

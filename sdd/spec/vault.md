@@ -149,7 +149,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md -->
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (three-marker pattern presence → AC2/AC6) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault shares Claude vault-extract.last marker semantics and vault-monitor exclusions → AC1/AC2/AC4) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault shares Claude vault-extract.last marker semantics and vault-monitor exclusions → AC1/AC4) -->
 
 **Intent:** A user adds a note in SilverBullet (or any other editor) and within roughly one daemon tick the new content shows up in `mcp__graphify__*` query results.
 
