@@ -309,10 +309,16 @@ All preseed content is deployed via the manifest pipeline:
   `~/.pi/agent/prompts/*.md`, reads the conversation from the durable
   on-disk session transcript Pi persists for `/resume`
   (`ctx.sessionManager.getSessionFile()` parsed via `parseSessionMessages`,
-  not a volatile in-memory buffer), and prefilters it to user/assistant
-  text (dropping tool and thinking blocks) before spawning the capture
-  subagent; an empty resolved transcript skips the capture instead of
-  writing a hollow note.
+  not a volatile in-memory buffer), counts only Claude-compatible real
+  user prompts (synthetic `<task-notification>` / command wrappers are
+  ignored), and prefilters to user/assistant text before spawning the
+  capture subagent. A missing `/tmp` counter with more than one real user
+  prompt force-fires resumed-session capture, matching Claude. Vault
+  indexing uses the shared `vault-extract.last` high-water marker and the
+  same exclusions as Claude (`Raw/Sessions/`, `graphify-out/`,
+  `.silverbullet/`, and the four preseed root pages), so the Vault
+  indexing agent only runs after user-curated Vault changes; an empty
+  resolved transcript skips capture instead of writing a hollow note.
   Pi subagents are provided by `@gotgenes/pi-subagents`; the generator
   adapts Claude agent definitions into `.pi/agent/agents/*.md`.
   The container image preinstalls Pi extension npm dependencies into an

@@ -16,6 +16,43 @@ export function titleFor(path: string, content: string): string {
   return heading || basename(path);
 }
 
+export function messageRole(message: any): string {
+  return message?.role ?? message?.message?.role ?? "unknown";
+}
+
+export function messageText(message: any): string {
+  const raw = message?.content ?? message?.message?.content ?? "";
+  if (typeof raw === "string") return raw.trim();
+  if (!Array.isArray(raw)) return "";
+  return raw
+    .filter((block: any) => (block?.type ?? "text") === "text" && typeof block?.text === "string")
+    .map((block: any) => block.text)
+    .join("\n")
+    .trim();
+}
+
+export function isRealUserPrompt(message: any): boolean {
+  if (messageRole(message) !== "user") return false;
+  const text = messageText(message);
+  if (!text) return false;
+  // Mirrors Claude's memory-capture.sh `"role":"user","content":"[^<]` filter:
+  // task notifications, slash-command wrappers, and local-command metadata
+  // all arrive as user-shaped records whose text starts with a tag.
+  return !text.startsWith("<");
+}
+
+export function realUserPromptCount(messages: any[]): number {
+  return messages.filter(isRealUserPrompt).length;
+}
+
+export function withCurrentPrompt(messages: any[], prompt: string): any[] {
+  const text = prompt.trim();
+  if (!text || text.startsWith("<")) return messages;
+  const lastRealUser = [...messages].reverse().find(isRealUserPrompt);
+  if (lastRealUser && messageText(lastRealUser) === text) return messages;
+  return [...messages, { role: "user", content: text }];
+}
+
 export function compactMessages(messages: any[]): string {
   // Prefilter the transcript before handing it to the capture agent: keep user + assistant
   // TEXT only, dropping tool_use / tool_result / thinking blocks. This mirrors the AD58
@@ -23,20 +60,14 @@ export function compactMessages(messages: any[]): string {
   // the old raw last-40-message JSON slice that degraded capture quality on long sessions.
   const turns: string[] = [];
   for (const message of messages) {
-    const role = message?.role ?? message?.message?.role ?? "unknown";
+    const role = messageRole(message);
     if (role !== "user" && role !== "assistant") continue;
-    const raw = message?.content ?? message?.message?.content ?? "";
-    let text = "";
-    if (typeof raw === "string") {
-      text = raw;
-    } else if (Array.isArray(raw)) {
-      text = raw
-        .filter((block: any) => (block?.type ?? "text") === "text" && typeof block?.text === "string")
-        .map((block: any) => block.text)
-        .join("\n");
-    }
-    text = text.trim();
-    if (text) turns.push(`## ${role}\n${text.slice(0, 8000)}`);
+    const text = messageText(message);
+    if (!text) continue;
+    // Claude's hook excludes synthetic user wrappers by requiring content not to start with "<".
+    // Keep Pi aligned so task notifications do not count as memory-worthy prompts.
+    if (role === "user" && text.startsWith("<")) continue;
+    turns.push(`## ${role}\n${text.slice(0, 8000)}`);
   }
   return turns.slice(-200).join("\n\n");
 }
@@ -77,8 +108,8 @@ export function isResumedSession(counterFileExists: boolean, messageCount: numbe
   return !counterFileExists && messageCount > 1;
 }
 
-export function shouldCapture(count: number): boolean {
-  return count > 0 && count % MEMORY_EVERY_N_PROMPTS === 0;
+export function shouldCapture(delta: number): boolean {
+  return delta >= MEMORY_EVERY_N_PROMPTS;
 }
 
 export function isFirstMessage(counterFileExists: boolean, messageCount: number): boolean {

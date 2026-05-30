@@ -3,7 +3,7 @@ import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-see
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
-import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, sessionId, shouldCapture, stableId, titleFor } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, stableId, titleFor, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -867,6 +867,27 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(dropped).toBe('');
   });
 
+  it('REQ-MEM-001 AC2: real-user prompt counting matches Claude synthetic-wrapper filtering', () => {
+    const messages = [
+      { role: 'user', content: 'real prompt' },
+      { role: 'user', content: '<task-notification>done</task-notification>' },
+      { role: 'user', content: [{ type: 'tool_result', content: 'tool output' }] },
+      { role: 'assistant', content: 'reply' },
+    ];
+    expect(messages.map(isRealUserPrompt)).toEqual([true, false, false, false]);
+    expect(realUserPromptCount(messages)).toBe(1);
+    expect(compactMessages(messages)).toContain('real prompt');
+    expect(compactMessages(messages)).not.toContain('task-notification');
+  });
+
+  it('REQ-MEM-002 AC6: withCurrentPrompt counts the submitted prompt once for resume detection', () => {
+    const prior = [{ role: 'user', content: 'older prompt' }, { role: 'assistant', content: 'older answer' }];
+    const withCurrent = withCurrentPrompt(prior, 'current prompt');
+    expect(realUserPromptCount(withCurrent)).toBe(2);
+    expect(withCurrentPrompt(withCurrent, 'current prompt')).toHaveLength(withCurrent.length);
+    expect(withCurrentPrompt(withCurrent, '<task-notification>x</task-notification>')).toHaveLength(withCurrent.length);
+  });
+
   // compactMessages is the AD58 transcript prefilter (memory-vault-helpers.ts): keep user +
   // assistant TEXT only, drop tool_use / tool_result / thinking blocks, take the last 200
   // turns, cap each turn at 8000 chars. Tested directly as a pure function over fake message arrays.
@@ -1005,15 +1026,31 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('getSessionFile');
     expect(mv?.content).toContain('parseSessionMessagesHelper');
     expect(mv?.content).toContain('readSessionMessages');
+    expect(mv?.content).toContain('realUserPromptCount');
+    expect(mv?.content).toContain('withCurrentPrompt');
     // Skip-empty guard: a blank transcript must never produce a hollow "no substantive content" note.
     expect(mv?.content).toContain('if (!transcript.trim()) return;');
   });
 
-  it('REQ-MEM-010 AC5: shouldCapture fires at exact 15-message intervals from source constant', () => {
+  it('REQ-VAULT-003: Pi vault indexing shares Claude marker semantics and exclusions', () => {
+    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
+    expect(mv?.content).toContain('vault-extract.last');
+    expect(mv?.content).not.toContain('pi-vault-extract.last');
+    expect(mv?.content).toContain('statSync(VAULT_MARKER_FILE).mtimeMs');
+    expect(mv?.content).toContain('Raw/Sessions');
+    expect(mv?.content).toContain('graphify-out');
+    expect(mv?.content).toContain('.silverbullet');
+    expect(mv?.content).toContain('Index.md');
+    expect(mv?.content).toContain('README.md');
+    expect(mv?.content).toContain('CONFIG.md');
+    expect(mv?.content).toContain('STYLES.md');
+  });
+
+  it('REQ-MEM-010 AC5: shouldCapture matches Claude delta threshold semantics', () => {
     expect(MEMORY_EVERY_N_PROMPTS).toBe(15);
     expect(shouldCapture(14)).toBe(false);
     expect(shouldCapture(15)).toBe(true);
-    expect(shouldCapture(16)).toBe(false);
+    expect(shouldCapture(16)).toBe(true);
     expect(shouldCapture(30)).toBe(true);
     expect(shouldCapture(0)).toBe(false);
   });
@@ -1037,10 +1074,11 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(a).toMatch(/^vault:[0-9a-f]{24}$/);
   });
 
-  it('REQ-VAULT-003: memory-vault.ts has in-flight sentinel to prevent double extraction', () => {
+  it('REQ-VAULT-003: memory-vault.ts has Claude-compatible in-flight sentinel to prevent double extraction', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
     expect(mv?.content).toContain('VAULT_INFLIGHT');
-    expect(mv?.content).toContain('vault-extract.inflight');
+    expect(mv?.content).toContain('vault-extract.in-flight');
+    expect(mv?.content).toContain('VAULT_EXTRACT_INFLIGHT_TTL_MS');
   });
 
   it('REQ-VAULT-004: titleFor extracts first heading or falls back to filename', () => {
@@ -1049,12 +1087,12 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(titleFor('/vault/Docs/report.pdf', '')).toBe('report.pdf');
   });
 
-  it('REQ-VAULT-004: memory-vault.ts extracts wikilink concept nodes and PDF document nodes', () => {
+  it('REQ-VAULT-004: memory-vault.ts extracts wikilink concept nodes and non-text document nodes', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
     expect(mv?.content).toContain('concept:');
     expect(mv?.content).toContain('mentions');
     expect(mv?.content).toContain('"document"');
-    expect(mv?.content).toContain('.pdf');
+    expect(mv?.content).toContain('isText ? "note" : "document"');
   });
 
   it('REQ-AGENT-023 AC4: codeflare-pi.ts tolerates missing graph and reports present graph', () => {

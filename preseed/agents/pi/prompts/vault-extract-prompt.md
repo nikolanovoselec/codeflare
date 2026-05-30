@@ -20,8 +20,8 @@ Before spawning you, the Pi extension ALREADY:
    `/home/user/Vault/graphify-out/graph.json` (document/note nodes for
    each changed file plus a `concept` node and `mentions` link for every
    `[[wikilink]]` it found by regex), and
-2. **Advanced the high-water marker** (`pi-vault-extract.last`) to the
-   newest changed-file mtime, and
+2. **Touched the shared high-water marker** (`vault-extract.last`) after
+   the deterministic graph merge, and
 3. Attempted a best-effort merge of that graph into the unified global
    graph under the `user_vault` tag.
 
@@ -30,7 +30,7 @@ So the structural baseline is DONE. You are layering semantics on top.
 Hard limits, because the baseline is already persisted:
 
 - Do NOT advance or touch any marker file. The extension owns
-  `pi-vault-extract.last`; touching it would skip the next real change.
+  `vault-extract.last`; touching it would skip the next real change.
 - Do NOT run heavy Python, `graphify update`, `graphify extract`, or any
   `merge-vault-graph.py`-style rebuild. No re-extraction.
 - Do NOT re-walk the vault with `find`. Use the `changedFiles` list from
@@ -50,6 +50,7 @@ spawn prompt. It contains exactly these fields - do NOT invent others:
 - `vaultRoot`: `/home/user/Vault`.
 - `graphPath`: `/home/user/Vault/graphify-out/graph.json` - the graph the
   extension already wrote and the one you enrich in place.
+- `inflightFile`: `/home/user/.cache/codeflare-hooks/vault-extract.in-flight` - remove this when you finish.
 
 ## Steps
 
@@ -64,8 +65,8 @@ file now closes that window.
 rm -f "<VARS_FILE>"
 ```
 
-Do NOT delete or touch `pi-vault-extract.last` or any `.inflight` marker.
-The extension manages those.
+Do NOT delete or touch `vault-extract.last`. Keep `inflightFile` in place while you work;
+remove it only when you finish so the extension can suppress duplicate enrichment runs.
 
 ### 2. Read the changed files
 
@@ -148,10 +149,16 @@ timeout or a missing CLI exits cleanly. Optionally refresh the rendered
 graph with `( cd /home/user/Vault && graphify cluster-only . ) || true`
 and skip it silently on any error.
 
-Do NOT advance the marker here. The extension already advanced
-`pi-vault-extract.last`; if you skipped enrichment entirely (empty change
+Do NOT advance the marker here. The extension already touched
+`vault-extract.last`; if you skipped enrichment entirely (empty change
 set or nothing new found), that is fine - the baseline graph and marker
 are already correct and nothing needs retrying.
+
+Finally, remove the in-flight sentinel if it exists:
+
+```bash
+rm -f /home/user/.cache/codeflare-hooks/vault-extract.in-flight
+```
 
 ## Done
 
