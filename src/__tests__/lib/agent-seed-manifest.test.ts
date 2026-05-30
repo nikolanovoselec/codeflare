@@ -179,6 +179,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/review-job-helpers.ts',
       '.pi/agent/extensions/review-jobs.ts',
       '.pi/agent/extensions/sdd-helpers.ts',
+      '.pi/agent/extensions/startup-header.ts',
     ]);
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/code-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/spec-reviewer.md');
