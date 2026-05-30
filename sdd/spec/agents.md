@@ -1093,16 +1093,17 @@ None.
 5. `doc-updater` starts only after `spec-reviewer` completes on SDD projects. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewEligibleLanes -->
 6. A fix-push cascade preserves the first unreviewed review base for cumulative review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::selectReviewBase -->
 7. Pi acknowledges a PR head only after durable result files exist for every required lane. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::completedDurableReviewLanes -->
+8. Review agents are dispatched with `run_in_background: true` so the main session stays interactive while reviewers run; the turn-end gate tolerates an in-flight wave by exiting 0 (without advancing the ack pointer) when a required lane is spawned-but-not-yet-completed, so it never re-summons a fresh wave while one is still running. The in-flight tolerance is bounded by transcript recency (`IN_FLIGHT_STALE_LINES`): a spawn far behind the transcript tail with no completion marker is treated as orphaned and enforcement re-fires, so a crashed or killed review subagent cannot suppress the gate indefinitely. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_in_flight --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-040 AC8 review dispatch is backgrounded with a bounded in-flight guard describe -> seeded enforce-review-spawn.sh carries lane_in_flight + IN_FLIGHT_STALE_LINES + run_in_background) -->
 
 **Constraints:**
 
-None.
+- The agent must not push to the PR branch or start a second review wave while any required review lane is in flight. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_in_flight -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** [Lane classifier tests](../../host/__tests__/lane-classifier.test.js), [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** [Lane classifier tests](../../host/__tests__/lane-classifier.test.js), [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1-AC7 lane classification + dispatch sequencing; AC8 background-dispatch + bounded in-flight guard via the seeded `enforce-review-spawn.sh` content assertion)
 
 **Status:** Implemented
 
@@ -1643,7 +1644,7 @@ None.
 
 <!-- @impl: preseed/agents/claude/plugins/context-mode -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh -->
-<!-- @test: host/__tests__/graph-first-nudge.test.js (soft-nudge fires on ctx_search/ctx_batch_execute → AC2) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-027 AC1 context-mode wired as a tool only describe → no enforce-ctx-mode deny-gate is preseeded in any seeded config) -->
+<!-- @test: host/__tests__/graph-first-nudge.test.js (soft-nudge fires on ctx_search/ctx_batch_execute → AC2) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-027 AC1 context-mode wired as a tool only describe → no enforce-ctx-mode deny-gate is preseeded in any seeded config) + host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js (managed-hooks prune regex strips stale deny-gate → AC1 runtime stale-gate pruning) -->
 
 **Intent:** When the context-mode plugin is preseeded, the graphify CLI must coexist with context-mode and the graph-first soft-nudge must reach the agent through context-mode's redirected tool-call path.
 
