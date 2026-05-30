@@ -202,7 +202,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
-**Manifest structure (139 total source entries: 120 Claude + 19 Pi-native)**:
+**Manifest structure (140 total source entries: 120 Claude + 20 Pi-native)**:
 - `rules/` (27): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
@@ -248,10 +248,11 @@ All preseed content is deployed via the manifest pipeline:
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
 - Pi-native runtime assets (19): package config, package lock, MCP
-  config, eleven extension files (including `codeflare-commands.ts`, which
+  config, twelve extension files (including `codeflare-commands.ts`, which
   provides the Pi `/debug`, `/deploy`, and `/brainstorm` commands since
   Claude slash commands do not deploy to Pi, plus durable review-job helpers
-  for PR-boundary enforcement), two native skill overrides
+  for PR-boundary enforcement, and `startup-header.ts`, which replaces Pi's
+  built-in startup header with a custom boxed session header), two native skill overrides
   (graphify -
   [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7 - and `review`), two
   capture-contract prompts (`memory-agent-prompt.md`,
