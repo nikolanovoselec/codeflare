@@ -336,15 +336,18 @@ if [ -z "$VER" ]; then
 fi
 echo "[Dockerfile] installing graphifyy==$VER with [mcp,sql,pdf] extras"
 # graphifyy 0.8.25+ pulls tree-sitter-dm, an sdist-only grammar (no manylinux
-# wheel), which uv compiles from source. This final runtime stage has no C
-# compiler (gcc lives only in the discarded `builder` stage), so install gcc
-# just for this build and purge it in the same layer: the runtime image stays
-# lean and free of an extra toolchain attack surface. Without this, the build
-# fails with "x86_64-linux-gnu-gcc: No such file or directory".
+# wheel), which uv compiles from source. tree-sitter-dm builds a CPython
+# extension module, so it needs both a C compiler AND the Python dev headers
+# (Python.h). This final runtime stage has neither (gcc lives only in the
+# discarded `builder` stage, and the base ships python3 runtime without -dev),
+# so install gcc/g++/python3-dev just for this build and purge them in the same
+# layer: the runtime image stays lean and free of an extra toolchain attack
+# surface. Without this the build fails with "Python.h: No such file or
+# directory" (and, before that, "x86_64-linux-gnu-gcc: No such file or directory").
 apt-get update
-apt-get install -y --no-install-recommends gcc g++
+apt-get install -y --no-install-recommends gcc g++ python3-dev
 uv tool install "graphifyy[mcp,sql,pdf]==$VER"
-apt-get purge -y gcc g++
+apt-get purge -y gcc g++ python3-dev
 apt-get autoremove -y
 rm -rf /var/lib/apt/lists/*
 
