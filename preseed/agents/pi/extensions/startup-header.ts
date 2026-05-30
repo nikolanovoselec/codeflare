@@ -12,7 +12,11 @@ function stat(label: string, value: string): string {
 }
 
 function dashedLine(width: number): string {
-	return "-".repeat(Math.max(0, width));
+	// Em-dash (U+2014) for the box's horizontal edges: renders one cell wide in
+	// monospace terminal fonts and butts edge-to-edge, giving a continuous line
+	// rather than the gappy look of ASCII hyphens. Deliberate exception to the
+	// project-wide no-em-dash rule, which targets prose, not box-drawing.
+	return "—".repeat(Math.max(0, width));
 }
 
 function shortCwd(cwd: string): string {
