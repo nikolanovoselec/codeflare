@@ -105,6 +105,33 @@ describe('CreateSessionDialog', () => {
       expect(screen.getByTestId('csd-agent-bash')).toBeInTheDocument();
     });
 
+    // REQ-AGENT-002 AC6: a `beta` badge renders only on preview-status agents.
+    // querySelector('.csd-agent-badge') searches the agent button's descendants,
+    // so this holds regardless of the exact badge-span nesting.
+    it('renders a beta badge only on preview-status agents (antigravity, opencode)', () => {
+      render(() => (
+        <CreateSessionDialog
+          isOpen={true}
+          onClose={() => {}}
+          onSelect={() => {}}
+        />
+      ));
+
+      for (const type of ['antigravity', 'opencode']) {
+        const card = screen.getByTestId(`csd-agent-${type}`);
+        const badge = card.querySelector('.csd-agent-badge');
+        expect(badge, `${type} should carry a beta badge`).not.toBeNull();
+        expect(badge?.textContent).toBe('beta');
+      }
+      for (const type of ['claude-code', 'codex', 'copilot', 'pi', 'bash']) {
+        const card = screen.getByTestId(`csd-agent-${type}`);
+        expect(
+          card.querySelector('.csd-agent-badge'),
+          `${type} should not carry a beta badge`,
+        ).toBeNull();
+      }
+    });
+
     it('does not render claude-unleashed option', () => {
       render(() => (
         <CreateSessionDialog

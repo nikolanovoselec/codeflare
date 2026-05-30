@@ -122,6 +122,13 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
     assert.equal(result.status, 0, `configure_tab_autostart exited non-zero: ${result.stderr}`);
     assert.match(bashrc, /agy --dangerously-skip-permissions/,
       'agy tab must emit its launch command for tab 1');
+    // Guard the real bug: an autostart arm that matched `antigravity*` (the agent
+    // type) instead of `agy` (the binary) sent the command to the `*)` fallback,
+    // which emits a "Unknown command ... falling back to bash" comment and never
+    // executes it. The match above alone is satisfied by that comment, so assert
+    // the fallback warning is absent.
+    assert.doesNotMatch(bashrc, /Unknown command/,
+      'agy tab must hit the known-safe autostart arm, not the unknown-command fallback');
   });
 
   it('idempotent: a second invocation does NOT re-append the marker block', () => {

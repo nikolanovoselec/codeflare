@@ -63,7 +63,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-<!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 describe -> POST /api/sessions accepts/persists agentType + Zod rejects invalid + all 7 valid types + lastAgentType via PATCH /preferences + default claude-code -> AC1..AC5) + web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (agent type rendering describe -> AC6 beta badge: antigravity badged, copilot/pi/others unbadged) -->
+<!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 describe -> POST /api/sessions accepts/persists agentType + Zod rejects invalid + all 7 valid types + lastAgentType via PATCH /preferences + default claude-code -> AC1..AC5) + web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (agent type rendering describe -> AC6 beta badge: antigravity + opencode badged, claude-code/codex/copilot/pi/bash unbadged) -->
 ### REQ-AGENT-002: Agent Selection at Session Creation
 
 <!-- @impl: src/routes/session/crud.ts -->
@@ -81,7 +81,7 @@ Multi-agent support, preseed system, and session modes.
 3. The selected agent type is persisted in the session record.
 4. The UI defaults to the agent type used in the user's most recent session.
 5. When `agentType` is not specified, it defaults to `claude-code`.
-6. The session-creation UI renders a `beta` badge on agents in preview status: `antigravity` carries the badge; all other agents (including `copilot` and `pi`) render without one.
+6. The session-creation UI renders a `beta` badge on agents in preview status: `antigravity` and `opencode` carry the badge; all other agents (Claude Code, Codex, Copilot, Pi, Bash) render without one.
 
 **Constraints:**
 
@@ -1643,16 +1643,15 @@ None.
 
 <!-- @impl: preseed/agents/claude/plugins/context-mode -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh -->
-<!-- @test: host/__tests__/enforce-ctx-mode-graphify.test.js (graphify in context-mode Bash whitelist → AC1) -->
 <!-- @test: host/__tests__/graph-first-nudge.test.js (soft-nudge fires on ctx_search/ctx_batch_execute → AC2) -->
 
-**Intent:** When the context-mode plugin is preseeded, the graphify CLI must coexist with the enforce-ctx-mode Bash whitelist and the graph-first soft-nudge must reach the agent through context-mode's redirected tool-call path.
+**Intent:** When the context-mode plugin is preseeded, the graphify CLI must coexist with context-mode and the graph-first soft-nudge must reach the agent through context-mode's redirected tool-call path.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. When the context-mode plugin is preseeded (effectiveTier `unlimited` plus advanced session mode), `graphify` is in the context-mode Bash whitelist so `graphify update .` and `graphify query ...` are not denied.
+1. When the context-mode plugin is preseeded (effectiveTier `unlimited` plus advanced session mode), `graphify update .` and `graphify query ...` run unimpeded: context-mode is wired as a tool only (MCP server plus the indexing PreToolUse/PostToolUse hooks), with no Bash deny-gate, so no command-routing whitelist is needed. Any stale `enforce-ctx-mode.sh` deny-gate left in a pre-existing `settings.json` is stripped on container start by the managed-hooks prune regex.
 2. The REQ-AGENT-024 AC7 PreToolUse soft-nudge hook registers both the non-ctx matchers (`Grep`, `Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`, `mcp__context-mode__ctx_batch_execute`) so the nudge fires in both tier paths.
 
 **Constraints:**
@@ -1663,9 +1662,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** [Automated test](../../host/__tests__/enforce-ctx-mode-graphify.test.js)
+**Verification:** [Soft-nudge test](../../host/__tests__/graph-first-nudge.test.js) (AC2). AC1 has no dedicated automated test after the enforce-ctx-mode Bash deny-gate was removed; the stale-gate pruning it now relies on is covered by [the settings.json hook-merge dedup test](../../host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js).
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
