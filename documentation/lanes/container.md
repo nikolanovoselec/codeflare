@@ -73,14 +73,14 @@ Uses polling with safety timeouts: poll until success OR background process exit
 
 ### Startup Sequence
 
-Port 8080 must bind before Cloudflare's container port-wait timeout (~10-15s) elapses. The entrypoint therefore starts the terminal server immediately — before R2 sync — then gates PTY pre-warm behind a flag file written only after sync and configuration complete.
+Port 8080 must bind before Cloudflare's container port-wait timeout (~10-15s) elapses. The entrypoint therefore starts the terminal server immediately - before R2 sync - then gates PTY pre-warm behind a flag file written only after sync and configuration complete.
 
 ```mermaid
 flowchart TD
-    A[Container Start] --> B["Start terminal server (:8080)\n— port binds, PTY pre-warm blocked"]
+    A[Container Start] --> B["Start terminal server (:8080)\n- port binds, PTY pre-warm blocked"]
     B --> C["initial_sync_from_r2()"]
-    C -->|"Blocking — waits for sync to complete"| D["configure_tab_autostart()"]
-    D --> E["touch /tmp/codeflare-init-complete\n— releases PTY pre-warm"]
+    C -->|"Blocking - waits for sync to complete"| D["configure_tab_autostart()"]
+    D --> E["touch /tmp/codeflare-init-complete\n- releases PTY pre-warm"]
 ```
 
 **Init-complete flag (REQ-SESSION-015 AC1):** `CODEFLARE_INIT_FLAG_FILE=/tmp/codeflare-init-complete`. The terminal server polls for this file (every 250ms, up to 90s) before spawning the tab-1 PTY session. This ensures pre-warm reads the fully-restored `.claude.json`, `.bashrc`, and MCP server registrations rather than pre-sync state. If the flag does not appear within 90s, pre-warm proceeds anyway. The flag is deleted and recreated on every container start.
@@ -127,11 +127,11 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 8. On DO reset (cold start), constructor loads `sleepAfter` from DO storage before any `collectMetrics` alarm fires
 
 **Access control:**
-- **Admins** — always allowed to change their own `sleepAfter`
-- **Paying users** (standard, advanced, max, unlimited) — allowed to change, default `30m`
-- **Free users** — dropdown visible but disabled, locked to `15m`; hint text: "Fixed at 15 minutes on the Free plan. Upgrade for longer idle timeouts."
-- **Non-subscribed users** — dropdown disabled; hint text: "Auto-sleep is managed by your administrator."
-- Backend enforcement in `lifecycle.ts`: `effectiveTier === 'free' ? '15m' : (preferences.sleepAfter || '30m')` — free tier cannot bypass via API
+- **Admins** - always allowed to change their own `sleepAfter`
+- **Paying users** (standard, advanced, max, unlimited) - allowed to change, default `30m`
+- **Free users** - dropdown visible but disabled, locked to `15m`; hint text: "Fixed at 15 minutes on the Free plan. Upgrade for longer idle timeouts."
+- **Non-subscribed users** - dropdown disabled; hint text: "Auto-sleep is managed by your administrator."
+- Backend enforcement in `lifecycle.ts`: `effectiveTier === 'free' ? '15m' : (preferences.sleepAfter || '30m')` - free tier cannot bypass via API
 
 **Settings UI:** Rendered in `SessionSection.tsx` as a `<select>` dropdown with 5 options. `SettingsPanel.tsx` fetches `hasSubscribed` from `/api/user` and computes `isFreeUser()` from `liveAccessTier()`. The `canChangeSleepAfter` accessor returns `(isAdmin() || userHasSubscribed()) && !isFreeUser()`. The `isFreeUser` prop is passed to `SessionSection` to show tier-specific hint text.
 
@@ -181,18 +181,20 @@ Claude Code runs directly via the official `@anthropic-ai/claude-code` npm packa
 
 ## LLM Consultation
 
-When `OPENAI_API_KEY` or `GEMINI_API_KEY` env vars are present, `entrypoint.sh` configures the `consult-llm-mcp` MCP server in `~/.claude.json`. This enables Claude Code to query external LLMs via the `consult_llm` MCP tool. Keys are stored in KV as `llm-keys:{bucketName}`, managed via `PUT /api/llm-keys`, and injected as container env vars during `setBucketName()`. Keys are NOT persisted in DO storage — read fresh from KV on each container start.
+When `OPENAI_API_KEY` or `GEMINI_API_KEY` env vars are present, `entrypoint.sh` configures the `consult-llm-mcp` MCP server in `~/.claude.json`. This enables Claude Code to query external LLMs via the `consult_llm` MCP tool. Keys are stored in KV as `llm-keys:{bucketName}`, managed via `PUT /api/llm-keys`, and injected as container env vars during `setBucketName()`. Keys are NOT persisted in DO storage - read fresh from KV on each container start.
 
 **Skill trigger phrases:** "discuss with llms", "consult llms", "ask llms", "get a second opinion", "ask ChatGPT", "consult Gemini", "ask GPT", "ask another AI".
 
-**Default model pair** (skill sends to both providers in parallel, latest flagship per family):
+**Provider selection:** when the user does not name a provider, the skill shows an `AskUserQuestion` multi-select dialog to choose OpenAI and/or Gemini (queries run in parallel only if both are selected); naming a provider explicitly skips the dialog.
+
+**Model resolution** (latest flagship per family, resolved live):
 
 | Provider | Resolved by |
 |----------|-------------|
-| OpenAI | `consult_llm` server-side mapping — latest GPT |
-| Google | `consult_llm` server-side mapping — latest Gemini |
+| OpenAI | live `GET /v1/models`, newest flagship GPT |
+| Google | live `GET /v1beta/models`, `gemini-pro-latest` flagship |
 
-Pass family selectors (`model: "openai"` / `model: "gemini"`) to let the MCP server pick the current flagship; pinning concrete IDs (e.g. `gpt-5.4`, `gemini-3.1-pro-preview`) goes stale within weeks of the next release. Specific model IDs are still accepted as advanced overrides when the user names one explicitly.
+The skill always passes an explicit `model` resolved live from the provider model list at call time, never the `consult_llm` server's static default (which drifts to old versions). A user-named model (e.g. `gpt-5.4`, `gemini flash`) overrides the auto-picked flagship.
 
 Skill definition: `preseed/agents/claude/skills/consult-llm/SKILL.md`.
 
@@ -204,7 +206,7 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 **Environment variables injected:** `GH_TOKEN` (GitHub fine-grained PAT), `CLOUDFLARE_API_TOKEN` (Cloudflare API token), `CLOUDFLARE_ACCOUNT_ID` (auto-fetched from CF API).
 
-**Backend:** `src/routes/deploy-keys.ts` — GET returns masked tokens, PUT validates against GitHub/Cloudflare APIs before storing, DELETE clears all. Follows the same pattern as `llm-keys.ts`.
+**Backend:** `src/routes/deploy-keys.ts` - GET returns masked tokens, PUT validates against GitHub/Cloudflare APIs before storing, DELETE clears all. Follows the same pattern as `llm-keys.ts`.
 
 **Container injection:** Deploy keys are read from KV in `src/routes/container/lifecycle.ts` and passed to the Container DO via `buildSetBucketNameBody()`. The DO injects them as `envVars`. Keys are sent as explicit `null` when absent (not omitted) to ensure revocation propagates on session restart.
 
@@ -214,14 +216,14 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 **GitHub PAT template (Aug 2025 format):** Uses correct parameter names (`emails` for email addresses, added `user_copilot_requests=read` account permission). Copilot CLI checks env vars in order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`. If `GH_TOKEN` is set but lacks Copilot scope, auth fails silently. See [GitHub docs](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
 
-**Frontend:** `web-ui/src/components/settings/DeployKeysSection.tsx` — self-contained component with connect/disconnect flows for both providers, multi-account Cloudflare dropdown, and token masking.
+**Frontend:** `web-ui/src/components/settings/DeployKeysSection.tsx` - self-contained component with connect/disconnect flows for both providers, multi-account Cloudflare dropdown, and token masking.
 
-**Preseed rule:** `preseed/agents/claude/rules/deploy-credentials.md` — comprehensive capability reference telling agents what commands are available with each token.
+**Preseed rule:** `preseed/agents/claude/rules/deploy-credentials.md` - comprehensive capability reference telling agents what commands are available with each token.
 
 **Docker Hub fallback:** When the primary Cloudflare-managed registry drops connections mid-upload, `deploy-dockerhub.yml` provides a fallback deploy path via Docker Hub. See [CI/CD](ci-cd.md) for workflow details.
 
 **Known gotchas:**
-- `printf '%s' "$SECRET" | gh secret set` can store empty values — use file redirect (`< tmpfile`) instead.
+- `printf '%s' "$SECRET" | gh secret set` can store empty values - use file redirect (`< tmpfile`) instead.
 - `cloudflare/wrangler-action@v3` bundles an old wrangler. Use `npx --yes wrangler deploy` with `env:` block for secrets.
 
 ---

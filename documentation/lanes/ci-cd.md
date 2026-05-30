@@ -32,7 +32,7 @@ Dependabot runs weekly against the `develop` branch for three npm package direct
 | `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
 | `stress-test.yml` | `workflow_dispatch` | k6 stress tests (API throughput, session lifecycle, storage operations, WebSocket concurrency) against integration worker. Configurable concurrency via `STRESS_TEST_CONCURRENCY` variable. |
 | `deploy-dockerhub.yml` | `workflow_dispatch` (production/integration) | Fallback deploy pipeline identical to `deploy.yml` but pushes the container image to Docker Hub instead of `registry.cloudflare.com`. Used when the Cloudflare managed registry drops connections mid-upload. Requires `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets. |
-| `bump-shadow-pins.yml` | Weekly (Monday 06:00 UTC) + `workflow_dispatch` | Watches versions pinned outside `package.json` (Dependabot blind spot) and opens a PR per bump. Tracks: context-mode npm package, plus zoxide/yazi/lazygit/silverbullet GitHub release binaries in Dockerfile. SHA256 checksums are invalidated on bump - merge requires manual checksum update. |
+| `bump-shadow-pins.yml` | Weekly (Monday 06:00 UTC) + `workflow_dispatch` | Watches versions pinned outside `package.json` (Dependabot blind spot) and opens a PR per bump. Tracks: context-mode npm package, the graphifyy PyPI package (pin in `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json`, read by the Dockerfile via `jq`, so the graphify job bumps only plugin.json with no Dockerfile literal), plus zoxide/yazi/lazygit/silverbullet GitHub release binaries in Dockerfile. SHA256 checksums are invalidated on Dockerfile-binary bumps - merge requires manual checksum update. |
 
 ### GitHub Environments
 
@@ -78,7 +78,7 @@ Dependabot runs weekly against the `develop` branch for three npm package direct
 3. Resolve/create KV namespace, patch `wrangler.toml` with KV ID
 4. Apply worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default/saas=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB). All tiers default to 10 max instances; `MAX_INSTANCES` variable overrides if set
 5. Optionally generate `.cache-bust` for AI agent layer
-6. Build Docker image locally (base image pulled from `public.ecr.aws/docker/library/node:24-bookworm-slim` — AWS ECR Public mirror avoids Docker Hub anonymous pull rate limits on shared runners)
+6. Build Docker image locally (base image pulled from `public.ecr.aws/docker/library/node:24-bookworm-slim` - AWS ECR Public mirror avoids Docker Hub anonymous pull rate limits on shared runners)
 7. Scan with Trivy (HIGH/CRITICAL severity, `.trivyignore` for exceptions)
 8. Push image to Cloudflare registry via `wrangler containers push`, extract registry URI
 9. Patch `wrangler.toml` `image` field to registry URI (skips Docker rebuild on deploy)
