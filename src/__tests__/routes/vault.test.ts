@@ -423,9 +423,8 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
       const ifIdx = out.indexOf('if (!sw)');
       expect(ifIdx).toBeGreaterThanOrEqual(0);
-      const bodyStart = out.indexOf('{', ifIdx) + 1;
-      const bodyEnd = out.indexOf('}', bodyStart);
-      const body = out.slice(bodyStart, bodyEnd);
+      const nextIf = out.indexOf('if (sw.state !== "activated")');
+      const body = out.slice(ifIdx, nextIf);
       expect(body).toContain('return;');
       expect(body).toContain('document.cookie');
       expect(body).toContain('localStorage.removeItem');
