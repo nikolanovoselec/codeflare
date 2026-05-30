@@ -472,3 +472,12 @@ CVE-2026-39826
 # (stdlib only, same exposure profile as the cpython entries above). No untrusted
 # wheel is installed at runtime. No fixed version available in Debian bookworm.
 CVE-2026-8643
+
+# perl-modules-5.36 / libperl5.36 / perl / perl-base (Debian bookworm):
+# IO::Compress arbitrary code execution via attacker-controlled output glob
+# pattern. Impact: NONE - the container never calls IO::Compress with
+# attacker-controlled glob arguments; perl is invoked only by
+# codeflare-managed entrypoint scripts and system package tooling. Same
+# exposure profile as the Archive::Tar perl entries above (CVE-2026-42496 /
+# CVE-2026-42497 / CVE-2026-9538). No fixed version available in Debian bookworm.
+CVE-2026-48962
