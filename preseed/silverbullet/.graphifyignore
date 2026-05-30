@@ -1,0 +1,9 @@
+# graphify ignore patterns for the persistent Vault (gitignore syntax).
+#
+# Minified SilverBullet plug bundles are single-line transpiled blobs that
+# graphify's AST extractor mis-parses into a god-node: silverbullet-pdf.plug.js
+# (2.5 MB) alone produced ~900 edges and dominated god_nodes in the unified
+# global graph. The vault-extract subagent ingests Library/Codeflare/*.plug.js
+# into ~/.graphify/global-graph.json, so without this file the plug bundles
+# drown the real vault notes. These are vendored build artifacts, not content.
+*.plug.js

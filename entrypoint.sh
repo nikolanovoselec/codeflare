@@ -1465,6 +1465,19 @@ init_user_vault() {
         shopt -u nullglob
     fi
 
+    # Vault .graphifyignore (codeflare-authoritative, overwrite-on-boot). Without
+    # it the minified SilverBullet plug bundles under Library/Codeflare/
+    # (silverbullet-pdf.plug.js, 2.5 MB) get mis-parsed by graphify's AST
+    # extractor into a god-node that dominates the unified global graph. The
+    # vault-extract subagent and the boot-time global-add below both read this
+    # file (graphify prefers .graphifyignore over .gitignore), so the plug
+    # bundles are excluded from extraction everywhere the vault is ingested.
+    if [ -f "$PRESEED_DIR/.graphifyignore" ] \
+       && ! cmp -s "$PRESEED_DIR/.graphifyignore" "$VAULT/.graphifyignore" 2>/dev/null; then
+        cp "$PRESEED_DIR/.graphifyignore" "$VAULT/.graphifyignore"
+        echo "[entrypoint] Vault .graphifyignore synced from preseed"
+    fi
+
     # Seed the global graph with the vault. Hash-keyed idempotent - safe to
     # re-run on every boot. Best-effort: if graphify global isn't available
     # (e.g. graphify plugin disabled), continue.
