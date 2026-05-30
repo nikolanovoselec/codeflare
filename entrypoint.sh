@@ -354,6 +354,14 @@ RCLONE_FILTERS_COMMON=(
     # Pi — context-mode FTS5 store (equivalent to .claude/context-mode/**)
     --filter "- .pi/context-mode/**"
 
+    # Pi cross-harness skill root. Codeflare seeds skills to ~/.pi/agent/skills
+    # (see generate-agent-seed.mjs AGENT_CONFIGS — no .agents entry exists), so
+    # ~/.agents/ is never codeflare-managed state. Pi scans it as a second skill
+    # root and reports every seeded skill as a "collision (skipped)" against the
+    # .pi copy. Syncing it round-trips a duplicate tree through R2 that reappears
+    # after every deploy; excluding it keeps the .pi copy the single source.
+    --filter "- .agents/**"
+
     # Perl CPAN cache — created by Perl module installs during build, regenerated
     --filter "- .cpan/**"
 
