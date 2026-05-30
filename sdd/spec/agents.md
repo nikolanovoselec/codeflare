@@ -63,7 +63,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-<!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 describe -> POST /api/sessions accepts/persists agentType + Zod rejects invalid + all 7 valid types + lastAgentType via PATCH /preferences + default claude-code -> AC1..AC5) -->
+<!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 describe -> POST /api/sessions accepts/persists agentType + Zod rejects invalid + all 7 valid types + lastAgentType via PATCH /preferences + default claude-code -> AC1..AC5) + web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (agent type rendering describe -> AC6 beta badge: antigravity badged, copilot/pi/others unbadged) -->
 ### REQ-AGENT-002: Agent Selection at Session Creation
 
 <!-- @impl: src/routes/session/crud.ts -->
@@ -81,6 +81,7 @@ Multi-agent support, preseed system, and session modes.
 3. The selected agent type is persisted in the session record.
 4. The UI defaults to the agent type used in the user's most recent session.
 5. When `agentType` is not specified, it defaults to `claude-code`.
+6. The session-creation UI renders a `beta` badge on agents in preview status: `antigravity` carries the badge; all other agents (including `copilot` and `pi`) render without one.
 
 **Constraints:**
 
@@ -91,7 +92,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-config.test.ts)
+**Verification:** [Automated test](../../src/__tests__/lib/agent-config.test.ts), [Beta-badge UI test](../../web-ui/src/__tests__/components/CreateSessionDialog.test.tsx)
 
 **Status:** Implemented
 
@@ -260,6 +261,7 @@ Multi-agent support, preseed system, and session modes.
 - Hooks, commands, and plugins are excluded from generic transformed agents because they are Claude-specific surfaces; Pi is the native-runtime exception and receives Pi-native equivalents (extension/package/MCP/subagent adapters, native command handlers for Claude-only slash commands, and Pi-native skills) instead of copied Claude hooks and commands. Specific Pi command/skill reimplementations live in [REQ-AGENT-050](#req-agent-050-pi-native-review-workflow-skill) and [REQ-AGENT-051](#req-agent-051-pi-debug-deploy-and-brainstorm-commands).
 - `rules/memory.md` and `consult-llm` skill are excluded from non-CC agents (they depend on CC-specific MCP).
 - Generic non-CC agents get a strictly-smaller config than Claude Code, since CC is the source-of-truth lane and those agents drop CC-specific content. Pi may receive additional Pi-native runtime adapters when equivalent Pi primitives exist.
+- Antigravity (`agy`) receives no preseed adaptation lane: it is a Go-native, curl-installed CLI with no rules/skills/agents directory convention, so the generator emits nothing for it and AC6 covers only Claude Code, Codex, Copilot, OpenCode, and Pi.
 - The per-agent format transforms (frontmatter shape, removed fields, path rewrites, file extensions) live in [REQ-AGENT-030](#req-agent-030-multi-agent-format-transforms).
 
 **Priority:** P1
