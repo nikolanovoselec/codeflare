@@ -1131,4 +1131,21 @@ describe('REQ-AGENT-040 AC8 review dispatch is backgrounded with a bounded in-fl
     expect(body).toContain('IN_FLIGHT_STALE_LINES');
     expect(body).toContain('run_in_background');
   });
+
+  it('applies in-flight suppression PER-LANE, not as a blanket whole-gate exit', () => {
+    const hook = AGENTS_SEEDED_CONFIGS.find((d) =>
+      d.key.endsWith('codeflare-hooks/scripts/enforce-review-spawn.sh')
+    );
+    expect(hook, 'enforce-review-spawn.sh must be bundled in the Claude seed').toBeTruthy();
+    const body = hook!.content;
+    // The blanket "any required lane in flight -> exit 0" loop must be gone: it
+    // masked the whole gate while one slow lane ran, so the sequential
+    // doc-updater demand never fired.
+    expect(body).not.toContain('a required review lane is still running');
+    // Each lane demand is guarded by its own lane_in_flight check so a lane
+    // already running is skipped without suppressing the others.
+    expect(body).toContain('! spawned_after_push "code-reviewer" && ! lane_in_flight "code-reviewer"');
+    expect(body).toContain('! spawned_after_push "spec-reviewer" && ! lane_in_flight "spec-reviewer"');
+    expect(body).toContain('! lane_in_flight "doc-updater"');
+  });
 });

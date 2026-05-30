@@ -830,21 +830,25 @@ lane_in_flight() {
   return 0  # spawned recently, no completion yet -> in flight
 }
 
-for _lane in $REQUIRED_LANES; do
-  if lane_in_flight "$_lane"; then
-    exit 0  # a required review lane is still running; wait, do not re-summon
-  fi
-done
+# In-flight suppression is applied PER-LANE at each demand site below: a lane
+# is demanded only if it was NOT spawned-after-push AND is NOT currently in
+# flight. The old blanket "any required lane in flight -> exit 0" loop was
+# removed -- it masked the ENTIRE gate while a single slow lane (e.g. a
+# long-running code-reviewer) was in flight, so the sequential doc-updater
+# demand never fired even after spec-reviewer had completed. Per-lane guarding
+# keeps the re-summon-loop fix (a lane already running is never re-demanded)
+# while still letting an independent/sequential lane be demanded on schedule.
 
 # ---------------------------------------------------------------------------
 # Parallel block: code-reviewer + spec-reviewer can be spawned together.
-# Only the ones present in REQUIRED_LANES are demanded.
+# Only the ones present in REQUIRED_LANES are demanded. A lane already in
+# flight is skipped (not re-summoned) but does not suppress the other lanes.
 # ---------------------------------------------------------------------------
 MISSING=""
-if requires_lane "code-reviewer" && ! spawned_after_push "code-reviewer"; then
+if requires_lane "code-reviewer" && ! spawned_after_push "code-reviewer" && ! lane_in_flight "code-reviewer"; then
   MISSING="$MISSING code-reviewer"
 fi
-if requires_lane "spec-reviewer" && ! spawned_after_push "spec-reviewer"; then
+if requires_lane "spec-reviewer" && ! spawned_after_push "spec-reviewer" && ! lane_in_flight "spec-reviewer"; then
   MISSING="$MISSING spec-reviewer"
 fi
 
@@ -900,7 +904,7 @@ if [ "$DOC_REQUIRED" = "1" ] && [ "$SPEC_REQUIRED" = "1" ]; then
             && index($0, "\"name\":\"Agent\"") \
             && index($0, "\"subagent_type\":\"doc-updater\"") { found=1; exit }
           END { exit !found }
-        '; then
+        ' && ! lane_in_flight "doc-updater"; then
           REASON="spec-reviewer done; spawn doc-updater (sequential). Run the agent(s) in the background (Agent tool with run_in_background: true) so the main session stays usable. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
           emit_block "$REASON"
         fi
@@ -914,7 +918,7 @@ elif [ "$DOC_REQUIRED" = "1" ]; then
   # transcript than the push. PIPELINE_COMPLETE only flips once we see
   # the doc-updater tool-use envelope; we cannot ack a SHA we never
   # verified.
-  if ! spawned_after_push "doc-updater"; then
+  if ! spawned_after_push "doc-updater" && ! lane_in_flight "doc-updater"; then
     REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: spawn doc-updater. Run the agent(s) in the background (Agent tool with run_in_background: true) so the main session stays usable. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
     emit_block "$REASON"
   fi
