@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Stop hook — enforces SDD review-agent spawning at the PR boundary.
+# Stop hook - enforces SDD review-agent spawning at the PR boundary.
 #
 # Architecture (v5): PR HEAD SHA checkpoint + open-PR gate.
 #
-#   Layer 1 (CANDIDATE) — loose regex finds any "git push" mention in the
-#     transcript. Accepts false positives — they get filtered below.
+#   Layer 1 (CANDIDATE) - loose regex finds any "git push" mention in the
+#     transcript. Accepts false positives - they get filtered below.
 #
-#   Layer 2 (TRUTH) — `gh pr view <branch>` returns the current PR HEAD
+#   Layer 2 (TRUTH) - `gh pr view <branch>` returns the current PR HEAD
 #     SHA. The PR HEAD SHA is the unfakeable signal at PR-boundary
 #     scope: it changes only when a real push lands on the PR's source
 #     branch. The legacy reflog `update by push` truth layer is kept as
@@ -15,7 +15,7 @@
 #     because PR HEAD SHA is a stricter signal that already requires a
 #     real push to advance.
 #
-#   Layer 3 (CHECKPOINT) — `.git/sdd-last-ack-pr-head` stores the PR
+#   Layer 3 (CHECKPOINT) - `.git/sdd-last-ack-pr-head` stores the PR
 #     HEAD SHA whose review pipeline completed. A PR is un-acknowledged
 #     iff CURRENT_PR_HEAD ≠ LAST_ACK_PR_HEAD.
 #
@@ -37,7 +37,7 @@
 # exists, it is deleted on first v5 invocation. The PR HEAD SHA
 # checkpoint takes over.
 #
-# Bypass methods (USER-ONLY — the assistant must NEVER create the
+# Bypass methods (USER-ONLY - the assistant must NEVER create the
 # sentinel or write the magic phrase in its own output. An assistant
 # that creates its own bypass defeats the entire enforcement layer.):
 #   1. Sentinel file: /tmp/review-bypass (one-shot, auto-deleted)
@@ -50,7 +50,7 @@
 # Vibe-coding gate: no enforcement if sdd/ is missing.
 # Fail-safe: any unexpected error → exit 0 (never lock users out).
 #
-# Known under-block conditions (all fail-safe by design — review fires
+# Known under-block conditions (all fail-safe by design - review fires
 # on the next eligible push instead of locking the user out):
 #   1. Web-UI driven PR HEAD changes (amend from GitHub UI, branch
 #      reset via API): the current Claude session has no `git push`
@@ -95,7 +95,7 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 # one-shot /tmp/review-bypass sentinel.
 
 # ---------------------------------------------------------------------------
-# Layer 1 (CANDIDATE) — find tool_use lines whose effective shell command
+# Layer 1 (CANDIDATE) - find tool_use lines whose effective shell command
 # actually runs `git push` (not just mentions it inside an echo or
 # narration). Three tool surfaces are scanned:
 #
@@ -342,7 +342,7 @@ LEGACY_ACK="$GIT_COMMON_DIR/sdd-last-ack-push"
 [ -f "$LEGACY_ACK" ] && rm -f "$LEGACY_ACK" 2>/dev/null
 
 # ---------------------------------------------------------------------------
-# Layer 2 (TRUTH) — PR HEAD SHA via gh pr view
+# Layer 2 (TRUTH) - PR HEAD SHA via gh pr view
 #
 # If the current branch has no open PR, exit 0 (deferred). The review
 # pipeline fires when the PR opens (handled by git-push-review-reminder.sh
@@ -350,14 +350,14 @@ LEGACY_ACK="$GIT_COMMON_DIR/sdd-last-ack-push"
 # ---------------------------------------------------------------------------
 CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
 [ -n "$CURRENT" ] || exit 0
-[ "$CURRENT" = "HEAD" ] && exit 0  # detached HEAD — skip
+[ "$CURRENT" = "HEAD" ] && exit 0  # detached HEAD - skip
 
 # ---------------------------------------------------------------------------
 # Cheap pre-check: skip the gh network call if all four conditions hold,
 # falling through to the authoritative gh check otherwise.
 #
 #   1. last-ack matches the local remote-tracking ref (@{u})
-#   2. local HEAD matches @{u} (no local commits ahead — guards against
+#   2. local HEAD matches @{u} (no local commits ahead - guards against
 #      `git reset --hard` regressing HEAD to an old acked SHA while a
 #      newer un-acked SHA exists upstream that the next push would
 #      promote)
@@ -619,7 +619,7 @@ if [ "$PR_STATE" = "MERGED" ] || [ "$PR_STATE" = "CLOSED" ]; then
      && [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ]; then
     triage_file=$(test -f sdd/spec/.review-queue.md && echo sdd/spec/.review-queue.md || echo sdd/.review-needed.md)
     {
-      printf '\n## %s — PR %s un-acked at merge/close\n' \
+      printf '\n## %s - PR %s un-acked at merge/close\n' \
         "$(date +%Y-%m-%d)" "$PR_STATE"
       printf -- '- PR for branch `%s` reached %s with un-acked HEAD `%s` (last ack: `%s`). Review pipeline did not complete before merge.\n' \
         "$CURRENT" "$PR_STATE" "${CURRENT_PR_HEAD:0:7}" "${LAST_ACK_PR_HEAD:0:7}"
@@ -634,7 +634,7 @@ fi
 # pipeline. Feature → develop defers until the develop → main PR.
 #
 # Empty BASE_REF (transient gh / jq failure between successful state
-# parse and base parse — rare but possible) is treated as fail-CLOSED:
+# parse and base parse - rare but possible) is treated as fail-CLOSED:
 # enforcement still runs (the safe direction). Better to over-block
 # when truth is uncertain than to silently let an unreviewed PR-to-main
 # slip through.
@@ -675,7 +675,7 @@ spawned_after_push() {
   ' "$TRANSCRIPT"
 }
 
-# 3-strike circuit breaker (keyed by CURRENT_PR_HEAD — unique per PR state)
+# 3-strike circuit breaker (keyed by CURRENT_PR_HEAD - unique per PR state)
 #
 # Counter format on disk: "<sha>:<count>" or "<sha>:GIVEUP".
 # After the third block for the same SHA, the counter is set to GIVEUP
@@ -727,7 +727,7 @@ emit_block() {
 }
 
 # ---------------------------------------------------------------------------
-# Lane gating (v6) — only require lanes whose surface the push actually
+# Lane gating (v6) - only require lanes whose surface the push actually
 # touches. Skip lanes that were clean last cycle and are not affected by
 # the new diff. The previous version always demanded code+spec+doc on
 # every push, burning tokens on lanes that returned 0 findings the round

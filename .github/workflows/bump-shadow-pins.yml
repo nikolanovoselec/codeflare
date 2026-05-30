@@ -113,7 +113,7 @@ jobs:
 
           git add -A
           if git diff --cached --quiet; then
-            echo "Nothing changed (replacement found nothing) — aborting."
+            echo "Nothing changed (replacement found nothing) - aborting."
             exit 1
           fi
           git commit -m "chore(deps): bump context-mode $CUR -> $LAT"
@@ -133,7 +133,7 @@ jobs:
           BODY=$(cat <<EOF
           Auto-generated bump of \`context-mode\` from \`$CUR\` to \`$LAT\`.
 
-          The version is shadow-pinned (no package.json entry) so Dependabot can't open this PR — \`bump-shadow-pins.yml\` does it weekly.
+          The version is shadow-pinned (no package.json entry) so Dependabot can't open this PR - \`bump-shadow-pins.yml\` does it weekly.
 
           Files updated by string replace + agent-seed regenerate:
           - \`preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json\`
@@ -322,7 +322,7 @@ jobs:
 
           git add Dockerfile
           if git diff --cached --quiet; then
-            echo "Nothing changed — aborting."
+            echo "Nothing changed - aborting."
             exit 1
           fi
           git commit -m "chore(deps): bump zoxide $CUR -> $LAT"
@@ -346,7 +346,7 @@ jobs:
             --body "$(cat <<EOF
           Auto-generated bump of \`zoxide\` from \`$CUR\` to \`$LAT\`.
 
-          The version is pinned in \`Dockerfile\` with a SHA256 checksum — Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
+          The version is pinned in \`Dockerfile\` with a SHA256 checksum - Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
 
           **Action required before merge:** Update the SHA256 checksum in Dockerfile:
           \`\`\`bash
@@ -417,7 +417,7 @@ jobs:
 
           git add Dockerfile
           if git diff --cached --quiet; then
-            echo "Nothing changed — aborting."
+            echo "Nothing changed - aborting."
             exit 1
           fi
           git commit -m "chore(deps): bump yazi $CUR -> $LAT"
@@ -441,7 +441,7 @@ jobs:
             --body "$(cat <<EOF
           Auto-generated bump of \`yazi\` from \`$CUR\` to \`$LAT\`.
 
-          The version is pinned in \`Dockerfile\` with a SHA256 checksum — Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
+          The version is pinned in \`Dockerfile\` with a SHA256 checksum - Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
 
           **Action required before merge:** Update the SHA256 checksum in Dockerfile:
           \`\`\`bash
@@ -512,7 +512,7 @@ jobs:
 
           git add Dockerfile
           if git diff --cached --quiet; then
-            echo "Nothing changed — aborting."
+            echo "Nothing changed - aborting."
             exit 1
           fi
           git commit -m "chore(deps): bump lazygit $CUR -> $LAT"
@@ -536,7 +536,7 @@ jobs:
             --body "$(cat <<EOF
           Auto-generated bump of \`lazygit\` from \`$CUR\` to \`$LAT\`.
 
-          The version is pinned in \`Dockerfile\` with a SHA256 checksum — Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
+          The version is pinned in \`Dockerfile\` with a SHA256 checksum - Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
 
           **Action required before merge:** Update the SHA256 checksum in Dockerfile:
           \`\`\`bash
@@ -607,7 +607,7 @@ jobs:
 
           git add Dockerfile
           if git diff --cached --quiet; then
-            echo "Nothing changed — aborting."
+            echo "Nothing changed - aborting."
             exit 1
           fi
           git commit -m "chore(deps): bump silverbullet $CUR -> $LAT"
@@ -631,7 +631,7 @@ jobs:
             --body "$(cat <<EOF
           Auto-generated bump of \`silverbullet\` from \`$CUR\` to \`$LAT\`.
 
-          The version is pinned in \`Dockerfile\` with a SHA256 checksum — Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
+          The version is pinned in \`Dockerfile\` with a SHA256 checksum - Dependabot can't see it, so \`bump-shadow-pins.yml\` opens this PR weekly.
 
           **Action required before merge:** Update the SHA256 checksum in Dockerfile:
           \`\`\`bash
