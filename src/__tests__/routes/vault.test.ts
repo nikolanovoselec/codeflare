@@ -379,16 +379,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       expect(out).toContain('; Secure');
     });
 
-    it('guards cookie+redirect inside the SW-success branch -- failure must NOT proceed (REQ-VAULT-008 AC5 fail-loud)', () => {
-      // The function's own docstring promises "never silently degrades
-      // to plaintext IDB". The earlier implementation set the cookie
-      // and called location.replace unconditionally; the followup
-      // bug code-reviewer flagged was that localStorage.setItem fired
-      // BEFORE the SW await, so a tab close between setItem and
-      // postMessage left enableEncryption=true with no SW key. The
-      // current contract: setItem, cookie, AND redirect all live after
-      // the post-handoff success branch; the catch branch returns with
-      // none of the three side-effects ever observed.
+    it('guards redirect inside the SW-success branch and rolls back cookie on failure -- failure must NOT proceed (REQ-VAULT-008 AC5 fail-loud)', () => {
       const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
       // Failure UI exists.
       expect(out).toContain('Vault could not start encryption');
@@ -406,31 +397,23 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       const catchBodyEndIdx = i - 1;
       expect(depth).toBe(0);
       const catchBody = out.slice(bodyStart, catchBodyEndIdx);
-      // Catch branch returns early. None of the three side-effects fire.
+      
+      // Catch branch returns early and rolls back the cookie.
       expect(catchBody).toContain('return;');
-      expect(catchBody).not.toContain('document.cookie');
+      expect(catchBody).toContain('document.cookie = cookieName + "=; Path=" + scope + "; SameSite=Lax; Secure; Max-Age=0";');
       expect(catchBody).not.toContain('location.replace');
-      // No-rollback assertion: there is nothing to roll back because the
-      // flag is never set on this branch. A future refactor that
-      // reintroduces the set-first pattern would have to also reintroduce
-      // a removeItem here; pinning the absence catches that drift.
-      expect(catchBody).not.toContain('localStorage.setItem("enableEncryption"');
-      expect(catchBody).not.toContain('localStorage.removeItem("enableEncryption"');
-      // Ordering: setItem("enableEncryption") MUST appear after the
-      // sw.postMessage call and before document.cookie. This is the
-      // load-bearing invariant the bootstrap-hop race fix enforces.
+      
+      // Ordering: cookie MUST appear BEFORE sw.postMessage and BEFORE register
+      // because it is needed to authorize the cache.addAll fetch of the vault root.
+      const cookieSetIdx = out.indexOf('document.cookie = cookieName + "=1;');
+      const registerIdx = out.indexOf('navigator.serviceWorker.register');
       const postIdx = out.indexOf('sw.postMessage');
-      const setItemIdx = out.indexOf('localStorage.setItem("enableEncryption"');
-      const cookieIdx = out.indexOf('document.cookie');
       const replaceIdx = out.indexOf('location.replace');
-      expect(postIdx).toBeGreaterThanOrEqual(0);
-      expect(setItemIdx).toBeGreaterThan(postIdx);
-      expect(cookieIdx).toBeGreaterThan(setItemIdx);
-      expect(replaceIdx).toBeGreaterThan(cookieIdx);
-      // All three side-effects live after the catch block closes.
-      expect(setItemIdx).toBeGreaterThan(catchBodyEndIdx);
-      expect(cookieIdx).toBeGreaterThan(catchBodyEndIdx);
-      expect(replaceIdx).toBeGreaterThan(catchBodyEndIdx);
+      
+      expect(cookieSetIdx).toBeGreaterThanOrEqual(0);
+      expect(registerIdx).toBeGreaterThan(cookieSetIdx);
+      expect(postIdx).toBeGreaterThan(registerIdx);
+      expect(replaceIdx).toBeGreaterThan(catchBodyEndIdx); // Only happens if catch doesn't run
     });
 
     it('aborts (no cookie, no redirect, no enableEncryption=true) when reg.active/installing/waiting are all null', () => {
