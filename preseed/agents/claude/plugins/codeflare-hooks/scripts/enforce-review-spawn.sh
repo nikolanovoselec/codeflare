@@ -772,6 +772,53 @@ requires_lane() {
 }
 
 # ---------------------------------------------------------------------------
+# In-flight guard: do not re-summon (or block) while a review wave is still
+# running. A lane is "in flight" when its MOST RECENT Agent spawn anywhere in
+# the transcript has no `completed</status>` marker yet -- i.e. that subagent
+# is still executing. Subagents always emit a completion marker on finish
+# (success OR error, per the spawned_after_push comment), so "last spawn has
+# no completion" reliably means "currently running", not "errored long ago".
+#
+# Without this guard, a push that lands while the prior wave is still running
+# advances the PR HEAD past the in-flight spawn lines; the parallel block
+# below then sees no spawn AFTER the new push line and emits a fresh spawn
+# directive, producing the re-summon loop the user hit (issue: hook keeps
+# demanding new reviewers every turn while the old wave is mid-run).
+#
+# Safety: this only SUPPRESSES the block (exit 0) -- it never advances the ack
+# pointer. The PR HEAD stays un-acked until a real completion lands and a
+# later Stop event runs the full pipeline check below. So an un-reviewed HEAD
+# can never reach `main` through this path; the gate just stops nagging while
+# reviewers work. Paired behavioural rule (rules/git-workflow.md): the agent
+# must NOT push again or start a new wave while a wave is in flight.
+lane_in_flight() {
+  local lane="$1"
+  local spawn_line
+  spawn_line=$(awk -v a="$lane" '
+    index($0, "\"type\":\"tool_use\"") \
+      && index($0, "\"name\":\"Agent\"") \
+      && index($0, "\"subagent_type\":\"" a "\"") { print NR }
+  ' "$TRANSCRIPT" | tail -1)
+  [ -n "$spawn_line" ] || return 1  # never spawned -> not in flight
+  local line_content tool_use_id
+  line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
+  tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
+  [ -n "$tool_use_id" ] || return 1  # can't correlate -> treat as not in flight
+  if awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
+      | grep -F "tool-use-id>${tool_use_id}<" \
+      | grep -qF 'completed</status>'; then
+    return 1  # completed -> not in flight
+  fi
+  return 0  # spawned, no completion yet -> in flight
+}
+
+for _lane in $REQUIRED_LANES; do
+  if lane_in_flight "$_lane"; then
+    exit 0  # a required review lane is still running; wait, do not re-summon
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # Parallel block: code-reviewer + spec-reviewer can be spawned together.
 # Only the ones present in REQUIRED_LANES are demanded.
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # Git Workflow
 
-**Commit format:** `<type>: <description>` (types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`). AI attribution disabled — no `Co-Authored-By`, no emoji, no "Generated with Claude".
+**Commit format:** `<type>: <description>` (types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`). AI attribution disabled - no `Co-Authored-By`, no emoji, no "Generated with Claude".
 
 ## Triggers and routes
 

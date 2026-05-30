@@ -1712,10 +1712,13 @@ None.
 1. Stored LLM API keys are propagated into the container environment at container start so in-container CLIs can call OpenAI or Gemini without re-authentication.
 2. When keys are present, the container entrypoint configures the `consult-llm-mcp` MCP server in `~/.claude.json`.
 3. Keys are NOT persisted in DO storage; they are read fresh from KV on each container start.
+4. When the user invokes the consult-llm skill without naming a provider, the agent shows an interactive provider-selection dialog (multi-select over the two configured providers, OpenAI and Google Gemini) before calling `consult_llm`; it never silently defaults to a provider. When the user names a provider explicitly, no dialog is shown. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md -->
+5. The agent always passes an explicit `model` to `consult_llm`, resolved live from the provider's model listing at call time (OpenAI `/v1/models`, Gemini `/v1beta/models`) to the provider's current latest flagship; it never relies on the MCP server's configured default model. An explicitly named model from the user overrides the flagship auto-pick. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md -->
 
 **Constraints:**
 
 - The container reads keys at start and on restart; mid-session key changes take effect only after the next session start.
+- AC4 and AC5 are skill-directed agent behaviour (no automated test); the container-env propagation in AC1 is the automated-verification surface for this REQ.
 
 **Priority:** P1
 
@@ -1723,7 +1726,9 @@ None.
 
 **Verification:** [Automated test](../../src/__tests__/container/container-env.test.ts)
 
-**Status:** Implemented
+**Status:** Partial
+
+<!-- Status Partial: AC1-AC3 are built and AC1 is automated-verified via container-env.test.ts; AC4-AC5 (consult-llm provider dialog + live latest-flagship model resolution) are built in the consult-llm skill but are skill-directed agent behaviour with no automated verification. -->
 
 ---
 

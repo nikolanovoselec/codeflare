@@ -154,6 +154,13 @@ describe('shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automa
     assert.match(body, /npm view context-mode version/, 'context-mode job must check npm registry');
   });
 
+  test('AC2: graphify (graphifyy) PyPI package is watched', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    assert.match(body, /^\s+graphify:/m, 'bump-shadow-pins.yml must declare a `graphify:` job');
+    assert.match(body, /pypi\.org\/pypi\/graphifyy\/json/, 'graphify job must check the PyPI registry for graphifyy');
+    assert.match(body, /plugins\/graphify\/\.claude-plugin\/plugin\.json/, 'graphify job must read the pin from plugin.json');
+  });
+
   test('AC3: SHA256 is invalidated on Dockerfile bumps', () => {
     const body = readWorkflow('bump-shadow-pins.yml');
     assert.match(body, /NEEDS_UPDATE_SEE_PR_BODY/, 'Dockerfile bump jobs must invalidate SHA256 with placeholder');
