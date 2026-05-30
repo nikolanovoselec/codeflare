@@ -756,7 +756,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   // REQ-MEM-008 AC2 (manifest declares the memory plugin files) + AC3 (all advanced-only).
   // memory-capture-block.sh is the PreToolUse hard-block companion to memory-capture.sh
-  // (UserPromptSubmit) — it prevents the assistant from skipping the deferred capture
+  // (UserPromptSubmit) - it prevents the assistant from skipping the deferred capture
   // by hard-blocking all other tool calls while .vars is undrained.
   it('codeflare-memory plugin files are advanced-only', () => {
     const pluginDocs = claudeDocs().filter((d) => d.key.includes('codeflare-memory'));
