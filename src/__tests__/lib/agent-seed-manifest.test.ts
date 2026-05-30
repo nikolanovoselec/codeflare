@@ -15,7 +15,7 @@ import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isR
  * isn't available in the Workers vitest pool).
  */
 
-const VALID_KEY_PREFIXES = ['.claude/', '.codex/', '.gemini/', '.copilot/', '.config/opencode/', '.pi/agent/'];
+const VALID_KEY_PREFIXES = ['.claude/', '.codex/', '.copilot/', '.config/opencode/', '.pi/agent/'];
 
 function stripPrefix(key: string): string {
   for (const prefix of VALID_KEY_PREFIXES) {
@@ -112,7 +112,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   it('each non-Claude agent has an instructions file', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
     expect(keys.has('.codex/AGENTS.md')).toBe(true);
-    expect(keys.has('.gemini/GEMINI.md')).toBe(true);
     expect(keys.has('.copilot/copilot-instructions.md')).toBe(true);
     expect(keys.has('.config/opencode/AGENTS.md')).toBe(true);
     expect(keys.has('.pi/agent/AGENTS.md')).toBe(true);
@@ -121,7 +120,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   it('instructions files appear twice (one per mode, different content)', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
-      '.gemini/GEMINI.md',
       '.copilot/copilot-instructions.md',
       '.config/opencode/AGENTS.md',
       '.pi/agent/AGENTS.md',
@@ -150,8 +148,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(agents.length).toBeGreaterThan(0);
   });
 
-  it('Gemini and OpenCode have both skills and agent definitions', () => {
-    for (const prefix of ['.gemini/', '.config/opencode/']) {
+  it('OpenCode has both skills and agent definitions', () => {
+    for (const prefix of ['.config/opencode/']) {
       const docs = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith(prefix));
       const skills = docs.filter((d) => d.key.includes('/skills/'));
       const agents = docs.filter((d) =>
@@ -777,7 +775,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  // REQ-MEM-008 AC7 (memory plugin files excluded from non-CC agents; no Codex/Gemini/Copilot/OpenCode equivalents)
+  // REQ-MEM-008 AC7 (memory plugin files excluded from non-CC agents; no Codex/Copilot/OpenCode equivalents)
   it('codeflare-memory plugin is excluded from non-Claude agents', () => {
     const nonClaude = AGENTS_SEEDED_CONFIGS.filter((d) => !d.key.startsWith('.claude/'));
     for (const doc of nonClaude) {
@@ -800,7 +798,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         !d.key.startsWith('.pi/agent/agents/') &&
         d.key.includes('/agents/') &&
         !d.key.endsWith('AGENTS.md') &&
-        !d.key.endsWith('GEMINI.md') &&
         !d.key.endsWith('copilot-instructions.md')
     );
     for (const doc of nonClaudeAgents) {

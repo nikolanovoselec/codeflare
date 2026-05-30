@@ -1490,7 +1490,7 @@ describe('Fuzz: isOnboardingLandingPageActive', () => {
 // getDefaultTabConfig
 // ---------------------------------------------------------------------------
 describe('Fuzz: getDefaultTabConfig', () => {
-  const VALID_AGENT_TYPES = ['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'bash'] as const;
+  const VALID_AGENT_TYPES = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'bash'] as const;
 
   it('always returns array of length 6 (MAX_TABS)', () => {
     fc.assert(

@@ -37,7 +37,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. The session creation endpoint accepts a trimmed session name and optional AI agent type (one of: claude-code, codex, gemini, opencode, copilot, bash, pi).
+1. The session creation endpoint accepts a trimmed session name and optional AI agent type (one of: claude-code, codex, antigravity, opencode, copilot, bash, pi).
 2. A unique alphanumeric session ID (8-24 lowercase chars) is generated for each new session.
 3. The session record is persisted durably and retrievable by the user.
 4. The response returns the new session object with status 201.

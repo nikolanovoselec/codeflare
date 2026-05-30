@@ -156,13 +156,13 @@ RUN npm install -g @anthropic-ai/claude-code@latest && \
 # Verify Claude Code is installed and working as root with IS_SANDBOX=1
 RUN claude --version
 
-# Install Codex + Gemini + OpenCode + Copilot + Pi CLIs for multi-agent support (single RUN for npm dedup).
+# Install Codex + OpenCode + Copilot + Pi CLIs for multi-agent support (single RUN for npm dedup).
 # OpenCode (opencode-ai) is an open-source multi-model AI coding CLI supporting 75+ providers.
 # Consolidated install allows npm to deduplicate shared dependencies across packages.
 # OpenCode ships 11 platform binaries as optionalDependencies — delete unused ones (~446MB saved).
 # Debian uses glibc — postinstall correctly hard-links opencode-linux-x64 to bin/.opencode.
 # Uses @latest — .cache-bust above invalidates this layer so every deploy pulls newest versions
-RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@latest @github/copilot@latest @earendil-works/pi-coding-agent@latest && \
+RUN npm install -g @openai/codex@latest opencode-ai@latest @github/copilot@latest @earendil-works/pi-coding-agent@latest && \
     cd /usr/local/lib/node_modules/opencode-ai/node_modules && \
     find . -maxdepth 1 -name 'opencode-*' ! -name 'opencode-linux-x64' -type d -exec rm -rf {} + && \
     cd /usr/local/lib/node_modules/@github/copilot && \
@@ -170,6 +170,16 @@ RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@la
     rm -rf mxc-bin/arm64 ripgrep/ clipboard/node_modules pvrecorder/node_modules sharp/node_modules && \
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
+
+# Antigravity (Go-native binary, curl installer, not npm). Fatal on failure (no fallback).
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
+
+# Ensure the Antigravity binary (agy) is on PATH at /usr/local/bin.
+RUN AGY_BIN=$(command -v agy || find / -name 'agy' -type f -perm -u+x 2>/dev/null | grep -v '/proc/' | head -1) && \
+    if [ -z "$AGY_BIN" ]; then echo "ERROR: agy binary not found after antigravity install" >&2; exit 1; fi && \
+    if [ "$AGY_BIN" != "/usr/local/bin/agy" ]; then ln -sf "$AGY_BIN" /usr/local/bin/agy; fi && \
+    agy --version && \
+    rm -rf /tmp/*
 
 # Preinstall Pi extension npm dependencies into an image-local seed cache.
 # ~/.pi/agent/npm/node_modules is excluded from R2 sync, so without this Pi
@@ -368,11 +378,10 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 # V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
 # Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.
-# This speeds up first-launch of Node.js CLIs (codex, gemini, copilot, pi) inside containers
+# This speeds up first-launch of Node.js CLIs (codex, copilot, pi) inside containers
 # by avoiding the compilation overhead on every container start.
-# Note: Go binaries (like opencode) don't need this — they're already natively compiled.
+# Note: Go binaries (like opencode and antigravity) don't need this — they're already natively compiled.
 RUN codex --version 2>&1 || true && \
-    gemini --version 2>&1 || true && \
     copilot --version 2>&1 || true && \
     pi --version 2>&1 || true
 

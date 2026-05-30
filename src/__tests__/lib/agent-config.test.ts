@@ -12,13 +12,13 @@ const EXPECTED_COMMANDS: Record<AgentType, { command: string; label: string }> =
   'claude-code': { command: 'claude --dangerously-skip-permissions', label: 'Terminal 1' },
   'codex': { command: 'codex', label: 'Terminal 1' },
   'copilot': { command: 'copilot --yolo', label: 'Terminal 1' },
-  'gemini': { command: 'gemini -y', label: 'Terminal 1' },
+  'antigravity': { command: 'agy --yolo', label: 'Terminal 1' },
   'opencode': { command: 'opencode', label: 'Terminal 1' },
   'pi': { command: 'pi', label: 'Terminal 1' },
   'bash': { command: '', label: 'Terminal 1' },
 };
 
-describe('AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, gemini, opencode, pi, bash; enforced via AgentTypeSchema)', () => {
+describe('AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, antigravity, opencode, pi, bash; enforced via AgentTypeSchema)', () => {
   const allAgentTypes = AgentTypeSchema.options;
 
   it('every AgentType in the schema has a valid tab config (no runtime error)', () => {
@@ -28,7 +28,7 @@ describe('AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent typ
   });
 
   it('schema contains exactly the expected agent types', () => {
-    const expected = ['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'pi', 'bash'];
+    const expected = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'];
     expect([...allAgentTypes].sort()).toEqual([...expected].sort());
   });
 
@@ -58,9 +58,9 @@ describe('getDefaultTabConfig / REQ-AGENT-002 AC1/AC2/AC5 (POST /api/sessions ac
     expect(tabs[0].command).toBe('codex');
   });
 
-  it('sets tab 1 to gemini for gemini agent', () => {
-    const tabs = getDefaultTabConfig('gemini');
-    expect(tabs[0].command).toBe('gemini -y');
+  it('sets tab 1 to antigravity for antigravity agent', () => {
+    const tabs = getDefaultTabConfig('antigravity');
+    expect(tabs[0].command).toBe('agy --yolo');
   });
 
   it('sets tab 1 to copilot for copilot agent', () => {

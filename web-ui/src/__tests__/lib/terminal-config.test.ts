@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mdiConsole, mdiRobotOutline, mdiCodeBraces, mdiDiamond, mdiRobotIndustrial, mdiGithub } from '@mdi/js';
+import { mdiConsole, mdiRobotOutline, mdiCodeBraces, mdiRocketLaunchOutline, mdiRobotIndustrial, mdiGithub } from '@mdi/js';
 import { TERMINAL_TAB_CONFIG, getTabIcon, getTabDisplayName, AGENT_ICON_MAP } from '../../lib/terminal-config';
 
 describe('terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-TERM-009 (PROCESS_ICON_MAP renders icons per tab process kind)', () => {
@@ -23,8 +23,8 @@ describe('terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-
       expect(getTabIcon('codex')).toBe(mdiCodeBraces);
     });
 
-    it('returns diamond icon for "gemini"', () => {
-      expect(getTabIcon('gemini')).toBe(mdiDiamond);
+    it('returns rocket icon for "agy"', () => {
+      expect(getTabIcon('agy')).toBe(mdiRocketLaunchOutline);
     });
 
     it('returns robot-industrial icon for "opencode"', () => {
@@ -55,7 +55,7 @@ describe('terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-
     it('returns process name unchanged for other processes', () => {
       expect(getTabDisplayName('bash')).toBe('bash');
       expect(getTabDisplayName('codex')).toBe('codex');
-      expect(getTabDisplayName('gemini')).toBe('gemini');
+      expect(getTabDisplayName('agy')).toBe('agy');
     });
   });
 
@@ -63,7 +63,7 @@ describe('terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-
     it('maps agent types to their icons', () => {
       expect(AGENT_ICON_MAP['claude-code']).toBe(mdiRobotOutline);
       expect(AGENT_ICON_MAP['codex']).toBe(mdiCodeBraces);
-      expect(AGENT_ICON_MAP['gemini']).toBe(mdiDiamond);
+      expect(AGENT_ICON_MAP['antigravity']).toBe(mdiRocketLaunchOutline);
       expect(AGENT_ICON_MAP['opencode']).toBe(mdiRobotIndustrial);
       expect(AGENT_ICON_MAP['copilot']).toBe(mdiGithub);
       expect(AGENT_ICON_MAP['bash']).toBe(mdiConsole);
@@ -74,7 +74,7 @@ describe('terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-
     });
 
     it('has entries for all 7 agent types', () => {
-      const expectedAgentTypes = ['claude-code', 'codex', 'gemini', 'opencode', 'copilot', 'pi', 'bash'];
+      const expectedAgentTypes = ['claude-code', 'codex', 'antigravity', 'opencode', 'copilot', 'pi', 'bash'];
       expect(Object.keys(AGENT_ICON_MAP).sort()).toEqual(expectedAgentTypes.sort());
     });
 
@@ -94,7 +94,7 @@ describe('terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-
   describe('PROCESS_ICON_MAP exhaustiveness via getTabIcon', () => {
     it('every agent type command resolves to a non-console icon', () => {
       // Agent commands that should have dedicated icons (not fallback console)
-      const agentProcessNames = ['claude', 'codex', 'gemini', 'opencode', 'copilot'];
+      const agentProcessNames = ['claude', 'codex', 'agy', 'opencode', 'copilot'];
       for (const name of agentProcessNames) {
         const icon = getTabIcon(name);
         expect(icon, `${name} should have a dedicated icon, not fallback`).not.toBe(mdiConsole);

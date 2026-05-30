@@ -20,7 +20,7 @@ Codeflare isn't tied to any single AI provider. Each session lets you choose whi
 |-------|-------------|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Anthropic's agentic coding tool running directly in the terminal |
 | [Codex](https://github.com/openai/codex) | OpenAI's coding CLI agent |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google's terminal agent |
+| [Antigravity](https://antigravity.google) | Google's terminal coding agent |
 | [GitHub Copilot](https://docs.github.com/en/copilot) | GitHub's AI coding agent |
 | [OpenCode](https://github.com/opencode-ai/opencode) | Open-source multi-model AI coding CLI supporting 75+ model providers |
 | Bash | No AI agent - a plain terminal for the purists |

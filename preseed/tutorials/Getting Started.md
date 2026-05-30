@@ -41,7 +41,7 @@ Browser support: Chrome, Edge, Safari (recent). Firefox does not implement the W
 
 A daemon syncs your home directory to Cloudflare R2 every 15 minutes. When you stop a session, a final sync runs before the container self-destructs. When you start a new one, everything is restored. If you want a sync to happen sooner - say, you uploaded a file in the R2 panel and want a running container to see it now - hit the **Sync now** button (cloud icon) at the top of the R2 panel. It fans out to every running session you own; if you have none, you'll see a "no running sessions to sync" notice. Even if a session dies before you remember to `git push`, R2 sync has got your back. Sync conflicts will happen - Codeflare cleans them up automatically on the next cycle. Don't worry about it.
 
-What carries over: `.gitconfig`, agent settings and memory (e.g. `~/.claude/`, `~/.gemini/`, `~/.opencode/`), your vault, your uploads, and anything else in your home directory. Your **workspace** (`~/workspace/`) is excluded from sync by default - clone fresh in each session. You can opt-in to workspace sync in Settings, but it is not recommended: bigger repos slow every sync cycle, and a fresh clone is more reliable than restoring a half-built node_modules tree from R2.
+What carries over: `.gitconfig`, agent settings and memory (e.g. `~/.claude/`, `~/.codex/`, `~/.opencode/`), your vault, your uploads, and anything else in your home directory. Your **workspace** (`~/workspace/`) is excluded from sync by default - clone fresh in each session. You can opt-in to workspace sync in Settings, but it is not recommended: bigger repos slow every sync cycle, and a fresh clone is more reliable than restoring a half-built node_modules tree from R2.
 
 The **R2 File Browser** on the Dashboard lets you browse, upload, download, and delete synced files between sessions - without starting a container. Vault, Uploads, and Temporary are surfaced as special folders alongside your Workspace.
 
@@ -79,7 +79,7 @@ If you picked the **Claude Code** agent and enabled advanced mode on the session
 
 Pro mode also installs hook plugins that capture session memory, gate destructive actions, and keep your spec in sync. None of it requires configuration - it's all preseeded into a fresh advanced session.
 
-The other agents (Codex, Gemini, Copilot, OpenCode, Bash) get the same rules and agent definitions, but the slash-command workflow and graph integration are tuned for Claude Code.
+The other agents (Codex, Antigravity, Copilot, OpenCode, Bash) get the same rules and agent definitions, but the slash-command workflow and graph integration are tuned for Claude Code.
 
 ---
 

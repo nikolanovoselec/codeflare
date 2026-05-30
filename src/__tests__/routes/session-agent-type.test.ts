@@ -106,7 +106,7 @@ describe('REQ-AGENT-002: Agent Selection at Session Creation', () => {
 
   it('REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types', async () => {
     const app = createCrudApp();
-    const validTypes = ['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'pi', 'bash'];
+    const validTypes = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'];
     for (const agentType of validTypes) {
       const res = await app.request('/sessions', {
         method: 'POST',
@@ -146,7 +146,7 @@ describe('REQ-AGENT-002: Agent Selection at Session Creation', () => {
     const res = await app.request('/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Gemini Session', agentType: 'gemini' }),
+      body: JSON.stringify({ name: 'Antigravity Session', agentType: 'antigravity' }),
     });
     expect(res.status).toBe(201);
     const body = await res.json() as { session: Session };
@@ -161,7 +161,7 @@ describe('REQ-AGENT-002: Agent Selection at Session Creation', () => {
     );
     expect(sessionPut).toBeDefined();
     const stored = JSON.parse(sessionPut![1] as string) as Session;
-    expect(stored.agentType).toBe('gemini');
+    expect(stored.agentType).toBe('antigravity');
   });
 
   it('REQ-AGENT-002 AC3: agentType copilot persisted in session record', async () => {

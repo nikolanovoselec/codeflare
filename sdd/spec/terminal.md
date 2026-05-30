@@ -186,7 +186,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 1. The Container DO passes the per-tab agent configuration to the terminal server at container start so the server knows which agent to launch in tab 1.
 2. Tab 1 is pre-warmed at container start: the terminal server spawns a dedicated pre-warm PTY whose login shell reads the user's shell init.
-3. The shell init reads the per-tab configuration and launches the configured agent (Claude Code, Codex, Gemini CLI, OpenCode, or Copilot CLI), each in non-interactive sandboxed mode appropriate for its CLI.
+3. The shell init reads the per-tab configuration and launches the configured agent (Claude Code, Codex, Antigravity, OpenCode, or Copilot CLI), each in non-interactive sandboxed mode appropriate for its CLI.
 4. Pre-warm readiness is detected by the first PTY output; a bounded hard timeout acts as a safety net so a permanently silent agent does not stall startup.
 5. When the first WebSocket client connects for tab 1, the pre-warmed session is adopted (re-bound from the pre-warm identifier to the real terminal ID). If no client adopts it within a bounded window, the pre-warmed session is killed.
 6. The startup status stage progresses through a fixed pipeline: starting -> syncing -> verifying -> mounting (pre-warm in progress, terminal canvas hidden) -> ready (pre-warm complete, "Open" control appears).

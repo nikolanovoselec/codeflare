@@ -24,7 +24,7 @@ Architectural and technology decisions that apply across all domains.
 | Linter | oxlint | Fast Rust-based linter for CI |
 | Testing | Vitest | Unit/integration tests; Puppeteer for E2E; fast-check for fuzzing |
 | Container Tools | git, gh, rclone, neovim, ripgrep, fd, fzf, yazi, lazygit, zoxide, tmux, htop, jq, bat | Pre-installed developer toolchain in every container |
-| AI Agents | @anthropic-ai/claude-code, @openai/codex, @google/gemini-cli, opencode-ai, @github/copilot | Global npm packages; Claude Code runs as root via `IS_SANDBOX=1` + `--dangerously-skip-permissions` |
+| AI Agents | @anthropic-ai/claude-code, @openai/codex, opencode-ai, @github/copilot (npm); antigravity (`agy`, Go-native, curl-installed) | Global npm packages; Claude Code runs as root via `IS_SANDBOX=1` + `--dangerously-skip-permissions` |
 
 ## Non-Functional Requirements
 
@@ -85,7 +85,7 @@ Tier configuration cached for 60s in `src/lib/subscription.ts`. Other cache TTLs
 | WebSocket retry delay | 1s | Terminal WebSocket reconnect store |
 | Dashboard WS disconnect grace period | 60s | Web UI shared constants |
 | Container fetch timeout | 5s | Worker request constants |
-| V8 compile cache | Pre-warmed at image build time for Node.js agent CLIs (Codex, Gemini, Copilot) | Image build step |
+| V8 compile cache | Pre-warmed at image build time for Node.js agent CLIs (Codex, Copilot) | Image build step |
 | Context expiry threshold | 30 min | Frontend stale-session detection |
 | Bucket name settle delay | 100ms | Worker request constants |
 

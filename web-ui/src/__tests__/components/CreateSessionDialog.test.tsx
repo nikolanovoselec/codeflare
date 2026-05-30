@@ -98,7 +98,7 @@ describe('CreateSessionDialog', () => {
 
       expect(screen.getByTestId('csd-agent-claude-code')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-codex')).toBeInTheDocument();
-      expect(screen.getByTestId('csd-agent-gemini')).toBeInTheDocument();
+      expect(screen.getByTestId('csd-agent-antigravity')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-copilot')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-opencode')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-pi')).toBeInTheDocument();
@@ -240,7 +240,7 @@ describe('CreateSessionDialog', () => {
       expect(order).toEqual([
         'csd-agent-claude-code',
         'csd-agent-codex',
-        'csd-agent-gemini',
+        'csd-agent-antigravity',
         'csd-agent-copilot',
         'csd-agent-opencode',
         'csd-agent-pi',
@@ -448,7 +448,7 @@ describe('CreateSessionDialog', () => {
 
       expect(screen.getByText('Full Claude Code experience')).toBeInTheDocument();
       expect(screen.getByText('OpenAI Codex agent')).toBeInTheDocument();
-      expect(screen.getByText('Google Gemini CLI')).toBeInTheDocument();
+      expect(screen.getByText("Google's terminal coding agent")).toBeInTheDocument();
       expect(screen.getByText("GitHub's AI coding agent")).toBeInTheDocument();
       expect(screen.getByText('Multi-model agent')).toBeInTheDocument();
       expect(screen.getByText('Plain terminal session')).toBeInTheDocument();

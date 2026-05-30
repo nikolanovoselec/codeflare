@@ -53,12 +53,12 @@ describe('Preferences Store', () => {
 
   describe('updateUserPreferences', () => {
     it('updates preferences via API and sets them', async () => {
-      const updated = { lastAgentType: 'gemini' as const };
+      const updated = { lastAgentType: 'antigravity' as const };
       mockUpdatePreferences.mockResolvedValue(updated);
 
-      await updateUserPreferences({ lastAgentType: 'gemini' });
+      await updateUserPreferences({ lastAgentType: 'antigravity' });
 
-      expect(mockUpdatePreferences).toHaveBeenCalledWith({ lastAgentType: 'gemini' });
+      expect(mockUpdatePreferences).toHaveBeenCalledWith({ lastAgentType: 'antigravity' });
       expect(mockSetPreferences).toHaveBeenCalledWith(updated);
     });
 

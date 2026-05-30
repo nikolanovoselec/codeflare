@@ -28,10 +28,19 @@ describe('Dockerfile agent CLI pre-install (REQ-AGENT-001)', () => {
     );
   });
 
-  it('REQ-AGENT-001 AC3: installs gemini-cli globally via npm', () => {
+  it('REQ-AGENT-001 AC3: installs antigravity via curl (Go-native, not npm)', () => {
     assert.ok(
-      /npm install -g[^\n]*@google\/gemini-cli/.test(dockerfile),
-      'Dockerfile must `npm install -g @google/gemini-cli` to pre-install the Gemini CLI'
+      /curl -fsSL https:\/\/antigravity\.google\/cli\/install\.sh \| bash/.test(dockerfile),
+      'Dockerfile must `curl ... antigravity.google/cli/install.sh | bash` to install the Antigravity (agy) CLI'
+    );
+  });
+
+  it('REQ-AGENT-001 AC4: antigravity (agy) is Go-native and excluded from the npm agent-install line and V8 warmup', () => {
+    const installLine = dockerfile.match(/npm install -g[^\n]+/);
+    assert.ok(installLine, 'Dockerfile must have an npm install -g agent line');
+    assert.ok(
+      !/agy|antigravity/.test(installLine[0]),
+      'agy/antigravity must NOT appear in the npm install -g line (it is curl-installed, like opencode)'
     );
   });
 
@@ -63,13 +72,6 @@ describe('Dockerfile agent CLI pre-install (REQ-AGENT-001)', () => {
     );
   });
 
-  it('REQ-AGENT-001 AC4: gemini --version is run at build time to warm V8 compile cache', () => {
-    assert.ok(
-      /gemini --version/.test(dockerfile),
-      'Dockerfile must run `gemini --version` at build time to trigger V8 compile cache warm-up'
-    );
-  });
-
   it('REQ-AGENT-001 AC4: copilot --version is run at build time to warm V8 compile cache', () => {
     assert.ok(
       /copilot --version/.test(dockerfile),
@@ -77,16 +79,16 @@ describe('Dockerfile agent CLI pre-install (REQ-AGENT-001)', () => {
     );
   });
 
-  it('REQ-AGENT-001 AC4: opencode is identified as a Go (natively compiled) binary - no --version warmup needed', () => {
+  it('REQ-AGENT-001 AC4: Go (natively compiled) agents (opencode, antigravity) need no --version warmup', () => {
     // The spec says Go-based agents are natively compiled and need no V8 warmup.
     // Verify the comment is present to document the intentional omission.
     assert.ok(
       /Go[\s\S]{1,200}natively compiled/.test(dockerfile),
-      'Dockerfile must document that Go-based agents (opencode) are natively compiled and skip V8 warmup'
+      'Dockerfile must document that Go-based agents (opencode, antigravity) are natively compiled and skip V8 warmup'
     );
   });
 
-  it('REQ-AGENT-001 AC4: claude is identified as a native binary - no V8 warmup in same block as codex/gemini/copilot', () => {
+  it('REQ-AGENT-001 AC4: claude is identified as a native binary - no V8 warmup in same block as codex/copilot', () => {
     // claude-code is a native binary; the warmup RUN block must not include `claude --version`
     // alongside the Node CLIs. Check that `claude --version` appears separately (its own RUN).
     const compileBlockMatch = dockerfile.match(
