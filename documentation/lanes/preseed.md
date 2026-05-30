@@ -199,7 +199,7 @@ All preseed content is deployed via the manifest pipeline:
    non-fatal; a page refresh retries. Implements
    [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)
 7. Bisync pulls from R2 to container config directories
-   (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
+   (`~/.claude/`, `~/.codex/`, `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
 **Manifest structure (139 total source entries: 120 Claude + 19 Pi-native)**:
@@ -330,21 +330,20 @@ files exist on disk.
 |-------|-------------------|--------|---------------|
 | CC | `~/.claude/rules/*.md` (individual) | `~/.claude/skills/<name>/SKILL.md` | `~/.claude/agents/*.md` |
 | Codex | `~/.codex/AGENTS.md` (single file) | `~/.codex/skills/<name>/SKILL.md` | N/A |
-| Gemini | `~/.gemini/GEMINI.md` (single file) | `~/.gemini/skills/<name>/SKILL.md` | `~/.gemini/agents/*.md` |
 | Copilot | `~/.copilot/copilot-instructions.md` (single file) | N/A | `~/.copilot/agents/<name>.agent.md` |
 | OpenCode | `~/.config/opencode/AGENTS.md` (single file) | `~/.config/opencode/skills/<name>/SKILL.md` | `~/.config/opencode/agents/*.md` |
 | Pi | `~/.pi/agent/AGENTS.md` (single file) | `~/.pi/agent/skills/<name>/SKILL.md` | `~/.pi/agent/agents/*.md` |
 
 **Tool name mapping** (adapted in agent definition frontmatter):
 
-| CC | Codex | Gemini | Copilot | OpenCode | Pi |
-|--------|-------|--------|---------|----------|----|
-| Read | read | read_file | read | read | read |
-| Write | write | write_file | editFiles | write | write |
-| Edit | edit | replace | editFiles | edit | edit |
-| Bash | shell | run_shell_command | execute | bash | bash |
-| Grep | grep | search_file_content | search | search | grep |
-| Glob | glob | glob | search | glob | find |
+| CC | Codex | Copilot | OpenCode | Pi |
+|--------|-------|---------|----------|----|
+| Read | read | read | read | read |
+| Write | write | editFiles | write | write |
+| Edit | edit | editFiles | edit | edit |
+| Bash | shell | execute | bash | bash |
+| Grep | grep | search | search | grep |
+| Glob | glob | search | glob | find |
 
 **What each agent gets:**
 
@@ -352,11 +351,10 @@ files exist on disk.
 |-------|-----------------|
 | CC | 120 |
 | Codex | 47 |
-| Gemini | 58 |
 | Copilot | 13 |
 | OpenCode | 58 |
 | Pi | 74 |
-| **Total** | **370** |
+| **Total** | **312** |
 
 **Excluded from non-CC transformed assets**: hooks (CC hook system),
 commands (CC slash commands), plugins (CC plugin system, including

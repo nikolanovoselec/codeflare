@@ -40,7 +40,7 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 15 min
 ## Initial Sync on Startup
 
 1. One-way `rclone sync` from R2 to local (restore data) — blocking, container waits for completion (120s timeout)
-2. All file modifications run (`.claude.json`, `.gemini/settings.json`, `.codex/version.json`, tab autostart) — these complete before bisync starts to avoid hash mismatches
+2. All file modifications run (`.claude.json`, `.codex/version.json`, tab autostart) — these complete before bisync starts to avoid hash mismatches
 3. `rclone bisync --resync --ignore-checksum --max-delete 100 --check-sync=false --retries 3 --retries-sleep 10s` to establish baseline (non-blocking — runs in background), then start the 15-minute daemon (SIGUSR1-interruptible)
 
 All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verification. rclone v1.73+ treats hash mismatches as fatal ("corrupted on transfer"), which aborts bisync when files change during transfer (e.g., coding agents modifying workspace files). Change detection still uses modtime + size; files that change mid-transfer are caught in the next 15-minute cycle (or sooner via a manual Sync-now trigger).
@@ -69,7 +69,7 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `~/.claude/sessions/**`, `~/.claude/history.jsonl` | **NO** | Session metadata, command history (ephemeral) |
 | `~/.pi/agent/sessions/**/*.jsonl` | Yes (partial) | Pi session transcripts synced for --resume. Task subdirs (`**/tasks/**`) and context-mode FTS5 store (`~/.pi/context-mode/**`) excluded. `~/.pi/agent/npm/node_modules/` excluded (image-seeded cache, see [container.md](container.md#pi-extension-npm-cache)). |
 | `~/.cpan/**` | **NO** | Perl CPAN package manager cache, regenerated |
-| `~/.gemini/tmp/**` | **NO** | Gemini CLI temp files (ripgrep binary, chat logs) |
+| `~/.gemini/tmp/**` | **NO** | Legacy no-op filter retained in entrypoint (Gemini CLI agent removed; filter is harmless) |
 | `~/.local/share/opencode/log/**`, `opencode.db-shm`, `opencode.db-wal` | **NO** | OpenCode session logs and SQLite temp files |
 | `.claude/mcp-*.json` | **NO** | MCP auth cache; created and deleted within milliseconds, listing-then-missing causes bisync fatal errors. Regenerated on every connect. |
 | `~/.graphify/**` | **NO** | Per-machine global graph store (absolute paths, machine-specific). Each container builds its own from the per-repo `graphify-out/` artefacts. |

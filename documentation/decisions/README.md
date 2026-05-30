@@ -1198,6 +1198,25 @@ Three smaller decisions bundled in:
 
 ---
 
+### AD65: Gemini CLI replaced by Antigravity (agy)
+
+**Category:** Architecture
+
+**Status:** Active (2026-05-30)
+
+**Context:** `@google/gemini-cli` (npm, `gemini` command) was removed from the Dockerfile and entrypoint. The replacement is Antigravity (`agy`), Google's successor CLI, installed via `curl -fsSL https://antigravity.google/cli/install.sh | bash` as a Go-native binary. Because `agy` is not an npm package it is excluded from the V8 compile-cache warm-up step (same as `opencode`). The `~/.gemini/settings.json` auto-update suppressor written by Fast Start is also removed; `agy` has no equivalent config-file suppressor mechanism at this time.
+
+**Decision:** Install Antigravity via its official curl installer in the Dockerfile. Do not add it to the npm `install -g` line. Antigravity gets no preseed adaptation lane (it has no stable config-file convention to target). The legacy `--filter "- .gemini/tmp/**"` rclone filter is retained as a harmless no-op to avoid bisync filter-list churn.
+
+**Consequences:**
+- The Gemini CLI interactive agent (`gemini`) is no longer available in containers; users needing the Google AI agent use `agy` instead.
+- The Gemini *API* (GEMINI_API_KEY, `/api/llm-keys` geminiApiKey, consult-llm model selector) is unaffected - it is a separate provider, not the CLI agent.
+- No preseed documents are generated for Antigravity; the per-agent document total drops from 370 to 312.
+
+**Related REQ:** REQ-AGENT-001 (agent CLI pre-install).
+
+---
+
 ## Related Documentation
 
 - [Architecture — System Components](../lanes/architecture.md#system-components) - Component overview
