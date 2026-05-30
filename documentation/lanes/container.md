@@ -24,7 +24,7 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 | Category | Packages |
 |----------|----------|
 | Sync | rclone |
-| Version Control | git, github-cli (gh), lazygit (v0.61.1) |
+| Version Control | git, github-cli (gh), lazygit (v0.62.1) |
 | Editors | vim (symlinked to neovim), neovim, nano |
 | Network | curl, openssh-client |
 | Process | procps (ps, pgrep) |
@@ -171,7 +171,7 @@ Claude Code runs directly via the official `@anthropic-ai/claude-code` npm packa
 
 **Active-repo tracking (advanced only, AD53):** Codeflare sessions begin with an empty workspace and typically hold 2-3 cloned repos. `graphify-active-repo.sh` is a PostToolUse hook on `Bash | Edit | Write | Read | NotebookEdit | mcp__context-mode__ctx_execute | mcp__context-mode__ctx_execute_file | mcp__context-mode__ctx_batch_execute`. It resolves the agent's current repo root (Bash from session cwd; Edit/Write/Read by walking up from `file_path`; ctx_execute variants by parsing `cd X` from the shell snippet) and writes it to a sentinel at `~/.cache/codeflare-hooks/graphify-active-cwd`. The wrapper polls the sentinel and rebinds G to that repo's `graphify-out/graph.json`. When the sentinel is absent (default mode, or before the first hook fires), the wrapper falls back to the freshest mtime across `CODEFLARE_WORKSPACE/*/graphify-out/graph.json`. Per-branch graphs are not supported - the wrapper reads `<repo>/.git/HEAD` only for an informative log line on rebind; users run `graphify update` after a checkout and the mtime watcher picks it up.
 
-**Coexistence:** graphify functions in all paid tiers and does not depend on context-mode. When context-mode is active (custom tier), `graphify` is whitelisted in `enforce-ctx-mode.sh` so Bash invocations of `graphify update .` are not denied; subagent Read/Grep calls during `/graphify` extraction route through `ctx_execute` for bonus token savings. Without context-mode, graphify's own subagent-chunking model bounds the main agent's context.
+**Coexistence:** graphify functions in all paid tiers and does not depend on context-mode. Context-mode routing is advisory (the Bash deny-gate was removed); when context-mode is present, subagent Read/Grep calls during `/graphify` extraction route through `ctx_execute` for bonus token savings. Without context-mode, graphify's own subagent-chunking model bounds the main agent's context.
 
 **MCP tools exposed:** `mcp__graphify__query_graph`, `mcp__graphify__get_node`, `mcp__graphify__get_neighbors`, `mcp__graphify__get_community`, `mcp__graphify__god_nodes`, `mcp__graphify__graph_stats`, `mcp__graphify__shortest_path`.
 

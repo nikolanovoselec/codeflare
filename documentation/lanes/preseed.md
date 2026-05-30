@@ -474,11 +474,9 @@ is done via `settings.json` (see above).
   `Bash` matcher (with `Bash(git *)` and `Bash(gh *)` predicates) and
   the pipe-alternated MCP matcher
   `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute`.
-  This keeps attribution blocking and push detection effective when
-  context-mode's `enforce-ctx-mode.sh` restricts Bash to a whitelist
-  (`git`, `mkdir`, `rm`, `mv`, `cd`, `ls`, `npm install`, `pip
-  install`) - all `gh` calls in Bash are denied and agents route them
-  through MCP shell tools instead. Implements
+  This keeps attribution blocking and push detection effective whether
+  context-mode is active or not (context-mode is advisory routing only;
+  the Bash deny-gate was removed in AD65-era cleanup). Implements
   [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC3 (tool-surface portability) and [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1+AC2 (PR-boundary trigger + dual-matcher PUSH_LINE detection). Hooks
   registered in settings.json, scripts delivered via plugin.
 
@@ -529,7 +527,7 @@ In advanced session mode, `enforce-graphify.sh` is a second PreToolUse hook on t
 
 Mechanics:
 
-- **Matchers**: `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_execute_file`. Covers both standard tiers (where `Grep`/`Bash` fire natively) and custom tier (where `enforce-ctx-mode.sh` denies `Grep` and forces routing through the `ctx_execute*` family).
+- **Matchers**: `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_execute_file`. Covers both plain-Bash sessions (where `Grep`/`Bash` fire natively) and context-mode sessions (where agents route grep-class calls through the `ctx_execute*` family as advisory best-practice; the Bash deny-gate was removed).
 - **Gating**: two-step active-repo resolution. The hook first reads `~/.cache/codeflare-hooks/graphify-active-cwd` (the sentinel `graphify-active-repo.sh` maintains on every Bash/Edit/Write/ctx_execute tool call) and checks `<active-repo>/graphify-out/graph.json`. If the sentinel is absent or stale, it falls back to the tool-call envelope `.cwd`. In codeflare the session cwd is always `~/workspace` (parent of all repos, never a sub-repo), so the sentinel is the load-bearing signal; the envelope-cwd fallback exists for vanilla graphify usage outside codeflare. Pi updates the same sentinel from command-local `cd ... &&` and `git -C ...` forms and injects the active repo as `<repo>:<branch>@<head>` in session context. Vault-only-in-global is intentionally NOT enforcement-eligible: a session whose active repo has no graph triggers no hard-block, so the user can grep freely in repos they have not yet graphified.
 - **Threshold**: blocks the next structural search after 3 grep-class tool calls in the same turn (counted by walking the transcript backward to the last real user prompt) when no `mcp__graphify__*` call (or `graphify query|path|explain` CLI invocation) has been made.
 - **Classification**: SEARCH = first-word `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, or `awk` with `/regex/` body. The shell parser reuses `extract_subs` + `normalize_command` + chain-op splitter from `enforce-ctx-mode.sh`, so command/process substitution, heredocs, quoted regions, and pipeline segments cannot slip past.
