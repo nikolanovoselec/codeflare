@@ -398,9 +398,10 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       expect(depth).toBe(0);
       const catchBody = out.slice(bodyStart, catchBodyEndIdx);
       
-      // Catch branch returns early and rolls back the cookie.
+      // Catch branch returns early and rolls back the cookie AND localStorage.
       expect(catchBody).toContain('return;');
       expect(catchBody).toContain('document.cookie = cookieName + "=; Path=" + scope + "; SameSite=Lax; Secure; Max-Age=0";');
+      expect(catchBody).toContain('localStorage.removeItem("enableEncryption")');
       expect(catchBody).not.toContain('location.replace');
       
       // Ordering: cookie MUST appear BEFORE sw.postMessage and BEFORE register
@@ -418,26 +419,17 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
 
     it('aborts (no cookie, no redirect, no enableEncryption=true) when reg.active/installing/waiting are all null', () => {
       // Edge case: register() resolves but the registration has no SW
-      // reference yet. The hop must NOT proceed -- and because the
-      // localStorage flag is only set on the post-handoff success path,
-      // there is nothing to roll back here either.
+      // reference yet. The hop must NOT proceed and MUST roll back.
       const out = injectVaultBootstrapHopHtml('abcdef12', 'k');
       const ifIdx = out.indexOf('if (!sw)');
       expect(ifIdx).toBeGreaterThanOrEqual(0);
       const bodyStart = out.indexOf('{', ifIdx) + 1;
-      let depth = 1;
-      let i = bodyStart;
-      for (; i < out.length && depth > 0; i++) {
-        if (out[i] === '{') depth++;
-        else if (out[i] === '}') depth--;
-      }
-      const ifBody = out.slice(bodyStart, i - 1);
-      expect(ifBody).toContain('fail(');
-      expect(ifBody).toContain('return;');
-      // No setItem / removeItem on the no-SW branch -- the flag is never
-      // touched outside the post-handoff success branch.
-      expect(ifBody).not.toContain('localStorage.setItem("enableEncryption"');
-      expect(ifBody).not.toContain('localStorage.removeItem("enableEncryption"');
+      const bodyEnd = out.indexOf('}', bodyStart);
+      const body = out.slice(bodyStart, bodyEnd);
+      expect(body).toContain('return;');
+      expect(body).toContain('document.cookie');
+      expect(body).toContain('localStorage.removeItem');
+      expect(body).not.toContain('location.replace');
     });
 
     it('guards against missing navigator.serviceWorker before registration', () => {

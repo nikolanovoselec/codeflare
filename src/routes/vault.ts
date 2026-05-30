@@ -341,7 +341,10 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'var reg = await navigator.serviceWorker.register(scope + "service_worker.js", { scope: scope });' +
     'step("Registered. SW state: " + (reg.active ? "active" : reg.installing ? "installing" : reg.waiting ? "waiting" : "none"));' +
     'var sw = reg.active || reg.installing || reg.waiting;' +
-    'if (!sw) { fail("no service worker instance after registration"); return; }' +
+    'if (!sw) { ' +
+    'document.cookie = cookieName + "=; Path=" + scope + "; SameSite=Lax; Secure; Max-Age=0";' +
+    'try { localStorage.removeItem("enableEncryption"); } catch (_) {}' +
+    'fail("no service worker instance after registration"); return; }' +
     'if (sw.state !== "activated") {' +
     'step("Waiting for activation (state: " + sw.state + ")...");' +
     'await new Promise(function (resolve, reject) {' +
@@ -359,6 +362,7 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'step("Redirecting...");' +
     '} catch (e) {' +
     'document.cookie = cookieName + "=; Path=" + scope + "; SameSite=Lax; Secure; Max-Age=0";' +
+    'try { localStorage.removeItem("enableEncryption"); } catch (_) {}' +
     'fail(e && e.message ? e.message : String(e));' +
     'return;' +
     '}' +
@@ -894,6 +898,53 @@ export async function handleVaultRequest(
       headers.delete('content-length');
       headers.delete('content-encoding');
       return new Response(filtered, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }
+
+    if (remainingPath === '/service_worker.js' && response.ok) {
+      const body = await response.text();
+      // Inject key recovery logic so the real SW can retrieve its encryption key
+      // from the Worker if it terminates and restarts from idle (REQ-VAULT-008 AC7).
+      const patchedBody = `
+const _codeflare_originalAddEventListener = self.addEventListener;
+let _codeflare_keyRecovered = false;
+self.addEventListener = function(type, listener) {
+  if (type === 'message') {
+    _codeflare_originalAddEventListener.call(self, type, async function(event) {
+      if (event.data && event.data.type === 'get-encryption-key' && !_codeflare_keyRecovered) {
+        try {
+          const res = await fetch('.vault-key');
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.key) {
+               // Deliver the key to the real SW listener as if the page sent set-encryption-key
+               const setEvent = new MessageEvent('message', {
+                 data: { type: 'set-encryption-key', key: data.key },
+                 source: event.source,
+                 ports: event.ports ? [...event.ports] : []
+               });
+               await listener(setEvent);
+               _codeflare_keyRecovered = true;
+            }
+          }
+        } catch (e) {
+          console.warn('Codeflare key recovery failed:', e);
+        }
+      }
+      return listener(event);
+    });
+  } else {
+    _codeflare_originalAddEventListener.call(self, type, listener);
+  }
+};
+` + body;
+      const headers = new Headers(response.headers);
+      headers.delete('content-length');
+      headers.delete('content-encoding');
+      return new Response(patchedBody, {
         status: response.status,
         statusText: response.statusText,
         headers,
