@@ -86,20 +86,24 @@ export function getLastUrlFromBuffer(term: Terminal): string | null {
 
     let fullText = line.translateToString(true);
     let j = i + 1;
-    // Once a logical line begins, follow its continuation rows to completion
-    // against buffer.length rather than the viewport edge (endLine): a long
-    // URL whose tail scrolls just below the visible viewport must still be
-    // joined in full, otherwise it is detected truncated. This matters on
-    // mobile where the on-screen keyboard shrinks `rows` (and thus endLine).
-    while (j < buffer.length) {
+    // Once a logical line begins, follow its continuation rows past the viewport
+    // edge (endLine) so a long URL whose tail scrolls just below the visible
+    // viewport is still joined in full (matters on mobile where the on-screen
+    // keyboard shrinks `rows`, and thus endLine). A single shared budget bounds
+    // ALL joins for this logical line (soft-wrap rows + heuristic rows) so a
+    // pathological soft-wrapped blob (e.g. `cat` of a minified file producing
+    // tens of thousands of isWrapped rows) cannot make this 2s-interval scan
+    // walk the entire scrollback and stall the main thread.
+    let joinedRows = 0;
+    while (j < buffer.length && joinedRows < MAX_URL_CONTINUATION_ROWS) {
       const nextLine = buffer.getLine(j);
       if (!nextLine?.isWrapped) break;
       fullText += nextLine.translateToString(true);
       j++;
+      joinedRows++;
     }
 
-    let heuristicCount = 0;
-    while (j < buffer.length && heuristicCount < MAX_URL_CONTINUATION_ROWS) {
+    while (j < buffer.length && joinedRows < MAX_URL_CONTINUATION_ROWS) {
       const nextLine = buffer.getLine(j);
       if (!nextLine) break;
       const nextText = nextLine.translateToString(true);
@@ -114,12 +118,13 @@ export function getLastUrlFromBuffer(term: Terminal): string | null {
         fullText += nextText;
       }
       j++;
-      heuristicCount++;
-      while (j < buffer.length) {
+      joinedRows++;
+      while (j < buffer.length && joinedRows < MAX_URL_CONTINUATION_ROWS) {
         const wrapped = buffer.getLine(j);
         if (!wrapped?.isWrapped) break;
         fullText += wrapped.translateToString(true);
         j++;
+        joinedRows++;
       }
     }
 

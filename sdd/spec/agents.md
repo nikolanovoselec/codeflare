@@ -455,6 +455,8 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: Dockerfile -->
 <!-- @impl: web-ui/src/lib/terminal-link-provider.ts -->
+<!-- @impl: web-ui/src/stores/terminal-url-detection.ts -->
+<!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts -->
 
 **Intent:** Agent CLIs that attempt to open a browser for OAuth must degrade gracefully to printing clickable URLs in the terminal.
 
@@ -465,7 +467,7 @@ Multi-agent support, preseed system, and session modes.
 1. A browser-shim is installed in the container that intercepts browser-launch attempts and exits with a non-zero code, causing the calling CLI to fall back to plain-text URL output.
 2. The XDG browser-launch entry-point is similarly shimmed so any tool that bypasses the BROWSER convention also degrades to text output.
 3. CLIs fall back to printing auth URLs as plain text in the PTY when the browser fails to open.
-4. The xterm.js link provider detects URLs in terminal output and makes them clickable.
+4. The xterm.js link provider detects URLs in terminal output and makes them clickable. When a URL spans multiple terminal rows (soft-wrap or application-inserted newlines), the detector joins continuation rows to the end of the terminal buffer rather than stopping at the visible viewport, so long OAuth URLs printed on narrow or mobile-keyboard-shrunk viewports are assembled and offered in full (never truncated mid-URL). The number of continuation rows joined per logical line is bounded by a fixed cap so the periodic buffer scan cannot walk an unbounded scrollback.
 
 **Constraints:**
 
