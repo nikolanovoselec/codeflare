@@ -1029,7 +1029,9 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('realUserPromptCount');
     expect(mv?.content).toContain('withCurrentPrompt');
     // Skip-empty guard: a blank transcript must never produce a hollow "no substantive content" note.
-    expect(mv?.content).toContain('if (!transcript.trim()) return;');
+    // The guard now lives in captureVars (`if (!transcript.trim()) return undefined;`); assert it
+    // without pinning the return value so a later refactor of the bail value does not rebreak this.
+    expect(mv?.content).toContain('if (!transcript.trim()) return');
   });
 
   it('REQ-VAULT-003: Pi vault indexing shares Claude marker semantics and exclusions', () => {
