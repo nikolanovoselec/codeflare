@@ -1081,3 +1081,54 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(PRESEED_CONTENT_HASH).toBe(recomputed);
   });
 });
+
+describe('REQ-AGENT-031 consult-llm invocation behaviour (provider dialog + latest-flagship model)', () => {
+  function consultLlmSkill(): string {
+    const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.claude/skills/consult-llm/SKILL.md');
+    expect(doc, 'consult-llm SKILL.md must be bundled in the Claude seed').toBeTruthy();
+    return doc!.content;
+  }
+
+  it('AC4: skill mandates an AskUserQuestion provider dialog naming OpenAI + Gemini', () => {
+    const body = consultLlmSkill();
+    expect(body).toContain('AskUserQuestion');
+    expect(body).toMatch(/OpenAI/);
+    expect(body).toMatch(/Gemini/);
+    expect(body).toMatch(/provider/i);
+  });
+
+  it('AC5: skill requires an explicit latest-flagship model and forbids the MCP server default', () => {
+    const body = consultLlmSkill();
+    expect(body.toLowerCase()).toContain('latest flagship');
+    expect(body).toContain('/v1/models');
+    expect(body).toContain('/v1beta/models');
+    expect(body.toLowerCase()).toMatch(/never rely on the .*default|never the (mcp )?server default|never let the call fall back/);
+  });
+});
+
+describe('REQ-AGENT-027 AC1 context-mode wired as a tool only (no Bash deny-gate)', () => {
+  it('context-mode ships as a plugin/tool with no hooks config and no deny-gate script', () => {
+    const ctxKeys = AGENTS_SEEDED_CONFIGS.map((d) => d.key).filter((k) => k.includes('context-mode'));
+    expect(ctxKeys.some((k) => k.endsWith('.claude-plugin/plugin.json'))).toBe(true);
+    for (const doc of AGENTS_SEEDED_CONFIGS) {
+      expect(doc.key.endsWith('enforce-ctx-mode.sh'), `${doc.key} must not preseed the deny-gate script`).toBe(false);
+      expect(
+        doc.key.endsWith('context-mode/hooks/hooks.json'),
+        `${doc.key} must not preseed a context-mode hooks config`
+      ).toBe(false);
+    }
+  });
+});
+
+describe('REQ-AGENT-040 AC8 review dispatch is backgrounded with a bounded in-flight guard', () => {
+  it('the seeded enforce-review-spawn.sh carries the in-flight guard, a staleness bound, and the background-dispatch directive', () => {
+    const hook = AGENTS_SEEDED_CONFIGS.find((d) =>
+      d.key.endsWith('codeflare-hooks/scripts/enforce-review-spawn.sh')
+    );
+    expect(hook, 'enforce-review-spawn.sh must be bundled in the Claude seed').toBeTruthy();
+    const body = hook!.content;
+    expect(body).toContain('lane_in_flight');
+    expect(body).toContain('IN_FLIGHT_STALE_LINES');
+    expect(body).toContain('run_in_background');
+  });
+});
