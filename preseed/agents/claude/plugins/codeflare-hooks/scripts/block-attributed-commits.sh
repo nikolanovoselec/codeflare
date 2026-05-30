@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook - blocks git commits / GitHub surfaces with Claude attribution.
+# PreToolUse hook - blocks git commits / GitHub surfaces carrying AI attribution.
 #
 # Registered in settings.json on two matcher entries covering three tool names:
 #   1. matcher "Bash"                          (with `"if": "Bash(git *)"` /
@@ -74,7 +74,7 @@ COMMAND=$(echo "$INPUT" | jq -r '
 ' 2>/dev/null) || true
 
 # Narrow to commands that can introduce attribution into git or GitHub.
-# Anything not in this set is read-only or harmless — exit immediately.
+# Anything not in this set is read-only or harmless - exit immediately.
 #
 # Covered:
 #   git commit[.*]          -- all commit forms (--amend, -F, -m, etc.)
@@ -97,13 +97,18 @@ if [[ "$MATCHED" -eq 0 ]]; then
   exit 0
 fi
 
-# Check for attribution patterns (case insensitive)
-if echo "$COMMAND" | grep -Eiq "(co-authored-by|noreply@anthropic|claude sonnet|claude opus|claude haiku|claude code|generated with.*claude|generated with.*\[claude)"; then
+# Check for attribution SIGNATURES (case insensitive). Match only genuine
+# attribution markers - a co-author trailer, the bot noreply email, a
+# "generated with ... claude" footer, or attribution emoji. Deliberately NOT
+# bare model/product names ("claude code", "claude opus"): those false-positive
+# on legitimate prose (a PR titled "... Claude Code parity ...") and on git/gh
+# commands that name preseed/agents/claude/ paths.
+if echo "$COMMAND" | grep -Eiq "(co-authored-by|noreply@anthropic|generated with.*claude|🤖)"; then
   jq -n '{
     "hookSpecificOutput": {
       "hookEventName": "PreToolUse",
       "permissionDecision": "deny",
-      "permissionDecisionReason": "Attribution detected. Retry without Co-Authored-By, AI attribution, emoji, or Generated with Claude Code lines. Use a plain message/title/body."
+      "permissionDecisionReason": "Attribution detected. Retry without Co-Authored-By, a bot noreply email, a generated-with footer, or attribution emoji. Use a plain message/title/body."
     }
   }'
   exit 0

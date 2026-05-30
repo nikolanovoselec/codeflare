@@ -741,9 +741,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   // Pi-native and transformed Pi *.md documents (skills, prompts, agent definitions,
   // instructions) must not carry Claude model names: the Pi runtime supplies its own model,
-  // and adaptAgentFrontmatter strips `model:` pins. Scoped to *.md only -- the .ts extension
-  // sources (e.g. codeflare-pi.ts) legitimately contain an attribution-detection regex that
-  // matches these tokens, so they are intentionally excluded.
+  // and adaptAgentFrontmatter strips `model:` pins. Scoped to *.md only because the
+  // model-name prose rule applies to authored docs, not to .ts extension source code.
   it('REQ-AGENT-007: Pi markdown documents contain no Claude model names', () => {
     const piMarkdown = AGENTS_SEEDED_CONFIGS.filter(
       (d) => d.key.startsWith('.pi/agent/') && d.key.endsWith('.md')

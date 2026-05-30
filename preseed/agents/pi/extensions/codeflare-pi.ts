@@ -238,9 +238,12 @@ function isGitPush(command: string): boolean {
 
 function ensureNoAttributedCommit(command: string): string | undefined {
   if (!/(^|[;&|]\s*)(git\s+(commit|merge|tag|notes)|gh\s+(pr|issue|release)\s+\w+)\b/.test(command)) return undefined;
-  // Match the canonical block-attributed-commits.sh detection set. Deliberately NOT bare
-  // "Claude": that false-positives on git/gh commands naming preseed/agents/claude/ paths.
-  if (/co-authored-by|noreply@anthropic|claude\s+(sonnet|opus|haiku|code)|generated with[^\n]*claude|🤖|🧠|ChatGPT/i.test(command)) {
+  // Match the canonical block-attributed-commits.sh detection set: genuine attribution
+  // signatures only (co-author trailer, bot noreply email, generated-with footer, emoji,
+  // ChatGPT). Deliberately NOT bare model/product names ("claude code", "claude opus"):
+  // those false-positive on legitimate prose and on git/gh commands naming
+  // preseed/agents/claude/ paths.
+  if (/co-authored-by|noreply@anthropic|generated with[^\n]*claude|🤖|🧠|ChatGPT/i.test(command)) {
     return "Codeflare blocks AI attribution in commits, PRs, issues, releases, and tags. Remove Co-Authored-By, generated-by text, model-name attribution, and emoji attribution.";
   }
   return undefined;
