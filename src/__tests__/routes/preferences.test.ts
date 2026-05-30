@@ -84,7 +84,7 @@ describe('Preferences Routes', () => {
   describe('PATCH /preferences', () => {
     it('updates workspaceSyncEnabled and keeps existing fields', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
-        lastAgentType: 'gemini',
+        lastAgentType: 'antigravity',
       });
       const app = createTestApp();
 
@@ -96,7 +96,7 @@ describe('Preferences Routes', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json() as { lastAgentType?: string; workspaceSyncEnabled?: boolean };
-      expect(body.lastAgentType).toBe('gemini');
+      expect(body.lastAgentType).toBe('antigravity');
       expect(body.workspaceSyncEnabled).toBe(true);
     });
 
@@ -148,7 +148,7 @@ describe('Preferences Routes', () => {
 
     it('PATCH updates fastStartEnabled and preserves other fields', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
-        lastAgentType: 'gemini',
+        lastAgentType: 'antigravity',
         workspaceSyncEnabled: true,
       });
       const app = createTestApp();
@@ -161,7 +161,7 @@ describe('Preferences Routes', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json() as { lastAgentType?: string; workspaceSyncEnabled?: boolean; fastStartEnabled?: boolean };
-      expect(body.lastAgentType).toBe('gemini');
+      expect(body.lastAgentType).toBe('antigravity');
       expect(body.workspaceSyncEnabled).toBe(true);
       expect(body.fastStartEnabled).toBe(true);
     });
@@ -213,7 +213,7 @@ describe('Preferences Routes', () => {
 
     it('PATCH updates sessionMode to "default" and preserves other fields', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
-        lastAgentType: 'gemini',
+        lastAgentType: 'antigravity',
         sessionMode: 'advanced',
       });
       const app = createTestApp();
@@ -226,7 +226,7 @@ describe('Preferences Routes', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json() as { lastAgentType?: string; sessionMode?: string };
-      expect(body.lastAgentType).toBe('gemini');
+      expect(body.lastAgentType).toBe('antigravity');
       expect(body.sessionMode).toBe('default');
     });
 
@@ -342,7 +342,7 @@ describe('Preferences Routes', () => {
 
     it('PATCH with empty {} is a 200 no-op merge', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
-        lastAgentType: 'gemini',
+        lastAgentType: 'antigravity',
       });
       const app = createTestApp();
 
@@ -354,7 +354,7 @@ describe('Preferences Routes', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json() as { lastAgentType?: string };
-      expect(body.lastAgentType).toBe('gemini');
+      expect(body.lastAgentType).toBe('antigravity');
     });
 
     it('PATCH with unknown fields returns 400 (strict schema)', async () => {

@@ -5,7 +5,7 @@
 // without actually building an image (forbidden locally, 1 vCPU).
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { join, resolve, dirname } from 'node:path';
@@ -114,10 +114,10 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
       /NODE_COMPILE_CACHE/.test(dockerfile),
       'Dockerfile must set NODE_COMPILE_CACHE env so the warm-up populates a cache'
     );
-    // Invoke --version on at least one of the three Node CLIs to trigger
-    // the warm-up; the matching agent binary names are codex/gemini/copilot.
+    // Invoke --version on at least one of the Node CLIs to trigger
+    // the warm-up; the matching agent binary names are codex/copilot.
     assert.ok(
-      /(codex|gemini|copilot)\s+(?:[a-z]+\s+)?--version/.test(dockerfile),
+      /(codex|copilot)\s+(?:[a-z]+\s+)?--version/.test(dockerfile),
       'Dockerfile must run at least one Node-based agent CLI with --version at build to trigger the V8 compile cache'
     );
   });

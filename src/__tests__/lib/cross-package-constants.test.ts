@@ -84,12 +84,12 @@ describe('Cross-Package Constants / REQ-TERM-001 AC1 (MAX_TABS=6 enforced sessio
   // ========================================================================
 
   it('AgentTypeSchema has expected agent types', () => {
-    const expectedTypes = ['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'pi', 'bash'];
+    const expectedTypes = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'];
     expect(AgentTypeSchema.options).toEqual(expectedTypes);
   });
 
   it('AgentTypeSchema validates all expected types', () => {
-    const expectedTypes = ['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'pi', 'bash'];
+    const expectedTypes = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'];
     for (const type of expectedTypes) {
       expect(() => AgentTypeSchema.parse(type)).not.toThrow();
     }

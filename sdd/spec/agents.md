@@ -6,7 +6,7 @@ Multi-agent support, preseed system, and session modes.
 
 | Concept | Definition |
 |---------|-----------|
-| Agent | One of seven supported AI coding tools (`claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `pi`, `bash`) that runs inside the container and is auto-started in terminal tab 1 |
+| Agent | One of seven supported AI coding tools (`claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`) that runs inside the container and is auto-started in terminal tab 1 |
 | Preseed | A set of configuration files (rules, skills, agents, commands, plugins) generated from a single Claude Code source of truth and deployed to each user's R2 bucket |
 | Session Mode | Either Standard (`default`) or Pro (`advanced`) controlling the scope of agent enhancements seeded to a user's storage |
 | Manifest | The declarative `manifest.json` file that maps each preseed source file to its applicable modes and drives the code generation pipeline |
@@ -27,7 +27,7 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-<!-- @test: host/__audits__/dockerfile-agents.audit.js (Dockerfile agent CLI pre-install describe -> @anthropic-ai/claude-code + @openai/codex + @google/gemini-cli + @github/copilot + opencode-ai npm installs + NODE_COMPILE_CACHE + V8 warmup --version runs + Go native exclusion -> AC3,4) -->
+<!-- @test: host/__audits__/dockerfile-agents.audit.js (Dockerfile agent CLI pre-install describe -> @anthropic-ai/claude-code + @openai/codex + @github/copilot + opencode-ai npm installs + antigravity curl install (Go-native, excluded from npm + V8 warmup like opencode) + NODE_COMPILE_CACHE + V8 warmup --version runs + Go native exclusion -> AC3,4) -->
 ### REQ-AGENT-001: Support Multiple AI Coding Agents
 
 <!-- @impl: Dockerfile -->
@@ -42,10 +42,10 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Seven agent types are defined: `claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `pi`, `bash`.
+1. Seven agent types are defined: `claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`.
 2. The `AgentType` type is enforced via Zod schema (`AgentTypeSchema`).
 3. Each agent's CLI is pre-installed in the container image as a global npm package (or native binary for Go-based agents).
-4. Node.js-based agent CLIs (Codex, Gemini, Copilot, Pi) are pre-warmed at image build time so V8's compile cache is populated before the user's first interactive launch. Claude Code ships as a native binary and needs no warm-up; Go-based agents (OpenCode) are natively compiled.
+4. Node.js-based agent CLIs (Codex, Copilot, Pi) are pre-warmed at image build time so V8's compile cache is populated before the user's first interactive launch. Claude Code ships as a native binary and needs no warm-up; Go-based agents (OpenCode, Antigravity) are natively compiled.
 5. Pi extension npm dependencies are installed into an image-local cache at build time; the entrypoint symlinks `node_modules` to the cache (zero-copy, instant) so Pi starts without a first-launch package install.
 
 **Constraints:**
@@ -222,7 +222,7 @@ Multi-agent support, preseed system, and session modes.
 3. A build-time seed generator reads the manifest and source files, producing the runtime payload the Worker ships to the container.
 4. The generator is manifest-driven; files not in the manifest are ignored.
 5. No duplicate preseed source files exist on disk.
-6. The generator produces output for all supported agents (Claude Code as the source-of-truth lane plus adapted lanes for Codex, Gemini, Copilot, OpenCode, and Pi).
+6. The generator produces output for all supported agents (Claude Code as the source-of-truth lane plus adapted lanes for Codex, Copilot, OpenCode, and Pi).
 
 **Constraints:**
 
@@ -251,8 +251,8 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. Adapted configs are generated for all supported non-Claude agents from the Claude Code source.
-2. Tool names are remapped per agent (e.g., `Read` -> `read_file` for Gemini, `Read` -> `read` for Codex and Pi).
-3. Instructions are concatenated into a single file for agents that use monolithic config (Codex: `AGENTS.md`, Gemini: `GEMINI.md`, Copilot: `copilot-instructions.md`, OpenCode: `AGENTS.md`, Pi: `AGENTS.md`).
+2. Tool names are remapped per agent (e.g., `Read` -> `read` for Codex and Pi).
+3. Instructions are concatenated into a single file for agents that use monolithic config (Codex: `AGENTS.md`, Copilot: `copilot-instructions.md`, OpenCode: `AGENTS.md`, Pi: `AGENTS.md`).
 4. Claude Code keeps individual rule files in `~/.claude/rules/`, and Pi receives native runtime-adapter assets for Pi extension/package/MCP/subagent surfaces.
 
 **Constraints:**
@@ -469,7 +469,7 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 
 - The shim must not block or hang; it must exit immediately with a non-zero code.
-- All CLI tools that attempt browser-based OAuth (Claude Code, OpenCode, Gemini) must be covered.
+- All CLI tools that attempt browser-based OAuth (Claude Code, OpenCode) must be covered.
 
 **Priority:** P1
 

@@ -619,7 +619,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. The container base image is a glibc-based Node.js 24 distribution (Debian bookworm-slim).
-2. All supported agent CLIs (Claude Code, Codex, Gemini CLI, Copilot, OpenCode) start without crashes.
+2. All supported agent CLIs (Claude Code, Codex, Antigravity, Copilot, OpenCode) start without crashes.
 3. Essential developer tools for terminal-based workflows are pre-installed.
 
 **Constraints:** None.

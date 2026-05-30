@@ -4,7 +4,7 @@ const AGENT_LABELS: Record<AgentType, string> = {
   'claude-code': 'Claude Code',
   'codex': 'Codex',
   'copilot': 'GitHub Copilot',
-  'gemini': 'Gemini',
+  'antigravity': 'Antigravity',
   'opencode': 'OpenCode',
   'pi': 'Pi',
   'bash': 'Bash',

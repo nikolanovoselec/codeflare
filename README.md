@@ -15,7 +15,7 @@ Every session comes pre-loaded with your choice of AI coding agent:
 |---|---|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Anthropic's agentic CLI (runs with `IS_SANDBOX=1` + `--dangerously-skip-permissions` for root container support) |
 | [Codex](https://github.com/openai/codex) | OpenAI's coding agent |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google's terminal agent |
+| [Antigravity](https://antigravity.google/docs/cli-overview) | Google's terminal coding agent (beta) |
 | [GitHub Copilot](https://docs.github.com/en/copilot) | GitHub's AI coding agent |
 | [OpenCode](https://github.com/opencode-ai/opencode) | Open-source coding agent |
 | Bash | For the purists |

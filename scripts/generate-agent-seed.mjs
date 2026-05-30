@@ -24,13 +24,6 @@ const AGENT_CONFIGS = {
     agentExtension: null,
     homePath: '~/.codex',
   },
-  gemini: {
-    instructionsKey: '.gemini/GEMINI.md',
-    skillsPrefix: '.gemini/skills',
-    agentsPrefix: '.gemini/agents',
-    agentExtension: '.md',
-    homePath: '~/.gemini',
-  },
   copilot: {
     instructionsKey: '.copilot/copilot-instructions.md',
     skillsPrefix: null,
@@ -56,7 +49,6 @@ const AGENT_CONFIGS = {
 
 const TOOL_MAP = {
   codex: { Read: 'read', Write: 'write', Edit: 'edit', Bash: 'shell', Grep: 'grep', Glob: 'glob' },
-  gemini: { Read: 'read_file', Write: 'write_file', Edit: 'replace', Bash: 'run_shell_command', Grep: 'search_file_content', Glob: 'glob' },
   copilot: { Read: 'read', Write: 'editFiles', Edit: 'editFiles', Bash: 'execute', Grep: 'search', Glob: 'search' },
   opencode: { Read: 'read', Write: 'write', Edit: 'edit', Bash: 'bash', Grep: 'search', Glob: 'glob' },
   pi: {

@@ -138,7 +138,7 @@ export interface Session {
 /**
  * Supported agent types for multi-agent sessions
  */
-export const AgentTypeSchema = z.enum(['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'pi', 'bash']);
+export const AgentTypeSchema = z.enum(['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash']);
 export type AgentType = z.infer<typeof AgentTypeSchema>;
 
 export const SessionModeSchema = z.enum(['default', 'advanced']);

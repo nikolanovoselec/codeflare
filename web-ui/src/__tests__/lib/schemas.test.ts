@@ -9,7 +9,7 @@ import {
 } from '../../lib/schemas';
 
 describe('AgentTypeSchema', () => {
-  const validAgentTypes = ['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'pi', 'bash'];
+  const validAgentTypes = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash'];
 
   it('contains exactly the expected 7 agent types', () => {
     expect([...AgentTypeSchema.options].sort()).toEqual([...validAgentTypes].sort());

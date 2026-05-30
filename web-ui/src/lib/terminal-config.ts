@@ -4,7 +4,7 @@ import {
   mdiFolderOutline,
   mdiConsole,
   mdiCodeBraces,
-  mdiDiamond,
+  mdiRocketLaunchOutline,
   mdiSourceBranch,
 
   mdiRobotIndustrial,
@@ -34,7 +34,7 @@ export function getTabDisplayName(processName: string): string {
 const PROCESS_ICON_MAP: Record<string, string> = {
   'claude': mdiRobotOutline,
   'codex': mdiCodeBraces,
-  'gemini': mdiDiamond,
+  'agy': mdiRocketLaunchOutline,
   'opencode': mdiRobotIndustrial,
   'copilot': mdiGithub,
   'htop': mdiChartLine,
@@ -55,7 +55,7 @@ export function getTabIcon(processName: string): string {
 export const AGENT_ICON_MAP: Record<string, string> = {
   'claude-code': mdiRobotOutline,
   'codex': mdiCodeBraces,
-  'gemini': mdiDiamond,
+  'antigravity': mdiRocketLaunchOutline,
   'opencode': mdiRobotIndustrial,
   'copilot': mdiGithub,
   'pi': mdiPi,

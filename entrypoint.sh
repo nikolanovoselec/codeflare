@@ -243,9 +243,6 @@ SYNC_MODE="${SYNC_MODE:-none}"
 #   .codex/auth.json          - Codex OAuth/API credentials
 #   .codex/config.toml        - Codex model config, project trust levels
 #   .codex/skills/            - Installed Codex skills (skill-installer, skill-creator)
-#   .gemini/oauth_creds.json  - Gemini OAuth tokens
-#   .gemini/settings.json     - Gemini user settings
-#   .gemini/*.json            - Gemini account info, trusted folders, state
 #   .config/gh/               - GitHub CLI auth (oauth_token) and config (aliases, protocol)
 #   .config/lazygit/          - Lazygit configuration
 #   .config/opencode/         - OpenCode plugin config
@@ -365,7 +362,7 @@ RCLONE_FILTERS_COMMON=(
     # Perl CPAN cache — created by Perl module installs during build, regenerated
     --filter "- .cpan/**"
 
-    # Gemini CLI — tmp contains a downloaded ripgrep binary (~5MB) and session chat logs
+    # Legacy .gemini/tmp exclusion retained as a no-op (the Gemini CLI agent was removed)
     --filter "- .gemini/tmp/**"
 
     # OpenCode — session logs and SQLite temp files (WAL/SHM cause sync conflicts)
@@ -386,7 +383,7 @@ RCLONE_FILTERS_COMMON=(
     # configstore (npm), fish (shell), opencode, uv (Python tooling),
     # wrangler (XDG location), rclone (R2 secrets).
     # No codeflare-managed state lives under .config/ - all of that sits
-    # at $HOME root (.claude.json, .claude/, .codex/, .gemini/, .copilot/).
+    # at $HOME root (.claude.json, .claude/, .codex/, .copilot/).
     --filter "- .config/**"
 
     # Persistent user folders (REQ-MEMORY-100, REQ-FS-010) - the vault and
@@ -1297,15 +1294,7 @@ CASE_EOF
             ;;
 CASE_EOF
                     ;;
-                codex|opencode|copilot*|pi)
-                    cat >> "$BASHRC_FILE" << CASE_EOF
-        ${key})
-            # ${cmd} (bash stays as session leader for TTY stability)
-            ${cmd}
-            ;;
-CASE_EOF
-                    ;;
-                gemini*)
+                codex|opencode|copilot*|pi|antigravity*)
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # ${cmd} (bash stays as session leader for TTY stability)
@@ -2071,28 +2060,12 @@ fi
 
 # === Fast Start: tool-specific config files ===
 if [ "${FAST_CLI_START:-true}" != "false" ]; then
-    # Gemini: merge enableAutoUpdate:false into settings (file may be synced via rclone)
-    mkdir -p "$USER_HOME/.gemini"
-    if [ -f "$USER_HOME/.gemini/settings.json" ]; then
-        jq '. * {"general":{"enableAutoUpdate":false,"enableAutoUpdateNotification":false}}' \
-            "$USER_HOME/.gemini/settings.json" > /tmp/gemini-settings.json 2>/dev/null && \
-            mv /tmp/gemini-settings.json "$USER_HOME/.gemini/settings.json"
-    else
-        echo '{"general":{"enableAutoUpdate":false,"enableAutoUpdateNotification":false}}' \
-            > "$USER_HOME/.gemini/settings.json"
-    fi
-
     # Codex: dismiss version notification (excluded from rclone sync)
     mkdir -p "$USER_HOME/.codex"
     echo '{"dismissed_version":"999.0.0"}' > "$USER_HOME/.codex/version.json"
 else
     # Fast Start OFF: remove Codeflare's settings-file suppressors so tools can
-    # run their normal update path. Keep unrelated Gemini settings intact.
-    if [ -f "$USER_HOME/.gemini/settings.json" ]; then
-        jq 'del(.general.enableAutoUpdate, .general.enableAutoUpdateNotification)' \
-            "$USER_HOME/.gemini/settings.json" > /tmp/gemini-settings.json 2>/dev/null && \
-            mv /tmp/gemini-settings.json "$USER_HOME/.gemini/settings.json"
-    fi
+    # run their normal update path.
     if [ -f "$USER_HOME/.codex/version.json" ] && grep -q '"dismissed_version"[[:space:]]*:[[:space:]]*"999\.0\.0"' "$USER_HOME/.codex/version.json"; then
         rm -f "$USER_HOME/.codex/version.json"
     fi
