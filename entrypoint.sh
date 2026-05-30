@@ -2075,7 +2075,7 @@ fi
 configure_tab_autostart
 
 # Step 2: Establish bisync baseline IN BACKGROUND (don't block startup)
-# Runs AFTER all file modifications (.claude.json, .claude/settings.json, .gemini/settings.json,
+# Runs AFTER all file modifications (.claude.json, .claude/settings.json,
 # .codex/version.json, .bashrc tab autostart) to avoid hash mismatches from files changing during --resync.
 if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
     (

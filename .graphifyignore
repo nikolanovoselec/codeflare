@@ -1,0 +1,8 @@
+# graphify ignore patterns (gitignore syntax, last-match-wins).
+#
+# Minified SilverBullet plug bundles are single-line transpiled blobs that
+# graphify's AST extractor mis-parses into a god-node: silverbullet-pdf.plug.js
+# (2.5 MB) alone produced ~900 edges and dominated god_nodes, drowning the real
+# code abstractions in both the per-repo graph and the unified global graph.
+# These are vendored build artifacts, not source, so exclude them everywhere.
+*.plug.js
