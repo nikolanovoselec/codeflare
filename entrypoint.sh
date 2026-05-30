@@ -1883,11 +1883,16 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # settings.json instead so it follows the same pattern as the other
     # plugins (bare plugin.json, real wiring in entrypoint).
     if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
-        CTX_ENFORCE="$PLUGIN_DIR/context-mode/scripts/enforce-ctx-mode.sh"
-        CTX_HOOKS=$(jq -n --arg enforce "$CTX_ENFORCE" '{
+        # enforce-ctx-mode.sh Bash/WebFetch/Grep deny-gate REMOVED: it forced
+        # every shell command through ctx_execute and caused cascading
+        # "Cancelled: parallel tool call" failures. context-mode stays as a
+        # TOOL (MCP server + the indexing pretooluse/posttooluse/precompact/
+        # sessionstart hooks below); only the deny-gate is gone. The prune
+        # regex further down still lists enforce-ctx-mode.sh so any stale
+        # settings.json carrying the old gate gets it stripped on startup.
+        CTX_HOOKS=$(jq -n '{
           PreToolUse: [
-            {matcher:"Bash|Read|WebFetch|Grep|Glob|Agent",hooks:[{type:"command",command:"context-mode hook claude-code pretooluse"}]},
-            {matcher:"Bash|WebFetch|Grep",hooks:[{type:"command",command:("bash " + $enforce)}]}
+            {matcher:"Bash|Read|WebFetch|Grep|Glob|Agent",hooks:[{type:"command",command:"context-mode hook claude-code pretooluse"}]}
           ],
           PostToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob",hooks:[{type:"command",command:"context-mode hook claude-code posttooluse"}]}],
           PreCompact: [{matcher:"",hooks:[{type:"command",command:"context-mode hook claude-code precompact"}]}],

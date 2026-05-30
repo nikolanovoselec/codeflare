@@ -179,11 +179,6 @@
       "advanced"
     ]
   },
-  "plugins/context-mode/scripts/enforce-ctx-mode.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "plugins/graphify/.claude-plugin/plugin.json": {
     "modes": [
       "default",
