@@ -1643,7 +1643,7 @@ None.
 
 <!-- @impl: preseed/agents/claude/plugins/context-mode -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh -->
-<!-- @test: host/__tests__/graph-first-nudge.test.js (soft-nudge fires on ctx_search/ctx_batch_execute → AC2) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-027 AC1 context-mode wired as a tool only describe → no enforce-ctx-mode deny-gate preseeded + hooks.json indexing-only with no permissionDecision) -->
+<!-- @test: host/__tests__/graph-first-nudge.test.js (soft-nudge fires on ctx_search/ctx_batch_execute → AC2) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-027 AC1 context-mode wired as a tool only describe → no enforce-ctx-mode deny-gate is preseeded in any seeded config) -->
 
 **Intent:** When the context-mode plugin is preseeded, the graphify CLI must coexist with context-mode and the graph-first soft-nudge must reach the agent through context-mode's redirected tool-call path.
 
@@ -1662,7 +1662,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** [Soft-nudge test](../../host/__tests__/graph-first-nudge.test.js) (AC2) and [agent-seed manifest test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1: no `enforce-ctx-mode` deny-gate is preseeded and context-mode `hooks.json` carries indexing hooks only, with no `permissionDecision` command-routing gate). The stale-gate pruning AC1 relies on at runtime is additionally covered by [the settings.json hook-merge dedup test](../../host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js).
+**Verification:** [Soft-nudge test](../../host/__tests__/graph-first-nudge.test.js) (AC2) and [agent-seed manifest test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1: no `enforce-ctx-mode` deny-gate is preseeded in any seeded config, so context-mode ships as a tool with no command deny-gate). The stale-gate pruning AC1 relies on at runtime is additionally covered by [the settings.json hook-merge dedup test](../../host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js).
 
 **Status:** Implemented
 
