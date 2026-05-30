@@ -4,6 +4,12 @@
       "advanced"
     ]
   },
+  "extensions/startup-header.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/codeflare-commands.ts": {
     "modes": [
       "advanced"
