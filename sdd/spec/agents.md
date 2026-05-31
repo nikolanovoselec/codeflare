@@ -570,6 +570,8 @@ Multi-agent support, preseed system, and session modes.
 2. Default: off.
 3. When off, consult-llm is not configured in the agent's MCP settings.
 
+**Notes:** AC1 and AC2 unmet: there is no explicit Settings toggle. The consult-llm MCP surface is currently activated implicitly when at least one LLM provider key is configured; presence-of-key acts as the on/off. Closing the gap requires a frontend preference plus a gating field on the per-user preference record consulted by the container env-var forwarder.
+
 **Constraints:** None.
 
 **Priority:** P2
@@ -579,8 +581,6 @@ Multi-agent support, preseed system, and session modes.
 **Verification:** [Integration test](../../host/__tests__/entrypoint-hooks-merge.test.js)
 
 **Status:** Partial
-
-**Notes:** AC1 and AC2 unmet: there is no explicit Settings toggle. The consult-llm MCP surface is currently activated implicitly when at least one LLM provider key is configured; presence-of-key acts as the on/off. Closing the gap requires a frontend preference plus a gating field on the per-user preference record consulted by the container env-var forwarder.
 
 ---
 
@@ -669,7 +669,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/routes/llm-keys.test.ts)
+**Verification:** [Automated test](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx)
 
 **Status:** Implemented
 

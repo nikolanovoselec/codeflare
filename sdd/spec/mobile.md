@@ -147,6 +147,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 2. Samsung browser resume uses an automatic dashboard bounce (deactivate then reactivate the session after a brief delay) to reset the unreliable keyboard compositor state.
 3. Samsung's address-bar position is configured via a user-settings toggle because no browser API exposes it.
 
+**Notes:** Samsung Internet manual verification checklist lives in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#samsung-internet-quirks).
+
 **Constraints:**
 
 - Samsung session re-initialisation requires a brief delay between deactivation and reactivation for cleanup effects to settle.
@@ -157,8 +159,6 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Dependencies:** [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state)
 
 **Verification:** [Automated test](../../web-ui/src/__tests__/hooks/useTerminal.test.ts)
-
-**Notes:** Samsung Internet manual verification checklist lives in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#samsung-internet-quirks).
 
 **Status:** Implemented
 
@@ -417,6 +417,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 5. On Samsung, the virtual-keyboard overlay re-enable is delayed enough on visibility return that stale browser keyboard-geometry events arrive inside the ignore window.
 6. Any WebSockets dropped while the page was hidden are re-established on visibility return.
 
+**Notes:** Visibility-return recovery is validated manually per the checklist in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#visibility-return-reset).
+
 **Constraints:**
 
 - Visibility-return recovery does not rely on cached browser geometry because it is stale at that point.
@@ -427,8 +429,6 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state)
 
 **Verification:** [Automated test](../../web-ui/src/__tests__/components/Layout.test.tsx)
-
-**Notes:** Visibility-return recovery is validated manually per the checklist in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#visibility-return-reset).
 
 **Status:** Implemented
 

@@ -319,8 +319,6 @@ None. Authentication is foundational; other domains depend on it.
 
 **Verification:** [Automated test](../../src/__tests__/routes/auth-redirects.test.ts)
 
-**Notes:** Logout dispatch is covered by automated tests at `src/__tests__/routes/auth-redirects.test.ts`.
-
 **Status:** Implemented
 
 ---
@@ -537,8 +535,6 @@ None.
 
 **Verification:** [Automated test](../../web-ui/src/__tests__/components/Header.test.tsx)
 
-**Notes:** Dropdown items, mobile sheet, and desktop positioning are covered by `web-ui/src/__tests__/components/Header.test.tsx`.
-
 **Status:** Implemented
 
 ---
@@ -568,9 +564,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/lib/gravatar.test.ts)
-
-**Notes:** Lookup contract is covered by `web-ui/src/__tests__/lib/gravatar.test.ts`; fallback rendering is covered by `web-ui/src/__tests__/components/Header.test.tsx`.
+**Verification:** [Lookup contract](../../web-ui/src/__tests__/lib/gravatar.test.ts), [fallback rendering](../../web-ui/src/__tests__/components/Header.test.tsx)
 
 **Status:** Implemented
 

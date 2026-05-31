@@ -470,6 +470,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 4. Hidden for stopped sessions.
 5. Computed from the configured idle timeout minus elapsed idle time.
 
+**Notes:** Sleep timer countdown UI is validated manually per the checklist in [documentation/lanes/troubleshooting.md](../../documentation/lanes/troubleshooting.md).
+
 **Constraints:**
 
 None.
@@ -479,8 +481,6 @@ None.
 **Dependencies:** [REQ-SESSION-004](#req-session-004-idle-containers-sleep-after-configurable-timeout)
 
 **Verification:** [Automated test](../../web-ui/src/__tests__/lib/sleep-timer.test.ts)
-
-**Notes:** Sleep timer countdown UI is validated manually per the checklist in [documentation/lanes/troubleshooting.md](../../documentation/lanes/troubleshooting.md).
 
 **Status:** Implemented
 

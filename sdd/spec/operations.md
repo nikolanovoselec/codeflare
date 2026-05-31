@@ -391,9 +391,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/container/index.test.ts)
-
-**Notes:** Hibernation cost guarantee is verified manually against billing-period invoices.
+**Verification:** [Automated test](../../src/__tests__/container/index.test.ts), Manual (zero-cost guarantee checked against billing-period invoices)
 
 **Status:** Implemented
 
@@ -423,9 +421,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero)
 
-**Verification:** [Automated test](../../src/__tests__/routes/session-sleep-timeout.test.ts)
-
-**Notes:** Preference persistence and lifecycle are covered by `src/__tests__/container/index.test.ts` (DO setBucketName + constructor reload + destroy paths).
+**Verification:** [Automated test](../../src/__tests__/routes/session-sleep-timeout.test.ts), [DO lifecycle paths](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented
 
@@ -456,8 +452,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-OPS-006](#req-ops-006-idle-containers-hibernate-and-cost-zero), [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle)
 
 **Verification:** [Automated test](../../src/__tests__/container-metrics.test.ts)
-
-**Notes:** Fail-safe invariants are covered by `src/__tests__/container/container-metrics.test.ts` and `src/__tests__/container/index.test.ts`.
 
 **Status:** Implemented
 
