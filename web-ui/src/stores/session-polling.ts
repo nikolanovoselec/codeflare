@@ -8,7 +8,7 @@ import { setUsageState } from './session-usage';
 import type { SessionWithStatus, SessionStatus } from '../types';
 
 /**
- * Session List Polling — extracted from session.ts (CF-013).
+ * Session List Polling - extracted from session.ts (CF-013).
  *
  * Handles background batch-status polling:
  *  - Lightweight status refresh (no loading flicker)
@@ -70,7 +70,7 @@ export function registerPollingDeps(deps: {
 }
 
 // ============================================================================
-// Startup guard — protect recently-started sessions from stale KV 'stopped'
+// Startup guard - protect recently-started sessions from stale KV 'stopped'
 // ============================================================================
 
 /** Timestamp when each session first reached 'running' status. */
@@ -96,7 +96,7 @@ function isWithinStartupGuard(sessionId: string): boolean {
   const startedAt = sessionStartedAt.get(sessionId);
   if (!startedAt) return false;
   if (Date.now() - startedAt < STARTUP_GUARD_MS) return true;
-  // Guard expired — clean up
+  // Guard expired - clean up
   sessionStartedAt.delete(sessionId);
   return false;
 }
@@ -106,7 +106,7 @@ function isWithinStartupGuard(sessionId: string): boolean {
 // ============================================================================
 
 export const sessionMissCounters = new Map<string, number>();
-export const REMOVAL_THRESHOLD = 3;
+const REMOVAL_THRESHOLD = 3;
 
 // ============================================================================
 // Poll interval handle
@@ -119,7 +119,7 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 // ============================================================================
 
 /**
- * Lightweight status refresh — only fetches batch-status and updates
+ * Lightweight status refresh - only fetches batch-status and updates
  * existing session statuses in-place. Does NOT replace the sessions
  * array or set loading state, so the dashboard doesn't flicker.
  * Also updates storage stats when storageStats is present in the batch response.
@@ -136,7 +136,7 @@ export async function refreshSessionStatuses(): Promise<void> {
     }
 
     // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
-    // Skip initializing sessions — they may not appear in batch status yet.
+    // Skip initializing sessions - they may not appear in batch status yet.
     const removedIds: string[] = [];
     for (const session of state.sessions) {
       if (!batchStatuses[session.id]) {
@@ -163,7 +163,7 @@ export async function refreshSessionStatuses(): Promise<void> {
       if (!remote) continue;
 
       // Propagate per-session fields from batch-status onto SessionWithStatus.
-      // ptyActive/startupStage are frontend-only mirrors of the latest poll —
+      // ptyActive/startupStage are frontend-only mirrors of the latest poll -
       // consumers (e.g. Layout vault-button gate) read them off the session.
       const idx = getState().sessions.findIndex(s => s.id === session.id);
       if (idx !== -1) {
@@ -180,15 +180,15 @@ export async function refreshSessionStatuses(): Promise<void> {
         });
       }
 
-      // Guard 1: Manual stop — don't overwrite "stopping" with stale KV "running"
+      // Guard 1: Manual stop - don't overwrite "stopping" with stale KV "running"
       if (session.status === 'stopping') continue;
 
-      // Guard 2: Startup — block ALL KV transitions while session is initializing.
+      // Guard 2: Startup - block ALL KV transitions while session is initializing.
       // isSessionInitializing tracks the full startup flow (SSE stream), not just
       // the 'initializing' status. KV may still show 'stopped' during container start.
       if (session.status === 'initializing' || isSessionInitializingFn(session.id)) continue;
 
-      // Guard 3: Recently-started session — protect from stale KV 'stopped'
+      // Guard 3: Recently-started session - protect from stale KV 'stopped'
       // for 3 minutes after first reaching 'running'. Only 4503 (from Container
       // DO) and manual stopSession() can stop a guarded session. This guard
       // persists even if the user navigates to the dashboard.
@@ -205,12 +205,12 @@ export async function refreshSessionStatuses(): Promise<void> {
   } catch (err) {
     // Detect auth expiry: stop polling and surface to UI instead of thrashing
     if (err instanceof ApiError && err.status === 401) {
-      logger.warn('[SessionStore] Auth expired — stopping background polling');
+      logger.warn('[SessionStore] Auth expired - stopping background polling');
       setAuthExpiredFn(true);
       stopSessionListPolling();
       return;
     }
-    // Silently ignore other errors — this is background polling
+    // Silently ignore other errors - this is background polling
   }
 }
 

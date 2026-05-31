@@ -65,8 +65,11 @@ const AppearanceSection: Component<AppearanceSectionProps> = (props) => {
             size="sm"
             onClick={() => {
               props.setAccentHexInput('');
-              applyAccentColor(undefined);
-              props.updateSetting('accentColor', undefined as unknown as Settings['accentColor']);
+              applyAccentColor('');
+              // Empty string is an explicit reset value: applyAccentColor treats
+              // it as invalid-hex and clears the CSS vars, and unlike `undefined`
+              // it survives JSON.stringify so the reset persists to localStorage.
+              props.updateSetting('accentColor', '');
             }}
             data-testid="accent-color-reset"
           >

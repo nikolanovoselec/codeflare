@@ -144,7 +144,7 @@ export function startSession(
       await fetchApi(`/container/start?sessionId=${id}`, { method: 'POST' });
     } catch (err) {
       // Differentiate definitive failures from transient errors.
-      // The backend uses ctx.waitUntil() — container may have started despite client error.
+      // The backend uses ctx.waitUntil() - container may have started despite client error.
       // For transient errors, proceed to polling; polling will timeout naturally if container didn't start.
       const isDefinitiveFailure = err instanceof ApiError
         && err.status >= 400 && err.status < 500;
@@ -154,7 +154,7 @@ export function startSession(
         onError(`Container start failed: ${err.message}`);
         return;
       }
-      // Transient error (network failure, timeout, 5xx) — proceed to polling
+      // Transient error (network failure, timeout, 5xx) - proceed to polling
       logger.debug('Container start request (transient, proceeding to poll):', err);
     }
 
@@ -232,19 +232,19 @@ export async function updateMaxUsers(maxUsers: number): Promise<{ success: boole
 
 
 // Setup API
-export type SetupStatusResponse = z.infer<typeof SetupStatusResponseSchema>;
+type SetupStatusResponse = z.infer<typeof SetupStatusResponseSchema>;
 
 export async function getSetupStatus(): Promise<SetupStatusResponse> {
   return fetchApi('/setup/status', {}, SetupStatusResponseSchema);
 }
 
-export type DetectTokenResponse = z.infer<typeof DetectTokenResponseSchema>;
+type DetectTokenResponse = z.infer<typeof DetectTokenResponseSchema>;
 
 export async function detectToken(): Promise<DetectTokenResponse> {
   return fetchApi('/setup/detect-token', {}, DetectTokenResponseSchema);
 }
 
-export type SetupPrefillResponse = z.infer<typeof SetupPrefillResponseSchema>;
+type SetupPrefillResponse = z.infer<typeof SetupPrefillResponseSchema>;
 
 export async function getSetupPrefill(): Promise<SetupPrefillResponse> {
   return fetchApi('/setup/prefill', {}, SetupPrefillResponseSchema);
@@ -291,7 +291,7 @@ export async function updatePreferences(prefs: Partial<UserPreferences>): Promis
 }
 
 // LLM Keys API
-export type LlmKeysResponse = z.infer<typeof LlmKeysResponseSchema>;
+type LlmKeysResponse = z.infer<typeof LlmKeysResponseSchema>;
 
 export async function getLlmKeys(): Promise<LlmKeysResponse> {
   return fetchApi('/llm-keys', {}, LlmKeysResponseSchema);
@@ -335,7 +335,7 @@ export async function deleteDeployKeys(): Promise<void> {
 }
 
 // Onboarding API (public - no auth required)
-export type OnboardingConfigResponse = z.infer<typeof OnboardingConfigResponseSchema>;
+type OnboardingConfigResponse = z.infer<typeof OnboardingConfigResponseSchema>;
 
 export async function getOnboardingConfig(): Promise<OnboardingConfigResponse> {
   return fetchApi('/auth/onboarding-config', {}, OnboardingConfigResponseSchema);
@@ -358,7 +358,7 @@ export async function ensureR2Token(): Promise<{ ready: boolean }> {
   return data ?? { ready: false };
 }
 
-// Auth providers — stays public because login page needs it before user is authenticated
+// Auth providers - stays public because login page needs it before user is authenticated
 export async function getAuthProviders(): Promise<{ providers: AuthProvider[] }> {
   return baseFetch<{ providers: AuthProvider[] }>('/auth/providers', {}, {
     basePath: '/public',
@@ -370,7 +370,7 @@ export async function getAuthStatus(): Promise<AuthStatus> {
   return fetchApi('/auth/status', {}, AuthStatusResponseSchema);
 }
 
-// requestAccess removed — replaced by subscribe() for self-service tier selection
+// requestAccess removed - replaced by subscribe() for self-service tier selection
 
 
 const UpdateUserTierResponseSchema = z.object({
@@ -404,7 +404,7 @@ export async function getUsage(): Promise<z.infer<typeof UsageResponseSchema>> {
   return fetchApi('/usage', {}, UsageResponseSchema);
 }
 
-// Robust schema for tier objects — tolerates null, missing, and string values
+// Robust schema for tier objects - tolerates null, missing, and string values
 // from KV data that may have been written by older code versions.
 const TierObjectSchema = z.object({
   id: z.string(),
