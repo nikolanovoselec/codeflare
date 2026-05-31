@@ -276,7 +276,7 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 2. **Scrolled-up users keep relative position across keyboard.** Scroll up by ~100 lines, open keyboard, assert relative-position is preserved (`savedDistanceFromBottom` restored after scrollback trims).
 3. **No extra paints during programmatic scroll suppression.** Record `window.performance.getEntriesByType('paint')` during keyboard transitions and assert no extra paints occur between programmatic scroll suppression and the next user-driven scroll event.
 
-The Verification fields in `sdd/spec/mobile.md` point at this plan; CQ-1 truth check resolves on test file annotation once the Playwright suite is written.
+The Verification fields in [`sdd/spec/mobile.md`](../../sdd/spec/mobile.md) point at this plan; CQ-1 truth check resolves on test file annotation once the Playwright suite is written.
 
 ---
 
