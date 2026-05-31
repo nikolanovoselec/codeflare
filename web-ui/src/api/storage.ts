@@ -157,7 +157,7 @@ export function getDownloadUrl(key: string): string {
 // which enumerates the user's running sessions and triggers a bisync
 // on each. Returns per-session result; the UI uses these to show
 // "Triggered N sessions" feedback and re-list R2 after a brief delay.
-export type SessionsSyncResponse = z.infer<typeof SessionsSyncResponseSchema>;
+type SessionsSyncResponse = z.infer<typeof SessionsSyncResponseSchema>;
 export async function syncAllSessions(): Promise<SessionsSyncResponse> {
   return storageFetch('/sessions/sync', { method: 'POST' }, SessionsSyncResponseSchema);
 }

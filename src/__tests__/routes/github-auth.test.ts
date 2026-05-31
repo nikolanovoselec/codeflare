@@ -5,6 +5,8 @@ import { createMockKV } from '../helpers/mock-kv';
 
 vi.mock('../../lib/session-jwt', () => ({
   signSessionJWT: vi.fn(async () => 'mock-jwt-token'),
+  SESSION_JWT_AUD: 'codeflare-session',
+  cookieDomainAttr: vi.fn(() => ''),
 }));
 
 vi.mock('../../lib/logger', () => ({

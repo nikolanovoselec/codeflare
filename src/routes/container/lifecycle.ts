@@ -81,7 +81,10 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     ...(params.llmKeys?.geminiApiKey && { geminiApiKey: params.llmKeys.geminiApiKey }),
     ...(params.deployKeys?.githubToken && { githubToken: params.deployKeys.githubToken }),
     ...(params.deployKeys?.cloudflareApiToken && { cloudflareApiToken: params.deployKeys.cloudflareApiToken }),
-    ...(params.deployKeys?.cloudflareAccountId && { cloudflareAccountId: params.deployKeys.cloudflareAccountId }),
+    // REQ-AGENT-029 AC2: a stored `null` is an explicit clear that must reach
+    // the container so a revoked account ID is unset, not silently left stale.
+    // `undefined` stays omitted (no change); a string sets the value.
+    ...(params.deployKeys?.cloudflareAccountId !== undefined && { cloudflareAccountId: params.deployKeys.cloudflareAccountId }),
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     sessionMode: params.sessionMode,
     sleepAfter: params.sleepAfter,
@@ -483,13 +486,13 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     let sessionMode = resolveSessionMode(preferences);
     // Free tier: locked to 15m idle timeout. All other tiers: user preference or 30m default.
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
-    // REQ-SEC-015 AC2/AC3: clamp session mode against effective tier —
+    // REQ-SEC-015 AC2/AC3: clamp session mode against effective tier -
     // canceled users can't use advanced (SaaS only)
     if (isSaasModeActive(c.env.SAAS_MODE) && sessionMode === 'advanced') {
       try {
         const tiers = await getTierConfig(c.env.KV);
         sessionMode = clampSessionModeToTier(sessionMode, effectiveTier, tiers);
-      } catch { /* non-SaaS or KV unavailable — allow the stored mode */ }
+      } catch { /* non-SaaS or KV unavailable - allow the stored mode */ }
     }
     const sleepAfter = resolveEffectiveSleepAfter(effectiveTier, preferences.sleepAfter);
     // context-mode preseed plugin: hard-gated to the unlimited (Custom) tier
@@ -598,12 +601,12 @@ app.post('/destroy', async (c) => {
     const { containerId, container } = getContainerContext(c);
 
     // Destroy the container
-    // Note: Do NOT call getState() before destroy() — it wakes up hibernated DOs (gotcha #6)
+    // Note: Do NOT call getState() before destroy() - it wakes up hibernated DOs (gotcha #6)
     await container.destroy();
 
     reqLogger.info('Container destroyed', { containerId });
 
-    // Don't call getState() after destroy() — it resurrects the DO (gotcha #6)
+    // Don't call getState() after destroy() - it resurrects the DO (gotcha #6)
     return c.json({ success: true, message: 'Container destroyed' });
   } catch (error) {
     if (error instanceof AppError) {

@@ -1,5 +1,5 @@
 /**
- * Container Durable Object — internal route response shapes
+ * Container Durable Object - internal route response shapes
  *
  * POST /_internal/setBucketName
  *   Request:  { bucketName: string; sessionId?: string; r2AccessKeyId?: string;
@@ -7,8 +7,8 @@
  *               workspaceSyncEnabled?: boolean; fastStartEnabled?: boolean;
  *               tabConfig?: TabConfig[] }
  *   Response (200): { success: true; bucketName: string }
- *   Response (409): { error: "Bucket name already set" }  — idempotent; still stores sessionId/prefs
- *   Response (400): { error: string }                     — validation failure
+ *   Response (409): { error: "Bucket name already set" }  - idempotent; still stores sessionId/prefs
+ *   Response (400): { error: string }                     - validation failure
  *   Response (500): { error: "Internal error" }
  *
  * PUT /_internal/setSessionId
@@ -52,21 +52,21 @@ const SESSION_ID_KEY = '_sessionId';
 // Class name must be lowercase 'container' to match wrangler.toml class_name
 // and existing DO migrations. Renaming would require a destructive migration
 // that risks losing all existing Durable Objects. See wrangler.toml migrations.
-export class container extends Container<Env> {
+export class container extends Container<Env> implements ContainerEnvState {
   private logger = createLogger('container');
 
   // Port where the container's HTTP server listens
   // Terminal server handles all endpoints: WebSocket, health check, metrics
   defaultPort = 8080;
 
-  // SDK's sleepAfter timer is effectively disabled — we pin it to 24h so the
+  // SDK's sleepAfter timer is effectively disabled - we pin it to 24h so the
   // SDK never fires onActivityExpired in practice. The real idle detector is
   // collectMetrics(), which polls the in-container /activity endpoint every 60s
   // and explicitly calls stop('SIGTERM') when idleMs > idleTimeoutPref.
   //
   // Why: @cloudflare/containers v0.2.x refreshes the SDK timer on every
   // WebSocket message in both directions (client↔container). That means the
-  // SDK timer tracks "any activity", whereas we want "user-input activity" —
+  // SDK timer tracks "any activity", whereas we want "user-input activity" -
   // a container running `tail -f` or `yes` should still sleep when the user
   // walks away. collectMetrics reads lastInputAt from the in-container
   // terminal server, which tracks PTY input only, giving us the correct
@@ -89,22 +89,23 @@ export class container extends Container<Env> {
   idleTimeoutPref: string = '2h';
 
   // Environment variables - set via property assignment in updateEnvVars()
-  private _bucketName: string | null = null;
-  private _r2AccountId: string | null = null;
-  private _r2Endpoint: string | null = null;
-  private _r2AccessKeyId: string | null = null;
-  private _r2SecretAccessKey: string | null = null;
-  private _workspaceSyncEnabled: boolean = false;
-  private _fastStartEnabled: boolean = true;
-  private _tabConfig: TabConfig[] | null = null;
-  private _openaiApiKey: string | null = null;
-  private _geminiApiKey: string | null = null;
-  private _githubToken: string | null = null;
-  private _cloudflareApiToken: string | null = null;
-  private _cloudflareAccountId: string | null = null;
-  private _encryptionKey: string | null = null;
-  private _sessionMode: string = 'default';
-  private _containerAuthToken: string | null = null;
+  // These satisfy the ContainerEnvState interface, so they are not `private`.
+  _bucketName: string | null = null;
+  _r2AccountId: string | null = null;
+  _r2Endpoint: string | null = null;
+  _r2AccessKeyId: string | null = null;
+  _r2SecretAccessKey: string | null = null;
+  _workspaceSyncEnabled: boolean = false;
+  _fastStartEnabled: boolean = true;
+  _tabConfig: TabConfig[] | null = null;
+  _openaiApiKey: string | null = null;
+  _geminiApiKey: string | null = null;
+  _githubToken: string | null = null;
+  _cloudflareApiToken: string | null = null;
+  _cloudflareAccountId: string | null = null;
+  _encryptionKey: string | null = null;
+  _sessionMode: string = 'default';
+  _containerAuthToken: string | null = null;
   /**
    * Per-session vault encryption key (REQ-VAULT-008 AC1). 32 random
    * bytes, base64-encoded. Generated on first ensureVaultKey() call,
@@ -117,10 +118,10 @@ export class container extends Container<Env> {
    * encrypts IDB without prompting the user for a passphrase.
    */
   private _vaultKey: string | null = null;
-  private _sessionId: string | null = null;
-  private _userEmail: string | null = null;
+  _sessionId: string | null = null;
+  _userEmail: string | null = null;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
-  private _userTimezone: string | null = null;
+  _userTimezone: string | null = null;
   /**
    * Timestamp captured at the start of destroy(); read by onStop() to
    * log shutdown elapsed-ms. Helps telemetry decide whether the 135s
@@ -129,10 +130,10 @@ export class container extends Container<Env> {
    * surface in logs before the 15-min cadence makes them routine.
    */
   private _shutdownStartedAt = 0;
-  /** Monotonic usage counter (seconds) — sent to Timekeeper for delta computation */
+  /** Monotonic usage counter (seconds) - sent to Timekeeper for delta computation */
   private _usageSeconds = 0;
   private containerStartedAt = 0;
-  /** Last seen lastInputAt from /activity — used to detect NEW input for renewal. */
+  /** Last seen lastInputAt from /activity - used to detect NEW input for renewal. */
   private lastSeenInputAt: number | null = null;
 
   // Map-based dispatch for internal routes
@@ -206,7 +207,7 @@ export class container extends Container<Env> {
   }
 
   /** Env-related state for sub-module functions. */
-  private get envState(): ContainerEnvState { return this as unknown as ContainerEnvState; }
+  private get envState(): ContainerEnvState { return this; }
 
   /** Metrics-related state for sub-module functions. */
   private get metricsState(): MetricsState { return this as unknown as MetricsState; }
@@ -277,7 +278,7 @@ export class container extends Container<Env> {
     // run inside blockConcurrencyWhile so a concurrent second caller
     // queued behind the first sees the persisted key on its own
     // storage.get (REQ-VAULT-008 AC1). The put MUST be awaited inside
-    // the critical section — using waitUntil would let the block exit
+    // the critical section - using waitUntil would let the block exit
     // before the write commits, defeating the guard.
     const mintAndPersist = async (): Promise<string> => {
       if (this._vaultKey) return this._vaultKey;
@@ -305,7 +306,7 @@ export class container extends Container<Env> {
       // silently fails, we would return `key` to the caller (the
       // Worker injects it into BootConfig, browser encrypts IDB with
       // it), then on the next DO wake the storage.get(key) returns
-      // null and we mint a fresh key — permanently breaking IDB
+      // null and we mint a fresh key - permanently breaking IDB
       // decryption. Better to throw and force the caller to retry.
       try {
         await Promise.resolve(this.ctx.storage.put('vaultKey', key));
@@ -359,7 +360,7 @@ export class container extends Container<Env> {
     // Reject non-internal requests when the container is not running.
     // This prevents WebSocket reconnect attempts from waking a hibernated
     // container via super.fetch() (which triggers the SDK's startIfNotRunning).
-    // The DO knows the container state authoritatively — no KV read needed.
+    // The DO knows the container state authoritatively - no KV read needed.
     if (!this.ctx.container?.running) {
       // WS upgrade: accept then close with custom code 4503 so the client
       // can distinguish "container stopped" from network errors (1006).
@@ -378,7 +379,7 @@ export class container extends Container<Env> {
     // Use super.fetch() for reliable container proxying (handles startup
     // readiness, WebSocket upgrades, and container networking). The SDK's
     // sleepAfter timer is pinned to 24h (see class field comment) and plays
-    // no role in idle detection — collectMetrics() owns that decision.
+    // no role in idle detection - collectMetrics() owns that decision.
     if (this._containerAuthToken) {
       const authedRequest = new Request(request, {
         headers: new Headers(request.headers),
@@ -420,7 +421,7 @@ export class container extends Container<Env> {
           sleepAfter?: string;
         };
 
-      // FIX-28: Idempotency — once bucket name is set, reject subsequent calls.
+      // FIX-28: Idempotency - once bucket name is set, reject subsequent calls.
       // But always store sessionId so collectMetrics/onStop can find the KV entry
       // (sessionId may be missing if the DO was created before SESSION_ID_KEY existed).
       if (this._bucketName) {
@@ -461,7 +462,7 @@ export class container extends Container<Env> {
         });
       }
 
-      // Store sessionId BEFORE setBucketName — updateEnvVars() inside
+      // Store sessionId BEFORE setBucketName - updateEnvVars() inside
       // setBucketName reads this._sessionId to populate SESSION_ID env var
       if (sessionId) {
         await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
@@ -658,7 +659,7 @@ export class container extends Container<Env> {
 
   /** Called when the container stops. */
   override async onStop(): Promise<void> {
-    // Kill the collectMetrics alarm loop — without this, the schedule
+    // Kill the collectMetrics alarm loop - without this, the schedule
     // continues firing on a dead container indefinitely (zombie alarms).
     try { this.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
     const shutdownElapsedMs = this._shutdownStartedAt > 0 ? Date.now() - this._shutdownStartedAt : null;

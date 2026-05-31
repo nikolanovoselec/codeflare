@@ -133,5 +133,20 @@ describe('session-jwt', () => {
       const payload = { email: 'u@x.com', sub: 's', ghLogin: 'g', iat: now() - 2700, exp: now() + 899 } as any;
       expect(shouldRefreshJWT(payload)).toBe(true);
     });
+
+    // CF-045: the threshold is strict `< 15 min`. At exactly 900s remaining the
+    // comparison (900 < 900) is false, so a token sitting precisely on the
+    // boundary is NOT refreshed. The next second below it is.
+    it('returns false at exactly 15:00 remaining (strict < boundary)', async () => {
+      const { shouldRefreshJWT } = await import('../../lib/session-jwt');
+      const payload = { email: 'u@x.com', sub: 's', ghLogin: 'g', iat: now() - 2700, exp: now() + 900 } as any;
+      expect(shouldRefreshJWT(payload)).toBe(false);
+    });
+
+    it('returns false just over the boundary (15:01 remaining)', async () => {
+      const { shouldRefreshJWT } = await import('../../lib/session-jwt');
+      const payload = { email: 'u@x.com', sub: 's', ghLogin: 'g', iat: now() - 2700, exp: now() + 901 } as any;
+      expect(shouldRefreshJWT(payload)).toBe(false);
+    });
   });
 });

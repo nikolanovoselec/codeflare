@@ -233,7 +233,7 @@ Tiers, billing, usage tracking, and quotas.
 3. Timekeeper computes per-session deltas, accumulates pending usage in memory, and periodically flushes it to durable storage.
 4. Timekeeper exposes a usage-read interface that returns flushed-plus-pending totals for live consumption.
 5. The durable record tracks rolling daily, weekly, monthly, yearly, and all-time totals with automatic rollovers.
-6. The flush handler retries on durable-storage write failure with backoff.
+6. The flush handler retries on durable-storage write failure on a fixed 30-second interval (not exponential backoff).
 7. Pending usage is cleared only after a durable-storage write succeeds.
 
 **Constraints:**
@@ -565,7 +565,7 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: src/__tests__/lib/stripe.test.ts (createPortalSession describe -> POST to Stripe billing_portal/sessions with customer_id + return_url + flow_data subscription_update_confirm for switch flow -> AC2) -->
 <!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/switch describe -> requires subscriptionItemId from fetchSubscription + cleans up stale KV when subscription no longer exists on Stripe -> AC3, AC4) -->
 <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleSubscriptionUpdated describe -> customer.subscription.updated picked up by syncSubscriptionState propagates plan change to KV -> AC5) -->
-<!-- @test: src/__tests__/routes/rate-limits.test.ts (POST /billing/portal rate-limit describe -> blocks after 5 requests in 60s window -> AC6 5/min rate-limit) -->
+<!-- @test: src/__tests__/routes/billing.test.ts (REQ-SUB-016 AC6 describe -> portal endpoint is rate-limited 5/min -> AC6) -->
 ### REQ-SUB-016: Customer Portal and Plan Switching
 
 <!-- @impl: src/lib/stripe.ts::createPortalSession -->
@@ -676,8 +676,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. When the count of running plus initializing sessions reaches the tier maximum, the "New Session" control is disabled.
-2. A popup explains the tier limit and lists currently running sessions with stop controls so the user can free a slot.
+1. When the count of running plus initializing sessions reaches the tier maximum, the "New Session" control stays enabled but diverts to the session-limit popup instead of starting a session.
+2. The popup explains the tier limit, showing the running-session count and a progress bar, with a dismiss control; it does not list individual sessions with per-session stop controls.
 3. The tier maximum is sourced from the session-status batch endpoint so the frontend and backend agree without an additional request.
 
 **Constraints:** None.

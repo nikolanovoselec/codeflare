@@ -1,12 +1,19 @@
 /**
  * HMAC-SHA256 session JWT for GitHub OIDC (SaaS mode).
  *
- * Symmetric signing — the Worker secret IS the key. No JWKS, no key rotation.
+ * Symmetric signing - the Worker secret IS the key. No JWKS, no key rotation.
  * Used for the `codeflare_session` cookie. Separate from jwt.ts which handles
  * CF Access RS256 tokens for non-SaaS mode.
  */
 
 const DEFAULT_TTL_SECONDS = 3600; // 1 hour
+
+/**
+ * Audience claim for session JWTs. Minted on new tokens and enforced on verify
+ * ONLY when the token carries an `aud` - legacy tokens (minted before this claim
+ * existed) verify unchanged for backward compatibility.
+ */
+export const SESSION_JWT_AUD = 'codeflare-session';
 const HEADER_B64 = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
   .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 
@@ -18,6 +25,7 @@ interface SessionJWTPayload {
   email: string;
   sub: string;
   ghLogin: string;
+  aud?: string;
   iat: number;
   exp: number;
 }
@@ -88,10 +96,15 @@ export async function signSessionJWT(
 /**
  * Verify and decode a session JWT.
  * Returns null if signature invalid, expired, or malformed.
+ *
+ * When `expectedAud` is provided, the token's `aud` (if present) must match.
+ * Legacy tokens minted without an `aud` are accepted regardless of
+ * `expectedAud` so old cookies and 2-arg callers stay valid.
  */
 export async function verifySessionJWT(
   token: string,
   secret: string,
+  expectedAud?: string,
 ): Promise<SessionJWTPayload | null> {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
@@ -133,7 +146,27 @@ export async function verifySessionJWT(
   const now = Math.floor(Date.now() / 1000);
   if (payload.exp <= now) return null;
 
+  // Enforce audience only when both an expected aud and a token aud are present.
+  // Legacy tokens (no aud) remain valid for backward compatibility.
+  if (expectedAud && payload.aud !== undefined && payload.aud !== expectedAud) {
+    return null;
+  }
+
   return payload;
+}
+
+/**
+ * Build the `; Domain=<host>` cookie attribute from the configured custom
+ * domain. Returns '' when no custom domain is set so workers.dev / preview
+ * deployments keep host-only cookies (a Domain attribute pinned to the wrong
+ * host would silently drop the cookie). A leading-dot prefix is stripped - a
+ * bare host scopes the cookie to that host and its subdomains.
+ */
+export function cookieDomainAttr(customDomain: string | null | undefined): string {
+  if (!customDomain) return '';
+  const host = customDomain.replace(/^\./, '').trim();
+  if (!host) return '';
+  return `; Domain=${host}`;
 }
 
 const REFRESH_THRESHOLD_SECONDS = 15 * 60; // 15 minutes

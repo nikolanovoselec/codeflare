@@ -1,6 +1,6 @@
 import type { AccessTier, AccessUser, BillingStatus, Env, SubscriptionTier, UserRole } from '../types';
 import { verifyAccessJWT } from './jwt';
-import { verifySessionJWT } from './session-jwt';
+import { verifySessionJWT, SESSION_JWT_AUD } from './session-jwt';
 import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';
 import { isSaasModeActive } from './onboarding';
@@ -18,7 +18,7 @@ let cachedAccessAudList: string[] | null | undefined = undefined;
 let authConfigCachedAt = 0;
 // CF-005: Tracks whether KV auth config has been fetched at least once.
 let authConfigFetched = false;
-// CF-002: Promise dedup — prevents concurrent cold requests from issuing redundant KV reads.
+// CF-002: Promise dedup - prevents concurrent cold requests from issuing redundant KV reads.
 let pendingAuthConfigFetch: Promise<void> | null = null;
 
 function normalizeEmail(email: string): string {
@@ -57,7 +57,7 @@ function getCookieValue(cookieHeader: string | null, key: string): string | null
 /**
  * Extract user identity from the request.
  *
- * **Return value**: Returns `{ email, authenticated }` — the minimal identity
+ * **Return value**: Returns `{ email, authenticated }` - the minimal identity
  * established by the auth provider (CF Access JWT, SaaS OIDC session, or
  * service token). The only exception is service-token auth, which also sets
  * `role: 'admin'` because the caller proved possession of the worker secret.
@@ -68,7 +68,7 @@ function getCookieValue(cookieHeader: string | null, key: string): string | null
  * {@link resolveOrProvisionUser} (SaaS) or {@link resolveUserFromKV} (non-SaaS)
  * to hydrate the full {@link AccessUser} profile from KV.
  *
- * This partial return is intentional — it separates identity verification
+ * This partial return is intentional - it separates identity verification
  * (proving who the caller is) from authorization (determining what the caller
  * can do). Callers that only need to know "is there a valid session?" can use
  * this function directly; callers that need role/tier information must go
@@ -76,22 +76,22 @@ function getCookieValue(cookieHeader: string | null, key: string): string | null
  *
  * Authentication methods (checked in order):
  *
- * 1. Service token (X-Service-Auth header) — for API/CLI/E2E clients.
+ * 1. Service token (X-Service-Auth header) - for API/CLI/E2E clients.
  *    Constant-time comparison against SERVICE_AUTH_SECRET. Returns admin role.
  *
- * 2. SaaS mode + GitHub OIDC (codeflare_session cookie) — when SAAS_MODE=active
+ * 2. SaaS mode + GitHub OIDC (codeflare_session cookie) - when SAAS_MODE=active
  *    and OAUTH_CLIENT_ID is set. HMAC-SHA256 JWT signed by OAUTH_JWT_SECRET.
  *    Replaces CF Access for SaaS deployments.
  *
- * 3. CF Access JWT (cf-access-jwt-assertion header or CF_Authorization cookie) —
+ * 3. CF Access JWT (cf-access-jwt-assertion header or CF_Authorization cookie) -
  *    default/non-SaaS mode. Verified via JWKS from the CF Access auth domain.
  *
- * 4. Pre-setup fallback (cf-access-authenticated-user-email header) —
+ * 4. Pre-setup fallback (cf-access-authenticated-user-email header) -
  *    trusted only before setup is complete (auth_domain not yet configured).
  *
  */
 export async function getUserFromRequest(request: Request, env?: Env): Promise<AccessUser> {
-  // Extract CF Access JWT early — evaluated after service token and SaaS OIDC checks
+  // Extract CF Access JWT early - evaluated after service token and SaaS OIDC checks
   const jwtAssertionHeader = request.headers.get('cf-access-jwt-assertion');
   const jwtCookie = getCookieValue(request.headers.get('Cookie'), 'CF_Authorization');
   const jwtToken = jwtAssertionHeader || jwtCookie;
@@ -142,7 +142,7 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     : (cachedAccessAud ? [cachedAccessAud] : []);
   const authConfigured = !!(cachedAuthDomain && accessAudList.length > 0);
 
-  // Direct service auth validation — checked FIRST because CF Access may
+  // Direct service auth validation - checked FIRST because CF Access may
   // inject a JWT for service tokens whose audience doesn't match our app's
   // access_aud, AND CF Access strips CF-Access-Client-Secret from forwarded
   // requests. Uses custom X-Service-Auth header to bypass both issues.
@@ -154,7 +154,7 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
       const expected = new TextEncoder().encode(env.SERVICE_AUTH_SECRET);
       const actual = new TextEncoder().encode(serviceAuth);
       if (expected.byteLength !== actual.byteLength) {
-        // Length mismatch — fall through to normal rejection
+        // Length mismatch - fall through to normal rejection
         return { email: '', authenticated: false};
       }
       const match = await crypto.subtle.timingSafeEqual(expected, actual);
@@ -172,11 +172,11 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
       // timingSafeEqual failed
       return { email: '', authenticated: false};
     } else {
-      // SERVICE_AUTH_SECRET is set but header not sent — note this but continue to other auth methods
+      // SERVICE_AUTH_SECRET is set but header not sent - note this but continue to other auth methods
       // (caller might be using JWT auth instead)
     }
   } else {
-    // SERVICE_AUTH_SECRET not in env — note for diagnostics but continue to other auth methods
+    // SERVICE_AUTH_SECRET not in env - note for diagnostics but continue to other auth methods
   }
 
   // SaaS mode + GitHub OIDC: verify codeflare_session cookie (HMAC JWT)
@@ -189,7 +189,7 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     if (!sessionToken) {
       return { email: '', authenticated: false };
     }
-    const payload = await verifySessionJWT(sessionToken, env.OAUTH_JWT_SECRET);
+    const payload = await verifySessionJWT(sessionToken, env.OAUTH_JWT_SECRET, SESSION_JWT_AUD);
     if (!payload) {
       return { email: '', authenticated: false };
     }
@@ -222,12 +222,12 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
   if (!authConfigured && !authConfigFetched) {
     const email = request.headers.get('cf-access-authenticated-user-email');
     if (email) {
-      logger.warn('Pre-setup auth fallback activated — trusting header', { email: normalizeEmail(email), path: request.url });
+      logger.warn('Pre-setup auth fallback activated - trusting header', { email: normalizeEmail(email), path: request.url });
       return { email: normalizeEmail(email), authenticated: true };
     }
   }
 
-  // Service token authentication (fallback — non-SaaS only)
+  // Service token authentication (fallback - non-SaaS only)
   // When CF Access validates a service token, it passes through cf-access-client-id header.
   // In SaaS mode there is no CF Access edge, so this header is attacker-controlled.
   const serviceTokenClientId = !isSaasModeActive(env?.SAAS_MODE)
@@ -273,8 +273,8 @@ export function getBucketName(email: string, workerName?: string): string {
   const maxLength = 63;
   const maxSanitizedLength = maxLength - prefix.length;
 
-  // Strip trailing hyphens AFTER truncation — substring can reintroduce them.
-  // Also strip from the final result — long workerName can make prefix end with "-" and truncated be empty.
+  // Strip trailing hyphens AFTER truncation - substring can reintroduce them.
+  // Also strip from the final result - long workerName can make prefix end with "-" and truncated be empty.
   // Uses iterative trim instead of regex to satisfy CodeQL ReDoS analysis.
   const truncated = trimTrailingHyphens(sanitized.substring(0, Math.max(0, maxSanitizedLength)));
   return trimTrailingHyphens(`${prefix}${truncated}`);
@@ -338,7 +338,7 @@ export async function resolveOrProvisionUser(
 
   if (isSaasModeActive(env.SAAS_MODE)) {
     // Note: concurrent first-login requests may both reach this point and write
-    // identical records. This is benign — both produce the same {role:'user',
+    // identical records. This is benign - both produce the same {role:'user',
     // accessTier:'pending', subscriptionTier:'pending'} entry.
     await kv.put(`user:${normalizedEmail}`, JSON.stringify({
       addedBy: 'jit',
@@ -392,7 +392,7 @@ export async function authenticateRequest(
   if (!normalizedEmail) {
     throw new AuthError('Not authenticated');
   }
-  // Service auth users already have a role — skip KV allowlist lookup
+  // Service auth users already have a role - skip KV allowlist lookup
   if (rawUser.role) {
     const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
     return { user: { ...rawUser, email: normalizedEmail }, bucketName };

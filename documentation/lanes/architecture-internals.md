@@ -95,7 +95,7 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 | CF-018 | billingPeriodEnd enforcement; unlimited tier exemption | src/lib/subscription.ts |
 | CF-020 | Timekeeper delta clamping / alarm retry; admin inquiry email; mobile input dispatch | src/lib/email.ts, web-ui/src/lib/terminal-mobile-input.ts |
 | CF-021 | Trial always in usage hours (trialDays fallback removed) | web-ui/src/components/SubscribePage.tsx |
-| CF-022 | KV rollback on container start failure; separate try/catch for KV reads | src/lib/cors-cache.ts |
+| CF-022 | KV rollback on container start failure; separate try/catch for KV reads | src/lib/cors-cache.ts, src/routes/container/lifecycle.ts |
 | CF-023 | Check existing subscription before overwriting | src/routes/stripe-webhook.ts |
 | CF-024 | Missing webhook handler coverage | src/routes/billing.ts |
 | CF-027 | Prices from Stripe via admin-configured stripePriceId | src/lib/subscription.ts |

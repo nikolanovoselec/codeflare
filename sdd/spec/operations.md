@@ -503,14 +503,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 <!-- @impl: src/lib/rate-limit-core.ts -->
 <!-- @test: host/__tests__/workflow-stress-test.test.js (workflow shape + manual dispatch describe -> AC1-AC3) + src/__tests__/index.test.ts (REQ-OPS-008 AC6 SAAS+STRESS conflict guard describe -> AC6) + src/__tests__/middleware/rate-limit.test.ts (stress test mode bypass + REQ-OPS-008 AC5 one-time warning describes -> AC4/AC5) -->
 
-**Intent:** Load testing validates that rate limiting, session lifecycle, storage operations, and WebSocket concurrency behave correctly under high load.
+**Intent:** Load testing validates that rate limiting, session lifecycle, storage operations, and API throughput behave correctly under high load.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. The stress-test workflow runs on manual dispatch against the integration environment.
-2. Load tests cover API throughput, session lifecycle, storage operations, and WebSocket concurrency.
+2. Load tests cover API throughput, rate-limit validation, session lifecycle, and storage operations.
 3. Concurrency is configurable per run; disabled by default, latency thresholds loosen when enabled.
 4. In stress-test deployment mode, all HTTP and WebSocket rate limits are bypassed to allow high virtual-user counts through a single service-token identity.
 5. A one-time warning is logged per worker instance when the rate-limit bypass activates.
@@ -545,8 +545,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The OSSF Scorecard workflow runs on push to main and weekly.
 2. Scorecard results are uploaded to GitHub Security.
-3. Repository-level secret scanning with push protection is enabled.
-4. Dependabot security updates are enabled at the repository level.
+3. Repository-level secret scanning with push protection is enabled. This is a repository-level GitHub setting verified out of band, not from source.
+4. Dependabot security updates are enabled at the repository level. This is a repository-level GitHub setting verified out of band, not from source.
 
 **Constraints:**
 

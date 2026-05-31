@@ -1,7 +1,7 @@
 /**
- * Stripe webhook handler — unauthenticated, mounted under /public/stripe/*.
+ * Stripe webhook handler - unauthenticated, mounted under /public/stripe/*.
  *
- * POST /webhook — receives Stripe webhook events, verified by HMAC signature.
+ * POST /webhook - receives Stripe webhook events, verified by HMAC signature.
  * No CF Access auth, no CSRF. Signature is the only guard.
  *
  * Signal and Sync pattern: webhooks are signals that trigger a fetch of the
@@ -37,11 +37,17 @@ const app = new Hono<{ Bindings: Env }>();
 /** Dedupe TTL: 72 hours in seconds */
 const DEDUPE_TTL_SECONDS = 72 * 60 * 60;
 
-// CF-010: Rate limit webhook endpoint to prevent volume-based attacks
+// CF-010: Rate limit webhook endpoint to prevent volume-based attacks.
+// CF-012: This limiter runs before signature verification and keys on a spoofable
+// CF-Connecting-IP fallback, so the budget is tightened (was 100/min) to bound how
+// much a spoofed IP can burn before the signature check rejects the payload.
+// CF-006: failClosed so a KV outage cannot fail open and remove this guard on an
+// unauthenticated mutation endpoint (see AD66).
 const webhookRateLimiter = createRateLimiter({
   windowMs: 60_000,
-  maxRequests: 100,
+  maxRequests: 30,
   keyPrefix: 'stripe-webhook',
+  failClosed: true,
 });
 
 // POST /webhook
@@ -74,7 +80,7 @@ app.post('/webhook', webhookRateLimiter, async (c) => {
   // Dedupe: check if we've already processed this event.
   // Note: KV has ~60s eventual consistency lag. A Stripe retry hitting a different
   // edge before the dedupe key propagates may re-process the event. This is acceptable
-  // because all handlers are idempotent — syncSubscriptionState fetches the same
+  // because all handlers are idempotent - syncSubscriptionState fetches the same
   // latest state from Stripe regardless of how many times it runs.
   const dedupeKey = `stripe:event:${event.id}`;
   const existingEvent = await c.env.KV.get(dedupeKey);
@@ -110,17 +116,17 @@ app.post('/webhook', webhookRateLimiter, async (c) => {
       type: event.type,
     });
     // Return 500 so Stripe retries transient failures (KV timeouts, network errors).
-    // Dedupe key is NOT written — the event can be reprocessed on retry.
+    // Dedupe key is NOT written - the event can be reprocessed on retry.
     return c.json({ error: 'Internal handler error' }, 500);
   }
 });
 
 // ---------------------------------------------------------------------------
-// Event handlers — Signal and Sync (3 handlers, reduced from 6)
+// Event handlers - Signal and Sync (3 handlers, reduced from 6)
 // ---------------------------------------------------------------------------
 
 /**
- * checkout.session.completed — initial subscription setup.
+ * checkout.session.completed - initial subscription setup.
  * Maps email→customer in KV, writes subscribedAt/checkoutSessionId,
  * then calls syncSubscriptionState for tier/billing fields.
  */
@@ -213,14 +219,14 @@ async function handleCheckoutCompleted(
       });
     }
   } catch {
-    // Non-fatal — emails are best-effort
+    // Non-fatal - emails are best-effort
   }
 
   logger.info('Checkout completed', { email, customerId, subscriptionId });
 }
 
 /**
- * customer.subscription.updated — plan changes, renewals, payment status changes.
+ * customer.subscription.updated - plan changes, renewals, payment status changes.
  * Delegates entirely to syncSubscriptionState.
  */
 async function handleSubscriptionUpdated(
@@ -239,7 +245,7 @@ async function handleSubscriptionUpdated(
 }
 
 /**
- * customer.subscription.deleted — subscription canceled/expired.
+ * customer.subscription.deleted - subscription canceled/expired.
  * Writes directly (can't fetch a deleted subscription from Stripe API).
  */
 async function handleSubscriptionDeleted(
@@ -268,7 +274,7 @@ async function handleSubscriptionDeleted(
     subscribedMode: 'default',
   });
 
-  // Auto-reconcile preseed to default mode — subscription actually terminated
+  // Auto-reconcile preseed to default mode - subscription actually terminated
   // (period ended after cancel, or immediate revocation). This does NOT fire
   // when user initiates cancellation (that's cancel_at_period_end: true on
   // subscription.updated, which keeps the subscription active).
@@ -296,7 +302,7 @@ async function handleSubscriptionDeleted(
 }
 
 // ---------------------------------------------------------------------------
-// Signal and Sync — fetch latest state from Stripe API and write to KV
+// Signal and Sync - fetch latest state from Stripe API and write to KV
 // ---------------------------------------------------------------------------
 
 /**
@@ -338,7 +344,7 @@ export async function syncSubscriptionState(
     return;
   }
 
-  // 4. Build patch from snapshot — only set tier/mode if not null (preserve existing)
+  // 4. Build patch from snapshot - only set tier/mode if not null (preserve existing)
   const patch: Record<string, unknown> = {
     stripeSubscriptionId: snapshot.subscriptionId,
     stripeCustomerId: snapshot.customerId,
@@ -405,7 +411,7 @@ export async function syncSubscriptionState(
 }
 
 // ---------------------------------------------------------------------------
-// Customer lookup — CF-005: KV lookup with Stripe API fallback
+// Customer lookup - CF-005: KV lookup with Stripe API fallback
 // ---------------------------------------------------------------------------
 
 async function resolveEmailFromCustomer(customerId: string, env: Env): Promise<string | null> {

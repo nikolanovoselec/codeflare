@@ -3,7 +3,7 @@
  * Used by buildSetBucketNameBody to validate before sending to the container.
  *
  * Uses .passthrough() on nested objects so extra fields survive validation.
- * Tab config is loosely validated — the frontend schema in web-ui/src/lib/schemas.ts
+ * Tab config is loosely validated - the frontend schema in web-ui/src/lib/schemas.ts
  * enforces the strict shape; this schema only guards the transport layer.
  */
 import { z } from 'zod';
@@ -23,7 +23,9 @@ export const SetBucketNameBodySchema = z.object({
   geminiApiKey: z.string().optional(),
   githubToken: z.string().optional(),
   cloudflareApiToken: z.string().optional(),
-  cloudflareAccountId: z.string().optional(),
+  // null is an explicit clear that must propagate to the container so a
+  // revoked account ID is unset rather than left stale (REQ-AGENT-029 AC2).
+  cloudflareAccountId: z.string().nullable().optional(),
   encryptionKey: z.string().optional(),
   sessionMode: z.string(),
   sleepAfter: z.string(),

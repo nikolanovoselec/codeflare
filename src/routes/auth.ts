@@ -5,7 +5,7 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError, toError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
-import { getTierConfig, getEffectiveTier, SUBSCRIBABLE_TIER_IDS, countPaidSlots } from '../lib/subscription';
+import { getTierConfig, getEffectiveTier, isActiveTier, SUBSCRIBABLE_TIER_IDS, countPaidSlots } from '../lib/subscription';
 import { getAllUsers, getAdminEmails } from '../lib/access-policy';
 import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
@@ -21,20 +21,20 @@ const logger = createLogger('auth-routes');
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
-// Public — no authentication required
+// Public - no authentication required
 app.get('/providers', async (c) => {
   const idpList = await c.env.KV.get(SETUP_KEYS.IDP_LIST, 'json');
   return c.json({ providers: idpList || [] });
 });
 
-// GET /api/auth/onboarding-config — onboarding page config (turnstile key).
-// Moved from /public/onboarding-config — user is authenticated at this point.
+// GET /api/auth/onboarding-config - onboarding page config (turnstile key).
+// Moved from /public/onboarding-config - user is authenticated at this point.
 app.get('/onboarding-config', requireIdentity, async (c) => {
   const siteKey = await c.env.KV.get(SETUP_KEYS.TURNSTILE_SITE_KEY);
   return c.json({ active: true, turnstileSiteKey: siteKey });
 });
 
-// GET /api/auth/tiers — subscribable tier config for the subscribe page.
+// GET /api/auth/tiers - subscribable tier config for the subscribe page.
 app.get('/tiers', requireIdentity, async (c) => {
   const allTiers = await getTierConfig(c.env.KV);
   const subscribable = allTiers.filter((t) => {
@@ -65,7 +65,7 @@ app.get('/tiers', requireIdentity, async (c) => {
           };
         });
         return c.json({ tiers: enriched });
-      } catch { /* non-fatal — return tiers without prices */ }
+      } catch { /* non-fatal - return tiers without prices */ }
     }
   }
 
@@ -159,7 +159,7 @@ const RequestAccessSchema = z.object({
 });
 
 
-// POST /api/auth/request-access — pending users request access with Turnstile captcha (SaaS mode)
+// POST /api/auth/request-access - pending users request access with Turnstile captcha (SaaS mode)
 app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c) => {
   const user = c.get('user');
   // Default to 'advanced' if tier is unset (pre-setup or service auth)
@@ -246,7 +246,7 @@ const SubscribeSchema = z.object({
   mode: z.enum(['default', 'advanced']).optional().default('default'),
 });
 
-// POST /api/auth/subscribe — self-service tier selection for pending users
+// POST /api/auth/subscribe - self-service tier selection for pending users
 app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const user = c.get('user');
   const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
@@ -263,15 +263,31 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     throw new ValidationError(`Invalid tier: ${parsed.data.tier}. Must be one of: free, standard, advanced, max, unlimited`);
   }
 
-  // Gate paid tiers when Stripe is configured — they must go through checkout
+  // Gate paid tiers when Stripe is configured - they must go through checkout
   if (isStripeConfigured(c.env) && parsed.data.tier !== 'free') {
     throw new ValidationError('Paid subscriptions require checkout.');
   }
 
   const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
-  const isAlreadySubscribed = !!existingRaw?.subscribedAt;
+  // CF-040: derive "already subscribed" from the effective tier, not a bare
+  // subscribedAt timestamp. subscription.deleted clears tier/status but never
+  // clears subscribedAt, so the old check let a canceled user resubscribe
+  // without re-hitting the maxUsers cap. "Already subscribed" now means the
+  // user currently occupies a paid slot (active, non-free, subscribable tier);
+  // a canceled (effective 'free') or free->paid transition is treated as a new
+  // occupant and re-enforces the cap. An active paid user switching plans still
+  // resolves to a paid effective tier and keeps skipping the cap.
+  const effectiveExisting = getEffectiveTier(
+    existingRaw?.subscriptionTier as string | undefined,
+    existingRaw?.accessTier as string | undefined,
+    existingRaw?.billingStatus as string | null | undefined,
+    existingRaw?.billingPeriodEnd as string | null | undefined,
+  );
+  const isAlreadySubscribed = isActiveTier(effectiveExisting)
+    && SUBSCRIBABLE_TIER_IDS.has(effectiveExisting)
+    && effectiveExisting !== 'free';
 
-  // Max users cap — block new subscriptions when capacity is reached
+  // Max users cap - block new subscriptions when capacity is reached
   if (!isAlreadySubscribed) {
     const maxUsers = parseInt(await c.env.KV.get(SETUP_KEYS.MAX_USERS) ?? '0');
     if (maxUsers > 0) {
@@ -413,7 +429,7 @@ const contactTeamRateLimiter = createRateLimiter({
   keyPrefix: 'contact-team',
 });
 
-// POST /api/auth/contact-team — notify admins that a user wants Team/Enterprise access
+// POST /api/auth/contact-team - notify admins that a user wants Team/Enterprise access
 app.post('/contact-team', requireIdentity, contactTeamRateLimiter, async (c) => {
   const user = c.get('user');
   let plan: string | undefined;

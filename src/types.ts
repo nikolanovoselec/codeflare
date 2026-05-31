@@ -81,7 +81,7 @@ export interface Env {
   // Set via wrangler secret. When absent, credentials stored as plaintext.
   ENCRYPTION_KEY?: string;
 
-  // GitHub OAuth (SaaS mode only — replaces CF Access for authentication)
+  // GitHub OAuth (SaaS mode only - replaces CF Access for authentication)
   // Create an OAuth App at github.com/settings/applications/new
   OAUTH_CLIENT_ID?: string;      // OAuth App client ID (wrangler.toml var, public)
   OAUTH_CLIENT_SECRET?: string;   // OAuth App client secret (wrangler secret)
@@ -255,7 +255,12 @@ export interface LlmKeys {
 export interface DeployKeys {
   githubToken?: string;
   cloudflareApiToken?: string;
-  cloudflareAccountId?: string;
+  /**
+   * Cloudflare account ID. `null` is an explicit clear that must propagate to
+   * the container DO (REQ-AGENT-029 AC2) - a missing field is "no change", a
+   * `null` field revokes the previously-injected value. Distinguish the two.
+   */
+  cloudflareAccountId?: string | null;
 }
 
 /**
