@@ -30,7 +30,7 @@ import { createLogger, setLogLevel } from './lib/logger';
 import type { LogLevel } from './lib/logger';
 import { authenticateRequest } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
-import { verifySessionJWT, shouldRefreshJWT, signSessionJWT } from './lib/session-jwt';
+import { verifySessionJWT, shouldRefreshJWT, signSessionJWT, SESSION_JWT_AUD, cookieDomainAttr } from './lib/session-jwt';
 import { warnIfNoEncryptionKey } from './lib/kv-crypto';
 import { isOnboardingLandingPageActive, isSaasModeActive } from './lib/onboarding';
 import { isActiveUser } from './lib/access-tier';
@@ -75,7 +75,7 @@ const logger = createLogger('index');
 // Request Tracing Middleware
 // ============================================================================
 app.use('*', async (c, next) => {
-  // CF-001: Hard enforcement — STRESS_TEST_MODE must never bypass rate limits in SaaS production.
+  // CF-001: Hard enforcement - STRESS_TEST_MODE must never bypass rate limits in SaaS production.
   if (c.env.SAAS_MODE === 'active' && c.env.STRESS_TEST_MODE === 'active') {
     logger.error('BLOCKED: STRESS_TEST_MODE active in SaaS production', undefined, { path: c.req.path });
     return c.json({ error: 'Misconfiguration: stress test mode cannot be active in SaaS production' }, 503);
@@ -108,7 +108,7 @@ app.use('*', async (c, next) => {
   });
 });
 
-// SaaS mode: cookie refresh middleware — extends session when < 15 min remaining
+// SaaS mode: cookie refresh middleware - extends session when < 15 min remaining
 app.use('*', async (c, next) => {
   await next();
   // Only refresh for SaaS OIDC mode
@@ -118,15 +118,16 @@ app.use('*', async (c, next) => {
   const match = cookieHeader.match(/codeflare_session=([^;]+)/);
   if (!match) return;
   try {
-    const payload = await verifySessionJWT(match[1], c.env.OAUTH_JWT_SECRET);
+    const payload = await verifySessionJWT(match[1], c.env.OAUTH_JWT_SECRET, SESSION_JWT_AUD);
     if (payload && shouldRefreshJWT(payload)) {
       const refreshed = await signSessionJWT(
-        { email: payload.email, sub: payload.sub, ghLogin: payload.ghLogin },
+        { email: payload.email, sub: payload.sub, ghLogin: payload.ghLogin, aud: SESSION_JWT_AUD },
         c.env.OAUTH_JWT_SECRET,
       );
-      c.header('Set-Cookie', `codeflare_session=${refreshed}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`);
+      const domainAttr = cookieDomainAttr(await c.env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN));
+      c.header('Set-Cookie', `codeflare_session=${refreshed}; HttpOnly; Secure; SameSite=Lax; Path=/${domainAttr}; Max-Age=3600`);
     }
-  } catch { /* non-fatal — don't break the response */ }
+  } catch { /* non-fatal - don't break the response */ }
 });
 
 // CORS middleware - restrict to trusted origins (configurable via ALLOWED_ORIGINS env var)
@@ -136,7 +137,7 @@ app.use('*', async (c, next) => {
   // Determine allowed origin for this request
   let allowedOrigin: string | null = null;
   if (!origin) {
-    // No origin header (same-origin, curl, etc.) — skip CORS headers entirely
+    // No origin header (same-origin, curl, etc.) - skip CORS headers entirely
     allowedOrigin = null;
   } else if (await isAllowedOrigin(origin, c.env)) {
     // Check against configurable allowed patterns
@@ -168,7 +169,7 @@ app.use('*', async (c, next) => {
   }
 });
 
-// Body size limit on API routes (64 KiB) — storage routes define their own limits
+// Body size limit on API routes (64 KiB) - storage routes define their own limits
 app.use('/api/*', async (c, next) => {
   if (c.req.path.startsWith('/api/storage/')) {
     return next();
@@ -301,7 +302,7 @@ export default {
       return handleWebSocketUpgrade(request, env, ctx, wsRouteResult);
     }
 
-    // Vault proxy (HTTP + WS) — intercept BEFORE Hono so SilverBullet's
+    // Vault proxy (HTTP + WS) - intercept BEFORE Hono so SilverBullet's
     // static assets and live-sync WS URLs are not filtered by Hono
     // routes. `/api/vault/:sid/status` falls through to Hono for the
     // small JSON status endpoint; everything else is proxied to the
@@ -349,10 +350,10 @@ export default {
           if (isActiveUser(effectiveTier)) {
             return redirectWithHeaders('/app/');
           }
-          // Authenticated but pending/blocked — redirect to subscribe page
+          // Authenticated but pending/blocked - redirect to subscribe page
           return redirectWithHeaders('/app/subscribe');
         } catch {
-          // Not authenticated — serve SPA (LoginPage)
+          // Not authenticated - serve SPA (LoginPage)
         }
       } else if (!onboardingLandingActive) {
         return redirectWithHeaders('/app/');
@@ -361,7 +362,7 @@ export default {
           await authenticateRequest(request, env);
           return redirectWithHeaders('/app/');
         } catch {
-          // Unauthenticated — serve landing page
+          // Unauthenticated - serve landing page
         }
       }
     }
@@ -375,6 +376,11 @@ export default {
     }
     // CSP includes Turnstile origins (challenges.cloudflare.com) because the SPA
     // renders the onboarding landing page with Turnstile widget when onboarding is active.
+    // style-src retains 'unsafe-inline' (CF-016): the React SPA renders many inline
+    // style={{...}} attributes across components, which CSP nonces/hashes cannot cover
+    // (those apply to <style> elements, not the style= attribute). Removing it would break
+    // rendering and require rewriting every call site. script-src is already nonce-free and
+    // tight; this residual is style-injection-only (low blast radius).
     secureResponse.headers.set('Content-Security-Policy',
       "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss:; img-src 'self' data: https://www.gravatar.com; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     );

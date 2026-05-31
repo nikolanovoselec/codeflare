@@ -30,7 +30,7 @@ async function validateGithubToken(token: string): Promise<void> {
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) {
-    throw new ValidationError('Invalid GitHub token — could not authenticate with GitHub API');
+    throw new ValidationError('Invalid GitHub token - could not authenticate with GitHub API');
   }
 }
 
@@ -51,11 +51,11 @@ async function validateCloudflareToken(token: string): Promise<CloudflareAccount
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) {
-    throw new ValidationError('Invalid Cloudflare token — could not authenticate with Cloudflare API');
+    throw new ValidationError('Invalid Cloudflare token - could not authenticate with Cloudflare API');
   }
   const body = await res.json() as { success: boolean; result?: CloudflareAccount[] };
   if (!body.success || !Array.isArray(body.result)) {
-    throw new ValidationError('Invalid Cloudflare token — API returned an error');
+    throw new ValidationError('Invalid Cloudflare token - API returned an error');
   }
   return body.result;
 }
@@ -77,7 +77,7 @@ app.get('/', async (c) => {
   return c.json({
     githubToken: maskSecret(stored?.githubToken),
     cloudflareApiToken: maskSecret(stored?.cloudflareApiToken),
-    cloudflareAccountId: stored?.cloudflareAccountId ?? undefined,
+    cloudflareAccountId: stored?.cloudflareAccountId ?? null,
   });
 });
 
@@ -122,14 +122,26 @@ app.put('/', async (c) => {
       updated.cloudflareAccountId = accounts[0].id;
     } else if (accounts.length > 1) {
       cloudflareAccounts = accounts;
-      // Don't auto-set account ID — frontend will send it via cloudflareAccountId field
+      // Don't auto-set account ID - frontend will send it via cloudflareAccountId field
     }
   }
 
-  // Cloudflare account ID: explicit selection (only valid when token is already set)
+  // Cloudflare account ID: explicit selection (only valid when token is set).
+  // Re-validate the supplied ID against the token's account list so an
+  // arbitrary value can't be stored without proving the token can access it
+  // (avoids SSRF-like probing - REQ-AGENT-029 AC2 / REQ-AGENT-020 AC2).
   if (parsed.data.cloudflareAccountId === null) {
     delete updated.cloudflareAccountId;
   } else if (typeof parsed.data.cloudflareAccountId === 'string') {
+    if (!updated.cloudflareApiToken) {
+      throw new ValidationError('Cannot set a Cloudflare account ID without a Cloudflare token');
+    }
+    // Reuse the validation already performed above when the token was
+    // co-submitted this request; otherwise validate the stored token now.
+    const accounts = cloudflareAccounts ?? await validateCloudflareToken(updated.cloudflareApiToken);
+    if (!accounts.some((account) => account.id === parsed.data.cloudflareAccountId)) {
+      throw new ValidationError('Cloudflare account ID is not accessible with the stored token');
+    }
     updated.cloudflareAccountId = parsed.data.cloudflareAccountId;
   }
 
@@ -143,7 +155,9 @@ app.put('/', async (c) => {
   return c.json({
     githubToken: maskSecret(updated.githubToken),
     cloudflareApiToken: maskSecret(updated.cloudflareApiToken),
-    cloudflareAccountId: updated.cloudflareAccountId ?? undefined,
+    // Emit explicit null on clear so the absence of a value is unambiguous to
+    // the client rather than dropped by JSON serialization (REQ-AGENT-029 AC2).
+    cloudflareAccountId: updated.cloudflareAccountId ?? null,
     ...(cloudflareAccounts && { cloudflareAccounts }),
   });
 });

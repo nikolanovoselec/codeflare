@@ -3,8 +3,10 @@ import { z } from 'zod';
 // Agent type enum
 export const AgentTypeSchema = z.enum(['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash']);
 
-// Tab config schema (mirrors backend src/lib/schemas.ts constraints)
-const TabConfigSchema = z.object({
+// Tab config schema (mirrors backend src/lib/schemas.ts constraints).
+// Exported so the cross-tier parity test (src/__tests__/contract/schemas.test.ts)
+// can assert it stays in sync with the backend copy (CF-010).
+export const TabConfigSchema = z.object({
   id: z.string().regex(/^[1-6]$/),
   command: z.string().max(200),
   label: z.string().max(50),
@@ -88,7 +90,7 @@ export const SessionSchema = z.object({
   tabConfig: z.array(TabConfigSchema).optional(),
 });
 
-// Response schemas for API endpoints — these are the strict, runtime-validated schemas.
+// Response schemas for API endpoints - these are the strict, runtime-validated schemas.
 // Previously duplicated in client.ts (strict) and here (loose). Now consolidated as the single source of truth.
 
 export const UserResponseSchema = z.object({
@@ -169,7 +171,7 @@ export const BatchSessionStatusResponseSchema = z.object({
   preseedNeedsUpgrade: z.boolean().optional(),
 });
 
-// Setup API schemas — moved from client.ts (strict versions)
+// Setup API schemas - moved from client.ts (strict versions)
 export const SetupStatusResponseSchema = z.object({
   configured: z.boolean(),
   tokenDetected: z.boolean().optional(),
@@ -190,7 +192,7 @@ export const SetupPrefillResponseSchema = z.object({
   allowedUsers: z.array(z.string()).default([]),
 });
 
-// User management schemas — moved from client.ts (strict versions)
+// User management schemas - moved from client.ts (strict versions)
 export const UserEntrySchema = z.object({
   email: z.string(),
   addedBy: z.string(),
@@ -307,7 +309,8 @@ const CloudflareAccountSchema = z.object({
 export const DeployKeysResponseSchema = z.object({
   githubToken: z.string().optional(),
   cloudflareApiToken: z.string().optional(),
-  cloudflareAccountId: z.string().optional(),
+  // null is an explicit clear emitted by the Worker (REQ-AGENT-029 AC2).
+  cloudflareAccountId: z.string().nullable().optional(),
   cloudflareAccounts: z.array(CloudflareAccountSchema).optional(),
 });
 

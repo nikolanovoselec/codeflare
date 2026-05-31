@@ -6,11 +6,11 @@
  */
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { signSessionJWT } from '../lib/session-jwt';
+import { signSessionJWT, SESSION_JWT_AUD, cookieDomainAttr } from '../lib/session-jwt';
 import { createLogger } from '../lib/logger';
 import { toError } from '../lib/error-types';
 import { parseUserRecord } from '../lib/user-record';
-import { getBaseUrl } from '../lib/kv-keys';
+import { getBaseUrl, SETUP_KEYS } from '../lib/kv-keys';
 import { isActiveTier } from '../lib/subscription';
 import { signOauthState, verifyOauthState, parseOauthState, claimOauthNonce } from '../lib/oauth-state';
 import { createRateLimiter } from '../middleware/rate-limit';
@@ -39,7 +39,7 @@ const loginRateLimiter = createRateLimiter({
 });
 
 // ---------------------------------------------------------------------------
-// GET /login — Redirect to GitHub OAuth authorize
+// GET /login - Redirect to GitHub OAuth authorize
 // ---------------------------------------------------------------------------
 app.get('/login', loginRateLimiter, async (c) => {
   const clientId = c.env.OAUTH_CLIENT_ID;
@@ -68,7 +68,7 @@ app.get('/login', loginRateLimiter, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /callback — Exchange code for token, issue session JWT
+// GET /callback - Exchange code for token, issue session JWT
 // ---------------------------------------------------------------------------
 app.get('/callback', callbackRateLimiter, async (c) => {
   if (!c.env.OAUTH_CLIENT_ID || !c.env.OAUTH_CLIENT_SECRET || !c.env.OAUTH_JWT_SECRET) {
@@ -90,7 +90,7 @@ app.get('/callback', callbackRateLimiter, async (c) => {
     return c.redirect(`${base}/?error=${encodeURIComponent(safeError)}`);
   }
 
-  // Validate state — HMAC signature + 30-minute iat window (CSRF protection).
+  // Validate state - HMAC signature + 30-minute iat window (CSRF protection).
   // On failure, redirect to the login page with an error param so the user
   // gets a clean retry path instead of a raw JSON 403.
   const queryState = url.searchParams.get('state');
@@ -174,7 +174,7 @@ app.get('/callback', callbackRateLimiter, async (c) => {
 
   // Sign session JWT
   const jwt = await signSessionJWT(
-    { email: email.toLowerCase().trim(), sub: String(userId), ghLogin: userLogin },
+    { email: email.toLowerCase().trim(), sub: String(userId), ghLogin: userLogin, aud: SESSION_JWT_AUD },
     c.env.OAUTH_JWT_SECRET,
   );
 
@@ -183,16 +183,19 @@ app.get('/callback', callbackRateLimiter, async (c) => {
   const isActive = userRecord ? isActiveTier(userRecord.subscriptionTier) : false;
   const redirectTo = isActive ? `${base}/app/` : `${base}/app/subscribe`;
 
-  c.header('Set-Cookie', `codeflare_session=${jwt}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`);
+  const domainAttr = cookieDomainAttr(await c.env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN));
+  c.header('Set-Cookie', `codeflare_session=${jwt}; HttpOnly; Secure; SameSite=Lax; Path=/${domainAttr}; Max-Age=3600`);
   logger.info('GitHub OAuth login successful', { email, ghLogin: userLogin });
   return c.redirect(redirectTo);
 });
 
 // ---------------------------------------------------------------------------
-// GET /logout — Clear session cookie
+// GET /logout - Clear session cookie
 // ---------------------------------------------------------------------------
 app.get('/logout', async (c) => {
-  c.header('Set-Cookie', `codeflare_session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
+  // Domain must match the set-cookie attributes or the browser won't clear it.
+  const domainAttr = cookieDomainAttr(await c.env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN));
+  c.header('Set-Cookie', `codeflare_session=; HttpOnly; Secure; SameSite=Lax; Path=/${domainAttr}; Max-Age=0`);
   const base = await getBaseUrl(c.env.KV, c.req.url);
   return c.redirect(`${base}/`);
 });

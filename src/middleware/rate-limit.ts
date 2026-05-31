@@ -53,9 +53,13 @@ export interface RateLimitConfig {
  */
 export function createRateLimiter(config: RateLimitConfig): MiddlewareHandler<{ Bindings: Env; Variables: Partial<AuthVariables> }> {
   return async (c, next) => {
+    // CF-015: Non-SaaS operator-set bypass only. In SaaS production this branch is
+    // unreachable - the AD26 trust model is enforced by the hard guard at
+    // src/index.ts:78-80, which 503s any request when SAAS_MODE && STRESS_TEST_MODE
+    // are both active before this middleware runs.
     if (c.env.STRESS_TEST_MODE === 'active') {
       if (!stressTestWarningLogged) {
-        logger.warn('STRESS_TEST_MODE is active — all HTTP rate limits bypassed');
+        logger.warn('STRESS_TEST_MODE is active - all HTTP rate limits bypassed');
         stressTestWarningLogged = true;
       }
       return next();
@@ -84,6 +88,12 @@ export function createRateLimiter(config: RateLimitConfig): MiddlewareHandler<{ 
     });
 
     if (!result.allowed) {
+      // CF-012: Attach advisory rate-limit headers to the 429. Headers set on the
+      // context survive the throw -> app.onError(...) path, so the RATE_LIMIT_ERROR
+      // response carries Retry-After + X-RateLimit-* (REQ-SEC-007 AC4).
+      c.header('Retry-After', result.retryAfterSec.toString());
+      c.header('X-RateLimit-Limit', config.maxRequests.toString());
+      c.header('X-RateLimit-Remaining', '0');
       throw new RateLimitError(`Rate limit exceeded. Try again in ${result.retryAfterSec} seconds.`);
     }
 

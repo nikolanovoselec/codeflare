@@ -15,7 +15,7 @@ import { getContainerSessionsCB } from '../../lib/circuit-breakers';
 import { toApiSession } from '../../lib/session-helpers';
 import { ValidationError } from '../../lib/error-types';
 import { isSaasModeActive } from '../../lib/onboarding';
-import { getTierConfig, getUserTier } from '../../lib/subscription';
+import { getTierConfig, getEffectiveTierForUser } from '../../lib/subscription';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import type { UsageRecord } from '../../types';
 
@@ -115,7 +115,7 @@ app.get('/batch-status', async (c) => {
       const sessionId = key.name.split(':').pop()!;
       statuses[sessionId] = expandSessionMetadata(meta);
     } else {
-      // Pre-migration key without metadata — queue for fallback KV.get
+      // Pre-migration key without metadata - queue for fallback KV.get
       fallbackKeys.push(key);
     }
   }
@@ -153,19 +153,18 @@ app.get('/batch-status', async (c) => {
         c.env.KV.get<UsageRecord>(getTimekeeperKey(bucketName), 'json'),
         getTierConfig(c.env.KV),
       ]);
-      const tierValue = user.subscriptionTier ?? user.accessTier;
-      const tier = getUserTier(tierValue, tiers);
+      const entitlements = getEffectiveTierForUser(user, tiers);
       const now = new Date();
       const currentMonth = getUtcMonthString(now);
       const currentDate = getUtcDateString(now);
       usage = {
         dailySeconds: (record && record.today.date === currentDate) ? record.today.seconds : 0,
         monthlySeconds: (record && record.thisMonth.month === currentMonth) ? record.thisMonth.seconds : 0,
-        monthlyQuotaSeconds: tier.monthlySeconds,
-        tier: tier.id,
+        monthlyQuotaSeconds: entitlements.monthlyQuotaSeconds,
+        tier: entitlements.effectiveTier,
       };
     } catch {
-      // Non-fatal — usage display is best-effort
+      // Non-fatal - usage display is best-effort
     }
   }
 
@@ -212,7 +211,7 @@ app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
   const updated = { ...session, status: 'stopped' as const, lastStatusCheck: Date.now() };
   await putSessionWithMetadata(c.env.KV, key, updated);
 
-  // Best-effort container destroy — container may already be stopped
+  // Best-effort container destroy - container may already be stopped
   try {
     const containerId = getContainerId(bucketName, sessionId);
     const container = getContainer(c.env.CONTAINER, containerId);

@@ -16,6 +16,56 @@ const UpdateLlmKeysBody = z.object({
   geminiApiKey: z.string().min(1).max(256).nullable().optional(),
 }).strict();
 
+/**
+ * Reject keys containing newlines or non-ASCII characters (header-injection surface).
+ * Throws ValidationError if the key is not clean.
+ */
+function assertCleanKey(provider: string, key: string): void {
+  // eslint-disable-next-line no-control-regex
+  if (/[^\x21-\x7e]/.test(key)) {
+    throw new ValidationError(`Invalid ${provider} key - contains whitespace or non-ASCII characters`);
+  }
+}
+
+/**
+ * Validate an OpenAI API key by calling a lightweight endpoint.
+ * Throws ValidationError if the key is invalid or the provider is unreachable.
+ */
+async function validateOpenAIKey(key: string): Promise<void> {
+  assertCleanKey('OpenAI', key);
+  let res: Response;
+  try {
+    res = await fetch('https://api.openai.com/v1/models', {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    throw new ValidationError('Could not validate OpenAI key - provider unreachable');
+  }
+  if (!res.ok) {
+    throw new ValidationError('Invalid OpenAI key - could not authenticate with OpenAI API');
+  }
+}
+
+/**
+ * Validate a Gemini API key by calling a lightweight endpoint.
+ * Throws ValidationError if the key is invalid or the provider is unreachable.
+ */
+async function validateGeminiKey(key: string): Promise<void> {
+  assertCleanKey('Gemini', key);
+  let res: Response;
+  try {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    throw new ValidationError('Could not validate Gemini key - provider unreachable');
+  }
+  if (!res.ok) {
+    throw new ValidationError('Invalid Gemini key - could not authenticate with Gemini API');
+  }
+}
+
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 app.use('*', authMiddleware);
@@ -57,16 +107,18 @@ app.put('/', async (c) => {
   const existing = await getAndDecrypt<LlmKeys>(c.env.KV, kvKey, cryptoKey) || {};
   const updated: LlmKeys = { ...existing };
 
-  // null = delete, undefined = no change, string = set
+  // null = delete, undefined = no change, string = validate + set
   if (parsed.data.openaiApiKey === null) {
     delete updated.openaiApiKey;
   } else if (typeof parsed.data.openaiApiKey === 'string') {
+    await validateOpenAIKey(parsed.data.openaiApiKey);
     updated.openaiApiKey = parsed.data.openaiApiKey;
   }
 
   if (parsed.data.geminiApiKey === null) {
     delete updated.geminiApiKey;
   } else if (typeof parsed.data.geminiApiKey === 'string') {
+    await validateGeminiKey(parsed.data.geminiApiKey);
     updated.geminiApiKey = parsed.data.geminiApiKey;
   }
 

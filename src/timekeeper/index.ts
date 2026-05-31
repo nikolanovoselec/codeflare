@@ -1,5 +1,5 @@
 /**
- * Timekeeper Durable Object — per-user usage accumulation + quota enforcement.
+ * Timekeeper Durable Object - per-user usage accumulation + quota enforcement.
  *
  * One Timekeeper DO per user. Container DOs ping it with monotonic totalSeconds
  * per session. Timekeeper computes deltas, accumulates pendingSeconds, and
@@ -9,6 +9,7 @@
  * KV key: timekeeper:{bucketName}
  * See UsageRecord in src/types.ts for the KV value shape.
  */
+import { z } from 'zod';
 import type { Env, UsageRecord } from '../types';
 import { BILLING_STATUS } from '../types';
 import { getTimekeeperKey, getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../lib/kv-keys';
@@ -21,6 +22,9 @@ const logger = createLogger('timekeeper');
 
 const FLUSH_INTERVAL_MS = 300_000; // 5 minutes
 const RETRY_INTERVAL_MS = 30_000;  // 30 seconds on failure
+
+/** Persisted sessionTotals shape: sessionId -> accumulated seconds. */
+const SessionTotalsSchema = z.record(z.string(), z.number());
 
 // Module-level cache for user:{email} records (same pattern as getTierConfig).
 // Quota decisions may use stale user data for up to 60s after billing changes.
@@ -81,7 +85,10 @@ export class Timekeeper {
       this.email = email ?? null;
       this.lastFlushedMonthlyTotal = flushedMonthly ?? 0;
       if (totals) {
-        try { this.sessionTotals = JSON.parse(totals); } catch { /* ignore corrupt data */ }
+        try {
+          const parsed = SessionTotalsSchema.safeParse(JSON.parse(totals));
+          if (parsed.success) this.sessionTotals = parsed.data;
+        } catch { /* ignore corrupt data */ }
       }
     });
   }
@@ -164,7 +171,7 @@ export class Timekeeper {
     const previousTotal = this.sessionTotals[body.sessionId] ?? 0;
     let delta: number;
     if (body.totalSeconds < previousTotal) {
-      // Session restarted — treat totalSeconds as fresh
+      // Session restarted - treat totalSeconds as fresh
       delta = Math.min(body.totalSeconds, MAX_DELTA_PER_PING);
     } else {
       delta = Math.min(body.totalSeconds - previousTotal, MAX_DELTA_PER_PING);
@@ -231,13 +238,13 @@ export class Timekeeper {
       if (isTrialing && trialQuotaSeconds > 0 && totalMonthlySeconds >= trialQuotaSeconds) {
         quotaExceeded = true;
         // End Stripe trial → triggers first charge. Guard against repeated calls
-        // (this fires every 60s per container — only call Stripe once).
+        // (this fires every 60s per container - only call Stripe once).
         const trialEnded = await this.ctx.storage.get<boolean>('trialEnded');
         if (!trialEnded && this.env.STRIPE_SECRET_KEY && userData.stripeSubscriptionId) {
           try {
             await endTrialNow(userData.stripeSubscriptionId, this.env.STRIPE_SECRET_KEY);
             await this.ctx.storage.put('trialEnded', true);
-            logger.info('Trial ended early — quota consumed', {
+            logger.info('Trial ended early - quota consumed', {
               email: this.email, seconds: totalMonthlySeconds, quota: trialQuotaSeconds,
             });
           } catch (err) {
@@ -248,7 +255,7 @@ export class Timekeeper {
         quotaExceeded = true;
       }
     } catch {
-      // Fail open — don't block on KV errors
+      // Fail open - don't block on KV errors
     }
 
     return Response.json({ quotaExceeded, totalMonthlySeconds });
@@ -299,7 +306,7 @@ export class Timekeeper {
       };
     }
 
-    // Handle rollovers — reset counters when period changes
+    // Handle rollovers - reset counters when period changes
     const todaySeconds = existing.today.date === currentDate
       ? existing.today.seconds + seconds : seconds;
     const weekSeconds = existing.thisWeek.weekStart === currentWeekStart

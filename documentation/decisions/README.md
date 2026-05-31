@@ -1157,6 +1157,29 @@ Three smaller decisions bundled in:
 
 ---
 
+### AD66: Security-sensitive rate limiters fail closed on KV outage
+
+**Category:** Security
+
+**Status:** Active (2026-05-31)
+
+**Context:** `checkRateLimit` ([rate-limit-core.ts](../../src/lib/rate-limit-core.ts)) uses KV as the primary store with a per-isolate in-memory fallback when KV operations fail. The default posture is fail-open: when KV is unreachable, the in-memory map allows the request and the limit is enforced only within a single isolate. Cloudflare fans a Worker out across many isolates, so under a KV outage the effective limit multiplies by the isolate count, silently defeating the limiter. For general resource-protection limiters (UX throttles, read endpoints) this degraded-mode allowance is acceptable. For security-sensitive limiters guarding unauthenticated or mutating endpoints (Turnstile-backed access-request, subscribe, the Stripe webhook), a fail-open KV outage is an availability-for-security trade that lets an attacker amplify abuse precisely when the store is degraded.
+
+**Decision:** Security-sensitive `createRateLimiter` sites pass `failClosed: true`, which makes `checkRateLimit` deny the request (429 with a 60s `Retry-After`) when the KV operation throws, instead of falling back to the per-isolate in-memory map. Purely cosmetic / UX limiters keep the default fail-open posture so a KV blip does not lock users out of read paths. The Stripe webhook limiter ([stripe-webhook.ts](../../src/routes/stripe-webhook.ts)) is `failClosed` because it is an unauthenticated mutation endpoint; the request-access limiter is already `failClosed`. The 429 path also emits advisory `Retry-After` and `X-RateLimit-*` headers set on the Hono context before the `RateLimitError` throw, which survive into the `app.onError` response.
+
+**Consequences:**
+- Under a KV outage, security-sensitive endpoints return 429 rather than silently allowing fan-out-multiplied traffic; this is a deliberate availability cost on those few endpoints.
+- General limiters are unchanged and still degrade open, so a KV blip does not break read-heavy UX.
+- A future maintainer adding a limiter on an auth/mutation/unauthenticated endpoint must set `failClosed: true`; the default remains fail-open by design.
+
+**Alternative considered:** Make every limiter fail closed. Rejected because a transient KV outage would then 429 read paths and degrade UX for no security benefit on endpoints that are not abuse-sensitive.
+
+**Alternative considered:** Replace the per-isolate in-memory fallback with a Durable Object counter to keep a single global count during KV outages. Rejected as disproportionate: it adds a DO round-trip to the hot path of every limited request for a degraded-mode edge case the fail-closed flag already covers correctly.
+
+**Related REQ:** [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) (rate-limiting infrastructure - KV primary with in-memory fallback, 429 with advisory headers).
+
+---
+
 ## Related Documentation
 
 - [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview

@@ -13,7 +13,7 @@ import { createRateLimiter } from '../middleware/rate-limit';
 import { isSaasModeActive } from '../lib/onboarding';
 import { reconcileAgentConfigs } from '../lib/r2-seed';
 import { getR2Config } from '../lib/r2-config';
-import { getEffectiveTier } from '../lib/subscription';
+import { getEffectiveTier, getTierConfig, getEffectiveTierForUser } from '../lib/subscription';
 import { createLogger } from '../lib/logger';
 
 const logger = createLogger('preferences');
@@ -92,10 +92,12 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
 
   if (parsed.data.sessionMode && isSaasModeActive(c.env.SAAS_MODE)) {
     const user = c.get('user');
-    // subscribedMode is the source of truth from Stripe — if the user paid for
-    // Pro (subscribedMode: 'advanced'), allow it regardless of tier config.
-    const subscribedToPro = user.subscribedMode === 'advanced';
-    if (parsed.data.sessionMode === 'advanced' && !subscribedToPro && user.role !== 'admin') {
+    // Gate on the billing-derived effective tier's allowed modes, so a user
+    // whose subscription lapsed (canceled/past_due/expired) loses advanced mode
+    // even if a stale subscribedMode still reads 'advanced'.
+    const tiers = await getTierConfig(c.env.KV);
+    const entitlements = getEffectiveTierForUser(user, tiers);
+    if (parsed.data.sessionMode === 'advanced' && !entitlements.allowedModes.includes('advanced') && user.role !== 'admin') {
       throw new ValidationError(`Session mode '${parsed.data.sessionMode}' not available for your subscription`);
     }
   }

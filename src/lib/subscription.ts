@@ -2,33 +2,33 @@
  * Subscription tier resolution logic.
  *
  * 8 tiers: blocked, pending, free, trial, standard, advanced, max, unlimited.
- * Replaces the old 4-value AccessTier system. Backward compatible — old
+ * Replaces the old 4-value AccessTier system. Backward compatible - old
  * accessTier values map directly to matching subscription tiers.
  *
- * ## Key functions — when to use which
+ * ## Key functions - when to use which
  *
- * - **{@link getEffectiveTier}** — canonical tier resolution. Combines
+ * - **{@link getEffectiveTier}** - canonical tier resolution. Combines
  *   `subscriptionTier`, `accessTier`, and billing state (status + period end)
  *   into a single effective tier string. This is the function to use whenever
  *   you need to know "what tier is this user *actually* on right now?" It
  *   handles cancellation downgrades, past-due grace periods, and missed-webhook
  *   safety nets. All quota/enforcement logic should resolve through this.
  *
- * - **{@link isActiveTier}** — lightweight boolean check. Returns `true` when
+ * - **{@link isActiveTier}** - lightweight boolean check. Returns `true` when
  *   a tier value is one of the active set (free, trial, standard, advanced,
- *   max, unlimited). Uses the hardcoded `ACTIVE_TIERS` set — does NOT consult
+ *   max, unlimited). Uses the hardcoded `ACTIVE_TIERS` set - does NOT consult
  *   KV tier config or the `canLogin` flag. Use this for fast-path guards where
  *   you only need to know "is this tier non-blocked/non-pending?" without
  *   incurring a KV read. For authoritative login checks that respect admin
  *   `canLogin` overrides, resolve tier config via {@link getTierConfig} and
  *   inspect the `canLogin` property directly.
  *
- * - **{@link getUserTier}** — resolves a tier ID against a
+ * - **{@link getUserTier}** - resolves a tier ID against a
  *   `SubscriptionTierConfig[]` array (from KV or defaults) and returns the
  *   full config object (quota, maxSessions, sessionModes, etc.). Use this
  *   when you need the config properties, not just the tier ID string.
  *
- * - **{@link getTierConfig}** — reads the admin-configurable tier table from
+ * - **{@link getTierConfig}** - reads the admin-configurable tier table from
  *   KV (1-minute cache) or falls back to {@link getDefaultTiers}. Pass the
  *   result to `getUserTier`, `getMaxSessionsForTier`, or
  *   `getAllowedSessionModes`.
@@ -224,7 +224,7 @@ export function getUserTier(
   tierValue: SubscriptionTier | string | undefined,
   tiers: SubscriptionTierConfig[]
 ): SubscriptionTierConfig {
-  // Guard against empty or corrupted tier config — fall back to hardcoded defaults
+  // Guard against empty or corrupted tier config - fall back to hardcoded defaults
   const safeTiers = tiers.length > 0 ? tiers : getDefaultTiers();
   if (tierValue !== undefined) {
     const found = safeTiers.find((t) => t.id === tierValue);
@@ -238,7 +238,7 @@ export function getUserTier(
 /**
  * Check if a tier value represents an active (non-blocked, non-pending) user.
  * undefined is treated as active for backward compatibility with pre-subscription users.
- * This is a fast-path check using hardcoded defaults — use canUserLogin() with tier config
+ * This is a fast-path check using hardcoded defaults - use canUserLogin() with tier config
  * for authoritative enforcement that respects admin-configured canLogin overrides.
  */
 export function isActiveTier(tier: SubscriptionTier | string | undefined): boolean {
@@ -261,7 +261,7 @@ const PAID_TIERS: ReadonlySet<string> = new Set(['standard', 'advanced', 'max'])
  * CF-009: When both tiers are undefined, default to 'pending'
  * instead of 'advanced' to prevent free compute for corrupted/missing KV records.
  *
- * CF-005: billingActive parameter removed — the fallback is always 'pending'
+ * CF-005: billingActive parameter removed - the fallback is always 'pending'
  * regardless of billing state. Non-SaaS deployments that need 'advanced' as the
  * default should set accessTier explicitly on user records.
  */
@@ -274,7 +274,7 @@ export function getEffectiveTier(
   const raw = subscriptionTier ?? accessTier ?? 'pending';
   if (!PAID_TIERS.has(raw)) return raw;
 
-  // Explicit cancellation — always downgrade, no grace period
+  // Explicit cancellation - always downgrade, no grace period
   if (billingStatus === BILLING_STATUS.CANCELED) {
     return 'free';
   }
@@ -299,6 +299,46 @@ export function getEffectiveTier(
   return raw;
 }
 
+/** Billing-derived entitlements resolved from a user record. */
+export interface EffectiveEntitlements {
+  effectiveTier: string;
+  allowedModes: SessionMode[];
+  maxSessions: number;
+  monthlyQuotaSeconds: number | null;
+}
+
+/**
+ * Resolve a user's effective entitlements from their record, combining
+ * {@link getEffectiveTier} (billing-aware tier resolution) with
+ * {@link getUserTier} (tier config lookup). Use this wherever you need the
+ * tier *and* its config-derived limits (allowed modes, quota, session cap)
+ * with cancellation/past-due downgrades applied. Additive over
+ * {@link getEffectiveTier}, which remains the canonical tier-string resolver.
+ */
+export function getEffectiveTierForUser(
+  user: {
+    subscriptionTier?: string;
+    accessTier?: string;
+    billingStatus?: string | null;
+    billingPeriodEnd?: string | null;
+  },
+  tiers: SubscriptionTierConfig[],
+): EffectiveEntitlements {
+  const effectiveTier = getEffectiveTier(
+    user.subscriptionTier,
+    user.accessTier,
+    user.billingStatus,
+    user.billingPeriodEnd,
+  );
+  const config = getUserTier(effectiveTier, tiers);
+  return {
+    effectiveTier,
+    allowedModes: config.sessionModes,
+    maxSessions: config.maxSessions,
+    monthlyQuotaSeconds: config.monthlySeconds,
+  };
+}
+
 /**
  * Get the max concurrent sessions allowed for a tier.
  */
@@ -321,7 +361,7 @@ export function getAllowedSessionModes(
   return tier?.sessionModes ?? [];
 }
 
-/** Paid tier IDs that occupy a capacity slot. Free tier excluded — low resource usage. */
+/** Paid tier IDs that occupy a capacity slot. Free tier excluded - low resource usage. */
 const SLOT_TIERS = new Set(['standard', 'advanced', 'max', 'unlimited']);
 
 /**
