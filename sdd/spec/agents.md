@@ -863,7 +863,7 @@ None.
 
 **Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
-**Status:** Partial
+**Status:** Implemented
 
 <!-- coverage-gap: AC6 (manifest-presence of skills/review/SKILL.md) and command-dispatch API compatibility are covered by agent-seed-manifest.test.ts. AC1-AC5 (flag parsing and the runtime workflow phases) are skill-content behavior injected at command time, with no dedicated automated test. -->
 
@@ -1569,7 +1569,7 @@ None.
 
 **Verification:** [Automated test](../../host/__tests__/skill-graphify-content.test.js)
 
-**Status:** Partial
+**Status:** Implemented
 
 <!-- coverage-gap: AC1-AC3 and AC6 are runtime behavioral checks not covered by the static SKILL.md content test. AC4-AC5 are verified by content test; AC7 is covered by the Pi seed/skill invariant test. -->
 
@@ -1602,7 +1602,7 @@ None.
 
 **Verification:** [Automated test](../../host/__tests__/graphify-clone-prompt.test.js)
 
-**Status:** Partial
+**Status:** Implemented
 
 <!-- coverage-gap: Claude post-clone hook path is implemented and covered. Pi native codeflare-pi.ts implements clone triage through lifecycle events, but Pi-specific tool_execution_end arg-correlation, follow-up emission, same-session idempotency, and failed-clone suppression need dedicated behavioral coverage. -->
 
