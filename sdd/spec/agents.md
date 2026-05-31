@@ -923,7 +923,7 @@ None.
 **Constraints:**
 
 - The attribution and local-build detection sets are kept aligned with the canonical Claude hook scripts (`block-attributed-commits.sh`, the no-local-builds rule); divergence is a regression, except the documented Pi superset (brain emoji + `ChatGPT`) in AC2.
-- The bypass sentinel is user-only and consume-on-use, mirroring the `/tmp/graphify-bypass` discipline in [REQ-AGENT-042](#req-agent-042-graphify-hard-block-enforcement) AC7.
+- The bypass sentinel is user-only and consume-on-use, mirroring the user-only `/tmp/review-bypass` sentinel discipline in [REQ-AGENT-041](#req-agent-041-pr-boundary-review-bypass-surfaces) AC1.
 
 **Priority:** P1
 
@@ -1227,7 +1227,7 @@ None.
 1. A user-creatable one-shot sentinel file is auto-deleted on use, never committed, and never survives container restart. In Claude Stop-hook enforcement it bypasses the current gate once without advancing the acknowledgement checkpoint. In Pi native enforcement it acknowledges the current protected PR HEAD; stale pending state does not consume the sentinel, and advanced pending state acknowledges the live PR head. The sentinel location is overridable for hermetic test environments. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::bypassAckHeadForStatus -->
 2. A magic phrase `skip review` or `skip verification` (case-insensitive, word-bounded) in any user message after the candidate push line in the transcript bypasses the gate for that push.
 3. A 3-strike circuit breaker exits silently after blocking the same un-acked PR HEAD SHA three times, sticky until the SHA changes.
-4. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output; both are explicitly user-only escape hatches.
+4. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output; both are explicitly user-only escape hatches. The native runtime reinforces this for the sentinel half structurally: the review extension only tests for and deletes the sentinel on use, with no code path that creates it. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass -->
 
 **Constraints:**
 
@@ -1237,7 +1237,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** [Automated test](../../host/__tests__/enforce-review-spawn.test.js)
+**Verification:** [Automated test](../../host/__tests__/enforce-review-spawn.test.js), [Pi bypass-head acknowledgement test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 
@@ -1511,7 +1511,7 @@ None.
 <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (rule + SKILL preseeded in advanced only → AC2/AC3) -->
 <!-- @test: host/__tests__/skill-graphify-content.test.js (SKILL contents → AC4/AC5/AC6) -->
 
-**Intent:** In advanced session mode, the agent is taught to prefer the knowledge graph over Grep-style text search for structural questions, so token cost on architecture, dependency, and call-flow questions is bounded. This REQ covers the SessionStart context injection, the preseeded rule and SKILL surface, and the soft-nudge PreToolUse hook. The hard-block enforcement lives in [REQ-AGENT-042](#req-agent-042-graphify-hard-block-enforcement); the `/graphify` build dispatch lives in [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch).
+**Intent:** In advanced session mode, the agent is taught to prefer the knowledge graph over Grep-style text search for structural questions, so token cost on architecture, dependency, and call-flow questions is bounded. This REQ covers the SessionStart context injection, the preseeded rule and SKILL surface, and the soft-nudge PreToolUse hook. Graph-first discipline is advisory only: there is no hard-block enforcement. The `/graphify` build dispatch lives in [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch).
 
 **Applies To:** Agent
 
@@ -1528,7 +1528,7 @@ None.
 **Constraints:**
 
 - The SessionStart hook never auto-builds a graph. It only injects context when one exists or a build suggestion when source files are present without one.
-- The soft-nudge hook never blocks; semantic judgment of whether a single grep is appropriate cannot be reliably made up-front. The hard-block in [REQ-AGENT-042](#req-agent-042-graphify-hard-block-enforcement) enforces a quantitative threshold (3 grep-class calls without a graph query), so the two layers compose: nudge on every call, block only when the pattern persists.
+- The soft-nudge hook never blocks; semantic judgment of whether a single grep is appropriate cannot be reliably made up-front. Graph-first discipline is advisory only (the preseeded rule plus the per-call nudge); a previous count-based hard-block was removed because it misfired on legitimate single-file searches the graph-first rule itself excludes.
 - The soft-nudge matcher set covers both the non-ctx tool surface (`Grep`/`Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`/`mcp__context-mode__ctx_batch_execute`) because the context-mode enforcement hook denies `Grep`/`Glob`/`Read` in custom-tier sessions.
 
 **Priority:** P1
@@ -1536,40 +1536,6 @@ None.
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
 **Verification:** [Automated test](../../host/__tests__/entrypoint-graphify-hooks.test.js)
-
-**Status:** Implemented
-
----
-
-### REQ-AGENT-042: Graphify Hard-Block Enforcement
-
-<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/enforce-graphify.sh -->
-<!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
-<!-- @test: host/__tests__/enforce-graphify.test.js (3-call threshold + bypass surfaces + sentinel resolution → AC1-AC7) -->
-
-**Intent:** The graph-first soft-nudge in REQ-AGENT-024 informs but never blocks. When an agent ignores it across multiple calls, a hard-block hook denies further structural searches until a graph query is made, with explicit user-only bypass surfaces for legitimate edge cases.
-
-**Applies To:** Agent
-
-**Acceptance Criteria:**
-
-1. The hard-block hook fires on PreToolUse for `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, and `mcp__context-mode__ctx_execute_file` matchers in advanced session mode only.
-2. After 3 SEARCH-classified tool calls in one turn with no intervening `mcp__graphify__*` call (or `graphify query|path|explain` CLI invocation), the next SEARCH call is denied.
-3. SEARCH classification matches `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, and `awk` with `/regex/` body.
-4. The shell parser handles substitutions, heredocs, quoted regions, and pipeline segments so chained or embedded searches cannot slip past.
-5. Active-repo resolution reads the sentinel at `~/.cache/codeflare-hooks/graphify-active-cwd` (REQ-VAULT-004 AC1) and gates on `<active-repo>/graphify-out/graph.json` existing, falling back to the tool-call envelope `.cwd` when the sentinel is absent.
-6. The vault entry in `~/.graphify/global-graph.json` is NOT enforcement-eligible: a session whose active repo has no graph does not trigger the hard-block, so the user can grep freely in repos they have not yet graphified.
-7. Two user-only bypass surfaces are available: `touch /tmp/graphify-bypass` (one-shot, auto-deleted) and the magic phrase `skip graph` in a user message; any unexpected error inside the hook returns exit 0 so the user is never locked out.
-
-**Constraints:**
-
-- The codeflare session layout (every agent session has `cwd=~/workspace`, never inside a sub-repo) makes the sentinel the load-bearing signal; the envelope-cwd fallback exists for vanilla graphify usage outside codeflare.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-VAULT-004](vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
-
-**Verification:** [Automated test](../../host/__tests__/enforce-graphify.test.js)
 
 **Status:** Implemented
 

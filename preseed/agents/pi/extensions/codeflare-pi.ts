@@ -16,7 +16,6 @@ const CACHE_DIR = "/home/user/.cache/codeflare-hooks";
 const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
-const GRAPHIFY_BYPASS = "/tmp/graphify-bypass";
 const LOCAL_BUILD_BYPASS = "/tmp/local-build-bypass";
 const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
 const CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.151";
@@ -132,10 +131,6 @@ function graphSummary(repo: string): string | undefined {
   } catch {
     return `Graphify repo graph available for ${basename(repo)} at ${graphPath}. ${layout} Prefer graphify query tools for architecture/dependency/call-flow questions before broad text search.`;
   }
-}
-
-function isStructuralSearch(command: string): boolean {
-  return /(^|[;&|]\s*)(rg|grep|ag|ack)\b/.test(command) || /(^|[;&|]\s*)git\s+grep\b/.test(command) || /(^|[;&|]\s*)find\b.*\s-(name|path|iname|ipath|regex)\b/.test(command) || /(^|[;&|]\s*)awk\b[^;&|]*\/.+\//.test(command);
 }
 
 function isGraphifyQuery(command: string): boolean {
@@ -389,8 +384,6 @@ function newestVaultMtime(): number | undefined {
 }
 
 export default function (pi: ExtensionAPI) {
-  let searchCountThisTurn = 0;
-  let graphifyCountThisTurn = 0;
   const toolStartArgs = new Map<string, any>();
   const gatedToolIds = new Set<string>();
 
@@ -506,7 +499,6 @@ export default function (pi: ExtensionAPI) {
     const command = commandText(event);
 
     if (isGraphifyTool(toolName) || isGraphifyQuery(command)) {
-      graphifyCountThisTurn++;
       return;
     }
 
@@ -522,22 +514,6 @@ export default function (pi: ExtensionAPI) {
       if (attributionReason) return { block: true, reason: attributionReason };
       const buildReason = ensureNoLocalBuild(command);
       if (buildReason) return { block: true, reason: buildReason };
-    }
-
-    if (command && isStructuralSearch(command)) {
-      searchCountThisTurn++;
-      try {
-        if (existsSync(GRAPHIFY_BYPASS)) {
-          try {
-            unlinkSync(GRAPHIFY_BYPASS);
-            return;
-          } catch { /* could not consume the sentinel; fall through to the normal graph-first gate */ }
-        }
-        const repo = activeRepo(ctx);
-        if (repo && hasGraph(repo) && searchCountThisTurn >= 3 && graphifyCountThisTurn === 0) {
-          return { block: true, reason: `Graphify graph exists for ${basename(repo)}. Query graphify_query, graphify_path, or graphify_explain before more structural searches, or ask the user to create ${GRAPHIFY_BYPASS}.` };
-        }
-      } catch { /* fail open: never block a tool call on an internal gate error */ }
     }
   };
 
@@ -592,8 +568,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_execution_end", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
 
   pi.on("agent_end", (_event, _ctx) => {
-    searchCountThisTurn = 0;
-    graphifyCountThisTurn = 0;
     gatedToolIds.clear();
   });
 }

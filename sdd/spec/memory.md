@@ -55,7 +55,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections.
 6. Graph nodes and edges are extracted from the rendered capture and merged into the unified global graph.
 7. The merge into the unified global graph is serialised and atomic, so the new content is queryable on the same turn it is written.
-8. The capture sources the conversation from the durable on-disk session transcript that each runtime already persists for session resume, never from a volatile in-memory buffer. A capture triggered immediately after a reload or resume therefore sees the full conversation; if the resolved transcript is empty the capture is skipped rather than writing a placeholder "no substantive content" note.
+8. The capture sources the conversation from the durable on-disk session transcript that each runtime already persists for session resume, never from a volatile in-memory buffer. A capture triggered immediately after a reload or resume therefore sees the full conversation; if the resolved transcript is empty the capture is skipped rather than writing a placeholder "no substantive content" note. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::captureVars --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::readSessionMessages -->
 
 **Constraints:**
 

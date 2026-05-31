@@ -147,7 +147,7 @@ export type ReviewAutofixMode = "auto" | "manual" | "unset";
 export function reviewAutofixModeFromUserMessages(messages: string[]): ReviewAutofixMode {
   let mode: ReviewAutofixMode = "unset";
   const manualPattern = /\b(?:do not|don't|dont|no|stop)\s+(?:auto(?:matically)?[-\s]*)?(?:fix|implement|apply)\b|\bdo\s+not\s+auto[-\s]*(?:fix|implement)\b|\bdon't\s+auto[-\s]*(?:fix|implement)\b|\bwait\s+for\s+(?:my\s+)?(?:go|approval|command)\b/i;
-  const autoPattern = /\bautomatic(?:ally)?\s+is\s+fine\b|\b(?:go|proceed)\b.*\b(?:fix|implement|apply)\b|\b(?:fix|implement)\s+(?:all\s+)?(?:legitimate\s+)?(?:PR-boundary\s+review\s+)?findings\b/i;
+  const autoPattern = /\bautomatic(?:ally)?\s+is\s+fine\b|\b(?:go|proceed)\b[^.!?]*\b(?:fix|implement|apply)\b[^.!?]*\bfindings?\b|\b(?:fix|implement)\s+(?:all\s+)?(?:legitimate\s+)?(?:PR-boundary\s+review\s+)?findings\b/i;
   for (const message of messages) {
     if (manualPattern.test(message)) mode = "manual";
     if (autoPattern.test(message)) mode = "auto";

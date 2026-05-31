@@ -191,11 +191,6 @@
       "advanced"
     ]
   },
-  "plugins/graphify/scripts/enforce-graphify.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "plugins/graphify/scripts/graph-first-nudge.sh": {
     "modes": [
       "advanced"

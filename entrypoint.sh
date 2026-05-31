@@ -1955,9 +1955,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
           ],
           PreToolUse: [
             {matcher:"Grep|Glob",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graph-first-nudge.sh")}]},
-            {matcher:"mcp__context-mode__ctx_search|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graph-first-nudge.sh")}]},
-            {matcher:"Grep|Bash",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/enforce-graphify.sh")}]},
-            {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/enforce-graphify.sh")}]}
+            {matcher:"mcp__context-mode__ctx_search|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graph-first-nudge.sh")}]}
           ]
         }')
         SETTINGS_CONFIG=$(echo "$SETTINGS_CONFIG" | jq --argjson gf "$GRAPHIFY_HOOKS" '

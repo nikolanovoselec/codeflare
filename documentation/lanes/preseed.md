@@ -239,12 +239,12 @@ All preseed content is deployed via the manifest pipeline:
   both PR-aware hooks, scripts/lib/lane-classifier.sh - shared diff-
   classification helper sourced by both PR-aware hooks so the in-turn
   nudge and the turn-end gate agree on which lanes a push requires),
-  context-mode plugin (advanced only: plugin.json,
+  context-mode plugin (advanced only:
   README.md - MCP/indexing registration only; stale deny-gates are pruned),
   graphify plugin (default+advanced for plugin.json + README
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
-  graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
+  graph-first-nudge.sh, safe-graphify-update.sh)
 - Pi-native runtime assets: package config, package lock, MCP
   config, extension files (including `codeflare-commands.ts`, which
   provides the Pi `/debug`, `/deploy`, and `/brainstorm` commands since
@@ -286,8 +286,9 @@ All preseed content is deployed via the manifest pipeline:
   chat summary aggregates severity counts across code/spec/docs, lists all
   findings sorted by criticality, and avoids per-lane result-file links; the
   per-lane `.md` files remain the durable evidence store. If legitimate
-  MEDIUM/HIGH/CRITICAL findings remain, Pi then requests a fix-and-push pass.
-  Implements
+  MEDIUM/HIGH/CRITICAL findings remain, Pi then requests a fix-and-push pass,
+  unless the latest explicit user directive opts out of auto-fixing for the
+  round (in which case Pi presents the findings and waits). Implements
   [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop).
 
   Timed-out or failed durable lanes are recorded as failed and do not produce
@@ -311,11 +312,13 @@ All preseed content is deployed via the manifest pipeline:
   user prompts (synthetic `<task-notification>` / command wrappers are
   ignored), and prefilters to user/assistant text (dropping tool and
   thinking blocks) before spawning the capture subagent once the delta
-  since the last capture reaches 15 real user prompts (`delta >= 15`); an
+  since the last capture reaches 15 real user prompts (`delta >= 15`,
+  [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages)); an
   empty resolved transcript skips capture instead of writing a hollow note.
   A missing `/tmp` counter with more than one real user prompt force-fires
   resumed-session capture, matching Claude. Vault indexing uses the shared
-  `vault-extract.last` high-water marker and excludes `Raw/Sessions/`,
+  `vault-extract.last` high-water marker
+  ([REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session)) and excludes `Raw/Sessions/`,
   `graphify-out/`, `.silverbullet/`, and the four preseed root pages, so the
   Vault indexing agent only runs after user-curated Vault changes.
   Pi subagents are provided by `@gotgenes/pi-subagents`; the generator
@@ -527,21 +530,6 @@ In advanced session mode, `graphify-session-start.sh` injects structural context
 
 All tiers append tool guidance (pointing at `mcp__graphify__query_graph`, `mcp__graphify__get_node`, etc.). The hook never auto-builds a graph.
 
-### Hard-block PreToolUse hook ([REQ-AGENT-042](../../sdd/spec/agents.md#req-agent-042-graphify-hard-block-enforcement))
-
-In advanced session mode, `enforce-graphify.sh` is a second PreToolUse hook on the graphify plugin that complements the existing `graph-first-nudge.sh` soft nudge. The soft nudge fires on every grep-class call with an `additionalContext` reminder; the hard-block fires only after the pattern persists.
-
-Mechanics:
-
-- **Matchers**: `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_execute_file`. Covers both plain-Bash sessions (where `Grep`/`Bash` fire natively) and context-mode sessions (where agents route grep-class calls through the `ctx_execute*` family as advisory best-practice; the Bash deny-gate was removed).
-- **Gating**: two-step active-repo resolution. The hook first reads `~/.cache/codeflare-hooks/graphify-active-cwd` (the sentinel `graphify-active-repo.sh` maintains on every Bash/Edit/Write/ctx_execute tool call) and checks `<active-repo>/graphify-out/graph.json`. If the sentinel is absent or stale, it falls back to the tool-call envelope `.cwd`. In codeflare the session cwd is always `~/workspace` (parent of all repos, never a sub-repo), so the sentinel is the load-bearing signal; the envelope-cwd fallback exists for vanilla graphify usage outside codeflare. Pi updates the same sentinel from command-local `cd ... &&` and `git -C ...` forms and injects the active repo as `<repo>:<branch>@<head>` in session context. Vault-only-in-global is intentionally NOT enforcement-eligible: a session whose active repo has no graph triggers no hard-block, so the user can grep freely in repos they have not yet graphified.
-- **Threshold**: blocks the next structural search after 3 grep-class tool calls in the same turn (counted by walking the transcript backward to the last real user prompt) when no `mcp__graphify__*` call (or `graphify query|path|explain` CLI invocation) has been made.
-- **Classification**: SEARCH = first-word `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, or `awk` with `/regex/` body. The shell parser uses the graphify hook's local `extract_subs` + `normalize_command` + chain-op splitter, so command/process substitution, heredocs, quoted regions, and pipeline segments cannot slip past.
-- **User-only bypass**: `touch /tmp/graphify-bypass` (one-shot, auto-deleted on use) or include `skip graph` (case-insensitive) in a user message. The agent must never create the sentinel.
-- **Fail-safe**: any unexpected error returns exit 0 with no output. Never locks the user out.
-
-The hook surfaces blocks as `hookSpecificOutput.permissionDecision: deny` with a `BLOCKED: <N> structural searches since last user prompt, 0 graphify queries...` reason so the agent's next-turn context carries the directive to consult the graph.
-
 ### Pi active-repo query fallback ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
 
 Pi sessions run from `~/workspace`, while checked-out repositories live under
@@ -614,7 +602,7 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 - **Attribution blocking not working**: Check `~/.claude/settings.json` has `PreToolUse` hook entries pointing to `block-attributed-commits.sh` on two matcher entries covering three tool names: a `Bash` matcher (with `"if": "Bash(git *)"` and `"if": "Bash(gh *)"` predicates) AND a pipe-alternated MCP matcher `"matcher": "mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute"`. Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`. If attribution appears via `gh pr create` in a context-mode session, the MCP matcher entry is missing - re-run the entrypoint or check the `SETTINGS_CONFIG` merge in `entrypoint.sh`.
 
-- **Review-spawn enforcement not firing on push**: see [Resetting the review-spawn checkpoint](#resetting-the-review-spawn-checkpoint) below.
+- **Review-spawn enforcement not firing on push**: see [Resetting Review-Spawn Checkpoints](#resetting-review-spawn-checkpoints) below.
 
 - **Default mode has hooks**: If `settings.json` has hook entries in default mode, the entrypoint `SESSION_MODE` gating may have failed. Remove them:
   `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
@@ -672,7 +660,6 @@ The legacy v4 timestamp file `.git/sdd-last-ack-push` (if present from a prior i
 - [REQ-AGENT-039](../../sdd/spec/agents.md#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate) - `/sdd init` Phase 7b Enumeration-Coverage Verifier Gate
 - [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) - PR-Boundary Lane Classification and Agent Dispatch
 - [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) - PR-Boundary Review Bypass Surfaces
-- [REQ-AGENT-042](../../sdd/spec/agents.md#req-agent-042-graphify-hard-block-enforcement) - Graphify Hard-Block Enforcement
 - [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) - Graphify Build Mode Dispatch
 - [REQ-AGENT-044](../../sdd/spec/agents.md#req-agent-044-review-agent-discipline-enforcement) - Review-Agent Discipline Enforcement
 - [REQ-AGENT-047](../../sdd/spec/agents.md#req-agent-047-resume-mode-closure-and-review-pipeline-gate) - Resume Mode closure and review-pipeline gate
