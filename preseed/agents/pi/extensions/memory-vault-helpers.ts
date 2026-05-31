@@ -116,6 +116,15 @@ export function isFirstMessage(counterFileExists: boolean, messageCount: number)
   return !counterFileExists && messageCount === 1;
 }
 
+export function buildSpawnOptions(description: string, model?: string): Record<string, unknown> {
+  const options: Record<string, unknown> = { description, inheritContext: false };
+  // Optional fidelity pin (no hardcoded model name): the model comes from
+  // CODEFLARE_MEMORY_MODEL at the call site and is applied only when set, so the
+  // runtime default model is used when the env var is absent.
+  if (model) options.model = model;
+  return options;
+}
+
 export default function () {
   // Helper module only; loaded by Pi extension scanner as a no-op extension.
 }

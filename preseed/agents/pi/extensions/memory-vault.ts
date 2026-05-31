@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { captureTimestamp, compactMessages as compactMessagesHelper, isFirstMessage, isResumedSession, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, stableId as stableIdHelper, titleFor as titleForHelper, withCurrentPrompt } from "./memory-vault-helpers";
+import { buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, isFirstMessage, isResumedSession, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, stableId as stableIdHelper, titleFor as titleForHelper, withCurrentPrompt } from "./memory-vault-helpers";
 
 const USER_HOME = "/home/user";
 const VAULT_ROOT = join(USER_HOME, "Vault");
@@ -40,15 +40,13 @@ function subagentsService(): any | undefined {
   return (globalThis as Record<symbol, unknown>)[Symbol.for("@gotgenes/pi-subagents:service")];
 }
 
-export function spawn(type: string, prompt: string, description: string, model?: string): string | undefined {
+function spawn(type: string, prompt: string, description: string, model?: string): string | undefined {
   const service = subagentsService();
   if (!service?.spawn) return undefined;
   try {
-    const options: Record<string, unknown> = { description, inheritContext: false };
-    // Optional fidelity pin (no hardcoded model name): set CODEFLARE_MEMORY_MODEL in the
-    // container env to run the capture/extract agents on a higher-fidelity model per AD58.
-    if (model) options.model = model;
-    const id = service.spawn(type, prompt, options);
+    // buildSpawnOptions applies the optional model only when set (no hardcoded model name);
+    // the model is sourced from CODEFLARE_MEMORY_MODEL at the call sites below per AD58.
+    const id = service.spawn(type, prompt, buildSpawnOptions(description, model));
     return typeof id === "string" ? id : undefined;
   } catch {
     return undefined;

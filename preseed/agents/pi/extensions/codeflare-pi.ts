@@ -11,12 +11,12 @@ import { basename, dirname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { effectiveCwdForCommand, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
 import { sddCommandDecision, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
+import { attributionBlockReason, localBuildBlockReason } from "./guard-helpers";
 
 const CACHE_DIR = "/home/user/.cache/codeflare-hooks";
 const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
-const LOCAL_BUILD_BYPASS = "/tmp/local-build-bypass";
 const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
 const CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.151";
 const CONTEXT_MODE_PACKAGE_ID = "npm:context-mode";
@@ -229,33 +229,6 @@ function isGitClone(command: string): boolean {
 
 function isGitPush(command: string): boolean {
   return /(^|[;&|]\s*)git\s+push\b/.test(command);
-}
-
-function ensureNoAttributedCommit(command: string): string | undefined {
-  if (!/(^|[;&|]\s*)(git\s+(commit|merge|tag|notes)|gh\s+(pr|issue|release)\s+\w+)\b/.test(command)) return undefined;
-  // Match the canonical block-attributed-commits.sh detection set: genuine attribution
-  // signatures only (co-author trailer, bot noreply email, generated-with footer, emoji,
-  // ChatGPT). Deliberately NOT bare model/product names ("claude code", "claude opus"):
-  // those false-positive on legitimate prose and on git/gh commands naming
-  // preseed/agents/claude/ paths.
-  if (/co-authored-by|noreply@anthropic|generated with[^\n]*claude|🤖|🧠|ChatGPT/i.test(command)) {
-    return "Codeflare blocks AI attribution in commits, PRs, issues, releases, and tags. Remove Co-Authored-By, generated-by text, model-name attribution, and emoji attribution.";
-  }
-  return undefined;
-}
-
-function ensureNoLocalBuild(command: string): string | undefined {
-  const isBuild = /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev)\b/.test(command)
-    || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|prettier|wrangler\s+dev)\b/.test(command);
-  if (!isBuild) return undefined;
-  // User-only escape hatch (consume-on-use), mirrors Claude's /tmp/local-build-bypass.
-  if (existsSync(LOCAL_BUILD_BYPASS)) {
-    try {
-      unlinkSync(LOCAL_BUILD_BYPASS);
-      return undefined;
-    } catch { /* could not consume the sentinel; keep blocking so a stuck file cannot permanently disable the gate */ }
-  }
-  return "Local builds/tests/linters/dev servers are blocked in the 1-CPU container. Push and verify with CI instead. User override: create /tmp/local-build-bypass.";
 }
 
 function sddRepoState(repo: string): SddRepoState {
@@ -510,9 +483,9 @@ export default function (pi: ExtensionAPI) {
       try {
         updateActiveRepoFromPath(effectivePathForCommand(command, ctx.sessionManager.getCwd()));
       } catch { /* active-repo tracking must never block the tool */ }
-      const attributionReason = ensureNoAttributedCommit(command);
+      const attributionReason = attributionBlockReason(command);
       if (attributionReason) return { block: true, reason: attributionReason };
-      const buildReason = ensureNoLocalBuild(command);
+      const buildReason = localBuildBlockReason(command, { existsSync, unlinkSync });
       if (buildReason) return { block: true, reason: buildReason };
     }
   };

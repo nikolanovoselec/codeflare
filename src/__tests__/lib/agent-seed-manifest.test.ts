@@ -3,10 +3,9 @@ import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-see
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
-import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, stableId, titleFor, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, stableId, titleFor, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import registerCodeflareCommands from '../../../preseed/agents/pi/extensions/codeflare-commands';
-import registerCodeflarePi from '../../../preseed/agents/pi/extensions/codeflare-pi';
-import { spawn as memorySpawn } from '../../../preseed/agents/pi/extensions/memory-vault';
+import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -174,6 +173,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/codeflare-commands.ts',
       '.pi/agent/extensions/codeflare-pi.ts',
       '.pi/agent/extensions/graphify-helpers.ts',
+      '.pi/agent/extensions/guard-helpers.ts',
       '.pi/agent/extensions/memory-vault-helpers.ts',
       '.pi/agent/extensions/memory-vault.ts',
       '.pi/agent/extensions/review-command.ts',
@@ -1269,87 +1269,67 @@ describe('Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 (Claude-only 
 });
 
 describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreToolUse guards match the canonical Claude detection sets)', () => {
-  function gate() {
-    const capture = { handlers: {} as Record<string, Function[]>, commands: {} as Record<string, any>, sent: [] as any[] };
-    registerCodeflarePi(mockPi(capture));
-    const toolCall = capture.handlers['tool_call']?.[0];
-    expect(toolCall, 'codeflare-pi must register a tool_call gate').toBeTruthy();
-    const ctx = { sessionManager: { getCwd: () => '/home/user/workspace', getSessionId: () => 's1' } };
-    return (command: string) => toolCall!({ toolName: 'bash', input: { command } }, ctx) as { block?: boolean; reason?: string } | undefined;
-  }
-
+  // guard-helpers holds the executable guard logic that codeflare-pi.ts composes; it has no
+  // node:child_process dependency, so it runs in the Workers test pool (codeflare-pi.ts cannot).
   it('AC1: attribution fires across git commit/merge/tag/notes and gh pr/issue/release', () => {
     const trailer = '\n\nCo-Authored-By: Bot <bot@example.com>';
     for (const base of ['git commit -m "x"', 'git merge feature', 'git tag v1 -m "x"', 'git notes add -m "x"', 'gh pr create --body "x"', 'gh issue create --body "x"', 'gh release create v1 --notes "x"']) {
-      expect(gate()(`${base}${trailer}`)?.block, base).toBe(true);
+      expect(attributionBlockReason(`${base}${trailer}`), base).toBeTruthy();
     }
   });
 
   it('AC2: matches the six attribution signatures including the Pi superset (brain emoji + ChatGPT)', () => {
     for (const sig of ['Co-Authored-By: x <x@y>', 'noreply@anthropic.com', 'Generated with Claude Code', '🤖 generated', '🧠 thought', 'made by ChatGPT']) {
-      expect(gate()(`git commit -m "msg ${sig}"`)?.block, sig).toBe(true);
+      expect(attributionBlockReason(`git commit -m "msg ${sig}"`), sig).toBeTruthy();
     }
   });
 
   it('AC3: bare Claude product names and preseed/agents/claude paths are not false positives', () => {
-    expect(gate()('git add preseed/agents/claude/skills/review/SKILL.md')?.block).toBeFalsy();
-    expect(gate()('git commit -m "Claude Code parity for Pi"')?.block).toBeFalsy();
+    expect(attributionBlockReason('git add preseed/agents/claude/skills/review/SKILL.md')).toBeUndefined();
+    expect(attributionBlockReason('git commit -m "Claude Code parity for Pi"')).toBeUndefined();
   });
 
-  it('AC4: blocks the package-manager verbs plus the standalone tool set', () => {
+  it('AC4: detects the package-manager verbs plus the standalone tool set, and allows the rest', () => {
     for (const cmd of ['npm run build', 'pnpm test', 'yarn lint', 'bun run typecheck', 'npm run dev', 'pytest -q', 'vitest run', 'go test ./...', 'cargo test', 'tsc -p .', 'eslint .', 'oxlint', 'prettier -w .', 'wrangler dev']) {
-      expect(gate()(cmd)?.block, cmd).toBe(true);
+      expect(isLocalBuildCommand(cmd), cmd).toBe(true);
     }
+    expect(isLocalBuildCommand('git status')).toBe(false);
+    expect(isLocalBuildCommand('npm run deploy')).toBe(false);
   });
 
-  it('AC4: ordinary commands and non-matching verbs are allowed through', () => {
-    expect(gate()('git status')?.block).toBeFalsy();
-    expect(gate()('npm run deploy')?.block).toBeFalsy();
+  it('AC5: the /tmp/local-build-bypass sentinel is consumed once, then the guard re-blocks', () => {
+    let present = true;
+    const fs = { existsSync: () => present, unlinkSync: () => { present = false; } };
+    expect(localBuildBlockReason('npm run build', fs)).toBeUndefined();  // sentinel present -> consumed, allowed
+    expect(present).toBe(false);                                          // consume-on-use deleted it
+    expect(localBuildBlockReason('npm run build', fs)).toMatch(/create \/tmp\/local-build-bypass/);  // re-blocks once gone
   });
 
-  it('AC5: /tmp/local-build-bypass is consumed once, then the gate re-blocks', () => {
-    const { writeFileSync, existsSync, unlinkSync } = require('node:fs');
-    const SENTINEL = '/tmp/local-build-bypass';
-    try {
-      writeFileSync(SENTINEL, '');
-      const run = gate();
-      expect(run('npm run build')?.block).toBeFalsy();   // sentinel present -> allowed
-      expect(existsSync(SENTINEL)).toBe(false);           // consumed on use
-      expect(run('npm run build')?.block).toBe(true);     // re-blocks after consume
-    } finally {
-      if (existsSync(SENTINEL)) unlinkSync(SENTINEL);
-    }
+  it('AC5: a non-build command is never blocked regardless of the sentinel', () => {
+    const fs = { existsSync: () => false, unlinkSync: () => { throw new Error('should not be called'); } };
+    expect(localBuildBlockReason('git status', fs)).toBeUndefined();
   });
 });
 
-describe('Pi memory model-fidelity lever / REQ-MEM-014 AC5 (spawn applies CODEFLARE_MEMORY_MODEL only when set; no hardcoded model)', () => {
-  const SERVICE_KEY = Symbol.for('@gotgenes/pi-subagents:service');
-
+describe('Pi memory model-fidelity lever / REQ-MEM-014 AC5 (buildSpawnOptions applies the model only when set; no hardcoded model)', () => {
   it('applies the model option only when a model argument is provided', () => {
-    const calls: any[] = [];
-    (globalThis as any)[SERVICE_KEY] = { spawn: (type: string, prompt: string, opts: any) => { calls.push({ type, prompt, opts }); return 'agent-id'; } };
-    try {
-      memorySpawn('memory-capture', 'p', 'd', 'higher-fidelity-model');
-      expect(calls[0].opts.model).toBe('higher-fidelity-model');
-      calls.length = 0;
-      memorySpawn('memory-capture', 'p', 'd', undefined);
-      expect('model' in calls[0].opts).toBe(false);
-    } finally {
-      delete (globalThis as any)[SERVICE_KEY];
-    }
+    expect(buildSpawnOptions('Capture session memory', 'higher-fidelity-model').model).toBe('higher-fidelity-model');
+    expect('model' in buildSpawnOptions('Capture session memory', undefined)).toBe(false);
   });
 
   it('passes no model when CODEFLARE_MEMORY_MODEL is unset (no hardcoded default)', () => {
-    const calls: any[] = [];
-    (globalThis as any)[SERVICE_KEY] = { spawn: (_t: string, _p: string, opts: any) => { calls.push({ opts }); return 'id'; } };
     const saved = process.env.CODEFLARE_MEMORY_MODEL;
     delete process.env.CODEFLARE_MEMORY_MODEL;
     try {
-      memorySpawn('vault-extract', 'p', 'd', process.env.CODEFLARE_MEMORY_MODEL);
-      expect('model' in calls[0].opts).toBe(false);
+      expect('model' in buildSpawnOptions('Extract Vault graph changes', process.env.CODEFLARE_MEMORY_MODEL)).toBe(false);
     } finally {
       if (saved !== undefined) process.env.CODEFLARE_MEMORY_MODEL = saved;
-      delete (globalThis as any)[SERVICE_KEY];
     }
+  });
+
+  it('always carries the description and inheritContext:false base options', () => {
+    const opts = buildSpawnOptions('Capture resumed session memory', 'm');
+    expect(opts.description).toBe('Capture resumed session memory');
+    expect(opts.inheritContext).toBe(false);
   });
 });
