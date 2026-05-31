@@ -34,7 +34,7 @@ deployed on Recreate or new bucket creation.
 | Cloudflare-stack, github-cloudflare-ship (+ refs), ci-monitoring, pr-workflow, deploy-credentials skills | Yes | Yes | Yes |
 | `consult-llm` skill (CC only) | No | Yes | Yes |
 | CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn` | No | Yes | Yes |
-| Language rules (18 files: common, TS, Python, Go, Swift) | No | Yes | Yes |
+| Language rules (17 files: common, TS, Python, Go, Swift) | No | Yes | Yes |
 | Agent definitions (9: architect, code-reviewer, deep-reviewer, spec-reviewer, etc.) | No | Yes | Yes |
 | Commands (5: /brainstorm, /debug, /deploy, /review, /sdd) | No | Yes | Yes |
 | Cherry-picked skills (8: api-design, backend-patterns, etc.) | No | Yes | Yes |
