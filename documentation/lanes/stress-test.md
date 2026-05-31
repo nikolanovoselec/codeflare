@@ -216,8 +216,8 @@ Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-li
 - Skips rate-limit KV reads/writes before they are checked, with zero overhead
 - Logs a one-time warning per isolate when activated (`STRESS_TEST_MODE is active - all HTTP rate limits bypassed`)
 - Is implemented at:
-  - **HTTP requests:** `src/middleware/rate-limit.ts` line 54 (checkRateLimit skipped)
-  - **WebSocket connections:** `src/routes/terminal.ts` line 178 (checkRateLimit skipped)
+  - **HTTP requests:** `src/middleware/rate-limit.ts` (checkRateLimit skipped)
+  - **WebSocket connections:** `src/routes/terminal.ts` (checkRateLimit skipped)
 
 **Production must never have `STRESS_TEST_MODE` set.** The flag should only be enabled on integration workers used for load testing.
 
@@ -337,10 +337,10 @@ At 50 VUs with realistic think times, this represents approximately **1 000-5 00
 | `e2e/stress/storage-operations.js` | R2 storage upload/download/delete cycle |
 | `e2e/stress/rate-limit-validation.js` | Rate limit enforcement validation |
 | `.github/workflows/stress-test.yml` | CI workflow orchestration |
-| `src/middleware/rate-limit.ts` | HTTP rate-limit middleware; `STRESS_TEST_MODE` bypass at line 54 |
-| `src/routes/terminal.ts` | WebSocket auth + rate-limit; `STRESS_TEST_MODE` bypass at line 178 |
+| `src/middleware/rate-limit.ts` | HTTP rate-limit middleware; `STRESS_TEST_MODE` bypass |
+| `src/routes/terminal.ts` | WebSocket auth + rate-limit; `STRESS_TEST_MODE` bypass |
 | `src/lib/rate-limit-core.ts` | Core rate-limit logic (KV + in-memory fallback) |
-| `src/lib/constants.ts` | `WS_RATE_LIMIT_*` constants (lines 47-53) |
+| `src/lib/constants.ts` | `WS_RATE_LIMIT_*` constants |
 
 ### Subscription and Timekeeper Considerations
 

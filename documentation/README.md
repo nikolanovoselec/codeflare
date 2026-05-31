@@ -44,7 +44,7 @@ The specification (`sdd/`) defines what the system should do. This documentation
 | [Mobile Terminal](lanes/mobile.md) | Keyboard handling, scroll stability, touch input | Developers |
 | [Vault](lanes/vault.md) | Persistent user note vault, cross-session memory capture, unified graphify graph, SilverBullet editor | Developers |
 | [Preseed System](lanes/preseed.md) | Session modes, manifest pipeline, multi-agent adaptation, hooks, troubleshooting | Developers |
-| [Architecture Decisions](decisions/README.md) | 65 ADRs (50 active) with rationale and trade-offs | Developers |
+| [Architecture Decisions](decisions/README.md) | Architecture Decision Records with rationale and trade-offs | Developers |
 | [Penetration Testing](lanes/pentest.md) | Security scan results | Security |
 | [Stress Testing](lanes/stress-test.md) | Load testing guide, latest benchmark results | Operators |
 

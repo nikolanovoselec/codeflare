@@ -33,7 +33,7 @@ cd web-ui && npm run build # Frontend production build
 ```
 codeflare/
 ├── src/               # Worker source (Hono router, routes, middleware, lib, Container DO)
-├── e2e/               # E2E tests: API (12 files) + UI (10 files, Puppeteer)
+├── e2e/               # E2E tests: API + UI (Puppeteer)
 ├── host/              # Terminal server (TypeScript) - HTTP/WS, PTY, activity tracking
 ├── web-ui/            # SolidJS frontend - components, stores, styles
 ├── scripts/           # Code generation (tutorial-seed, agent-seed, sourcemap fix)

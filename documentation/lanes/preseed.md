@@ -34,15 +34,15 @@ deployed on Recreate or new bucket creation.
 | Cloudflare-stack, github-cloudflare-ship (+ refs), ci-monitoring, pr-workflow, deploy-credentials skills | Yes | Yes | Yes |
 | `consult-llm` skill (CC only) | No | Yes | Yes |
 | CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn` | No | Yes | Yes |
-| Language rules (17 files: common, TS, Python, Go, Swift) | No | Yes | Yes |
-| Agent definitions (9: architect, code-reviewer, deep-reviewer, spec-reviewer, etc.) | No | Yes | Yes |
-| Commands (5: /brainstorm, /debug, /deploy, /review, /sdd) | No | Yes | Yes |
-| Cherry-picked skills (8: api-design, backend-patterns, etc.) | No | Yes | Yes |
-| `spec-discipline` rule + spec-enforce skill family (3 skills: spine, AC, truth) | No | Yes | Yes |
-| `documentation-discipline` rule + doc-enforce skill family (4 skills: spine, lanes, shape, truth) | No | Yes | Yes |
+| Language rules (common, TS, Python, Go, Swift) | No | Yes | Yes |
+| Agent definitions (architect, code-reviewer, deep-reviewer, spec-reviewer, etc.) | No | Yes | Yes |
+| Commands (/brainstorm, /debug, /deploy, /review, /sdd) | No | Yes | Yes |
+| Cherry-picked skills (api-design, backend-patterns, etc.) | No | Yes | Yes |
+| `spec-discipline` rule + spec-enforce skill family (spine, AC, truth) | No | Yes | Yes |
+| `documentation-discipline` rule + doc-enforce skill family (spine, lanes, shape, truth) | No | Yes | Yes |
 | `tdd-discipline` rule + tdd-enforce skill | No | Yes | Yes |
 | git-review-pipeline skill (SDD PR-boundary review pipeline) | No | Yes | Yes |
-| SDD template scaffolding (12 files for `/sdd init`) | No | Yes | Yes |
+| SDD template scaffolding for `/sdd init` | No | Yes | Yes |
 | Known marketplaces plugin config | Yes | Yes | Yes |
 | context-mode helper package (`ctx_*` tools) | Disabled by default in Pi; optional `/ctx on` for current session | Disabled by default in Pi; optional `/ctx on` for current session | Disabled by default in Pi; optional `/ctx on` for current session |
 | context-mode plugin folder (Claude Code auto-routing hooks for context-window reduction) | No | No | Yes |
@@ -94,7 +94,7 @@ on explicit action.
 ECC-derived rules, agents, commands, and skills are preseeded directly
 to the agent config filesystem. No external plugins are installed.
 
-**Agents (9)**: `architect`, `build-error-resolver`, `code-reviewer`,
+**Agents**: `architect`, `build-error-resolver`, `code-reviewer`,
 `deep-reviewer`, `doc-updater`, `refactor-cleaner`, `security-reviewer`,
 `spec-reviewer`, `tdd-guide`. Preseeded to `~/.claude/agents/*.md`
 (and adapted equivalents for other agents) via the manifest pipeline
@@ -105,7 +105,7 @@ frontmatter with `name`, `description`, `tools` (emitted as a record
 `{read: true, write: true}` for OpenCode, instead of array format),
 and `model` (CC only).
 
-**Commands (5)**: `brainstorm`, `debug`, `deploy`, `review`, `sdd`.
+**Commands**: `brainstorm`, `debug`, `deploy`, `review`, `sdd`.
 Preseeded to `~/.claude/commands/*.md` (CC only -- other agents don't
 support slash commands). Planning transitions are handled via Plan
 Mode (a built-in Claude Code primitive), not a slash command. `/review`
@@ -115,30 +115,29 @@ deep-reviewer agents) and `--verify-high` (Phase 7 external-LLM
 second-opinion); invoking it with no arguments prints a CLI help
 screen and exits without running.
 
-**Skills (29 SKILL.md files, 46 manifest entries including
-reference files)**: `cloudflare-stack`, `github-cloudflare-ship`
-(+ 2 reference files), `consult-llm`, `api-design`,
+**Skills** (each preseeded as `<name>/SKILL.md`): `cloudflare-stack`, `github-cloudflare-ship`
+(+ reference files), `consult-llm`, `api-design`,
 `backend-patterns`, `content-hash-cache-pattern`,
 `database-migrations`, `deployment-patterns`, `frontend-patterns`,
 `iterative-retrieval`, `search-first`, `spec-driven-development`
-(+ 12 reference templates for `/sdd init` scaffolding; covers the
-three Import/Resume modes for legacy-codebase transition documented
+(+ reference templates for `/sdd init` scaffolding; covers the
+Import/Resume modes for legacy-codebase transition documented
 below), `sdd-init`, `sdd-clean` (sub-command skills the `/sdd`
 dispatch table routes to for `init` and `clean`), `vault-operations`
 (layout, wikilink conventions, NEVER list - surfaced when an agent
 touches `~/Vault/`), `vault-note-capture` (writes "take a note"
 phrases to `~/Vault/Notes/<Category>/`), `graphify`. SDD
-enforcement family (8 skills, advanced-only):
+enforcement family (advanced-only):
 `spec-enforce` + `spec-enforce-ac` + `spec-enforce-truth`,
 `doc-enforce` + `doc-enforce-lanes` + `doc-enforce-shape` +
-`doc-enforce-truth`, `tdd-enforce`. Git-workflow family (4 skills):
+`doc-enforce-truth`, `tdd-enforce`. Git-workflow family:
 `ci-monitoring`, `git-review-pipeline` (advanced-only),
 `pr-workflow`, `deploy-credentials`. Preseeded to
 `~/.claude/skills/<name>/SKILL.md` (and adapted equivalents for
 agents that support skills). `consult-llm` is CC-only (depends on
 MCP tool).
 
-**Rules (27 files, 3 in both modes + 24 advanced-only)** ([REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode),
+**Rules** (core environment rules in both modes; the rest advanced-only) ([REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode),
 [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session)): Core environment rules (`cloudflare-environment`,
 `no-local-builds`, `git-workflow`) in both modes - `git-workflow` is
 the umbrella core rule that delegates branched mechanics to the
@@ -158,7 +157,7 @@ phrases to the `vault-note-capture` skill. `graph-first` rule is
 advanced-only (graphify discipline, [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)). `karpathy` rule
 is advanced-only (LLM coding-mistakes principles). ECC-derived
 language rules in `{common,typescript,python,golang,swift}/` subdirs
-(1 + 4*4 = 17 files, advanced only). `common/coding-style.md`
+(advanced only). `common/coding-style.md`
 covers shared style; the per-language `security.md` files stand
 alone after the `common/security.md` removal. Language-specific
 rules provide conventions for TypeScript, Python, Go, and Swift.
@@ -203,24 +202,24 @@ All preseed content is deployed via the manifest pipeline:
    `~/.config/opencode/`, `~/.pi/agent/`)
 
 **Manifest structure** (Claude configs plus Pi-native assets; exact counts live in the manifests, not here):
-- `rules/` (27): core (3 default+advanced: cloudflare-environment,
-  no-local-builds, git-workflow; + 7 advanced-only top-level: memory,
+- `rules/`: core (both modes: cloudflare-environment,
+  no-local-builds, git-workflow; advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
-  graph-first, karpathy, vault-note-capture), common (1: coding-style;
-  per-language security rules stand alone), typescript (4), python (4),
-  golang (4), swift (4)
-- `agents/` (11): architect, build-error-resolver, code-reviewer,
+  graph-first, karpathy, vault-note-capture), common (coding-style;
+  per-language security rules stand alone), typescript, python,
+  golang, swift
+- `agents/`: architect, build-error-resolver, code-reviewer,
   deep-reviewer, doc-updater, memory-capture, refactor-cleaner,
   security-reviewer, spec-reviewer, tdd-guide, vault-extract
   (advanced only)
-- `commands/` (5): brainstorm, debug, deploy, review, sdd
+- `commands/`: brainstorm, debug, deploy, review, sdd
   (advanced only)
-- `skills/` (46): cloudflare-stack, github-cloudflare-ship (+2
-  refs), ci-monitoring, pr-workflow, deploy-credentials (the five
+- `skills/`: cloudflare-stack, github-cloudflare-ship (+
+  refs), ci-monitoring, pr-workflow, deploy-credentials (the
   default+advanced skills), consult-llm, api-design,
   backend-patterns, content-hash-cache-pattern, database-migrations,
   deployment-patterns, frontend-patterns, iterative-retrieval,
-  search-first, spec-driven-development (+12 reference templates
+  search-first, spec-driven-development (+ reference templates
   for /sdd init scaffolding), sdd-init, sdd-clean (sub-command
   skills), vault-operations, vault-note-capture, spec-enforce,
   spec-enforce-ac, spec-enforce-truth, doc-enforce, doc-enforce-lanes,
@@ -354,16 +353,7 @@ files exist on disk.
 | Grep | grep | search | search | grep |
 | Glob | glob | search | glob | find |
 
-**What each agent gets:**
-
-| Agent | Total Documents |
-|-------|-----------------|
-| CC | 120 |
-| Codex | 47 |
-| Copilot | 13 |
-| OpenCode | 58 |
-| Pi | 74 |
-| **Total** | **312** |
+**What each agent gets:** Claude Code and Pi both receive the full capability set - Claude Code through its native rules/agents/commands/skills/hooks/plugins, and Pi through adapted rules/skills/agents plus native TypeScript extensions that reimplement the CC-only surfaces (slash commands, hooks, memory capture, review enforcement) on Pi primitives. Codex, Copilot, and OpenCode receive a reduced, runtime-appropriate subset: adapted rules and - where the runtime supports them - skills and agents, but none of the CC-only surfaces. The exact per-agent document counts are emitted by `scripts/generate-agent-seed.mjs` from `manifest.json` - read the generated output, not a hardcoded total here.
 
 **Excluded from non-CC transformed assets**: hooks (CC hook system),
 commands (CC slash commands), plugins (CC plugin system, including
@@ -402,12 +392,15 @@ capture-contract prompts to `.pi/agent/prompts/`, and
 native Pi skill overrides under `~/.pi/agent/skills/`, and adapts Claude agent definitions into
 `.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`. Pi's generated agent frontmatter deliberately drops context-mode tools so those `@gotgenes/pi-subagents` subagents run against the native Pi tool surface. This applies to subagent frontmatter only; the durable PR-boundary review lanes are a separate `createAgentSession` path that loads context-mode additively when it is enabled (see [AD64](../decisions/README.md#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield)), so "review runs without ctx tools" is not categorical.
 
-**Per-mode counts**: Default mode seeds 53 files, advanced mode
-seeds 365 files. Total array size is 370 (includes variant-per-mode
-duplicates for instructions files).
+**Per-mode seeding**: Default mode seeds the core rules plus the
+universal skills; advanced mode seeds the full set (memory, ECC
+language rules, discipline triad, enforcement skill families, agents,
+commands, plugins). The generated array carries variant-per-mode
+duplicates for instructions files (see below); the exact per-mode
+file counts live in the generated `agent-seed.generated.ts`, not here.
 
 **Variant-per-mode keys**: Instructions files appear twice in the
-generated array -- once for default mode (3 rules) and once for
+generated array -- once for default mode (core rules only) and once for
 advanced mode (all rules including memory, ECC), with the same R2
 key but different content. `getPreseedKeysNotInMode()` handles this
 correctly by excluding keys that have a variant in the target mode.
@@ -551,7 +544,7 @@ The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch s
 
 Subagents run on **Sonnet** (`model: "sonnet"`). Haiku was the original choice (cost-matching with vault-extract economics) but produced 57% malformed nodes on the codeflare corpus - missing `id` fields, numeric IDs instead of strings, missing `source_file`. The extraction prompt requires reliable schema compliance across complex document types (spec files with REQ anchors, skill instructions with cross-references, ADR ledgers). Sonnet at ~3x per-agent cost with near-zero malformation is cheaper per valid node. Opus is never used from this skill.
 
-Subagents are dispatched in waves of up to 10 (configurable via `GRAPHIFY_SEMANTIC_MAX_PARALLEL`) to avoid flooding Task-tool concurrency. Each wave runs in parallel; waves are sequential. Typical codeflare build: 8 doc chunks + 16 image chunks = 24 agents across 3 waves (~135s).
+Subagents are dispatched in waves of up to `GRAPHIFY_SEMANTIC_MAX_PARALLEL` (default 10) to avoid flooding Task-tool concurrency. Each wave runs in parallel; waves are sequential. Chunk count scales with the size of the non-code corpus.
 
 ## /sdd init Modes
 
