@@ -76,7 +76,6 @@ export {
   VAULT_SW_ACTIVATION_TIMEOUT_MS,
   VAULT_IDB_RECORDER_MARKER,
 } from './vault-html';
-export type { VaultBootConfig, RewriteResult } from './vault-html';
 
 const logger = createLogger('vault');
 
@@ -98,7 +97,7 @@ export interface VaultRouteResult {
  * `getVaultEncryptionKey` perform a single, named cast and hand the
  * rest of the module a typed accessor.
  */
-export interface VaultKeyProvider {
+interface VaultKeyProvider {
   ensureVaultKey(): Promise<string>;
 }
 
