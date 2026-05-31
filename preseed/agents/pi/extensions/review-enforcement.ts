@@ -519,6 +519,16 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.notify(`PR-boundary review state for ${basename(state.repo)} at ${state.head.slice(0, 12)} discarded: the open PR no longer points at this head.`, "warning");
   };
 
+  const acknowledgeBypass = (repo: string, head: string, ctx: any): void => {
+    writeAck(repo, head);
+    resetBlockCount(repo);
+    clearBreaker(repo);
+    clearPending(repo);
+    pending = undefined;
+    clearReviewStatus(ctx);
+    ctx.ui.notify(`PR-boundary review bypass acknowledged for ${basename(repo)} at ${head.slice(0, 12)}.`, "warning");
+  };
+
   const rollForwardAdvancedReview = async (state: PendingReview, ctx: any, reason: string): Promise<boolean> => {
     const currentPr = prState(state.repo);
     if (!isEnforcedPr(currentPr)) return false;
@@ -787,10 +797,14 @@ export default function (pi: ExtensionAPI) {
     // the ctx_* tools (code/commands). Gate on the command itself, never the tool name.
     if (isGhPrMerge(command)) {
       const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
-      if (!repo || !isSddProject(repo) || consumeBypass()) return;
+      if (!repo || !isSddProject(repo)) return;
       const pr = prState(repo);
       if (!isEnforcedPr(pr)) return;
       const head = pr.headRefOid;
+      if (consumeBypass()) {
+        acknowledgeBypass(repo, head, ctx);
+        return;
+      }
       if (!acked(repo, head)) {
         return { block: true, reason: `PR-boundary review required before merge for ${basename(repo)} at ${head.slice(0, 12)}. Complete required reviewers or use the user-only ${REVIEW_BYPASS} bypass.` };
       }
@@ -876,12 +890,16 @@ export default function (pi: ExtensionAPI) {
     if (!isPrBoundaryCommand(command)) return;
 
     const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
-    if (!repo || !isSddProject(repo) || consumeBypass()) return;
+    if (!repo || !isSddProject(repo)) return;
 
     const pr = prForBoundaryCommand(repo, command, prState(repo));
     if (!isEnforcedPr(pr)) return;
     const head = reviewCandidateHead(repo, pr, command);
     if (!head) return;
+    if (consumeBypass()) {
+      acknowledgeBypass(repo, head, ctx);
+      return;
+    }
     const effectivePr = { ...pr, headRefOid: head };
     if (acked(repo, head)) return;
     if (isBreakerOpen(repo, head)) return; // breaker already gave up on this exact head; push a new commit to retry
@@ -952,11 +970,15 @@ export default function (pi: ExtensionAPI) {
     if (!state) {
       if (publishSummaryForCurrentPr(ctx)) return;
       const repo = activeRepoFallback() || findGitRoot(ctx.sessionManager.getCwd());
-      if (!repo || !isSddProject(repo) || consumeBypass()) return;
+      if (!repo || !isSddProject(repo)) return;
       const pr = prState(repo);
       if (!isEnforcedPr(pr)) return;
       const head = reviewCandidateHead(repo, pr);
       if (!head) return;
+      if (consumeBypass()) {
+        acknowledgeBypass(repo, head, ctx);
+        return;
+      }
       const effectivePr = { ...pr, headRefOid: head };
       if (acked(repo, head)) {
         publishFinalSummaryIfReady(repo, head, ctx);
@@ -990,8 +1012,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     if (consumeBypass()) {
-      clearPending(state.repo);
-      pending = undefined;
+      acknowledgeBypass(state.repo, state.head, ctx);
       return;
     }
     const headStatus = reviewHeadStatus(state);
