@@ -845,6 +845,7 @@ None.
 
 <!-- @impl: preseed/agents/pi/extensions/codeflare-commands.ts -->
 <!-- @impl: preseed/agents/pi/manifest.json -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 describe -> AC1-AC5) -->
 
 **Intent:** Workflows that Claude ships as slash commands (`/debug`, `/deploy`, `/brainstorm`) are unavailable in Pi because Claude commands do not deploy to Pi. Pi must reimplement them as native command handlers so Pi users get the same systematic debugging, deploy-and-verify, and structured-brainstorming workflows.
 
@@ -869,15 +870,14 @@ None.
 
 **Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
-**Status:** Partial
-
-<!-- coverage-gap: AC6 (manifest-presence of codeflare-commands.ts) and command-dispatch API compatibility are covered by agent-seed-manifest.test.ts. AC1-AC5 (the debug/deploy/brainstorm registration and their injected-workflow content) are runtime behavior with no dedicated automated test. -->
+**Status:** Implemented
 
 ---
 
 ### REQ-AGENT-052: Pi Commit-Attribution and Local-Build Hook Hardening
 
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi commit-attribution and local-build guards / REQ-AGENT-052 describe -> AC1-AC5) -->
 
 **Intent:** Pi's PreToolUse guards that block AI attribution and local builds must cover the same surfaces and detection set as the canonical Claude hooks, so an attributed commit, PR, issue, release, or tag cannot slip through a previously-unguarded subcommand and a local build is not silently allowed.
 
@@ -902,9 +902,7 @@ None.
 
 **Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
-**Status:** Partial
-
-<!-- coverage-gap: the widened attribution/local-build detection regexes and the /tmp/local-build-bypass consume-on-use behavior in codeflare-pi.ts are runtime gate behavior with no dedicated automated test. -->
+**Status:** Implemented
 
 ---
 

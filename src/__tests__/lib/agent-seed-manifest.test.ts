@@ -1198,3 +1198,131 @@ describe('REQ-AGENT-027 AC1 context-mode wired as a tool only (no Bash deny-gate
     }
   });
 });
+
+// Guards the shipped codeflare-commands.ts contract. These assert against the seeded
+// extension source: dropping a registerCommand or a workflow phase fails the test.
+function seededExtension(key: string): string {
+  const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === key);
+  expect(doc, `${key} must be bundled in the seed`).toBeTruthy();
+  return doc!.content;
+}
+
+describe('Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 (Claude-only slash commands reimplemented as Pi native command handlers)', () => {
+  function commandsExtension(): string {
+    return seededExtension('.pi/agent/extensions/codeflare-commands.ts');
+  }
+
+  it('AC1: registers debug, deploy, and brainstorm via pi.registerCommand', () => {
+    const body = commandsExtension();
+    expect(body).toContain('pi.registerCommand("debug"');
+    expect(body).toContain('pi.registerCommand("deploy"');
+    expect(body).toContain('pi.registerCommand("brainstorm"');
+  });
+
+  it('AC2: injects embedded workflow text and does not load a SKILL.md', () => {
+    const body = commandsExtension();
+    // The workflow prose is embedded as constants and pushed as a user message,
+    // never loaded via skillPrompt (these commands have no Pi skill file).
+    expect(body).toContain('DEBUG_WORKFLOW');
+    expect(body).toContain('DEPLOY_WORKFLOW');
+    expect(body).toContain('BRAINSTORM_WORKFLOW');
+    expect(body).toMatch(/sendUserPrompt|sendUserMessage/);
+    // never loaded as a skill at runtime (the docblock only mentions skillPrompt in prose contrast)
+    expect(body).not.toMatch(/skillPrompt\s*\(/);
+  });
+
+  it('AC3: /debug enforces root-cause before any fix and the 3-Fix Rule', () => {
+    const body = commandsExtension();
+    expect(body).toMatch(/Root Cause Investigation/i);
+    expect(body).toMatch(/No fixes before root-cause/i);
+    expect(body).toContain('3-Fix Rule');
+  });
+
+  it('AC4: /deploy runs push, stale-CI cancellation, CI monitoring, deploy, and live-URL verification', () => {
+    const body = commandsExtension();
+    expect(body).toMatch(/Cancel stale CI/i);
+    expect(body).toMatch(/Monitor CI/i);
+    expect(body).toMatch(/git push/);
+    expect(body).toMatch(/wrangler deploy/);
+    expect(body).toMatch(/Verify the live URL/i);
+  });
+
+  it('AC5: /brainstorm generates options with trade-offs and a final recommendation', () => {
+    const body = commandsExtension();
+    expect(body).toMatch(/Generate options/i);
+    expect(body).toMatch(/Trade-off/i);
+    expect(body).toMatch(/Recommendation/i);
+  });
+});
+
+describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreToolUse guards match the canonical Claude detection sets)', () => {
+  function piExtension(): string {
+    return seededExtension('.pi/agent/extensions/codeflare-pi.ts');
+  }
+
+  it('AC1: the attribution guard fires across git commit/merge/tag/notes and the gh pr/issue/release families', () => {
+    const body = piExtension();
+    expect(body).toContain('git\\s+(commit|merge|tag|notes)');
+    expect(body).toContain('gh\\s+(pr|issue|release)');
+  });
+
+  it('AC2: the attribution detection set matches the canonical signatures plus the Pi superset (brain emoji + ChatGPT)', () => {
+    const body = piExtension();
+    expect(body).toContain('co-authored-by');
+    expect(body).toContain('noreply@anthropic');
+    expect(body).toMatch(/generated with\[\^\\n\]\*claude/);
+    expect(body).toContain('🤖');
+    expect(body).toContain('🧠');
+    expect(body).toContain('ChatGPT');
+  });
+
+  it('AC3: the attribution guard does not match a bare Claude product name', () => {
+    const body = piExtension();
+    // The deliberate exclusion is documented and the signature regex carries no
+    // bare-product alternative, so git/gh commands naming preseed/agents/claude/ paths pass.
+    expect(body).toMatch(/Deliberately NOT bare model\/product names/);
+    expect(body).not.toContain('|claude code|');
+    expect(body).not.toContain('|claude opus|');
+  });
+
+  it('AC4: the local-build guard covers the package-manager verbs plus the standalone tool set', () => {
+    const body = piExtension();
+    expect(body).toContain('(npm|pnpm|yarn|bun)\\s+(run\\s+)?(build|test|lint|typecheck|dev)');
+    expect(body).toContain('pytest|vitest|go\\s+test|swift\\s+test|cargo\\s+test|tsc|eslint|oxlint|prettier|wrangler\\s+dev');
+  });
+
+  it('AC5: the local-build guard honors a user-only consume-on-use /tmp/local-build-bypass sentinel', () => {
+    const body = piExtension();
+    expect(body).toContain('/tmp/local-build-bypass');
+    expect(body).toContain('existsSync(LOCAL_BUILD_BYPASS)');
+    expect(body).toContain('unlinkSync(LOCAL_BUILD_BYPASS)');
+    // the block message names the override path
+    expect(body).toMatch(/create \/tmp\/local-build-bypass/);
+  });
+});
+
+describe('Pi memory/vault model-fidelity lever / REQ-MEM-014 AC5 (spawn reads CODEFLARE_MEMORY_MODEL; no hardcoded model name)', () => {
+  function memoryVault(): string {
+    return seededExtension('.pi/agent/extensions/memory-vault.ts');
+  }
+
+  it('AC5: the spawn helper takes an optional model and applies it only when set', () => {
+    const body = memoryVault();
+    expect(body).toMatch(/function spawn\([^)]*model\?: string\)/);
+    expect(body).toContain('if (model) options.model = model;');
+  });
+
+  it('AC5: every capture/extract spawn site sources the model from CODEFLARE_MEMORY_MODEL', () => {
+    const body = memoryVault();
+    const sites = body.match(/process\.env\.CODEFLARE_MEMORY_MODEL/g) ?? [];
+    // resumed-session capture, routine capture, and vault-extract
+    expect(sites.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('AC5: no model name is hardcoded (default model is the runtime default)', () => {
+    const body = memoryVault();
+    expect(body).not.toMatch(/claude-(opus|sonnet|haiku|3)/i);
+    expect(body).not.toMatch(/['"]gpt-\d/i);
+    expect(body).not.toMatch(/gemini-\d/i);
+  });
+});

@@ -403,6 +403,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts -->
 <!-- @impl: scripts/generate-agent-seed.mjs -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory/vault model-fidelity lever / REQ-MEM-014 AC5 describe -> AC5) -->
 
 **Intent:** Pi's memory-capture and vault-extract subagents must follow the same full capture contract as the Claude memory plugin ([AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) parity) - chunk the transcript, accumulate per-chunk observations, synthesise a structured note, and cite REQ/ADR/SHA/PR identifiers verbatim - rather than the thin inline contract Pi previously carried. The transcript handed to the capture agent must be prefiltered to preserve the conversational arc, and the capture/extract agents must be able to run on a higher-fidelity model without a hardcoded model name.
 
@@ -427,8 +428,6 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
-**Status:** Partial
-
-<!-- coverage-gap: the compactMessages prefilter (AC4) and the prompts/ manifest-mapping to ~/.pi/agent/prompts/ (AC2/AC3) are exercised by the Pi behavioral tests in agent-seed-manifest.test.ts. The CODEFLARE_MEMORY_MODEL spawn lever (AC5) is runtime spawn behavior with no dedicated automated test. -->
+**Status:** Implemented
 
 
