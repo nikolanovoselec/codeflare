@@ -476,8 +476,9 @@ is done via `settings.json` (see above).
   follows `spec-reviewer` sequentially, also in the background, so the
   main session stays usable throughout. The Stop hook suppresses
   re-summoning per lane (a lane already in flight is skipped, but does
-  not mask the demand for the other lanes). The PostToolUse nudge and
-  the Stop hook share
+  not mask the demand for the other lanes), and the suppression is bounded
+  by transcript recency so a dead or orphaned lane is demanded again instead
+  of hiding the gate indefinitely. The PostToolUse nudge and the Stop hook share
   `scripts/lib/lane-classifier.sh` and emit lane-aware directives so a
   doc-only push spawns only `doc-updater`, an `sdd/`-only push spawns
   `spec-reviewer` then `doc-updater` sequentially, and source pushes
@@ -635,6 +636,8 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push` and `gh pr merge`; `git-push-review-reminder.sh` handles the in-turn `git push` / `gh pr create` reminder path. Pi native enforcement covers the wider local command set (`git push`, `git -C <repo> push`, `gh pr create`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`) and ignores metadata-only PR commands such as `gh pr edit`. All surfaces enforce only when the open PR targets `main` or `master`. PRs into intermediate branches (`develop`, `staging`) are silently deferred until that branch's own PR-to-`main` opens.
 
 The Claude hook and Pi native enforcement both track the most recently acknowledged PR HEAD SHA in `.git/sdd-last-ack-pr-head`. Pi also persists compatibility pending state in `.git/sdd-review-pending.json` and durable runner state in `.git/codeflare-review-jobs/<head>/`. Acknowledgment advances only when result files exist for the full required pipeline (code-reviewer + spec-reviewer + doc-updater, or the reduced lane set for doc/spec-only changes) for the current PR HEAD.
+
+When a new push lands while review is still in flight, Pi rolls the pending review window forward if the new PR head descends from the pending head, keeps the first unreviewed base for cumulative review, and does not treat a remote-tracking previous head as reviewed unless an explicit ack or completed prior review proves that coverage. This preserves earlier findings during fix-push cascades while keeping intermediate-branch PRs deferred until their PR-to-`main` review. See [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) for lane dispatch and in-flight gating, and [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement) for review-window roll-forward semantics.
 
 Three USER-ONLY bypass methods exist (the agent must never invoke these autonomously): the user runs `touch /tmp/review-bypass` (one-shot sentinel; per-session, not committed, auto-deleted on use), the user says "skip review" in a message, or the user waits for the 3-strike circuit breaker to clear after 3 blocks on the same un-acknowledged PR HEAD.
 

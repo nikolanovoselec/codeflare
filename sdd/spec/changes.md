@@ -4,6 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-05-31
 
+- REQ-AGENT-040 AC6/AC7: Claude Stop-hook in-flight suppression now treats a current-head Agent spawn whose completion marker falls past the transcript recency bound as orphaned, so the lane is demanded again instead of satisfying `spawned_after_push` forever. Final acknowledgement also requires every required lane to have current-head coverage that is either completed or still inside the recency window.
 - REQ-AGENT-036 / REQ-AGENT-040 / REQ-AGENT-055 Pi PR-boundary review enforcement now treats a descendant PR-head change during an in-flight review as an advanced review window, resets per-head breaker state when rolling forward, preserves the first unreviewed base, keeps earlier result artifacts for audit, and rejects remote-tracking reflog bases unless backed by an ack or completed previous review. `gh pr create` metadata-lag handling now infers only `main`/`master` (including quoted base values, or the protected default when no base is supplied) before synthesizing a local-HEAD PR, so integration-branch PR creates stay deferred.
 
 ## 2026-05-30

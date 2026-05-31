@@ -482,9 +482,9 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     const binDir = fakeGh(cwd, ghReturning('OPEN', 'newsha'));
     const filler = Array.from({ length: 1201 }, (_, i) => JSON.stringify({ type: 'user', message: { content: `filler ${i}` } }));
     const t = writeTranscript(cwd, [
-      AGENT_LINE('code-reviewer', '2026-05-03T11:00:00.000Z', 'toolu_cr_orphaned'),
-      ...filler,
       PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      AGENT_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_cr_orphaned'),
+      ...filler,
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
