@@ -200,6 +200,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Constraints:**
 
 - The page cap is a Read-tool limit; PDFs longer than the cap are partially ingested rather than rejected.
+- AC4's corrupt/password-protected PDF read-failure path is verified by manual check (the REQ's Verification field), not an automated test: exercising it needs binary malformed-PDF fixtures that are impractical to ship in the Workers vitest pool, so it is validated against the PDF-ingestion E2E plan in `documentation/lanes/vault.md`.
 
 **Priority:** P1
 

@@ -17,6 +17,7 @@ Multi-agent support, preseed system, and session modes.
 - **Agent marketplace** -- No mechanism for browsing, installing, or sharing community-contributed agent configurations or plugins.
 - **Runtime agent switching** -- Agent type is immutable after session creation. Switching requires creating a new session.
 - **Explicit consult-llm preference toggle** -- There is no separate Settings switch for the multi-model consultation feature. It is active implicitly whenever the user has at least one LLM provider key configured; removing the key is the off-switch.
+- **Graphify hard-block enforcement** -- The count-based PreToolUse hard-block for structural-search tools was removed; graph-first discipline is advisory only (the preseeded rule plus a per-call soft nudge, [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)). The hard-block misfired on legitimate single-file searches the graph-first rule itself excludes.
 
 ### Domain Dependencies
 
@@ -1544,7 +1545,7 @@ None.
 
 **Status:** Implemented
 
-<!-- coverage-gap: AC1-AC3 and AC6 are runtime behavioral checks not covered by the static SKILL.md content test. AC4-AC5 are verified by content test; AC7 is covered by the Pi seed/skill invariant test. -->
+<!-- coverage-gap: AC1-AC3 (interactive build-mode AskUserQuestion dialog) and AC6 (Part C merge preserves all Part B fields including hyperedges) are agent-behavioral and verified by manual check, not automatable in the Workers vitest pool. AC4-AC5 are verified by the SKILL.md content test; AC7 is covered by the Pi seed/skill invariant test. -->
 
 ---
 

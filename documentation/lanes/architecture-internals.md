@@ -153,4 +153,6 @@ Admin users always have `unlimited` tier and advanced session mode access (`canU
 
 ## Specification Coverage
 
+Partial coverage - this section indexes only REQs whose implementation is described inline here. See [api-reference.md](api-reference.md) and [architecture.md](architecture.md) for the broader REQ backlinks.
+
 - [REQ-SUB-020](../../sdd/spec/subscription.md#req-sub-020-multi-currency-pricing) - Multi-Currency Pricing
