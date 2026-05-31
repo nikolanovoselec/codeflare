@@ -792,11 +792,11 @@ A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode s
 
 **Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The `<!-- doc-allow-large -->` hatch mechanism this ADR relied on was ripped out. The unified ADR file is preserved for the same anchor-stability reason, but the budget rule no longer offers a per-file opt-out -- the file-size finding is now a known LOW that the operator defers via `sdd/.review-decisions.md` if at all.
 
-**Context:** The `documentation-discipline.md` per-ADR soft budget is 100 lines. 49 ADR slots exist ([AD1](#ad1-one-container-per-session)-[AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)). 11 slots are redirect stubs that preserve inbound AD-N references (6 merged 2026-05-03, 5 reclassified 2026-05-09). 38 ADRs carry active content; each individual active ADR is under the 100-line per-ADR cap. The combined file exceeds the implicit aggregate budget. doc-updater would ordinarily flag this as a MEDIUM finding.
+**Context:** The `documentation-discipline.md` per-ADR soft budget is 100 lines. Most ADR slots carry active content under that per-ADR cap; the rest are redirect stubs that preserve inbound AD-N references. The combined file exceeds the implicit aggregate budget. doc-updater would ordinarily flag this as a MEDIUM finding.
 
 **Decision:** Keep all ADRs in a single `decisions/README.md` file. Originally relied on `<!-- doc-allow-large: AD50 -->` for explicit exemption; that mechanism is now gone, so the file-budget finding simply persists as known tech-debt.
 
-**Rationale:** AD-N identifiers are referenced throughout the codebase (`decisions/README.md#ad44`, `decisions/README.md#ad47`, etc.) in source comments, doc cross-references, and ADR Supersedes fields. Splitting into 49 files would require renaming every inbound anchor from `README.md#ad-N` to `adr-N.md#ad-N` across the entire codebase and documentation corpus - a mechanical change with high surface area and no product value. Individual ADRs are under their per-ADR budget; the file-level overage is inherent to the count of active decisions, not to any single ADR being too long. The correct granularity for the budget rule is per-ADR, not per-file.
+**Rationale:** AD-N identifiers are referenced throughout the codebase (`decisions/README.md#ad44`, `decisions/README.md#ad47`, etc.) in source comments, doc cross-references, and ADR Supersedes fields. Splitting into one file per ADR would require renaming every inbound anchor from `README.md#ad-N` to `adr-N.md#ad-N` across the entire codebase and documentation corpus - a mechanical change with high surface area and no product value. Individual ADRs are under their per-ADR budget; the file-level overage is inherent to the count of active decisions, not to any single ADR being too long. The correct granularity for the budget rule is per-ADR, not per-file.
 
 **Consequences:** The Decision Index at the top of this file remains the navigation entry point. Per-ADR budget enforcement still applies: any new ADR that exceeds 100 lines must be split or compressed.
 
@@ -1212,7 +1212,7 @@ Three smaller decisions bundled in:
 **Consequences:**
 - The Gemini CLI interactive agent (`gemini`) is no longer available in containers; users needing the Google AI agent use `agy` instead.
 - The Gemini *API* (GEMINI_API_KEY, `/api/llm-keys` geminiApiKey, consult-llm model selector) is unaffected - it is a separate provider, not the CLI agent.
-- No preseed documents are generated for Antigravity; the per-agent document total drops from 370 to 312.
+- No preseed documents are generated for Antigravity; it gets no per-agent document set.
 
 **Related REQ:** [REQ-AGENT-001](../../sdd/spec/agents.md#req-agent-001-support-multiple-ai-coding-agents) (agent CLI pre-install).
 
