@@ -1,18 +1,7 @@
-# Graph-First
+# Graphify First
 
-When `graphify-out/graph.json` exists in the project root, prefer `mcp__graphify__*` over Grep for structural lookups.
+MUST use Graphify before broad repo search, architecture/dependency/call-flow lookup, or “where is X implemented?” when an active repo has `graphify-out/graph.json`. Query first with Graphify tools (Claude: `mcp__graphify__query_graph` / `get_node` / `shortest_path`; Pi: `graphify_query` / `graphify_explain` / `graphify_path`), then read only the files it identifies.
 
-**Use the graph for:**
-- "how does X connect to Y" / "what depends on Z" / "what calls F"
-- Locating definitions across files (`get_node`)
-- Orientation on an unfamiliar repo (read `graphify-out/GRAPH_REPORT.md` first)
+MUST NOT use the graph for exact known-file edits, git/CI state, single-file string search, or code changed this session. If skipping Graphify, say why briefly.
 
-**Do NOT use the graph for:**
-- Editing a file at a known path
-- String search inside a single file
-- Code written or modified this session (graph is eventually-consistent)
-- Pure repo-state questions (`git status`, `git log`, `gh pr list`)
-
-After source edits, run `bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .` before answering further structural questions.
-
-**Route:** invoke the `graphify` skill for mechanics, build/refresh commands, large-repo flags, persistence, and the codeflare PreToolUse enforcement gate.
+After source edits, refresh with `safe-graphify-update.sh` before further structural questions. Use `skills/graphify/SKILL.md` for mechanics, build/refresh commands, large-repo flags, persistence, and enforcement details.
