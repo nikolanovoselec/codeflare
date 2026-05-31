@@ -586,3 +586,34 @@ None.
 **Verification:** [Automated test](../../src/__tests__/routes/preferences.test.ts)
 
 **Status:** Implemented
+
+---
+
+### REQ-SESSION-017: Container health and startup-status API
+
+<!-- @impl: src/routes/container/status.ts -->
+<!-- @test: src/__tests__/routes/container-status.test.ts (Container Status Routes / REQ-SESSION-017 describe -> health success/500 + startup-status stage progression + sync-failed/skipped + caught-error -> AC1-AC5) -->
+
+**Intent:** The dashboard needs a non-blocking way to learn whether a user's container is up and, while it is coming up, how far through initialization it has progressed, so the loading experience reflects real container state instead of a fixed timer.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `GET /api/container/health` reports whether the user's container is running and healthy, returning its metrics on success and an error with 500 when the health check fails. <!-- @impl: src/routes/container/status.ts -->
+2. `GET /api/container/startup-status` returns the current initialization stage without blocking, carrying a stage label, a 0-to-100 progress value, and a human-readable message. <!-- @impl: src/routes/container/status.ts -->
+3. The reported stage reflects real container state: stopped when not running, starting before services respond, syncing while the initial R2 sync runs, verifying after sync while terminal sessions are not yet responding, mounting while the terminal pre-warms, and ready when all services are up. <!-- @impl: src/routes/container/status.ts -->
+4. A failed initial R2 sync surfaces as an error stage carrying the sync error, while a skipped sync (no R2 credentials) still reaches the ready stage with the skip reason reported. <!-- @impl: src/routes/container/status.ts -->
+5. An unexpected failure while computing startup status is caught and returned as an error stage rather than propagating an unhandled 500. <!-- @impl: src/routes/container/status.ts -->
+
+**Constraints:**
+
+None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SESSION-015](#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
+
+**Verification:** [Automated test](../../src/__tests__/routes/container-status.test.ts)
+
+**Status:** Implemented

@@ -35,6 +35,7 @@ vi.mock('../../lib/circuit-breakers', () => ({
   getContainerSessionsCB: () => passThroughCB,
 }));
 
+// REQ-SESSION-017: Container health and startup-status API
 describe('Container Status Routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
@@ -315,6 +316,35 @@ describe('Container Status Routes', () => {
       const body = await res.json() as { stage: string; message: string };
       expect(body.stage).toBe('ready');
       expect(body.message).toBe('Container ready (sync skipped: R2 credentials not configured)');
+    });
+
+    it('returns mounting stage when terminal server is up but PTY is still pre-warming', async () => {
+      const app = createStatusApp();
+      testState.container!.getState.mockResolvedValue({ status: 'running' });
+      // Health + sessions both respond OK, but the health payload reports
+      // prewarmReady: false → terminal is up, PTY still warming → mounting.
+      testState.container!.fetch.mockResolvedValue(
+        new Response(JSON.stringify({
+          status: 'ok',
+          syncStatus: 'success',
+          prewarmReady: false,
+          terminalPid: 5678,
+        }), { status: 200 })
+      );
+
+      const res = await app.request(`/container/startup-status${sessionQuery}`);
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as {
+        stage: string;
+        progress: number;
+        message: string;
+        details: { terminalServerOk: boolean };
+      };
+      expect(body.stage).toBe('mounting');
+      expect(body.progress).toBe(90);
+      expect(body.message).toBe('Preparing terminal...');
+      expect(body.details.terminalServerOk).toBe(true);
     });
 
     it('skips mounting stage when health server is ok after sync (single port architecture)', async () => {

@@ -19,6 +19,7 @@ vi.mock('../../lib/r2-admin', () => ({
   getOrCreateScopedR2Token: mockGetOrCreateScopedR2Token,
 }));
 
+// REQ-AUTH-019: User identity and account-status API
 describe('User Profile Routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
@@ -117,6 +118,46 @@ describe('User Profile Routes', () => {
       expect(res.status).toBe(401);
       const body = await res.json() as { code: string };
       expect(body.code).toBe('AUTH_ERROR');
+    });
+  });
+
+  // =========================================================================
+  // POST /user/onboarding-complete - REQ-AUTH-019 AC2
+  // =========================================================================
+  describe('POST /user/onboarding-complete', () => {
+    it('marks the stored user record onboarding-complete and preserves existing fields', async () => {
+      mockAuthenticateRequest.mockResolvedValue({
+        user: { email: 'test@example.com', authenticated: true, role: 'user' },
+        bucketName: 'codeflare-abc123',
+      });
+      mockKV._set('user:test@example.com', { subscribedMode: 'advanced' });
+
+      const app = createApp();
+      const res = await app.request('/user/onboarding-complete', { method: 'POST' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true });
+
+      const stored = await mockKV.get('user:test@example.com', 'json') as {
+        onboardingComplete?: boolean;
+        subscribedMode?: string;
+      };
+      expect(stored.onboardingComplete).toBe(true);
+      expect(stored.subscribedMode).toBe('advanced');
+    });
+
+    it('is a no-op when the user has no stored record yet', async () => {
+      mockAuthenticateRequest.mockResolvedValue({
+        user: { email: 'new@example.com', authenticated: true, role: 'user' },
+        bucketName: 'codeflare-xyz',
+      });
+
+      const app = createApp();
+      const res = await app.request('/user/onboarding-complete', { method: 'POST' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true });
+      expect(await mockKV.get('user:new@example.com')).toBeNull();
     });
   });
 

@@ -600,3 +600,36 @@ None.
 **Verification:** [Integration test](../../src/__tests__/routes/users.test.ts)
 
 **Status:** Implemented
+
+---
+
+### REQ-AUTH-019: User identity and account-status API
+
+<!-- @impl: src/routes/user-profile.ts -->
+<!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes / REQ-AUTH-019 describe -> GET /user identity + onboarding-complete + r2-status + ensure-r2-token 503/500 + 401 -> AC1-AC5) -->
+<!-- @test: src/__tests__/routes/rate-limits.test.ts (POST /user/ensure-r2-token 5/min describe -> AC6) -->
+
+**Intent:** A signed-in user's client needs one authoritative read of who they are and how their account is configured, plus the small account-status writes the onboarding and storage flows depend on.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `GET /api/user` returns the authenticated user's identity and account status (email, role, access and subscription tier, bucket name, worker name, onboarding-active and SaaS-mode flags, onboarding-complete flag, has-subscribed flag, and subscribed session mode) read from the user's stored record, and creates no resources. <!-- @impl: src/routes/user-profile.ts -->
+2. `POST /api/user/onboarding-complete` marks the user's stored record onboarding-complete so later logins skip the onboarding redirect, and is a no-op when the user has no stored record yet. <!-- @impl: src/routes/user-profile.ts -->
+3. `GET /api/user/r2-status` reports whether a scoped R2 token already exists for the user. <!-- @impl: src/routes/user-profile.ts -->
+4. `POST /api/user/ensure-r2-token` creates the user's scoped R2 token when absent, returning ready on success, 503 when account setup is incomplete, and 500 on a provisioning failure. <!-- @impl: src/routes/user-profile.ts -->
+5. Every endpoint requires authentication; unauthenticated requests are rejected with 401. <!-- @impl: src/routes/user-profile.ts -->
+6. `POST /api/user/ensure-r2-token` is rate-limited per user to bound token-provisioning abuse. <!-- @impl: src/routes/user-profile.ts -->
+
+**Constraints:**
+
+None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AUTH-005](#req-auth-005-three-tier-authorization-middleware), [REQ-AUTH-015](#req-auth-015-guided-onboarding-flow)
+
+**Verification:** [Automated test](../../src/__tests__/routes/user-profile.test.ts)
+
+**Status:** Implemented
