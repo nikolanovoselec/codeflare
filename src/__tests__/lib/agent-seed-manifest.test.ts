@@ -1207,10 +1207,19 @@ describe('REQ-AGENT-027 AC1 context-mode wired as a tool only (no Bash deny-gate
 // (guard-helpers, commands-helpers, memory-vault-helpers) and executes the real logic that the
 // side-effectful extension modules compose - not source-string matching. The extension modules
 // themselves import the Pi package / node:child_process and cannot load in the Workers test
-// pool, so the executable logic lives in these helpers. (The command-registration wiring is
-// covered by the 'Pi command extensions dispatch' test above.)
+// pool, so the executable logic lives in these helpers. Command registration (AC1) is the one
+// exception: it is wiring inside codeflare-commands.ts, which cannot be loaded here, so it is
+// asserted against the shipped extension content.
 
 describe('Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 (Claude-only slash commands reimplemented as Pi native command handlers)', () => {
+  it('AC1: the extension registers exactly the debug, deploy, and brainstorm commands', () => {
+    const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/codeflare-commands.ts');
+    expect(doc, 'codeflare-commands.ts must be seeded').toBeTruthy();
+    expect(doc!.content).toContain('registerCommand("debug"');
+    expect(doc!.content).toContain('registerCommand("deploy"');
+    expect(doc!.content).toContain('registerCommand("brainstorm"');
+  });
+
   it('AC2: commandInstructions assembles the dispatched message as slash + workflow + user input', () => {
     const out = commandInstructions('/debug', DEBUG_WORKFLOW, 'my failing test');
     expect(out.startsWith('/debug\n')).toBe(true);
