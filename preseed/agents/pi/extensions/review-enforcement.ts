@@ -5,7 +5,7 @@
  * It watches pushes/PR creation/PR merges for SDD projects with an open PR to
  * main/master, computes the minimal required review lanes, spawns Pi subagents
  * for only those lanes, persists progress under .git/, and acknowledges the PR
- * head only after the required lanes complete.
+ * head after the required lanes complete or after an explicit user bypass.
  */
 
 import { execFileSync } from "node:child_process";
@@ -13,8 +13,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
+import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -387,6 +387,40 @@ function clearReviewStatus(ctx: any): void {
   try { ctx.ui.setStatus("codeflare-review", undefined); } catch { /* best effort */ }
 }
 
+function textFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map(textFromContent).filter(Boolean).join("\n");
+  if (content && typeof content === "object") {
+    const record = content as Record<string, unknown>;
+    if (typeof record.text === "string") return record.text;
+    if (typeof record.content === "string") return record.content;
+  }
+  return "";
+}
+
+function sessionUserMessages(ctx: any): string[] {
+  try {
+    const file = ctx?.sessionManager?.getSessionFile?.();
+    if (!file || !existsSync(file)) return [];
+    return readFileSync(file, "utf8")
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          const entry = JSON.parse(line);
+          const message = entry?.message || entry;
+          if (message?.role !== "user") return [];
+          const text = textFromContent(message.content);
+          return text ? [text] : [];
+        } catch {
+          return [];
+        }
+      });
+  } catch {
+    return [];
+  }
+}
+
 async function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: string[], ctx: any, reason: string): Promise<void> {
   if (lanes.length === 0) return;
 
@@ -704,7 +738,7 @@ export default function (pi: ExtensionAPI) {
     const state = completedStateFromDurableJob(repo, head);
     if (!state) return;
     publishReviewSummary(state, ctx);
-    requestReviewAutofix(state);
+    requestReviewAutofix(state, ctx);
   }
 
   function publishSummaryForCurrentPr(ctx: any): boolean {
@@ -718,7 +752,7 @@ export default function (pi: ExtensionAPI) {
     return true;
   }
 
-  function requestReviewAutofix(state: PendingReview): void {
+  function requestReviewAutofix(state: PendingReview, ctx: any): void {
     const marker = join(reviewJobDir(state.repo, state.head), "autofix.requested");
     try {
       requestReviewAutofixForRows({
@@ -726,6 +760,7 @@ export default function (pi: ExtensionAPI) {
         repo: state.repo,
         head: state.head,
         rows: reviewSummaryRows(state),
+        suppress: reviewAutofixModeFromUserMessages(sessionUserMessages(ctx)) === "manual",
         claim: () => {
           mkdirSync(dirname(marker), { recursive: true });
           try {
@@ -787,7 +822,7 @@ export default function (pi: ExtensionAPI) {
       clearBreaker(state.repo);
       clearPending(state.repo);
       publishReviewSummary(state, ctx);
-      requestReviewAutofix(state);
+      requestReviewAutofix(state, ctx);
       clearReviewStatus(ctx);
       pending = undefined;
     }
@@ -1023,7 +1058,11 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const activeHead = headStatus === "advanced" ? currentEnforcedPrHead(state.repo) : state.head;
+    const activeHead = bypassAckHeadForStatus({
+      status: headStatus,
+      pendingHead: state.head,
+      currentHead: headStatus === "advanced" ? currentEnforcedPrHead(state.repo) : undefined,
+    });
     if (!activeHead) { pending = undefined; return; }
     if (isBreakerOpen(state.repo, activeHead)) { pending = undefined; return; } // latched: do no further work for this head
     if (acked(state.repo, activeHead)) {

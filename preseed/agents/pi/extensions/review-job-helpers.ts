@@ -142,6 +142,19 @@ export type DurableReviewStatusStyle = {
   pending?: (text: string) => string;
 };
 
+export type ReviewAutofixMode = "auto" | "manual" | "unset";
+
+export function reviewAutofixModeFromUserMessages(messages: string[]): ReviewAutofixMode {
+  let mode: ReviewAutofixMode = "unset";
+  const manualPattern = /\b(?:do not|don't|dont|no|stop)\s+(?:auto(?:matically)?[-\s]*)?(?:fix|implement|apply)\b|\bdo\s+not\s+auto[-\s]*(?:fix|implement)\b|\bdon't\s+auto[-\s]*(?:fix|implement)\b|\bwait\s+for\s+(?:my\s+)?(?:go|approval|command)\b/i;
+  const autoPattern = /\bautomatic(?:ally)?\s+is\s+fine\b|\b(?:go|proceed)\b.*\b(?:fix|implement|apply)\b|\b(?:fix|implement)\s+(?:all\s+)?(?:legitimate\s+)?(?:PR-boundary\s+review\s+)?findings\b/i;
+  for (const message of messages) {
+    if (manualPattern.test(message)) mode = "manual";
+    if (autoPattern.test(message)) mode = "auto";
+  }
+  return mode;
+}
+
 export function reviewAutofixRequest(repo: string, head: string): ReviewAutofixRequest {
   return {
     message: {
@@ -149,7 +162,8 @@ export function reviewAutofixRequest(repo: string, head: string): ReviewAutofixR
       content: [
         `Fix legitimate PR-boundary review findings for ${basename(repo)} at ${head}.`,
         "Use the merged review summary immediately above as the actionable finding list.",
-        "Fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
+        "If the user has explicitly said not to automatically fix/implement this round, or to wait for GO/approval, do not edit, commit, or push; present the findings and wait for their command.",
+        "Otherwise, fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
         "Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.",
         "Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
       ].join("\n"),
@@ -170,8 +184,10 @@ export function requestReviewAutofixForRows(input: {
   repo: string;
   head: string;
   rows: ReviewAutofixRow[];
+  suppress?: boolean;
   claim: () => boolean;
 }): boolean {
+  if (input.suppress) return false;
   if (!input.rows.some((row) => actionableReviewCount(row.counts) > 0)) return false;
   if (!input.claim()) return false;
   sendReviewAutofixRequest(input.sender, input.repo, input.head);

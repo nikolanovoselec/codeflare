@@ -28,6 +28,12 @@ export function isFailedToolExecution(event: any): boolean {
 
 export type ReviewHeadStatus = "current" | "advanced" | "stale" | "unknown";
 
+export function bypassAckHeadForStatus(params: { status: ReviewHeadStatus; pendingHead: string; currentHead?: string }): string | undefined {
+  if (params.status === "current") return params.pendingHead;
+  if (params.status === "advanced") return params.currentHead || undefined;
+  return undefined;
+}
+
 // Decide whether a pending review window still applies to the live PR head.
 // Critically separates a PR that has definitively moved on / closed ("stale",
 // safe to discard) from a PR state we could not read because `gh` failed
