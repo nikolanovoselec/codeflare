@@ -43,6 +43,10 @@ describe('LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 
   beforeEach(() => {
     vi.clearAllMocks();
     mockKV = createMockKV();
+    // CF-007: PUT now probes the provider (validateOpenAIKey/validateGeminiKey)
+    // before storing. Stub fetch as OK so the key-storage happy-path tests
+    // exercise the storage path rather than the live provider call.
+    globalThis.fetch = vi.fn(async () => new Response('{}', { status: 200 })) as typeof globalThis.fetch;
   });
 
   describe('GET /api/llm-keys', () => {
