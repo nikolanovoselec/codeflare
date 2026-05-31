@@ -806,7 +806,7 @@ None.
 ### REQ-AGENT-049: Auto-upgrade preseed on release
 
 <!-- @impl: scripts/generate-agent-seed.mjs, src/routes/session/lifecycle.ts, src/routes/storage/seed.ts, web-ui/src/stores/session.ts -->
-<!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-AGENT-049 describe -> AC3 preseedNeedsUpgrade) + src/__tests__/routes/storage-seed.test.ts (REQ-AGENT-049 -> AC2 lastPreseedHash persistence + AC8 mode/tier propagation) + web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 -> AC4 upgrade trigger + AC5 preseedUpgrading flag lifecycle + AC7 failure path) + web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-049 -> AC5 Dashboard button disabled/Upgrading text) + web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-049 AC5 -> SessionDropdown disabled during upgrade) + web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-AGENT-049 AC6 -> stopped card dimmed/click-disabled) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-049 AC1 -> PRESEED_CONTENT_HASH determinism) -->
+<!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-AGENT-049 describe -> AC3 preseedNeedsUpgrade) + src/__tests__/routes/storage-seed.test.ts (REQ-AGENT-049 -> AC2 lastPreseedHash persistence + AC7 mode/tier propagation) + web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 -> AC4 upgrade trigger + AC5 preseedUpgrading flag lifecycle + AC6 failure path) + web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-049 -> AC5 Dashboard button disabled/Upgrading text) + web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-049 AC5 -> SessionDropdown disabled during upgrade) + web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-AGENT-049 AC5 -> stopped card dimmed/click-disabled) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-049 AC1 -> PRESEED_CONTENT_HASH determinism) -->
 
 **Intent:** When a new codeflare release ships changed preseed content (agent skills, rules, plugins), the user's R2 bucket should be reconciled automatically on first dashboard load - no manual "Recreate Agent Skills & Rules" click required. Session creation and stopped-session access are prevented in the UI during the brief upgrade.
 
@@ -818,10 +818,9 @@ None.
 2. After a successful reconcile (manual or auto), the applied hash is persisted in the user's preferences store.
 3. On initial dashboard load, the backend compares the stored hash against the build-time constant and returns whether an upgrade is needed. This check is omitted from periodic polling to avoid overhead.
 4. On initial dashboard load, if an upgrade is needed, the frontend triggers the reconcile in the background.
-5. While the upgrade is in progress, the "+ New Session" button is disabled and displays "Upgrading..." (both Dashboard and SessionDropdown).
-6. Stopped session cards are visually dimmed (reduced opacity) and click-disabled during upgrade.
-7. If the auto-upgrade fails, the error is logged but the dashboard remains fully usable. A page refresh retries the check.
-8. The reconcile respects the user's current session mode and tier (standard/pro/unlimited) - identical behavior to the manual "Recreate" button.
+5. While the upgrade is in progress, the "+ New Session" button is disabled and displays "Upgrading..." (both Dashboard and SessionDropdown), and stopped session cards are visually dimmed (reduced opacity) and click-disabled.
+6. If the auto-upgrade fails, the error is logged but the dashboard remains fully usable. A page refresh retries the check.
+7. The reconcile respects the user's current session mode and tier (standard/pro/unlimited) - identical behavior to the manual "Recreate" button.
 
 **Constraints:** None.
 
@@ -1116,8 +1115,8 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (result model + compact status + announcement-key + summary/actionability tests -> AC1/AC2/AC3/AC4/AC5/AC6/AC7 + lane extension sources -> AC8) -->
-<!-- coverage-gap: AC8's lane-source selection is unit-tested via laneExtensionSources; the in-lane loading of codeflare-pi and the per-session global-graph-merge skip are runtime behaviors verified by integration smoke test, with no dedicated automated test. -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (result model + compact status + announcement-key + summary/actionability tests -> AC1/AC2/AC3/AC4/AC5/AC6 + lane extension sources -> AC7) -->
+<!-- coverage-gap: AC7's lane-source selection is unit-tested via laneExtensionSources; the in-lane loading of codeflare-pi and the per-session global-graph-merge skip are runtime behaviors verified by integration smoke test, with no dedicated automated test. -->
 
 **Intent:** Pi operators need consistent PR-boundary review output, a compact indication that internal durable lanes are active, and an automatic next-fix prompt when actionable findings remain unless the user explicitly opts out for that round.
 
@@ -1129,10 +1128,9 @@ None.
 2. Pi exposes compact durable-lane progress in the footer while PR-boundary review runs, rendering only lanes required for the current review job. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::compactDurableReviewStatus -->
 3. Pi suppresses duplicate PR-boundary review result and summary announcements for the same repo, head, lane, and result path. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::installReviewMessageDedupe -->
 4. After all required lanes complete, Pi publishes a merged chat summary instead of separate per-lane chat result blocks. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewSummaryMarkdown -->
-5. The merged chat summary reports aggregate severity counts across code, spec, and documentation lanes. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergedReviewSummaryModel -->
-6. The merged chat summary renders findings across code, spec, and documentation lanes sorted by criticality and does not require per-lane result-file links in chat. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary -->
-7. When completed review results contain legitimate `MEDIUM`, `HIGH`, or `CRITICAL` findings, Pi requests an automatic fix-and-push pass for those findings only; if the latest explicit user directive says not to automatically fix/implement or to wait for approval, Pi presents the findings and waits instead. The next PR-boundary review uses the pushed fix diff when a fix pass runs. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestReviewAutofix --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAutofixModeFromUserMessages -->
-8. Durable PR-boundary review lanes additively load the graphify package (always when configured), the context-mode package (only when enabled in Pi settings), and the `codeflare-pi` guard extension (local-build blocker, attribution, graphify gate), while excluding the `review-enforcement` extension and the `@gotgenes/pi-subagents` package from the lane; `codeflare-pi`'s per-session global-graph merge is skipped inside lanes. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::laneExtensionSources --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::runDurableLane -->
+5. The merged chat summary reports aggregate severity counts across code, spec, and documentation lanes and renders findings sorted by criticality, without requiring per-lane result-file links in chat. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergedReviewSummaryModel --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary -->
+6. When completed review results contain legitimate `MEDIUM`, `HIGH`, or `CRITICAL` findings, Pi requests an automatic fix-and-push pass for those findings only; if the latest explicit user directive says not to automatically fix/implement or to wait for approval, Pi presents the findings and waits instead. The next PR-boundary review uses the pushed fix diff when a fix pass runs. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestReviewAutofix --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAutofixModeFromUserMessages -->
+7. Durable PR-boundary review lanes additively load the graphify package (always when configured), the context-mode package (only when enabled in Pi settings), and the `codeflare-pi` guard extension (local-build blocker, attribution, graphify gate), while excluding the `review-enforcement` extension and the `@gotgenes/pi-subagents` package from the lane; `codeflare-pi`'s per-session global-graph merge is skipped inside lanes. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::laneExtensionSources --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::runDurableLane -->
 
 **Constraints:**
 
