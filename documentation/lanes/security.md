@@ -21,7 +21,6 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [Security Headers](#security-headers)
 - [Session ID Validation](#session-id-validation)
 - [Static-Analyzer False Positives](#static-analyzer-false-positives)
-- [Context-Mode Enforcement Bypass](#context-mode-enforcement-bypass)
 - [Body Limit](#body-limit)
 - [Credential Encryption at Rest](#credential-encryption-at-rest)
 - [Rate Limiting](#rate-limiting)
@@ -124,18 +123,6 @@ Codeflare's threat model places several patterns in scope for static-analysis to
 | Hardcoded test email `e2e-service@codeflare.local` | `src/lib/access.ts` (service-token branch) | Test fixture using RFC 6762 reserved `.local` TLD. Auth gate is the worker secret, not the email string. |
 
 Each row's rationale is also captured at the source site as an inline comment. To find every entry: `grep -rn "SAST-false-positive" .` — the literal token is the durable anchor, not the line numbers. New SAST findings that match one of these patterns can be silenced via the inline-comment convention rather than escalating to an ADR.
-
-## Context-Mode Enforcement Bypass
-
-When the context-mode plugin folder is active (Custom tier, Pro mode), a PreToolUse enforcement hook (REQ-AGENT-005 AC6) restricts Bash to a whitelist and denies WebFetch and Grep. The hook checks for `/tmp/ctx-bypass` before enforcing: if the file exists the hook exits 0 and the call proceeds normally.
-
-`/tmp/ctx-bypass` is a **user-only** sentinel. Agents must never create it. Creating it from inside an agent turn defeats the enforcement layer the user opted into. Only the user, running a command in a separate terminal tab, may create it:
-
-```bash
-touch /tmp/ctx-bypass
-```
-
-Same sentinel model as `/tmp/review-bypass` (see [Resetting the Review-Spawn Checkpoint](preseed.md#resetting-the-review-spawn-checkpoint)).
 
 ## Body Limit
 
