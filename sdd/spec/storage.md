@@ -104,14 +104,14 @@ R2 persistence, rclone bisync, quotas, and file browser.
 <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> vanishing-file recovery retries -> AC5) -->
 <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> three consecutive failures trigger resync -> AC6) -->
 
-**Intent:** Changes made locally (by the agent or user) and changes in R2 (from the file browser or another session's sync) must converge within a bounded interval, balanced against R2 operation cost. The 15-minute cadence is supplemented by explicit user-driven triggers (REQ-STOR-015) so the user is never blocked waiting for a cycle when they want fresh state.
+**Intent:** Changes made locally (by the agent or user) and changes in R2 (from the file browser or another session's sync) must converge within a bounded interval, balanced against R2 operation cost. The 15-minute cadence is supplemented by explicit user-driven triggers ([REQ-STOR-015](#req-stor-015-explicit-sync-trigger-from-ui)) so the user is never blocked waiting for a cycle when they want fresh state.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. After the bisync baseline is established, a periodic bisync runs on a 15-minute cadence.
-2. The daemon's periodic sleep is interruptible by an external trigger: a trigger wakes the daemon and skips the remaining sleep, producing an immediate bisync. Triggers delivered while a bisync is mid-flight coalesce into exactly one rerun after the current cycle completes (see REQ-STOR-015 AC5).
+2. The daemon's periodic sleep is interruptible by an external trigger: a trigger wakes the daemon and skips the remaining sleep, producing an immediate bisync. Triggers delivered while a bisync is mid-flight coalesce into exactly one rerun after the current cycle completes (see [REQ-STOR-015](#req-stor-015-explicit-sync-trigger-from-ui) AC5).
 3. Conflict resolution is newest-file-wins.
 4. The daemon retries on transient failure and continues the periodic cycle.
 5. On bisync failure, the daemon attempts vanishing-file recovery (parse the error output, exclude transient files, clear stale locks, retry) before counting the failure against the failure budget.
@@ -528,7 +528,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (SIGUSR1 sleep-interrupt branch → AC5; in-flight coalesce branch pending plan) -->
 <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (Sync-now button disabled-while-syncing → AC6) -->
 
-**Intent:** Because the periodic bisync cadence is 15 minutes (REQ-STOR-003), users must have explicit ways to force convergence between the container filesystem and R2 without waiting for the next cycle.
+**Intent:** Because the periodic bisync cadence is 15 minutes ([REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)), users must have explicit ways to force convergence between the container filesystem and R2 without waiting for the next cycle.
 
 **Applies To:** User
 
@@ -543,7 +543,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Constraints:**
 
-- Three sync triggers only: the periodic cadence (REQ-STOR-003), the explicit user trigger (this REQ), and the final shutdown sync (REQ-STOR-005). R2-side uploads do not auto-fan-out to running containers; the user either triggers a sync or waits for the next periodic cycle. The upload-side auto-trigger was removed to avoid bursting Worker subrequest budget on multi-file uploads.
+- Three sync triggers only: the periodic cadence ([REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)), the explicit user trigger (this REQ), and the final shutdown sync ([REQ-STOR-005](#req-stor-005-graceful-shutdown-performs-final-sync)). R2-side uploads do not auto-fan-out to running containers; the user either triggers a sync or waits for the next periodic cycle. The upload-side auto-trigger was removed to avoid bursting Worker subrequest budget on multi-file uploads.
 - Multi-session fan-out is safe under the newest-file-wins bisync semantics: the merge operation is commutative and associative under absolute modification time, so parallel and serial fan-out produce the same final R2 state per file. The same concurrent mode already runs on every periodic cycle for users with multiple sessions, so manual triggers introduce no new failure mode.
 
 **Priority:** P1

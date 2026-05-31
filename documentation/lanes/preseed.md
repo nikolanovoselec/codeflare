@@ -138,8 +138,8 @@ enforcement family (8 skills, advanced-only):
 agents that support skills). `consult-llm` is CC-only (depends on
 MCP tool).
 
-**Rules (27 files, 3 in both modes + 24 advanced-only)** (REQ-MEM-006,
-REQ-VAULT-007): Core environment rules (`cloudflare-environment`,
+**Rules (27 files, 3 in both modes + 24 advanced-only)** ([REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode),
+[REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session)): Core environment rules (`cloudflare-environment`,
 `no-local-builds`, `git-workflow`) in both modes - `git-workflow` is
 the umbrella core rule that delegates branched mechanics to the
 `ci-monitoring`, `git-review-pipeline`, `pr-workflow`, and
@@ -155,7 +155,7 @@ carries the folded vault trigger/route content (references CC-specific
 `mcp__graphify__*` tools and the vault hook system).
 `vault-note-capture` rule is advanced-only and routes "take a note"
 phrases to the `vault-note-capture` skill. `graph-first` rule is
-advanced-only (graphify discipline, REQ-AGENT-023). `karpathy` rule
+advanced-only (graphify discipline, [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)). `karpathy` rule
 is advanced-only (LLM coding-mistakes principles). ECC-derived
 language rules in `{common,typescript,python,golang,swift}/` subdirs
 (1 + 4*4 = 17 files, advanced only). `common/coding-style.md`
@@ -303,7 +303,7 @@ All preseed content is deployed via the manifest pipeline:
   `git-review-pipeline` enforcement skill. Pi memory capture is driven by
   two deployed contracts - `prompts/memory-agent-prompt.md` (the
   capture-agent contract) and `prompts/vault-extract-prompt.md` (the
-  Vault-graph extraction contract) - which carry the full AD58-grade
+  Vault-graph extraction contract) - which carry the full [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)-grade
   capture instructions; `memory-vault.ts` reads them from
   `~/.pi/agent/prompts/*.md`, reads the conversation from the durable
   on-disk session transcript Pi persists for `/resume`
@@ -400,7 +400,7 @@ to `.pi/agent/extensions/`, `.pi/agent/scripts/`, `.pi/agent/mcp.json`,
 `.pi/agent/npm/package.json`, `.pi/agent/npm/package-lock.json`,
 capture-contract prompts to `.pi/agent/prompts/`, and
 native Pi skill overrides under `~/.pi/agent/skills/`, and adapts Claude agent definitions into
-`.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`. Pi's generated agent frontmatter deliberately drops context-mode tools so those `@gotgenes/pi-subagents` subagents run against the native Pi tool surface. This applies to subagent frontmatter only; the durable PR-boundary review lanes are a separate `createAgentSession` path that loads context-mode additively when it is enabled (see AD64), so "review runs without ctx tools" is not categorical.
+`.pi/agent/agents/*.md` for `@gotgenes/pi-subagents`. Pi's generated agent frontmatter deliberately drops context-mode tools so those `@gotgenes/pi-subagents` subagents run against the native Pi tool surface. This applies to subagent frontmatter only; the durable PR-boundary review lanes are a separate `createAgentSession` path that loads context-mode additively when it is enabled (see [AD64](../decisions/README.md#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield)), so "review runs without ctx tools" is not categorical.
 
 **Per-mode counts**: Default mode seeds 53 files, advanced mode
 seeds 365 files. Total array size is 370 (includes variant-per-mode
@@ -498,7 +498,7 @@ registered in settings.json, scripts delivered via plugin.
 ## Third-party plugin: context-mode
 
 [context-mode](https://github.com/mksglu/context-mode) is registered
-as an optional Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi does not load context-mode by default; `/ctx on` enables the package for the current running Pi session and reloads resources, while `/ctx off` disables it again. Durable PR-boundary review lanes inherit this state: when context-mode is enabled in Pi settings, `runDurableLane` additively loads it into the lane via `additionalExtensionPaths` (see AD64), so reviewers gain `ctx_*` tools only when the main session has `/ctx on`; with it off, lanes run without them.
+as an optional Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi does not load context-mode by default; `/ctx on` enables the package for the current running Pi session and reloads resources, while `/ctx off` disables it again. Durable PR-boundary review lanes inherit this state: when context-mode is enabled in Pi settings, `runDurableLane` additively loads it into the lane via `additionalExtensionPaths` (see [AD64](../decisions/README.md#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield)), so reviewers gain `ctx_*` tools only when the main session has `/ctx on`; with it off, lanes run without them.
 The npm package is fetched by the user's own container from the npm
 registry on first invocation; Codeflare does not redistribute the
 source. Commercial users receive only the MCP server registration:
@@ -563,7 +563,7 @@ Subagents are dispatched in waves of up to 10 (configurable via `GRAPHIFY_SEMANT
 
 **Interaction flow.** Both Greenfield and Import Mode run as a lean two-confirm flow: the agent asks one vision question (or accepts inline `$ARGUMENTS`), drafts the entire spec in memory (actors, domains, design principles, REQs in canonical shape, CON-* constraints, founding ADRs, glossary terms), presents the full draft as one review surface, and applies edits in place until the user accepts. The 10-15-turn one-domain-at-a-time confirmation chain is not used.
 
-**Enrichment pass.** After the draft is accepted, before any files are written, three passes run automatically in one in-memory cycle. All three query the project's `graphify-out/graph.json` for structural inputs; the post-clone PostToolUse hook (REQ-AGENT-025) prompts the user to build a graph immediately after `git clone`, so the graph is normally already in place by the time `/sdd init` runs:
+**Enrichment pass.** After the draft is accepted, before any files are written, three passes run automatically in one in-memory cycle. All three query the project's `graphify-out/graph.json` for structural inputs; the post-clone PostToolUse hook ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage)) prompts the user to build a graph immediately after `git clone`, so the graph is normally already in place by the time `/sdd init` runs:
 
 - **Cross-link pass** - `mcp__graphify__get_neighbors` returns every node that shares an edge with a referenced REQ / CON / concept; every drafted REQ that names another REQ in its body also gains it in `Dependencies:` as an anchor link `[REQ-X-NNN](#req-x-nnn-title-slug)`.
 - **ADR-seed pass** - `mcp__graphify__god_nodes(top_n=20)` returns the most-connected nodes (architectural pillars). 3-8 surviving candidates (tech stack, framework, deployment target, auth pattern, data store, key middleware) become founding ADRs in `documentation/decisions/README.md` with an index table and per-ADR sections. Candidates that fail the "What is NOT an ADR" test (no real alternative considered) are dropped.

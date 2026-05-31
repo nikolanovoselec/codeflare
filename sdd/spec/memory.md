@@ -20,10 +20,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### Domain Dependencies
 
-- **Vault** -- Capture writes (REQ-MEM-001) and global-graph merges depend on the vault skeleton and graph infrastructure from the Vault domain.
-- **Storage** -- R2 sync of the vault (REQ-MEM-004) depends on the bisync infrastructure from the Storage domain.
-- **Agents** -- Preseed delivery (REQ-MEM-008) depends on the preseed pipeline from the Agents domain.
-- **Subscription** -- Mode gating (REQ-MEM-006) depends on effective tier resolution and tier-allowed-session-modes from the Subscription domain.
+- **Vault** -- Capture writes ([REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault)) and global-graph merges depend on the vault skeleton and graph infrastructure from the Vault domain.
+- **Storage** -- R2 sync of the vault ([REQ-MEM-004](#req-mem-004-vault-contents-synced-to-r2-across-sessions)) depends on the bisync infrastructure from the Storage domain.
+- **Agents** -- Preseed delivery ([REQ-MEM-008](#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline)) depends on the preseed pipeline from the Agents domain.
+- **Subscription** -- Mode gating ([REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)) depends on effective tier resolution and tier-allowed-session-modes from the Subscription domain.
 
 ---
 
@@ -61,7 +61,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 - The hook runs in approximately 150ms (lightweight shell script, no heavy processing).
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
-- The capture agent is sonnet per AD58, pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model.
+- The capture agent is sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model.
 - The capture agent itself is the LLM that produces the extracted graph (the upstream headless extract CLI is not invoked) to avoid duplicating inference cost.
 - The capture subagent's pipeline must run whether or not a shell-routing gate (context-mode) is active: the subagent definition carries both the Bash tools and the context-mode execute tools and uses whichever the session permits, so a gated Bash call never silently aborts the capture.
 - The durable transcript source is per-runtime: the Claude capture reads the transcript JSONL slice the hook passes by line range; the Pi capture reads its persisted session file via `getSessionFile()` and parses the message entries. Both skip the capture when the resolved transcript is empty.
@@ -96,7 +96,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 1. The hook tolerates tilde-prefixed transcript paths.
 2. Variables shared between the hook and the capture subagent are passed via a small carrier file rather than inline context.
 3. On the first message of a session, the hook injects a graph-query directive instructing the agent to consult the unified graph before responding.
-4. The hook resolves the capture timezone from the user preference (REQ-SESSION-016), falling back to the container default and finally to UTC.
+4. The hook resolves the capture timezone from the user preference ([REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)), falling back to the container default and finally to UTC.
 5. The capture timestamp is validated against the current wall clock and rejected if fabricated, missing a timezone offset, or mismatching the resolved timezone.
 6. A timestamp whose offset does not match the resolved timezone is rejected; this catches dropped-timezone-wrapper bugs without false-positiving legitimately-UTC hosts.
 7. A timestamp more than 30 seconds away from the current wall clock is rejected. Any assertion failure halts the capture rather than writing a confabulated timestamp to the vault.
@@ -232,7 +232,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode describe -> returns "default" when prefs unset -> AC2) -->
 <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (reconcileAgentConfigs / REQ-MEM-011 AC4 describe -> seeds and cleans up for default mode + skips cleanup when cleanup=false -> AC4) -->
 
-**Intent:** The mechanics behind the user-observable behavior in REQ-MEM-006: how the mode value is stored, defaulted, clamped against the billing tier, propagated into `settings.json`, and reconciled into the preseed file set without trampling user content.
+**Intent:** The mechanics behind the user-observable behavior in [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode): how the mode value is stored, defaulted, clamped against the billing tier, propagated into `settings.json`, and reconciled into the preseed file set without trampling user content.
 
 **Applies To:** User
 
@@ -274,7 +274,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. The capture prompt is preseeded into the session-installed memory plugin alongside its scripts.
-2. The memory plugin's scripts (hook, prompt, prefilter) and the capture subagent definition (pinned to sonnet per AD58) are all delivered via the manifest pipeline that seeds named subagents like architect and code-reviewer ([REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start)).
+2. The memory plugin's scripts (hook, prompt, prefilter) and the capture subagent definition (pinned to sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)) are all delivered via the manifest pipeline that seeds named subagents like architect and code-reviewer ([REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start)).
 3. All memory-plugin entries are marked advanced-only in the manifest.
 4. The hook script is delivered via the plugin but registered via the session settings merge, not the plugin loader.
 5. Memory-plugin source lives in the single preseed source tree.
@@ -313,7 +313,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. Each extraction merges the new chunk's nodes/edges into the persistent graph using a hash-keyed union (existing IDs dedupe, new IDs append).
 3. The global graph's vault contribution always reflects the cumulative vault content, not only the most recent extraction.
 4. If the persistent vault graph is missing or unreadable, the pass starts a fresh one rather than crashing and writes it at the end of the run.
-5. Vault graph merges are serialised with capture-pipeline writes and active-repo hooks; a short timeout prevents indefinite blocking if the lock holder crashes (matching REQ-MEM-001 AC7).
+5. Vault graph merges are serialised with capture-pipeline writes and active-repo hooks; a short timeout prevents indefinite blocking if the lock holder crashes (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7).
 
 **Constraints:**
 
@@ -335,7 +335,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: entrypoint.sh -->
 <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh describe blocks → AC1-AC4) -->
 
-**Intent:** The capture directive emitted by REQ-MEM-001's hook is advisory: an agent that ignores it leaves the dedup-gate undrained, and the 15-message threshold logic only fires fresh directives on threshold crossings, so a long session can silently pass with zero captures. A companion hard-block hook closes this gap: every tool call other than the memory-capture subagent itself is blocked while a deferred capture is pending, forcing the agent to drain the deferred work before doing anything else. The block has no bypass surface and clears naturally when the subagent runs.
+**Intent:** The capture directive emitted by [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault)'s hook is advisory: an agent that ignores it leaves the dedup-gate undrained, and the 15-message threshold logic only fires fresh directives on threshold crossings, so a long session can silently pass with zero captures. A companion hard-block hook closes this gap: every tool call other than the memory-capture subagent itself is blocked while a deferred capture is pending, forcing the agent to drain the deferred work before doing anything else. The block has no bypass surface and clears naturally when the subagent runs.
 
 **Applies To:** Agent
 
@@ -405,7 +405,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts -->
 <!-- @impl: scripts/generate-agent-seed.mjs -->
 
-**Intent:** Pi's memory-capture and vault-extract subagents must follow the same full capture contract as the Claude memory plugin (AD58 parity) - chunk the transcript, accumulate per-chunk observations, synthesise a structured note, and cite REQ/ADR/SHA/PR identifiers verbatim - rather than the thin inline contract Pi previously carried. The transcript handed to the capture agent must be prefiltered to preserve the conversational arc, and the capture/extract agents must be able to run on a higher-fidelity model without a hardcoded model name.
+**Intent:** Pi's memory-capture and vault-extract subagents must follow the same full capture contract as the Claude memory plugin ([AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) parity) - chunk the transcript, accumulate per-chunk observations, synthesise a structured note, and cite REQ/ADR/SHA/PR identifiers verbatim - rather than the thin inline contract Pi previously carried. The transcript handed to the capture agent must be prefiltered to preserve the conversational arc, and the capture/extract agents must be able to run on a higher-fidelity model without a hardcoded model name.
 
 **Applies To:** User
 
@@ -419,7 +419,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Constraints:**
 
-- The model-fidelity lever is the Pi-runtime expression of the AD58 rationale (capture must cite identifiers verbatim, which benefits from a higher-fidelity model); Claude pins the model at the subagent-definition level per [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) while Pi reads it from the environment so no model name is committed.
+- The model-fidelity lever is the Pi-runtime expression of the [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) rationale (capture must cite identifiers verbatim, which benefits from a higher-fidelity model); Claude pins the model at the subagent-definition level per [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) while Pi reads it from the environment so no model name is committed.
 - The prefilter mirrors the Claude prefilter rationale (drop tool/recency noise, preserve the conversational arc); it does not change the capture cadence or the dedup-gate carrier-file protocol.
 
 **Priority:** P1

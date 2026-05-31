@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD64 throughout the codebase and documentation. 49 ADRs carry active content (AD4 superseded by AD56 + AD57; AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session)-[AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) throughout the codebase and documentation. 49 ADRs carry active content ([AD4](#ad4-periodic-rclone-bisync) superseded by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) superseded by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features)); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -14,10 +14,10 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD1](#ad1-one-container-per-session) | One container per session | Architecture |
 | [AD2](#ad2-container-id-format) | Container ID format | Architecture |
 | [AD3](#ad3-per-user-r2-buckets) | Per-user R2 buckets | Architecture |
-| [AD4](#ad4-periodic-rclone-bisync) | _superseded by AD56 (cadence) + AD57 (shutdown budget)_ | (superseded) |
+| [AD4](#ad4-periodic-rclone-bisync) | _superseded by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) (cadence) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (shutdown budget)_ | (superseded) |
 | [AD5](#ad5-login-shell-autostart) | Login shell autostart | Architecture |
 | [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) | KV read-modify-write races and `collectMetrics` atomicity | Architecture |
-| [AD7](#ad7-merged-into-ad10) | _merged into AD10 — pre-setup public endpoints_ | Security |
+| [AD7](#ad7-merged-into-ad10) | _merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) — pre-setup public endpoints_ | Security |
 | [AD8](#ad8-root-container-no-internal-auth) | Root container, no internal auth | Architecture |
 | [AD9](#ad9-ressource_tier-spelling) | _reclassified - RESSOURCE_TIER spelling moved to configuration.md_ | (redirect) |
 | [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) | Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation | Security |
@@ -27,9 +27,9 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD14](#ad14-never-auto---resync-on-bisync-failure) | Never auto-`--resync` on bisync failure | Storage |
 | [AD15](#ad15-tabconfigschema-allows-arbitrary-command-strings) | TabConfigSchema allows arbitrary command strings | UI/Frontend |
 | [AD16](#ad16-entrypointsh-1090-lines-complexity) | entrypoint.sh ~1090 lines complexity | Architecture |
-| [AD17](#ad17-merged-into-ad6) | _merged into AD6 — `collectMetrics` atomicity_ | Architecture |
+| [AD17](#ad17-merged-into-ad6) | _merged into [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) — `collectMetrics` atomicity_ | Architecture |
 | [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) | Vendored creative/WebGL code uses untyped patterns | UI/Frontend |
-| [AD19](#ad19-merged-into-ad18) | _merged into AD18 — splash-cursor-logic.ts `as any` casts_ | UI/Frontend |
+| [AD19](#ad19-merged-into-ad18) | _merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) — splash-cursor-logic.ts `as any` casts_ | UI/Frontend |
 | [AD20](#ad20-toctou-in-containerlifecyclets) | TOCTOU in container/lifecycle.ts | Architecture |
 | [AD21](#ad21-inconsistent-function-signatures) | Inconsistent function signatures | Architecture |
 | [AD22](#ad22-jwks-30s-cache-staleness) | JWKS 30s cache staleness | Security |
@@ -38,14 +38,14 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD25](#ad25-e2e-service-email-hardcoded) | _reclassified - E2E test fixture moved to inline + security.md_ | (redirect) |
 | [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) | Stress test rate-limit bypass (integration-only) | Security |
 | [AD27](#ad27-server-side-prefix-delete) | Server-side prefix delete | Storage |
-| [AD28](#ad28-merged-into-ad26) | _merged into AD26 — integration-only environment scoping_ | Security |
+| [AD28](#ad28-merged-into-ad26) | _merged into [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) — integration-only environment scoping_ | Security |
 | [AD29](#ad29-container-secrets-as-env-vars) | Container secrets as env vars | Security |
 | [AD30](#ad30-worker-name-from-host-header) | Worker name from Host header | Security |
 | [AD31](#ad31-root-container-is-intentional) | _reclassified - root-container rationale moved to inline + security.md_ | (redirect) |
 | [AD32](#ad32-encryption_key-is-optional) | ENCRYPTION_KEY is optional | Security |
-| [AD33](#ad33-merged-into-ad10) | _merged into AD10 — pre-setup CSRF risk_ | Security |
+| [AD33](#ad33-merged-into-ad10) | _merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) — pre-setup CSRF risk_ | Security |
 | [AD34](#ad34-websocket-auth-bypass-of-hono-middleware) | WebSocket auth bypass of Hono middleware | Security |
-| [AD35](#ad35-merged-into-ad18) | _merged into AD18 — splash-cursor-logic.ts old-style constructor_ | UI/Frontend |
+| [AD35](#ad35-merged-into-ad18) | _merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) — splash-cursor-logic.ts old-style constructor_ | UI/Frontend |
 | [AD36](#ad36-websocket-origin-check-is-optional-for-non-browser-clients) | WebSocket Origin check is optional for non-browser clients | Security |
 | [AD37](#ad37-kv-as-billing-read-cache----signal-and-sync-cf-015) | KV as billing read cache -- Signal and Sync (CF-015) | Billing |
 | [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) | GitHub OIDC replaces CF Access in SaaS mode | Billing |
@@ -55,12 +55,12 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD42](#ad42-unauthenticated-first-setbucketname-call-cf-010) | Unauthenticated first setBucketName call (CF-010) | Security |
 | [AD43](#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke) | Parse-and-exclude vanishing files before escalating to nuke | Storage |
 | [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) | SDD three-mode autonomy with conservative JUDGMENT resolution | Architecture |
-| [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) | _superseded by AD51 -- override mechanism ripped out_ | (superseded) |
+| [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) | _superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) -- override mechanism ripped out_ | (superseded) |
 | [AD46](#ad46-review-reality-filter-as-phase-5) | `/review` Reality Filter as Phase 5 (stateful per-finding triage history) | Architecture |
 | [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | PTY keepalive as safety net only, not the idle policy | Architecture |
 | [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) | OAuth state replaced by HMAC-signed stateless token | Security |
 | [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) | context-mode delivered as preseed plugin, not runtime install | Architecture |
-| [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | _superseded by AD51 -- doc-allow-large hatch ripped out_ | (superseded) |
+| [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | _superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) -- doc-allow-large hatch ripped out_ | (superseded) |
 | [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | Rip out six overengineered SDD framework features | Architecture |
 | [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) | Graphify MCP available everywhere, discipline advanced-only | Architecture |
 | [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking) | Graphify hot-reload wrapper with multi-repo sentinel tracking | Architecture |
@@ -70,7 +70,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) | 135-second shutdown budget for final bisync | Storage |
 | [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) | Sonnet (not haiku) for memory capture, plus jq-prefilter and chunked-scratchpad pipeline | Memory |
 | [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key) | Zero-UI vault encryption with per-session DO-storage key | Security |
-| [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter) | Pi memory capture reuses the AD58 contract and transcript prefilter | Memory |
+| [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter) | Pi memory capture reuses the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) contract and transcript prefilter | Memory |
 | [AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) | Pi `/review` ships as a dedicated native skill (Claude commands do not deploy to Pi) | Architecture |
 | [AD62](#ad62-pi-model-name-genericization-with-codeflare_memory_model-lever) | Pi model-name genericization with `CODEFLARE_MEMORY_MODEL` lever | Architecture |
 | [AD63](#ad63-pi-safe-graphify-updatesh-is-fail-closed-and-two-step) | Pi `safe-graphify-update.sh` is fail-closed and two-step | Architecture |
@@ -100,16 +100,16 @@ Example: `codeflare-user-example-com-abc12345`. Deterministic from user email + 
 
 **Decision:** Bucket name derived from email, auto-created on first login.
 
-Isolation boundary: each user's files live in their own bucket. Simplifies deletion (empty + delete bucket). Bucket name sanitized from email (max 63 chars, S3-compatible). Per-user scoped R2 tokens (AD13) further restrict access.
+Isolation boundary: each user's files live in their own bucket. Simplifies deletion (empty + delete bucket). Bucket name sanitized from email (max 63 chars, S3-compatible). Per-user scoped R2 tokens ([AD13](#ad13-per-user-scoped-r2-tokens)) further restrict access.
 
 ---
 
 ### AD4: Periodic rclone bisync
 
 **Category:** Architecture
-**Status:** Superseded by AD56 (cadence rationale) and AD57 (shutdown budget).
+**Status:** Superseded by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) (cadence rationale) and [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (shutdown budget).
 
-**Decision:** Background daemon every 60s + final sync on shutdown. Superseded cadence rationale: see AD56 (now 15min). Superseded shutdown budget rationale: see AD57 (now 120s watchdog within a 135s DO destroy budget).
+**Decision:** Background daemon every 60s + final sync on shutdown. Superseded cadence rationale: see [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) (now 15min). Superseded shutdown budget rationale: see [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (now 120s watchdog within a 135s DO destroy budget).
 
 Local disk for all file operations (fast I/O). Bisync daemon runs in background, syncing changes bidirectionally; manual triggers via SIGUSR1 (storage panel Sync-now button). SIGINT/SIGTERM trap runs final bisync before exit. Alternative (s3fs FUSE) was fragile and slow -- see Lessons Learned #1.
 
@@ -131,7 +131,7 @@ Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccesse
 
 `collectMetrics` KV read-modify-write can revert session status. Mitigated: session status changes are only observed from the Dashboard, not during active terminal use. Sessions are never interrupted while in Terminal view.
 
-**`collectMetrics` density** (formerly AD17): the function performs activity checking, health probing, and KV status updates in a single `alarm()` callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The `alarm()` context provides natural atomicity across these tightly coupled operations — same theme as the KV race trade-off above (accept the cheap option until evidence forces change).
+**`collectMetrics` density** (formerly [AD17](#ad17-merged-into-ad6)): the function performs activity checking, health probing, and KV status updates in a single `alarm()` callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The `alarm()` context provides natural atomicity across these tightly coupled operations — same theme as the KV race trade-off above (accept the cheap option until evidence forces change).
 
 ---
 
@@ -167,9 +167,9 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 **Future**: A one-time bootstrap secret injected at deploy time would close this window entirely.
 
-**Pre-setup public endpoints** (formerly AD7): the same risk acceptance covers all pre-setup endpoints, not just `/configure`. Setup runs once during initial deploy. Pre-setup auth trusts a spoofable email header — bootstrap problem (can't require CF Access auth when CF Access isn't configured yet). Mitigated by rate limiting and the same short exposure window.
+**Pre-setup public endpoints** (formerly [AD7](#ad7-merged-into-ad10)): the same risk acceptance covers all pre-setup endpoints, not just `/configure`. Setup runs once during initial deploy. Pre-setup auth trusts a spoofable email header — bootstrap problem (can't require CF Access auth when CF Access isn't configured yet). Mitigated by rate limiting and the same short exposure window.
 
-**Pre-setup CSRF** (formerly AD33): `createConditionalSetupAuth()` calls `next()` directly when setup is not complete, bypassing the `X-Requested-With` CSRF check. The pre-setup CSRF risk is accepted under the same rationale as above: the window is seconds to minutes, the self-hosted audience makes a drive-by CSRF attack from a third-party origin implausible, and the attacker would need to know the exact `workers.dev` URL during its unconfigured window. Adding `Origin` validation to the pre-setup path is a low-cost future hardening that complements the bootstrap-secret idea above.
+**Pre-setup CSRF** (formerly [AD33](#ad33-merged-into-ad10)): `createConditionalSetupAuth()` calls `next()` directly when setup is not complete, bypassing the `X-Requested-With` CSRF check. The pre-setup CSRF risk is accepted under the same rationale as above: the window is seconds to minutes, the self-hosted audience makes a drive-by CSRF attack from a third-party origin implausible, and the attacker would need to know the exact `workers.dev` URL during its unconfigured window. Adding `Origin` validation to the pre-setup path is a low-cost future hardening that complements the bootstrap-secret idea above.
 
 ---
 
@@ -255,9 +255,9 @@ Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab a
 
 **`webgl-utils.ts`**: extensions like `OES_texture_half_float`, `WEBGL_lose_context`, etc. have no official TypeScript definitions. The `any` casts are isolated to this single utility file and the WebGL API surface is stable. Adding custom type definitions would be maintenance burden with no runtime benefit.
 
-**`splash-cursor-logic.ts` `as any` casts** (formerly AD19): pointer-tracking objects and WebGL shader uniforms in this creative-coding module have no typed definitions upstream. The code is adapted from a visual-effect library; type assertions are confined to this isolated module.
+**`splash-cursor-logic.ts` `as any` casts** (formerly [AD19](#ad19-merged-into-ad18)): pointer-tracking objects and WebGL shader uniforms in this creative-coding module have no typed definitions upstream. The code is adapted from a visual-effect library; type assertions are confined to this isolated module.
 
-**`splash-cursor-logic.ts` old-style constructor with `any` types** (formerly AD35): an old-style constructor function with `this: any` causes all downstream pointer/rendering functions to use `any` types — it's the root cause of the casts above. The constructor is adapted from the same visual-effect library. The entire module is isolated, has no production data path, and is invoked once per canvas element (not in a hot loop). Refactoring to a typed factory function would require significant rework of adapted code for marginal benefit.
+**`splash-cursor-logic.ts` old-style constructor with `any` types** (formerly [AD35](#ad35-merged-into-ad18)): an old-style constructor function with `this: any` causes all downstream pointer/rendering functions to use `any` types — it's the root cause of the casts above. The constructor is adapted from the same visual-effect library. The entire module is isolated, has no production data path, and is invoked once per canvas element (not in a hot loop). Refactoring to a typed factory function would require significant rework of adapted code for marginal benefit.
 
 **Common rationale across all three surfaces**: vendored creative/WebGL code is type-foreign by design. The boundary at the module's import surface is what matters; internal `any` is acceptable when the module is small, isolated, and has no production data path.
 
@@ -317,7 +317,7 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 k6 stress tests share a single CF Access service token (single identity), so per-user rate limits (10/min sessions, 5/min containers, 30/min WebSocket) block meaningful load testing above ~5 VUs. Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit KV reads/writes at the top of the middleware, before any I/O. The value must be exactly `"active"` — any other value (including `"true"`) keeps limits enforced.
 
-**Integration-only scoping** (formerly AD28): no CI-level guard is needed because GitHub Actions environment separation controls it. The variable is only set via the workflow scoped to the `integration` environment. Production deployments use `environment: production` and never receive this variable. A repo admin could theoretically set it for production, but that requires deliberate action — the same trust model that already governs every other production secret.
+**Integration-only scoping** (formerly [AD28](#ad28-merged-into-ad26)): no CI-level guard is needed because GitHub Actions environment separation controls it. The variable is only set via the workflow scoped to the `integration` environment. Production deployments use `environment: production` and never receive this variable. A repo admin could theoretically set it for production, but that requires deliberate action — the same trust model that already governs every other production secret.
 
 ---
 
@@ -507,11 +507,11 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 **Related requirements:**
 
-- REQ-AGENT-005 (Pro mode preseed inventory)
-- REQ-AGENT-006 (preseed bundle generation)
-- REQ-AGENT-007 (per-agent adaptation pipeline)
-- REQ-AGENT-014 (manifest as single source of truth)
-- REQ-AGENT-021 (SDD workflow as Pro feature) — added in this overhaul
+- [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) (Pro mode preseed inventory)
+- [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) (preseed bundle generation)
+- [REQ-AGENT-007](../../sdd/spec/agents.md#req-agent-007-multi-agent-adaptation-pipeline) (per-agent adaptation pipeline)
+- [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline) (manifest as single source of truth)
+- [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) (SDD workflow as Pro feature) — added in this overhaul
 
 **Implementation references:**
 
@@ -526,13 +526,13 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 ### AD45: User overrides recorded as ADRs, not skip-list
 
-**Status:** Superseded by AD51 (2026-05-12). The override-via-ADR mechanism described below was ripped out alongside five other overengineered SDD features. There is now no per-rule override mechanism at all -- if a finding keeps re-firing, fix the rule or the REQ.
+**Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The override-via-ADR mechanism described below was ripped out alongside five other overengineered SDD features. There is now no per-rule override mechanism at all -- if a finding keeps re-firing, fix the rule or the REQ.
 
 **Category:** Architecture
 
 **Decision:** Remove `sdd/.user-overrides.md`. When the user resolves an automated SDD finding as "keep current behavior — this mechanism IS the contract", the resolution is recorded as a real ADR in `documentation/decisions/` carrying an `Overrides: {rule_id}:{REQ-ID}` header. spec-reviewer and doc-updater grep `documentation/decisions/**/*.md` for that header at the start of every run and skip matching findings — same machine behavior as the legacy skip list, but the architectural decision is now first-class.
 
-**Context:** AD44 introduced the SDD review pipeline with `sdd/.user-overrides.md` as the place to record JUDGMENT resolutions ("don't re-attempt this fix; the user said no"). On a downstream `ai-news-digest` session, spec-reviewer flagged cookie-attribute mechanism leakage in REQ-AUTH-002 AC 1 (`__Host-` prefix, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). The clean resolution was "the cookie attributes ARE the security contract — security reviewers grep these strings; rewriting to user-observable language loses the contract surface". Recording that as a one-line `User note:` field in `sdd/.user-overrides.md` worked for the agent but failed the human:
+**Context:** [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) introduced the SDD review pipeline with `sdd/.user-overrides.md` as the place to record JUDGMENT resolutions ("don't re-attempt this fix; the user said no"). On a downstream `ai-news-digest` session, spec-reviewer flagged cookie-attribute mechanism leakage in [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) AC 1 (`__Host-` prefix, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). The clean resolution was "the cookie attributes ARE the security contract — security reviewers grep these strings; rewriting to user-observable language loses the contract surface". Recording that as a one-line `User note:` field in `sdd/.user-overrides.md` worked for the agent but failed the human:
 
 - The override file is invisible to anyone reading the codebase. It doesn't appear in any index, isn't referenced from `documentation/decisions/README.md`.
 - Each entry is a load-bearing architectural choice ("we treat cookie attributes as the security contract") buried in a config-shaped file alongside test-skip notes.
@@ -567,11 +567,11 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 - spec-discipline.md: drops `## User overrides` section, replaces with `## User overrides via ADRs` documenting the `Overrides:` header pattern.
 - `/sdd clean` step 6/6a: auto-migrates legacy entries to ADRs.
 - `/sdd init`: was never scaffolding `.user-overrides.md`; no change needed.
-- SKILL.md, /sdd command help, and `documentation/decisions/README.md` AD44 trade-off bullet: drop references to the legacy file.
+- SKILL.md, /sdd command help, and `documentation/decisions/README.md` [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) trade-off bullet: drop references to the legacy file.
 
 **Related requirements:**
 
-- REQ-AGENT-021 (SDD workflow as Pro feature)
+- [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) (SDD workflow as Pro feature)
 
 **Implementation references:**
 
@@ -635,7 +635,7 @@ A new persistent file `sdd/.review-decisions.md` is committed to the repo and ap
 
 **Related requirements:**
 
-- REQ-AGENT-015 (`/review` command for multi-perspective codebase review) - AC1 and AC5 updated to reflect the Reality Filter pass and persistent `.review-decisions.md`.
+- [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) (`/review` command for multi-perspective codebase review) - AC1 and AC5 updated to reflect the Reality Filter pass and persistent `.review-decisions.md`.
 
 **Implementation references:**
 
@@ -667,7 +667,7 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 
 **Rationale:**
 
-- The user-facing idle contract is REQ-SESSION-004's `sleepAfter` (5m / 15m / 30m / 1h / 2h). The PTY reaper sits *below* that contract and must never undercut it. Setting the floor at the maximum `sleepAfter` ensures it cannot fire before the authoritative policy.
+- The user-facing idle contract is [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout)'s `sleepAfter` (5m / 15m / 30m / 1h / 2h). The PTY reaper sits *below* that contract and must never undercut it. Setting the floor at the maximum `sleepAfter` ensures it cannot fire before the authoritative policy.
 - The reaper's value is purely defensive: it prevents a single orphaned PTY from outliving its container forever in pathological scenarios (e.g., `lastInputAt` polling dies but the container DO doesn't notice). With a 120-min floor it still does that job; it just doesn't fire on the happy path.
 - The change is one constant in two files; risk is bounded.
 
@@ -678,8 +678,8 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 
 **Related requirements:**
 
-- REQ-SESSION-004 (idle containers sleep after configurable timeout): the authoritative idle policy. AD47 documents that the PTY-level reaper is subordinate to and must never undercut this REQ.
-- REQ-SESSION-005 (input-based idle detection via `lastInputAt`): the signal `collectMetrics` uses; the reaper is the safety net for cases where this signal gets stuck.
+- [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout) (idle containers sleep after configurable timeout): the authoritative idle policy. [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) documents that the PTY-level reaper is subordinate to and must never undercut this REQ.
+- [REQ-SESSION-005](../../sdd/spec/session-lifecycle.md#req-session-005-input-based-idle-detection) (input-based idle detection via `lastInputAt`): the signal `collectMetrics` uses; the reaper is the safety net for cases where this signal gets stuck.
 
 **Implementation references:**
 
@@ -693,23 +693,23 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 
 **Status:** Accepted (2026-05-09)
 
-**Supersedes:** [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) (oauth_state mechanism only; the broader GitHub OIDC-over-CF-Access decision in AD38 remains valid)
+**Supersedes:** [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) (oauth_state mechanism only; the broader GitHub OIDC-over-CF-Access decision in [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) remains valid)
 
-**Context:** AD38 specified that the OAuth CSRF state parameter was carried as an HttpOnly cookie (a random UUID, 5-minute TTL). The cookie was validated server-side by comparing the query-param value returned by GitHub against the stored cookie value. iOS WebKit's Intelligent Tracking Prevention (ITP) and third-party cookie restrictions in private-browsing modes silently drop the state cookie before the GitHub callback completes, breaking the OAuth flow for a meaningful fraction of mobile and privacy-conscious users.
+**Context:** [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) specified that the OAuth CSRF state parameter was carried as an HttpOnly cookie (a random UUID, 5-minute TTL). The cookie was validated server-side by comparing the query-param value returned by GitHub against the stored cookie value. iOS WebKit's Intelligent Tracking Prevention (ITP) and third-party cookie restrictions in private-browsing modes silently drop the state cookie before the GitHub callback completes, breaking the OAuth flow for a meaningful fraction of mobile and privacy-conscious users.
 
 **Decision:** Replace the HttpOnly state cookie with a stateless HMAC-signed token. The token is structured as `nonce.iat.sig` where `nonce` is a random value, `iat` is the issued-at Unix timestamp, and `sig` is an HMAC-SHA256 signature over `nonce.iat` using `OAUTH_JWT_SECRET`. The callback handler recomputes the signature and rejects tokens whose `iat` is outside a 30-minute window. No server-side state is stored; no cookie is required for the CSRF check.
 
 **Alternatives considered:**
 
 1. **Keep the cookie, add `SameSite=None; Secure`** to survive cross-site redirects. Rejected: does not help on iOS ITP, which drops third-party cookies regardless of SameSite attribute on the state-checking round-trip.
-2. **Store state in KV with a 5-min TTL.** Rejected: AD38 explicitly chose cookies over KV to avoid eventual consistency lag on the Cloudflare edge. HMAC-signed tokens remove the need for any server-side state and are strictly better on both axes.
+2. **Store state in KV with a 5-min TTL.** Rejected: [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) explicitly chose cookies over KV to avoid eventual consistency lag on the Cloudflare edge. HMAC-signed tokens remove the need for any server-side state and are strictly better on both axes.
 3. **State in the `state` query param only, validated by nonce replay prevention in KV.** Rejected: same KV consistency concern as option 2.
 
 **Rationale:**
 
 - Stateless HMAC tokens are immune to ITP and private-browsing cookie restrictions because they carry no server-side state -- nothing to look up, nothing to lose on a blocked cookie jar.
 - The `iat`-window bound (30 min) gives the same CSRF protection as a short-lived cookie: a state token cannot be replayed after it expires.
-- `OAUTH_JWT_SECRET` is already required for `codeflare_session` signing (AD38); reusing it for state signing adds no new secret-management surface.
+- `OAUTH_JWT_SECRET` is already required for `codeflare_session` signing ([AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode)); reusing it for state signing adds no new secret-management surface.
 - Failure path is explicit: state verification failure redirects to `/?error=session-expired` rather than a generic 500.
 
 **Trade-offs accepted:**
@@ -717,7 +717,7 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 - A compromised `OAUTH_JWT_SECRET` now also allows forging state tokens (not just session cookies). The attack surface increase is minimal -- an attacker with the secret could already forge sessions, which is the higher-value target.
 - The 30-min window is longer than the previous 5-min cookie TTL. The trade-off is intentional: the broader window accommodates slow mobile networks and interrupted OAuth flows that previously forced re-login.
 
-**Related requirements:** REQ-AUTH-002 (GitHub OAuth CSRF protection)
+**Related requirements:** [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) (GitHub OAuth CSRF protection)
 
 **Implementation references:**
 
@@ -771,7 +771,7 @@ The MCP layer is what users observe as "context-mode is always available"; the p
 
 A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode skill, an `Implements ctx_*` rule, or any other automation that pushes commercial users toward context-mode functionality must update this ADR before merging.
 
-**Related requirements:** REQ-AGENT-005 (Pro mode skills/rules/agents/MCP, now also covers tier-gated context-mode delivery)
+**Related requirements:** [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) (Pro mode skills/rules/agents/MCP, now also covers tier-gated context-mode delivery)
 
 **Implementation references:**
 
@@ -789,9 +789,9 @@ A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode s
 
 ### AD50: Unified ADR file with structural doc-allow-large exemption
 
-**Status:** Superseded by AD51 (2026-05-12). The `<!-- doc-allow-large -->` hatch mechanism this ADR relied on was ripped out. The unified ADR file is preserved for the same anchor-stability reason, but the budget rule no longer offers a per-file opt-out -- the file-size finding is now a known LOW that the operator defers via `sdd/.review-decisions.md` if at all.
+**Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The `<!-- doc-allow-large -->` hatch mechanism this ADR relied on was ripped out. The unified ADR file is preserved for the same anchor-stability reason, but the budget rule no longer offers a per-file opt-out -- the file-size finding is now a known LOW that the operator defers via `sdd/.review-decisions.md` if at all.
 
-**Context:** The `documentation-discipline.md` per-ADR soft budget is 100 lines. 49 ADR slots exist (AD1-AD49). 11 slots are redirect stubs that preserve inbound AD-N references (6 merged 2026-05-03, 5 reclassified 2026-05-09). 38 ADRs carry active content; each individual active ADR is under the 100-line per-ADR cap. The combined file exceeds the implicit aggregate budget. doc-updater would ordinarily flag this as a MEDIUM finding.
+**Context:** The `documentation-discipline.md` per-ADR soft budget is 100 lines. 49 ADR slots exist ([AD1](#ad1-one-container-per-session)-[AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)). 11 slots are redirect stubs that preserve inbound AD-N references (6 merged 2026-05-03, 5 reclassified 2026-05-09). 38 ADRs carry active content; each individual active ADR is under the 100-line per-ADR cap. The combined file exceeds the implicit aggregate budget. doc-updater would ordinarily flag this as a MEDIUM finding.
 
 **Decision:** Keep all ADRs in a single `decisions/README.md` file. Originally relied on `<!-- doc-allow-large: AD50 -->` for explicit exemption; that mechanism is now gone, so the file-budget finding simply persists as known tech-debt.
 
@@ -804,7 +804,7 @@ A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode s
 ### AD51: Rip out six overengineered SDD framework features
 
 **Status:** Accepted (2026-05-12)
-**Supersedes:** AD45, AD50
+**Supersedes:** [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list), [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption)
 
 **Category:** Architecture
 
@@ -812,8 +812,8 @@ A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode s
 
 **Decision:** Remove the following six features from the SDD framework:
 
-1. **ADR Overrides skip-list** (AD45). The `Overrides: {rule}:{target}` ADR header that spec-reviewer / doc-updater parsed at the start of every run to skip matching findings. If a finding keeps re-firing, fix the underlying rule or REQ -- no per-rule bypass.
-2. **Hatch markers + audit** (AD50 and supporting machinery). `<!-- sdd-allow-large -->`, `<!-- doc-allow-large -->`, and `<!-- doc-template-exempt -->` markers plus the Pass 6 / Pass 10 ADR-cross-check audit. Oversized files produce a finding; the operator defers via `sdd/.review-decisions.md` if appropriate.
+1. **ADR Overrides skip-list** ([AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list)). The `Overrides: {rule}:{target}` ADR header that spec-reviewer / doc-updater parsed at the start of every run to skip matching findings. If a finding keeps re-firing, fix the underlying rule or REQ -- no per-rule bypass.
+2. **Hatch markers + audit** ([AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) and supporting machinery). `<!-- sdd-allow-large -->`, `<!-- doc-allow-large -->`, and `<!-- doc-template-exempt -->` markers plus the Pass 6 / Pass 10 ADR-cross-check audit. Oversized files produce a finding; the operator defers via `sdd/.review-decisions.md` if appropriate.
 3. **REQ split-proposal mode**. spec-reviewer draft files at `sdd/.split-proposals/{REQ-ID}.md` consumed by `/sdd clean` on `**Status:** Approved`. Oversized REQs shrink in place; the user splits manually when actually needed.
 4. **Out-of-Scope collision check**. Full-spec pass cross-referencing `## Out of Scope` bullets against shipped REQs with content-word-overlap heuristics. Spec drift is normal-quality work, not a separate detector.
 5. **Anti-spiral "category" matching**. Round counter required `≥2 commits on the same target REQ-ID or category` parsed from the commit subject's `fix(spec): {category}` infix. Simplified to `≥2 of the last 3 lane-scoped commits` -- same protection, no parser.
@@ -821,7 +821,7 @@ A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode s
 
 doc-discipline drops from twelve passes to ten (deleted Pass 6 hatch audit and Pass 10 hatch overuse). spec-discipline drops CQ-2, CQ-4, and CQ-6 (kept and renumbered CQ-1/CQ-3/CQ-5 to CQ-1/CQ-2/CQ-3). `/sdd clean` drops the legacy `sdd/.user-overrides.md` migration step. `/sdd mode` no longer lists recent ADR overrides.
 
-**Consequences:** Smaller surface for both the agent author and the human operator. AD45 and AD50 are marked Superseded but preserved for anchor stability. Architect findings that still need addressing on the remaining surface (six HIGH fixes from the third-wave review) are tracked separately. The framework now has: `/sdd init`, `/sdd clean`, `/sdd mode`, the three-agent PR-boundary pipeline, transition state, and the three discipline rules (spec / doc / tdd). That is the entire surface.
+**Consequences:** Smaller surface for both the agent author and the human operator. [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) are marked Superseded but preserved for anchor stability. Architect findings that still need addressing on the remaining surface (six HIGH fixes from the third-wave review) are tracked separately. The framework now has: `/sdd init`, `/sdd clean`, `/sdd mode`, the three-agent PR-boundary pipeline, transition state, and the three discipline rules (spec / doc / tdd). That is the entire surface.
 
 **Issue:** Architect review triage 2026-05-12; user authorization in conversation.
 
@@ -833,7 +833,7 @@ doc-discipline drops from twelve passes to ten (deleted Pass 6 hatch audit and P
 
 **Category:** Architecture
 
-**Context:** Graphify (upstream `graphifyy` Python package, Apache-2.0) turns a folder into a queryable knowledge graph and exposes it via an MCP server (`query_graph`, `get_node`, `get_neighbors`, `shortest_path`). Integrating it into Codeflare required a tier-gating decision: every preseed plugin so far chose between "advanced-only" (codeflare-memory, codeflare-hooks) and "custom-tier-only" (context-mode via AD49). Graphify did not fit either bucket cleanly. The MCP server itself is harmless ambient capability that any session benefits from when the user reaches for it; the discipline that says "use the graph before grepping" is what produces token savings and is what changes agent behaviour.
+**Context:** Graphify (upstream `graphifyy` Python package, Apache-2.0) turns a folder into a queryable knowledge graph and exposes it via an MCP server (`query_graph`, `get_node`, `get_neighbors`, `shortest_path`). Integrating it into Codeflare required a tier-gating decision: every preseed plugin so far chose between "advanced-only" (codeflare-memory, codeflare-hooks) and "custom-tier-only" (context-mode via [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)). Graphify did not fit either bucket cleanly. The MCP server itself is harmless ambient capability that any session benefits from when the user reaches for it; the discipline that says "use the graph before grepping" is what produces token savings and is what changes agent behaviour.
 
 **Decision:** Split delivery on a discipline-vs-capability axis, not on tier:
 
@@ -846,14 +846,14 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 - Default session mode users CAN reach for graphify by name (CLI on PATH, MCP tools exposed) but do not get nudged toward it. No SessionStart reminder, no triage on clone, no rule in `~/.claude/rules/`.
 - Advanced session mode users get the full discipline: the agent reads `GRAPH_REPORT.md` at session start when a graph exists, prompts on clone, prefers focused MCP queries over Grep for architecture questions, and gets a PreToolUse soft-nudge when reaching for Grep/Glob (or the context-mode grep-equivalents `ctx_search`/`ctx_batch_execute`) in a repo that has a graph.
 - Image cost (~220 MB for Python + tree-sitter wheels) is paid by every container regardless of mode, justified by one-time build cost vs. universal capability.
-- Coexists cleanly with context-mode (AD49) without depending on it. Graphify's own subagent-chunking model is the load-bearing context-bounding mechanism for `/graphify` extraction; context-mode routing through `ctx_execute` is bonus per-subagent savings when present. The `enforce-ctx-mode.sh` Bash whitelist gets `graphify` added (in custom tier where the file ships) but no behaviour depends on that whitelist for other tiers. The graph-first soft-nudge hook covers both tier paths: `Grep`/`Glob` matchers fire in non-custom tier where those tools are not denied; `mcp__context-mode__ctx_search`/`ctx_batch_execute` matchers fire in custom tier where the agent is routed through ctx for grep-equivalents.
+- Coexists cleanly with context-mode ([AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)) without depending on it. Graphify's own subagent-chunking model is the load-bearing context-bounding mechanism for `/graphify` extraction; context-mode routing through `ctx_execute` is bonus per-subagent savings when present. The `enforce-ctx-mode.sh` Bash whitelist gets `graphify` added (in custom tier where the file ships) but no behaviour depends on that whitelist for other tiers. The graph-first soft-nudge hook covers both tier paths: `Grep`/`Glob` matchers fire in non-custom tier where those tools are not denied; `mcp__context-mode__ctx_search`/`ctx_batch_execute` matchers fire in custom tier where the agent is routed through ctx for grep-equivalents.
 - The MCP server registration is keyed on `GRAPHIFY_MANIFEST` presence rather than `SESSION_MODE`, so the "capability everywhere" half is enforced by the manifest gate rather than a mode check.
 - Persistence model: graphify artifacts (`graphify-out/`) live in the repo, not in R2. Repo owners commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, and `graph.html` to git; the working tree gets them on clone and contributors inherit both the graph and a browser-openable interactive visualization for free. Repos without push permission keep the graph local-only and ephemeral. R2 bisync explicitly excludes `**/graphify-out/**`. The container image registers the graphify semantic merge driver globally (`git config --global merge.graphify.driver`) so any repo that wires `graphify-out/graph.json merge=graphify` in its `.gitattributes` gets auto-resolution of concurrent `graph.json` edits without manual JSON intervention. SKILL guidance instructs the agent on first build to add the canonical `.gitignore` block (17 patterns: five regenerable build outputs under `graphify-out/`, ten `.graphify_*` working-tree intermediates the build creates mid-run, two per-machine markers) and the merge-driver attribute line to `.gitattributes`. The full pattern list and rationale live in `/graphify` SKILL.md note 3; `documentation/container.md` mirrors the explanation.
 - Obsidian stub vault is deliberately gitignored: `graphify-out/obsidian/` is a 2000+-file per-node markdown vault that gives an Obsidian-app user a familiar graph-browse UI, but every `graphify update .` rerun rewrites centrality + community-label frontmatter across all those files, producing PR diffs in the thousands of files for one structural change. The standalone `graph.html` covers the casual-browse use case in any browser without needing Obsidian installed, and a developer who actually wants the Obsidian workflow can regenerate the stub vault locally from `graph.json` in seconds. The trade-off keeps PR signal clean at the cost of one local command for the rare power-user.
 
-**Alternative considered:** Match context-mode (AD49) and gate the whole thing on custom tier. Rejected: graphify's MCP query tools are cheap, structurally bounded, and useful even when no discipline rule pushes the agent toward them. Hiding the capability behind a tier wall would have been more conservative but would have wasted the build-time install for the 99% of paid users who are not on custom tier.
+**Alternative considered:** Match context-mode ([AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)) and gate the whole thing on custom tier. Rejected: graphify's MCP query tools are cheap, structurally bounded, and useful even when no discipline rule pushes the agent toward them. Hiding the capability behind a tier wall would have been more conservative but would have wasted the build-time install for the 99% of paid users who are not on custom tier.
 
-**Issue:** REQ-AGENT-023; PR #354.
+**Issue:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify); PR #354.
 
 ---
 
@@ -863,11 +863,11 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 
 **Category:** Architecture
 
-**Context:** Two problems surfaced after AD52 shipped. First, upstream `graphify.serve` `sys.exit(1)`s when `graphify-out/graph.json` is missing at startup. Codeflare sessions start with an empty workspace and a user typically clones one or more repos mid-session, so the MCP server died on every fresh session and there was no way to restart Claude Code without losing the container (killing the session kills the Durable Object). Second, sessions typically hold 2-3 cloned repos; the MCP server is one persistent process and has no native notion of "the current repo." When the agent moved between repos via Bash `cd`, ctx_execute, git/gh clone, or simply by editing files in a different directory, the wrapper bound G to whichever path resolved first at startup and never switched, silently returning wrong-repo answers.
+**Context:** Two problems surfaced after [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) shipped. First, upstream `graphify.serve` `sys.exit(1)`s when `graphify-out/graph.json` is missing at startup. Codeflare sessions start with an empty workspace and a user typically clones one or more repos mid-session, so the MCP server died on every fresh session and there was no way to restart Claude Code without losing the container (killing the session kills the Durable Object). Second, sessions typically hold 2-3 cloned repos; the MCP server is one persistent process and has no native notion of "the current repo." When the agent moved between repos via Bash `cd`, ctx_execute, git/gh clone, or simply by editing files in a different directory, the wrapper bound G to whichever path resolved first at startup and never switched, silently returning wrong-repo answers.
 
 **Decision:** Two coupled mechanisms:
 
-1. **`graphify-mcp-lazy.py` wrapper** ships to both `default` and `advanced` session modes (ambient capability, paired with the MCP registration per AD52). The wrapper monkey-patches `graphify.serve._load_graph` to return a `LazyGraph` (subclass of `nx.DiGraph` so `isinstance` checks in graphify and networkx pass cleanly). LazyGraph starts empty, then a daemon watcher thread polls the active graph file every `GRAPHIFY_POLL_SECONDS` (default 2s); on mtime change, it builds a fresh `nx.DiGraph` and swaps the underlying `_node`/`_adj`/`_pred`/`_succ`/`graph` dict members atomically under a lock so concurrent readers (graphify's tool handlers running on the main thread) never see a half-mutated graph. The tool list stays static (the upstream 7 tools); only G's contents swap.
+1. **`graphify-mcp-lazy.py` wrapper** ships to both `default` and `advanced` session modes (ambient capability, paired with the MCP registration per [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only)). The wrapper monkey-patches `graphify.serve._load_graph` to return a `LazyGraph` (subclass of `nx.DiGraph` so `isinstance` checks in graphify and networkx pass cleanly). LazyGraph starts empty, then a daemon watcher thread polls the active graph file every `GRAPHIFY_POLL_SECONDS` (default 2s); on mtime change, it builds a fresh `nx.DiGraph` and swaps the underlying `_node`/`_adj`/`_pred`/`_succ`/`graph` dict members atomically under a lock so concurrent readers (graphify's tool handlers running on the main thread) never see a half-mutated graph. The tool list stays static (the upstream 7 tools); only G's contents swap.
 
 2. **`graphify-active-repo.sh` PostToolUse hook** ships to `advanced` session mode only. It writes the agent's current repo root to a sentinel at `~/.cache/codeflare-hooks/graphify-active-cwd`. Matcher set is `Bash | Edit | Write | Read | NotebookEdit | mcp__context-mode__ctx_execute | mcp__context-mode__ctx_execute_file | mcp__context-mode__ctx_batch_execute` because the cwd signal differs by tool surface and tier: Bash uses Claude Code's session cwd which updates on `cd`; Edit/Write/Read provide an absolute `file_path` that the hook walks up to find a `.git/` or `graphify-out/` ancestor; ctx_execute variants need the shell snippet parsed for `cd X` because Claude Code's session cwd never sees changes inside ctx_execute subshells. The wrapper polls the sentinel and rebinds G when it changes. When the sentinel is absent (default mode, or before the first hook fires), the wrapper falls back to the freshest mtime across `CODEFLARE_WORKSPACE/*/graphify-out/graph.json`.
 
@@ -882,7 +882,7 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 
 **Alternative considered:** Pass repo path as an explicit MCP tool argument on every call. Rejected because graphify's upstream tool handlers query G in closure and would need rewriting; relying on the agent to remember a `repo_path` arg every invocation would silently degrade in practice.
 
-**Issue:** REQ-AGENT-023.
+**Issue:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify).
 
 ---
 
@@ -907,7 +907,7 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 
 **Alternative considered:** Mount the dot-prefixed directory into a non-hidden path via bind mount or symlink. Rejected: adds fragile entrypoint complexity and bisync would still see the original dot-prefixed path. A clean rename is simpler and permanent.
 
-**Related REQ:** REQ-VAULT-001.
+**Related REQ:** [REQ-VAULT-001](../../sdd/spec/vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions).
 
 ---
 
@@ -934,7 +934,7 @@ The initial implementation defined only `--cf-*`-namespaced custom properties on
 
 **Alternative considered:** Use SilverBullet's `theme:` setting in `.silverbullet/config.yaml` instead of a separate `STYLES.md` page. Rejected: the bootstrap `config.yaml` carries only the runtime essentials (indexPage, defaultMode); a 200-line CSS payload belongs in a markdown page where the `#meta/styles` tag is SilverBullet's canonical extension point.
 
-**Related REQ:** REQ-VAULT-001 (AC7 lists the four preseed-authoritative pages including STYLES.md).
+**Related REQ:** [REQ-VAULT-001](../../sdd/spec/vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions) (AC7 lists the four preseed-authoritative pages including STYLES.md).
 
 ---
 
@@ -952,7 +952,7 @@ Three options were considered: (a) keep 60s, (b) inotify-driven local-flush plus
 
 1. **15-minute wall clock** -- the daemon's `sleep` is interruptible by SIGUSR1, otherwise wakes after 900 seconds.
 2. **Manual UI trigger** -- the storage panel's Sync-now button posts to `POST /api/sessions/sync`, which fans out per-session triggers across all the authenticated user's running sessions.
-3. **Final sync at shutdown** -- the entrypoint's SIGTERM trap runs `bisync_with_r2` inside the 120-second watchdog before the Container DO destroys (REQ-STOR-005, AD57).
+3. **Final sync at shutdown** -- the entrypoint's SIGTERM trap runs `bisync_with_r2` inside the 120-second watchdog before the Container DO destroys ([REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync), [AD57](#ad57-135-second-shutdown-budget-for-final-bisync)).
 
 An earlier draft of this ADR included a fourth trigger ("upload-side auto-trigger" -- fire-and-forget fan-out on every R2 PUT through the storage panel). It was removed: a single 20-file drag-drop produced 20 separate KV-enumeration + fan-out RPCs, blowing Worker subrequest budget for a feature the Sync-now button + 15-minute cadence already cover at lower cost. The container-side SIGUSR1 trap coalesces to at most one in-flight + one queued bisync regardless, so the only thing the upload-side trigger ever gave us was Worker-layer waste.
 
@@ -967,7 +967,7 @@ The daemon's SIGUSR1 trap is coalescing: signals received during a running bisyn
 
 **Consequences:**
 - Estimated ~14x reduction in R2 ops on idle sessions (96 cycles/day vs 1440).
-- Ungraceful exit (OOM, container eviction, kernel panic) can lose up to 15 minutes of work. Graceful exit (idle stop, explicit delete, SIGTERM) remains safe via the final-bisync trap (AD57).
+- Ungraceful exit (OOM, container eviction, kernel panic) can lose up to 15 minutes of work. Graceful exit (idle stop, explicit delete, SIGTERM) remains safe via the final-bisync trap ([AD57](#ad57-135-second-shutdown-budget-for-final-bisync)).
 - Multi-tab convergence latency widens from <=60s to <=15min unless the user clicks Sync-now.
 - Storage-panel-after-terminal-write freshness widens to <=15min unless the user clicks Sync-now.
 - Tier-uniform: free, standard, advanced, max, and custom paid tiers all run on the same cadence.
@@ -976,7 +976,7 @@ The daemon's SIGUSR1 trap is coalescing: signals received during a running bisyn
 
 **Alternative considered:** Activity-gated 60s plus 15-min idle fallback. Rejected: same complexity floor as inotify without the upside; misses out-of-band writes (vault editor on host).
 
-**Related REQ:** REQ-STOR-003 (rewritten in this change), REQ-STOR-015 (manual trigger surface).
+**Related REQ:** [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) (rewritten in this change), [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui) (manual trigger surface).
 
 ---
 
@@ -988,7 +988,7 @@ The daemon's SIGUSR1 trap is coalescing: signals received during a running bisyn
 
 **Context:** The pre-existing Container DO `destroy()` budget was 75 seconds (vault rollout had already raised it from 25s -> 75s when vault edits in the last seconds before shutdown were silently truncated by the SDK's SIGKILL mid-bisync). The entrypoint shutdown handler's watchdog was 60 seconds (50s SIGTERM + 10s SIGKILL), nested cleanly inside the 75s DO budget with 15s buffer for clean process exit.
 
-Under the new 15-minute cadence (AD56), any single bisync run can accumulate more changes than under the old 60s cadence -- in the worst case, up to ~15 minutes of writes since the last sync. The 60s shutdown watchdog is therefore too tight: large vault edits or workspace deletes accumulated over a long idle window can routinely exceed 60s on the final bisync, triggering the watchdog's SIGKILL mid-write and leaving R2 in a partial state.
+Under the new 15-minute cadence ([AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers)), any single bisync run can accumulate more changes than under the old 60s cadence -- in the worst case, up to ~15 minutes of writes since the last sync. The 60s shutdown watchdog is therefore too tight: large vault edits or workspace deletes accumulated over a long idle window can routinely exceed 60s on the final bisync, triggering the watchdog's SIGKILL mid-write and leaving R2 in a partial state.
 
 **Decision:** Raise the shutdown chain by 60 seconds at both layers:
 
@@ -1007,7 +1007,7 @@ The DO's `_shutdownStartedAt` telemetry already logs `shutdownElapsedMs` on `onS
 
 **Alternative considered:** Block container destruction on an explicit "prepare-shutdown" RPC that runs the final bisync synchronously and only returns on completion. Rejected: the existing trap-driven shutdown already runs the final bisync; adding a separate RPC adds a second code path with the same semantics. The simpler change is to extend the existing budget.
 
-**Related REQ:** REQ-STOR-005 (AC4 + AC5 codify the new budget).
+**Related REQ:** [REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync) (AC4 + AC5 codify the new budget).
 
 ---
 
@@ -1017,7 +1017,7 @@ The DO's `_shutdownStartedAt` telemetry already logs `shutdownElapsedMs` on `onS
 
 **Status:** Active (2026-05-18)
 
-**Context:** REQ-MEM-001's capture pipeline ran haiku as the background subagent and read raw transcript JSONL directly. Two problems emerged in production:
+**Context:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault)'s capture pipeline ran haiku as the background subagent and read raw transcript JSONL directly. Two problems emerged in production:
 
 1. **Recency bias.** A 1466-line transcript is ~3.8 MB of JSONL; ~99% of those bytes are `tool_use` and `tool_result` records. Haiku reading the raw stream burned its working memory on tool I/O and produced a capture summarising only the most recent topic. Bench: a session that ran 6 hours of R2-bisync design work yielded a 1431-byte note covering just the final 15 minutes' stop-hook mechanics; the substantive arc was lost.
 2. **Confabulated citations.** Even after prefilter+chunking removed the recency bias, haiku invented adjacent ADR numbers in benchmarking (`AD58`, `AD59` cited in a note where the actual references were `AD56` + `AD57`). For a memory subsystem whose value is "queryable cross-session truth," false citations are worse than missing ones — they pollute the unified graph and mislead future agents that match on the wrong ID.
@@ -1030,7 +1030,7 @@ The DO's `_shutdownStartedAt` telemetry already logs `shutdownElapsedMs` on `onS
 
 Three smaller decisions bundled in:
 
-- **Timezone for capture filenames** is resolved at capture time from `$USER_TIMEZONE` env var, then `$TZ`, then `/etc/timezone`, falling back to UTC. No hardcoded zone -- codeflare is forkable and users live everywhere. The container clock is typically UTC; the Dashboard auto-syncs the browser's IANA timezone to the `userTimezone` preference on mount (REQ-SESSION-016 AC5), so captures record the user's actual wall-clock time (filenames like `2026-05-18T14-22-15+0200-...md`) on the next session start after first login.
+- **Timezone for capture filenames** is resolved at capture time from `$USER_TIMEZONE` env var, then `$TZ`, then `/etc/timezone`, falling back to UTC. No hardcoded zone -- codeflare is forkable and users live everywhere. The container clock is typically UTC; the Dashboard auto-syncs the browser's IANA timezone to the `userTimezone` preference on mount ([REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env) AC5), so captures record the user's actual wall-clock time (filenames like `2026-05-18T14-22-15+0200-...md`) on the next session start after first login.
 - **Prefilter script joins the manifest.** Adding `plugins/codeflare-memory/scripts/prefilter-transcript.sh` to `preseed/agents/claude/manifest.json` so it ships through the standard agent-seed pipeline. Otherwise the capture agent would call a script that does not exist in production.
 - **Marker filter** explicitly excludes string content beginning with `<` (slash-command + task-notification wrappers), `Stop hook` (stop-hook feedback synthetic injection), `This session is being continued` (resume header), and `[Request interrupted` (interrupt notice). These were all leaking into the haiku's view of "real user prompts" before this pass.
 
@@ -1046,7 +1046,7 @@ Three smaller decisions bundled in:
 
 **Alternative considered:** Capture model gated by env var (default haiku, advanced users override to sonnet). Rejected as unnecessary mechanism — capture quality is a system-wide property, and the cost difference at the actual capture cadence is negligible. Per-user opt-out can be added later if cost telemetry shows it matters.
 
-**Related REQ:** REQ-MEM-001 (capture pipeline contract), REQ-MEM-008 (preseed manifest includes the new script).
+**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) (capture pipeline contract), [REQ-MEM-008](../../sdd/spec/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline) (preseed manifest includes the new script).
 
 ---
 
@@ -1076,7 +1076,7 @@ Three smaller decisions bundled in:
 
 **Alternative considered:** Server-side encryption only (rclone bisync to R2 SSE-C, leave IDB plaintext). Rejected - R2 SSE-C already covers at-rest on R2; the gap is the browser cache, which is where the new requirement lives.
 
-**Related REQ:** REQ-VAULT-008 (zero-UI vault encryption + cold-start payload + IDB lifecycle), REQ-VAULT-005 (Worker proxy exposes vault editor).
+**Related REQ:** [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption) (zero-UI vault encryption + cold-start payload + IDB lifecycle), [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor).
 
 ---
 
@@ -1086,20 +1086,20 @@ Three smaller decisions bundled in:
 
 **Status:** Active (2026-05-29)
 
-**Context:** AD58 raised Claude-side memory-capture quality with three coupled changes (jq prefilter, chunked scratchpad, sonnet-tier model) because the background capture agent was reading raw transcript JSONL, burning its working memory on tool I/O, and confabulating citations. Making Pi a first-class codeflare resident meant Pi had to capture memory at the same fidelity. The Pi extension previously carried a thin inline capture contract embedded in `memory-vault.ts` and sliced the raw last-40 transcript entries, which reproduced exactly the two failure modes AD58 fixed: recency bias from raw tool records and weak citation discipline.
+**Context:** [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) raised Claude-side memory-capture quality with three coupled changes (jq prefilter, chunked scratchpad, sonnet-tier model) because the background capture agent was reading raw transcript JSONL, burning its working memory on tool I/O, and confabulating citations. Making Pi a first-class codeflare resident meant Pi had to capture memory at the same fidelity. The Pi extension previously carried a thin inline capture contract embedded in `memory-vault.ts` and sliced the raw last-40 transcript entries, which reproduced exactly the two failure modes [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) fixed: recency bias from raw tool records and weak citation discipline.
 
-**Decision:** Pi memory capture reuses the AD58 capture contract rather than maintaining a divergent Pi-specific one. Two full contracts are deployed as Pi-native preseed assets: `preseed/agents/pi/prompts/memory-agent-prompt.md` (the capture-agent contract) and `preseed/agents/pi/prompts/vault-extract-prompt.md` (the Vault-graph extraction contract). The generator maps `prompts/` to `.pi/agent/prompts/`, so both land at `~/.pi/agent/prompts/*.md`. `memory-vault.ts` no longer embeds an inline contract; it reads these files at spawn time. The raw last-40 transcript slice is replaced by a prefilter that keeps only user and assistant text and drops tool-call and thinking blocks before the capture subagent is spawned, mirroring AD58's jq prefilter intent on the Pi tool surface.
+**Decision:** Pi memory capture reuses the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) capture contract rather than maintaining a divergent Pi-specific one. Two full contracts are deployed as Pi-native preseed assets: `preseed/agents/pi/prompts/memory-agent-prompt.md` (the capture-agent contract) and `preseed/agents/pi/prompts/vault-extract-prompt.md` (the Vault-graph extraction contract). The generator maps `prompts/` to `.pi/agent/prompts/`, so both land at `~/.pi/agent/prompts/*.md`. `memory-vault.ts` no longer embeds an inline contract; it reads these files at spawn time. The raw last-40 transcript slice is replaced by a prefilter that keeps only user and assistant text and drops tool-call and thinking blocks before the capture subagent is spawned, mirroring [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)'s jq prefilter intent on the Pi tool surface.
 
 **Consequences:**
-- Pi captures inherit the AD58-grade contract verbatim, so cross-session memory written from Pi sessions carries the same citation discipline and arc-coverage as Claude sessions; both populate the same unified graph.
-- The capture contract has a single owner in source. A future change to the AD58 contract updates the Claude agent files and the Pi prompts from the same intent; the Pi copies are deployed prompts, not a fork.
+- Pi captures inherit the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)-grade contract verbatim, so cross-session memory written from Pi sessions carries the same citation discipline and arc-coverage as Claude sessions; both populate the same unified graph.
+- The capture contract has a single owner in source. A future change to the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) contract updates the Claude agent files and the Pi prompts from the same intent; the Pi copies are deployed prompts, not a fork.
 - The prefilter shifts work to spawn time. The transcript is reduced to user/assistant text before the subagent reads it, so the subagent never sees raw tool I/O and recency bias is structurally prevented as on the Claude path.
 - Stale captures written by the old thin-contract Pi path are not migrated; they remain as historical record.
-- Later refinement (REQ-MEM-001 AC8, 2026-05-30): the prefilter input is the durable on-disk session transcript Pi persists for `/resume`, read via `ctx.sessionManager.getSessionFile()` and parsed by `parseSessionMessages` - not the volatile in-memory message buffer the original Pi path used. That buffer was empty immediately after a Pi reload/resume, so the first capture-boundary prompt produced a hollow "no substantive content" note even though the full session JSONL was on disk; reading the persisted file fixed it, and a skip-empty guard now suppresses the capture rather than writing a placeholder note.
+- Later refinement ([REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC8, 2026-05-30): the prefilter input is the durable on-disk session transcript Pi persists for `/resume`, read via `ctx.sessionManager.getSessionFile()` and parsed by `parseSessionMessages` - not the volatile in-memory message buffer the original Pi path used. That buffer was empty immediately after a Pi reload/resume, so the first capture-boundary prompt produced a hollow "no substantive content" note even though the full session JSONL was on disk; reading the persisted file fixed it, and a skip-empty guard now suppresses the capture rather than writing a placeholder note.
 
-**Alternative considered:** Keep the thin inline Pi contract and ratchet its prompt. Rejected for the same reason AD58 rejected prompt-only tightening: recency bias is a function of feeding raw tool records to the model, not a prompt-comprehension gap, and a divergent contract drifts from the AD58 source of truth over time.
+**Alternative considered:** Keep the thin inline Pi contract and ratchet its prompt. Rejected for the same reason [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) rejected prompt-only tightening: recency bias is a function of feeding raw tool records to the model, not a prompt-comprehension gap, and a divergent contract drifts from the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) source of truth over time.
 
-**Related REQ:** REQ-MEM-001 (conversation context automatically captured to Vault).
+**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) (conversation context automatically captured to Vault).
 
 ---
 
@@ -1122,7 +1122,7 @@ Three smaller decisions bundled in:
 
 **Alternative considered:** Rely solely on `git-review-pipeline` for both enforcement and user-invoked review on Pi. Rejected because the enforcement spine does not carry the phased user-review UX (scope flags, per-perspective passes, reality-filter), so Pi users would lose the `/review` experience entirely.
 
-**Related REQ:** REQ-AGENT-015 (`/review` command for multi-perspective codebase review), REQ-AGENT-044 (review-agent discipline enforcement).
+**Related REQ:** [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) (`/review` command for multi-perspective codebase review), [REQ-AGENT-044](../../sdd/spec/agents.md#req-agent-044-review-agent-discipline-enforcement) (review-agent discipline enforcement).
 
 ---
 
@@ -1132,21 +1132,21 @@ Three smaller decisions bundled in:
 
 **Status:** Active (2026-05-29)
 
-**Context:** Codeflare is forkable and runs six AI tools; hardcoding a specific model name (for example a `sonnet` or `haiku` literal) into Pi-bound prose or extension code couples the deployment to one vendor's model lineup and goes stale as model names change. AD58 pins the capture model for Claude via agent-definition frontmatter, but Pi subagents are spawned programmatically from `memory-vault.ts`, and the generator strips the `model` frontmatter field for runtimes that do not support it. Pi therefore needed a model-selection mechanism that names no model in the shipped artifact.
+**Context:** Codeflare is forkable and runs six AI tools; hardcoding a specific model name (for example a `sonnet` or `haiku` literal) into Pi-bound prose or extension code couples the deployment to one vendor's model lineup and goes stale as model names change. [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) pins the capture model for Claude via agent-definition frontmatter, but Pi subagents are spawned programmatically from `memory-vault.ts`, and the generator strips the `model` frontmatter field for runtimes that do not support it. Pi therefore needed a model-selection mechanism that names no model in the shipped artifact.
 
-**Decision:** Two coupled changes. (1) Genericize model references in Pi-bound prose: Pi-facing documentation and extension code describe model selection by role ("higher-fidelity model", "session model") rather than by literal model name. The generator removes `model` frontmatter for runtimes that do not support it while preserving Pi subagent model pins where the runtime does. (2) Introduce the optional `CODEFLARE_MEMORY_MODEL` container env var (documented in [configuration.md](../lanes/configuration.md#container-environment)). When set, `memory-vault.ts` passes it as the `model` option to `service.spawn(...)` for the `memory-capture` and `vault-extract` subagents; when unset, no override is passed and the subagents inherit the session model. The lever pins capture/extract fidelity per AD58 without a hardcoded model name anywhere in the preseed.
+**Decision:** Two coupled changes. (1) Genericize model references in Pi-bound prose: Pi-facing documentation and extension code describe model selection by role ("higher-fidelity model", "session model") rather than by literal model name. The generator removes `model` frontmatter for runtimes that do not support it while preserving Pi subagent model pins where the runtime does. (2) Introduce the optional `CODEFLARE_MEMORY_MODEL` container env var (documented in [configuration.md](../lanes/configuration.md#container-environment)). When set, `memory-vault.ts` passes it as the `model` option to `service.spawn(...)` for the `memory-capture` and `vault-extract` subagents; when unset, no override is passed and the subagents inherit the session model. The lever pins capture/extract fidelity per [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) without a hardcoded model name anywhere in the preseed.
 
 **Consequences:**
-- The Pi preseed artifact names no specific model. An operator who wants AD58-grade capture fidelity on Pi sets one env var; the default behavior (inherit session model) is sensible with no configuration.
+- The Pi preseed artifact names no specific model. An operator who wants [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)-grade capture fidelity on Pi sets one env var; the default behavior (inherit session model) is sensible with no configuration.
 - Fork-friendliness is preserved: a fork running a different model lineup sets `CODEFLARE_MEMORY_MODEL` to whatever its highest-fidelity model is, with no source edit.
-- The Claude and Pi capture paths reach the same outcome (AD58 fidelity) through runtime-appropriate mechanisms: frontmatter pin on Claude, env-var lever on Pi.
+- The Claude and Pi capture paths reach the same outcome ([AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) fidelity) through runtime-appropriate mechanisms: frontmatter pin on Claude, env-var lever on Pi.
 - The lever is capture-scoped. It does not change the session's primary model and is read only by the memory/Vault-extract spawn path.
 
-**Alternative considered:** Hardcode the AD58 model literal into the Pi extension. Rejected because it staleness-couples the fork to one vendor's naming and contradicts the no-hardcoded-model-name discipline; a model rename would silently break or mislabel the pin.
+**Alternative considered:** Hardcode the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) model literal into the Pi extension. Rejected because it staleness-couples the fork to one vendor's naming and contradicts the no-hardcoded-model-name discipline; a model rename would silently break or mislabel the pin.
 
 **Alternative considered:** Reuse `SESSION_MODE` or another existing variable to imply the capture model. Rejected as overloading: `SESSION_MODE` already controls memory persistence and rclone filters, and conflating model fidelity with session mode would make both harder to reason about.
 
-**Related REQ:** REQ-MEM-001 (conversation context automatically captured to Vault), REQ-AGENT-001 (support multiple AI coding agents).
+**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) (conversation context automatically captured to Vault), [REQ-AGENT-001](../../sdd/spec/agents.md#req-agent-001-support-multiple-ai-coding-agents) (support multiple AI coding agents).
 
 ---
 
@@ -1156,7 +1156,7 @@ Three smaller decisions bundled in:
 
 **Status:** Active (2026-05-29)
 
-**Context:** AD53's graphify hot-reload wrapper hardens `graphify update` on the 1 vCPU container by capping virtual memory (`ulimit -v`) and worker count so a runaway AST rebuild dies with ENOMEM instead of OOM-killing the session. The Claude wrapper (`preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh`) is a single-step `graphify update` invocation. The Pi wrapper, deployed to `~/.pi/agent/scripts/safe-graphify-update.sh`, runs in a different launch context (Pi extension dispatch, where the working directory and environment are not guaranteed to match the Claude hook environment) and feeds a structural gate in `codeflare-pi.ts`. Applying the Claude wrapper's fail-open posture verbatim risked silently updating against the wrong directory or proceeding with an unbounded address space if the `ulimit` call failed.
+**Context:** [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking)'s graphify hot-reload wrapper hardens `graphify update` on the 1 vCPU container by capping virtual memory (`ulimit -v`) and worker count so a runaway AST rebuild dies with ENOMEM instead of OOM-killing the session. The Claude wrapper (`preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh`) is a single-step `graphify update` invocation. The Pi wrapper, deployed to `~/.pi/agent/scripts/safe-graphify-update.sh`, runs in a different launch context (Pi extension dispatch, where the working directory and environment are not guaranteed to match the Claude hook environment) and feeds a structural gate in `codeflare-pi.ts`. Applying the Claude wrapper's fail-open posture verbatim risked silently updating against the wrong directory or proceeding with an unbounded address space if the `ulimit` call failed.
 
 **Decision:** The Pi wrapper deliberately diverges from the Claude single-step wrapper on two axes. (1) Fail-closed hardening: a `cd` guard aborts if the target repository directory cannot be entered, the `RLIMIT_AS` `ulimit` is fail-closed (if the limit cannot be applied the wrapper aborts rather than running unbounded), a `command -v graphify` check aborts when the CLI is absent, and `GRAPHIFY_VIZ_NODE_LIMIT=100000` is re-exported so the visualization is always generated. (2) Two-step execution: the wrapper runs `graphify update` (AST extraction) and then a cluster-only pass, rather than the Claude wrapper's single `update`. Separately, `codeflare-pi.ts`'s `graphSummary` skips graphs over 30 MB and applies a 5-second git timeout, and the structural gate that consumes the wrapper fails open (a missing or failed graph never blocks the user) even though the wrapper itself fails closed.
 
@@ -1170,7 +1170,7 @@ Three smaller decisions bundled in:
 
 **Alternative considered:** Make the Pi wrapper fail-open like the Claude one and rely on the `codeflare-pi.ts` gate to absorb failures. Rejected because fail-open at the wrapper means a failed memory cap runs unbounded and a misresolved directory updates the wrong graph silently; the gate's fail-open is about not blocking the user, not about tolerating a corrupt build.
 
-**Related REQ:** REQ-AGENT-023 (knowledge-graph capability via graphify), REQ-AGENT-043 (graphify build-mode dispatch).
+**Related REQ:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) (knowledge-graph capability via graphify), [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) (graphify build-mode dispatch).
 
 ---
 
@@ -1180,7 +1180,7 @@ Three smaller decisions bundled in:
 
 **Status:** Active (2026-05-30)
 
-**Context:** PR-boundary review enforcement (REQ-AGENT-040/053/054) runs each lane as an in-process `createAgentSession` (`review-jobs.ts::runDurableLane`) with `DefaultResourceLoader({ noExtensions: true })`. That shield exists because extension factories run synchronously during load (pi's `loader.js` `await factory(api)`), and `review-enforcement.ts`'s factory writes a process-global run token (`__codeflareReviewEnforcementRun`) at load time; if a lane loaded that extension in the same process it would overwrite the token and silently disable the **main** session's enforcement (the merge gate). `@gotgenes/pi-subagents` similarly couples in-process state. But the blunt `noExtensions: true` also stripped every useful capability, leaving lanes with only the 7 built-in tools: reviewers had no `graphify_*`, no `ctx_*`, and none of `codeflare-pi`'s guards. A transient `gh pr view` failure once dropped the merge gate by mis-classifying a live head as stale (the "failure #13" referenced in `review-helpers.ts`); `classifyReviewHead` now separates `stale` from `unknown` to keep the gate fail-closed, and the durable `.git/`-persisted state makes that classification recoverable.
+**Context:** PR-boundary review enforcement ([REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)/053/054) runs each lane as an in-process `createAgentSession` (`review-jobs.ts::runDurableLane`) with `DefaultResourceLoader({ noExtensions: true })`. That shield exists because extension factories run synchronously during load (pi's `loader.js` `await factory(api)`), and `review-enforcement.ts`'s factory writes a process-global run token (`__codeflareReviewEnforcementRun`) at load time; if a lane loaded that extension in the same process it would overwrite the token and silently disable the **main** session's enforcement (the merge gate). `@gotgenes/pi-subagents` similarly couples in-process state. But the blunt `noExtensions: true` also stripped every useful capability, leaving lanes with only the 7 built-in tools: reviewers had no `graphify_*`, no `ctx_*`, and none of `codeflare-pi`'s guards. A transient `gh pr view` failure once dropped the merge gate by mis-classifying a live head as stale (the "failure #13" referenced in `review-helpers.ts`); `classifyReviewHead` now separates `stale` from `unknown` to keep the gate fail-closed, and the durable `.git/`-persisted state makes that classification recoverable.
 
 **Decision:** Keep `noExtensions: true` and load capabilities **additively** via `additionalExtensionPaths` (which still load under `noExtensions`): always the graphify package, the `context-mode` package only when enabled in Pi settings (so lanes inherit `/ctx on`), and `codeflare-pi.ts` as a local file (for the local-build blocker, attribution gate, and graphify-first gate). `review-enforcement` and `@gotgenes/pi-subagents` are never added, so neither clobbers the main session. Lane source selection is the pure `review-job-helpers.ts::laneExtensionSources`. `codeflare-pi`'s `session_start` global-graph merge is skipped inside lanes via a `globalThis.__codeflareReviewLaneDepth` counter set by `runDurableLane`, avoiding a redundant `graphify global add` subprocess per lane on the 1 vCPU container.
 
@@ -1194,7 +1194,7 @@ Three smaller decisions bundled in:
 
 **Alternative considered:** Self-guard `review-enforcement` to no-op when loaded in a lane. Rejected as the primary mechanism: it does not cover `@gotgenes/pi-subagents`' in-process coupling, and the additive allowlist is simpler and strictly scopes what a lane can load.
 
-**Related REQ:** REQ-AGENT-053 (durable review status/result/fix loop, AC8), REQ-AGENT-040 (PR-boundary lane classification and dispatch), REQ-AGENT-054 (durable lane failure handling).
+**Related REQ:** [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop) (durable review status/result/fix loop, AC8), [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) (PR-boundary lane classification and dispatch), [REQ-AGENT-054](../../sdd/spec/agents.md#req-agent-054-pi-durable-review-lane-failure-handling) (durable lane failure handling).
 
 ---
 
@@ -1213,7 +1213,7 @@ Three smaller decisions bundled in:
 - The Gemini *API* (GEMINI_API_KEY, `/api/llm-keys` geminiApiKey, consult-llm model selector) is unaffected - it is a separate provider, not the CLI agent.
 - No preseed documents are generated for Antigravity; the per-agent document total drops from 370 to 312.
 
-**Related REQ:** REQ-AGENT-001 (agent CLI pre-install).
+**Related REQ:** [REQ-AGENT-001](../../sdd/spec/agents.md#req-agent-001-support-multiple-ai-coding-agents) (agent CLI pre-install).
 
 ---
 

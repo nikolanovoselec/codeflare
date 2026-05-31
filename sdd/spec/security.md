@@ -21,9 +21,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### Domain Dependencies
 
-- **Authentication** -- Auth enforcement (REQ-SEC-001) depends on auth mode resolution from the Authentication domain
-- **Storage** -- R2 encryption (REQ-SEC-005) depends on R2 bucket operations from the Storage domain
-- **Subscription** -- Tier-based rate limits and blocked-user enforcement (REQ-SEC-015) depend on effective tier resolution from the Subscription domain
+- **Authentication** -- Auth enforcement ([REQ-SEC-001](#req-sec-001-authenticated-endpoints-reject-unauthenticated-requests)) depends on auth mode resolution from the Authentication domain
+- **Storage** -- R2 encryption ([REQ-SEC-005](#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key)) depends on R2 bucket operations from the Storage domain
+- **Subscription** -- Tier-based rate limits and blocked-user enforcement ([REQ-SEC-015](#req-sec-015-blocked-user-cannot-self-upgrade-subscription)) depend on effective tier resolution from the Subscription domain
 
 ---
 
@@ -51,7 +51,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Constraints:**
 
-- Pre-setup configuration endpoints required before first-run completion are intentionally public to allow initial configuration without authentication (AD10).
+- Pre-setup configuration endpoints required before first-run completion are intentionally public to allow initial configuration without authentication ([AD10](../../documentation/decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation)).
 - A dedicated service-token authentication path is checked first in all modes for E2E testing.
 
 **Priority:** P0
@@ -329,7 +329,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 1. WebSocket connections are rate-limited at 30 per 60-second window per user.
 2. Per-user concurrent session caps are enforced: 3 for standard users, 10 for admins.
 3. Security-critical endpoints (request-access, Turnstile verification) use fail-closed rate limiting: persistent-storage failure returns 503 instead of allowing the request.
-4. General resource-protection endpoints use fail-open rate limiting (per AD6).
+4. General resource-protection endpoints use fail-open rate limiting (per [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity)).
 5. In stress-test deployment mode, all rate limits are bypassed with a one-time warning per worker instance.
 
 **Constraints:**
@@ -417,7 +417,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → security-headers job exercises redirect paths) -->
 <!-- @test: src/__tests__/redirect-with-headers.test.ts (helper round-trip) -->
 
-**Intent:** The HSTS header coverage in REQ-SEC-008 AC1 must extend to every redirect emission path. Without a dedicated helper, redirects emitted from `Response.redirect()` or middleware shortcuts would drop the security header set the global middleware applies.
+**Intent:** The HSTS header coverage in [REQ-SEC-008](#req-sec-008-security-headers-on-every-response) AC1 must extend to every redirect emission path. Without a dedicated helper, redirects emitted from `Response.redirect()` or middleware shortcuts would drop the security header set the global middleware applies.
 
 **Applies To:** User
 

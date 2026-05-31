@@ -46,7 +46,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Constraints:**
 
-- The pre-setup public window is intentionally open (AD10) to solve the bootstrap problem: authentication cannot be required before it is configured.
+- The pre-setup public window is intentionally open ([AD10](../../documentation/decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation)) to solve the bootstrap problem: authentication cannot be required before it is configured.
 - Rate limiting and a short exposure window mitigate the open-endpoint risk.
 
 **Priority:** P0

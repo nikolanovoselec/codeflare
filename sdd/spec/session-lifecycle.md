@@ -142,7 +142,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. The idle timeout is user-configurable with allowed values: 5m, 15m, 30m, 1h, 2h.
 2. Default is 30m for paying users; free-tier users are locked to 15m regardless of stored preference.
 3. The idle timer resets only when new user input is detected (not on heartbeats, reconnections, or protocol chatter).
-4. The container is stopped once the user-configured idle threshold is exceeded; the host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see AD47).
+4. The container is stopped once the user-configured idle threshold is exceeded; the host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see [AD47](../../documentation/decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy)).
 5. The platform-level idle timer is functionally inert; idle policy is owned by the per-container metrics layer.
 6. Admins can always change their own idle timeout; non-subscribed users have the dropdown disabled.
 

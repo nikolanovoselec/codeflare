@@ -70,7 +70,7 @@ Frontend polls session list every 5s (`SESSION_LIST_POLL_INTERVAL_MS`). Backend 
 **Applies To:** User (dashboard), System (metrics)
 
 ### CON-PERF-002: Bisync interval 15 minutes (with manual triggers)
-R2 bisync runs every 15 minutes via the daemon, plus one manual trigger (UI Sync-now button) that wakes the daemon via SIGUSR1, plus a final sync on shutdown under the 120 s watchdog. Initial sync timeout 120 s (`SYNC_TIMEOUT`). Baseline establishment timeout 600 s (10 min). See AD56 for the cost-vs-staleness rationale.
+R2 bisync runs every 15 minutes via the daemon, plus one manual trigger (UI Sync-now button) that wakes the daemon via SIGUSR1, plus a final sync on shutdown under the 120 s watchdog. Initial sync timeout 120 s (`SYNC_TIMEOUT`). Baseline establishment timeout 600 s (10 min). See [AD56](../../documentation/decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers) for the cost-vs-staleness rationale.
 **Applies To:** System (sync daemon)
 
 ### CON-PERF-003: Tier config cache TTL 60 seconds

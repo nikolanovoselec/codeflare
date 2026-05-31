@@ -7,9 +7,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### Key Concepts
 
 - **Vault** -- The persistent per-user vault directory holding markdown notes, pasted assets, and derived graph output. Attachment uploads land next to the note that referenced them; the dedicated raw-pasted directory is reserved for user-owned drag-drop. The vault is bisynced to R2 so it survives across sessions and is always present in the unified global graph (tagged as the user-vault source; never pruned by the active-repo prune-on-switch logic).
-- **Capture Agent** -- The background subagent spawned by the memory-capture hook. Writes one markdown file per batch into the vault's raw-sessions subdirectory and merges it into the unified global graph. Pinned to Sonnet per AD58 (citation accuracy).
+- **Capture Agent** -- The background subagent spawned by the memory-capture hook. Writes one markdown file per batch into the vault's raw-sessions subdirectory and merges it into the unified global graph. Pinned to Sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) (citation accuracy).
 - **Vault-monitor Daemon** -- A polling loop in the entrypoint that watches for user-curated edits anywhere under the vault except the agent-written capture directory, the derived graph-output directory, the editor's internal config directory, and the four codeflare-authoritative root pages. When changes are found, writes a trigger marker. Uses a three-marker pattern (heartbeat, high-water, trigger) to avoid the daemon-advances-mtime-before-extraction-reads-it race.
-- **Vault-extract Agent** -- The background subagent spawned by the vault-monitor hook. Runs single-file graph extraction on the changed files, merges the resulting subgraph into the unified global graph, and advances the high-water marker as its final step. Pinned to Sonnet per AD58 (the agent emits citations into the cross-session graph and a confabulated ID is worse than a missing one).
+- **Vault-extract Agent** -- The background subagent spawned by the vault-monitor hook. Runs single-file graph extraction on the changed files, merges the resulting subgraph into the unified global graph, and advances the high-water marker as its final step. Pinned to Sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) (the agent emits citations into the cross-session graph and a confabulated ID is worse than a missing one).
 - **Unified Global Graph** -- The merged graph that combines every per-repo graph with the vault's own graph; merges are hash-keyed and serialized under a shared multi-writer lock. The graphify MCP wrapper prefers this graph when present so structural queries return a unified view across all sources.
 - **SilverBullet** -- The markdown editor running inside the container, bound to localhost only and reachable from the codeflare UI through the Worker proxy. The auth boundary lives at the Worker.
 
@@ -31,7 +31,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 - **Memory** -- Reuses the memory-capture UserPromptSubmit hook and its per-user counter state. The capture agent writes its synthesis output into the vault (the legacy MCP server-memory subsystem has been removed); the dedup-gate marker contract is unchanged.
 - **Storage** -- Vault persistence is provided by the existing bisync to R2. The vault tree is added to the shared sync filter set, ordered before the global `graphify-out` exclude so first-match semantics keep vault content synced.
-- **Session Lifecycle** -- The shutdown-bisync reliability work (REQ-VAULT-006) coordinates the orchestrator destroy budget with the final-sync watchdog so vault edits made in the last seconds before shutdown reach R2 instead of being silently lost.
+- **Session Lifecycle** -- The shutdown-bisync reliability work ([REQ-VAULT-006](#req-vault-006-shutdown-bisync-completes-vault-writes-before-sigkill)) coordinates the orchestrator destroy budget with the final-sync watchdog so vault edits made in the last seconds before shutdown reach R2 instead of being silently lost.
 - **Subscription** -- Vault features (preseed entries, editor supervisor) are gated to Pro session mode via the manifest's mode filter.
 
 ---
@@ -159,7 +159,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 1. The vault-monitor daemon polls the vault on a short fixed cadence, excluding the agent-written capture directory, the derived graph-output directory, the editor's internal config directory, and the four preseed-managed root pages. The four pages are codeflare-authoritative; the per-boot preseed copy must not count as a user edit, otherwise every preseed sync at boot would re-trigger extraction.
 2. The daemon uses a three-marker pattern - a heartbeat marker, a high-water marker, and a trigger marker. The change-detection scan compares against the high-water marker (not the heartbeat) so a daemon that advances the wrong marker cannot lose work.
-3. The hook handler exits immediately when the trigger marker is absent (zero-cost on idle prompts) or when an in-flight sentinel exists and is younger than 5 minutes (prevents duplicate agent spawns while extraction is running). When neither exit condition applies, it creates the in-flight sentinel and emits an additional-context directive instructing the main agent to dispatch the vault-extract subagent. The subagent runs at sonnet per AD58 (pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model).
+3. The hook handler exits immediately when the trigger marker is absent (zero-cost on idle prompts) or when an in-flight sentinel exists and is younger than 5 minutes (prevents duplicate agent spawns while extraction is running). When neither exit condition applies, it creates the in-flight sentinel and emits an additional-context directive instructing the main agent to dispatch the vault-extract subagent. The subagent runs at sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) (pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model).
 4. The vault-extract subagent deletes the trigger marker as its first step (dedup gate), runs graph extraction per changed file, merges via the shared global-graph add command, touches the high-water marker, and removes the in-flight sentinel as its final step.
 5. If any of the extract-merge-advance steps fail, the high-water marker is not advanced; the next daemon tick re-discovers the same files.
 6. The vault initializer bumps the high-water marker after rewriting any preseed page so the first post-boot daemon tick does not interpret the preseed copy as a user change. This is belt-and-braces for any future preseed page that misses the daemon-exclusion list.
@@ -337,7 +337,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 4. When the rewrite runs but the body did not contain the expected base-href substring (no-op rewrite), a warning is logged so a future editor-template change surfaces as a logged signal instead of a silent white-screen regression.
 5. Browser-initiated Service Worker registration GETs for the editor's service-worker script short-circuit the auth chain and receive a key-shim service worker from the Worker (see [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5 for the key-delivery contract).
 6. The short-circuit selector requires all of: GET method, exact path match for the service-worker script, and the browser-only Service-Worker request header (a Fetch-spec forbidden header name not settable from page JavaScript). Cookie presence is intentionally not checked because Samsung Internet and other Chromium forks may send cookies on SW registration fetches; rejecting those requests would serve the editor's real SW whose cache.addAll() install fails and hangs the bootstrap page.
-7. The key-shim service-worker script body is identical across sessions; the per-session vault encryption key is delivered to the shim via postMessage from the bootstrap-hop page (REQ-VAULT-008 AC5), not baked into the script.
+7. The key-shim service-worker script body is identical across sessions; the per-session vault encryption key is delivered to the shim via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), not baked into the script.
 
 **Constraints:**
 
@@ -372,7 +372,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Constraints:**
 
-- The pre-spawn hash check in REQ-VAULT-004 AC2 uses a SHA-256 digest truncated to the graph builder's standard tag length with a length sanity-guard so a malformed digest cannot poison the comparison.
+- The pre-spawn hash check in [REQ-VAULT-004](#req-vault-004-unified-global-graph-merges-vault-and-active-repos) AC2 uses a SHA-256 digest truncated to the graph builder's standard tag length with a length sanity-guard so a malformed digest cannot poison the comparison.
 - The graphify skill's commit step is one of the write sites and must include a locked global-add call so a fresh build lands in the global graph.
 
 **Priority:** P0
@@ -485,7 +485,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Constraints:**
 
-- Encryption protects against offline attacks only. Anyone with an authenticated browser tab (or who can run JavaScript on the codeflare origin) can fetch the key from the config endpoint and decrypt. The threat-model trade-off is documented in AD59 (`documentation/decisions/README.md`).
+- Encryption protects against offline attacks only. Anyone with an authenticated browser tab (or who can run JavaScript on the codeflare origin) can fetch the key from the config endpoint and decrypt. The threat-model trade-off is documented in [AD59](../../documentation/decisions/README.md#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key) (`documentation/decisions/README.md`).
 - The vault key must not be rotated mid-session. Rotation would orphan all existing IDB ciphertext on the browser and force a fresh re-sync on every container restart.
 - The vault key must be wiped when the container is destroyed. Key persistence after deletion would let a recovered browser profile decrypt the orphaned IDB.
 - The per-session identifier must remain in the proxy URL to preserve the parallel-session isolation property (each session has its own IDB; cross-session reads/writes never collide).

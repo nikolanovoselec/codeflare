@@ -19,8 +19,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### Domain Dependencies
 
-- **Security** -- CVE scanning (REQ-OPS-002) depends on Trivy integration; pentest (REQ-OPS-005) validates security requirements
-- **Session Lifecycle** -- Container specs (REQ-OPS-007) define the resource constraints that session containers run under
+- **Security** -- CVE scanning ([REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push)) depends on Trivy integration; pentest ([REQ-OPS-005](#req-ops-005-weekly-pentest)) validates security requirements
+- **Session Lifecycle** -- Container specs ([REQ-OPS-007](#req-ops-007-container-specs-configurable-per-environment)) define the resource constraints that session containers run under
 
 ---
 

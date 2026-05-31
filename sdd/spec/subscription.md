@@ -618,7 +618,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Constraints:**
 
-- Must comply with the platform-wide rate-limiting constraint (CON-SEC-004).
+- Must comply with the platform-wide rate-limiting constraint ([CON-SEC-004](constraints.md#con-sec-004-rate-limiting-on-all-mutation-endpoints)).
 - The inquiry payload includes the user's email and selected tier so the recipient has the context to reply.
 
 **Priority:** P2
