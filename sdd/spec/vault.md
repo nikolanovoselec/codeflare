@@ -490,6 +490,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - The vault key must not be rotated mid-session. Rotation would orphan all existing IDB ciphertext on the browser and force a fresh re-sync on every container restart.
 - The vault key must be wiped when the container is destroyed. Key persistence after deletion would let a recovered browser profile decrypt the orphaned IDB.
 - The per-session identifier must remain in the proxy URL to preserve the parallel-session isolation property (each session has its own IDB; cross-session reads/writes never collide).
+- The bootstrap-hop page guards against a missing `navigator.serviceWorker`, bounds SW activation with a 10-second timeout (`VAULT_SW_ACTIVATION_TIMEOUT_MS`, not the indefinite `navigator.serviceWorker.ready`), and treats the "redundant" SW lifecycle state as an explicit error.
 
 **Priority:** P0
 
