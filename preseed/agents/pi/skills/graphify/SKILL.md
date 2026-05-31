@@ -1,86 +1,130 @@
 ---
 name: graphify
-description: Pi-native Codeflare Graphify workflow. Build/query repository knowledge graphs without requiring headless DeepSeek extraction; AST runs locally and full semantic extraction uses Pi Agent subagents from the running session.
+description: Graphify knowledge-graph workflow for Pi/Codeflare. Use for any request to build, refresh, query, explain, trace, or locate code/vault/session knowledge in graphs. Covers repo graphs, Vault graph, global graph, native Pi tools, CLI fallbacks, and using in-session Pi Agent subagents for interactive semantic extraction instead of headless/API-key extraction.
 ---
 
-# Pi Graphify Workflow
+# Graphify in Pi / Codeflare
 
-Use this skill for `/graphify`, after repo clone prompts, and for natural-language requests to graph a project in Pi.
+Use this skill whenever the user asks to:
 
-## Core rule
+- find or explain something with Graphify
+- query remembered/session/vault context
+- trace how concepts connect
+- build or refresh a repo graph
+- locate definitions/dependencies from a graph
+- diagnose a missing/stale graph
 
-Do **not** use headless `graphify extract --backend deepseek` for normal interactive Codeflare/Pi graph builds. That path is for CI/headless API-key extraction. In Pi:
+## First decision: which graph?
 
-- AST/structural extraction is local and free.
-- Full semantic extraction uses the running Pi session's `Agent` subagents in bounded waves.
-- Query existing graphs with Pi native tools: `graphify_query`, `graphify_path`, `graphify_explain`.
+| User intent | Graph to use | Best command/tool |
+|---|---|---|
+| Current repo/code question | `<repo>/graphify-out/graph.json` | native `graphify_query/path/explain` first |
+| Vault note, memory capture, session history, remembered context | `/home/user/.graphify/global-graph.json` | CLI with explicit `--graph` |
+| Cross-repo + vault context | `/home/user/.graphify/global-graph.json` | CLI with explicit `--graph` |
+| Raw Vault-only inspection | `/home/user/Vault/graphify-out/graph.json` | CLI with explicit `--graph` |
 
-## Canonical graph layout
+Important paths:
 
-- Repo graph: `<repo>/graphify-out/graph.json` inside the checked-out repository, e.g. `/home/user/workspace/codeflare/graphify-out/graph.json`.
-- Vault graph: `/home/user/Vault/graphify-out/graph.json`.
-- Global graph: `/home/user/.graphify/global-graph.json`, merged from the active repo graph and the Vault graph under the existing `user_vault` tag.
-- There is no graph at `/home/user/workspace/graphify-out/graph.json`. If Pi's cwd is `/home/user/workspace`, resolve the active repo from `/home/user/.cache/codeflare-hooks/graphify-active-cwd` or the child git root before querying.
-- Codeflare's Pi extension keeps that active-repo sentinel branch-aware (`<repo>:<branch>@<head>`) in session context and automatically retries `graphify_query`, `graphify_path`, and `graphify_explain` against `<repo>/graphify-out/graph.json` when the native tool first resolves `/home/user/workspace/graphify-out/graph.json`. If the automatic retry also fails, fall back manually to the CLI with `--graph <repo>/graphify-out/graph.json`.
-
-## Triage
-
-1. Resolve repo root. Prefer `/home/user/.cache/codeflare-hooks/graphify-active-cwd` when present; otherwise use the current git root.
-2. Check `<repo>/graphify-out/graph.json`.
-3. If graph exists:
-   - Check freshness by comparing `built_at_commit` in graph.json with `git rev-parse HEAD`.
-   - If stale, ask whether to run AST-only update or full semantic refresh.
-   - If fresh, use graph query tools before broad grep/find.
-4. If graph is missing, ask the user to choose:
-   - **AST-only**: free/local/no LLM.
-   - **Full semantic + AST**: local AST plus Pi Agent semantic subagents for docs/papers/images.
-
-## AST-only build/update
-
-Run from the repo root:
-
-```bash
-bash /home/user/.pi/agent/scripts/safe-graphify-update.sh .
+```text
+Repo graph:   <repo>/graphify-out/graph.json
+Vault graph:  /home/user/Vault/graphify-out/graph.json
+Global graph: /home/user/.graphify/global-graph.json
 ```
 
-The safe wrapper is allowlisted by Pi context-mode enforcement. It runs bounded local code extraction and clustering, avoids unbounded graphify subprocesses in the 1-CPU container, and intentionally generates `graphify-out/graph.html`; do not skip HTML visualization unless the user explicitly asks. This does not require any LLM API key. Use this by default for code-only repos or when the user chooses free/fast mode.
+There is normally **no** graph at `/home/user/workspace/graphify-out/graph.json`.
+If a wrapper looks there and fails, retry immediately with an explicit graph path.
+Do not consult `graphify --help` for this.
 
-After graph creation/update, merge into the global graph when possible:
+## Query commands
 
-```bash
-flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as "$(basename "$PWD")"
-```
+### Repo/code queries
 
-## Full semantic + AST build
+Use native Pi tools first when working inside a repo or when an active repo sentinel exists:
 
-Use this only after the user chooses Full. This is the Pi equivalent of the interactive Graphify skill flow: local AST plus Pi `Agent` subagents using the current Pi session/runtime. Do **not** pin or mention a specific model unless the user explicitly asks.
+- Broad context: `graphify_query({ question, mode: "bfs" })`
+- Path/trace: `graphify_query({ question, mode: "dfs" })` or `graphify_path`
+- Node details: `graphify_explain({ concept })`
 
-1. Detect non-code files (docs, papers, images) and estimate subagent count.
-2. Run AST extraction locally; it is deterministic and free.
-3. Split uncached semantic files into chunks:
-   - 20-25 related text/doc files per chunk.
-   - one image per chunk.
-   - group files from the same directory together when possible.
-4. Dispatch semantic extraction with Pi `Agent` subagents in bounded waves of at most `GRAPHIFY_SEMANTIC_MAX_PARALLEL` (default 2 in Codeflare/Pi because the container is 1 CPU). Use `subagent_type: "general-purpose"`; do **not** use read-only agents because semantic chunks must be written to disk.
-5. Each subagent must write its JSON fragment to an absolute path such as `<repo>/graphify-out/.graphify_chunk_01.json`. Returning JSON in chat is not enough. Treat `No output` or a missing chunk file as a failed chunk.
-6. Validate each chunk JSON has `nodes`, `edges`, and `hyperedges`; warn and skip failed chunks. If more than half the chunks fail or are missing, stop and ask whether to retry with smaller chunks or AST-only.
-7. Cache semantic fragments, merge cached + new fragments, then merge AST + semantic output.
-8. Build `graphify-out/graph.json`, run clustering/report generation, generate `graphify-out/graph.html` unless explicitly skipped, and merge into the global graph when possible.
-
-Never use headless `graphify extract --backend deepseek` for this interactive workflow. Headless backends (`ollama`, `claude-cli`, API-key providers) are only for explicit user requests or CI/scripted extraction.
-
-## Querying
-
-Use native Pi graphify tools first:
-
-- `graphify_query({ question, mode: "bfs" })` for broad context.
-- `graphify_query({ question, mode: "dfs" })` or `graphify_path` for paths.
-- `graphify_explain({ concept })` for a node and its neighbors.
-
-When the active repo is a child of `/home/user/workspace`, Codeflare's Pi extension should automatically retry native graph query/path/explain calls against the active repo graph. If the automatic retry still reports `/home/user/workspace/graphify-out/graph.json` missing, use the CLI fallback:
+If the native tool fails because it looked under `/home/user/workspace/graphify-out`, resolve the repo and use CLI fallback:
 
 ```bash
 graphify query "<question>" --graph <repo>/graphify-out/graph.json
 graphify path "A" "B" --graph <repo>/graphify-out/graph.json
 graphify explain "X" --graph <repo>/graphify-out/graph.json
 ```
+
+Resolve `<repo>` by:
+
+1. `/home/user/.cache/codeflare-hooks/graphify-active-cwd` if present.
+2. `git rev-parse --show-toplevel` from the current directory.
+3. The obvious child repo under `/home/user/workspace/`.
+
+### Vault, memory, and cross-session queries
+
+Always use the global graph explicitly:
+
+```bash
+graphify query "<question-or-concept>" --graph /home/user/.graphify/global-graph.json
+graphify path "A" "B" --graph /home/user/.graphify/global-graph.json
+graphify explain "X" --graph /home/user/.graphify/global-graph.json
+```
+
+Good search handles for memory captures are usually wikilink concepts from the note, not the full title. Example:
+
+```bash
+graphify query "PiClaudeParity" --graph /home/user/.graphify/global-graph.json
+```
+
+If the CLI returns the node but not the file path, inspect the graph JSON node only as a last step.
+
+## Build / refresh repo graphs
+
+### AST-only refresh — default for code repos
+
+From the repo root:
+
+```bash
+bash /home/user/.pi/agent/scripts/safe-graphify-update.sh .
+```
+
+Then merge into the global graph:
+
+```bash
+flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as "$(basename "$PWD")"
+```
+
+Use AST-only by default after source edits. It is local, bounded, and safe for the 1-CPU container.
+
+### Full semantic + AST refresh — only when user wants semantic/docs extraction
+
+For normal interactive Pi work, semantic extraction is done by **in-session Pi `Agent` subagents**.
+Do not run any headless/API-key extractor (`graphify extract --backend deepseek`, OpenAI, Claude, Gemini, etc.) unless the user explicitly asks for CI/headless extraction.
+
+Interactive full mode means:
+
+1. Run local AST extraction.
+2. Split docs/non-code files into chunks.
+3. Spawn Pi `Agent` subagents in bounded waves, default max parallel `2`.
+4. Require each subagent to write a JSON chunk file under `<repo>/graphify-out/`.
+5. Validate chunks, merge AST + semantic output, cluster, generate HTML, and global-add.
+
+Use this only when the user explicitly chooses full semantic extraction or asks for docs/papers/images to be semantically represented.
+
+## Freshness check
+
+For repo graphs, compare graph commit metadata to `git rev-parse HEAD` when available.
+If stale, say so and offer:
+
+- AST-only refresh: fast/local/default.
+- Full semantic refresh: slower, uses Pi subagents.
+
+Do not silently rebuild unless the user asked to refresh/build/update.
+
+## Rules
+
+- Use explicit `--graph /home/user/.graphify/global-graph.json` for Vault/memory/session questions.
+- Use native wrappers first only for repo/code graph questions.
+- Never assume `/home/user/workspace/graphify-out/graph.json` exists.
+- Interactive semantic extraction uses in-session Pi `Agent` subagents, not headless/API-key extractors.
+- After source edits in a graphed repo, prefer the safe update wrapper before answering new structural graph questions.
+- Do not edit graph output JSON by hand except for diagnostic read-only inspection.
