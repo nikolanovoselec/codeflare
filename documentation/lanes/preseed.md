@@ -226,24 +226,22 @@ All preseed content is deployed via the manifest pipeline:
   spec-enforce-ac, spec-enforce-truth, doc-enforce, doc-enforce-lanes,
   doc-enforce-shape, doc-enforce-truth, tdd-enforce,
   git-review-pipeline, graphify
-- `plugins/` (31): known_marketplaces.json (default+advanced),
-  codeflare-memory plugin (7 files, advanced only: plugin.json,
+- `plugins/`: known_marketplaces.json (default+advanced),
+  codeflare-memory plugin (advanced only: plugin.json,
   memory-capture.sh, memory-capture-block.sh, memory-agent-prompt.md,
   prefilter-transcript.sh, assert-iso-ts.sh, memory-context-inject.sh),
-  codeflare-vault plugin (4 files, advanced only: plugin.json,
+  codeflare-vault plugin (advanced only: plugin.json,
   vault-monitor-hook.sh, vault-extract-prompt.md, merge-vault-graph.py),
-  codeflare-hooks
-  plugin (7 files, advanced only: plugin.json,
+  codeflare-hooks plugin (advanced only: plugin.json,
   block-attributed-commits.sh, block-local-builds.sh,
   git-push-review-reminder.sh, enforce-review-spawn.sh,
   scripts/lib/gh-pr-state.sh - shared gh CLI invocation sourced by
   both PR-aware hooks, scripts/lib/lane-classifier.sh - shared diff-
   classification helper sourced by both PR-aware hooks so the in-turn
   nudge and the turn-end gate agree on which lanes a push requires),
-  context-mode plugin (3 files, advanced only: plugin.json,
-  README.md, scripts/enforce-ctx-mode.sh - admin-only Custom-tier
-  routing enforcement, see Third-party plugin section below),
-  graphify plugin (9 files, default+advanced for plugin.json + README
+  context-mode plugin (advanced only: plugin.json,
+  README.md - MCP/indexing registration only; stale deny-gates are pruned),
+  graphify plugin (default+advanced for plugin.json + README
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, enforce-graphify.sh, safe-graphify-update.sh)
@@ -491,7 +489,7 @@ predicates) and the pipe-alternated MCP matcher
 `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute`.
 This keeps attribution blocking and push detection effective whether
 context-mode is active or not. Implements
-[REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC3 and [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1+AC2. Hooks
+[REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC3, [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1+AC2, and [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC4-AC7. Hooks
 registered in settings.json, scripts delivered via plugin.
 
 ## Third-party plugin: context-mode
@@ -505,19 +503,13 @@ no skill, rule, hook, or system-prompt nudge in our preseed
 instructs Claude to invoke `ctx_*` tools. The agent's tool-selection
 is its own, identical to how it picks any other listed MCP tool.
 
-The full plugin folder containing the auto-routing hooks (PreToolUse
-routing, PostToolUse indexing, PreCompact, SessionStart) plus the
-context-mode enforcement hook is reserved for the admin-only Custom
-(`unlimited`) tier sandbox. The enforcement hook is a fifth PreToolUse
-handler that hard-enforces context-mode routing: Bash calls are
-restricted to a whitelist (`git`, `mkdir`, `rm`, `mv`, `cd`, `ls`,
-`npm install`, `pip install`); WebFetch and Grep are denied entirely
-and redirected to the equivalent `ctx_*` tools. Per-call bypass via
-`/tmp/ctx-bypass` (user-only sentinel - see
-[Security](security.md#context-mode-enforcement-bypass)). Routing is
-active by default from session start with no boot-time sentinel file
-created by the container. Users who want native Bash routing create
-the sentinel themselves in a separate terminal.
+Codeflare no longer ships the former Bash/WebFetch/Grep deny-gate
+(`enforce-ctx-mode.sh`) in the context-mode plugin. Context-mode is
+MCP/indexing only: agents may call the `ctx_*` tools when available, but
+native Bash, WebFetch, and grep-class tools are not blocked by a
+context-mode routing hook. Entrypoint reconciliation prunes stale copies
+of the old deny-gate from managed hook settings so restored containers do
+not retain obsolete hard-routing behavior.
 
 context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/context-mode/blob/main/LICENSE).
 The integration is sized to stay within ELv2's permitted-use envelope.
@@ -544,7 +536,7 @@ Mechanics:
 - **Matchers**: `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_execute_file`. Covers both plain-Bash sessions (where `Grep`/`Bash` fire natively) and context-mode sessions (where agents route grep-class calls through the `ctx_execute*` family as advisory best-practice; the Bash deny-gate was removed).
 - **Gating**: two-step active-repo resolution. The hook first reads `~/.cache/codeflare-hooks/graphify-active-cwd` (the sentinel `graphify-active-repo.sh` maintains on every Bash/Edit/Write/ctx_execute tool call) and checks `<active-repo>/graphify-out/graph.json`. If the sentinel is absent or stale, it falls back to the tool-call envelope `.cwd`. In codeflare the session cwd is always `~/workspace` (parent of all repos, never a sub-repo), so the sentinel is the load-bearing signal; the envelope-cwd fallback exists for vanilla graphify usage outside codeflare. Pi updates the same sentinel from command-local `cd ... &&` and `git -C ...` forms and injects the active repo as `<repo>:<branch>@<head>` in session context. Vault-only-in-global is intentionally NOT enforcement-eligible: a session whose active repo has no graph triggers no hard-block, so the user can grep freely in repos they have not yet graphified.
 - **Threshold**: blocks the next structural search after 3 grep-class tool calls in the same turn (counted by walking the transcript backward to the last real user prompt) when no `mcp__graphify__*` call (or `graphify query|path|explain` CLI invocation) has been made.
-- **Classification**: SEARCH = first-word `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, or `awk` with `/regex/` body. The shell parser reuses `extract_subs` + `normalize_command` + chain-op splitter from `enforce-ctx-mode.sh`, so command/process substitution, heredocs, quoted regions, and pipeline segments cannot slip past.
+- **Classification**: SEARCH = first-word `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, or `awk` with `/regex/` body. The shell parser uses the graphify hook's local `extract_subs` + `normalize_command` + chain-op splitter, so command/process substitution, heredocs, quoted regions, and pipeline segments cannot slip past.
 - **User-only bypass**: `touch /tmp/graphify-bypass` (one-shot, auto-deleted on use) or include `skip graph` (case-insensitive) in a user message. The agent must never create the sentinel.
 - **Fail-safe**: any unexpected error returns exit 0 with no output. Never locks the user out.
 
