@@ -4,4 +4,4 @@ MUST use Graphify before broad repo search, architecture/dependency/call-flow lo
 
 MUST NOT use the graph for exact known-file edits, git/CI state, single-file string search, or code changed this session. If skipping Graphify, say why briefly.
 
-After source edits, refresh with `safe-graphify-update.sh` before further structural questions. Use `skills/graphify/SKILL.md` for mechanics, build/refresh commands, large-repo flags, persistence, and enforcement details.
+After source edits, refresh with the installed safe wrapper before further structural questions (Claude: `bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .`; Pi: `bash /home/user/.pi/agent/scripts/safe-graphify-update.sh .`). Use the graphify skill for mechanics, build/refresh commands, large-repo flags, persistence, and enforcement details.
