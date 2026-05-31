@@ -1,6 +1,6 @@
 # Stress Testing
 
-k6-based load testing against the integration worker. Four test suites run in parallel via the `stress-test.yml` GitHub Actions workflow.
+k6-based load testing against the integration worker. Three load suites run in parallel via the `stress-test.yml` GitHub Actions workflow; a fourth suite (`rate-limit-validation`) runs separately because it requires rate limits enabled rather than bypassed.
 
 Implements [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing-validates-rate-limits-and-concurrency) (rate-limit + concurrency validation under high VU load).
 
