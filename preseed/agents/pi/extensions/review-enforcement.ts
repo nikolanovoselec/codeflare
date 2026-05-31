@@ -527,12 +527,17 @@ export default function (pi: ExtensionAPI) {
 
     const review = mergeLaneState(state.repo, head, state);
     if (review.lanes.length === 0) {
+      resetBlockCount(state.repo);
+      clearBreaker(state.repo);
       writeAck(state.repo, head);
       clearPending(state.repo);
+      clearReviewStatus(ctx);
       pending = undefined;
       return true;
     }
 
+    resetBlockCount(state.repo);
+    clearBreaker(state.repo);
     const reviewBase = selectReviewBase({
       previous: { ...state, completed: [...state.completed] },
       lastAck: lastAckHead(state.repo) || undefined,

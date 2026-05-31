@@ -5,8 +5,8 @@ export function isGhPrCreateCommand(command: string): boolean {
 }
 
 export function ghPrCreateBase(command: string): string | undefined {
-  const match = command.match(/(?:^|\s)(?:--base|-B)(?:=|\s+)([A-Za-z0-9._\/-]+)/);
-  return match?.[1];
+  const match = command.match(/(?:^|\s)(?:--base|-B)(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9._\/-]+))/);
+  return match?.[1] || match?.[2] || match?.[3];
 }
 
 export function prCreateBoundaryBase(command: string, knownBase?: string): string | undefined {
@@ -45,9 +45,11 @@ export function classifyReviewHead(params: {
 }): ReviewHeadStatus {
   if (params.localHead === params.pendingHead) return "current";
   if (params.prQueryFailed) return "unknown";
-  if (params.prOpenAtBase && params.prHead === params.pendingHead) return "current";
-  if (params.prOpenAtBase && params.prHead && params.prHeadDescendsFromPending) return "advanced";
-  if (params.prOpenAtBase && params.localHead && params.localHeadDescendsFromPending) return "advanced";
+  if (params.prOpenAtBase) {
+    if (params.prHead === params.pendingHead) return "current";
+    if (params.prHead) return params.prHeadDescendsFromPending ? "advanced" : "stale";
+    if (params.localHead && params.localHeadDescendsFromPending) return "advanced";
+  }
   return "stale";
 }
 

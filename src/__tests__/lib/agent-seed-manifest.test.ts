@@ -296,13 +296,16 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isFailedToolExecution({ isError: false, status: 'success' })).toBe(false);
     expect(prCreateBoundaryBase('gh pr create --base main')).toBe('main');
     expect(prCreateBoundaryBase('gh pr create -B master')).toBe('master');
+    expect(prCreateBoundaryBase('gh pr create --base "main"')).toBe('main');
+    expect(prCreateBoundaryBase("gh pr create -B 'master'")).toBe('master');
     // A just-created PR can be temporarily invisible to `gh pr view`; without a known base,
     // fail open to the protected default so review enforcement still arms for local HEAD.
     expect(prCreateBoundaryBase('gh pr create --title test')).toBe('main');
     expect(prCreateBoundaryBase('gh pr create --base develop')).toBeUndefined();
+    expect(prCreateBoundaryBase('gh pr create --base "develop"')).toBeUndefined();
   });
 
-  it('REQ-AGENT-036 AC6: review head classification separates a moved-on PR from an unreadable gh query', () => {
+  it('REQ-AGENT-036 AC7-AC9: review head classification separates stale, unreadable, and advanced PR heads', () => {
     // Local HEAD still at the reviewed head -> current, even if GitHub lags or gh fails.
     expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h1', prOpenAtBase: false, prHead: undefined, prQueryFailed: true })).toBe('current');
     // PR is open at main and still names the pending head -> current.
@@ -311,6 +314,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h2', prOpenAtBase: true, prHead: 'h2', prQueryFailed: false })).toBe('stale');
     // PR head advanced along the same branch -> advanced, so the review window rolls forward instead of being discarded.
     expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h2', prOpenAtBase: true, prHead: 'h2', prQueryFailed: false, prHeadDescendsFromPending: true })).toBe('advanced');
+    // A readable PR head is authoritative; an unrelated PR head stays stale even if local HEAD descends from the pending head.
+    expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h3', prOpenAtBase: true, prHead: 'h2', prQueryFailed: false, localHeadDescendsFromPending: true })).toBe('stale');
     // PR is no longer open at main (closed/merged/retargeted) and local moved on -> stale.
     expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h2', prOpenAtBase: false, prHead: undefined, prQueryFailed: false })).toBe('stale');
     expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h2', prOpenAtBase: false, prHead: undefined, prQueryFailed: false, localHeadDescendsFromPending: true })).toBe('stale');
@@ -1171,7 +1176,7 @@ describe('REQ-AGENT-027 AC1 context-mode wired as a tool only (no Bash deny-gate
   });
 });
 
-describe('REQ-AGENT-040 AC8 review dispatch is backgrounded with a bounded in-flight guard', () => {
+describe('REQ-AGENT-040 AC9 review dispatch is backgrounded with a bounded in-flight guard', () => {
   it('the seeded enforce-review-spawn.sh carries the in-flight guard, a staleness bound, and the background-dispatch directive', () => {
     const hook = AGENTS_SEEDED_CONFIGS.find((d) =>
       d.key.endsWith('codeflare-hooks/scripts/enforce-review-spawn.sh')
