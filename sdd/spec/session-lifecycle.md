@@ -602,7 +602,7 @@ None.
 
 1. `GET /api/container/health` reports whether the user's container is running and healthy, returning its metrics on success and an error with 500 when the health check fails. <!-- @impl: src/routes/container/status.ts -->
 2. `GET /api/container/startup-status` returns the current initialization stage without blocking, carrying a stage label, a 0-to-100 progress value, and a human-readable message. <!-- @impl: src/routes/container/status.ts -->
-3. The reported stage reflects real container state: stopped when not running, starting before services respond, syncing while the initial R2 sync runs, verifying after sync while terminal sessions are not yet responding, mounting while the terminal pre-warms, and ready when all services are up. <!-- @impl: src/routes/container/status.ts -->
+3. The reported stage reflects real container state: stopped when the container state cannot be determined, starting while the container exists but its services are not yet responding, syncing while the initial R2 sync runs, verifying after sync while terminal sessions are not yet responding, mounting while the terminal pre-warms, and ready when all services are up. <!-- @impl: src/routes/container/status.ts -->
 4. A failed initial R2 sync surfaces as an error stage carrying the sync error, while a skipped sync (no R2 credentials) still reaches the ready stage with the skip reason reported. <!-- @impl: src/routes/container/status.ts -->
 5. An unexpected failure while computing startup status is caught and returned as an error stage rather than propagating an unhandled 500. <!-- @impl: src/routes/container/status.ts -->
 

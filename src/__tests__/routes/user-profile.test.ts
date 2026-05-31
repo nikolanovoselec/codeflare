@@ -108,12 +108,66 @@ describe('User Profile Routes', () => {
       expect(body.onboardingActive).toBe(true);
     });
 
+    it('returns the full account-status payload (all AC1 fields)', async () => {
+      mockAuthenticateRequest.mockResolvedValue({
+        user: {
+          email: 'test@example.com',
+          authenticated: true,
+          role: 'user',
+          accessTier: 'pro',
+          subscriptionTier: 'pro',
+        },
+        bucketName: 'codeflare-abc123',
+      });
+      mockKV._set('user:test@example.com', { onboardingComplete: true, subscribedMode: 'advanced' });
+
+      const app = createApp();
+      const res = await app.request('/user');
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        email: 'test@example.com',
+        authenticated: true,
+        role: 'user',
+        accessTier: 'pro',
+        subscriptionTier: 'pro',
+        bucketName: 'codeflare-abc123',
+        workerName: 'codeflare',
+        onboardingActive: false,
+        saasMode: false,
+        onboardingComplete: true,
+        hasSubscribed: true,
+        subscribedMode: 'advanced',
+      });
+    });
+
     it('returns 401 when not authenticated', async () => {
       mockAuthenticateRequest.mockRejectedValue(new AuthError('Not authenticated'));
 
       const app = createApp();
 
       const res = await app.request('/user');
+
+      expect(res.status).toBe(401);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('AUTH_ERROR');
+    });
+  });
+
+  // =========================================================================
+  // Auth required on every endpoint - REQ-AUTH-019 AC5
+  // =========================================================================
+  describe('authentication required across all endpoints', () => {
+    it.each([
+      ['GET', '/user'],
+      ['POST', '/user/onboarding-complete'],
+      ['GET', '/user/r2-status'],
+      ['POST', '/user/ensure-r2-token'],
+    ])('rejects unauthenticated %s %s with 401', async (method, path) => {
+      mockAuthenticateRequest.mockRejectedValue(new AuthError('Not authenticated'));
+
+      const app = createApp();
+      const res = await app.request(path, { method });
 
       expect(res.status).toBe(401);
       const body = await res.json() as { code: string };
