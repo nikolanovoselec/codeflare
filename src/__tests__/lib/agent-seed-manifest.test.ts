@@ -1215,9 +1215,8 @@ describe('Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 (Claude-only 
   it('AC1: the extension registers exactly the debug, deploy, and brainstorm commands', () => {
     const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/codeflare-commands.ts');
     expect(doc, 'codeflare-commands.ts must be seeded').toBeTruthy();
-    expect(doc!.content).toContain('registerCommand("debug"');
-    expect(doc!.content).toContain('registerCommand("deploy"');
-    expect(doc!.content).toContain('registerCommand("brainstorm"');
+    const registered = [...doc!.content.matchAll(/registerCommand\("([^"]+)"/g)].map((m) => m[1]).sort();
+    expect(registered).toEqual(['brainstorm', 'debug', 'deploy']);
   });
 
   it('AC2: commandInstructions assembles the dispatched message as slash + workflow + user input', () => {
