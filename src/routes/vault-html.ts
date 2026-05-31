@@ -223,7 +223,7 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
   // Defence-in-depth escapes for JSON-in-script-tag boundary:
   //   </ -> <\/   (defang literal </script> break-out)
   //   <!-- -> <\!--  (HTML5 script-data-double-escape-start)
-  //   U+2028 / U+2029 ->   /   (legal in JSON, illegal as
+  //   line separators U+2028 and U+2029 are escaped (legal in JSON, illegal as
   //     bare JS string literals in older runtimes)
   const serialised = JSON.stringify(config)
     .replace(/<\//g, '<\\/')
