@@ -518,11 +518,11 @@ export default function (pi: ExtensionAPI) {
   };
 
   // onToolStart is the pre-execution gate. Pi can surface one tool invocation as both
-  // `tool_call` and `tool_execution_start`; running the gate (with its consume-on-use bypass and
-  // per-turn counters) on both passes would double-count searches and consume a bypass on the
-  // first pass only to block on the second. Gate exactly once per invocation, keyed by tool id,
-  // while still gating tools that surface only one of the two events. Monotonic: this only
-  // suppresses a redundant second pass, it never skips gating an invocation.
+  // `tool_call` and `tool_execution_start`; running the build-block and attribution-block
+  // checks on both passes would evaluate them twice for a single invocation. Gate exactly
+  // once per invocation, keyed by tool id, while still gating tools that surface only one of
+  // the two events. Monotonic: this only suppresses a redundant second pass, it never skips
+  // gating an invocation.
   pi.on("tool_call", (event: any, ctx: any) => {
     const id = toolEventId(event);
     if (id) gatedToolIds.add(id);

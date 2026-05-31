@@ -620,7 +620,7 @@ describe('enforce-review-spawn.sh — bypass 2: magic phrase', () => {
 
 describe('enforce-review-spawn.sh — fail-safe behavior', () => {
   it('classifies agents earlier in the transcript than the push as stale', () => {
-    // Pins the line-number ordering contract for spawned_after_push.
+    // Pins the post-push line-number ordering contract.
     // The transcript is append-only JSONL, so a subagent_type entry
     // that appears BEFORE the push line is definitionally pre-push
     // and must not satisfy enforcement.

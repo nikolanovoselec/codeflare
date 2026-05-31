@@ -13,19 +13,20 @@ Every session comes pre-loaded with your choice of AI coding agent:
 
 | Agent | Description |
 |---|---|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Anthropic's agentic CLI (runs with `IS_SANDBOX=1` + `--dangerously-skip-permissions` for root container support) |
-| [Codex](https://github.com/openai/codex) | OpenAI's coding agent |
 | [Antigravity](https://antigravity.google/docs/cli-overview) | Google's terminal coding agent (beta) |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Anthropic's agentic CLI |
+| [Codex](https://github.com/openai/codex) | OpenAI's coding agent |
 | [GitHub Copilot](https://docs.github.com/en/copilot) | GitHub's AI coding agent |
-| [OpenCode](https://github.com/opencode-ai/opencode) | Open-source coding agent |
+| [OpenCode](https://github.com/opencode-ai/opencode) | Open-source coding agent (beta) |
+| [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) | Extensible coding agent |
 | Bash | For the purists |
 
-*Pro mode features (knowledge graph, curated skills, advanced workflows) are primarily designed for Claude Code. Other agents receive rules and agent definitions but may not support all Pro capabilities.*
+*Pro mode - cross-session memory, a queryable knowledge graph, curated skills, and spec-driven workflows - runs full-strength on Claude Code and Pi. Other agents receive the rules and agent definitions; the deepest Pro capabilities are Claude/Pi-native.*
 
 <details>
 <summary><strong>How does Claude Code run as root?</strong></summary>
 
-Cloudflare Containers run as root. Claude Code normally refuses `--dangerously-skip-permissions` as root. The official workaround is setting `IS_SANDBOX=1`, which tells the CLI it's running in a sandboxed environment. Combined with `--dangerously-skip-permissions`, this gives fully autonomous operation without permission prompts. No wrapper, no patcher, no hacks -- just an environment variable that Anthropic's own engineers documented for this exact use case.
+Cloudflare Containers run as root. Claude Code normally refuses `--dangerously-skip-permissions` as root. The official workaround is setting `IS_SANDBOX=1`, which tells the CLI it's running in a sandboxed environment. Combined with `--dangerously-skip-permissions`, this gives fully autonomous operation without permission prompts. No wrapper, no patcher, no hacks - just an environment variable that Anthropic's own engineers documented for this exact use case.
 
 </details>
 
@@ -99,7 +100,7 @@ flowchart LR
     zero cost"]
 ```
 
-Containers scale to zero when idle (no sessions = no bill). Storage persists. A per-user Timekeeper Durable Object tracks compute usage and enforces monthly quotas. Auth is handled by Cloudflare Access or GitHub OIDC (SaaS mode) — one-click login, automatic user provisioning, and admin approval workflow.
+Containers scale to zero when idle (no sessions = no bill). Storage persists. A per-user Timekeeper Durable Object tracks compute usage and enforces monthly quotas. Auth is handled by Cloudflare Access or GitHub OIDC (SaaS mode) - one-click login, automatic user provisioning, and admin approval workflow.
 
 ## Setup
 
@@ -180,18 +181,18 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 | Variable | Where | Default | What it does |
 |---|---|---|---|
 | `CLOUDFLARE_WORKER_NAME` | var | `codeflare` | Worker name, R2 bucket prefix, and CF Access group prefix. Set to a unique name when running multiple instances on the same account |
-| `RESSOURCE_TIER` | var | unset | Container instance **size** only. `low`: 0.25 vCPU, 1 GiB, 4 GB. `default`/`saas`: 1 vCPU, 3 GiB, 6 GB. `high`: 2 vCPU, 6 GiB, 8 GB. Independent of `SAAS_MODE` and `MAX_INSTANCES` — combine freely (e.g., `RESSOURCE_TIER=high` + `SAAS_MODE=active` + `MAX_INSTANCES=500`) |
+| `RESSOURCE_TIER` | var | unset | Container instance **size** only. `low`: 0.25 vCPU, 1 GiB, 4 GB. `default`/`saas`: 1 vCPU, 3 GiB, 6 GB. `high`: 2 vCPU, 6 GiB, 8 GB. Independent of `SAAS_MODE` and `MAX_INSTANCES` - combine freely (e.g., `RESSOURCE_TIER=high` + `SAAS_MODE=active` + `MAX_INSTANCES=500`) |
 | `MAX_INSTANCES` | var | unset | Max concurrent container instances (default: 10). Set per environment (e.g., 10 for staging, 1400 for production). Must be a positive integer. Independent of `RESSOURCE_TIER` |
-| `MAX_SESSIONS_USER` | var | `3` | Max concurrent running sessions per regular user. Set to any number (e.g., `5`). Ignored in SaaS mode — tier config controls session limits instead |
-| `MAX_SESSIONS_ADMIN` | var | `10` | Max concurrent running sessions per admin. Set to any number. Ignored in SaaS mode — tier config controls session limits instead |
+| `MAX_SESSIONS_USER` | var | `3` | Max concurrent running sessions per regular user. Set to any number (e.g., `5`). Ignored in SaaS mode - tier config controls session limits instead |
+| `MAX_SESSIONS_ADMIN` | var | `10` | Max concurrent running sessions per admin. Set to any number. Ignored in SaaS mode - tier config controls session limits instead |
 | `ENCRYPTION_KEY` | secret | unset | AES-256 key for encrypting API keys in KV and files in R2 (SSE-C). Must be exactly 32 bytes of random data, base64-encoded. Generate: `openssl rand -base64 32`. When unset, credentials are stored as plaintext |
 | `RUNNER` | var | `ubuntu-latest` | GitHub Actions runner for CI/CD workflows. Set to a custom runner label if you use self-hosted runners |
 | `CLAUDE_CODE_CACHE_BUSTER` | var | unset | Set to `active` to force Docker to reinstall the AI agent layer (@anthropic-ai/claude-code) on every deploy, bypassing the Docker cache. Useful after agent updates. When unset or any other value, the cached layer is reused for faster builds |
-| `STRESS_TEST_MODE` | var | unset | Set to `active` to bypass ALL rate limits (HTTP, WebSocket, container start). For integration/stress testing only. **Never set to `active` in production** — it disables all rate limiting |
+| `STRESS_TEST_MODE` | var | unset | Set to `active` to bypass ALL rate limits (HTTP, WebSocket, container start). For integration/stress testing only. **Never set to `active` in production** - it disables all rate limiting |
 
 #### Onboarding mode
 
-Set `ONBOARDING_LANDING_PAGE` to `active` to show a public waitlist landing page at `/`. The setup wizard auto-creates Turnstile CAPTCHA keys using your Cloudflare API token — you do not need to configure Turnstile manually.
+Set `ONBOARDING_LANDING_PAGE` to `active` to show a public waitlist landing page at `/`. The setup wizard auto-creates Turnstile CAPTCHA keys using your Cloudflare API token - you do not need to configure Turnstile manually.
 
 | Variable | Where | When needed | What it does |
 |---|---|---|---|
@@ -207,8 +208,8 @@ Set `SAAS_MODE` to `active` for the full SaaS experience: custom GitHub login pa
 |---|---|---|---|
 | `SAAS_MODE` | var | set to `active` to enable | Activates custom login page, JIT user provisioning, 8-tier subscription system, usage tracking via Timekeeper DO, and admin management at `/admin/users`. When unset or `inactive`, all users get unlimited access via CF Access |
 | `RESEND_API_KEY` | secret | recommended | Same Resend API key as onboarding. In SaaS mode, also sends: subscription confirmations, plan change notifications, and tier change alerts to admins. Renewal/payment emails are handled by Stripe native customer emails. When unset, all email notifications are silently skipped |
-| `OAUTH_CLIENT_ID` | env var | **recommended** | GitHub OAuth App client ID (public value). Enables direct GitHub login — free for unlimited users. Create an OAuth App at `github.com/settings/developers` with callback URL `https://{your-domain}/auth/github/callback`. When unset, the setup wizard configures Cloudflare Access instead (free for 50 users, $3/user/month after that) |
-| `OAUTH_CLIENT_SECRET` | env secret | **required** when `OAUTH_CLIENT_ID` is set | GitHub OAuth App client secret. Copied from the OAuth App page after clicking "Generate a new client secret". Server-side only — never exposed to the browser |
+| `OAUTH_CLIENT_ID` | env var | **recommended** | GitHub OAuth App client ID (public value). Enables direct GitHub login - free for unlimited users. Create an OAuth App at `github.com/settings/developers` with callback URL `https://{your-domain}/auth/github/callback`. When unset, the setup wizard configures Cloudflare Access instead (free for 50 users, $3/user/month after that) |
+| `OAUTH_CLIENT_SECRET` | env secret | **required** when `OAUTH_CLIENT_ID` is set | GitHub OAuth App client secret. Copied from the OAuth App page after clicking "Generate a new client secret". Server-side only - never exposed to the browser |
 | `OAUTH_JWT_SECRET` | env secret | **required** when `OAUTH_CLIENT_ID` is set | HMAC-SHA256 signing key for the `codeflare_session` cookie. Must be at least 32 bytes of random data, base64-encoded. Generate: `openssl rand -base64 32`. When this secret is rotated, all active sessions expire and users must re-login |
 | `STRIPE_SECRET_KEY` | secret | optional | Stripe API key for paid subscriptions. Use `sk_test_...` for sandbox or `sk_live_...` for production. When unset, all subscription tiers are free (no billing). Get your key at `dashboard.stripe.com/apikeys` |
 | `STRIPE_WEBHOOK_SECRET` | secret | **required** when `STRIPE_SECRET_KEY` is set | Stripe webhook signing secret (`whsec_...`). Created when you add a webhook endpoint in the Stripe Dashboard at `dashboard.stripe.com/webhooks` pointing to `https://{your-domain}/public/stripe/webhook`. Events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. Stripe Price metadata (`tier`, `mode`) must be set on all prices |
@@ -235,7 +236,7 @@ E2E tests authenticate via the `X-Service-Auth` header. Set **one** of the two s
 |---|---|---|
 | **Default** | Nothing beyond step 2 | CF Access app, groups, policies |
 | **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
-| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, E2E: `OAUTH_E2E_TEST_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` + `MAX_INSTANCES` | Turnstile keys (no CF Access — GitHub OAuth handles auth) |
+| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, E2E: `OAUTH_E2E_TEST_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` + `MAX_INSTANCES` | Turnstile keys (no CF Access - GitHub OAuth handles auth) |
 | **SaaS + CF Access** | `SAAS_MODE=active`, optionally `RESEND_API_KEY` + `STRIPE_*` + `MAX_INSTANCES` | CF Access, Turnstile keys |
 
 ---
@@ -243,7 +244,7 @@ E2E tests authenticate via the `X-Service-Auth` header. Set **one** of the two s
 #### GitHub OAuth Setup (SaaS mode)
 <a id="github-oauth-setup-saas-mode"></a>
 
-When `OAUTH_CLIENT_ID` is set in SaaS mode, the Worker handles authentication directly via GitHub OAuth — Cloudflare Access is bypassed. Free for unlimited users.
+When `OAUTH_CLIENT_ID` is set in SaaS mode, the Worker handles authentication directly via GitHub OAuth - Cloudflare Access is bypassed. Free for unlimited users.
 
 **1. Create a GitHub OAuth App** at [github.com/settings/developers](https://github.com/settings/developers) → OAuth Apps → New OAuth App:
 - **Application name:** Your app name (e.g., "Codeflare")
@@ -264,7 +265,7 @@ openssl rand -base64 32
 | `OAUTH_CLIENT_SECRET` | Client secret from step 1 |
 | `OAUTH_JWT_SECRET` | Output from step 2 |
 
-Create one OAuth App per environment (integration vs production) with the matching callback URL. Deploy — the workflow injects everything automatically.
+Create one OAuth App per environment (integration vs production) with the matching callback URL. Deploy - the workflow injects everything automatically.
 
 </details>
 
@@ -272,7 +273,7 @@ Create one OAuth App per environment (integration vs production) with the matchi
 
 - Every session runs in its own container. No shared shells, no cross-session access. Your agent can `rm -rf /` and the only victim is itself.
 - AI agents run with full terminal access *inside* the container - and can't get out. I gave them root and a sandbox. They got root in a sandbox.
-- All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by JWT verification — via Cloudflare Access (default mode) or GitHub OIDC session cookies (SaaS mode).
+- All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by JWT verification - via Cloudflare Access (default mode) or GitHub OIDC session cookies (SaaS mode).
 - API tokens stay in GitHub and Cloudflare by default. If you connect GitHub and Cloudflare in Push & Deploy (optional), those tokens are injected into your container so the agent can push code and deploy for you. They're stored encrypted in KV, scoped per user, and never shared across sessions.
 - Security headers: HSTS, CSP, X-Frame-Options, Referrer-Policy on every response.
 - Rate limiting: KV-backed, per-user limits on session creation, container starts, and WebSocket connections. Returns 429 with `Retry-After` header when exceeded.
@@ -280,7 +281,7 @@ Create one OAuth App per environment (integration vs production) with the matchi
 - Supply chain: CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, Trivy container scanning.
 - Automated penetration testing: weekly CI workflow validates auth gate, security headers, TLS configuration, injection resistance, and information disclosure. See [Penetration Testing](documentation/lanes/pentest.md) for the latest report.
 - GitHub security: secret scanning, push protection, private vulnerability reporting, dependency graph.
-- Optional encryption at rest (set `ENCRYPTION_KEY`): KV credentials (API keys, deploy tokens, scoped R2 tokens) are encrypted with AES-256-GCM before storage using per-value random IVs, authenticated with AAD binding to the KV key name, decrypted on read, and masked in all API responses. R2 workspace files are encrypted via SSE-C (S3 Server-Side Encryption with Customer-Provided Keys) on all upload, download, copy, and seed operations. Rclone bisync inside containers uses the same key for transparent encrypt/decrypt. Existing plaintext KV entries are transparently migrated to encrypted format on first read (fire-and-forget write-back, no downtime). The SilverBullet vault subtree gets its own zero-UI per-session key (DO-storage backed); operators never see it, users never type it. See [Security — Credential Encryption at Rest](documentation/lanes/security.md#credential-encryption-at-rest) for implementation details, migration guide, and key pipeline.
+- Optional encryption at rest (set `ENCRYPTION_KEY`): KV credentials (API keys, deploy tokens, scoped R2 tokens) are encrypted with AES-256-GCM before storage using per-value random IVs, authenticated with AAD binding to the KV key name, decrypted on read, and masked in all API responses. R2 workspace files are encrypted via SSE-C (S3 Server-Side Encryption with Customer-Provided Keys) on all upload, download, copy, and seed operations. Rclone bisync inside containers uses the same key for transparent encrypt/decrypt. Existing plaintext KV entries are transparently migrated to encrypted format on first read (fire-and-forget write-back, no downtime). The SilverBullet vault subtree gets its own zero-UI per-session key (DO-storage backed); operators never see it, users never type it. See [Security - Credential Encryption at Rest](documentation/lanes/security.md#credential-encryption-at-rest) for implementation details, migration guide, and key pipeline.
 - For vulnerability reporting, see [SECURITY.md](SECURITY.md).
 
 ## Testing

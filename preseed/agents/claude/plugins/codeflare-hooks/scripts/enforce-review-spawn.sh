@@ -657,23 +657,14 @@ fi
 # authoritative order. No timestamp parsing needed.
 # ---------------------------------------------------------------------------
 
-spawned_after_push() {
-  local agent="$1"
-  # Anchor on `"type":"tool_use"` AND `"name":"Agent"` on the same line so
-  # the substring match only fires on actual Agent tool_use envelopes, not
-  # on prose / tool_result text / ctx_execute output that happens to quote
-  # the literal `"subagent_type":"<name>"` bytes (e.g. a diagnostic script
-  # printing hook JSON to the transcript). The JSONL transcript serialises
-  # each tool_use envelope on a single line, so this triple-condition match
-  # is reliable.
-  awk -v p="$PUSH_LINE" -v a="$agent" '
-    NR > p \
-      && index($0, "\"type\":\"tool_use\"") \
-      && index($0, "\"name\":\"Agent\"") \
-      && index($0, "\"subagent_type\":\"" a "\"") { found = 1; exit }
-    END { exit !found }
-  ' "$TRANSCRIPT"
-}
+# Agent-envelope match contract (used by the lane-coverage and in-flight
+# checks below): anchor each `"subagent_type"` match on `"type":"tool_use"`
+# AND `"name":"Agent"` on the same line, so the substring match only fires on
+# real Agent tool_use envelopes - not on prose / tool_result text / ctx_execute
+# output that happens to quote the literal `"subagent_type":"<name>"` bytes
+# (e.g. a diagnostic script printing hook JSON to the transcript). The JSONL
+# transcript serialises each tool_use envelope on a single line, so the
+# triple-condition match is reliable.
 
 # 3-strike circuit breaker (keyed by CURRENT_PR_HEAD - unique per PR state)
 #
@@ -776,8 +767,8 @@ requires_lane() {
 # running. A lane is "in flight" when its MOST RECENT Agent spawn anywhere in
 # the transcript has no `completed</status>` marker yet -- i.e. that subagent
 # is still executing. Subagents always emit a completion marker on finish
-# (success OR error, per the spawned_after_push comment), so "last spawn has
-# no completion" reliably means "currently running", not "errored long ago".
+# (success OR error), so "last spawn has no completion" reliably means
+# "currently running", not "errored long ago".
 #
 # Without this guard, a push that lands while the prior wave is still running
 # advances the PR HEAD past the in-flight spawn lines; the parallel block
@@ -944,7 +935,7 @@ if [ "$DOC_REQUIRED" = "1" ] && [ "$SPEC_REQUIRED" = "1" ]; then
   # completed</status>, then require doc-updater to follow.
   # Anchor each subagent_type match on `"type":"tool_use"` AND
   # `"name":"Agent"` so prose / tool_result text quoting the bytes
-  # cannot false-positive (see spawned_after_push comment above).
+  # cannot false-positive (see the Agent-envelope match contract above).
   SPEC_SPAWN_LINE=$(awk -v p="$PUSH_LINE" '
     NR > p \
       && index($0, "\"type\":\"tool_use\"") \
