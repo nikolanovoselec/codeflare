@@ -54,6 +54,17 @@
       "advanced"
     ]
   },
+  "skills/git-review-pipeline/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/pr-workflow/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "skills/review/SKILL.md": {
     "modes": [
       "advanced"
