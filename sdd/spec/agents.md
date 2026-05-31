@@ -16,6 +16,7 @@ Multi-agent support, preseed system, and session modes.
 - **Custom agent creation by users** -- Users cannot define their own agent types or register third-party CLI tools as agents. The seven supported agents are hardcoded.
 - **Agent marketplace** -- No mechanism for browsing, installing, or sharing community-contributed agent configurations or plugins.
 - **Runtime agent switching** -- Agent type is immutable after session creation. Switching requires creating a new session.
+- **Explicit consult-llm preference toggle** -- There is no separate Settings switch for the multi-model consultation feature. It is active implicitly whenever the user has at least one LLM provider key configured; removing the key is the off-switch.
 
 ### Domain Dependencies
 
@@ -555,35 +556,6 @@ Multi-agent support, preseed system, and session modes.
 ---
 
 <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration describe -> exercises the entrypoint MCP config merge path that also wires consult-llm when LLM_ENV is non-empty -> AC3 wiring) -->
-### REQ-AGENT-016: consult-llm preference toggle
-
-<!-- @impl: src/container/container-env.ts -->
-<!-- @impl: entrypoint.sh -->
-
-**Intent:** Users control whether their LLM API keys power the multi-model consultation feature.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Toggle in Settings controls whether OpenAI/Gemini keys are passed to the consult-llm MCP server.
-2. Default: off.
-3. When off, consult-llm is not configured in the agent's MCP settings.
-
-**Notes:** AC1 and AC2 unmet: there is no explicit Settings toggle. The consult-llm MCP surface is currently activated implicitly when at least one LLM provider key is configured; presence-of-key acts as the on/off. Closing the gap requires a frontend preference plus a gating field on the per-user preference record consulted by the container env-var forwarder.
-
-**Constraints:** None.
-
-**Priority:** P2
-
-**Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
-
-**Verification:** [Integration test](../../host/__tests__/entrypoint-hooks-merge.test.js)
-
-**Status:** Partial
-
----
-
 <!-- @test: host/__audits__/dockerfile-agents.audit.js (Dockerfile bubblewrap install describe -> bubblewrap in apt-get install + Codex sandbox documentation -> AC1,2) -->
 ### REQ-AGENT-017: Bubblewrap sandbox for Codex
 
