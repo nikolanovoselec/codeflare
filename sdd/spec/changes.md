@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-31
+
+- REQ-AGENT-036 / REQ-AGENT-040 Pi PR-boundary review enforcement now treats a descendant PR-head change during an in-flight review as an advanced review window instead of stale state: it rolls the review forward, preserves the first unreviewed base, and keeps earlier result artifacts for audit. `gh pr create --base main/master` also fails open to local HEAD when GitHub's just-created PR metadata is not yet visible. Remote-tracking reflog entries are no longer used as a review base without an explicit ack or completed previous review, preventing a later tiny clean diff from erasing unresolved findings from the original PR window.
+
 ## 2026-05-30
 
 - REQ-MEM-001 / REQ-MEM-002 / REQ-VAULT-003 Pi parity fix: Pi memory capture now mirrors Claude's counter semantics by counting real user prompts from the durable transcript plus the submitted prompt, excluding synthetic `<task-notification>` / command-wrapper user records, baselining brand-new sessions, force-firing resumed-session capture when `/tmp` has no counter and the transcript already has more than one real user prompt, and triggering routine capture when the delta since the last capture reaches 15. Pi Vault indexing now shares Claude's `vault-extract.last` mtime high-water marker and exclusions (`Raw/Sessions/`, `graphify-out/`, `.silverbullet/`, and the four preseed root pages), so restored Vault content and memory-capture notes do not spawn the Vault indexing agent; only user-curated Vault changes do.

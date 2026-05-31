@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution } from '../../../preseed/agents/pi/extensions/graphify-helpers';
-import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, stableId, titleFor, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
@@ -294,6 +294,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isFailedToolExecution({ isError: true })).toBe(true);
     expect(isFailedToolExecution({ status: 'error' })).toBe(true);
     expect(isFailedToolExecution({ isError: false, status: 'success' })).toBe(false);
+    expect(prCreateBoundaryBase('gh pr create --base main')).toBe('main');
+    expect(prCreateBoundaryBase('gh pr create -B master')).toBe('master');
+    // A just-created PR can be temporarily invisible to `gh pr view`; without a known base,
+    // fail open to the protected default so review enforcement still arms for local HEAD.
+    expect(prCreateBoundaryBase('gh pr create --title test')).toBe('main');
+    expect(prCreateBoundaryBase('gh pr create --base develop')).toBeUndefined();
   });
 
   it('REQ-AGENT-036 AC6: review head classification separates a moved-on PR from an unreadable gh query', () => {
@@ -301,10 +307,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h1', prOpenAtBase: false, prHead: undefined, prQueryFailed: true })).toBe('current');
     // PR is open at main and still names the pending head -> current.
     expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h2', prOpenAtBase: true, prHead: 'h1', prQueryFailed: false })).toBe('current');
-    // PR is open but now names a different head, and local moved on too -> definitively stale.
+    // PR is open but now names a different unrelated head, and local moved on too -> definitively stale.
     expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h2', prOpenAtBase: true, prHead: 'h2', prQueryFailed: false })).toBe('stale');
+    // PR head advanced along the same branch -> advanced, so the review window rolls forward instead of being discarded.
+    expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h2', prOpenAtBase: true, prHead: 'h2', prQueryFailed: false, prHeadDescendsFromPending: true })).toBe('advanced');
     // PR is no longer open at main (closed/merged/retargeted) and local moved on -> stale.
     expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h2', prOpenAtBase: false, prHead: undefined, prQueryFailed: false })).toBe('stale');
+    expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h2', prOpenAtBase: false, prHead: undefined, prQueryFailed: false, localHeadDescendsFromPending: true })).toBe('stale');
     // failure #13: gh pr view failed and local moved on; the PR may still be open at h1.
     // This MUST be "unknown" (preserve pending, retry), never "stale" -- discarding here
     // would drop the merge gate and leave the reviewed head un-acked.
@@ -698,7 +707,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       previousRemoteHead: 'remote-prev',
     })).toBe('old-head');
     expect(reusablePendingReview(previous, 'rebased-head', () => false)).toBeUndefined();
-    expect(selectReviewBase({ previous: undefined, lastAck: undefined, previousRemoteHead: 'remote-prev' })).toBe('remote-prev');
+    // A remote-tracking reflog entry alone is not evidence that the prior PR contents were reviewed.
+    // Without an ack or completed previous review, keep reviewBase undefined so the next review covers the full PR diff.
+    expect(selectReviewBase({ previous: undefined, lastAck: undefined, previousRemoteHead: 'remote-prev' })).toBeUndefined();
   });
 
   it('REQ-AGENT-023: Pi native runtime assets include graphify package, MCP config, and skill override', () => {

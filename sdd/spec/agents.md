@@ -1054,7 +1054,7 @@ None.
 3. GitHub CLI detection recognises PR-head-moving operations: `gh pr create`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand -->
 4. Metadata-only PR commands do not trigger review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand -->
 5. PRs into intermediate integration branches (`develop`, `staging`, etc.) do NOT trigger reviews; the case is deferred until the integration branch's own PR-to-`main` opens or syncs, where the cumulative review covers everything that landed. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isEnforcedPr -->
-6. A pending review window is discarded only when the open PR has definitively moved on or closed; if the PR state cannot be read, the window is left intact for retry. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewHead -->
+6. A pending review window is discarded only when the open PR has definitively closed, retargeted, or moved to an unrelated head; if the PR state cannot be read, the window is left intact for retry, and if the PR head advances to a descendant while review is still in flight, Pi rolls the review forward instead of discarding it. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewHead -->
 7. On non-SDD projects (no `sdd/` folder) no review agents run at all; every hook exits silently and the workflow proceeds friction-free (vibe-coding mode). <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isSddProject -->
 
 **Constraints:**
@@ -1080,7 +1080,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
-<!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes describes -> AC1/AC2/AC3 shared helper + lane mapping + conservative fallback to all-three-lanes) + host/__tests__/enforce-review-spawn.test.js (lane gating describe -> AC5 doc-updater sequencing + AC7 fix-push ack-pointer advancement) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi review helper behavior tests -> AC4 initial lane scheduling + AC5 doc-updater sequencing + AC6 review-base preservation + AC7 durable result-file gating) -->
+<!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes describes -> AC1/AC2/AC3 shared helper + lane mapping + conservative fallback to all-three-lanes) + host/__tests__/enforce-review-spawn.test.js (lane gating describe -> AC5 doc-updater sequencing + AC7 fix-push ack-pointer advancement) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi review helper behavior tests -> AC4 initial lane scheduling + AC5 doc-updater sequencing + AC6 cumulative review-base preservation + AC7 durable result-file gating) -->
 
 **Intent:** Once a PR-boundary trigger fires (REQ-AGENT-036), a shared lane classifier picks the minimal correct set of review agents from the diff so the in-turn nudge and turn-end gate agree, and a fix-push cascade can advance the ack pointer without losing review coverage.
 
@@ -1093,7 +1093,7 @@ None.
 3. Conservative branches (empty diff, missing prior ack, divergent merge-base) and a missing or unsourceable helper both fall back to all-three-lanes (`code-reviewer spec-reviewer doc-updater`), so a partially-deployed install never disables enforcement.
 4. The initial review wave starts `code-reviewer` and `spec-reviewer` together when both lanes are required. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewInitialLanes -->
 5. `doc-updater` starts only after `spec-reviewer` completes on SDD projects. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewEligibleLanes -->
-6. A fix-push cascade preserves the first unreviewed review base for cumulative review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::selectReviewBase -->
+6. A fix-push cascade preserves the first unreviewed review base for cumulative review; Pi does not use a remote-tracking previous head as a review base unless an explicit ack or completed previous review proves the earlier PR contents were already covered. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::selectReviewBase -->
 7. Pi acknowledges a PR head only after durable result files exist for every required lane. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::completedDurableReviewLanes -->
 8. Review agents are dispatched with `run_in_background: true` so the main session stays interactive while reviewers run; the turn-end gate suppresses re-summoning PER LANE (each lane is demanded only when it was not spawned-after-push AND is not currently in flight), so a single slow lane still in flight never masks the demand for the other lanes (notably the sequential `doc-updater` follow-up after `spec-reviewer` completes). The in-flight tolerance is bounded by transcript recency (`IN_FLIGHT_STALE_LINES`): a spawn far behind the transcript tail with no completion marker is treated as orphaned and enforcement re-fires, so a crashed or killed review subagent cannot suppress its lane indefinitely. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_in_flight --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-040 AC8 review dispatch is backgrounded with a bounded in-flight guard describe -> seeded enforce-review-spawn.sh carries lane_in_flight + IN_FLIGHT_STALE_LINES + run_in_background, and applies per-lane suppression with no blanket whole-gate exit) -->
 
@@ -1105,7 +1105,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** [Lane classifier tests](../../host/__tests__/lane-classifier.test.js), [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1-AC7 lane classification + dispatch sequencing; AC8 background-dispatch + bounded in-flight guard via the seeded `enforce-review-spawn.sh` content assertion)
+**Verification:** [Lane classifier tests](../../host/__tests__/lane-classifier.test.js), [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1-AC7 lane classification + dispatch sequencing, advanced-head classification, and cumulative review-base preservation; AC8 background-dispatch + bounded in-flight guard via the seeded `enforce-review-spawn.sh` content assertion)
 
 **Status:** Implemented
 
