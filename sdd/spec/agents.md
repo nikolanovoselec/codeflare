@@ -468,12 +468,13 @@ Multi-agent support, preseed system, and session modes.
 1. A browser-shim is installed in the container that intercepts browser-launch attempts and exits with a non-zero code, causing the calling CLI to fall back to plain-text URL output.
 2. The XDG browser-launch entry-point is similarly shimmed so any tool that bypasses the BROWSER convention also degrades to text output.
 3. CLIs fall back to printing auth URLs as plain text in the PTY when the browser fails to open.
-4. The xterm.js link provider detects URLs in terminal output and makes them clickable. When a URL spans multiple terminal rows (soft-wrap or application-inserted newlines), the detector joins continuation rows to the end of the terminal buffer rather than stopping at the visible viewport, so long OAuth URLs printed on narrow or mobile-keyboard-shrunk viewports are assembled and offered in full (never truncated mid-URL). The number of continuation rows joined per logical line is bounded by a fixed cap so the periodic buffer scan cannot walk an unbounded scrollback.
+4. The xterm.js link provider detects URLs in terminal output and makes them clickable, joining continuation rows for URLs that span multiple terminal rows (soft-wrap or application-inserted newlines) so long OAuth URLs on narrow or mobile-keyboard-shrunk viewports are assembled and offered in full, never truncated mid-URL.
 
 **Constraints:**
 
 - The shim must not block or hang; it must exit immediately with a non-zero code.
 - All CLI tools that attempt browser-based OAuth (Claude Code, OpenCode, Antigravity) must be covered.
+- The number of continuation rows joined per logical line is bounded by a fixed cap so the periodic buffer scan cannot walk an unbounded scrollback.
 
 **Priority:** P1
 
@@ -886,7 +887,7 @@ None.
 **Acceptance Criteria:**
 
 1. The attribution guard fires not only on `git commit` and `gh pr create` but across `git merge`, `git tag`, `git notes`, and the `gh pr`, `gh issue`, and `gh release` subcommand families.
-2. The attribution detection set matches attribution signatures only. The canonical `block-attributed-commits.sh` set is `Co-Authored-By`, `noreply@anthropic`, `generated with ... claude`, and the robot emoji; the Pi guard (`codeflare-pi.ts`) additionally matches the brain emoji and `ChatGPT` as a deliberate superset (a Pi session may run a non-Claude model). Bare model/product names (`claude code`, `claude opus`, `claude sonnet`, `claude haiku`) are deliberately NOT matched: they false-positive on legitimate prose (e.g. a PR titled "Claude Code parity") and on git/gh commands naming `preseed/agents/claude/` paths.
+2. The attribution detection set matches genuine attribution signatures only - the canonical `block-attributed-commits.sh` set (`Co-Authored-By`, `noreply@anthropic`, `generated with ... claude`, the robot emoji) plus the brain emoji and `ChatGPT` as a deliberate Pi-guard superset since a Pi session may run a non-Claude model. Bare model and product names (`claude code`, `claude opus`, `claude sonnet`, `claude haiku`) are deliberately not matched, so legitimate prose and `preseed/agents/claude/` paths do not false-positive.
 3. The attribution guard does not match a bare `Claude`, so `git`/`gh` commands that name `preseed/agents/claude/` paths are not false-positives.
 4. The local-build guard covers the package-manager build/test/lint/typecheck/dev verbs plus `pytest`, `vitest`, `go test`, `swift test`, `cargo test`, `tsc`, `eslint`, `oxlint`, `prettier`, and `wrangler dev`.
 5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one command through; the block message names the override path.
@@ -1192,7 +1193,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A user-creatable one-shot sentinel file is auto-deleted on use, never committed, and never survives container restart. In Claude Stop-hook enforcement it bypasses the current gate once without advancing the acknowledgement checkpoint. In Pi native enforcement it acknowledges the current protected PR HEAD; stale pending state does not consume the sentinel, and advanced pending state acknowledges the live PR head. The sentinel location is overridable for hermetic test environments. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::bypassAckHeadForStatus -->
+1. A user-creatable one-shot sentinel file bypasses the current PR-boundary gate exactly once and is auto-deleted on use, never committed and never surviving a container restart: in Claude Stop-hook enforcement it bypasses without advancing the acknowledgement checkpoint, while in Pi native enforcement it acknowledges the current live protected PR HEAD rather than any stale or superseded pending state. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::bypassAckHeadForStatus -->
 2. A magic phrase `skip review` or `skip verification` (case-insensitive, word-bounded) in any user message after the candidate push line in the transcript bypasses the gate for that push.
 3. A 3-strike circuit breaker exits silently after blocking the same un-acked PR HEAD SHA three times, sticky until the SHA changes.
 4. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output; both are explicitly user-only escape hatches. The native runtime reinforces this for the sentinel half structurally: the review extension only tests for and deletes the sentinel on use, with no code path that creates it. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass -->
@@ -1200,6 +1201,7 @@ None.
 **Constraints:**
 
 - These bypass surfaces apply only to PR-boundary review gates; the in-turn nudge and trigger detection in [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions) are unaffected.
+- The bypass sentinel location is overridable for hermetic test environments.
 
 **Priority:** P1
 
@@ -1443,13 +1445,14 @@ None.
 1. The `graphifyy` Python package is installed in every container image at build time with the MCP, SQL, and PDF extras, pinned to a single version Dependabot tracks; version bumps rebuild the image in lockstep.
 2. Claude Code receives the graphify MCP server as a session-level capability in every session (default and advanced modes). Pi receives the equivalent native graphify tool package and native graphify skill override; MCP parity in Pi is optional and not required for the Pi graphify workflow.
 3. AC1 and AC2 hold across all paid tiers; the capability functions in sessions without context-mode preseeded because the agent-orchestrated `/graphify` skill keeps the main agent's context bounded via subagent chunking.
-4. The Claude MCP server and Pi native graphify surface both tolerate a missing graph artefact at startup: Claude presents an empty graph initially and rebinds after a graph appears or changes, while Pi prompts for AST-only or Full graph creation after clone and queries once `graphify-out/graph.json` exists. When Pi's packaged native graphify tool resolves the session cwd (`/home/user/workspace`) and reports `/home/user/workspace/graphify-out/graph.json` missing, the Codeflare Pi adapter retries `graphify_query`, `graphify_path`, and `graphify_explain` against `<active-repo>/graphify-out/graph.json` via the graphify CLI and returns the retry as the tool result.
+4. The Claude MCP server and Pi native graphify surface both tolerate a missing graph artefact at startup: Claude presents an empty graph initially and rebinds after a graph appears or changes, while Pi prompts for AST-only or Full graph creation after clone and answers queries against the active repository's `graphify-out/graph.json` once it exists.
 5. In advanced session mode only, the user's current active repository is tracked so graphify queries scope to that repo; resolution walks up to the nearest ancestor containing a Git repository or a graph artefact. Pi tracks the same active repo from command-local `cd ... &&` and `git -C ...` forms, and its session context identifies the active repo by basename, checked-out branch, and HEAD prefix.
 6. When the active-repo signal is absent or stale, graphify falls back to the most recently updated graph artefact in the user's workspace.
 
 **Constraints:**
 
 - The codeflare image uses the upstream graphify package without a fork.
+- When Pi's packaged native graphify tool resolves the session cwd (`/home/user/workspace`) and reports its `graphify-out/graph.json` missing, the Codeflare Pi adapter retries `graphify_query`, `graphify_path`, and `graphify_explain` against `<active-repo>/graphify-out/graph.json` via the graphify CLI and returns the retry as the tool result.
 - The ambient MCP capability is available in every session mode; the graph-first agent discipline ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)) and active-repo tracking (AC5) are mode-gated to advanced.
 - Per-branch graphs are not supported; users refresh the graph after a branch checkout.
 - Optional backend-provider and office extras are not installed by default; users who need them install upstream extras manually.
