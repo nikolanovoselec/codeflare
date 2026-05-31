@@ -409,7 +409,7 @@ export class container extends Container<Env> implements ContainerEnvState {
           geminiApiKey?: string;
           githubToken?: string;
           cloudflareApiToken?: string;
-          cloudflareAccountId?: string;
+          cloudflareAccountId?: string | null;
           encryptionKey?: string;
           sessionMode?: string;
           // REQ-MEM-001 AC4: user's IANA timezone forwarded by the Worker
