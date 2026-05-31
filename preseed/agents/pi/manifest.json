@@ -20,6 +20,11 @@
       "advanced"
     ]
   },
+  "extensions/commands-helpers.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "package.json": {
     "modes": [
       "default",

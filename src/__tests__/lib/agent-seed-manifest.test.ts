@@ -4,8 +4,8 @@ import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, grap
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, stableId, titleFor, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
-import registerCodeflareCommands from '../../../preseed/agents/pi/extensions/codeflare-commands';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
+import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -172,6 +172,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(extensions.map((d) => d.key).sort()).toEqual([
       '.pi/agent/extensions/codeflare-commands.ts',
       '.pi/agent/extensions/codeflare-pi.ts',
+      '.pi/agent/extensions/commands-helpers.ts',
       '.pi/agent/extensions/graphify-helpers.ts',
       '.pi/agent/extensions/guard-helpers.ts',
       '.pi/agent/extensions/memory-vault-helpers.ts',
@@ -1202,69 +1203,45 @@ describe('REQ-AGENT-027 AC1 context-mode wired as a tool only (no Bash deny-gate
   });
 });
 
-// Behavioral tests for the Pi-native extensions: each imports the real module, drives it
-// with a mock `pi`, and asserts the real runtime decision/dispatch - not source-string
-// matching. A dropped command, a narrowed guard regex, or a hardcoded model makes the
-// executed behavior fail.
-
-// Permissive mock pi: captures on/registerCommand/sendUserMessage, no-ops everything else.
-function mockPi(capture: { handlers: Record<string, Function[]>; commands: Record<string, any>; sent: any[] }): any {
-  return new Proxy({}, {
-    get(_t, prop) {
-      if (prop === 'on') return (name: string, fn: Function) => { (capture.handlers[name] ||= []).push(fn); };
-      if (prop === 'registerCommand') return (name: string, def: any) => { capture.commands[name] = def; };
-      if (prop === 'sendUserMessage') return (msg: any) => { capture.sent.push(msg); };
-      return () => undefined;
-    },
-  });
-}
+// Behavioral tests for the Pi-native extension logic: each imports a pi-package-free helper
+// (guard-helpers, commands-helpers, memory-vault-helpers) and executes the real logic that the
+// side-effectful extension modules compose - not source-string matching. The extension modules
+// themselves import the Pi package / node:child_process and cannot load in the Workers test
+// pool, so the executable logic lives in these helpers. (The command-registration wiring is
+// covered by the 'Pi command extensions dispatch' test above.)
 
 describe('Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 (Claude-only slash commands reimplemented as Pi native command handlers)', () => {
-  function register() {
-    const capture = { handlers: {} as Record<string, Function[]>, commands: {} as Record<string, any>, sent: [] as any[] };
-    registerCodeflareCommands(mockPi(capture));
-    // ctx lacks sendUserMessage, forcing the pi.sendUserMessage fallback in sendUserPrompt
-    const ctx = { waitForIdle: async () => {} };
-    return { ...capture, ctx };
-  }
-
-  it('AC1: registers exactly the three commands debug, deploy, brainstorm', () => {
-    expect(Object.keys(register().commands).sort()).toEqual(['brainstorm', 'debug', 'deploy']);
+  it('AC2: commandInstructions assembles the dispatched message as slash + workflow + user input', () => {
+    const out = commandInstructions('/debug', DEBUG_WORKFLOW, 'my failing test');
+    expect(out.startsWith('/debug\n')).toBe(true);
+    expect(out).toContain(DEBUG_WORKFLOW);
+    expect(out.endsWith('User input: my failing test')).toBe(true);
   });
 
-  it('AC2: dispatching a command injects workflow text as a user message with the user input appended', async () => {
-    const { commands, sent, ctx } = register();
-    await commands.debug.handler('my failing test', ctx);
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain('/debug');
-    expect(sent[0]).toContain('User input: my failing test');
+  it('AC3: the assembled /debug instruction is root-cause-first and carries the 3-Fix Rule', () => {
+    const out = commandInstructions('/debug', DEBUG_WORKFLOW, 'x');
+    expect(out).toMatch(/Root Cause Investigation/i);
+    expect(out).toMatch(/No fixes before root-cause/i);
+    expect(out).toContain('3-Fix Rule');
   });
 
-  it('AC3: /debug injects a root-cause-first workflow including the 3-Fix Rule', async () => {
-    const { commands, sent, ctx } = register();
-    await commands.debug.handler('x', ctx);
-    expect(sent[0]).toMatch(/Root Cause Investigation/i);
-    expect(sent[0]).toMatch(/No fixes before root-cause/i);
-    expect(sent[0]).toContain('3-Fix Rule');
+  it('AC4: /deploy defaults to integration and the assembled instruction runs push/stale-CI/monitor/deploy/verify', () => {
+    expect(deployTarget('')).toBe('integration');
+    expect(deployTarget('production')).toBe('production');
+    const out = commandInstructions('/deploy', DEPLOY_WORKFLOW, deployTarget(''));
+    expect(out).toContain('User input: integration');
+    expect(out).toMatch(/Cancel stale CI/i);
+    expect(out).toMatch(/Monitor CI/i);
+    expect(out).toMatch(/git push/);
+    expect(out).toMatch(/wrangler deploy/);
+    expect(out).toMatch(/Verify the live URL/i);
   });
 
-  it('AC4: /deploy defaults to integration and injects push, stale-CI cancel, monitor, deploy, verify', async () => {
-    const { commands, sent, ctx } = register();
-    await commands.deploy.handler('', ctx);
-    expect(sent[0]).toContain('User input: integration');
-    expect(sent[0]).toMatch(/Cancel stale CI/i);
-    expect(sent[0]).toMatch(/Monitor CI/i);
-    expect(sent[0]).toMatch(/git push/);
-    expect(sent[0]).toMatch(/wrangler deploy/);
-    expect(sent[0]).toMatch(/Verify the live URL/i);
-  });
-
-  it('AC5: /brainstorm injects option-generation with trade-offs and a recommendation', async () => {
-    const { commands, sent, ctx } = register();
-    await commands.brainstorm.handler('an idea', ctx);
-    expect(sent[0]).toMatch(/Generate options/i);
-    expect(sent[0]).toMatch(/Trade-off/i);
-    expect(sent[0]).toMatch(/Recommendation/i);
+  it('AC5: the assembled /brainstorm instruction generates options with trade-offs and a recommendation', () => {
+    const out = commandInstructions('/brainstorm', BRAINSTORM_WORKFLOW, 'an idea');
+    expect(out).toMatch(/Generate options/i);
+    expect(out).toMatch(/Trade-off/i);
+    expect(out).toMatch(/Recommendation/i);
   });
 });
 
