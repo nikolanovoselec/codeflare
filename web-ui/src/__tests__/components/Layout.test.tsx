@@ -394,7 +394,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   // backgrounding must be cleared before WS reconnection.
   // =========================================================================
 
-  describe('Visibility Return Keyboard Reset', () => {
+  describe('Visibility Return Keyboard Reset / REQ-MOB-009 (visibility-return keyboard recovery)', () => {
     it('calls forceResetKeyboardState on visibility return in terminal view', () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';

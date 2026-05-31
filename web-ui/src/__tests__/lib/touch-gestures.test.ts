@@ -34,7 +34,7 @@ function makeTouchEvent(
   return event;
 }
 
-describe('touch-gestures', () => {
+describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {

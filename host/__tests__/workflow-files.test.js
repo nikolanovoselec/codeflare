@@ -93,7 +93,7 @@ describe('container image pipeline / REQ-OPS-002 (image built, scanned, pushed, 
   });
 });
 
-describe('PR Checks workflow / REQ-OPS-003 (test workflow runs on every PR + push to main/develop) / REQ-OPS-009 (dependency-review job in test.yml + scorecard.yml present)', () => {
+describe('PR Checks workflow / REQ-OPS-003 (test workflow runs on every PR + push to main/develop) / REQ-OPS-009 (dependency-review job in test.yml + scorecard.yml present) / REQ-OPS-019 (security-posture scanning workflows)', () => {
   test('test.yml triggers on pull_request and push and declares a test job', () => {
     const body = readWorkflow('test.yml');
     assert.match(body, /pull_request:/, 'test must trigger on pull_request');

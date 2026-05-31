@@ -20,7 +20,7 @@ function extractMainExecution() {
 // ============================================================================
 // Test: settings.json configuration in entrypoint.sh
 // ============================================================================
-describe('settings.json configuration', () => {
+describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => {
   it('configures settings.json with skipDangerousModePermissionPrompt', () => {
     assert.ok(
       entrypoint.includes('skipDangerousModePermissionPrompt'),

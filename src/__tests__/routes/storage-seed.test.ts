@@ -42,7 +42,7 @@ beforeEach(() => {
   testState.agentSeedResult = { written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/github-cloudflare-ship/SKILL.md'], skipped: [] };
 });
 
-describe('Storage Seed Routes', () => {
+describe('Storage Seed Routes / REQ-AGENT-032 (starter docs manually recreatable)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
@@ -107,7 +107,7 @@ describe('Storage Seed Routes', () => {
   });
 });
 
-describe('Agent Config Seed Routes', () => {
+describe('Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {

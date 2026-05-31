@@ -390,7 +390,7 @@ exit 99
   });
 });
 
-describe('enforce-review-spawn.sh — 3-strike circuit breaker', () => {
+describe('enforce-review-spawn.sh — 3-strike circuit breaker / REQ-AGENT-044 (review-agent discipline enforcement)', () => {
   it('blocks 3 times then exits silently on the 4th attempt for same PR HEAD', () => {
     const cwd = makeFixture();
     withSdd(cwd);

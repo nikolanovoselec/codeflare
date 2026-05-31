@@ -69,7 +69,7 @@ describe('Auth redirect routes', () => {
   // ===========================================================================
   // GET /logout
   // ===========================================================================
-  describe('GET /logout', () => {
+  describe('GET /logout / REQ-AUTH-009 (logout dispatches by mode)', () => {
     it('redirects to CF Access logout URL when auth_domain is set', async () => {
       mockKV._store.set('setup:auth_domain', 'myteam.cloudflareaccess.com');
       mockKV._store.set('setup:custom_domain', 'myapp.example.com');

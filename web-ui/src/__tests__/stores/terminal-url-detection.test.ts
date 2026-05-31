@@ -26,7 +26,7 @@ import {
   getLastUrlFromBuffer,
 } from '../../stores/terminal-url-detection';
 
-describe('terminal-url-detection', () => {
+describe('terminal-url-detection / REQ-AGENT-013 (browser shim for OAuth)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });

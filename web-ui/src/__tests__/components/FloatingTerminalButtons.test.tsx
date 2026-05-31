@@ -59,7 +59,7 @@ vi.mock('../../lib/speech-input', () => ({
   stopListening: vi.fn(),
 }));
 
-describe('FloatingTerminalButtons', () => {
+describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mobileMock.isTouchDevice.mockReturnValue(true);

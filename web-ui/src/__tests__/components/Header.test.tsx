@@ -81,7 +81,7 @@ const defaultSessionProps = {
   onCreateSession: () => {},
 };
 
-describe('Header Component / REQ-VAULT-012 (vault button render and readiness gating)', () => {
+describe('Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStoreState.activeSessionId = 'session-1';

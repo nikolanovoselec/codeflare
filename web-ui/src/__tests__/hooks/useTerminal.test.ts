@@ -663,7 +663,7 @@ describe('useTerminal hook', () => {
     });
   });
 
-  describe('named constants', () => {
+  describe('named constants / REQ-MOB-008 (cursor visible for all agents)', () => {
     it('DECTCEM_CURSOR_PARAM equals 25', () => {
       expect(DECTCEM_CURSOR_PARAM).toBe(25);
     });
@@ -718,7 +718,7 @@ describe('useTerminal hook', () => {
     });
   });
 
-  describe('Samsung focusout keyboard dismiss (Fix 1)', () => {
+  describe('Samsung focusout keyboard dismiss (Fix 1) / REQ-MOB-011 (Samsung keyboard state recovery)', () => {
     beforeEach(() => {
       vi.mocked(isTouchDevice).mockReturnValue(true);
     });

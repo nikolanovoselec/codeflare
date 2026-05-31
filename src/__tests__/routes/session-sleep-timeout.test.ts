@@ -165,7 +165,7 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
   });
 
   // AC4: Value saved to KV preferences and applied on next session start
-  describe('REQ-SESSION-014 AC4: sleepAfter saved to KV and applied on session start', () => {
+  describe('REQ-SESSION-014 AC4: sleepAfter saved to KV and applied on session start / REQ-OPS-016 (sleepAfter persistence/lifecycle)', () => {
     it('PATCH /preferences persists sleepAfter to KV', async () => {
       const app = createApp();
       const res = await app.request('/preferences', {

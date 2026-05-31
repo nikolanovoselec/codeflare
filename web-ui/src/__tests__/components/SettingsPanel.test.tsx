@@ -79,7 +79,7 @@ Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
 });
 
-describe('SettingsPanel Component', () => {
+describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => {
   const mockRecreateGettingStartedDocs = vi.mocked(storageApi.recreateGettingStartedDocs);
 
   beforeEach(() => {

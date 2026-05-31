@@ -15,7 +15,7 @@ describe('parseSleepAfterMs', () => {
   });
 });
 
-describe('getSleepTimerInfo', () => {
+describe('getSleepTimerInfo / REQ-SESSION-013 (sleep timer countdown UI)', () => {
   const now = Date.now();
 
   it('returns null when lastActiveAt is undefined', () => {

@@ -78,7 +78,7 @@ describe('mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ
     });
   });
 
-  describe('getKeyboardHeight - Samsung compensation', () => {
+  describe('getKeyboardHeight - Samsung compensation / REQ-MOB-003 (Samsung keyboard viewport state)', () => {
     // REQ-MOB-002 AC4: getKeyboardHeight returns the compensated keyboard height
     // REQ-MOB-001 AC5: height drives FitAddon refit via reactive signal
     // These tests verify the Samsung address bar position compensation logic.

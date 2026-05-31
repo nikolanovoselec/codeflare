@@ -16,7 +16,7 @@ let mockRecognition: {
 // Mock recognition class for vitest 4 (vi.fn() can't be used as constructor)
 
 
-describe('speech-input', () => {
+describe('speech-input / REQ-MOB-007 (voice input via Web Speech API)', () => {
   let mod: typeof import('../../lib/speech-input');
 
   beforeEach(async () => {
