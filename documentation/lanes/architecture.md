@@ -178,7 +178,7 @@ sequenceDiagram
     Note over C: .bashrc auto-starts agent
 ```
 
-### Startup Status Stages (REQ-SESSION-017)
+### Startup Status Stages ([REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api))
 
 | Stage | Progress | Condition |
 |-------|----------|-----------|

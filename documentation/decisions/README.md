@@ -527,62 +527,7 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 ### AD45: User overrides recorded as ADRs, not skip-list
 
-**Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The override-via-ADR mechanism described below was ripped out alongside five other overengineered SDD features. There is now no per-rule override mechanism at all -- if a finding keeps re-firing, fix the rule or the REQ.
-
-**Category:** Architecture
-
-**Decision:** Remove `sdd/.user-overrides.md`. When the user resolves an automated SDD finding as "keep current behavior - this mechanism IS the contract", the resolution is recorded as a real ADR in `documentation/decisions/` carrying an `Overrides: {rule_id}:{REQ-ID}` header. spec-reviewer and doc-updater grep `documentation/decisions/**/*.md` for that header at the start of every run and skip matching findings - same machine behavior as the legacy skip list, but the architectural decision is now first-class.
-
-**Context:** [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) introduced the SDD review pipeline with `sdd/.user-overrides.md` as the place to record JUDGMENT resolutions ("don't re-attempt this fix; the user said no"). On a downstream `ai-news-digest` session, spec-reviewer flagged cookie-attribute mechanism leakage in [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) AC 1 (`__Host-` prefix, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). The clean resolution was "the cookie attributes ARE the security contract - security reviewers grep these strings; rewriting to user-observable language loses the contract surface". Recording that as a one-line `User note:` field in `sdd/.user-overrides.md` worked for the agent but failed the human:
-
-- The override file is invisible to anyone reading the codebase. It doesn't appear in any index, isn't referenced from `documentation/decisions/README.md`.
-- Each entry is a load-bearing architectural choice ("we treat cookie attributes as the security contract") buried in a config-shaped file alongside test-skip notes.
-- "Rationale" lives in a free-text User note field with no structure - no Context/Decision/Rationale/Consequences scaffolding, no link to the affected REQ, no date the decision was revisited.
-- Six months later, nobody remembers what's in `.user-overrides.md` and re-litigates the same call because they couldn't find prior context.
-
-**Alternatives considered:**
-
-1. **Keep `sdd/.user-overrides.md` and just cross-link from `documentation/decisions/README.md`.** Rejected: still bifurcates decision storage. The cross-link rots.
-2. **Keep the file but require structured fields (Context/Decision/Rationale/Consequences).** Rejected: this is the ADR template - at that point we are reinventing ADRs in `sdd/`, in the wrong lane.
-3. **Move overrides into REQ frontmatter as a per-REQ `OverridesRules:` field.** Rejected: scatters the decision. Reading the REQ doesn't tell you *why* the rule was overridden - that's an architectural decision, not a REQ attribute. Future REQ refactors might drop the field unintentionally.
-4. **The chosen approach: ADRs with `Overrides:` headers.** Same skip semantics, decision now lives where decisions live.
-
-**Rationale:**
-
-- ADRs already exist for this exact purpose in `documentation/decisions/`: structured, indexed, discoverable, treated as first-class history.
-- The `**Overrides:**` line is a one-line parser anchor - spec-reviewer's grep pattern is `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` (tolerates both plain and the project's universal bold-wrapped ADR field convention), splitting on commas - same skip key shape (`{rule_id}:{target_id}`) the legacy file used.
-- Decisions can be revised with full Status history (`Accepted` → `Superseded by AD-M`) following existing ADR patterns. The legacy skip list had no such notion.
-- ADRs are listed in `documentation/decisions/README.md`'s decision index, surfacing the override decisions in the same place where every other architectural call lives. Future contributors find them on first reading.
-- `/sdd clean` migrates existing entries automatically: each line in any project's existing `sdd/.user-overrides.md` becomes a new ADR (Context/Decision/Rationale/Consequences scaffold pre-filled with the legacy `User note:` field; TODO placeholders in Rationale/Consequences asking the user to expand on first read), and the legacy file is deleted in the same commit. Tagged `[sdd-clean] migrate user-overrides to ADRs (issue codeflare#266)` so spec-reviewer's round-counter excludes it.
-
-**Trade-offs accepted:**
-
-- Migration adds one extra commit on the next `/sdd clean` for any project with existing override entries. Acceptable: it's a one-time cost, the migration is fully automatic, and each migrated ADR carries a TODO marker so the user knows to expand the rationale.
-- ADRs are slightly heavier-weight than a one-line skip entry. Intentional: the friction is the point. If an override is "easy" to add, it gets added thoughtlessly. If it requires writing a real ADR, it gets thought about, which is what we want for an architectural decision.
-- The `Overrides:` header is a soft contract - projects that hand-edit ADRs to remove the header silently lose the skip behavior. Acceptable: same shape as every other markdown-based agent contract in the project.
-
-**Migration:**
-
-- spec-reviewer Step 0d: greps `documentation/decisions/**/*.md` for `**Overrides:**` (regex `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` - tolerates plain and bold-wrapped) instead of reading `sdd/.user-overrides.md`. Legacy file (if present) triggers a HIGH finding asking for migration.
-- doc-updater Step 0c: same change.
-- spec-discipline.md: drops `## User overrides` section, replaces with `## User overrides via ADRs` documenting the `Overrides:` header pattern.
-- `/sdd clean` step 6/6a: auto-migrates legacy entries to ADRs.
-- `/sdd init`: was never scaffolding `.user-overrides.md`; no change needed.
-- SKILL.md, /sdd command help, and `documentation/decisions/README.md` [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) trade-off bullet: drop references to the legacy file.
-
-**Related requirements:**
-
-- [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) (SDD workflow as Pro feature)
-
-**Implementation references:**
-
-- `preseed/agents/claude/rules/spec-discipline.md` (User overrides via ADRs section)
-- `preseed/agents/claude/agents/spec-reviewer.md` (Step 0d, Phase 3 interactive override flow)
-- `preseed/agents/claude/agents/doc-updater.md` (Step 0c)
-- `preseed/agents/claude/commands/sdd.md` (USER OVERRIDES help section, /sdd clean step 6a migration)
-- `preseed/agents/claude/skills/spec-driven-development/SKILL.md` (spec structure diagram)
-
-**Issue:** [codeflare#266](https://github.com/nikolanovoselec/codeflare/issues/266)
+**Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The override-via-ADR mechanism was ripped out alongside five other overengineered SDD features. There is now no per-rule override mechanism at all -- if a finding keeps re-firing, fix the rule or the REQ. Body removed on trim-to-tombstone; this anchor is retained for inbound references. See [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) for the rip-out rationale.
 
 ---
 
@@ -792,13 +737,7 @@ A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode s
 
 **Status:** Superseded by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) (2026-05-12). The `<!-- doc-allow-large -->` hatch mechanism this ADR relied on was ripped out. The unified ADR file is preserved for the same anchor-stability reason, but the budget rule no longer offers a per-file opt-out -- the file-size finding is now a known LOW that the operator defers via `sdd/.review-decisions.md` if at all.
 
-**Context:** The `documentation-discipline.md` per-ADR soft budget is 100 lines. Most ADR slots carry active content under that per-ADR cap; the rest are redirect stubs that preserve inbound AD-N references. The combined file exceeds the implicit aggregate budget. doc-updater would ordinarily flag this as a MEDIUM finding.
-
-**Decision:** Keep all ADRs in a single `decisions/README.md` file. Originally relied on `<!-- doc-allow-large: AD50 -->` for explicit exemption; that mechanism is now gone, so the file-budget finding simply persists as known tech-debt.
-
-**Rationale:** AD-N identifiers are referenced throughout the codebase (`decisions/README.md#ad44`, `decisions/README.md#ad47`, etc.) in source comments, doc cross-references, and ADR Supersedes fields. Splitting into one file per ADR would require renaming every inbound anchor from `README.md#ad-N` to `adr-N.md#ad-N` across the entire codebase and documentation corpus - a mechanical change with high surface area and no product value. Individual ADRs are under their per-ADR budget; the file-level overage is inherent to the count of active decisions, not to any single ADR being too long. The correct granularity for the budget rule is per-ADR, not per-file.
-
-**Consequences:** The Decision Index at the top of this file remains the navigation entry point. Per-ADR budget enforcement still applies: any new ADR that exceeds 100 lines must be split or compressed.
+**Decision (still in effect):** All ADRs live in a single `decisions/README.md`. AD-N identifiers are referenced throughout the codebase, so splitting into one file per ADR would mean rewriting every inbound `README.md#ad-N` anchor for no product value. The file-size overage is an accepted, known LOW the operator defers; per-ADR budget enforcement still applies, so any new ADR over the per-ADR cap is split or compressed. Only the `<!-- doc-allow-large -->` hatch-exemption machinery was superseded ([AD51](#ad51-rip-out-six-overengineered-sdd-framework-features)).
 
 ---
 
