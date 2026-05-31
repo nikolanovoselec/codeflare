@@ -38,7 +38,7 @@ The loading screen waits for both R2 sync and PTY pre-warm to complete before si
 
 **Port-wait timeout (container killed before reaching the loading screen):** Cloudflare kills a container that does not bind port 8080 within ~10-15s. Since PR #364 the terminal server binds port 8080 at the very start of `entrypoint.sh` - before R2 sync - so this should no longer occur. If it does, check that `node dist/server.js` in `/app/host` exits cleanly: `cat /tmp/terminal.pid` then `kill -0 $(cat /tmp/terminal.pid)`.
 
-**Loading screen hangs after port binds:** PTY pre-warm is gated on `/tmp/codeflare-init-complete`. If sync never finishes, the flag is never written and pre-warm waits up to 90s before proceeding anyway. Common causes: missing R2 credentials, bucket does not exist, network timeout. Check `/tmp/sync.log` for errors.
+**Loading screen hangs after port binds:** PTY pre-warm is gated on `/tmp/codeflare-init-complete`. If sync never finishes, the flag is never written and pre-warm waits up to 130s (`PREWARM_INIT_WAIT_MS`) before proceeding anyway. Common causes: missing R2 credentials, bucket does not exist, network timeout. Check `/tmp/sync.log` for errors.
 
 ### R2 Sync Issues
 
