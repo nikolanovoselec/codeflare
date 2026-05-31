@@ -146,22 +146,6 @@ const AGENT_LINE = (subagentType, ts, toolUseId = 'toolu_x') =>
       content: [
         {
           type: 'tool_use',
-          name: 'Task',
-          id: toolUseId,
-          input: { subagent_type: subagentType },
-        },
-      ],
-    },
-    timestamp: ts,
-  });
-
-const PI_AGENT_LINE = (subagentType, ts, toolUseId = 'toolu_x') =>
-  JSON.stringify({
-    type: 'assistant',
-    message: {
-      content: [
-        {
-          type: 'tool_use',
           name: 'Agent',
           id: toolUseId,
           input: { subagent_type: subagentType, run_in_background: true },
@@ -478,7 +462,7 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     withSdd(cwd);
     const binDir = fakeGh(cwd, ghReturning('OPEN', 'newsha'));
     const t = writeTranscript(cwd, [
-      PI_AGENT_LINE('code-reviewer', '2026-05-03T11:59:59.000Z', 'toolu_cr_inflight'),
+      AGENT_LINE('code-reviewer', '2026-05-03T11:59:59.000Z', 'toolu_cr_inflight'),
       PUSH_LINE('2026-05-03T12:00:00.000Z'),
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
@@ -490,6 +474,47 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
       'the emitted spawn directive must keep review dispatch in the background');
     assert.doesNotMatch(r.stdout, /code-reviewer/,
       'the in-flight code-reviewer lane must not be re-demanded');
+  });
+
+  it('re-demands an orphaned in-flight lane after the transcript recency bound', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'newsha'));
+    const filler = Array.from({ length: 1201 }, (_, i) => JSON.stringify({ type: 'user', message: { content: `filler ${i}` } }));
+    const t = writeTranscript(cwd, [
+      AGENT_LINE('code-reviewer', '2026-05-03T11:00:00.000Z', 'toolu_cr_orphaned'),
+      ...filler,
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.match(r.stdout, /code-reviewer/,
+      'an uncompleted in-flight lane older than the recency bound must be demanded again');
+    assert.match(r.stdout, /spec-reviewer/,
+      'other missing peer lanes must still be demanded');
+  });
+
+  it('does not ack when a pre-push in-flight lane never gets current-head coverage', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = 'currentheadwithoutcode';
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      AGENT_LINE('code-reviewer', '2026-05-03T11:59:59.000Z', 'toolu_cr_previous_head'),
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      AGENT_LINE('spec-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_sr1'),
+      SPEC_DONE_LINE('toolu_sr1'),
+      AGENT_LINE('doc-updater', '2026-05-03T12:00:10.000Z', 'toolu_du1'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const ackFile = join(cwd, gitCommonDir, 'sdd-last-ack-pr-head');
+    assert.equal(existsSync(ackFile), false,
+      'the checkpoint must not advance until every required lane has current-head coverage');
   });
 
   it('blocks demanding doc-updater after spec-reviewer completes', () => {

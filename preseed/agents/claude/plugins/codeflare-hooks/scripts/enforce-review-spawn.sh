@@ -771,6 +771,14 @@ requires_lane() {
   esac
 }
 
+all_required_lanes_have_current_spawn() {
+  local lane
+  for lane in $REQUIRED_LANES; do
+    spawned_after_push "$lane" || return 1
+  done
+  return 0
+}
+
 # ---------------------------------------------------------------------------
 # In-flight guard: do not re-summon (or block) while a review wave is still
 # running. A lane is "in flight" when its MOST RECENT Agent spawn anywhere in
@@ -970,7 +978,7 @@ fi
 # Conservative: if any required lane is still running, exit 0 without ack
 # and the next Stop re-evaluates.
 # ---------------------------------------------------------------------------
-if [ "$PIPELINE_COMPLETE" = "1" ]; then
+if [ "$PIPELINE_COMPLETE" = "1" ] && all_required_lanes_have_current_spawn; then
   echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
   clear_counter
 fi

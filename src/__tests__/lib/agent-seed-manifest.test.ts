@@ -305,7 +305,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(prCreateBoundaryBase('gh pr create --base "develop"')).toBeUndefined();
   });
 
-  it('REQ-AGENT-036 AC7-AC9: review head classification separates stale, unreadable, and advanced PR heads', () => {
+  it('REQ-AGENT-055 AC1-AC3: review head classification separates stale, unreadable, and advanced PR heads', () => {
     // Local HEAD still at the reviewed head -> current, even if GitHub lags or gh fails.
     expect(classifyReviewHead({ pendingHead: 'h1', localHead: 'h1', prOpenAtBase: false, prHead: undefined, prQueryFailed: true })).toBe('current');
     // PR is open at main and still names the pending head -> current.
@@ -692,7 +692,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(laneExtensionSources(['npm:@gotgenes/pi-subagents@7.8.1', '', { source: '' }])).toEqual([]);
   });
 
-  it('REQ-AGENT-040: Pi review enforcement selects the unreviewed incremental review base', () => {
+  it('REQ-AGENT-055 AC4-AC5: Pi review enforcement selects the unreviewed incremental review base', () => {
     const previous = {
       head: 'old-head',
       reviewBase: 'first-unreviewed-base',
