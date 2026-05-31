@@ -1216,20 +1216,20 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @test: host/__tests__/enforce-review-spawn.test.js (bypass 1: sentinel file + bypass 2: magic phrase + 3-strike circuit breaker describes -> AC1/AC2/AC3 user-only escape hatches with sticky-until-SHA-changes circuit) -->
 
-**Intent:** The user needs a small set of explicit, user-only escape hatches when a turn-end review gate would otherwise block legitimate work (hermetic tests, deliberate skip, repeated false-block). The assistant MUST NEVER trip these surfaces in its own output.
+**Intent:** The user needs a small set of explicit, user-only escape hatches when a PR-boundary review gate would otherwise block legitimate work (hermetic tests, deliberate skip, repeated false-block). The assistant MUST NEVER trip these surfaces in its own output.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A user-creatable one-shot sentinel file bypasses the Stop-hook gate for a single turn; the sentinel is auto-deleted on use, never committed, and never survives container restart. The sentinel location is overridable for hermetic test environments.
+1. A user-creatable one-shot sentinel file bypasses PR-boundary review enforcement for the current protected PR HEAD by acknowledging that head; the sentinel is auto-deleted on use, never committed, and never survives container restart. The sentinel location is overridable for hermetic test environments.
 2. A magic phrase `skip review` or `skip verification` (case-insensitive, word-bounded) in any user message after the candidate push line in the transcript bypasses the gate for that push.
 3. A 3-strike circuit breaker exits silently after blocking the same un-acked PR HEAD SHA three times, sticky until the SHA changes.
 4. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output; both are explicitly user-only escape hatches.
 
 **Constraints:**
 
-- These bypass surfaces apply only to the turn-end gate (Stop hook); the in-turn nudge and trigger detection in REQ-AGENT-036 are unaffected.
+- These bypass surfaces apply only to PR-boundary review gates; the in-turn nudge and trigger detection in REQ-AGENT-036 are unaffected.
 
 **Priority:** P1
 

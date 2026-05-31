@@ -433,6 +433,12 @@ function reviewHeadStatus(pending: PendingReview): ReviewHeadStatus {
   });
 }
 
+function currentEnforcedPrHead(repo: string): string {
+  const current = prState(repo);
+  if (!isEnforcedPr(current)) return "";
+  return reviewCandidateHead(repo, current);
+}
+
 function installReviewMessageDedupe(pi: ExtensionAPI): void {
   const patchVersion = 3;
   const globalState = globalThis as {
@@ -1004,24 +1010,9 @@ export default function (pi: ExtensionAPI) {
       await spawnReviewLanes(pending, effectivePr, initialLanes, ctx, "agent_end catch-up");
       return;
     }
-    if (isBreakerOpen(state.repo, state.head)) { pending = undefined; return; } // latched: do no further work for this head
-    if (acked(state.repo, state.head)) {
-      publishFinalSummaryIfReady(state.repo, state.head, ctx);
-      clearPending(state.repo);
-      pending = undefined;
-      return;
-    }
-    if (consumeBypass()) {
-      acknowledgeBypass(state.repo, state.head, ctx);
-      return;
-    }
     const headStatus = reviewHeadStatus(state);
     if (headStatus === "stale") {
       discardStale(state, ctx);
-      return;
-    }
-    if (headStatus === "advanced") {
-      await rollForwardAdvancedReview(state, ctx, "agent_end detected advanced PR head");
       return;
     }
     if (headStatus === "unknown") {
@@ -1029,6 +1020,24 @@ export default function (pi: ExtensionAPI) {
       // (merge gate stays fail-closed) and retry on the next agent_end instead of
       // discarding review state on a transient failure.
       pending = undefined;
+      return;
+    }
+
+    const activeHead = headStatus === "advanced" ? currentEnforcedPrHead(state.repo) : state.head;
+    if (!activeHead) { pending = undefined; return; }
+    if (isBreakerOpen(state.repo, activeHead)) { pending = undefined; return; } // latched: do no further work for this head
+    if (acked(state.repo, activeHead)) {
+      publishFinalSummaryIfReady(state.repo, activeHead, ctx);
+      clearPending(state.repo);
+      pending = undefined;
+      return;
+    }
+    if (consumeBypass()) {
+      acknowledgeBypass(state.repo, activeHead, ctx);
+      return;
+    }
+    if (headStatus === "advanced") {
+      await rollForwardAdvancedReview(state, ctx, "agent_end detected advanced PR head");
       return;
     }
 
