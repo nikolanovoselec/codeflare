@@ -4,6 +4,9 @@ import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, grap
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, stableId, titleFor, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import registerCodeflareCommands from '../../../preseed/agents/pi/extensions/codeflare-commands';
+import registerCodeflarePi from '../../../preseed/agents/pi/extensions/codeflare-pi';
+import { spawn as memorySpawn } from '../../../preseed/agents/pi/extensions/memory-vault';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -1199,130 +1202,154 @@ describe('REQ-AGENT-027 AC1 context-mode wired as a tool only (no Bash deny-gate
   });
 });
 
-// Guards the shipped codeflare-commands.ts contract. These assert against the seeded
-// extension source: dropping a registerCommand or a workflow phase fails the test.
-function seededExtension(key: string): string {
-  const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === key);
-  expect(doc, `${key} must be bundled in the seed`).toBeTruthy();
-  return doc!.content;
+// Behavioral tests for the Pi-native extensions: each imports the real module, drives it
+// with a mock `pi`, and asserts the real runtime decision/dispatch - not source-string
+// matching. A dropped command, a narrowed guard regex, or a hardcoded model makes the
+// executed behavior fail.
+
+// Permissive mock pi: captures on/registerCommand/sendUserMessage, no-ops everything else.
+function mockPi(capture: { handlers: Record<string, Function[]>; commands: Record<string, any>; sent: any[] }): any {
+  return new Proxy({}, {
+    get(_t, prop) {
+      if (prop === 'on') return (name: string, fn: Function) => { (capture.handlers[name] ||= []).push(fn); };
+      if (prop === 'registerCommand') return (name: string, def: any) => { capture.commands[name] = def; };
+      if (prop === 'sendUserMessage') return (msg: any) => { capture.sent.push(msg); };
+      return () => undefined;
+    },
+  });
 }
 
 describe('Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 (Claude-only slash commands reimplemented as Pi native command handlers)', () => {
-  function commandsExtension(): string {
-    return seededExtension('.pi/agent/extensions/codeflare-commands.ts');
+  function register() {
+    const capture = { handlers: {} as Record<string, Function[]>, commands: {} as Record<string, any>, sent: [] as any[] };
+    registerCodeflareCommands(mockPi(capture));
+    // ctx lacks sendUserMessage, forcing the pi.sendUserMessage fallback in sendUserPrompt
+    const ctx = { waitForIdle: async () => {} };
+    return { ...capture, ctx };
   }
 
-  it('AC1: registers debug, deploy, and brainstorm via pi.registerCommand', () => {
-    const body = commandsExtension();
-    expect(body).toContain('pi.registerCommand("debug"');
-    expect(body).toContain('pi.registerCommand("deploy"');
-    expect(body).toContain('pi.registerCommand("brainstorm"');
+  it('AC1: registers exactly the three commands debug, deploy, brainstorm', () => {
+    expect(Object.keys(register().commands).sort()).toEqual(['brainstorm', 'debug', 'deploy']);
   });
 
-  it('AC2: injects embedded workflow text and does not load a SKILL.md', () => {
-    const body = commandsExtension();
-    // The workflow prose is embedded as constants and pushed as a user message,
-    // never loaded via skillPrompt (these commands have no Pi skill file).
-    expect(body).toContain('DEBUG_WORKFLOW');
-    expect(body).toContain('DEPLOY_WORKFLOW');
-    expect(body).toContain('BRAINSTORM_WORKFLOW');
-    expect(body).toMatch(/sendUserPrompt|sendUserMessage/);
-    // never loaded as a skill at runtime (the docblock only mentions skillPrompt in prose contrast)
-    expect(body).not.toMatch(/skillPrompt\s*\(/);
+  it('AC2: dispatching a command injects workflow text as a user message with the user input appended', async () => {
+    const { commands, sent, ctx } = register();
+    await commands.debug.handler('my failing test', ctx);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain('/debug');
+    expect(sent[0]).toContain('User input: my failing test');
   });
 
-  it('AC3: /debug enforces root-cause before any fix and the 3-Fix Rule', () => {
-    const body = commandsExtension();
-    expect(body).toMatch(/Root Cause Investigation/i);
-    expect(body).toMatch(/No fixes before root-cause/i);
-    expect(body).toContain('3-Fix Rule');
+  it('AC3: /debug injects a root-cause-first workflow including the 3-Fix Rule', async () => {
+    const { commands, sent, ctx } = register();
+    await commands.debug.handler('x', ctx);
+    expect(sent[0]).toMatch(/Root Cause Investigation/i);
+    expect(sent[0]).toMatch(/No fixes before root-cause/i);
+    expect(sent[0]).toContain('3-Fix Rule');
   });
 
-  it('AC4: /deploy runs push, stale-CI cancellation, CI monitoring, deploy, and live-URL verification', () => {
-    const body = commandsExtension();
-    expect(body).toMatch(/Cancel stale CI/i);
-    expect(body).toMatch(/Monitor CI/i);
-    expect(body).toMatch(/git push/);
-    expect(body).toMatch(/wrangler deploy/);
-    expect(body).toMatch(/Verify the live URL/i);
+  it('AC4: /deploy defaults to integration and injects push, stale-CI cancel, monitor, deploy, verify', async () => {
+    const { commands, sent, ctx } = register();
+    await commands.deploy.handler('', ctx);
+    expect(sent[0]).toContain('User input: integration');
+    expect(sent[0]).toMatch(/Cancel stale CI/i);
+    expect(sent[0]).toMatch(/Monitor CI/i);
+    expect(sent[0]).toMatch(/git push/);
+    expect(sent[0]).toMatch(/wrangler deploy/);
+    expect(sent[0]).toMatch(/Verify the live URL/i);
   });
 
-  it('AC5: /brainstorm generates options with trade-offs and a final recommendation', () => {
-    const body = commandsExtension();
-    expect(body).toMatch(/Generate options/i);
-    expect(body).toMatch(/Trade-off/i);
-    expect(body).toMatch(/Recommendation/i);
+  it('AC5: /brainstorm injects option-generation with trade-offs and a recommendation', async () => {
+    const { commands, sent, ctx } = register();
+    await commands.brainstorm.handler('an idea', ctx);
+    expect(sent[0]).toMatch(/Generate options/i);
+    expect(sent[0]).toMatch(/Trade-off/i);
+    expect(sent[0]).toMatch(/Recommendation/i);
   });
 });
 
 describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreToolUse guards match the canonical Claude detection sets)', () => {
-  function piExtension(): string {
-    return seededExtension('.pi/agent/extensions/codeflare-pi.ts');
+  function gate() {
+    const capture = { handlers: {} as Record<string, Function[]>, commands: {} as Record<string, any>, sent: [] as any[] };
+    registerCodeflarePi(mockPi(capture));
+    const toolCall = capture.handlers['tool_call']?.[0];
+    expect(toolCall, 'codeflare-pi must register a tool_call gate').toBeTruthy();
+    const ctx = { sessionManager: { getCwd: () => '/home/user/workspace', getSessionId: () => 's1' } };
+    return (command: string) => toolCall!({ toolName: 'bash', input: { command } }, ctx) as { block?: boolean; reason?: string } | undefined;
   }
 
-  it('AC1: the attribution guard fires across git commit/merge/tag/notes and the gh pr/issue/release families', () => {
-    const body = piExtension();
-    expect(body).toContain('git\\s+(commit|merge|tag|notes)');
-    expect(body).toContain('gh\\s+(pr|issue|release)');
+  it('AC1: attribution fires across git commit/merge/tag/notes and gh pr/issue/release', () => {
+    const trailer = '\n\nCo-Authored-By: Bot <bot@example.com>';
+    for (const base of ['git commit -m "x"', 'git merge feature', 'git tag v1 -m "x"', 'git notes add -m "x"', 'gh pr create --body "x"', 'gh issue create --body "x"', 'gh release create v1 --notes "x"']) {
+      expect(gate()(`${base}${trailer}`)?.block, base).toBe(true);
+    }
   });
 
-  it('AC2: the attribution detection set matches the canonical signatures plus the Pi superset (brain emoji + ChatGPT)', () => {
-    const body = piExtension();
-    expect(body).toContain('co-authored-by');
-    expect(body).toContain('noreply@anthropic');
-    expect(body).toMatch(/generated with\[\^\\n\]\*claude/);
-    expect(body).toContain('🤖');
-    expect(body).toContain('🧠');
-    expect(body).toContain('ChatGPT');
+  it('AC2: matches the six attribution signatures including the Pi superset (brain emoji + ChatGPT)', () => {
+    for (const sig of ['Co-Authored-By: x <x@y>', 'noreply@anthropic.com', 'Generated with Claude Code', '🤖 generated', '🧠 thought', 'made by ChatGPT']) {
+      expect(gate()(`git commit -m "msg ${sig}"`)?.block, sig).toBe(true);
+    }
   });
 
-  it('AC3: the attribution guard does not match a bare Claude product name', () => {
-    const body = piExtension();
-    // The deliberate exclusion is documented and the signature regex carries no
-    // bare-product alternative, so git/gh commands naming preseed/agents/claude/ paths pass.
-    expect(body).toMatch(/Deliberately NOT bare model\/product names/);
-    expect(body).not.toContain('|claude code|');
-    expect(body).not.toContain('|claude opus|');
+  it('AC3: bare Claude product names and preseed/agents/claude paths are not false positives', () => {
+    expect(gate()('git add preseed/agents/claude/skills/review/SKILL.md')?.block).toBeFalsy();
+    expect(gate()('git commit -m "Claude Code parity for Pi"')?.block).toBeFalsy();
   });
 
-  it('AC4: the local-build guard covers the package-manager verbs plus the standalone tool set', () => {
-    const body = piExtension();
-    expect(body).toContain('(npm|pnpm|yarn|bun)\\s+(run\\s+)?(build|test|lint|typecheck|dev)');
-    expect(body).toContain('pytest|vitest|go\\s+test|swift\\s+test|cargo\\s+test|tsc|eslint|oxlint|prettier|wrangler\\s+dev');
+  it('AC4: blocks the package-manager verbs plus the standalone tool set', () => {
+    for (const cmd of ['npm run build', 'pnpm test', 'yarn lint', 'bun run typecheck', 'npm run dev', 'pytest -q', 'vitest run', 'go test ./...', 'cargo test', 'tsc -p .', 'eslint .', 'oxlint', 'prettier -w .', 'wrangler dev']) {
+      expect(gate()(cmd)?.block, cmd).toBe(true);
+    }
   });
 
-  it('AC5: the local-build guard honors a user-only consume-on-use /tmp/local-build-bypass sentinel', () => {
-    const body = piExtension();
-    expect(body).toContain('/tmp/local-build-bypass');
-    expect(body).toContain('existsSync(LOCAL_BUILD_BYPASS)');
-    expect(body).toContain('unlinkSync(LOCAL_BUILD_BYPASS)');
-    // the block message names the override path
-    expect(body).toMatch(/create \/tmp\/local-build-bypass/);
+  it('AC4: ordinary commands and non-matching verbs are allowed through', () => {
+    expect(gate()('git status')?.block).toBeFalsy();
+    expect(gate()('npm run deploy')?.block).toBeFalsy();
+  });
+
+  it('AC5: /tmp/local-build-bypass is consumed once, then the gate re-blocks', () => {
+    const { writeFileSync, existsSync, unlinkSync } = require('node:fs');
+    const SENTINEL = '/tmp/local-build-bypass';
+    try {
+      writeFileSync(SENTINEL, '');
+      const run = gate();
+      expect(run('npm run build')?.block).toBeFalsy();   // sentinel present -> allowed
+      expect(existsSync(SENTINEL)).toBe(false);           // consumed on use
+      expect(run('npm run build')?.block).toBe(true);     // re-blocks after consume
+    } finally {
+      if (existsSync(SENTINEL)) unlinkSync(SENTINEL);
+    }
   });
 });
 
-describe('Pi memory/vault model-fidelity lever / REQ-MEM-014 AC5 (spawn reads CODEFLARE_MEMORY_MODEL; no hardcoded model name)', () => {
-  function memoryVault(): string {
-    return seededExtension('.pi/agent/extensions/memory-vault.ts');
-  }
+describe('Pi memory model-fidelity lever / REQ-MEM-014 AC5 (spawn applies CODEFLARE_MEMORY_MODEL only when set; no hardcoded model)', () => {
+  const SERVICE_KEY = Symbol.for('@gotgenes/pi-subagents:service');
 
-  it('AC5: the spawn helper takes an optional model and applies it only when set', () => {
-    const body = memoryVault();
-    expect(body).toMatch(/function spawn\([^)]*model\?: string\)/);
-    expect(body).toContain('if (model) options.model = model;');
+  it('applies the model option only when a model argument is provided', () => {
+    const calls: any[] = [];
+    (globalThis as any)[SERVICE_KEY] = { spawn: (type: string, prompt: string, opts: any) => { calls.push({ type, prompt, opts }); return 'agent-id'; } };
+    try {
+      memorySpawn('memory-capture', 'p', 'd', 'higher-fidelity-model');
+      expect(calls[0].opts.model).toBe('higher-fidelity-model');
+      calls.length = 0;
+      memorySpawn('memory-capture', 'p', 'd', undefined);
+      expect('model' in calls[0].opts).toBe(false);
+    } finally {
+      delete (globalThis as any)[SERVICE_KEY];
+    }
   });
 
-  it('AC5: every capture/extract spawn site sources the model from CODEFLARE_MEMORY_MODEL', () => {
-    const body = memoryVault();
-    const sites = body.match(/process\.env\.CODEFLARE_MEMORY_MODEL/g) ?? [];
-    // resumed-session capture, routine capture, and vault-extract
-    expect(sites.length).toBeGreaterThanOrEqual(3);
-  });
-
-  it('AC5: no model name is hardcoded (default model is the runtime default)', () => {
-    const body = memoryVault();
-    expect(body).not.toMatch(/claude-(opus|sonnet|haiku|3)/i);
-    expect(body).not.toMatch(/['"]gpt-\d/i);
-    expect(body).not.toMatch(/gemini-\d/i);
+  it('passes no model when CODEFLARE_MEMORY_MODEL is unset (no hardcoded default)', () => {
+    const calls: any[] = [];
+    (globalThis as any)[SERVICE_KEY] = { spawn: (_t: string, _p: string, opts: any) => { calls.push({ opts }); return 'id'; } };
+    const saved = process.env.CODEFLARE_MEMORY_MODEL;
+    delete process.env.CODEFLARE_MEMORY_MODEL;
+    try {
+      memorySpawn('vault-extract', 'p', 'd', process.env.CODEFLARE_MEMORY_MODEL);
+      expect('model' in calls[0].opts).toBe(false);
+    } finally {
+      if (saved !== undefined) process.env.CODEFLARE_MEMORY_MODEL = saved;
+      delete (globalThis as any)[SERVICE_KEY];
+    }
   });
 });

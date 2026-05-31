@@ -40,7 +40,7 @@ function subagentsService(): any | undefined {
   return (globalThis as Record<symbol, unknown>)[Symbol.for("@gotgenes/pi-subagents:service")];
 }
 
-function spawn(type: string, prompt: string, description: string, model?: string): string | undefined {
+export function spawn(type: string, prompt: string, description: string, model?: string): string | undefined {
   const service = subagentsService();
   if (!service?.spawn) return undefined;
   try {
