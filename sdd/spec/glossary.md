@@ -12,18 +12,18 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Preseed | Pre-configured rules, skills, agents, commands, and plugins deployed to a container on start. |
 | Tier | Subscription level (blocked, pending, free, trial, standard, advanced, max, unlimited/Custom). |
 | Durable Object (DO) | Cloudflare's stateful compute primitive. Container DO manages per-session state; Timekeeper DO tracks per-user usage. |
-| KV | Cloudflare Workers KV — globally distributed key-value store for session metadata, user records, and preferences. |
-| Worker | The Cloudflare Worker running the Hono router — handles all HTTP/WebSocket requests. |
-| Bisync | rclone's bidirectional sync mode — keeps container local files and R2 bucket in sync. |
+| KV | Cloudflare Workers KV - globally distributed key-value store for session metadata, user records, and preferences. |
+| Worker | The Cloudflare Worker running the Hono router - handles all HTTP/WebSocket requests. |
+| Bisync | rclone's bidirectional sync mode - keeps container local files and R2 bucket in sync. |
 | sleepAfter | Configurable idle timeout (5m-2h) before a container is stopped. Input-based detection. |
-| PTY | Pseudo-terminal — the terminal server multiplexes up to 6 PTY sessions per container. |
+| PTY | Pseudo-terminal - the terminal server multiplexes up to 6 PTY sessions per container. |
 | Tiling | Multi-terminal layout modes: tabbed (default), 2-split, 3-split, 4-grid. |
-| CF Access | Cloudflare Access — external auth service used in default/onboarding modes. |
+| CF Access | Cloudflare Access - external auth service used in default/onboarding modes. |
 | Direct GitHub OAuth | Worker-managed GitHub OAuth flow used in SaaS mode when OAUTH_CLIENT_ID is configured. Completely separate from CF Access. |
 | Timekeeper | Durable Object that tracks per-user compute usage for quota enforcement. |
 | Setup Wizard | First-time configuration flow that provisions domain, auth, R2 credentials, and Turnstile. |
-| SSE-C | Server-Side Encryption with Customer-Provided Keys — R2 file encryption using ENCRYPTION_KEY |
-| NDJSON | Newline-Delimited JSON — streaming response format used by the setup wizard |
+| SSE-C | Server-Side Encryption with Customer-Provided Keys - R2 file encryption using ENCRYPTION_KEY |
+| NDJSON | Newline-Delimited JSON - streaming response format used by the setup wizard |
 | Circuit Breaker | Resilience pattern that stops calling a failing service after consecutive failures |
 | SaaS Mode | Deployment mode (SAAS_MODE=active) enabling subscriptions, JIT provisioning, and usage tracking |
 | Onboarding Mode | Deployment mode with public waitlist landing page (ONBOARDING_LANDING_PAGE=active) |
@@ -36,14 +36,14 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Anti-flapping | 3-minute startup guard preventing stale KV data from toggling session status |
 | Rate Limiting | Per-user request throttling (KV-backed sliding window with in-memory fallback) |
 | Webhook | HTTP callback from Stripe to the Worker for billing event processing |
-| JWT | JSON Web Token — used for both CF Access (RS256) and GitHub OIDC (HMAC-SHA256) auth |
+| JWT | JSON Web Token - used for both CF Access (RS256) and GitHub OIDC (HMAC-SHA256) auth |
 | HSTS | HTTP Strict-Transport-Security header enforcing HTTPS connections |
 | CSP | Content-Security-Policy header restricting resource loading origins |
 | Trivy | Container image vulnerability scanner run during CI deploy pipeline |
 | Service Token | Secret-based auth for E2E tests and automation via X-Service-Auth header |
 | Sync Daemon | Background process in entrypoint.sh running rclone bisync every 15 minutes, SIGUSR1-interruptible for manual triggers |
 | Sync-now | User-triggered manual sync action. Button in the storage browser ([REQ-STOR-015](storage.md#req-stor-015-explicit-sync-trigger-from-ui) AC1) sends SIGUSR1 to the sync daemon, fanning out to every session of the user's account ([REQ-STOR-015](storage.md#req-stor-015-explicit-sync-trigger-from-ui) AC2). One of three bisync triggers: 15-minute cadence, Sync-now, and final shutdown bisync. |
-| Entrypoint | entrypoint.sh — container initialization script handling sync, config, and terminal server startup |
+| Entrypoint | entrypoint.sh - container initialization script handling sync, config, and terminal server startup |
 | Recovery Filter | Session-scoped rclone filter file (`/tmp/rclone-recovery-filters.txt`) that dynamically excludes transient files which vanish between listing and copy, preventing bisync fatal errors |
 | Scoped R2 Token | Per-user R2 API token restricted to that user's bucket only |
 | Spec Discipline | The universal SDD enforcement layer (`rules/spec-discipline.md`) inlined into every agent's instructions; activates only when `sdd/` exists in the project |

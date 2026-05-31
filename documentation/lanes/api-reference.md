@@ -237,7 +237,7 @@ Runs only when reconfiguring and the new `allowedUsers` list has removed previou
 5. Stores Access configuration in KV (audience tag, group IDs, auth domain).
 
 **When GitHub OIDC IS configured** (`SAAS_MODE=active` + `OAUTH_CLIENT_ID`):
-CF Access groups and policies are not created — the Worker handles authentication directly via GitHub OAuth session cookies. Admin users created via allowedUsers are assigned the Custom tier automatically.
+CF Access groups and policies are not created - the Worker handles authentication directly via GitHub OAuth session cookies. Admin users created via allowedUsers are assigned the Custom tier automatically.
 
 **Step 6 -- `configure_turnstile` (conditional)**
 
@@ -418,7 +418,7 @@ Checks whether `CLOUDFLARE_API_TOKEN` is present in the environment, verifies it
 
 Best-effort prefill for the setup form. Reads existing admin and user lists from Cloudflare Access groups (scoped by worker name). Does not prefill the custom domain.
 
-In SaaS mode, returns empty arrays — admin enters everything manually.
+In SaaS mode, returns empty arrays - admin enters everything manually.
 
 ```json
 {"adminUsers": ["alice@example.com"], "allowedUsers": ["bob@example.com"]}
@@ -460,13 +460,13 @@ GET `/api/presets`, POST `/api/presets`, PATCH `/api/presets/:id` (rename), DELE
 
 GET `/api/preferences`, PATCH `/api/preferences`
 
-`UserPreferences` fields: `lastAgentType` (AgentType, optional — last selected agent), `lastPresetId` (string, optional — last used preset), `workspaceSyncEnabled` (boolean, default: `false` — workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` — fast CLI start toggle), `sessionMode` (SessionMode, optional — default/advanced), `sleepAfter` (SleepAfterOption, optional — auto-sleep duration, see [Auto-sleep](container.md#auto-sleep-configurable-sleepafter)), `userTimezone` (string, optional — valid IANA timezone, max 64 chars; validated via `Intl.DateTimeFormat` round-trip, invalid zones return `ValidationError`; persisted to DO storage and forwarded to the container as `USER_TIMEZONE` env var so memory-capture filenames reflect the user's local time; takes effect on next session start — see [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env) and [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC9). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](container.md#fast-start). **Side effect:** when `sessionMode` changes, `PATCH /api/preferences` calls `reconcileAgentConfigs(overwrite: true, cleanup: true)` to seed the correct preseed set for the new mode. Non-fatal — failure does not block the preference save. Implements [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) AC4-AC5. `lastPreseedHash` (string, optional - SHA-256 prefix of preseed content at last successful reconcile; compared against the build-time preseed content hash on dashboard load to detect release upgrades; see [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)).
+`UserPreferences` fields: `lastAgentType` (AgentType, optional - last selected agent), `lastPresetId` (string, optional - last used preset), `workspaceSyncEnabled` (boolean, default: `false` - workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` - fast CLI start toggle), `sessionMode` (SessionMode, optional - default/advanced), `sleepAfter` (SleepAfterOption, optional - auto-sleep duration, see [Auto-sleep](container.md#auto-sleep-configurable-sleepafter)), `userTimezone` (string, optional - valid IANA timezone, max 64 chars; validated via `Intl.DateTimeFormat` round-trip, invalid zones return `ValidationError`; persisted to DO storage and forwarded to the container as `USER_TIMEZONE` env var so memory-capture filenames reflect the user's local time; takes effect on next session start - see [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env) and [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC9). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](container.md#fast-start). **Side effect:** when `sessionMode` changes, `PATCH /api/preferences` calls `reconcileAgentConfigs(overwrite: true, cleanup: true)` to seed the correct preseed set for the new mode. Non-fatal - failure does not block the preference save. Implements [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) AC4-AC5. `lastPreseedHash` (string, optional - SHA-256 prefix of preseed content at last successful reconcile; compared against the build-time preseed content hash on dashboard load to detect release upgrades; see [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)).
 
 ### LLM API Keys
 
-GET `/api/llm-keys` — returns masked keys (`****` + last 4 chars), never full keys.
-PUT `/api/llm-keys` — set or clear keys. Body: `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`. `null` deletes the key, `undefined`/omitted = no change, string = set. Returns masked keys. When `ENCRYPTION_KEY` is set, values are encrypted with AES-256-GCM before KV storage.
-DELETE `/api/llm-keys` — removes all LLM keys from KV.
+GET `/api/llm-keys` - returns masked keys (`****` + last 4 chars), never full keys.
+PUT `/api/llm-keys` - set or clear keys. Body: `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`. `null` deletes the key, `undefined`/omitted = no change, string = set. Returns masked keys. When `ENCRYPTION_KEY` is set, values are encrypted with AES-256-GCM before KV storage.
+DELETE `/api/llm-keys` - removes all LLM keys from KV.
 
 Keys are stored in KV as `llm-keys:{bucketName}` and scoped per user (derived from auth). On container start, keys are read from KV and injected as `OPENAI_API_KEY` / `GEMINI_API_KEY` env vars. The `entrypoint.sh` detects these env vars and configures the `consult-llm-mcp` MCP server in `~/.claude.json`. The LLM Keys accordion in Settings is only visible when the user can use advanced mode (`canUseAdvanced()`) AND has selected advanced session mode (`currentSessionMode() === 'advanced'`). Admins always qualify for advanced mode but must still select it.
 
@@ -478,7 +478,7 @@ GET `/public/onboarding-config`, POST `/public/waitlist` (rate limited)
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/health` | None (auth-exempt — no `CONTAINER_AUTH_TOKEN` required) | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC1, AC2 | Direct host health check; available before CONTAINER_AUTH_TOKEN is wired up |
+| GET | `/health` | None (auth-exempt - no `CONTAINER_AUTH_TOKEN` required) | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC1, AC2 | Direct host health check; available before CONTAINER_AUTH_TOKEN is wired up |
 | GET | `/api/health` | Session cookie | [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC1, AC2 | Worker-proxied alias for `/health` |
 
 Both endpoints return the same JSON body:
@@ -500,9 +500,9 @@ Both endpoints return the same JSON body:
 }
 ```
 
-**`initFlagObserved`** — `true` once the server has seen `/tmp/codeflare-init-complete` written by `entrypoint.sh` at the end of R2 sync. A session where `prewarmReady: false` and `initFlagObserved: false` indicates the init-complete flag was never written (sync hung, `jq` merge failed, etc.). See [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services).
+**`initFlagObserved`** - `true` once the server has seen `/tmp/codeflare-init-complete` written by `entrypoint.sh` at the end of R2 sync. A session where `prewarmReady: false` and `initFlagObserved: false` indicates the init-complete flag was never written (sync hung, `jq` merge failed, etc.). See [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services).
 
-**`prewarmReady`** — `true` once the tab-1 PTY session has produced its first output (pre-warm complete).
+**`prewarmReady`** - `true` once the tab-1 PTY session has produced its first output (pre-warm complete).
 
 ---
 

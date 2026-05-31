@@ -17,7 +17,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD4](#ad4-periodic-rclone-bisync) | _superseded by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) (cadence) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (shutdown budget)_ | (superseded) |
 | [AD5](#ad5-login-shell-autostart) | Login shell autostart | Architecture |
 | [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) | KV read-modify-write races and `collectMetrics` atomicity | Architecture |
-| [AD7](#ad7-merged-into-ad10) | _merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) — pre-setup public endpoints_ | Security |
+| [AD7](#ad7-merged-into-ad10) | _merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) - pre-setup public endpoints_ | Security |
 | [AD8](#ad8-root-container-no-internal-auth) | Root container, no internal auth | Architecture |
 | [AD9](#ad9-ressource_tier-spelling) | _reclassified - RESSOURCE_TIER spelling moved to configuration.md_ | (redirect) |
 | [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) | Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation | Security |
@@ -27,9 +27,9 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD14](#ad14-never-auto---resync-on-bisync-failure) | Never auto-`--resync` on bisync failure | Storage |
 | [AD15](#ad15-tabconfigschema-allows-arbitrary-command-strings) | TabConfigSchema allows arbitrary command strings | UI/Frontend |
 | [AD16](#ad16-entrypointsh-1090-lines-complexity) | entrypoint.sh ~1090 lines complexity | Architecture |
-| [AD17](#ad17-merged-into-ad6) | _merged into [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) — `collectMetrics` atomicity_ | Architecture |
+| [AD17](#ad17-merged-into-ad6) | _merged into [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) - `collectMetrics` atomicity_ | Architecture |
 | [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) | Vendored creative/WebGL code uses untyped patterns | UI/Frontend |
-| [AD19](#ad19-merged-into-ad18) | _merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) — splash-cursor-logic.ts `as any` casts_ | UI/Frontend |
+| [AD19](#ad19-merged-into-ad18) | _merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) - splash-cursor-logic.ts `as any` casts_ | UI/Frontend |
 | [AD20](#ad20-toctou-in-containerlifecyclets) | TOCTOU in container/lifecycle.ts | Architecture |
 | [AD21](#ad21-inconsistent-function-signatures) | Inconsistent function signatures | Architecture |
 | [AD22](#ad22-jwks-30s-cache-staleness) | JWKS 30s cache staleness | Security |
@@ -38,14 +38,14 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD25](#ad25-e2e-service-email-hardcoded) | _reclassified - E2E test fixture moved to inline + security.md_ | (redirect) |
 | [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) | Stress test rate-limit bypass (integration-only) | Security |
 | [AD27](#ad27-server-side-prefix-delete) | Server-side prefix delete | Storage |
-| [AD28](#ad28-merged-into-ad26) | _merged into [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) — integration-only environment scoping_ | Security |
+| [AD28](#ad28-merged-into-ad26) | _merged into [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) - integration-only environment scoping_ | Security |
 | [AD29](#ad29-container-secrets-as-env-vars) | Container secrets as env vars | Security |
 | [AD30](#ad30-worker-name-from-host-header) | Worker name from Host header | Security |
 | [AD31](#ad31-root-container-is-intentional) | _reclassified - root-container rationale moved to inline + security.md_ | (redirect) |
 | [AD32](#ad32-encryption_key-is-optional) | ENCRYPTION_KEY is optional | Security |
-| [AD33](#ad33-merged-into-ad10) | _merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) — pre-setup CSRF risk_ | Security |
+| [AD33](#ad33-merged-into-ad10) | _merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) - pre-setup CSRF risk_ | Security |
 | [AD34](#ad34-websocket-auth-bypass-of-hono-middleware) | WebSocket auth bypass of Hono middleware | Security |
-| [AD35](#ad35-merged-into-ad18) | _merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) — splash-cursor-logic.ts old-style constructor_ | UI/Frontend |
+| [AD35](#ad35-merged-into-ad18) | _merged into [AD18](#ad18-vendored-creativewebgl-code-uses-untyped-patterns) - splash-cursor-logic.ts old-style constructor_ | UI/Frontend |
 | [AD36](#ad36-websocket-origin-check-is-optional-for-non-browser-clients) | WebSocket Origin check is optional for non-browser clients | Security |
 | [AD37](#ad37-kv-as-billing-read-cache----signal-and-sync-cf-015) | KV as billing read cache -- Signal and Sync (CF-015) | Billing |
 | [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) | GitHub OIDC replaces CF Access in SaaS mode | Billing |
@@ -131,7 +131,7 @@ Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccesse
 
 `collectMetrics` KV read-modify-write can revert session status. Mitigated: session status changes are only observed from the Dashboard, not during active terminal use. Sessions are never interrupted while in Terminal view.
 
-**`collectMetrics` density** (formerly [AD17](#ad17-merged-into-ad6)): the function performs activity checking, health probing, and KV status updates in a single `alarm()` callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The `alarm()` context provides natural atomicity across these tightly coupled operations — same theme as the KV race trade-off above (accept the cheap option until evidence forces change).
+**`collectMetrics` density** (formerly [AD17](#ad17-merged-into-ad6)): the function performs activity checking, health probing, and KV status updates in a single `alarm()` callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The `alarm()` context provides natural atomicity across these tightly coupled operations - same theme as the KV race trade-off above (accept the cheap option until evidence forces change).
 
 ---
 
@@ -159,7 +159,7 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 **Decision:** A narrow pre-setup window (seconds to minutes) is the unavoidable shape of a self-hosted bootstrap; auth and CSRF protections are intentionally relaxed during it, mitigated by short exposure, rate limiting, and the `setup:complete` KV flag.
 
-`/api/setup/configure` is public before `setup:complete` is written to KV. This allows the deployer to configure their instance without pre-existing auth infrastructure (Cloudflare Access isn't set up yet — that's what setup configures).
+`/api/setup/configure` is public before `setup:complete` is written to KV. This allows the deployer to configure their instance without pre-existing auth infrastructure (Cloudflare Access isn't set up yet - that's what setup configures).
 
 **Trade-off**: A narrow window (seconds to minutes) exists where any actor could claim the deployment. Accepted because the target audience is self-hosted single-user/small-team deployments where the deployer is watching the process.
 
@@ -167,7 +167,7 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 **Future**: A one-time bootstrap secret injected at deploy time would close this window entirely.
 
-**Pre-setup public endpoints** (formerly [AD7](#ad7-merged-into-ad10)): the same risk acceptance covers all pre-setup endpoints, not just `/configure`. Setup runs once during initial deploy. Pre-setup auth trusts a spoofable email header — bootstrap problem (can't require CF Access auth when CF Access isn't configured yet). Mitigated by rate limiting and the same short exposure window.
+**Pre-setup public endpoints** (formerly [AD7](#ad7-merged-into-ad10)): the same risk acceptance covers all pre-setup endpoints, not just `/configure`. Setup runs once during initial deploy. Pre-setup auth trusts a spoofable email header - bootstrap problem (can't require CF Access auth when CF Access isn't configured yet). Mitigated by rate limiting and the same short exposure window.
 
 **Pre-setup CSRF** (formerly [AD33](#ad33-merged-into-ad10)): `createConditionalSetupAuth()` calls `next()` directly when setup is not complete, bypassing the `X-Requested-With` CSRF check. The pre-setup CSRF risk is accepted under the same rationale as above: the window is seconds to minutes, the self-hosted audience makes a drive-by CSRF attack from a third-party origin implausible, and the attacker would need to know the exact `workers.dev` URL during its unconfigured window. Adding `Origin` validation to the pre-setup path is a low-cost future hardening that complements the bootstrap-secret idea above.
 
@@ -257,7 +257,7 @@ Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab a
 
 **`splash-cursor-logic.ts` `as any` casts** (formerly [AD19](#ad19-merged-into-ad18)): pointer-tracking objects and WebGL shader uniforms in this creative-coding module have no typed definitions upstream. The code is adapted from a visual-effect library; type assertions are confined to this isolated module.
 
-**`splash-cursor-logic.ts` old-style constructor with `any` types** (formerly [AD35](#ad35-merged-into-ad18)): an old-style constructor function with `this: any` causes all downstream pointer/rendering functions to use `any` types — it's the root cause of the casts above. The constructor is adapted from the same visual-effect library. The entire module is isolated, has no production data path, and is invoked once per canvas element (not in a hot loop). Refactoring to a typed factory function would require significant rework of adapted code for marginal benefit.
+**`splash-cursor-logic.ts` old-style constructor with `any` types** (formerly [AD35](#ad35-merged-into-ad18)): an old-style constructor function with `this: any` causes all downstream pointer/rendering functions to use `any` types - it's the root cause of the casts above. The constructor is adapted from the same visual-effect library. The entire module is isolated, has no production data path, and is invoked once per canvas element (not in a hot loop). Refactoring to a typed factory function would require significant rework of adapted code for marginal benefit.
 
 **Common rationale across all three surfaces**: vendored creative/WebGL code is type-foreign by design. The boundary at the module's import surface is what matters; internal `any` is acceptable when the module is small, isolated, and has no production data path.
 
@@ -315,9 +315,9 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 **Decision:** `STRESS_TEST_MODE=active` skips all rate limiting; the variable is scoped to the GitHub Actions `integration` environment only.
 
-k6 stress tests share a single CF Access service token (single identity), so per-user rate limits (10/min sessions, 5/min containers, 30/min WebSocket) block meaningful load testing above ~5 VUs. Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit KV reads/writes at the top of the middleware, before any I/O. The value must be exactly `"active"` — any other value (including `"true"`) keeps limits enforced.
+k6 stress tests share a single CF Access service token (single identity), so per-user rate limits (10/min sessions, 5/min containers, 30/min WebSocket) block meaningful load testing above ~5 VUs. Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit KV reads/writes at the top of the middleware, before any I/O. The value must be exactly `"active"` - any other value (including `"true"`) keeps limits enforced.
 
-**Integration-only scoping** (formerly [AD28](#ad28-merged-into-ad26)): no CI-level guard is needed because GitHub Actions environment separation controls it. The variable is only set via the workflow scoped to the `integration` environment. Production deployments use `environment: production` and never receive this variable. A repo admin could theoretically set it for production, but that requires deliberate action — the same trust model that already governs every other production secret.
+**Integration-only scoping** (formerly [AD28](#ad28-merged-into-ad26)): no CI-level guard is needed because GitHub Actions environment separation controls it. The variable is only set via the workflow scoped to the `integration` environment. Production deployments use `environment: production` and never receive this variable. A repo admin could theoretically set it for production, but that requires deliberate action - the same trust model that already governs every other production secret.
 
 ---
 
@@ -447,16 +447,16 @@ The first `/_internal/setBucketName` request is unauthenticated because the cont
 
 **Category:** Storage
 
-**Decision:** When bisync fails with `lstat: no such file or directory`, parse the error output to identify the vanishing file, add it to a session-scoped exclusion filter, and retry — before escalating to `nuke_corrupted_r2_files`.
+**Decision:** When bisync fails with `lstat: no such file or directory`, parse the error output to identify the vanishing file, add it to a session-scoped exclusion filter, and retry - before escalating to `nuke_corrupted_r2_files`.
 
-The race condition is: rclone lists a file at path X, then the file is deleted (by an agent, MCP auth cache cleanup, or any ephemeral write) before rclone can copy it. The file is gone; there is nothing to recover or repair. Nuking R2 objects is the wrong response — it targets corruption (wrong encryption key, size mismatch, bad object metadata), not transience. Retrying the exact same bisync command without excluding the file would hit the same error. The correct response is:
+The race condition is: rclone lists a file at path X, then the file is deleted (by an agent, MCP auth cache cleanup, or any ephemeral write) before rclone can copy it. The file is gone; there is nothing to recover or repair. Nuking R2 objects is the wrong response - it targets corruption (wrong encryption key, size mismatch, bad object metadata), not transience. Retrying the exact same bisync command without excluding the file would hit the same error. The correct response is:
 
 1. Parse `failed to open source object.*no such file` from rclone output.
 2. Append `- <path>` to `/tmp/rclone-recovery-filters.txt` (session-scoped, never synced to R2).
 3. Clear bisync lock files.
 4. Retry the same operation (max 3 attempts per call site).
 
-Non-workspace files are auto-excluded because they are config/cache files that will regenerate. Workspace files (user code) are not auto-excluded — they get a plain retry on the assumption the file reappeared after a save completed. Known ephemeral files (`.claude/mcp-*.json` — MCP auth cache with millisecond lifetime) are statically excluded from `RCLONE_FILTERS_COMMON` to prevent the race from occurring at all.
+Non-workspace files are auto-excluded because they are config/cache files that will regenerate. Workspace files (user code) are not auto-excluded - they get a plain retry on the assumption the file reappeared after a save completed. Known ephemeral files (`.claude/mcp-*.json` - MCP auth cache with millisecond lifetime) are statically excluded from `RCLONE_FILTERS_COMMON` to prevent the race from occurring at all.
 
 The recovery applies at both call sites: `establish_bisync_baseline()` (startup) and `bisync_with_r2()` (daemon). The filter file is initialized empty on every container start via `init_recovery_filters()`.
 
@@ -491,13 +491,13 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 - **Three modes** map to three user types: new SDD users (interactive), solo developers in steady-state (auto), trusting power users with PR review habits (unleashed).
 - **Conservative JUDGMENT auto-resolution in unleashed**: doc-vs-spec conflicts mark BOTH sides as `Partial` with `Notes:` (never overwrite intent); oversized REQs shrink in place by extracting implementation prose to docs (never split, since LLMs cannot reliably preserve meaning when splitting); fake-Deprecated REQs move to README "Out of Scope" section (never delete, satisfying the existing "never delete" rule).
-- **PR-based safety net** for unleashed mode: walk-away users get reviewable surface (PR description has full audit log), and rollback is "close the PR" — the working branch is never touched.
+- **PR-based safety net** for unleashed mode: walk-away users get reviewable surface (PR description has full audit log), and rollback is "close the PR" - the working branch is never touched.
 - **Universal enforcement layer** (`rules/spec-discipline.md`) inlined into every agent's instructions file ensures Codex (no agent files) and Copilot (no skill loading) get the same discipline as Claude.
-- **Project-agnostic agent refactor**: spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings and read `documentation/README.md` to discover the project's actual file structure. Both agents gate on `sdd/` existence — on non-SDD projects (vibe-coding mode) they exit silently and the post-push `git-push-review-reminder` hook also emits no reminder, so `git push` proceeds with zero review agents. `doc-updater` no longer auto-scaffolds `documentation/README.md` on non-SDD projects (previous behavior was too aggressive). Opt-in to the full workflow is binary: run `/sdd init` and all three review agents (code-reviewer, spec-reviewer, doc-updater) fire on every push; don't, and none do.
+- **Project-agnostic agent refactor**: spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings and read `documentation/README.md` to discover the project's actual file structure. Both agents gate on `sdd/` existence - on non-SDD projects (vibe-coding mode) they exit silently and the post-push `git-push-review-reminder` hook also emits no reminder, so `git push` proceeds with zero review agents. `doc-updater` no longer auto-scaffolds `documentation/README.md` on non-SDD projects (previous behavior was too aggressive). Opt-in to the full workflow is binary: run `/sdd init` and all three review agents (code-reviewer, spec-reviewer, doc-updater) fire on every push; don't, and none do.
 - **Sequential execution** (spec-reviewer first, doc-updater second) prevents race conditions on shared files.
 - **2-round commit-cycle limit** with `[sdd-clean]` tag exclusion catches micro-fix spirals without crashing the rescue command itself.
 - **`enforce_tdd` rule** (renamed from `auto_demote`, default `true`): spec-reviewer auto-demotes `Implemented` REQs without test coverage to `Partial`, detects `Planned`/`Partial` REQs whose source code exists but has no corresponding test (code-without-test finding), and runs test-quality heuristics (AC-count vs test-count ratio, tautology detection, skipped-test detection) on every push. Forced `true` in unleashed mode where the PR review is the safety net.
-- **Plan Mode mandate**: `/sdd init`, `/sdd edit`, and `/sdd add` emit `EnterPlanMode` directives so spec-to-code transitions always go through Plan Mode (a built-in Claude Code primitive). The `/plan` custom slash command is removed — Plan Mode replaces it.
+- **Plan Mode mandate**: `/sdd init`, `/sdd edit`, and `/sdd add` emit `EnterPlanMode` directives so spec-to-code transitions always go through Plan Mode (a built-in Claude Code primitive). The `/plan` custom slash command is removed - Plan Mode replaces it.
 - **Template scaffolding** in `references/templates/` lets `/sdd init` bootstrap any project with no external dependencies.
 
 **Trade-offs accepted:**
@@ -511,7 +511,7 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 - [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) (preseed bundle generation)
 - [REQ-AGENT-007](../../sdd/spec/agents.md#req-agent-007-multi-agent-adaptation-pipeline) (per-agent adaptation pipeline)
 - [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline) (manifest as single source of truth)
-- [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) (SDD workflow as Pro feature) — added in this overhaul
+- [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) (SDD workflow as Pro feature) - added in this overhaul
 
 **Implementation references:**
 
@@ -530,26 +530,26 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 **Category:** Architecture
 
-**Decision:** Remove `sdd/.user-overrides.md`. When the user resolves an automated SDD finding as "keep current behavior — this mechanism IS the contract", the resolution is recorded as a real ADR in `documentation/decisions/` carrying an `Overrides: {rule_id}:{REQ-ID}` header. spec-reviewer and doc-updater grep `documentation/decisions/**/*.md` for that header at the start of every run and skip matching findings — same machine behavior as the legacy skip list, but the architectural decision is now first-class.
+**Decision:** Remove `sdd/.user-overrides.md`. When the user resolves an automated SDD finding as "keep current behavior - this mechanism IS the contract", the resolution is recorded as a real ADR in `documentation/decisions/` carrying an `Overrides: {rule_id}:{REQ-ID}` header. spec-reviewer and doc-updater grep `documentation/decisions/**/*.md` for that header at the start of every run and skip matching findings - same machine behavior as the legacy skip list, but the architectural decision is now first-class.
 
-**Context:** [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) introduced the SDD review pipeline with `sdd/.user-overrides.md` as the place to record JUDGMENT resolutions ("don't re-attempt this fix; the user said no"). On a downstream `ai-news-digest` session, spec-reviewer flagged cookie-attribute mechanism leakage in [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) AC 1 (`__Host-` prefix, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). The clean resolution was "the cookie attributes ARE the security contract — security reviewers grep these strings; rewriting to user-observable language loses the contract surface". Recording that as a one-line `User note:` field in `sdd/.user-overrides.md` worked for the agent but failed the human:
+**Context:** [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) introduced the SDD review pipeline with `sdd/.user-overrides.md` as the place to record JUDGMENT resolutions ("don't re-attempt this fix; the user said no"). On a downstream `ai-news-digest` session, spec-reviewer flagged cookie-attribute mechanism leakage in [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) AC 1 (`__Host-` prefix, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). The clean resolution was "the cookie attributes ARE the security contract - security reviewers grep these strings; rewriting to user-observable language loses the contract surface". Recording that as a one-line `User note:` field in `sdd/.user-overrides.md` worked for the agent but failed the human:
 
 - The override file is invisible to anyone reading the codebase. It doesn't appear in any index, isn't referenced from `documentation/decisions/README.md`.
 - Each entry is a load-bearing architectural choice ("we treat cookie attributes as the security contract") buried in a config-shaped file alongside test-skip notes.
-- "Rationale" lives in a free-text User note field with no structure — no Context/Decision/Rationale/Consequences scaffolding, no link to the affected REQ, no date the decision was revisited.
+- "Rationale" lives in a free-text User note field with no structure - no Context/Decision/Rationale/Consequences scaffolding, no link to the affected REQ, no date the decision was revisited.
 - Six months later, nobody remembers what's in `.user-overrides.md` and re-litigates the same call because they couldn't find prior context.
 
 **Alternatives considered:**
 
 1. **Keep `sdd/.user-overrides.md` and just cross-link from `documentation/decisions/README.md`.** Rejected: still bifurcates decision storage. The cross-link rots.
-2. **Keep the file but require structured fields (Context/Decision/Rationale/Consequences).** Rejected: this is the ADR template — at that point we are reinventing ADRs in `sdd/`, in the wrong lane.
-3. **Move overrides into REQ frontmatter as a per-REQ `OverridesRules:` field.** Rejected: scatters the decision. Reading the REQ doesn't tell you *why* the rule was overridden — that's an architectural decision, not a REQ attribute. Future REQ refactors might drop the field unintentionally.
+2. **Keep the file but require structured fields (Context/Decision/Rationale/Consequences).** Rejected: this is the ADR template - at that point we are reinventing ADRs in `sdd/`, in the wrong lane.
+3. **Move overrides into REQ frontmatter as a per-REQ `OverridesRules:` field.** Rejected: scatters the decision. Reading the REQ doesn't tell you *why* the rule was overridden - that's an architectural decision, not a REQ attribute. Future REQ refactors might drop the field unintentionally.
 4. **The chosen approach: ADRs with `Overrides:` headers.** Same skip semantics, decision now lives where decisions live.
 
 **Rationale:**
 
 - ADRs already exist for this exact purpose in `documentation/decisions/`: structured, indexed, discoverable, treated as first-class history.
-- The `**Overrides:**` line is a one-line parser anchor — spec-reviewer's grep pattern is `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` (tolerates both plain and the project's universal bold-wrapped ADR field convention), splitting on commas — same skip key shape (`{rule_id}:{target_id}`) the legacy file used.
+- The `**Overrides:**` line is a one-line parser anchor - spec-reviewer's grep pattern is `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` (tolerates both plain and the project's universal bold-wrapped ADR field convention), splitting on commas - same skip key shape (`{rule_id}:{target_id}`) the legacy file used.
 - Decisions can be revised with full Status history (`Accepted` → `Superseded by AD-M`) following existing ADR patterns. The legacy skip list had no such notion.
 - ADRs are listed in `documentation/decisions/README.md`'s decision index, surfacing the override decisions in the same place where every other architectural call lives. Future contributors find them on first reading.
 - `/sdd clean` migrates existing entries automatically: each line in any project's existing `sdd/.user-overrides.md` becomes a new ADR (Context/Decision/Rationale/Consequences scaffold pre-filled with the legacy `User note:` field; TODO placeholders in Rationale/Consequences asking the user to expand on first read), and the legacy file is deleted in the same commit. Tagged `[sdd-clean] migrate user-overrides to ADRs (issue codeflare#266)` so spec-reviewer's round-counter excludes it.
@@ -558,11 +558,11 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 - Migration adds one extra commit on the next `/sdd clean` for any project with existing override entries. Acceptable: it's a one-time cost, the migration is fully automatic, and each migrated ADR carries a TODO marker so the user knows to expand the rationale.
 - ADRs are slightly heavier-weight than a one-line skip entry. Intentional: the friction is the point. If an override is "easy" to add, it gets added thoughtlessly. If it requires writing a real ADR, it gets thought about, which is what we want for an architectural decision.
-- The `Overrides:` header is a soft contract — projects that hand-edit ADRs to remove the header silently lose the skip behavior. Acceptable: same shape as every other markdown-based agent contract in the project.
+- The `Overrides:` header is a soft contract - projects that hand-edit ADRs to remove the header silently lose the skip behavior. Acceptable: same shape as every other markdown-based agent contract in the project.
 
 **Migration:**
 
-- spec-reviewer Step 0d: greps `documentation/decisions/**/*.md` for `**Overrides:**` (regex `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` — tolerates plain and bold-wrapped) instead of reading `sdd/.user-overrides.md`. Legacy file (if present) triggers a HIGH finding asking for migration.
+- spec-reviewer Step 0d: greps `documentation/decisions/**/*.md` for `**Overrides:**` (regex `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` - tolerates plain and bold-wrapped) instead of reading `sdd/.user-overrides.md`. Legacy file (if present) triggers a HIGH finding asking for migration.
 - doc-updater Step 0c: same change.
 - spec-discipline.md: drops `## User overrides` section, replaces with `## User overrides via ADRs` documenting the `Overrides:` header pattern.
 - `/sdd clean` step 6/6a: auto-migrates legacy entries to ADRs.
@@ -1020,7 +1020,7 @@ The DO's `_shutdownStartedAt` telemetry already logs `shutdownElapsedMs` on `onS
 **Context:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault)'s capture pipeline ran haiku as the background subagent and read raw transcript JSONL directly. Two problems emerged in production:
 
 1. **Recency bias.** A 1466-line transcript is ~3.8 MB of JSONL; ~99% of those bytes are `tool_use` and `tool_result` records. Haiku reading the raw stream burned its working memory on tool I/O and produced a capture summarising only the most recent topic. Bench: a session that ran 6 hours of R2-bisync design work yielded a 1431-byte note covering just the final 15 minutes' stop-hook mechanics; the substantive arc was lost.
-2. **Confabulated citations.** Even after prefilter+chunking removed the recency bias, haiku invented adjacent ADR numbers in benchmarking (`AD58`, `AD59` cited in a note where the actual references were `AD56` + `AD57`). For a memory subsystem whose value is "queryable cross-session truth," false citations are worse than missing ones — they pollute the unified graph and mislead future agents that match on the wrong ID.
+2. **Confabulated citations.** Even after prefilter+chunking removed the recency bias, haiku invented adjacent ADR numbers in benchmarking (`AD58`, `AD59` cited in a note where the actual references were `AD56` + `AD57`). For a memory subsystem whose value is "queryable cross-session truth," false citations are worse than missing ones - they pollute the unified graph and mislead future agents that match on the wrong ID.
 
 **Decision:** Three coupled changes that ship as one PR:
 
@@ -1035,7 +1035,7 @@ Three smaller decisions bundled in:
 - **Marker filter** explicitly excludes string content beginning with `<` (slash-command + task-notification wrappers), `Stop hook` (stop-hook feedback synthetic injection), `This session is being continued` (resume header), and `[Request interrupted` (interrupt notice). These were all leaking into the haiku's view of "real user prompts" before this pass.
 
 **Consequences:**
-- Capture cost rises ~3x per fire (haiku → sonnet pricing). The capture fires at most once per 15 real user prompts, so a typical long session triggers it 1-5 times. Absolute cost is cents per session — well worth the fidelity gain.
+- Capture cost rises ~3x per fire (haiku → sonnet pricing). The capture fires at most once per 15 real user prompts, so a typical long session triggers it 1-5 times. Absolute cost is cents per session - well worth the fidelity gain.
 - Capture latency rises modestly: chunked-scratchpad introduces N+1 LLM round-trips per fire (one per chunk plus the synthesis pass). On the benchmark the haiku run took ~88 s end-to-end; sonnet with the new pipeline ~228 s. The agent runs in the background via `executionCtx.waitUntil`, so user-facing latency is unchanged.
 - Vault notes are denser (5-10 KB typical vs 1-2 KB before). SilverBullet renders all of them fine; the unified graph picks up more concept nodes per capture, which improves cross-session retrieval recall.
 - Stale `Raw/Sessions/` files written by the old pipeline are not migrated. They remain as historical record; future captures use the new format.
@@ -1044,7 +1044,7 @@ Three smaller decisions bundled in:
 
 **Alternative considered:** Prefilter only (keep haiku). Rejected as a half-measure: prefilter fixes recency bias, but the citation-accuracy gap (haiku invents IDs; sonnet doesn't) remains uncovered.
 
-**Alternative considered:** Capture model gated by env var (default haiku, advanced users override to sonnet). Rejected as unnecessary mechanism — capture quality is a system-wide property, and the cost difference at the actual capture cadence is negligible. Per-user opt-out can be added later if cost telemetry shows it matters.
+**Alternative considered:** Capture model gated by env var (default haiku, advanced users override to sonnet). Rejected as unnecessary mechanism - capture quality is a system-wide property, and the cost difference at the actual capture cadence is negligible. Per-user opt-out can be added later if cost telemetry shows it matters.
 
 **Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) (capture pipeline contract), [REQ-MEM-008](../../sdd/spec/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline) (preseed manifest includes the new script).
 
@@ -1219,9 +1219,9 @@ Three smaller decisions bundled in:
 
 ## Related Documentation
 
-- [Architecture — System Components](../lanes/architecture.md#system-components) - Component overview
-- [Architecture — Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
-- [Security — Authentication Gate](../lanes/security.md#authentication-gate) - Security model
-- [Authentication — Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
-- [Mobile — Scroll Stability](../lanes/mobile.md#scroll-stability) - Mobile terminal design decisions
-- [Vault — Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders
+- [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
+- [Architecture - Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
+- [Security - Authentication Gate](../lanes/security.md#authentication-gate) - Security model
+- [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
+- [Mobile - Scroll Stability](../lanes/mobile.md#scroll-stability) - Mobile terminal design decisions
+- [Vault - Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders
