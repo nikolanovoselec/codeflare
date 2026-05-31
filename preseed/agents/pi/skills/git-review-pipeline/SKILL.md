@@ -1,6 +1,6 @@
 ---
 name: git-review-pipeline
-description: SDD-mode PR-boundary review policy for Pi. Use to understand when review enforcement applies to PRs targeting main/master. Critical: this skill does not authorize manual Agent spawns; PR-boundary hooks/enforcement own reviewer spawning. The assistant launches review agents only when the user explicitly asks or an actual hook directive explicitly commands it.
+description: "SDD-mode PR-boundary review policy for Pi. Use to understand when review enforcement applies to PRs targeting main/master. Critical: this skill does not authorize manual Agent spawns; PR-boundary hooks/enforcement own reviewer spawning. The assistant launches review agents only when the user explicitly asks or an actual hook directive explicitly commands it."
 version: 2.0.0
 ---
 

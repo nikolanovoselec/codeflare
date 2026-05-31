@@ -1,6 +1,6 @@
 ---
 name: pr-workflow
-description: Pull request creation workflow for Pi. Use when the user asks to open/create a PR. Covers commit/diff review, title/body drafting, REQ backlinks, and push/upstream handling. Critical: opening a PR is not permission to spawn review agents or start CI monitoring; hooks/enforcement own reviews, and CI monitoring requires an explicit user request or merge/deploy gate.
+description: "Pull request creation workflow for Pi. Use when the user asks to open/create a PR. Covers commit/diff review, title/body drafting, REQ backlinks, and push/upstream handling. Critical: opening a PR is not permission to spawn review agents or start CI monitoring; hooks/enforcement own reviews, and CI monitoring requires an explicit user request or merge/deploy gate."
 version: 2.0.0
 ---
 
