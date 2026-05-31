@@ -148,3 +148,9 @@ Admin users always have `unlimited` tier and advanced session mode access (`canU
 - [Architecture](architecture.md) - System overview, components, data flow, design rationale
 - [API Reference](api-reference.md) - All API endpoints
 - [Authentication](authentication.md) - Authentication modes and SaaS billing
+
+---
+
+## Specification Coverage
+
+- [REQ-SUB-020](../../sdd/spec/subscription.md#req-sub-020-multi-currency-pricing) - Multi-Currency Pricing

@@ -138,3 +138,11 @@ wrangler tail codeflare --status error
 - [Container](container.md#container-startup) - Container startup sequence
 - [Storage & Sync](storage-and-sync.md) - Sync mechanics
 - [Authentication](security.md#authentication-gate) - Auth flow
+
+---
+
+## Specification Coverage
+
+- [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) - Knowledge-Graph Capability (Graphify)
+- [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants
+- [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) - Container Port-Readiness Gating with Pre-Warm Pre-Condition

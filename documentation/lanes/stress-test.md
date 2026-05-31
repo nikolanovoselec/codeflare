@@ -378,3 +378,9 @@ The Timekeeper DO receives pings every 60 seconds from each active container ses
 - [pentest.md](pentest.md) - Security scan results
 - [Configuration - Worker Environment](configuration.md#worker-environment) - Environment variables
 - [CI/CD - E2E Infrastructure](ci-cd.md#e2e-infrastructure) - E2E test setup
+
+---
+
+## Specification Coverage
+
+- [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing-validates-rate-limits-and-concurrency) - Stress testing validates rate limits and concurrency

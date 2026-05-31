@@ -510,3 +510,52 @@ Both endpoints return the same JSON body:
 - [Authentication](authentication.md#three-tier-auth-middleware) - Auth middleware details
 - [Security](security.md#rate-limiting) - Rate limits per endpoint
 - [Configuration](configuration.md#worker-environment) - Environment variables
+
+---
+
+## Specification Coverage
+
+- [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) - Two Session Modes: Standard and Pro
+- [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token) - Deploy Credential Storage (GitHub PAT, CF API Token)
+- [REQ-AGENT-011](../../sdd/spec/agents.md#req-agent-011-agent-skills-rules-manually-recreatable-from-settings) - Agent Skills & Rules Manually Recreatable from Settings
+- [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push-deploy-credential-management-ui) - Push & Deploy credential management UI
+- [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) - Auto-upgrade preseed on release
+- [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) - SaaS mode uses Direct GitHub OAuth
+- [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006-user-email-normalized) - User email normalized
+- [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh) - Session cookie auto-refresh
+- [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) - User management admin panel
+- [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) - User identity and account-status API
+- [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) - Conversation context automatically captured to vault
+- [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero) - Idle containers hibernate and cost zero
+- [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) - Rate-limiting infrastructure
+- [REQ-SEC-013](../../sdd/spec/security.md#req-sec-013-content-disposition-hardening-on-downloads) - Content-Disposition hardening on downloads
+- [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type) - Session creation with name and agent type
+- [REQ-SESSION-006](../../sdd/spec/session-lifecycle.md#req-session-006-user-can-stop-restart-and-delete-sessions) - User can stop, restart, and delete sessions
+- [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier) - Running session count limited per tier
+- [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) - Session status observable from dashboard
+- [REQ-SESSION-012](../../sdd/spec/session-lifecycle.md#req-session-012-wake-loop-prevention) - Wake-loop prevention
+- [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) - User-configurable auto-sleep timeout in Settings
+- [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) - Container Port-Readiness Gating with Pre-Warm Pre-Condition
+- [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env) - User timezone propagated from preferences to container env
+- [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) - Container health and startup-status API
+- [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration) - First-time setup requires zero pre-configuration
+- [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth) - Post-setup reconfiguration requires admin auth
+- [REQ-SETUP-008](../../sdd/spec/setup.md#req-setup-008-setup-helper-endpoints-support-prefill-and-detection) - Setup helper endpoints support prefill and detection
+- [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence) - Setup wizard step sequence
+- [REQ-STOR-006](../../sdd/spec/storage.md#req-stor-006-storage-quota-enforced-per-tier-at-session-start) - Storage Quota Enforced Per Tier at Session Start
+- [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) - Web File Browser
+- [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) - Multipart Upload for Large Files
+- [REQ-STOR-009](../../sdd/spec/storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session) - Getting-Started Docs Auto-Seeded on First Session
+- [REQ-STOR-014](../../sdd/spec/storage.md#req-stor-014-r2-storage-stats-caching) - R2 Storage Stats Caching
+- [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment) - Free Tier Requires No Payment
+- [REQ-SUB-004](../../sdd/spec/subscription.md#req-sub-004-paid-tiers-integrate-with-stripe-checkout) - Paid Tiers Integrate with Stripe Checkout
+- [REQ-SUB-005](../../sdd/spec/subscription.md#req-sub-005-trial-is-compute-based-not-time-based) - Trial Is Compute-Based, Not Time-Based
+- [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) - Admin-Configurable Tiers via Management Panel
+- [REQ-SUB-011](../../sdd/spec/subscription.md#req-sub-011-graceful-degradation-without-stripe) - Graceful Degradation Without Stripe
+- [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015-stripe-webhook-signal-and-sync-pattern) - Stripe Webhook Signal-and-Sync Pattern
+- [REQ-SUB-016](../../sdd/spec/subscription.md#req-sub-016-customer-portal-and-plan-switching) - Customer Portal and Plan Switching
+- [REQ-SUB-018](../../sdd/spec/subscription.md#req-sub-018-usage-dashboard-page) - Usage dashboard page
+- [REQ-SUB-021](../../sdd/spec/subscription.md#req-sub-021-billing-cycle-alignment) - Billing Cycle Alignment
+- [REQ-TERM-001](../../sdd/spec/terminal.md#req-term-001-up-to-6-terminal-tabs-per-session) - Up to 6 terminal tabs per session
+- [REQ-TERM-002](../../sdd/spec/terminal.md#req-term-002-websocket-connection-to-container-pty) - WebSocket connection to container PTY
+- [REQ-TERM-004](../../sdd/spec/terminal.md#req-term-004-close-code-4503-is-authoritative-no-retry) - Close code 4503 is authoritative (no retry)
