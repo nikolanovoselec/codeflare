@@ -339,6 +339,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 6. The short-circuit selector requires all of: GET method, exact path match for the service-worker script, and the browser-only Service-Worker request header (a Fetch-spec forbidden header name not settable from page JavaScript). Cookie presence is intentionally not checked because Samsung Internet and other Chromium forks may send cookies on SW registration fetches; rejecting those requests would serve the editor's real SW whose cache.addAll() install fails and hangs the bootstrap page.
 7. The key-shim service-worker script body is identical across sessions; the per-session vault encryption key is delivered to the shim via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), not baked into the script.
 
+**Notes:** The shim service worker served in place of the editor's own worker leaves the editor's client-side file-sync cache disabled, so within one session the editor re-indexes its local store repeatedly instead of once (tracked as codeflare#445). The subpath rewrite and registration short-circuit work, but until that re-index regression is fixed AC5-AC7 are not fully correct, so the REQ stays Partial.
+
 **Constraints:**
 
 - The editor honors a URL-prefix environment variable for rendering the base tag, but the prefix is per-session (the Worker knows the session ID, the container does not); baking it in at supervisor start is not viable, so the per-response Worker rewrite is the per-session adapter.
@@ -350,7 +352,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
 
-**Status:** Implemented
+**Status:** Partial
 
 ---
 
