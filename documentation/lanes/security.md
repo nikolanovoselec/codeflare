@@ -169,7 +169,7 @@ Implementation: `src/lib/kv-crypto.ts`
 
 **API responses** always return masked values (`****` + last 4 chars), never plaintext keys — regardless of whether encryption is enabled.
 
-### Transparent KV migration
+### Transparent KV migration ([REQ-SEC-006](../../sdd/spec/security.md#req-sec-006-transparent-kv-encryption-migration))
 
 When `ENCRYPTION_KEY` is enabled on an existing deployment with plaintext KV entries:
 
@@ -293,7 +293,7 @@ The vault editor proxy at `/api/vault/:sid/*` runs through `validateVaultRoute` 
 
 Surface: [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (proxy exists). Rate-limit infrastructure: [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) (shared bucket and 30/60s window).
 
-### Session Limits
+### Session Limits ([REQ-SUB-013](../../sdd/spec/subscription.md#req-sub-013-concurrent-session-limits))
 
 Per-user cap on concurrent running sessions, configurable by role via `MAX_SESSIONS_USER` (default: 3) and `MAX_SESSIONS_ADMIN` (default: 10) in `wrangler.toml`.
 
@@ -303,11 +303,11 @@ Per-user cap on concurrent running sessions, configurable by role via `MAX_SESSI
 
 **`GET /api/sessions/batch-status`** returns `maxSessions` alongside `statuses` so the frontend stays in sync with the server-side limit without hardcoding defaults.
 
-### Path Traversal Prevention
+### Path Traversal Prevention ([REQ-SEC-010](../../sdd/spec/security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints))
 
 Browse endpoint validates prefix parameter against directory traversal (`..` rejection) and protected path access via `validateKey()` in `src/routes/storage/validation.ts`.
 
-### Container Image Scanning
+### Container Image Scanning ([REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy))
 
 Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (in `deploy.yml`).
 

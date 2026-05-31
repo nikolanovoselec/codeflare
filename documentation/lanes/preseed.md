@@ -17,7 +17,7 @@ it gets there" content. Memory-system specifics live in
 - [Settings.json Merge](#settingsjson-merge)
 - [Plugin Enablement](#plugin-enablement)
 - [Third-party plugin: context-mode](#third-party-plugin-context-mode)
-- [Graphify](#graphify)
+- [Graphify](#graphify-req-agent-023)
 - [/sdd init Modes](#sdd-init-modes)
 - [Troubleshooting](#troubleshooting)
 
@@ -518,7 +518,7 @@ context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/c
 The integration is sized to stay within ELv2's permitted-use envelope.
 See [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) for the full design + license analysis.
 
-## Graphify
+## Graphify ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
 
 ### SessionStart context injection ([REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline) AC1)
 

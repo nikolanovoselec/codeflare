@@ -133,7 +133,7 @@ flowchart TD
 
 Each authenticated user is mapped to a unique R2 bucket and a set of scoped credentials.
 
-### Per-User Bucket Naming
+### Per-User Bucket Naming ([REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket))
 
 `user@example.com` -> `codeflare-user-example-com` (sanitized, max 63 chars).
 
