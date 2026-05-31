@@ -1,10 +1,10 @@
 /**
- * Stripe webhook handler tests — Signal and Sync pattern.
+ * Stripe webhook handler tests - Signal and Sync pattern.
  *
  * Tests the three webhook handlers:
- *   1. checkout.session.completed — maps email→customer, writes checkout fields, calls syncSubscriptionState
- *   2. customer.subscription.updated — delegates to syncSubscriptionState
- *   3. customer.subscription.deleted — writes canceled/free directly (CF-004)
+ *   1. checkout.session.completed - maps email→customer, writes checkout fields, calls syncSubscriptionState
+ *   2. customer.subscription.updated - delegates to syncSubscriptionState
+ *   3. customer.subscription.deleted - writes canceled/free directly (CF-004)
  *
  * Also tests: syncSubscriptionState integration through webhook handlers.
  *
@@ -119,7 +119,7 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// checkout.session.completed — CF-011: email preference, CF-023: existing sub check
+// checkout.session.completed - CF-011: email preference, CF-023: existing sub check
 // ---------------------------------------------------------------------------
 describe('handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)', () => {
   it('uses metadata.email when both metadata.email and customer_email are present', async () => {
@@ -260,7 +260,7 @@ describe('handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscripti
 });
 
 // ---------------------------------------------------------------------------
-// customer.subscription.updated — delegates to syncSubscriptionState
+// customer.subscription.updated - delegates to syncSubscriptionState
 // ---------------------------------------------------------------------------
 describe('handleSubscriptionUpdated', () => {
   it('syncs subscription state from Stripe API', async () => {
@@ -348,7 +348,7 @@ describe('handleSubscriptionUpdated', () => {
 });
 
 // ---------------------------------------------------------------------------
-// customer.subscription.deleted — direct write (CF-004)
+// customer.subscription.deleted - direct write (CF-004)
 // ---------------------------------------------------------------------------
 describe('handleSubscriptionDeleted', () => {
   it('resets subscriptionTier and accessTier to free and sets billingStatus to canceled', async () => {
@@ -405,7 +405,7 @@ describe('handleSubscriptionDeleted', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Unhandled event types — should return 200 (ack to Stripe)
+// Unhandled event types - should return 200 (ack to Stripe)
 // ---------------------------------------------------------------------------
 describe('unhandled event types', () => {
   it('returns 200 for unknown event types', async () => {
@@ -457,7 +457,17 @@ describe('auto-recreate on downgrade', () => {
     const body = buildEvent('customer.subscription.updated', {
       id: 'sub_same_1', customer: 'cus_same_1',
     });
-    await postWebhook(createApp(), body);
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+
+    // CF-024: behavioral assertion, not a bare call-count. The sync still ran
+    // (tier synced from Stripe) but because subscribedMode is unchanged the
+    // preseed reconcile is skipped - the sessionMode preference is untouched.
+    const user = await mockKV.get('user:same@example.com', 'json') as Record<string, unknown>;
+    expect(user.subscriptionTier).toBe('standard');
+    expect(user.subscribedMode).toBe('default');
+    const prefs = await mockKV.get('user-prefs:codeflare-same-example-com');
+    expect(prefs).toBeNull();
     expect(mockReconcileAgentConfigs).not.toHaveBeenCalled();
   });
 

@@ -1,32 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import type { Env } from '../../types';
+import type { Env, AccessUser } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 
-// Track the current test user email
-let currentTestUserEmail = 'admin@example.com';
+// CF-005: The auth middleware is NO LONGER mocked into a pass-through. The
+// REAL requireActiveUser/requireAdmin from src/middleware/auth run. We mock
+// only the request-identity input (authenticateRequest) so the middleware's
+// tier gate and role check are exercised end-to-end against controlled
+// fixtures. getBucketName is also mocked here because it lives in the same
+// module (../../lib/access) and the route imports it.
+let mockAuthUser: AccessUser = { email: 'admin@example.com', authenticated: true, role: 'admin' } as AccessUser;
 
-// Mock the auth middleware to simply set user context without CF Access validation
-vi.mock('../../middleware/auth', () => ({
-  authMiddleware: vi.fn(async (c: any, next: any) => {
-    c.set('user', { email: currentTestUserEmail, authenticated: true, role: 'admin' });
-    c.set('bucketName', `codeflare-test`);
-    return next();
-  }),
-  requireAdmin: vi.fn(async (c: any, next: any) => {
-    // In tests, simply pass through (user is always admin in test setup)
-    return next();
-  }),
-}));
-
-// Mock access-policy module
-vi.mock('../../lib/access-policy', () => ({
-  getAllUsers: vi.fn(),
-  syncAccessPolicy: vi.fn(),
-}));
-
-// Mock access module for getBucketName
 vi.mock('../../lib/access', () => ({
+  authenticateRequest: vi.fn(async () => ({
+    user: { ...mockAuthUser },
+    bucketName: 'codeflare-test',
+  })),
   getBucketName: vi.fn((email: string, workerName?: string) => {
     const sanitized = email
       .toLowerCase()
@@ -41,6 +30,13 @@ vi.mock('../../lib/access', () => ({
   }),
 }));
 
+// Mock access-policy module
+vi.mock('../../lib/access-policy', () => ({
+  getAllUsers: vi.fn(),
+  syncAccessPolicy: vi.fn(),
+  getAdminEmails: vi.fn(async () => []),
+}));
+
 // Mock r2-admin scoped token functions
 const mockDeleteScopedR2Token = vi.hoisted(() => vi.fn());
 vi.mock('../../lib/r2-admin', () => ({
@@ -49,15 +45,21 @@ vi.mock('../../lib/r2-admin', () => ({
 
 import usersRoutes from '../../routes/users';
 import { getAllUsers, syncAccessPolicy } from '../../lib/access-policy';
-import { authMiddleware, requireAdmin } from '../../middleware/auth';
 import { AppError } from '../../lib/error-types';
 
 import { createMockKV } from '../helpers/mock-kv';
 
 const mockGetAllUsers = getAllUsers as ReturnType<typeof vi.fn>;
 const mockSyncAccessPolicy = syncAccessPolicy as ReturnType<typeof vi.fn>;
-const mockAuthMiddleware = authMiddleware as ReturnType<typeof vi.fn>;
-const mockRequireAdmin = requireAdmin as ReturnType<typeof vi.fn>;
+
+/**
+ * Set the identity the real middleware will see for the next request.
+ * Defaults to an active tier so the acting user clears the SaaS tier gate;
+ * tests that exercise the gate itself pass an explicit pending/blocked tier.
+ */
+function setAuthUser(user: Partial<AccessUser> & { email: string }) {
+  mockAuthUser = { authenticated: true, role: 'user', accessTier: 'standard', subscriptionTier: 'standard', ...user } as AccessUser;
+}
 
 // Mock global fetch for CF API calls
 const mockFetch = vi.fn();
@@ -74,6 +76,9 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
     mockFetch.mockResolvedValue(new Response('{}', { status: 200 }));
     mockGetAllUsers.mockResolvedValue([]);
     mockSyncAccessPolicy.mockResolvedValue(undefined);
+    // Default acting identity: active admin (clears the SaaS tier gate and
+    // requireAdmin). Tests that exercise the guards override via the factories.
+    setAuthUser({ email: 'admin@example.com', role: 'admin' });
   });
 
   afterEach(() => {
@@ -83,13 +88,8 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
   });
 
   function createTestApp(userEmail = 'admin@example.com') {
-    // Update the auth middleware mock to use this user
-    currentTestUserEmail = userEmail;
-    mockAuthMiddleware.mockImplementation(async (c: any, next: any) => {
-      c.set('user', { email: userEmail, authenticated: true, role: 'admin' });
-      c.set('bucketName', `codeflare-test`);
-      return next();
-    });
+    // Drive the real middleware via the mocked authenticateRequest identity.
+    setAuthUser({ email: userEmail, role: 'admin' });
 
     const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -342,20 +342,8 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
   // =========================================================================
   describe('Admin-only access control', () => {
     function createTestAppWithRole(userEmail: string, role: 'admin' | 'user') {
-      currentTestUserEmail = userEmail;
-      mockAuthMiddleware.mockImplementation(async (c: any, next: any) => {
-        c.set('user', { email: userEmail, authenticated: true, role });
-        c.set('bucketName', `codeflare-test`);
-        return next();
-      });
-
-      mockRequireAdmin.mockImplementation(async (c: any, next: any) => {
-        const user = c.get('user');
-        if (user?.role !== 'admin') {
-          return c.json({ error: 'Access denied', code: 'FORBIDDEN' }, 403);
-        }
-        return next();
-      });
+      // Real authMiddleware + requireAdmin run; only identity is mocked.
+      setAuthUser({ email: userEmail, role });
 
       const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
       app.use('*', async (c, next) => {
@@ -701,6 +689,82 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       expect(body.users).toHaveLength(2);
       expect(body.users[0].role).toBe('admin');
       expect(body.users[1].role).toBe('user');
+    });
+  });
+
+  // =========================================================================
+  // CF-005: Real authMiddleware (requireActiveUser) + requireAdmin gating.
+  // No pass-through mock - only the identity (authenticateRequest) is mocked,
+  // so the middleware's tier gate and role check run for real.
+  // =========================================================================
+  describe('Real auth/admin guards - CF-005', () => {
+    function createGuardApp(envOverrides: Partial<Env> = {}) {
+      const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      app.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CLOUDFLARE_API_TOKEN: 'test-api-token',
+          ...envOverrides,
+        } as unknown as Env;
+        return next();
+      });
+      app.route('/users', usersRoutes);
+      app.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404 | 409 | 500);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+      return app;
+    }
+
+    it('admin reaches the route (200) through the real guards', async () => {
+      setAuthUser({ email: 'admin@example.com', role: 'admin' });
+      mockGetAllUsers.mockResolvedValue([]);
+
+      const res = await createGuardApp().request('/users');
+
+      expect(res.status).toBe(200);
+    });
+
+    it('non-admin is rejected by the real requireAdmin (403)', async () => {
+      setAuthUser({ email: 'viewer@example.com', role: 'user' });
+
+      const res = await createGuardApp().request('/users');
+
+      expect(res.status).toBe(403);
+    });
+
+    it('SaaS-mode pending user is rejected by the tier gate before requireAdmin (403)', async () => {
+      // pending is not an active tier → requireActiveUser returns 403 { code: 'PENDING' }
+      setAuthUser({ email: 'pending@example.com', role: 'admin', accessTier: 'pending', subscriptionTier: 'pending' });
+
+      const res = await createGuardApp({ SAAS_MODE: 'active' } as Partial<Env>).request('/users');
+
+      expect(res.status).toBe(403);
+      const body = await res.json() as { code?: string };
+      expect(body.code).toBe('PENDING');
+    });
+
+    it('SaaS-mode blocked user is rejected by the tier gate (403 BLOCKED)', async () => {
+      setAuthUser({ email: 'blocked@example.com', role: 'admin', accessTier: 'blocked', subscriptionTier: 'blocked' });
+
+      const res = await createGuardApp({ SAAS_MODE: 'active' } as Partial<Env>).request('/users');
+
+      expect(res.status).toBe(403);
+      const body = await res.json() as { code?: string };
+      expect(body.code).toBe('BLOCKED');
+    });
+
+    it('non-SaaS pending admin passes the tier gate (200) - gate is SaaS-only', async () => {
+      // When SAAS_MODE is unset, requireActiveUser behaves like requireIdentity:
+      // no tier gate, so a pending admin reaches the route.
+      setAuthUser({ email: 'admin@example.com', role: 'admin', accessTier: 'pending', subscriptionTier: 'pending' });
+      mockGetAllUsers.mockResolvedValue([]);
+
+      const res = await createGuardApp().request('/users');
+
+      expect(res.status).toBe(200);
     });
   });
 });

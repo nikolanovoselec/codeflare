@@ -59,7 +59,8 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       const body = await res.json() as Record<string, unknown>;
       expect(body.githubToken).toBeUndefined();
       expect(body.cloudflareApiToken).toBeUndefined();
-      expect(body.cloudflareAccountId).toBeUndefined();
+      // null is the explicit "no account ID" signal (REQ-AGENT-029 AC2).
+      expect(body.cloudflareAccountId).toBeNull();
     });
 
     it('returns masked tokens when keys exist', async () => {
@@ -190,7 +191,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       const body = await res.json() as Record<string, unknown>;
       expect(body.cloudflareApiToken).toBe('****alid');
       expect(body.cloudflareAccountId).toBe('acct-123');
-      // Single account — no cloudflareAccounts returned
+      // Single account - no cloudflareAccounts returned
       expect(body.cloudflareAccounts).toBeUndefined();
     });
 
@@ -279,7 +280,7 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(res.status).toBe(200);
       const body = await res.json() as Record<string, unknown>;
       expect(body.cloudflareApiToken).toBeUndefined();
-      expect(body.cloudflareAccountId).toBeUndefined();
+      expect(body.cloudflareAccountId).toBeNull();
     });
 
     it('leaves token unchanged when field is omitted', async () => {
@@ -308,9 +309,17 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(body.cloudflareApiToken).toBe('****oken');
     });
 
-    it('sets cloudflareAccountId explicitly', async () => {
+    it('sets cloudflareAccountId after validating it against the stored token', async () => {
       mockKV._set('deploy-keys:test-bucket', {
         cloudflareApiToken: 'cf-token-existing',
+      });
+      // Account ID must be re-validated against the token's account list.
+      mockGlobalFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          result: [{ id: 'acct-selected', name: 'Test' }, { id: 'acct-other', name: 'Other' }],
+        }),
       });
 
       const app = createTestApp();
@@ -322,6 +331,64 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(res.status).toBe(200);
       const body = await res.json() as Record<string, unknown>;
       expect(body.cloudflareAccountId).toBe('acct-selected');
+    });
+
+    it('rejects a cloudflareAccountId not accessible with the stored token', async () => {
+      mockKV._set('deploy-keys:test-bucket', {
+        cloudflareApiToken: 'cf-token-existing',
+      });
+      mockGlobalFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          result: [{ id: 'acct-real', name: 'Test' }],
+        }),
+      });
+
+      const app = createTestApp();
+      const res = await app.request('/api/deploy-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cloudflareAccountId: 'acct-forged' }),
+      });
+      expect(res.status).toBe(400);
+      // The forged ID must not have been persisted.
+      const stored = await mockKV.get('deploy-keys:test-bucket', 'json') as DeployKeys;
+      expect(stored.cloudflareAccountId).toBeUndefined();
+    });
+
+    it('rejects a cloudflareAccountId when no Cloudflare token is stored', async () => {
+      const app = createTestApp();
+      const res = await app.request('/api/deploy-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cloudflareAccountId: 'acct-orphan' }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('reuses single-request validation when token and account ID are co-submitted', async () => {
+      // Token has multiple accounts; the same request also selects one.
+      // Only one validation fetch should run (reused, not re-fetched).
+      mockGlobalFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          result: [{ id: 'acct-a', name: 'A' }, { id: 'acct-b', name: 'B' }],
+        }),
+      });
+
+      const app = createTestApp();
+      const res = await app.request('/api/deploy-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cloudflareApiToken: 'cf-multi', cloudflareAccountId: 'acct-b' }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.cloudflareAccountId).toBe('acct-b');
+      // validateCloudflareToken called exactly once for the co-submitted token.
+      expect(mockGlobalFetch).toHaveBeenCalledTimes(1);
     });
 
     it('deletes KV entry when all keys cleared', async () => {
@@ -367,6 +434,72 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       const body = await res.json() as Record<string, unknown>;
       expect(body.success).toBe(true);
       expect(mockKV.delete).toHaveBeenCalledWith('deploy-keys:test-bucket');
+    });
+  });
+
+  // ─── Encryption (CF-003) ─────────────────────────────────────────────────
+  // Ported from llm-keys.test.ts. The base test app sets no ENCRYPTION_KEY, so
+  // the v1:-ciphertext path went unasserted here. With ENCRYPTION_KEY set, PUT
+  // must store an encrypted v1: blob (not plaintext JSON) and GET must decrypt
+  // and mask it round-trip.
+  describe('PUT /api/deploy-keys - encryption', () => {
+    // Generate key ONCE so PUT and GET share the same key.
+    const rawKey = crypto.getRandomValues(new Uint8Array(32));
+    const stableBase64Key = btoa(String.fromCharCode(...rawKey));
+
+    function createEncryptedTestApp() {
+      const app = new Hono<{ Bindings: Env }>();
+      app.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as any);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+      app.use('*', async (c, next) => {
+        (c.env as any) = { KV: mockKV, ENCRYPTION_KEY: stableBase64Key };
+        return next();
+      });
+      app.route('/api/deploy-keys', deployKeysRoutes);
+      return app;
+    }
+
+    it('stores encrypted value with v1: prefix when ENCRYPTION_KEY set', async () => {
+      // GitHub token requires API validation before store.
+      mockGlobalFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ login: 'testuser' }) });
+
+      const app = createEncryptedTestApp();
+      await app.request('/api/deploy-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ githubToken: 'github_pat_encrypted_test' }),
+      });
+
+      const rawStored = mockKV._store.get('deploy-keys:test-bucket');
+      expect(rawStored).toBeDefined();
+      expect(rawStored!.startsWith('v1:')).toBe(true);
+      // Ciphertext must not be parseable plaintext JSON.
+      expect(() => JSON.parse(rawStored!)).toThrow();
+      // And must not contain the secret in the clear.
+      expect(rawStored!).not.toContain('github_pat_encrypted_test');
+    });
+
+    it('GET decrypts correctly when ENCRYPTION_KEY set', async () => {
+      mockGlobalFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ login: 'testuser' }) });
+
+      const app = createEncryptedTestApp();
+
+      // First store via PUT (encrypted).
+      await app.request('/api/deploy-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ githubToken: 'github_pat_roundtrip1234' }),
+      });
+
+      // Then read via GET (should decrypt and mask).
+      const res = await app.request('/api/deploy-keys');
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.githubToken).toBe('****1234');
     });
   });
 });
