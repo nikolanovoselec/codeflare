@@ -178,12 +178,12 @@ sequenceDiagram
     Note over C: .bashrc auto-starts agent
 ```
 
-### Startup Status Stages (REQ-SESSION-015)
+### Startup Status Stages (REQ-SESSION-017)
 
 | Stage | Progress | Condition |
 |-------|----------|-----------|
-| stopped | 0% | Container not running |
-| starting | 10-20% | Container running but health server not responding |
+| stopped | 0% | Container state cannot be determined (DO `getState()` unavailable) |
+| starting | 10-20% | Container not yet running/healthy, or running with the health server not yet responding |
 | syncing | 30-45% | Health server up, syncStatus = pending/syncing |
 | verifying | 85% | Sync complete, terminal server not yet responding |
 | mounting | 90% | Terminal server up, PTY pre-warming in progress. WebSocket connects, terminal canvas hidden (`visibility: hidden`) |
