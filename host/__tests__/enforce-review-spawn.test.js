@@ -155,6 +155,22 @@ const AGENT_LINE = (subagentType, ts, toolUseId = 'toolu_x') =>
     timestamp: ts,
   });
 
+const PI_AGENT_LINE = (subagentType, ts, toolUseId = 'toolu_x') =>
+  JSON.stringify({
+    type: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          name: 'Agent',
+          id: toolUseId,
+          input: { subagent_type: subagentType, run_in_background: true },
+        },
+      ],
+    },
+    timestamp: ts,
+  });
+
 const SPEC_DONE_LINE = (toolUseId = 'toolu_sr1') =>
   `<task-notification><tool-use-id>${toolUseId}</tool-use-id><status>completed</status></task-notification>`;
 
@@ -455,6 +471,25 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     // tells the assistant exactly what to spawn
     assert.match(r.stdout, /code-reviewer/);
     assert.match(r.stdout, /spec-reviewer/);
+  });
+
+  it('suppresses an in-flight lane without masking missing peer lanes', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'newsha'));
+    const t = writeTranscript(cwd, [
+      PI_AGENT_LINE('code-reviewer', '2026-05-03T11:59:59.000Z', 'toolu_cr_inflight'),
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    assert.match(r.stdout, /spec-reviewer/,
+      'the missing peer lane must still be demanded while code-reviewer is in flight');
+    assert.match(r.stdout, /run_in_background: true/,
+      'the emitted spawn directive must keep review dispatch in the background');
+    assert.doesNotMatch(r.stdout, /code-reviewer/,
+      'the in-flight code-reviewer lane must not be re-demanded');
   });
 
   it('blocks demanding doc-updater after spec-reviewer completes', () => {
