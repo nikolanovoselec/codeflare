@@ -830,24 +830,36 @@ lane_in_flight() {
   return 0  # spawned recently, no completion yet -> in flight
 }
 
-lane_has_coverage_after_line() {
+latest_lane_spawn_after_line() {
   local lane="$1"
   local min_line="$2"
-  local spawn_line
-  spawn_line=$(awk -v p="$min_line" -v a="$lane" '
+  awk -v p="$min_line" -v a="$lane" '
     NR > p \
       && index($0, "\"type\":\"tool_use\"") \
       && index($0, "\"name\":\"Agent\"") \
       && index($0, "\"subagent_type\":\"" a "\"") { print NR }
-  ' "$TRANSCRIPT" | tail -1)
-  [ -n "$spawn_line" ] || return 1
+  ' "$TRANSCRIPT" | tail -1
+}
 
+spawn_completed() {
+  local spawn_line="$1"
   local line_content tool_use_id
   line_content=$(awk -v L="$spawn_line" 'NR==L { print; exit }' "$TRANSCRIPT")
   tool_use_id=$(echo "$line_content" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
-  if [ -n "$tool_use_id" ] && awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
-      | grep -F "tool-use-id>${tool_use_id}<" \
-      | grep -qF 'completed</status>'; then
+  [ -n "$tool_use_id" ] || return 1
+  awk -v s="$spawn_line" 'NR > s' "$TRANSCRIPT" \
+    | grep -F "tool-use-id>${tool_use_id}<" \
+    | grep -qF 'completed</status>'
+}
+
+lane_has_coverage_after_line() {
+  local lane="$1"
+  local min_line="$2"
+  local spawn_line
+  spawn_line=$(latest_lane_spawn_after_line "$lane" "$min_line")
+  [ -n "$spawn_line" ] || return 1
+
+  if spawn_completed "$spawn_line"; then
     return 0
   fi
 
@@ -856,14 +868,27 @@ lane_has_coverage_after_line() {
   [ "$((total - spawn_line))" -le "$IN_FLIGHT_STALE_LINES" ] 2>/dev/null
 }
 
+lane_completed_after_line() {
+  local lane="$1"
+  local min_line="$2"
+  local spawn_line
+  spawn_line=$(latest_lane_spawn_after_line "$lane" "$min_line")
+  [ -n "$spawn_line" ] || return 1
+  spawn_completed "$spawn_line"
+}
+
 lane_has_current_coverage() {
   lane_has_coverage_after_line "$1" "$PUSH_LINE"
 }
 
-all_required_lanes_have_current_coverage() {
+lane_completed_for_current_head() {
+  lane_completed_after_line "$1" "$PUSH_LINE"
+}
+
+all_required_lanes_completed_for_current_head() {
   local lane
   for lane in $REQUIRED_LANES; do
-    lane_has_current_coverage "$lane" || return 1
+    lane_completed_for_current_head "$lane" || return 1
   done
   return 0
 }
@@ -1003,7 +1028,7 @@ fi
 # Conservative: if any required lane is still running, exit 0 without ack
 # and the next Stop re-evaluates.
 # ---------------------------------------------------------------------------
-if [ "$PIPELINE_COMPLETE" = "1" ] && all_required_lanes_have_current_coverage; then
+if [ "$PIPELINE_COMPLETE" = "1" ] && all_required_lanes_completed_for_current_head; then
   echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
   clear_counter
 fi

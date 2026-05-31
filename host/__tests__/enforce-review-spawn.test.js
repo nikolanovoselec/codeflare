@@ -155,8 +155,10 @@ const AGENT_LINE = (subagentType, ts, toolUseId = 'toolu_x') =>
     timestamp: ts,
   });
 
-const SPEC_DONE_LINE = (toolUseId = 'toolu_sr1') =>
+const DONE_LINE = (toolUseId) =>
   `<task-notification><tool-use-id>${toolUseId}</tool-use-id><status>completed</status></task-notification>`;
+
+const SPEC_DONE_LINE = (toolUseId = 'toolu_sr1') => DONE_LINE(toolUseId);
 
 describe('enforce-review-spawn.sh — vibe-coding gate', () => {
   it('exits 0 silently when sdd/ is missing', () => {
@@ -506,6 +508,7 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
       AGENT_LINE('spec-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_sr1'),
       SPEC_DONE_LINE('toolu_sr1'),
       AGENT_LINE('doc-updater', '2026-05-03T12:00:10.000Z', 'toolu_du1'),
+      DONE_LINE('toolu_du1'),
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
@@ -514,7 +517,29 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     }).stdout.trim();
     const ackFile = join(cwd, gitCommonDir, 'sdd-last-ack-pr-head');
     assert.equal(existsSync(ackFile), false,
-      'the checkpoint must not advance until every required lane has current-head coverage');
+      'the checkpoint must not advance until every required lane has current-head completion');
+  });
+
+  it('does not ack while current-head lanes are still in flight', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = 'currentheadinflight';
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [
+      PUSH_LINE('2026-05-03T12:00:00.000Z'),
+      AGENT_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_cr1'),
+      AGENT_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_sr1'),
+      SPEC_DONE_LINE('toolu_sr1'),
+      AGENT_LINE('doc-updater', '2026-05-03T12:00:10.000Z', 'toolu_du1'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const ackFile = join(cwd, gitCommonDir, 'sdd-last-ack-pr-head');
+    assert.equal(existsSync(ackFile), false,
+      'the checkpoint must not advance while required current-head lanes are still running');
   });
 
   it('blocks demanding doc-updater after spec-reviewer completes', () => {
@@ -541,9 +566,11 @@ describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
     const t = writeTranscript(cwd, [
       PUSH_LINE('2026-05-03T12:00:00.000Z'),
       AGENT_LINE('code-reviewer', '2026-05-03T12:00:01.000Z', 'toolu_cr1'),
+      DONE_LINE('toolu_cr1'),
       AGENT_LINE('spec-reviewer', '2026-05-03T12:00:02.000Z', 'toolu_sr1'),
       SPEC_DONE_LINE('toolu_sr1'),
       AGENT_LINE('doc-updater', '2026-05-03T12:00:10.000Z', 'toolu_du1'),
+      DONE_LINE('toolu_du1'),
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
@@ -1372,11 +1399,12 @@ describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
     const t = writeTranscript(cwd, [
       PUSH_LINE('2026-05-18T12:00:00.000Z'),
       AGENT_LINE('doc-updater', '2026-05-18T12:00:05.000Z', 'toolu_du1'),
+      DONE_LINE('toolu_du1'),
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '',
-      'docs-only push with doc-updater spawned must NOT block (no code/spec demanded)');
+      'docs-only push with doc-updater completed must NOT block (no code/spec demanded)');
     const gcd = spawnSync('git', ['rev-parse', '--git-common-dir'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();
