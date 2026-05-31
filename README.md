@@ -24,9 +24,9 @@ Every session comes pre-loaded with your choice of AI coding agent:
 *Pro mode - cross-session memory, a queryable knowledge graph, curated skills, and spec-driven workflows - runs full-strength on Claude Code and Pi. Other agents receive the rules and agent definitions; the deepest Pro capabilities are Claude/Pi-native.*
 
 <details>
-<summary><strong>How does Claude Code run as root?</strong></summary>
+<summary><strong>How do the agents run as root?</strong></summary>
 
-Cloudflare Containers run as root. Claude Code normally refuses `--dangerously-skip-permissions` as root. The official workaround is setting `IS_SANDBOX=1`, which tells the CLI it's running in a sandboxed environment. Combined with `--dangerously-skip-permissions`, this gives fully autonomous operation without permission prompts. No wrapper, no patcher, no hacks - just an environment variable that Anthropic's own engineers documented for this exact use case.
+Cloudflare Containers run as root, and both Claude Code and Antigravity launch with `--dangerously-skip-permissions` for fully autonomous operation - no permission prompts. Claude Code normally refuses that flag as root; the official workaround is the container-wide `IS_SANDBOX=1` environment variable, which tells the CLI it's running in a sandboxed environment. No wrapper, no patcher, no hacks - just an environment variable that Anthropic's own engineers documented for this exact use case. Antigravity takes the same flag for prompt-free operation. Codex isolates its execution differently, via a bubblewrap sandbox.
 
 </details>
 
