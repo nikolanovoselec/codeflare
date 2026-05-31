@@ -119,7 +119,7 @@ describe('Container Status Routes', () => {
   // GET /container/startup-status
   // =========================================================================
   describe('GET /container/startup-status', () => {
-    it('returns stopped stage when container is not running', async () => {
+    it('returns starting stage when container state is stopped', async () => {
       const app = createStatusApp();
       testState.container!.getState.mockResolvedValue({ status: 'stopped' });
 

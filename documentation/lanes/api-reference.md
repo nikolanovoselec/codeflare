@@ -64,8 +64,8 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 |--------|----------|------|------------|-------------|
 | POST | `/api/container/start` | Session cookie | [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier) | Start container (non-blocking) |
 | POST | `/api/container/destroy` | Session cookie | [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings) | Destroy container (SIGKILL) |
-| GET | `/api/container/startup-status` | Session cookie | [REQ-SESSION-007](../../sdd/spec/session-lifecycle.md#req-session-007-running-session-count-limited-per-tier), [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero) | Poll startup progress |
-| GET | `/api/container/health` | Session cookie | [REQ-OPS-006](../../sdd/spec/operations.md#req-ops-006-idle-containers-hibernate-and-cost-zero) | Health check |
+| GET | `/api/container/startup-status` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC2, AC3 | Poll startup progress |
+| GET | `/api/container/health` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Health check |
 
 ### Terminal
 
@@ -78,10 +78,10 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/user` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Authenticated user info (includes `onboardingActive`, `onboardingComplete`) |
-| POST | `/api/user/onboarding-complete` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006-user-email-normalized) | Mark guided setup as visited (sets KV flag) |
-| GET | `/api/user/r2-status` | Session cookie (admin-only routes require admin role) | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket) | R2 credential status for current user |
-| POST | `/api/user/ensure-r2-token` | Session cookie (admin-only routes require admin role) | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket) | Create scoped R2 token if missing (rate limited) |
+| GET | `/api/user` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC1 | Authenticated user info (includes `onboardingActive`, `onboardingComplete`) |
+| POST | `/api/user/onboarding-complete` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC2 | Mark guided setup as visited (sets KV flag) |
+| GET | `/api/user/r2-status` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC3 | R2 credential status for current user |
+| POST | `/api/user/ensure-r2-token` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) AC4, AC6 | Create scoped R2 token if missing (rate limited) |
 | GET | `/api/users` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | List allowed users (admin only) |
 | DELETE | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Remove allowed user (admin only) |
 | PATCH | `/api/users/:email` | Session cookie (admin-only routes require admin role) | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Update user tier/role (admin only) |
