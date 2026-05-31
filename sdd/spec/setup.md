@@ -361,11 +361,11 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ---
 
-<!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC coverage describe -> all 5 tiers visible + three-phase navigation + Turnstile init + Standard/Pro mode toggle + free tier no-Stripe direct subscribe + paid tier Start Trial CTA -> AC1..AC6) -->
+<!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC coverage describe -> all 5 tiers visible + two-phase navigation + Turnstile init + Standard/Pro mode toggle + free tier no-Stripe direct subscribe + paid tier Start Trial CTA -> AC1..AC6) -->
 ### REQ-SETUP-009: Subscribe page with tier selection
 
 <!-- @impl: web-ui/src/components/SubscribePage.tsx -->
-<!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (SubscribePage / REQ-SETUP-009 describe + AC coverage block -> AC1/AC2/AC3/AC4/AC5/AC6 tier listing + three-phase wizard + CAPTCHA + mode toggle + free-immediate + paid-handoff) -->
+<!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (SubscribePage / REQ-SETUP-009 describe + AC coverage block -> AC1/AC2/AC3/AC4/AC5/AC6 tier listing + two-phase wizard + CAPTCHA + mode toggle + free-immediate + paid-handoff) -->
 
 **Intent:** Users can choose their subscription tier with a clear comparison of features and pricing.
 
@@ -374,7 +374,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Acceptance Criteria:**
 
 1. The subscribe page shows the available tiers with their features, included hours, session limits, storage, and pricing.
-2. The flow is a three-phase wizard: overview, plan selection, and checkout.
+2. The flow is a two-phase wizard: an overview phase and a tier-selection phase; checkout is an external payment-provider handoff, not an internal phase.
 3. New subscriptions are gated by a CAPTCHA challenge.
 4. The page exposes a mode toggle between the two subscription mode families.
 5. The free tier activates immediately without an external checkout step.
@@ -409,7 +409,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 1. The home page exposes Open Graph metadata: `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:image`, `og:image:width=1200`, `og:image:height=630`, `og:image:alt`, `og:locale`.
 2. Twitter Card metadata is set with `twitter:card="summary_large_image"` plus title, description, image, and image:alt.
 3. The preview image is a 1200x630 PNG that includes the Codeflare wordmark, the product tagline, and a CODEFLARE.CH wordmark footer.
-4. The `<meta name="description">` matches the `og:description` so search-engine snippets and social-share cards stay in sync.
+4. The `<meta name="description">` extends the `og:description` (it starts with the same brand tagline and appends a short product descriptor) so search-engine snippets and social-share cards stay aligned.
 5. The tagline copy in `og:description` and the meta description follows the brand voice ("Ideas don't care where you are. Neither does your new ephemeral IDE.") and is the canonical external description of the product.
 
 **Constraints:**

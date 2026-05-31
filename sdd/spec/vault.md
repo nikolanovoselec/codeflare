@@ -123,7 +123,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. Concept references use wikilink syntax; file paths, code symbols, and PR/issue references stay as prose.
 3. The capture agent builds the vault graph inline: the agent emits chunk JSON matching the graph builder's schema, then a graph-build step materializes the per-extraction graph.
 4. The agent merges the per-extraction graph into the unified global graph under the shared multi-writer lock and tags it as the vault source.
-5. If extraction fails, the markdown file stays on disk; the next vault-monitor tick re-discovers it via the high-water marker comparison.
+5. If extraction fails, the markdown file stays on disk; the vault-monitor daemon excludes `Raw/Sessions/`, so recovery is the next 15-message capture batch re-firing rather than a vault-monitor tick.
 6. The historical MCP memory subsystem has been removed entirely; the capture agent does not invoke it, and no legacy JSONL graph is read.
 
 **Constraints:**

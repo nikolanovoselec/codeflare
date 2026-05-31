@@ -245,6 +245,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 <!-- @impl: web-ui/src/stores/tiling.ts::setTilingLayout -->
 <!-- @impl: web-ui/src/stores/tiling.ts::isLayoutCompatible -->
 <!-- @impl: web-ui/src/stores/tiling.ts::getBestLayoutForTabCount -->
+<!-- @impl: web-ui/src/stores/session-tabs.ts::addTerminalTab -->
 <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (Tiling Module - Pure Helpers describe → 4 layout modes + min tab count + upgrade order → AC1-AC7) -->
 
 **Intent:** Users can arrange terminal tabs in tiled layouts for simultaneous visibility of multiple terminals, in addition to the default tabbed view.
@@ -256,7 +257,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 1. Four layout modes are supported: tabbed (single terminal visible), two-split (side by side), three-split (one left, two right), and four-grid (2x2).
 2. Each layout has a minimum tab count equal to the number of panes it shows.
 3. A compatibility check validates whether a session has enough tabs for the requested layout before applying it.
-4. The layout auto-upgrades when the tab count reaches the next compatible layout's minimum.
+4. Adding a tab beyond the current layout's pane count downgrades the layout to tabbed rather than auto-upgrading to a larger tiling layout.
 5. A best-layout helper resolves the highest layout compatible with a given tab count so the UI can land users on the most spacious view by default.
 6. Layout state is persisted per session and restored on reconnection.
 7. Applying an incompatible layout (insufficient tabs) or targeting a missing session fails cleanly rather than partially applying.

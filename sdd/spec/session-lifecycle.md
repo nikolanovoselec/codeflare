@@ -358,7 +358,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 4. Dashboard session cards display a three-color status dot: green (running + WebSocket connected), yellow (running + WebSocket disconnected), gray (stopped).
 5. Container metrics (CPU, memory, disk, sync status) are surfaced on the session cards with up to ~60s staleness.
 6. Last-active and last-started timestamps are available for sleep-timer countdown display.
-7. When polling transitions a session to stopped, terminal connections are disposed and the active session is cleared.
+7. When polling transitions a session to stopped, its terminal connections are disposed; the currently active session is exempt from this poll-driven stop (guarded) and is not cleared.
 
 **Constraints:**
 
