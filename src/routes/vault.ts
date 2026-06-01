@@ -47,7 +47,7 @@ import {
   maybeSynthesizeCsrfHeader,
   maybeIssueCsrfCookie,
   isServiceWorkerRegistration,
-  VAULT_KEY_SHIM_SERVICE_WORKER_JS,
+  isServiceWorkerContextFetch,
   injectVaultEncryptionConfig,
   injectVaultBootstrapHopHtml,
   hasVaultBootstrapCookie,
@@ -55,6 +55,7 @@ import {
   inferOriginValidated,
   rewriteVaultHtmlResponse,
 } from './vault-html';
+import { VAULT_NATIVE_SERVICE_WORKER_JS } from './vault-native-sw';
 
 // Re-export the HTML/JS-rewriting + SW-shim surface (now living in
 // vault-html.ts after the CF-002 split) so existing importers - notably
@@ -64,7 +65,7 @@ export {
   maybeSynthesizeCsrfHeader,
   maybeIssueCsrfCookie,
   isServiceWorkerRegistration,
-  VAULT_KEY_SHIM_SERVICE_WORKER_JS,
+  isServiceWorkerContextFetch,
   injectVaultEncryptionConfig,
   injectVaultBootScript,
   injectVaultIdbRecorder,
@@ -78,6 +79,12 @@ export {
   VAULT_SW_ACTIVATION_TIMEOUT_MS,
   VAULT_IDB_RECORDER_MARKER,
 } from './vault-html';
+export {
+  VAULT_NATIVE_SERVICE_WORKER_JS,
+  VAULT_NATIVE_SW_VERBATIM,
+  VAULT_NATIVE_SW_SHA256,
+  graftVaultKeyRecovery,
+} from './vault-native-sw';
 
 const logger = createLogger('vault');
 
@@ -328,14 +335,17 @@ export async function handleVaultRequest(
   // Service Worker registration fetches arrive without the session cookie
   // (Chrome 76+ omits credentials on the SW script fetch even for same-
   // origin same-site requests), so the normal auth chain would return 401
-  // and registration would fail forever. Serve the key-shim SW directly
-  // from the Worker to satisfy the browser's registration handshake without
-  // round-tripping to the container; the SW JS is identical for every
-  // session and the per-session encryption key arrives later via postMessage
-  // from the auth-gated bootstrap-hop page. See
-  // VAULT_KEY_SHIM_SERVICE_WORKER_JS for context.
+  // and registration would fail forever. Serve SilverBullet's native SW
+  // directly from the Worker to satisfy the browser's registration handshake
+  // without round-tripping to the container; the SW bytes are identical for
+  // every session (version-locked to the SB binary) and the per-session
+  // encryption key arrives later via postMessage from the auth-gated
+  // bootstrap-hop page, which the native worker handles natively. Serving the
+  // native worker (not the former key-shim) is what restores the persistent
+  // sb_files_* sync store and incremental indexing (AD69, issue #445). See
+  // VAULT_NATIVE_SERVICE_WORKER_JS for context.
   if (isServiceWorkerRegistration(request, remainingPath)) {
-    return new Response(VAULT_KEY_SHIM_SERVICE_WORKER_JS, {
+    return new Response(VAULT_NATIVE_SERVICE_WORKER_JS, {
       status: 200,
       headers: {
         'Content-Type': 'text/javascript; charset=utf-8',
@@ -488,9 +498,20 @@ export async function handleVaultRequest(
     // subsequent shell-path requests fall straight through to the proxy.
     // Without this redirect SB boots, finds no SW key, and silently runs
     // unencrypted -- the exact regression REQ-VAULT-008 AC5 forbids.
+    //
+    // REQ-VAULT-013 AC9: the native SW precaches the shell `/` via
+    // cache.addAll during install, BEFORE the hop sets the bootstrap cookie.
+    // That precache fetch is SW-context (Sec-Fetch-Mode != navigate), so a
+    // 302 here would make cache.addAll reject atomically and hang the SW
+    // install. Suppress the redirect for SW-context fetches; top-level
+    // navigations and clients with no Sec-Fetch-Mode still get the hop
+    // (fail-safe), so a real first navigation never boots without the key.
     const isShellPathPre =
       remainingPath === '/' || remainingPath === '/index.html';
-    if (isShellPathPre && !isWebSocket && request.method === 'GET' && !hasVaultBootstrapCookie(request)) {
+    if (
+      isShellPathPre && !isWebSocket && request.method === 'GET'
+      && !hasVaultBootstrapCookie(request) && !isServiceWorkerContextFetch(request)
+    ) {
       return new Response(null, {
         status: 302,
         headers: {

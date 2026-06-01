@@ -1,13 +1,14 @@
 /**
- * Vault HTML/JS rewriting + the service-worker shim string.
+ * Vault HTML/JS rewriting + the service-worker request selectors.
  *
  * Extracted from src/routes/vault.ts (CF-002) so the routing/auth module
  * stays focused on the request chain. This module owns every byte the
  * Worker injects into, or serves to, the browser on behalf of the
  * in-container SilverBullet editor:
  *
- *   - VAULT_KEY_SHIM_SERVICE_WORKER_JS: the key-shim SW source.
- *   - isServiceWorkerRegistration: the SW-registration request selector.
+ *   - isServiceWorkerRegistration / isServiceWorkerContextFetch: the
+ *     SW-registration and SW-context request selectors. The worker bytes
+ *     served for registration live in src/routes/vault-native-sw.ts (AD69).
  *   - injectVaultEncryptionConfig / injectVaultBootScript /
  *     injectVaultIdbRecorder: BootConfig + shell-HTML injectors.
  *   - injectVaultBootstrapHopHtml + VAULT_BOOTSTRAP_COOKIE helpers.
@@ -121,66 +122,6 @@ function readCsrfCookie(request: Request): string | null {
 }
 
 /**
- * Service Worker shim served by the Worker for `service_worker.js`
- * registration requests. SilverBullet's real SW (offline-cache bundle)
- * cannot be served via the vault proxy because Chrome omits cookies on
- * the SW script fetch - the browser's `navigator.serviceWorker.register()`
- * call sends only `Accept`, `DNT`, and `Service-Worker: script` (no
- * `Cookie`), so any cookie-gated route returns 401 and registration
- * fails permanently.
- *
- * The shim is functionally a no-op for SB's sync engine (file sync still
- * goes through the auth-gated Worker proxy directly), with one carved-out
- * responsibility: hold the per-session AES-CTR encryption key in memory
- * so SilverBullet's `client/boot.ts` get-encryption-key message returns
- * a non-undefined value. The codeflare bootstrap-hop page posts the key
- * via `{type: "set-encryption-key"}` before SB boots; SB's boot then
- * polls `{type: "get-encryption-key"}` and uses the reply to enable the
- * `EncryptedKvPrimitives` wrapper on the sb_data IDB.
- *
- * The key never leaves the SW process - it is in-memory only, scoped to
- * `/api/vault/<sid>/`, and gone the moment the browser tears the SW down.
- * That matches SilverBullet's upstream contract for `encryptionKeyMemoryStore`
- * (client/service_worker.ts:60 in SB 2.8). Implements REQ-VAULT-008 AC5.
- */
-export const VAULT_KEY_SHIM_SERVICE_WORKER_JS =
-  '// Codeflare vault key-shim service worker - see src/routes/vault.ts.\n' +
-  'let encryptionKey = undefined;\n' +
-  'function isSameOriginClient(source) {\n' +
-  '  if (!source || typeof source.url !== "string") return false;\n' +
-  '  try { return new URL(source.url).origin === self.location.origin; }\n' +
-  '  catch (_) { return false; }\n' +
-  '}\n' +
-  'async function recoverKey() {\n' +
-  '  if (encryptionKey !== undefined) return;\n' +
-  '  try {\n' +
-  '    var r = await fetch(self.registration.scope + ".vault-key", { credentials: "same-origin" });\n' +
-  '    if (r.ok) { var b = await r.json(); if (b && b.key) encryptionKey = b.key; }\n' +
-  '  } catch (_) {}\n' +
-  '}\n' +
-  'self.addEventListener("install", () => self.skipWaiting());\n' +
-  'self.addEventListener("activate", (event) => event.waitUntil(\n' +
-  '  recoverKey().then(() => self.clients.claim())\n' +
-  '));\n' +
-  'self.addEventListener("message", (event) => {\n' +
-  '  const msg = event && event.data;\n' +
-  '  if (!msg || typeof msg !== "object") return;\n' +
-  '  if (!isSameOriginClient(event.source)) return;\n' +
-  '  if (msg.type === "set-encryption-key") {\n' +
-  '    encryptionKey = msg.key;\n' +
-  '    return;\n' +
-  '  }\n' +
-  '  if (msg.type === "get-encryption-key") {\n' +
-  '    if (encryptionKey === undefined) {\n' +
-  '      recoverKey().then(() => event.source.postMessage({ type: "encryption-key", key: encryptionKey !== undefined ? encryptionKey : null }));\n' +
-  '      return;\n' +
-  '    }\n' +
-  '    event.source.postMessage({ type: "encryption-key", key: encryptionKey });\n' +
-  '    return;\n' +
-  '  }\n' +
-  '});\n';
-
-/**
  * Identify a browser-initiated Service Worker registration GET. The
  * `service-worker: script` request header is set by the user agent and is
  * a Fetch-spec forbidden header name today, so page JavaScript cannot
@@ -189,21 +130,44 @@ export const VAULT_KEY_SHIM_SERVICE_WORKER_JS =
  *
  * Cookie header is intentionally NOT checked. Chrome 76+ strips cookies
  * on SW registration fetches per spec, but Samsung Internet and other
- * Chromium forks may not. When cookies are present and this function
- * returns false, the request falls through to the proxy chain which
- * serves SilverBullet's real 97KB SW instead of the key-shim. That SW
- * runs cache.addAll() during install, which fetches the vault root
- * without the bootstrap cookie and gets a 302 redirect, causing the
- * install to fail and navigator.serviceWorker.ready to hang forever.
- * The service-worker header alone is sufficient security (forbidden
- * header, not forgeable by page JS) and the response is a static JS
- * string with no user data.
+ * Chromium forks may not. Serving the native worker (vault-native-sw.ts,
+ * AD69) for this exact request regardless of cookie presence keeps
+ * registration browser-agnostic; the response is open-source SilverBullet
+ * frontend bytes plus the codeflare key-recovery graft, with no user data.
+ * The `service-worker` header alone is sufficient security (forbidden
+ * header, not forgeable by page JS).
  */
 export function isServiceWorkerRegistration(request: Request, remainingPath: string | undefined): boolean {
   if (request.method !== 'GET') return false;
   if (remainingPath !== '/service_worker.js') return false;
   if (request.headers.get('service-worker') !== 'script') return false;
   return true;
+}
+
+/**
+ * Identify a fetch issued from the Service Worker context rather than a
+ * top-level browser navigation. SilverBullet's native service worker (now
+ * served by the vault proxy, see VAULT_NATIVE_SERVICE_WORKER_JS) precaches
+ * the shell `/` plus its `/.client/*` assets via `cache.addAll(...)` during
+ * `install`. Those precache fetches carry `Sec-Fetch-Mode: no-cors` (or
+ * `same-origin`), NOT `navigate` - the browser only sets `navigate` on
+ * top-level document loads. The shell-path 302 to the bootstrap-hop is meant
+ * for navigations; if it also fires on the SW precache fetch, `cache.addAll`
+ * sees a redirect, rejects atomically, and `navigator.serviceWorker.ready`
+ * hangs forever. Returning true here lets the dispatcher suppress that 302
+ * for SW-context fetches so the precache resolves against the real shell.
+ *
+ * `Sec-Fetch-Mode` is a browser-set forbidden header (page JS cannot forge
+ * it), the same trust basis already relied on at vault.ts for the WS Origin
+ * gate. Fail-safe polarity: when the header is ABSENT (older browsers, exotic
+ * WebViews, non-browser clients) this returns false, so the 302 still fires
+ * and a real navigation is never accidentally served the raw shell without
+ * the bootstrap hop. Only an explicit non-`navigate` mode suppresses it.
+ */
+export function isServiceWorkerContextFetch(request: Request): boolean {
+  const mode = request.headers.get('Sec-Fetch-Mode');
+  if (!mode) return false;
+  return mode !== 'navigate';
 }
 
 /**

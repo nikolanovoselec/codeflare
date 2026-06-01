@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { handleVaultRequest, validateVaultRoute } from '../../routes/vault';
+import { handleVaultRequest, validateVaultRoute, VAULT_NATIVE_SERVICE_WORKER_JS } from '../../routes/vault';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 
@@ -274,5 +274,57 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
     expect(response.status).toBe(503);
     const body = await response.json() as { code: string };
     expect(body.code).toBe('CONTAINER_NOT_READY');
+  });
+
+  describe('native SW + shell-302 suppression (REQ-VAULT-013 AC5/AC9, AD69)', () => {
+    it('T4: serves the native SW pre-auth for the registration fetch, container untouched', async () => {
+      // service_worker.js + `service-worker: script` short-circuits BEFORE the
+      // auth chain (the browser strips cookies on SW registration fetches), so
+      // it must never reach the container - and the body is the native worker.
+      const request = vaultRequest(`/api/vault/${SID}/service_worker.js`, { 'service-worker': 'script' });
+      const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe(VAULT_NATIVE_SERVICE_WORKER_JS);
+      expect(mockContainerFetch).not.toHaveBeenCalled();
+    });
+
+    it('T5: shell `/` navigation redirects to the hop, but the SW precache fetch passes through', async () => {
+      // A top-level navigation with no bootstrap cookie must 302 to the hop so
+      // the encryption key is wired before SB boots; the container is untouched.
+      const nav = vaultRequest(`/api/vault/${SID}/`, { 'Sec-Fetch-Mode': 'navigate' });
+      const navRes = await handleVaultRequest(nav, mockEnv, mockCtx, route(nav));
+      expect(navRes.status).toBe(302);
+      expect(navRes.headers.get('Location')).toBe(`/api/vault/${SID}/.codeflare-bootstrap`);
+      expect(mockContainerFetch).not.toHaveBeenCalled();
+
+      // The native SW's cache.addAll precache of `/` is SW-context
+      // (Sec-Fetch-Mode != navigate). It must NOT 302 - otherwise the SW
+      // install rejects atomically and hangs - so it reaches the container.
+      const precache = vaultRequest(`/api/vault/${SID}/`, { 'Sec-Fetch-Mode': 'no-cors' });
+      const preRes = await handleVaultRequest(precache, mockEnv, mockCtx, route(precache));
+      expect(preRes.status).toBe(200);
+      expect(mockContainerFetch).toHaveBeenCalledTimes(1);
+
+      // No Sec-Fetch-Mode at all => fail-safe back to the 302 (a navigation we
+      // cannot positively identify must still get the hop, never the raw shell).
+      const headerless = vaultRequest(`/api/vault/${SID}/`);
+      const hlRes = await handleVaultRequest(headerless, mockEnv, mockCtx, route(headerless));
+      expect(hlRes.status).toBe(302);
+    });
+
+    it('T8: /.config injection still wires client encryption (regression)', async () => {
+      // Swapping the served worker must not disturb the BootConfig key
+      // injection - SB reads vaultEncryptionKey + enableClientEncryption from
+      // here to wrap the IDB. The hop cookie lets the request reach the proxy.
+      mockContainerFetch.mockResolvedValueOnce(
+        new Response('{"spaceFolderPath":"/"}', { status: 200, headers: { 'content-type': 'application/json' } }),
+      );
+      const request = vaultRequest(`/api/vault/${SID}/.config`, { Cookie: 'codeflare_vault_bootstrap=1' });
+      const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
+      expect(response.status).toBe(200);
+      const body = await response.json() as { vaultEncryptionKey?: string; enableClientEncryption?: boolean };
+      expect(body.enableClientEncryption).toBe(true);
+      expect(body.vaultEncryptionKey).toBe('AAAA-base64-key-AAAA');
+    });
   });
 });

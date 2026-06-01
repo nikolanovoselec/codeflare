@@ -323,9 +323,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 <!-- @impl: src/routes/vault.ts::rewriteVaultBaseHref -->
 <!-- @impl: src/routes/vault.ts::rewriteVaultHtmlResponse -->
-<!-- @test: src/__tests__/routes/vault.test.ts (rewriteVaultBaseHref / rewriteVaultHtmlResponse (REQ-VAULT-013 AC1-AC4) + isServiceWorkerRegistration / REQ-VAULT-013 (SilverBullet subpath adapter) → AC1-AC7) -->
+<!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
+<!-- @impl: src/routes/vault-html.ts::isServiceWorkerContextFetch -->
+<!-- @test: src/__tests__/routes/vault.test.ts (rewriteVaultBaseHref / rewriteVaultHtmlResponse (REQ-VAULT-013 AC1-AC4) + isServiceWorkerRegistration / REQ-VAULT-013 (SilverBullet subpath adapter) + VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-013 AC5 + isServiceWorkerContextFetch / REQ-VAULT-013 AC8 → AC1-AC8) -->
+<!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (native SW + shell-302 suppression (REQ-VAULT-013 AC5/AC9, AD69) → AC5/AC8) -->
 
-**Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response and short-circuits Service Worker registration so the browser's SW fetch does not return 401.
+**Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response and short-circuits Service Worker registration so the browser's SW fetch does not return 401. It serves SilverBullet's native service worker (not a stripped shim) so the editor keeps its persistent local file-sync store and indexes incrementally (AD69).
 
 **Applies To:** User
 
@@ -335,11 +338,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. Non-HTML responses (JS bundles, images, manifests, markdown page bodies, JSON API replies, binary assets) pass through unchanged; the HTML-only guard is sufficient because the editor's API endpoints return non-HTML content types.
 3. When the body is rewritten, both the content-length and content-encoding headers are dropped because the rewrite path auto-decompresses upstream compression, and the original headers would otherwise trigger a browser decoding failure.
 4. When the rewrite runs but the body did not contain the expected base-href substring (no-op rewrite), a warning is logged so a future editor-template change surfaces as a logged signal instead of a silent white-screen regression.
-5. Browser-initiated Service Worker registration GETs for the editor's service-worker script short-circuit the auth chain and receive a key-shim service worker from the Worker (see [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5 for the key-delivery contract).
-6. The short-circuit selector requires all of: GET method, exact path match for the service-worker script, and the browser-only Service-Worker request header (a Fetch-spec forbidden header name not settable from page JavaScript). Cookie presence is intentionally not checked because Samsung Internet and other Chromium forks may send cookies on SW registration fetches; rejecting those requests would serve the editor's real SW whose cache.addAll() install fails and hangs the bootstrap page.
-7. The key-shim service-worker script body is identical across sessions; the per-session vault encryption key is delivered to the shim via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), not baked into the script.
+5. Browser-initiated Service Worker registration GETs for the editor's service-worker script short-circuit the auth chain and receive SilverBullet's native service worker from the Worker (vendored verbatim, AD69), so the editor keeps its persistent local file-sync store and indexes incrementally. Cold-boot encryption rides the native worker's own `set-encryption-key`/`get-encryption-key` handlers, fed by the bootstrap-hop page (see [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5 for the key-delivery contract).
+6. The short-circuit selector requires all of: GET method, exact path match for the service-worker script, and the browser-only Service-Worker request header (a Fetch-spec forbidden header name not settable from page JavaScript). Cookie presence is intentionally not checked because Samsung Internet and other Chromium forks may send cookies on SW registration fetches; rejecting those requests would force the registration through the cookie-gated proxy chain and 401.
+7. The native service-worker script body is identical across sessions (version-locked to the SilverBullet binary, guarded by a recorded SHA-256 drift hash); the per-session vault encryption key is delivered to it via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), never baked into the script.
+8. The native worker precaches the shell `/` via `cache.addAll` during install, BEFORE the bootstrap-hop sets the bootstrap cookie. The shell-path redirect to the bootstrap-hop is suppressed for Service-Worker-context fetches (identified by a `Sec-Fetch-Mode` header present and not equal to `navigate`) so the precache resolves against the real shell instead of a 302 that would make `cache.addAll` reject and hang the SW install. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the redirect (fail-safe), so a real first navigation never boots without the encryption key wired.
 
-**Notes:** The shim service worker served in place of the editor's own worker leaves the editor's client-side file-sync cache disabled, so within one session the editor re-indexes its local store repeatedly instead of once (tracked as codeflare#445). The subpath rewrite and registration short-circuit work, but until that re-index regression is fixed AC5-AC7 are not fully correct, so the REQ stays Partial.
+**Notes:** Serving the native worker (AD69) restores the editor's persistent `sb_files_*` local-sync store, the fix for the per-cold-load full re-index regression (codeflare#445). Verified end-to-end on the integration deploy (mobile, 2026-06-01): the native SW installs through the proxy ("47 client files cached"), the SW-context `sb_files_*` IndexedDB store is created (it never existed under the shim), the `.vault-key` recovery graft fires ("Recovered encryption key from codeflare") so there is no `.auth` bounce, and the sync engine runs incremental 0-operation cycles. The one-time first-load index that populates `sb_files_*` is expected; the store now persists, so subsequent cold loads are incremental. The `/.client/*` precache-auth exemption (reserved AC9) is NOT needed - the deploy showed `cache.addAll` resolves, i.e. the precache fetches carry the session cookie.
 
 **Constraints:**
 
@@ -352,7 +356,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -458,7 +462,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-008: Zero-UI vault encryption
 
 <!-- @impl: src/container/index.ts::ensureVaultKey -->
-<!-- @impl: src/routes/vault.ts::VAULT_KEY_SHIM_SERVICE_WORKER_JS -->
+<!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
+<!-- @impl: src/routes/vault-native-sw.ts::graftVaultKeyRecovery -->
 <!-- @impl: src/routes/vault.ts::injectVaultBootstrapHopHtml -->
 <!-- @impl: src/routes/vault.ts::injectVaultIdbRecorder -->
 <!-- @impl: src/routes/vault.ts::VAULT_BOOTSTRAP_COOKIE -->
@@ -467,9 +472,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
 <!-- @test: src/__tests__/container/index.test.ts (ensureVaultKey persistence + idempotency describe → AC1/AC2) -->
-<!-- @test: src/__tests__/routes/vault.test.ts (injectVaultEncryptionConfig + injectVaultBootScript + injectVaultBootstrapHopHtml + hasVaultBootstrapCookie describes → AC3/AC5/AC6; VAULT_KEY_SHIM_SERVICE_WORKER_JS SW lifecycle describe → AC7 activate/recoverKey path) -->
+<!-- @test: src/__tests__/routes/vault.test.ts (injectVaultEncryptionConfig + injectVaultBootScript + injectVaultBootstrapHopHtml + hasVaultBootstrapCookie describes → AC3/AC5/AC6; VAULT_NATIVE_SERVICE_WORKER_JS native-key-handler + recovery-graft tokens + graftVaultKeyRecovery drift-throw describe → AC5/AC7) -->
 <!-- coverage-gap: AC4 (SilverBullet encrypted-KV wrapper usage) is a runtime/IDB behavioral property; no dedicated test describe block -->
-<!-- coverage-gap: AC7 fetch-on-activate exercised in Node.js SW shim (ok:false mock); real browser idle-termination cycle with live .vault-key endpoint not covered by automated tests -->
+<!-- coverage-gap: AC7 graft is unit-covered by token + drift-throw assertions (the served worker contains the .vault-key recovery branch); the live browser idle-termination + cold-boot recovery cycle against the real .vault-key endpoint is integration-verified, not unit-tested. The REQ stays Partial until that integration verification lands. -->
 
 **Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. This REQ covers encryption-at-rest with a per-session key generated and stored by the Container DO (no user passphrase prompt); IDB lifecycle cleanup on session DELETE and dashboard-mount sweeping lives in [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters). The threat model is BitLocker-grade: defeats offline disk attacks (profile theft, backup leak, ransomware scan), does NOT defeat anyone with an authenticated browser tab. The key dies with `container.destroy()` so deletion is forward-secret.
 
@@ -481,9 +486,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. The key is never rotated; it is wiped only when the container is destroyed (session delete).
 3. The Worker's vault-config proxy fetches the vault key via DO RPC and merges it (plus the enable-encryption flag) into the editor's runtime boot config.
 4. The editor uses the vault key to symmetrically encrypt its per-vault IndexedDB store via its built-in encrypted-KV wrapper.
-5. The Worker delivers the key through a one-time bootstrap-hop page that registers a key-shim service worker, posts the key, persists an enable-encryption flag, and sets a bootstrap-completed cookie before redirecting to the shell; the hop is issued only for GET requests, while HEAD and other methods fall through to the SB proxy so the readiness probe reports ready only when SB is serving. On failure it shows an error and aborts without setting the cookie or flag.
+5. The Worker delivers the key through a one-time bootstrap-hop page that registers SilverBullet's native service worker, posts the key to its native `set-encryption-key` handler, persists an enable-encryption flag, and sets a bootstrap-completed cookie before redirecting to the shell; the hop is issued only for GET requests, while HEAD and other methods fall through to the SB proxy so the readiness probe reports ready only when SB is serving. On failure it shows an error and aborts without setting the cookie or flag.
 6. Subsequent shell-path requests bypass the bootstrap hop via the cookie, and no passphrase prompt is shown to the user.
-7. The key-shim service worker recovers its encryption key from the Worker when the browser terminates and re-activates the SW after idle. The Worker exposes an auth-gated endpoint that returns the key; the SW fetches it on activate and as a fallback when a get-encryption-key message arrives with no key in memory.
+7. The service worker recovers its encryption key from the Worker when its in-memory key is gone - whether the browser idle-terminated the SW, or the native worker flushed the key after the last client disconnected, or the key was simply never present yet at shell boot. A codeflare graft (`graftVaultKeyRecovery`) injects a `__cfRecover()` helper that re-fetches the key from the auth-gated `.vault-key` endpoint (a same-origin SW fetch carries the session cookie) and decodes it with the worker's own decoder, and calls it at BOTH of the worker's key-empty failure points before either gives up: the `config` message handler's `enableClientEncryption && !y` auth-gate (the path that actually fires - it posts an auth-error and the client navigates to `.auth` / "Authentication not enabled"), and the `get-encryption-key` reply. Without the graft the native worker bounces to `.auth` on cold boot, not just after idle, because the client posts `config` while the key is still absent from the bootstrap-hop -> shell transition flush.
 
 **Constraints:**
 
@@ -500,6 +505,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
 
 **Status:** Implemented
+
+**Notes:** Encryption rides SilverBullet's native service worker (AD69): the bootstrap-hop posts the key to the native worker's `set-encryption-key` handler, and a codeflare graft (`graftVaultKeyRecovery`) adds `.vault-key` recovery at the worker's two key-empty checkpoints - the `config` auth-gate AND `get-encryption-key` (AC7). The first integration deploy (no graft) bounced to `.auth` on cold boot; a second (graft on `get-encryption-key` only) still bounced, which localized the real trigger to the `config` gate (it reads the key directly, never asking `get-encryption-key`); the graft now covers both. Verified on the integration deploy (mobile, 2026-06-01): cold boot reaches the editor with no `.auth` bounce, the console logs "Recovered encryption key from codeflare" (the graft fired because the hop's `set-encryption-key` had already been flushed), and the encrypted `sb_data_*` / `sb_files_*` stores open and decrypt.
 
 ---
 

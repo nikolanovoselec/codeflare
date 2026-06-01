@@ -4,7 +4,11 @@ import {
   maybeSynthesizeCsrfHeader,
   maybeIssueCsrfCookie,
   isServiceWorkerRegistration,
-  VAULT_KEY_SHIM_SERVICE_WORKER_JS,
+  isServiceWorkerContextFetch,
+  VAULT_NATIVE_SERVICE_WORKER_JS,
+  VAULT_NATIVE_SW_VERBATIM,
+  VAULT_NATIVE_SW_SHA256,
+  graftVaultKeyRecovery,
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_SW_ACTIVATION_TIMEOUT_MS,
   VAULT_IDB_RECORDER_MARKER,
@@ -341,186 +345,79 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       expect(isServiceWorkerRegistration(req, '/service_worker.js.map')).toBe(false);
       expect(isServiceWorkerRegistration(req, undefined)).toBe(false);
     });
+  });
 
-    it('VAULT_KEY_SHIM_SERVICE_WORKER_JS contains the minimum SW handshake handlers', () => {
-      // skipWaiting + clients.claim is the standard minimal lifecycle that
-      // makes the SW take control immediately. Without these, the browser
-      // registers the SW but it stays "waiting" forever.
-      expect(VAULT_KEY_SHIM_SERVICE_WORKER_JS).toContain('skipWaiting');
-      expect(VAULT_KEY_SHIM_SERVICE_WORKER_JS).toContain('clients.claim');
-      expect(VAULT_KEY_SHIM_SERVICE_WORKER_JS).toContain('install');
-      expect(VAULT_KEY_SHIM_SERVICE_WORKER_JS).toContain('activate');
+  describe('VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-013 AC5 (native SW served, AD69)', () => {
+    async function sha256Hex(input: string): Promise<string> {
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+      return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    it('T1: serves the native SilverBullet worker with the key-recovery graft', () => {
+      // The native worker carries SB's sync engine + offline precache, which
+      // is what restores the persistent sb_files_* store (#445); asserting the
+      // served bytes contain `precache`/`addAll` fails the moment serving is
+      // swapped for anything without the sync engine.
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS.length).toBeGreaterThan(50_000);
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('precache');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('addAll');
+      // Cold-boot encryption rides the native worker's own key handlers.
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('set-encryption-key');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('get-encryption-key');
+      // REQ-VAULT-008 AC7: the served worker carries the codeflare recovery
+      // graft (the verbatim upstream worker does NOT) - without it the key is
+      // lost between the bootstrap-hop and shell boot and SB bounces to .auth.
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('.vault-key');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('Recovered encryption key from codeflare');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toBe(VAULT_NATIVE_SW_VERBATIM);
+      // The recovery must be wired at BOTH key-empty checkpoints: the helper is
+      // defined, the config auth-gate calls it before posting auth-error (the
+      // path that actually fires the .auth bounce), and get-encryption-key calls
+      // it before replying. The verbatim worker has none of these.
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('async function __cfRecover()');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
+        'if(t.enableClientEncryption&&!y){await __cfRecover()}if(t.enableClientEncryption&&!y){console.error("Supposed',
+      );
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('case"get-encryption-key":{if(y===void 0)await __cfRecover()');
+      expect(VAULT_NATIVE_SW_VERBATIM).not.toContain('__cfRecover');
     });
 
-    it('VAULT_KEY_SHIM_SERVICE_WORKER_JS handles set-encryption-key and get-encryption-key (REQ-VAULT-008 AC5)', () => {
-      // The shim is what makes SilverBullet client-side encryption work:
-      // boot.ts posts get-encryption-key and uses the reply as the IDB
-      // AES-CTR key. Without these handlers, SB silently falls back to
-      // plaintext IDB.
-      expect(VAULT_KEY_SHIM_SERVICE_WORKER_JS).toContain('set-encryption-key');
-      expect(VAULT_KEY_SHIM_SERVICE_WORKER_JS).toContain('get-encryption-key');
-      // The reply message type matches SB's ServiceWorkerSourceMessage
-      // contract (client/types/ui.ts: type "encryption-key").
-      expect(VAULT_KEY_SHIM_SERVICE_WORKER_JS).toContain('encryption-key');
-      // The key is stored in module-level memory (not persisted) so it
-      // disappears when the SW is torn down — matches upstream SB's
-      // encryptionKeyMemoryStore contract.
-      expect(VAULT_KEY_SHIM_SERVICE_WORKER_JS).toContain('encryptionKey');
+    it('T9: the drift guard hashes the VERBATIM upstream worker', async () => {
+      // The guard pins the upstream SB 2.8.1 bytes (pre-graft); a SilverBullet
+      // version bump that changes the worker must be a deliberate re-vendor
+      // (update the constant AND the hash), never a silent drift. The verbatim
+      // bytes are what is hashed - the graft is applied deterministically on top.
+      expect(await sha256Hex(VAULT_NATIVE_SW_VERBATIM)).toBe(VAULT_NATIVE_SW_SHA256);
     });
 
-    it('VAULT_KEY_SHIM_SERVICE_WORKER_JS executes the SW lifecycle and stores/returns a posted key', async () => {
-      // Behavioural smoke: evaluate the SW source in a sandbox where we
-      // shim `self`, fire install / activate / message events, and verify
-      // (a) the install handler triggers skipWaiting, (b) activate calls
-      // clients.claim, (c) a `set-encryption-key` message stores the key
-      // in module-local state, (d) a subsequent `get-encryption-key`
-      // message round-trips the same key back to event.source. If any of
-      // these break, SB boots without encryption.
-      const listeners: Record<string, (e: unknown) => void> = {};
-      const skipWaiting = vi.fn();
-      const clientsClaim = vi.fn(() => Promise.resolve());
-      const self = {
-        addEventListener: (type: string, fn: (e: unknown) => void) => {
-          listeners[type] = fn;
-        },
-        skipWaiting,
-        clients: { claim: clientsClaim },
-        location: { origin: 'https://codeflare.test' },
-        registration: { scope: 'https://codeflare.test/api/vault/abc/' },
-      };
-      // recoverKey() calls fetch on activate when encryptionKey is undefined
-      const origFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn(() => Promise.resolve({ ok: false } as Response));
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval
-      const runShim = new Function('self', VAULT_KEY_SHIM_SERVICE_WORKER_JS);
-      runShim(self);
-
-      // install -> skipWaiting
-      listeners.install?.({});
-      expect(skipWaiting).toHaveBeenCalled();
-
-      // activate -> recoverKey() then clients.claim (wrapped in waitUntil)
-      const waitUntilArgs: unknown[] = [];
-      listeners.activate?.({ waitUntil: (p: unknown) => waitUntilArgs.push(p) });
-      expect(waitUntilArgs).toHaveLength(1);
-      await waitUntilArgs[0];
-      expect(clientsClaim).toHaveBeenCalled();
-
-      // Same-origin client builder
-      const sameOrigin = (replies: unknown[]) => ({
-        url: 'https://codeflare.test/api/vault/abc/',
-        postMessage: (msg: unknown) => replies.push(msg),
-      });
-
-      // set-encryption-key stores (sent from same-origin client)
-      listeners.message?.({
-        data: { type: 'set-encryption-key', key: 'KEY-AAAA' },
-        source: sameOrigin([]),
-      });
-
-      // get-encryption-key replies via event.source.postMessage
-      const replies: Array<{ type: string; key: string | undefined }> = [];
-      listeners.message?.({
-        data: { type: 'get-encryption-key' },
-        source: sameOrigin(replies),
-      });
-      expect(replies).toEqual([{ type: 'encryption-key', key: 'KEY-AAAA' }]);
-
-      // get-encryption-key before any set triggers recoverKey fallback (fresh SW)
-      const replies2: Array<{ type: string; key: string | undefined }> = [];
-      const freshListeners: Record<string, (e: unknown) => void> = {};
-      const fresh = {
-        addEventListener: (type: string, fn: (e: unknown) => void) => {
-          freshListeners[type] = fn;
-        },
-        skipWaiting,
-        clients: { claim: vi.fn(() => Promise.resolve()) },
-        location: { origin: 'https://codeflare.test' },
-        registration: { scope: 'https://codeflare.test/api/vault/xyz/' },
-      };
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval
-      const runShim2 = new Function('self', VAULT_KEY_SHIM_SERVICE_WORKER_JS);
-      runShim2(fresh);
-      freshListeners.message?.({
-        data: { type: 'get-encryption-key' },
-        source: sameOrigin(replies2),
-      });
-      await vi.waitFor(() => expect(replies2).toHaveLength(1));
-      expect(replies2).toEqual([{ type: 'encryption-key', key: null }]);
-      globalThis.fetch = origFetch;
-
-      // Unknown message types are ignored (no throw, no reply)
-      const replies3: unknown[] = [];
-      listeners.message?.({
-        data: { type: 'something-else' },
-        source: sameOrigin(replies3),
-      });
-      expect(replies3).toEqual([]);
+    it('T10: graftVaultKeyRecovery throws if the upstream get-encryption-key anchor moves', () => {
+      // The graft is anchored on an exact minified substring. If SB changes it,
+      // the transform must fail loud (forcing a re-vendor + re-verify) rather
+      // than silently serve an un-grafted worker that re-breaks REQ-VAULT-008 AC7.
+      expect(() => graftVaultKeyRecovery('definitely not the silverbullet worker')).toThrow();
+      // It is idempotent-safe on the real verbatim worker (produces the served bytes).
+      expect(graftVaultKeyRecovery(VAULT_NATIVE_SW_VERBATIM)).toBe(VAULT_NATIVE_SERVICE_WORKER_JS);
     });
+  });
 
-    it('VAULT_KEY_SHIM_SERVICE_WORKER_JS rejects cross-origin clients (defence in depth)', () => {
-      // The SW scope already restricts which clients can talk to it, but
-      // we also gate on event.source.url being same-origin so that any
-      // future scope-widening or sibling-page accident does NOT leak
-      // the AES key out of the vault origin.
-      const listeners: Record<string, (e: unknown) => void> = {};
-      const self = {
-        addEventListener: (type: string, fn: (e: unknown) => void) => {
-          listeners[type] = fn;
-        },
-        skipWaiting: vi.fn(),
-        clients: { claim: vi.fn(() => Promise.resolve()) },
-        location: { origin: 'https://codeflare.test' },
-      };
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval
-      new Function('self', VAULT_KEY_SHIM_SERVICE_WORKER_JS)(self);
+  describe('isServiceWorkerContextFetch / REQ-VAULT-013 AC9 (SW precache vs navigation)', () => {
+    function req(headers: Record<string, string> = {}): Request {
+      return new Request('https://codeflare.ch/api/vault/abcdef12/', {
+        headers: new Headers(headers),
+      });
+    }
 
-      // Prime with a key (from a legitimate same-origin client).
-      listeners.message?.({
-        data: { type: 'set-encryption-key', key: 'SECRET' },
-        source: {
-          url: 'https://codeflare.test/api/vault/abc/',
-          postMessage: () => {},
-        },
-      });
-
-      // Attacker (cross-origin) tries to read the key.
-      const evilReplies: unknown[] = [];
-      listeners.message?.({
-        data: { type: 'get-encryption-key' },
-        source: {
-          url: 'https://evil.example/x',
-          postMessage: (msg: unknown) => evilReplies.push(msg),
-        },
-      });
-      expect(evilReplies).toEqual([]);
-
-      // Attacker tries to overwrite the key with a known value.
-      listeners.message?.({
-        data: { type: 'set-encryption-key', key: 'ATTACKER' },
-        source: {
-          url: 'https://evil.example/x',
-          postMessage: () => {},
-        },
-      });
-      // Same-origin readback confirms the key is still SECRET.
-      const goodReplies: Array<{ type: string; key: string | undefined }> = [];
-      listeners.message?.({
-        data: { type: 'get-encryption-key' },
-        source: {
-          url: 'https://codeflare.test/api/vault/abc/',
-          postMessage: (msg: { type: string; key: string | undefined }) => goodReplies.push(msg),
-        },
-      });
-      expect(goodReplies).toEqual([{ type: 'encryption-key', key: 'SECRET' }]);
-
-      // Sources lacking a parseable url are also rejected.
-      const noUrlReplies: unknown[] = [];
-      listeners.message?.({
-        data: { type: 'get-encryption-key' },
-        source: { postMessage: (msg: unknown) => noUrlReplies.push(msg) },
-      });
-      expect(noUrlReplies).toEqual([]);
+    it('T3: false for top-level navigations, true for SW-context fetches, false when absent', () => {
+      // navigate => a real document load; the bootstrap-hop 302 must still fire.
+      expect(isServiceWorkerContextFetch(req({ 'Sec-Fetch-Mode': 'navigate' }))).toBe(false);
+      // no-cors / same-origin => the native SW's cache.addAll precache fetch;
+      // the 302 must be suppressed or the SW install hangs.
+      expect(isServiceWorkerContextFetch(req({ 'Sec-Fetch-Mode': 'no-cors' }))).toBe(true);
+      expect(isServiceWorkerContextFetch(req({ 'Sec-Fetch-Mode': 'same-origin' }))).toBe(true);
+      // Absent header (older browsers, exotic WebViews, non-browser clients):
+      // fail-safe FALSE so a real navigation is never served the raw shell
+      // without the hop. This polarity is the bug this test guards.
+      expect(isServiceWorkerContextFetch(req())).toBe(false);
     });
   });
 

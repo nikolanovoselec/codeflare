@@ -39,7 +39,6 @@
   },
   "extensions/graphify-helpers.ts": {
     "modes": [
-      "default",
       "advanced"
     ]
   },
@@ -60,7 +59,6 @@
   },
   "skills/graphify/SKILL.md": {
     "modes": [
-      "default",
       "advanced"
     ]
   },
@@ -82,7 +80,11 @@
   },
   "scripts/safe-graphify-update.sh": {
     "modes": [
-      "default",
+      "advanced"
+    ]
+  },
+  "scripts/build-graphify-ast.sh": {
+    "modes": [
       "advanced"
     ]
   },

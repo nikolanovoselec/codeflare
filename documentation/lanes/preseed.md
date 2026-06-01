@@ -253,8 +253,8 @@ All preseed content is deployed via the manifest pipeline:
   (graphify -
   [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7 - and `review`),
   capture-contract prompts (`memory-agent-prompt.md`,
-  `vault-extract-prompt.md`), and the Pi graphify wrapper script
-  (`safe-graphify-update.sh`). The
+  `vault-extract-prompt.md`), and the Pi graphify scripts
+  (`build-graphify-ast.sh` for first builds, `safe-graphify-update.sh` for existing-graph refreshes). The
   generator maps each manifest key to its deployed location by directory
   prefix: `extensions/` -> `.pi/agent/extensions/`, `skills/` ->
   `.pi/agent/skills/`, `scripts/` -> `.pi/agent/scripts/`, `prompts/`
@@ -524,6 +524,10 @@ In advanced session mode, `graphify-session-start.sh` injects structural context
 
 All tiers append tool guidance (pointing at `mcp__graphify__query_graph`, `mcp__graphify__get_node`, etc.). The hook never auto-builds a graph.
 
+### Post-clone graph triage ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage))
+
+In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing. If no repo graph exists, the agent asks the user to choose either `1. Create AST-only Graphify graph` or `2. Create full semantic + AST Graphify graph`. If a graph exists, the extension compares `graphify-out/graph.json` `built_at_commit` with `git rev-parse HEAD`: fresh graphs produce an information message only; stale or unknown graphs prompt the user to choose `1. AST-only update` or `2. Full semantic + AST refresh`. Pi mirrors the same behavior through native lifecycle events and suppresses clone triage inside durable PR-boundary review lanes.
+
 ### Pi active-repo query fallback ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
 
 Pi sessions run from `~/workspace`, while checked-out repositories live under
@@ -541,11 +545,22 @@ unchanged so the agent can fall back manually.
 
 ### Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
 
-The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless `graphify extract --backend deepseek`; AST extraction uses local `graphify update`, and semantic extraction uses Pi `Agent` subagents from the running session. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema.
+The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless `graphify extract --backend deepseek`; AST-only initial build uses the local first-build script, AST-only refresh uses the bounded update wrapper, and semantic extraction uses Pi `Agent` subagents from the running session. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema.
 
-Subagents run on **Sonnet** (`model: "sonnet"`). Haiku was the original choice (cost-matching with vault-extract economics) but produced 57% malformed nodes on the codeflare corpus - missing `id` fields, numeric IDs instead of strings, missing `source_file`. The extraction prompt requires reliable schema compliance across complex document types (spec files with REQ anchors, skill instructions with cross-references, ADR ledgers). Sonnet at ~3x per-agent cost with near-zero malformation is cheaper per valid node. Opus is never used from this skill.
+Model selection is runtime-specific. Claude Code's graphify skill pins its own reliable extraction model and never escalates to Opus from this workflow. Pi does not name or pin provider-specific models: Pi `Agent` semantic subagents omit a `model` override and inherit whatever model the main Pi session is using unless the user explicitly asks for a different model.
 
-Subagents are dispatched in waves of up to `GRAPHIFY_SEMANTIC_MAX_PARALLEL` (default 10) to avoid flooding Task-tool concurrency. Each wave runs in parallel; waves are sequential. Chunk count scales with the size of the non-code corpus.
+Subagents are dispatched in bounded waves to avoid flooding agent concurrency. Each wave runs in parallel; waves are sequential. Chunk count scales with the size of the non-code corpus.
+
+### Git persistence ([REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git))
+
+Graphify repo outputs persist in git when the user can push to the repository. The durable committed surface is:
+
+- `graphify-out/graph.json` — queryable graph data, with `.gitattributes` wiring `graphify-out/graph.json merge=graphify`
+- `graphify-out/GRAPH_REPORT.md` — human-readable graph report
+- `graphify-out/graph.html` — interactive visualization, always generated by the safe wrapper's `GRAPHIFY_VIZ_NODE_LIMIT` override
+- optional `graphify-out/wiki/` if the user requests a wiki export
+
+The Pi graphify skill mirrors the Claude skill's persistence rule: never blanket-ignore `graphify-out/`. Repo ignore rules must ignore only regenerable build outputs such as `graphify-out/cache/`, `graphify-out/.chunks/`, `graphify-out/manifest.json`, `graphify-out/.graphify_*`, and root `.graphify_*` intermediates. During `/sdd init`, a graph built for enrichment is still a repo artifact; the scaffold or same-turn graph commit must include the durable graph files and the ignore/merge wiring rather than leaving them as local-only files.
 
 ## /sdd init Modes
 
