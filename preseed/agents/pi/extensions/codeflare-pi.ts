@@ -18,7 +18,7 @@ const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
 const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
-const CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.151";
+const CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.161";
 const CONTEXT_MODE_PACKAGE_ID = "npm:context-mode";
 const CONTEXT_MODE_DISABLED_PACKAGE = { source: CONTEXT_MODE_PACKAGE, extensions: [], skills: [] };
 

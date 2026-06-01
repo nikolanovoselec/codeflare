@@ -1,5 +1,5 @@
 {
   "name": "context-mode",
   "description": "Deterministic context-window reduction via tool-call routing (Pro tier only)",
-  "version": "1.0.151"
+  "version": "1.0.161"
 }
