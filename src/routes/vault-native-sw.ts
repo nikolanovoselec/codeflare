@@ -7,29 +7,30 @@
  * SilverBullet sync engine and its persistent local file store (`sb_files_*`
  * IndexedDB) live INSIDE this worker; the shim omitted them, so SilverBullet
  * kept no resumable local copy and re-indexed the whole vault over HTTP on
- * every cold load (issue #445). Empirically validated this session with a
- * headless-Chrome probe against the in-container SilverBullet: with the
- * native worker, both `sb_data_*` and `sb_files_*` are created and a reload
- * re-indexes ZERO files. Decision recorded in AD69
+ * every cold load (issue #445). Decision recorded in AD69
  * (documentation/decisions/README.md).
  *
- * KEY-RECOVERY GRAFT (AD69): the native worker holds the per-session AES-CTR
- * key in a module-local var `y`, with NO recovery if it is lost. It is lost
- * routinely: the worker flushes `y` 5s after the last client disconnects, and
- * the browser can idle-terminate the worker at any time. Between the
- * bootstrap-hop posting the key and the shell booting, `y` can already be gone,
- * so SB asks `get-encryption-key`, gets nothing, and navigates to `.auth`
- * ("Authentication not enabled"). The first integration deploy reproduced this
- * on COLD boot, not just after idle. `graftVaultKeyRecovery` rewrites the
- * `get-encryption-key` handler so that when `y` is empty it first re-fetches
- * the key from the auth-gated `/.vault-key` endpoint (a same-origin SW fetch
- * carries the session cookie) and decodes it with SB's own `Ze`, exactly the
- * fallback the old key-shim had. This is what makes REQ-VAULT-008 AC7 hold.
+ * KEY-RECOVERY GRAFT (AD69, REQ-VAULT-008 AC7). The native worker holds the
+ * per-session AES-CTR key in a module-local var `y` with NO recovery, and
+ * actively drops it: it flushes `y` 5s after the last client disconnects, and
+ * the browser can idle-terminate the worker at any time. TWO code paths read
+ * `y` and fail hard when it is empty:
+ *   1. the `config` message handler gates on `enableClientEncryption && !y` and,
+ *      when empty, posts `auth-error` -> the client navigates to `.auth`
+ *      ("Authentication not enabled"). This is the one that actually fires on
+ *      cold boot: the client posts `config` (with codeflare-injected
+ *      `enableClientEncryption:true`) while `y` is still empty from the
+ *      bootstrap-hop -> shell `location.replace` client-transition flush.
+ *   2. the `get-encryption-key` message handler replies with no key.
+ * `graftVaultKeyRecovery` injects a `__cfRecover()` helper (re-fetch the key
+ * from the auth-gated `/.vault-key` endpoint - a same-origin SW fetch carries
+ * the session cookie - and decode it with SB's own `Ze`) and calls it at BOTH
+ * sites before they give up. This is the fallback the old key-shim had.
  *
  * VAULT_NATIVE_SW_VERBATIM holds the upstream bytes UNMODIFIED; the graft is a
  * deterministic string transform applied on top, so the upstream worker stays
  * auditable and VAULT_NATIVE_SW_SHA256 (the drift guard, hashed over the
- * verbatim bytes) detects any SilverBullet version bump - a bump that moves the
+ * verbatim bytes) detects any SilverBullet version bump - a bump that moves any
  * graft anchor makes graftVaultKeyRecovery throw, forcing a deliberate
  * re-vendor + re-verify rather than a silent regression.
  *
@@ -47,33 +48,44 @@ export const VAULT_NATIVE_SW_VERBATIM = "var Ft=Object.create;var ze=Object.defi
  */
 export const VAULT_NATIVE_SW_SHA256 = "d8cb65bf4f35fe68204d1b0f1c58e5f7aa5f6c5463456fee5c9c039b8109e703";
 
-/**
- * The exact minified `get-encryption-key` case in the upstream worker. The graft
- * anchors on this string; if SilverBullet changes it, graftVaultKeyRecovery throws.
- */
-const GET_KEY_ANCHOR = "case\"get-encryption-key\":{a.source.postMessage({type:\"encryption-key\",key:y&&await me(y)});break}";
+// The codeflare recovery helper, injected into the worker scope right after
+// `var y;` so it closes over `y` and the hoisted `Ze` decoder. Idempotent:
+// a no-op when `y` is already populated.
+const CF_RECOVER_HELPER =
+  'async function __cfRecover(){if(y!==void 0)return;try{let cf=await fetch(self.registration.scope+".vault-key",{credentials:"same-origin"});if(cf.ok){let cfb=await cf.json();if(cfb&&cfb.key){y=await Ze(cfb.key),console.info("Recovered encryption key from codeflare")}}}catch(cfe){}}';
+
+// Anchors (exact upstream minified substrings) and their grafted replacements.
+const ANCHOR_VARY = ";var y;setInterval(";
+const ANCHOR_GETKEY = "case\"get-encryption-key\":{a.source.postMessage({type:\"encryption-key\",key:y&&await me(y)});break}";
+const ANCHOR_CONFIG_GATE = "if(t.enableClientEncryption&&!y){console.error(\"Supposed to use encryption, but no phrase set yet, auth error\"),g({type:\"auth-error\",message:\"Re-authentication required, redirecting...\",actionOrRedirectHeader:\".auth\"});return}";
 
 /**
- * Grafted replacement: recover `y` from the auth-gated `/.vault-key` endpoint
- * (decoded via SB's own `Ze`) when it is empty, BEFORE replying. Same lexical
- * scope as `y`/`Ze`/`me`, so it reuses them directly.
- */
-const GET_KEY_GRAFTED =
-  'case"get-encryption-key":{if(y===void 0){try{let cf=await fetch(self.registration.scope+".vault-key",{credentials:"same-origin"});if(cf.ok){let cfb=await cf.json();if(cfb&&cfb.key){y=await Ze(cfb.key),console.info("Recovered encryption key from codeflare")}}}catch(cfe){}}a.source.postMessage({type:"encryption-key",key:y&&await me(y)});break}';
-
-/**
- * Apply the codeflare key-recovery graft to the verbatim SilverBullet worker.
- * Throws if the upstream `get-encryption-key` handler is not found (SB version
- * drift), so a re-vendor cannot silently ship without the graft.
+ * Apply the codeflare key-recovery graft to the verbatim SilverBullet worker:
+ * inject `__cfRecover` and call it before the two `y`-empty failure paths
+ * (the `config` auth-error gate and the `get-encryption-key` reply). Throws if
+ * any anchor is missing (SB version drift), so a re-vendor cannot silently ship
+ * without the graft.
  */
 export function graftVaultKeyRecovery(verbatim: string): string {
-  if (!verbatim.includes(GET_KEY_ANCHOR)) {
-    throw new Error(
-      "graftVaultKeyRecovery: get-encryption-key anchor not found - SilverBullet " +
-      "worker changed; re-vendor src/routes/vault-native-sw.ts and re-verify the graft",
-    );
+  for (const [name, anchor] of [
+    ["VARY", ANCHOR_VARY],
+    ["GETKEY", ANCHOR_GETKEY],
+    ["CONFIG_GATE", ANCHOR_CONFIG_GATE],
+  ] as const) {
+    if (!verbatim.includes(anchor)) {
+      throw new Error(
+        "graftVaultKeyRecovery: anchor " + name + " not found - SilverBullet worker " +
+        "changed; re-vendor src/routes/vault-native-sw.ts and re-verify the graft",
+      );
+    }
   }
-  return verbatim.replace(GET_KEY_ANCHOR, GET_KEY_GRAFTED);
+  return verbatim
+    .replace(ANCHOR_VARY, ";var y;" + CF_RECOVER_HELPER + "setInterval(")
+    .replace(
+      ANCHOR_GETKEY,
+      'case"get-encryption-key":{if(y===void 0)await __cfRecover();a.source.postMessage({type:"encryption-key",key:y&&await me(y)});break}',
+    )
+    .replace(ANCHOR_CONFIG_GATE, "if(t.enableClientEncryption&&!y){await __cfRecover()}" + ANCHOR_CONFIG_GATE);
 }
 
 /**

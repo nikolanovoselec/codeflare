@@ -554,6 +554,16 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('.vault-key');
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('Recovered encryption key from codeflare');
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toBe(VAULT_NATIVE_SW_VERBATIM);
+      // The recovery must be wired at BOTH key-empty checkpoints: the helper is
+      // defined, the config auth-gate calls it before posting auth-error (the
+      // path that actually fires the .auth bounce), and get-encryption-key calls
+      // it before replying. The verbatim worker has none of these.
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('async function __cfRecover()');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
+        'if(t.enableClientEncryption&&!y){await __cfRecover()}if(t.enableClientEncryption&&!y){console.error("Supposed',
+      );
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('case"get-encryption-key":{if(y===void 0)await __cfRecover()');
+      expect(VAULT_NATIVE_SW_VERBATIM).not.toContain('__cfRecover');
     });
 
     it('T9: the drift guard hashes the VERBATIM upstream worker', async () => {
