@@ -1232,6 +1232,47 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(consoleSpy).not.toHaveBeenCalled();
       consoleSpy.mockRestore();
     });
+
+    it('setSessionId stores a valid sessionId and returns success', async () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const request = new Request('http://container/_internal/setSessionId', {
+        method: 'PUT',
+        body: JSON.stringify({ sessionId: 'sess-123' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ success: true });
+      expect(mockStorage.put).toHaveBeenCalledWith('_sessionId', 'sess-123');
+    });
+
+    it('setSessionId rejects a non-string sessionId with 400 and does not store it', async () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const request = new Request('http://container/_internal/setSessionId', {
+        method: 'PUT',
+        body: JSON.stringify({ sessionId: 123 }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(400);
+      expect(mockStorage.put).not.toHaveBeenCalledWith('_sessionId', expect.anything());
+    });
+
+    it('setSessionId treats an absent sessionId as a successful no-op', async () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const request = new Request('http://container/_internal/setSessionId', {
+        method: 'PUT',
+        body: JSON.stringify({}),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ success: true });
+      expect(mockStorage.put).not.toHaveBeenCalledWith('_sessionId', expect.anything());
+    });
   });
 
   describe('validateBucketNameInput (L10)', () => {

@@ -32,3 +32,19 @@ export const SetBucketNameBodySchema = z.object({
   /** REQ-MEM-001 AC4: forward the user's IANA timezone to the container. */
   userTimezone: z.string().optional(),
 }).passthrough();
+
+/**
+ * TD5: Zod schema for the /_internal/setSessionId JSON payload.
+ *
+ * Unlike SetBucketNameBodySchema (validated by the Worker-side builder before
+ * sending), setSessionId has no Worker-side sender - sessionId is normally
+ * persisted via setBucketName. The only untrusted entry is the inbound DO
+ * request, so this is validated receiver-side in handleSetSessionId.
+ *
+ * sessionId stays optional: an absent value is a successful no-op, matching the
+ * pre-existing idempotent contract. A non-string value is now rejected (400)
+ * instead of silently coerced.
+ */
+export const SetSessionIdBodySchema = z.object({
+  sessionId: z.string().optional(),
+});

@@ -38,6 +38,7 @@ import {
   type MetricsState,
   type MetricsCallbacks,
 } from './container-metrics';
+import { SetSessionIdBodySchema } from '../lib/container-config-schema';
 
 export { validateBucketNameInput };
 
@@ -516,7 +517,14 @@ export class container extends Container<Env> implements ContainerEnvState {
   /** Handle PUT /_internal/setSessionId (idempotent). */
   private async handleSetSessionId(request: Request): Promise<Response> {
     try {
-      const { sessionId } = await request.json() as { sessionId?: string };
+      const parsed = SetSessionIdBodySchema.safeParse(await request.json());
+      if (!parsed.success) {
+        return new Response(JSON.stringify({ error: 'Invalid request body' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const { sessionId } = parsed.data;
       if (sessionId) {
         await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
         this._sessionId = sessionId;
