@@ -340,7 +340,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-<!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 describe -> batch-status uses KV list metadata no kv.get + r/s compression + metrics in metadata + lastActiveAt/lastStartedAt + SESSION_LIST_POLL_INTERVAL_MS constant -> AC1,2,3,5,6) -->
+<!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 describe -> batch-status uses KV list metadata no kv.get + r/s compression + metrics in metadata + lastActiveAt/lastStartedAt + SESSION_LIST_POLL_INTERVAL_MS constant -> AC1,2,3,5,6; batch-status reconciles stale running sessions -> reconcileStaleStatus staleness path) -->
 ### REQ-SESSION-010: Session status observable from dashboard
 
 <!-- @impl: src/routes/session/crud.ts -->
