@@ -3,6 +3,7 @@
  */
 import type { Session } from '../types';
 import { NotFoundError } from './error-types';
+import { createLogger } from './logger';
 
 /**
  * Compressed metadata embedded in KV list keys for session status.
@@ -29,6 +30,51 @@ export interface SessionListMetadata {
     /** updatedAt */
     u?: string;
   };
+}
+
+/**
+ * A running session is considered stale (presumed stopped) after 3 missed 60s
+ * metrics heartbeats. collectMetrics re-stamps metrics.updatedAt (meta.m.u)
+ * every 60s while running regardless of PTY input, so it is the liveness
+ * heartbeat - NOT lastActiveAt (which only advances on input). 180s aligns
+ * with the frontend 3-minute startup guard.
+ */
+export const STALE_RUNNING_MS = 180_000;
+
+/**
+ * Read-side staleness reconciliation. Returns a metadata object whose status
+ * reflects container liveness inferred from the metrics heartbeat, without
+ * any I/O. Pure and immutable - for display/counting only; never written back
+ * to KV.
+ *
+ * A session marked running ('r') is downgraded to stopped ('s') when:
+ *   - metrics.updatedAt (m.u) is present and older than STALE_RUNNING_MS, OR
+ *   - m.u is absent (no metrics tick yet) but lastStartedAt (sa) is present
+ *     and older than STALE_RUNNING_MS (startup grace expired).
+ * When m.u is absent and sa is absent or recent, the session is left running
+ * (startup grace). Unparseable dates (NaN) are treated as not-stale to avoid
+ * false downgrades.
+ */
+export function reconcileStaleStatus(meta: SessionListMetadata, now: number): SessionListMetadata {
+  if (meta.s !== 'r') return meta;
+
+  const heartbeat = meta.m?.u;
+  if (heartbeat) {
+    const t = Date.parse(heartbeat);
+    if (!Number.isNaN(t) && now - t > STALE_RUNNING_MS) {
+      return { ...meta, s: 's' };
+    }
+    return meta;
+  }
+
+  // No metrics heartbeat yet - apply startup grace against lastStartedAt.
+  if (meta.sa) {
+    const t = Date.parse(meta.sa);
+    if (!Number.isNaN(t) && now - t > STALE_RUNNING_MS) {
+      return { ...meta, s: 's' };
+    }
+  }
+  return meta;
 }
 
 /** Build compressed list metadata from a Session object. */
@@ -264,11 +310,35 @@ export const SETUP_KEYS = {
 } as const;
 
 /**
+ * Strict hostname validation for the KV-stored custom domain (CF-018).
+ * Accepts only a bare hostname: one or more DNS labels separated by single
+ * dots, each label 1-63 chars of [a-z0-9-] not starting/ending with a hyphen.
+ * Rejects schemes, paths, ports, userinfo, consecutive dots ('..'), and any
+ * other character - so a poisoned KV value can never inject into the redirect
+ * base URL.
+ */
+const CUSTOM_DOMAIN_PATTERN = /^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/i;
+
+function isValidCustomDomain(domain: string): boolean {
+  return CUSTOM_DOMAIN_PATTERN.test(domain);
+}
+
+const baseUrlLogger = createLogger('kv-keys');
+
+/**
  * Resolve the base URL for redirects using custom domain from KV or the request origin.
+ * The custom domain is validated as a bare hostname (CF-018); an invalid value
+ * falls back to the request origin rather than producing a malformed/poisoned URL.
  */
 export async function getBaseUrl(kv: KVNamespace, requestUrl: string): Promise<string> {
   const customDomain = await kv.get(SETUP_KEYS.CUSTOM_DOMAIN);
-  return customDomain ? `https://${customDomain}` : new URL(requestUrl).origin;
+  if (customDomain && isValidCustomDomain(customDomain)) {
+    return `https://${customDomain}`;
+  }
+  if (customDomain) {
+    baseUrlLogger.warn('Ignoring invalid custom_domain, falling back to request origin', { customDomain });
+  }
+  return new URL(requestUrl).origin;
 }
 
 /**

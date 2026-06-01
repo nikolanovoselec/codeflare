@@ -231,7 +231,12 @@ export async function collectMetrics(
         // Read-modify-write only touches .metrics, never .status.
         const key = getSessionKey(bucketName, sessionId);
         const session = await env.KV.get<Session>(key, 'json');
-        if (session) {
+        // Clobber-race guard: if the freshly-read session was just marked
+        // 'stopped' (e.g. by POST /:id/stop or onStop), skip the metrics write
+        // entirely so we don't resurrect a stopped session back to 'running'.
+        if (session && session.status === 'stopped') {
+          logger.info('collectMetrics: session marked stopped, skipping metrics write', { key });
+        } else if (session) {
           const updated = {
             ...session,
             metrics: {
