@@ -4,6 +4,6 @@
   "dependencies": {
     "@gaodes/pi-graphify": "0.2.2",
     "@gotgenes/pi-subagents": "7.8.1",
-    "context-mode": "1.0.151"
+    "context-mode": "1.0.161"
   }
 }
