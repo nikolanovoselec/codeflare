@@ -132,13 +132,11 @@ def label_to_candidate(label: str) -> str | None:
     return s or None
 
 def resolve_by_suffix(candidate: str, suffix_index: dict[str, set[str]]) -> str | None:
-    # Longest unique path-tail wins. Require >=2 segments or a filename with an
-    # extension so a bareword import never mis-merges into an unrelated file.
+    # Longest unique path-tail wins, but the tail must have >=2 path segments so
+    # a bare basename (config.h, App) never mis-merges onto an unrelated file
+    # that happens to share the name; basename-only imports stay external.
     parts = candidate.split('/')
-    for i in range(len(parts)):
-        seg = len(parts) - i
-        if seg < 2 and '.' not in parts[-1]:
-            break
+    for i in range(len(parts) - 1):
         matches = suffix_index.get('/'.join(parts[i:]))
         if matches and len(matches) == 1:
             return next(iter(matches))

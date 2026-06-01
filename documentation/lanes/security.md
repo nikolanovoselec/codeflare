@@ -31,7 +31,7 @@ All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by one of tw
 - **Default/onboarding mode:** Cloudflare Access JWT verification (see [Authentication](authentication.md#authentication-modes) for Access application destination strategy)
 - **SaaS mode (GitHub OIDC):** Worker-managed session cookies (`codeflare_session`, HMAC-SHA256). CF Access is bypassed at runtime when `OAUTH_CLIENT_ID` is configured.
 
-In SaaS mode the Cloudflare service token (`CF-Access-Client-Id`/`CF-Access-Client-Secret`) is accepted only for unattended admin automation and is never treated as a user identity (see [AD68](decisions/README.md) and [REQ-AUTH-004](../../sdd/spec/auth.md), [REQ-AUTH-011](../../sdd/spec/auth.md)); user-facing surfaces still require a session cookie.
+In SaaS mode the Cloudflare service token (`CF-Access-Client-Id`/`CF-Access-Client-Secret`) is accepted only for unattended admin automation and is never treated as a user identity (see [AD68](decisions/README.md) and [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing), [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order)); user-facing surfaces still require a session cookie.
 
 ## API Token Containment
 
@@ -323,8 +323,8 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 
 - [REQ-OPS-009](../../sdd/spec/operations.md#req-ops-009-supply-chain-security-monitoring) - Supply chain security monitoring
 - [REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows) - Security-posture scanning workflows
-- [REQ-AUTH-004](../../sdd/spec/auth.md) - Service-token admin bypass scoped to automation, not user identity (AD68)
-- [REQ-AUTH-011](../../sdd/spec/auth.md) - Service-token admin bypass scoped to automation, not user identity (AD68)
+- [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing) - Service token authentication scoped to automation, not user identity (AD68)
+- [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order) - Auth resolution order: service token resolves to admin automation ahead of SaaS/Access (AD68)
 - [REQ-SEC-001](../../sdd/spec/security.md#req-sec-001-authenticated-endpoints-reject-unauthenticated-requests) - Authenticated endpoints reject unauthenticated requests
 - [REQ-SEC-003](../../sdd/spec/security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket) - Per-user R2 tokens scoped to user bucket
 - [REQ-SEC-004](../../sdd/spec/security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract) - Credential encryption-at-rest cryptographic contract
