@@ -98,6 +98,64 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
       expect(body.sessions[1].id).toBe('session1234567890ab');
     });
 
+    it('reflects status stopped for a running session with a stale metrics heartbeat', async () => {
+      const app = createCrudApp();
+      // System time pinned to 2024-01-15T10:00:00Z; heartbeat 10 min earlier is stale.
+      const staleU = '2024-01-15T09:50:00.000Z';
+      const session: Session = {
+        id: 'phantom1234567890ab',
+        name: 'Phantom',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T08:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:00:00.000Z',
+        metrics: { cpu: '5%', mem: '128MB', hdd: '1GB', syncStatus: 'success', updatedAt: staleU },
+      };
+      mockKV._set('session:test-bucket:phantom1234567890ab', session);
+
+      const res = await app.request('/sessions');
+      const body = await res.json() as { sessions: Array<{ id: string; status?: string }> };
+      expect(body.sessions[0].status).toBe('stopped');
+    });
+
+    it('keeps status running for a running session with a fresh metrics heartbeat', async () => {
+      const app = createCrudApp();
+      const freshU = '2024-01-15T09:59:30.000Z'; // 30s before pinned now
+      const session: Session = {
+        id: 'liverun1234567890ab',
+        name: 'Live',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T08:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:00:00.000Z',
+        metrics: { cpu: '5%', mem: '128MB', hdd: '1GB', syncStatus: 'success', updatedAt: freshU },
+      };
+      mockKV._set('session:test-bucket:liverun1234567890ab', session);
+
+      const res = await app.request('/sessions');
+      const body = await res.json() as { sessions: Array<{ id: string; status?: string }> };
+      expect(body.sessions[0].status).toBe('running');
+    });
+
+    it('reads every session record in chunked batches and returns all of them', async () => {
+      const app = createCrudApp();
+      // 45 sessions exercises >2 batches of 20.
+      for (let i = 0; i < 45; i++) {
+        const id = `batch${String(i).padStart(2, '0')}567890abcd`;
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: `S${i}`,
+          userId: 'test-bucket',
+          createdAt: '2024-01-15T08:00:00.000Z',
+          lastAccessedAt: `2024-01-15T09:${String(i % 60).padStart(2, '0')}:00.000Z`,
+        });
+      }
+
+      const res = await app.request('/sessions');
+      const body = await res.json() as { sessions: Session[] };
+      expect(body.sessions).toHaveLength(45);
+    });
+
     it('only returns sessions for the current user bucket', async () => {
       const app = createCrudApp('user-bucket');
       const mySession: Session = {

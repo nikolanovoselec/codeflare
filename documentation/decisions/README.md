@@ -832,7 +832,7 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 
 **Category:** Storage
 
-**Status:** Active
+**Status:** Accepted
 
 **Context:** The original vault path was `/home/user/.user_vault/`. SilverBullet's disk walker (`server/disk_space_primitives.go` `FetchFileList`) aborts the directory walk immediately when the root directory's basename begins with `.`, returning an empty file listing even when notes are present on disk. This is not a configurable behaviour in SilverBullet 2.8 -- it is hardcoded in the Go source. The result was that opening the vault in the editor showed no files at all despite a populated directory on disk.
 
@@ -857,7 +857,7 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 
 **Category:** Architecture
 
-**Status:** Active
+**Status:** Accepted
 
 **Context:** SilverBullet supports custom editor themes via a `STYLES.md` page at the vault root tagged `#meta/styles`. Without a managed theme, the editor renders SilverBullet's default visual language, which has no codeflare identity (different palette, different fonts, different border treatments from the rest of the codeflare UI). The vault is a user-owned space inside a user-owned R2 bucket; allowing per-user theme customisation would let the editor drift visually from the rest of codeflare, but defaulting to no theme would make the editor feel grafted-on rather than native.
 
@@ -884,7 +884,7 @@ The initial implementation defined only `--cf-*`-namespaced custom properties on
 
 **Category:** Storage
 
-**Status:** Active (2026-05-18)
+**Status:** Accepted (2026-05-18)
 
 **Context:** The periodic rclone bisync daemon ran every 60 seconds, producing ~1440 invocations per session per day even on idle sessions. Each invocation does at minimum one LIST on each side plus N HEADs across both encrypted and unencrypted configs; for users with multiple active sessions the R2 operation count scaled into terabytes/month of metadata traffic and Class A operations. The dominant cost was not transferred bytes but listing overhead on idle sessions.
 
@@ -926,7 +926,7 @@ The daemon's SIGUSR1 trap is coalescing: signals received during a running bisyn
 
 **Category:** Storage
 
-**Status:** Active (2026-05-18)
+**Status:** Accepted (2026-05-18)
 
 **Context:** The pre-existing Container DO `destroy()` budget was 75 seconds (vault rollout had already raised it from 25s -> 75s when vault edits in the last seconds before shutdown were silently truncated by the SDK's SIGKILL mid-bisync). The entrypoint shutdown handler's watchdog was 60 seconds (50s SIGTERM + 10s SIGKILL), nested cleanly inside the 75s DO budget with 15s buffer for clean process exit.
 
@@ -957,7 +957,7 @@ The DO's `_shutdownStartedAt` telemetry already logs `shutdownElapsedMs` on `onS
 
 **Category:** Memory
 
-**Status:** Active (2026-05-18)
+**Status:** Accepted (2026-05-18)
 
 **Context:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault)'s capture pipeline ran haiku as the background subagent and read raw transcript JSONL directly. Two problems emerged in production:
 
@@ -995,7 +995,7 @@ Three smaller decisions bundled in:
 ### AD59: Zero-UI vault encryption with per-session DO-storage key
 
 **Category:** Security
-**Status:** Active (2026-05-18)
+**Status:** Accepted (2026-05-18)
 
 **Context:** SilverBullet's IndexedDB cache stores every vault file as plaintext on the user's browser profile. Three concerns are coupled: (1) SB cold-start is ~30s on every new session because the per-`:sid` URL produces a new IDB hash every time; (2) plaintext IDB exposes vault content to anyone with read access to the user's browser profile (backup leak, profile theft, ransomware scan); (3) deleted sessions leave orphan IDBs that grow monotonically against the per-origin quota. The team wanted encryption-at-rest without adding a passphrase UI (it would create a "forgotten passphrase" support load and the vault is already coupled to the codeflare login).
 
@@ -1026,7 +1026,7 @@ Three smaller decisions bundled in:
 
 **Category:** Memory
 
-**Status:** Active (2026-05-29)
+**Status:** Accepted (2026-05-29)
 
 **Context:** [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) raised Claude-side memory-capture quality with three coupled changes (jq prefilter, chunked scratchpad, sonnet-tier model) because the background capture agent was reading raw transcript JSONL, burning its working memory on tool I/O, and confabulating citations. Making Pi a first-class codeflare resident meant Pi had to capture memory at the same fidelity. The Pi extension previously carried a thin inline capture contract embedded in `memory-vault.ts` and sliced the raw last-40 transcript entries, which reproduced exactly the two failure modes [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) fixed: recency bias from raw tool records and weak citation discipline.
 
@@ -1049,7 +1049,7 @@ Three smaller decisions bundled in:
 
 **Category:** Architecture
 
-**Status:** Active (2026-05-29)
+**Status:** Accepted (2026-05-29)
 
 **Context:** The Claude `/review` UX is a slash command (`preseed/agents/claude/commands/review.md`) carrying a multi-phase review workflow. Slash commands are a Claude Code primitive; the generator does not deploy commands to other agents (see the "Excluded from non-CC transformed assets" list in [preseed.md](../lanes/preseed.md#multi-agent-preseed)). On Pi this left the user-invoked `/review` workflow with no home: PR-boundary enforcement was covered by `review-enforcement.ts`, and the transformed `git-review-pipeline` skill carries the enforcement spine, but neither reproduces the full user-driven review flow (scope flags, phased perspectives, reality-filter triage) that the Claude command provides.
 
@@ -1072,7 +1072,7 @@ Three smaller decisions bundled in:
 
 **Category:** Architecture
 
-**Status:** Active (2026-05-29)
+**Status:** Accepted (2026-05-29)
 
 **Context:** Codeflare is forkable and runs six AI tools; hardcoding a specific model name (for example a `sonnet` or `haiku` literal) into Pi-bound prose or extension code couples the deployment to one vendor's model lineup and goes stale as model names change. [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) pins the capture model for Claude via agent-definition frontmatter, but Pi subagents are spawned programmatically from `memory-vault.ts`, and the generator strips the `model` frontmatter field for runtimes that do not support it. Pi therefore needed a model-selection mechanism that names no model in the shipped artifact.
 
@@ -1096,7 +1096,7 @@ Three smaller decisions bundled in:
 
 **Category:** Architecture
 
-**Status:** Active (2026-05-29)
+**Status:** Accepted (2026-05-29)
 
 **Context:** [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking)'s graphify hot-reload wrapper hardens `graphify update` on the 1 vCPU container by capping virtual memory (`ulimit -v`) and worker count so a runaway AST rebuild dies with ENOMEM instead of OOM-killing the session. The Claude wrapper (`preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh`) is a single-step `graphify update` invocation. The Pi wrapper, deployed to `~/.pi/agent/scripts/safe-graphify-update.sh`, runs in a different launch context (Pi extension dispatch, where the working directory and environment are not guaranteed to match the Claude hook environment) and feeds a structural gate in `codeflare-pi.ts`. Applying the Claude wrapper's fail-open posture verbatim risked silently updating against the wrong directory or proceeding with an unbounded address space if the `ulimit` call failed.
 
@@ -1120,7 +1120,7 @@ Three smaller decisions bundled in:
 
 **Category:** Architecture
 
-**Status:** Active (2026-05-30)
+**Status:** Accepted (2026-05-30)
 
 **Context:** PR-boundary review enforcement ([REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)/053/054) runs each lane as an in-process `createAgentSession` (`review-jobs.ts::runDurableLane`) with `DefaultResourceLoader({ noExtensions: true })`. That shield exists because extension factories run synchronously during load (pi's `loader.js` `await factory(api)`), and `review-enforcement.ts`'s factory writes a process-global run token (`__codeflareReviewEnforcementRun`) at load time; if a lane loaded that extension in the same process it would overwrite the token and silently disable the **main** session's enforcement (the merge gate). `@gotgenes/pi-subagents` similarly couples in-process state. But the blunt `noExtensions: true` also stripped every useful capability, leaving lanes with only the 7 built-in tools: reviewers had no `graphify_*`, no `ctx_*`, and none of `codeflare-pi`'s guards. A transient `gh pr view` failure once dropped the merge gate by mis-classifying a live head as stale (the "failure #13" referenced in `review-helpers.ts`); `classifyReviewHead` now separates `stale` from `unknown` to keep the gate fail-closed, and the durable `.git/`-persisted state makes that classification recoverable.
 
@@ -1144,7 +1144,7 @@ Three smaller decisions bundled in:
 
 **Category:** Architecture
 
-**Status:** Active (2026-05-30); the no-preseed-lane clause is superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) (2026-06-01).
+**Status:** Accepted (2026-05-30); the no-preseed-lane clause is superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) (2026-06-01).
 
 **Context:** `@google/gemini-cli` (npm, `gemini` command) was removed from the Dockerfile and entrypoint. The replacement is Antigravity (`agy`), Google's successor CLI, installed via `curl -fsSL https://antigravity.google/cli/install.sh | bash` as a Go-native binary. Because `agy` is not an npm package it is excluded from the V8 compile-cache warm-up step (same as `opencode`). The `~/.gemini/settings.json` auto-update suppressor written by Fast Start is also removed; `agy` has no equivalent config-file suppressor mechanism at this time.
 
@@ -1163,7 +1163,7 @@ Three smaller decisions bundled in:
 
 **Category:** Security
 
-**Status:** Active (2026-05-31)
+**Status:** Accepted (2026-05-31)
 
 **Context:** `checkRateLimit` ([rate-limit-core.ts](../../src/lib/rate-limit-core.ts)) uses KV as the primary store with a per-isolate in-memory fallback when KV operations fail. The default posture is fail-open: when KV is unreachable, the in-memory map allows the request and the limit is enforced only within a single isolate. Cloudflare fans a Worker out across many isolates, so under a KV outage the effective limit multiplies by the isolate count, silently defeating the limiter. For general resource-protection limiters (UX throttles, read endpoints) this degraded-mode allowance is acceptable. For security-sensitive limiters guarding unauthenticated or mutating endpoints (Turnstile-backed access-request, subscribe, the Stripe webhook), a fail-open KV outage is an availability-for-security trade that lets an attacker amplify abuse precisely when the store is degraded.
 
@@ -1186,7 +1186,7 @@ Three smaller decisions bundled in:
 
 **Category:** Architecture
 
-**Status:** Active (2026-06-01)
+**Status:** Accepted (2026-06-01)
 
 **Context:** [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy) replaced the Gemini CLI agent with Antigravity (`agy`) and asserted that `agy` "has no stable config-file convention to target," so the seed generator's `gemini` adaptation lane was deleted. That premise was wrong. Antigravity is Go-native and curl-installed, but it inherits the Gemini CLI configuration tree: Google's migration guidance states that `~/.gemini/GEMINI.md` is "automatically loaded and enforced across all workspaces" and global skills under `~/.gemini/skills/` "load automatically," both unchanged from Gemini CLI. The `GEMINI.md` -> `AGENTS.md` and `.gemini/skills` -> `.agents/skills` renames apply only to per-workspace (repo-root) config; the home-directory global config that codeflare seeds is unaffected. The deletion was silently masked because the pre-AD65 lane's `.gemini/` output persisted in user R2 buckets and was bisynced back, so `agy` kept reading codeflare's skills/rules even though the generator no longer produced them.
 
@@ -1198,6 +1198,26 @@ Three smaller decisions bundled in:
 - A maintainer changing the seeded agent roster must keep the `.gemini` paths home-directory-scoped; the workspace-level `.gemini` -> `.agents` rename does not apply to what codeflare seeds.
 
 **Related REQ:** [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) (single-source preseed generation), [REQ-AGENT-007](../../sdd/spec/agents.md#req-agent-007-multi-agent-adaptation-pipeline) (multi-agent adaptation pipeline).
+
+---
+
+### AD68: Service-token admin bypass must be environment-gated and hostname-restricted
+
+**Category:** Security
+
+**Status:** Accepted (2026-06-01)
+
+**Context:** `getUserFromRequest` in `src/lib/access.ts` (~L170-205) validates a custom `X-Service-Auth` header against the `SERVICE_AUTH_SECRET` worker secret, checked FIRST - before SaaS GitHub OIDC and before CF Access JWT verification. The header exists because CF Access injects a JWT for service tokens whose audience does not match the app's `access_aud` and strips `CF-Access-Client-Secret` from forwarded requests, so the custom header is the only reliable service-token signal. On a constant-time match the function returns `{ email, authenticated: true, role: 'admin' }` - the caller is trusted as an admin without any KV allowlist lookup. The bypass is active whenever `SERVICE_AUTH_SECRET` is present and carries no environment guard: there is no check that the deployment is a stress-test or integration environment, no refusal when `SAAS_MODE` is `active`, and no restriction on which hostname the request targeted. The secret is intended for k6 stress tests and E2E runs (see [AD26](#ad26-stress-test-rate-limit-bypass-integration-only)), but nothing structurally prevents the same admin-granting path from being honored on a production SaaS deployment if the secret were ever set there.
+
+**Decision:** The service-token admin bypass must be gated behind `STRESS_TEST_MODE`, never honored when `SAAS_MODE === 'active'`, and hostname-restricted to the non-production test surfaces. This records the accepted direction; the implementation is tracked separately in [codeflare#130](https://github.com/nikolanovoselec/codeflare/issues/130) and is NOT applied in this branch. Concretely, the accepted shape is: short-circuit the `X-Service-Auth` check entirely unless `STRESS_TEST_MODE` is set to its active sentinel (matching the AD26 rate-limit bypass gate), refuse the bypass on any request where SaaS mode is active so a production SaaS worker can never mint an admin identity from the header, and bind acceptance to the expected test hostnames so a misdirected request to the production host cannot exercise the path.
+
+**Consequences:**
+- A production SaaS deployment that inadvertently receives `SERVICE_AUTH_SECRET` no longer grants `role: 'admin'` from a forged-or-leaked `X-Service-Auth` header, because the `SAAS_MODE === 'active'` refusal and the `STRESS_TEST_MODE` gate both fail closed.
+- The stress-test and E2E flows are unaffected: those environments already set `STRESS_TEST_MODE` and run against the integration hostname, so the bypass continues to work exactly where it is needed.
+- Environment separation stops being the only control: the bypass is now defense-in-depth (env scoping at deploy time PLUS a runtime guard in the auth path), aligning the service-token surface with the trust model the rest of the auth chain already enforces.
+- Until [codeflare#130](https://github.com/nikolanovoselec/codeflare/issues/130) lands, the current behavior stands and the residual risk is mitigated only by GitHub Actions environment scoping of the secret (same posture as [AD26](#ad26-stress-test-rate-limit-bypass-integration-only)).
+
+**Related REQ:** [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing) (service-token authentication), [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order) (authentication resolution order).
 
 ---
 

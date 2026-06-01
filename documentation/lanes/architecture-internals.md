@@ -155,4 +155,6 @@ Admin users always have `unlimited` tier and advanced session mode access (`canU
 
 Partial coverage - this section indexes only REQs whose implementation is described inline here. See [api-reference.md](api-reference.md) and [architecture.md](architecture.md) for the broader REQ backlinks.
 
+- [REQ-AUTH-013](../../sdd/spec/authentication.md#req-auth-013-custom-branded-login-page) - Custom branded login page (LoginPage component)
+- [REQ-SUB-017](../../sdd/spec/subscription.md#req-sub-017-enterprise-tier-contact-flow) - Enterprise tier contact flow (SubscribePage plan view)
 - [REQ-SUB-020](../../sdd/spec/subscription.md#req-sub-020-multi-currency-pricing) - Multi-Currency Pricing

@@ -304,6 +304,99 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
   });
 
   // ===========================================================================
+  // CF-019: independent double-submit CSRF token gating in authenticateRequest
+  // ===========================================================================
+  describe('authenticateRequest() CSRF double-submit / CF-019 (cookie+header token, mismatch rejects, absence falls back to X-Requested-With)', () => {
+    function makeEnv(overrides: Partial<Env> = {}): Env {
+      return {
+        KV: mockKV as unknown as KVNamespace,
+        ...overrides,
+      } as Env;
+    }
+
+    // Pre-setup header trust authenticates the email; the KV record makes the
+    // allowlist lookup pass so we reach the end of authenticateRequest. The
+    // CSRF gate runs FIRST, so rejection tests do not even need a KV record.
+    const email = 'csrf-user@example.com';
+    function seedUser(): void {
+      mockKV._set(`user:${email}`, { addedBy: 'setup', addedAt: '2024-01-01', role: 'user' });
+    }
+    function makeRequest(headers: Record<string, string>): Request {
+      return new Request('http://localhost/api/vault/abcdef12/x', {
+        method: 'POST',
+        headers: { 'cf-access-authenticated-user-email': email, ...headers },
+      });
+    }
+
+    it('accepts when cookie and header tokens match', async () => {
+      seedUser();
+      const token = 'tok-abc-123';
+      const req = makeRequest({
+        Cookie: `codeflare_vault_csrf=${token}`,
+        'X-Vault-Csrf': token,
+      });
+      // No X-Requested-With supplied: the matching double-submit token alone
+      // must satisfy CSRF.
+      const result = await authenticateRequest(req, makeEnv());
+      expect(result.user.email).toBe(email);
+    });
+
+    it('rejects with ForbiddenError when cookie and header tokens differ', async () => {
+      const req = makeRequest({
+        Cookie: 'codeflare_vault_csrf=cookie-token',
+        'X-Vault-Csrf': 'header-token',
+      });
+      await expect(authenticateRequest(req, makeEnv())).rejects.toThrow(ForbiddenError);
+    });
+
+    it('rejects mismatched tokens of equal length (constant-time path)', async () => {
+      const req = makeRequest({
+        Cookie: 'codeflare_vault_csrf=aaaaaa',
+        'X-Vault-Csrf': 'bbbbbb',
+      });
+      await expect(authenticateRequest(req, makeEnv())).rejects.toThrow(ForbiddenError);
+    });
+
+    it('falls back to X-Requested-With when only the cookie is present (transition)', async () => {
+      // Cookie present, header absent -> not a conclusive double-submit -> the
+      // legacy X-Requested-With requirement still applies. Without it -> reject.
+      const reqNoXrw = makeRequest({ Cookie: 'codeflare_vault_csrf=tok' });
+      await expect(authenticateRequest(reqNoXrw, makeEnv())).rejects.toThrow(ForbiddenError);
+
+      // With X-Requested-With -> the legacy gate passes.
+      seedUser();
+      const reqWithXrw = makeRequest({
+        Cookie: 'codeflare_vault_csrf=tok',
+        'X-Requested-With': 'XMLHttpRequest',
+      });
+      const result = await authenticateRequest(reqWithXrw, makeEnv());
+      expect(result.user.email).toBe(email);
+    });
+
+    it('falls back to X-Requested-With when neither token is present (non-vault routes unaffected)', async () => {
+      // Neither cookie nor header -> legacy behaviour: missing X-Requested-With rejects.
+      const reqMissing = makeRequest({});
+      await expect(authenticateRequest(reqMissing, makeEnv())).rejects.toThrow(ForbiddenError);
+
+      // X-Requested-With present -> passes (existing contract preserved).
+      seedUser();
+      const reqXrw = makeRequest({ 'X-Requested-With': 'XMLHttpRequest' });
+      const result = await authenticateRequest(reqXrw, makeEnv());
+      expect(result.user.email).toBe(email);
+    });
+
+    it('does not gate safe methods (GET) on the CSRF token', async () => {
+      seedUser();
+      const req = new Request('http://localhost/api/vault/abcdef12/x', {
+        method: 'GET',
+        headers: { 'cf-access-authenticated-user-email': email },
+      });
+      const result = await authenticateRequest(req, makeEnv());
+      expect(result.user.email).toBe(email);
+    });
+  });
+
+  // ===========================================================================
   // getUserFromRequest() tests
   // ===========================================================================
   describe('getUserFromRequest() / REQ-AUTH-010 AC1/AC2/AC3/AC4 (authConfigFetched sentinel disables pre-setup header trust after first KV success) / REQ-AUTH-011 AC1/AC2 (resolution order: service token, cookie, JWT, pre-setup header)', () => {

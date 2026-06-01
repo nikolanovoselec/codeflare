@@ -20,6 +20,7 @@
  */
 import { SESSION_ID_PATTERN } from '../lib/constants';
 import { toErrorMessage } from '../lib/error-types';
+import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from '../lib/access';
 
 /**
  * Synthesise `X-Requested-With: XMLHttpRequest` on a request clone when
@@ -37,6 +38,17 @@ import { toErrorMessage } from '../lib/error-types';
  *   - If the method is not state-changing (GET/HEAD/OPTIONS) → unchanged.
  *   - Otherwise clone the FULL request (preserves body, signal, etc.) and
  *     set the synthesised header.
+ *
+ * CF-019: when an independent double-submit CSRF cookie is present, this
+ * function ALSO echoes its value into the X-Vault-Csrf header on the clone.
+ * The Worker reading the cookie and synthesising the matching header has the
+ * SAME trust basis as the X-Requested-With synthesis above (originValidated),
+ * so SilverBullet's client.js / SPA writes - which cannot set custom headers
+ * themselves - satisfy the double-submit check in authenticateRequest. A
+ * genuine cross-site attacker never reaches this branch: they cannot produce
+ * an allowlisted Origin (or the same-origin no-Origin carve-out) for a
+ * cross-site request, so originValidated is false and the request passes
+ * through unchanged to hit the cookie/header layer directly.
  *
  * The full-clone form `new Request(request, { headers })` is critical:
  * `authenticateRequest` only reads method + headers today, but the next
@@ -57,10 +69,53 @@ export function maybeSynthesizeCsrfHeader(request: Request, originValidated: boo
   if (!originValidated) return request;
   const method = request.method.toUpperCase();
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return request;
-  if (request.headers.has('X-Requested-With')) return request;
+  // CF-019: echo the double-submit cookie into the header when present and the
+  // client did not already supply it. Independent of X-Requested-With below.
+  const csrfCookie = readCsrfCookie(request);
+  const needsCsrfEcho = !!csrfCookie && !request.headers.has(CSRF_HEADER_NAME);
+  const needsXrwEcho = !request.headers.has('X-Requested-With');
+  if (!needsCsrfEcho && !needsXrwEcho) return request;
   const headers = new Headers(request.headers);
-  headers.set('X-Requested-With', 'XMLHttpRequest');
+  if (needsXrwEcho) headers.set('X-Requested-With', 'XMLHttpRequest');
+  if (needsCsrfEcho) headers.set(CSRF_HEADER_NAME, csrfCookie as string);
   return new Request(request, { headers });
+}
+
+/**
+ * CF-019: append a Set-Cookie for the double-submit CSRF token to `headers`
+ * when the request does not already carry one. Called on safe (GET) vault
+ * responses so the browser holds a token before issuing any state-changing
+ * write. Mutates the passed Headers in place (caller owns a fresh Headers).
+ *
+ *   - HttpOnly: the value never needs to be read by page JS; the Worker echoes
+ *     it into the request header itself (maybeSynthesizeCsrfHeader). HttpOnly
+ *     keeps it out of reach of XSS-based exfiltration.
+ *   - SameSite=Lax + Secure: standard CSRF cookie hardening.
+ *   - Path=/api/vault/<sid>/: scoped to the session's vault namespace.
+ *
+ * No-op when the cookie is already present (stable token across the session).
+ */
+export function maybeIssueCsrfCookie(request: Request, headers: Headers, sessionId: string): void {
+  if (readCsrfCookie(request)) return;
+  if (!SESSION_ID_PATTERN.test(sessionId)) return;
+  const token = crypto.randomUUID();
+  headers.append(
+    'Set-Cookie',
+    `${CSRF_COOKIE_NAME}=${token}; Path=/api/vault/${sessionId}/; HttpOnly; SameSite=Lax; Secure`,
+  );
+}
+
+/** Read the CF-019 double-submit CSRF cookie value, or null. */
+function readCsrfCookie(request: Request): string | null {
+  const cookieHeader = request.headers.get('Cookie');
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const name = part.slice(0, idx).trim();
+    if (name === CSRF_COOKIE_NAME) return part.slice(idx + 1).trim() || null;
+  }
+  return null;
 }
 
 /**
@@ -462,6 +517,8 @@ export function filterVaultFsListing(body: string): string {
     if (filtered.length === parsed.length) return body;
     return JSON.stringify(filtered);
   } catch {
+    // CF-026: fail-safe - never break a 200 listing because the upstream
+    // shape drifted; return the body untouched (see JSDoc fail-safe note).
     return body;
   }
 }
@@ -513,6 +570,7 @@ export async function rewriteVaultHtmlResponse(
   pathname: string,
   contentType: string,
   logger: { warn: (msg: string, meta?: Record<string, unknown>) => void },
+  request?: Request,
 ): Promise<Response> {
   const body = await response.text();
   const { rewritten: baseRewritten, wasNoOp } = rewriteVaultBaseHref(body, sessionId);
@@ -533,6 +591,13 @@ export async function rewriteVaultHtmlResponse(
   const headers = new Headers(response.headers);
   headers.delete('content-length');
   headers.delete('content-encoding');
+  // CF-019: issue the double-submit CSRF cookie on this safe (GET) HTML
+  // response so the SPA holds a token before it issues any write. `request`
+  // is optional only for the existing unit tests that call this helper
+  // without it; the production call site (handleVaultRequest) always passes it.
+  if (request && request.method === 'GET') {
+    maybeIssueCsrfCookie(request, headers, sessionId);
+  }
   return new Response(rewritten, {
     status: response.status,
     statusText: response.statusText,

@@ -11,6 +11,12 @@ const logger = createLogger('rate-limit-core');
 /** In-memory fallback when KV is unreachable */
 const inMemoryFallback = new Map<string, { count: number; windowStart: number }>();
 const CLEANUP_EVERY_N = 100;
+// CF-149: hard cap on the fallback Map. Window-based cleanup only runs every
+// 100 inserts and only prunes expired windows; a sustained KV outage with
+// high key cardinality could grow the Map unbounded between cleanups. When the
+// cap is hit we evict the oldest-inserted entry (Map preserves insertion
+// order) before adding the new one, bounding worst-case memory.
+const MAX_FALLBACK_ENTRIES = 10_000;
 let fallbackCounter = 0;
 
 interface RateLimitResult {
@@ -84,6 +90,12 @@ export async function checkRateLimit(params: {
       return { allowed: true, count: entry.count, retryAfterSec: 0 };
     }
 
+    // CF-149: evict the oldest entry before inserting past the cap. Map
+    // iteration yields keys in insertion order, so the first key is the oldest.
+    if (inMemoryFallback.size >= MAX_FALLBACK_ENTRIES && !inMemoryFallback.has(key)) {
+      const oldest = inMemoryFallback.keys().next().value;
+      if (oldest !== undefined) inMemoryFallback.delete(oldest);
+    }
     inMemoryFallback.set(key, { count: 1, windowStart: now });
 
     // Periodic cleanup to prevent unbounded growth

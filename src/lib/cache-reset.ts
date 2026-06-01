@@ -6,6 +6,7 @@
 import { resetCorsOriginsCache } from './cors-cache';
 import { resetAuthConfigCache } from './access';
 import { resetJWKSCache } from './jwt';
+import { resetContainerBreakersForReset } from './circuit-breakers';
 
 // Setup completion cache shared between edge handler and setup routes.
 let setupCompleteCache: boolean | null = null;
@@ -28,4 +29,6 @@ export function resetSetupCache(): void {
   resetCorsOriginsCache();
   resetAuthConfigCache();
   resetJWKSCache();
+  // CF-149: drop stale per-container breakers on setup/config change.
+  resetContainerBreakersForReset();
 }

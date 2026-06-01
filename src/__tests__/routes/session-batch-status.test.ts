@@ -108,6 +108,54 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
   });
 
+  // Read-side staleness reconciliation (#153): a KV-running session with a
+  // stale metrics heartbeat is reported stopped without writing back to KV.
+  describe('batch-status reconciles stale running sessions', () => {
+    it('downgrades a running session whose metrics heartbeat is stale to stopped', async () => {
+      const staleU = new Date(Date.now() - 600_000).toISOString(); // 10 min ago
+      const session: Session = {
+        ...makeSession('aabbccdd11223344', 'running'),
+        metrics: { cpu: '5%', mem: '128MB', hdd: '1GB', syncStatus: 'success', updatedAt: staleU },
+      };
+      mockKV._set('session:test-bucket:aabbccdd11223344', session, buildSessionMetadata(session));
+
+      const app = createApp();
+      const res = await app.request('/sessions/batch-status');
+      const body = await res.json() as { statuses: Record<string, { status: string; ptyActive: boolean }> };
+      expect(body.statuses['aabbccdd11223344'].status).toBe('stopped');
+      expect(body.statuses['aabbccdd11223344'].ptyActive).toBe(false);
+    });
+
+    it('keeps a running session with a fresh metrics heartbeat running', async () => {
+      const freshU = new Date(Date.now() - 5_000).toISOString();
+      const session: Session = {
+        ...makeSession('aabbccdd11223344', 'running'),
+        metrics: { cpu: '5%', mem: '128MB', hdd: '1GB', syncStatus: 'success', updatedAt: freshU },
+      };
+      mockKV._set('session:test-bucket:aabbccdd11223344', session, buildSessionMetadata(session));
+
+      const app = createApp();
+      const res = await app.request('/sessions/batch-status');
+      const body = await res.json() as { statuses: Record<string, { status: string }> };
+      expect(body.statuses['aabbccdd11223344'].status).toBe('running');
+    });
+
+    it('reconciles the fallback (pre-migration, no metadata) path too', async () => {
+      const staleU = new Date(Date.now() - 600_000).toISOString();
+      const session: Session = {
+        ...makeSession('aabbccdd11223344', 'running'),
+        metrics: { cpu: '5%', mem: '128MB', hdd: '1GB', syncStatus: 'success', updatedAt: staleU },
+      };
+      // No metadata argument -> forces the fallback KV.get path.
+      mockKV._set('session:test-bucket:aabbccdd11223344', session);
+
+      const app = createApp();
+      const res = await app.request('/sessions/batch-status');
+      const body = await res.json() as { statuses: Record<string, { status: string }> };
+      expect(body.statuses['aabbccdd11223344'].status).toBe('stopped');
+    });
+  });
+
   // AC2: Backend KV stores only 'running' and 'stopped'; ephemeral states are frontend-only
   describe('REQ-SESSION-010 AC2: only running/stopped persisted to KV', () => {
     it('buildSessionMetadata encodes running as "r"', () => {

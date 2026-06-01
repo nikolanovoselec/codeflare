@@ -5,7 +5,7 @@
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, UserPreferences } from '../../types';
-import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString, putSessionWithMetadata, expandSessionMetadata, getPreferencesKey, type SessionListMetadata } from '../../lib/kv-keys';
+import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString, putSessionWithMetadata, expandSessionMetadata, reconcileStaleStatus, buildSessionMetadata, getPreferencesKey, type SessionListMetadata } from '../../lib/kv-keys';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
@@ -108,12 +108,16 @@ app.get('/batch-status', async (c) => {
   const statuses: Record<string, { status: string; ptyActive: boolean; lastActiveAt: string | null; lastStartedAt: string | null; metrics?: Session['metrics'] }> = {};
   const fallbackKeys: Array<{ name: string }> = [];
 
+  // Reconcile a phantom-running session (KV says 'r' but the metrics heartbeat
+  // is stale) to 'stopped' for display. Read-side only - never written to KV.
+  const now = Date.now();
+
   for (const key of keys) {
     const meta = key.metadata as SessionListMetadata | null;
     if (meta && meta.s) {
       // Fast path: read from list metadata (zero KV.get)
       const sessionId = key.name.split(':').pop()!;
-      statuses[sessionId] = expandSessionMetadata(meta);
+      statuses[sessionId] = expandSessionMetadata(reconcileStaleStatus(meta, now));
     } else {
       // Pre-migration key without metadata - queue for fallback KV.get
       fallbackKeys.push(key);
@@ -127,14 +131,10 @@ app.get('/batch-status', async (c) => {
     );
     for (const session of fallbackResults) {
       if (!session) continue;
-      const isRunning = session.status === 'running';
-      statuses[session.id] = {
-        status: isRunning ? 'running' : 'stopped',
-        ptyActive: isRunning,
-        lastActiveAt: session.lastActiveAt || null,
-        lastStartedAt: session.lastStartedAt || null,
-        metrics: session.metrics || undefined,
-      };
+      // Build equivalent metadata so the fallback path gets the same staleness
+      // reconciliation as the fast path.
+      const reconciled = reconcileStaleStatus(buildSessionMetadata(session), now);
+      statuses[session.id] = expandSessionMetadata(reconciled);
     }
   }
 

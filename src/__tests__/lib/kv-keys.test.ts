@@ -17,6 +17,9 @@ import {
   buildSessionMetadata,
   expandSessionMetadata,
   putSessionWithMetadata,
+  reconcileStaleStatus,
+  STALE_RUNNING_MS,
+  getBaseUrl,
 } from '../../lib/kv-keys';
 import type { Session } from '../../types';
 import { NotFoundError } from '../../lib/error-types';
@@ -371,6 +374,114 @@ describe('putSessionWithMetadata', () => {
   });
 });
 
+
+describe('reconcileStaleStatus', () => {
+  const NOW = Date.parse('2026-06-01T12:00:00Z');
+  const fresh = new Date(NOW - 10_000).toISOString(); // 10s ago
+  const stale = new Date(NOW - (STALE_RUNNING_MS + 60_000)).toISOString(); // >3min ago
+
+  it('downgrades running -> stopped when metrics heartbeat is stale', () => {
+    const result = reconcileStaleStatus({ s: 'r', m: { u: stale } }, NOW);
+    expect(result.s).toBe('s');
+  });
+
+  it('keeps running when metrics heartbeat is fresh', () => {
+    const result = reconcileStaleStatus({ s: 'r', m: { u: fresh } }, NOW);
+    expect(result.s).toBe('r');
+  });
+
+  it('downgrades running -> stopped when no metrics but lastStartedAt is old (startup grace expired)', () => {
+    const result = reconcileStaleStatus({ s: 'r', sa: stale }, NOW);
+    expect(result.s).toBe('s');
+  });
+
+  it('keeps running when no metrics and lastStartedAt is recent (startup grace)', () => {
+    const result = reconcileStaleStatus({ s: 'r', sa: fresh }, NOW);
+    expect(result.s).toBe('r');
+  });
+
+  it('keeps running when no metrics and no lastStartedAt (startup grace)', () => {
+    const result = reconcileStaleStatus({ s: 'r' }, NOW);
+    expect(result.s).toBe('r');
+  });
+
+  it('leaves stopped sessions stopped', () => {
+    const result = reconcileStaleStatus({ s: 's', m: { u: stale } }, NOW);
+    expect(result.s).toBe('s');
+  });
+
+  it('treats an unparseable metrics heartbeat (NaN) as not-stale -> keeps running', () => {
+    const result = reconcileStaleStatus({ s: 'r', m: { u: 'not-a-date' } }, NOW);
+    expect(result.s).toBe('r');
+  });
+
+  it('treats an unparseable lastStartedAt (NaN) as not-stale -> keeps running', () => {
+    const result = reconcileStaleStatus({ s: 'r', sa: 'not-a-date' }, NOW);
+    expect(result.s).toBe('r');
+  });
+
+  it('does not mutate the input metadata (immutable)', () => {
+    const input = { s: 'r' as const, m: { u: stale } };
+    const result = reconcileStaleStatus(input, NOW);
+    expect(input.s).toBe('r');
+    expect(result).not.toBe(input);
+  });
+
+  it('returns the same reference when unchanged', () => {
+    const input = { s: 'r' as const, m: { u: fresh } };
+    expect(reconcileStaleStatus(input, NOW)).toBe(input);
+  });
+});
+
+describe('getBaseUrl', () => {
+  it('uses a valid custom domain over the request origin', async () => {
+    const kv = createMockKV();
+    kv._store.set(SETUP_KEYS.CUSTOM_DOMAIN, 'codeflare.ch');
+    const url = await getBaseUrl(kv as unknown as KVNamespace, 'https://worker.example.com/path');
+    expect(url).toBe('https://codeflare.ch');
+  });
+
+  it('accepts a multi-label subdomain', async () => {
+    const kv = createMockKV();
+    kv._store.set(SETUP_KEYS.CUSTOM_DOMAIN, 'app.codeflare.ch');
+    const url = await getBaseUrl(kv as unknown as KVNamespace, 'https://worker.example.com/');
+    expect(url).toBe('https://app.codeflare.ch');
+  });
+
+  it('falls back to request origin when no custom domain is set', async () => {
+    const kv = createMockKV();
+    const url = await getBaseUrl(kv as unknown as KVNamespace, 'https://worker.example.com/path?x=1');
+    expect(url).toBe('https://worker.example.com');
+  });
+
+  it('falls back to request origin for an invalid custom domain (scheme included)', async () => {
+    const kv = createMockKV();
+    kv._store.set(SETUP_KEYS.CUSTOM_DOMAIN, 'https://evil.com');
+    const url = await getBaseUrl(kv as unknown as KVNamespace, 'https://worker.example.com/x');
+    expect(url).toBe('https://worker.example.com');
+  });
+
+  it('falls back to request origin for an invalid custom domain (path included)', async () => {
+    const kv = createMockKV();
+    kv._store.set(SETUP_KEYS.CUSTOM_DOMAIN, 'evil.com/redirect');
+    const url = await getBaseUrl(kv as unknown as KVNamespace, 'https://worker.example.com/x');
+    expect(url).toBe('https://worker.example.com');
+  });
+
+  it('falls back to request origin for a custom domain with consecutive dots', async () => {
+    const kv = createMockKV();
+    kv._store.set(SETUP_KEYS.CUSTOM_DOMAIN, 'evil..com');
+    const url = await getBaseUrl(kv as unknown as KVNamespace, 'https://worker.example.com/x');
+    expect(url).toBe('https://worker.example.com');
+  });
+
+  it('falls back to request origin for a custom domain with a port', async () => {
+    const kv = createMockKV();
+    kv._store.set(SETUP_KEYS.CUSTOM_DOMAIN, 'evil.com:8080');
+    const url = await getBaseUrl(kv as unknown as KVNamespace, 'https://worker.example.com/x');
+    expect(url).toBe('https://worker.example.com');
+  });
+});
 
 describe('SETUP_KEYS', () => {
   it('contains 20 setup keys', () => {

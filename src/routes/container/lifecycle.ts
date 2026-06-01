@@ -16,7 +16,7 @@ import { AppError, ContainerError, NotFoundError, QuotaExceededError, toError, t
 import { getTierConfig, getUserTier, getEffectiveTier } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
-import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, putSessionWithMetadata, type SessionListMetadata } from '../../lib/kv-keys';
+import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, putSessionWithMetadata, reconcileStaleStatus, buildSessionMetadata, type SessionListMetadata } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { SetBucketNameBodySchema } from '../../lib/container-config-schema';
 import { containerLogger, getStoredBucketName } from './shared';
@@ -164,17 +164,23 @@ export async function validateSessionAndCheckLimits(params: {
     // Uses list metadata to count running sessions (zero individual KV.get calls).
     const effectiveMaxSessions = resolvedTier?.maxSessions ?? maxSessions;
     const sessionKeys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
+    // Reconcile phantom-running sessions (KV 'r' but stale metrics heartbeat)
+    // to stopped before counting so they don't consume a session slot.
+    const now = Date.now();
     let runningCount = 0;
     for (const key of sessionKeys) {
-      const meta = key.metadata as SessionListMetadata | null;
-      if (meta && meta.s) {
+      const rawMeta = key.metadata as SessionListMetadata | null;
+      if (rawMeta && rawMeta.s) {
         // Fast path: read status from list metadata
+        const meta = reconcileStaleStatus(rawMeta, now);
         const keySessionId = key.name.split(':').pop();
         if (meta.s === 'r' && keySessionId !== sessionId) runningCount++;
       } else {
         // Fallback: pre-migration key without metadata
         const s = await env.KV.get<Session>(key.name, 'json');
-        if (s && s.status === 'running' && s.id !== sessionId) runningCount++;
+        if (!s || s.id === sessionId) continue;
+        const meta = reconcileStaleStatus(buildSessionMetadata(s), now);
+        if (meta.s === 'r') runningCount++;
       }
     }
 

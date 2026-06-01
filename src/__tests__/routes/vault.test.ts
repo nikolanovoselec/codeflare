@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   validateVaultRoute,
   maybeSynthesizeCsrfHeader,
+  maybeIssueCsrfCookie,
   isServiceWorkerRegistration,
   VAULT_KEY_SHIM_SERVICE_WORKER_JS,
   VAULT_BOOTSTRAP_COOKIE,
@@ -199,6 +200,87 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       const arrived = await forwarded.text();
       expect(arrived).toBe(payload);
       expect(requestForAuth.headers.get('X-Requested-With')).toBe('XMLHttpRequest');
+    });
+
+    // CF-019: independent double-submit token echo on origin-validated writes.
+    it('echoes the CSRF cookie into the X-Vault-Csrf header on validated writes', () => {
+      const req = makeRequest('PUT', { Cookie: 'codeflare_vault_csrf=tok-xyz' });
+      const result = maybeSynthesizeCsrfHeader(req, true);
+      expect(result).not.toBe(req);
+      expect(result.headers.get('X-Vault-Csrf')).toBe('tok-xyz');
+      // X-Requested-With still synthesised alongside (defense-in-depth).
+      expect(result.headers.get('X-Requested-With')).toBe('XMLHttpRequest');
+    });
+
+    it('does not echo the CSRF header when no cookie is present', () => {
+      const req = makeRequest('PUT');
+      const result = maybeSynthesizeCsrfHeader(req, true);
+      expect(result.headers.has('X-Vault-Csrf')).toBe(false);
+    });
+
+    it('does not overwrite an X-Vault-Csrf header the client already set', () => {
+      const req = makeRequest('PUT', {
+        Cookie: 'codeflare_vault_csrf=cookie-tok',
+        'X-Vault-Csrf': 'client-tok',
+      });
+      const result = maybeSynthesizeCsrfHeader(req, true);
+      expect(result.headers.get('X-Vault-Csrf')).toBe('client-tok');
+    });
+
+    it('does not echo the CSRF cookie when originValidated is false', () => {
+      const req = makeRequest('PUT', { Cookie: 'codeflare_vault_csrf=tok' });
+      const result = maybeSynthesizeCsrfHeader(req, false);
+      expect(result).toBe(req);
+      expect(result.headers.has('X-Vault-Csrf')).toBe(false);
+    });
+
+    it('does not echo the CSRF cookie on safe methods', () => {
+      const req = makeRequest('GET', { Cookie: 'codeflare_vault_csrf=tok' });
+      const result = maybeSynthesizeCsrfHeader(req, true);
+      expect(result).toBe(req);
+      expect(result.headers.has('X-Vault-Csrf')).toBe(false);
+    });
+  });
+
+  // CF-019: GET vault responses seed the double-submit CSRF cookie.
+  describe('maybeIssueCsrfCookie / CF-019 (GET vault responses seed the double-submit token cookie)', () => {
+    function getReq(headers: Record<string, string> = {}): Request {
+      return new Request('https://codeflare.ch/api/vault/abcdef12/', {
+        method: 'GET',
+        headers: new Headers(headers),
+      });
+    }
+
+    it('sets a Set-Cookie with the CSRF token when none is present', () => {
+      const headers = new Headers();
+      maybeIssueCsrfCookie(getReq(), headers, 'abcdef12');
+      const setCookie = headers.get('Set-Cookie');
+      expect(setCookie).toBeTruthy();
+      expect(setCookie).toContain('codeflare_vault_csrf=');
+      expect(setCookie).toContain('HttpOnly');
+      expect(setCookie).toContain('SameSite=Lax');
+      expect(setCookie).toContain('Secure');
+      expect(setCookie).toContain('Path=/api/vault/abcdef12/');
+    });
+
+    it('issues a non-empty token value', () => {
+      const headers = new Headers();
+      maybeIssueCsrfCookie(getReq(), headers, 'abcdef12');
+      const setCookie = headers.get('Set-Cookie') ?? '';
+      const value = setCookie.split(';')[0].split('=')[1];
+      expect(value.length).toBeGreaterThan(0);
+    });
+
+    it('does not re-issue when the request already carries the cookie', () => {
+      const headers = new Headers();
+      maybeIssueCsrfCookie(getReq({ Cookie: 'codeflare_vault_csrf=existing' }), headers, 'abcdef12');
+      expect(headers.get('Set-Cookie')).toBeNull();
+    });
+
+    it('does not issue for an invalid session id', () => {
+      const headers = new Headers();
+      maybeIssueCsrfCookie(getReq(), headers, 'BAD-ID');
+      expect(headers.get('Set-Cookie')).toBeNull();
     });
   });
 

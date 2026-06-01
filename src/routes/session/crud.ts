@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getContainer } from '@cloudflare/containers';
 import { AgentTypeSchema, type Env, type Session } from '../../types';
-import { getSessionKey, getSessionPrefix, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName, putSessionWithMetadata } from '../../lib/kv-keys';
+import { getSessionKey, getSessionPrefix, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName, putSessionWithMetadata, reconcileStaleStatus, buildSessionMetadata } from '../../lib/kv-keys';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { MAX_SESSION_NAME_LENGTH, MAX_TABS } from '../../lib/constants';
@@ -65,20 +65,41 @@ app.get('/', async (c) => {
   // List all sessions for this user from KV (with pagination for >1000 keys)
   const keys = await listAllKvKeys(c.env.KV, prefix);
 
-  // Fetch session data for each key (parallel for better performance)
-  const sessionPromises = keys.map(key => c.env.KV.get<Session>(key.name, 'json'));
-  const sessionResults = await Promise.all(sessionPromises);
-  const sessions: Session[] = sessionResults.filter((s): s is Session => s !== null);
+  // The response body needs name/createdAt/lastAccessedAt, which list metadata
+  // does NOT carry, so every key still needs its full record. Bound the
+  // fan-out with a chunked concurrency limiter (batches of 20) instead of an
+  // unbounded Promise.all over all keys.
+  const sessions: Session[] = [];
+  for (let i = 0; i < keys.length; i += 20) {
+    const chunk = keys.slice(i, i + 20);
+    const results = await Promise.all(
+      chunk.map(key => c.env.KV.get<Session>(key.name, 'json'))
+    );
+    for (const session of results) {
+      if (session !== null) sessions.push(session);
+    }
+  }
+
+  // Read-side staleness reconciliation: a session KV-marked running whose
+  // metrics heartbeat is stale is reported as 'stopped'. Display-only - not
+  // written back to KV.
+  const now = Date.now();
+  const reconciledSessions = sessions.map((session) => {
+    const meta = reconcileStaleStatus(buildSessionMetadata(session), now);
+    return meta.s === 's' && session.status === 'running'
+      ? { ...session, status: 'stopped' as const }
+      : session;
+  });
 
   // Sort by lastAccessedAt (most recent first)
-  sessions.sort(
+  reconciledSessions.sort(
     (a, b) =>
       new Date(b.lastAccessedAt).getTime() -
       new Date(a.lastAccessedAt).getTime()
   );
 
   // Omit userId from API responses
-  const sanitizedSessions = sessions.map(toApiSession);
+  const sanitizedSessions = reconciledSessions.map(toApiSession);
 
   return c.json({ sessions: sanitizedSessions });
 });

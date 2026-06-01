@@ -58,6 +58,7 @@ vi.mock('../../lib/circuit-breakers', () => ({
 import lifecycleRoutes from '../../routes/container/lifecycle';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { seedGettingStartedDocs } from '../../lib/r2-seed';
+import { buildSessionMetadata } from '../../lib/kv-keys';
 
 describe('Container Lifecycle Routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -419,6 +420,50 @@ describe('Container Lifecycle Routes', () => {
         method: 'POST',
       });
 
+      expect(res.status).toBe(200);
+    });
+
+    it('does not count a phantom-running session (stale metrics heartbeat) against the limit', async () => {
+      const fetch = createLifecycleApp();
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch.mockResolvedValue(
+        new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+      );
+
+      const staleU = new Date(Date.now() - 600_000).toISOString(); // 10 min ago
+
+      // 2 genuinely-running sessions (fresh heartbeat) ...
+      for (let i = 1; i <= 2; i++) {
+        const id = `runningsession${String(i).padStart(8, '0')}`;
+        const session = {
+          id,
+          name: `Running ${i}`,
+          userId: 'test-bucket',
+          status: 'running' as const,
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+          metrics: { cpu: '5%', mem: '128MB', hdd: '1GB', syncStatus: 'success', updatedAt: new Date().toISOString() },
+        };
+        mockKV._set(`session:test-bucket:${id}`, session, buildSessionMetadata(session));
+      }
+      // ... plus 1 phantom-running session with a stale heartbeat. Without
+      // reconciliation this would be the 3rd slot and block the start.
+      const phantom = {
+        id: 'phantomsession00000001',
+        name: 'Phantom',
+        userId: 'test-bucket',
+        status: 'running' as const,
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+        metrics: { cpu: '5%', mem: '128MB', hdd: '1GB', syncStatus: 'success', updatedAt: staleU },
+      };
+      mockKV._set('session:test-bucket:phantomsession00000001', phantom, buildSessionMetadata(phantom));
+
+      const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+
+      // Only 2 effective running sessions < limit of 3 -> start allowed.
       expect(res.status).toBe(200);
     });
 

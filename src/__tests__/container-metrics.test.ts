@@ -190,6 +190,29 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(stored.metrics!.updatedAt).toBeDefined();
     });
 
+    it('skips the metrics write when the freshly-read session is already stopped (clobber-race guard)', async () => {
+      // A concurrent POST /:id/stop (or onStop) has marked the session stopped.
+      // collectMetrics must NOT re-put it with status preserved, which would
+      // resurrect the metrics on a stopped session.
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'stopped',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+
+      await containerInstance.collectMetrics();
+
+      // No put to the session key (metrics write skipped).
+      const sessionPut = mockKV.put.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+      );
+      expect(sessionPut).toBeUndefined();
+    });
+
     it('should re-arm schedule if container is still running', async () => {
       const session: Session = {
         id: 'testsession123456',

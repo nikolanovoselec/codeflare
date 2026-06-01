@@ -194,6 +194,8 @@ When `OPENAI_API_KEY` or `GEMINI_API_KEY` env vars are present, `entrypoint.sh` 
 | OpenAI | live `GET /v1/models`, newest flagship GPT |
 | Google | live `GET /v1beta/models`, `gemini-pro-latest` flagship |
 
+**Caveat - rolling alias volatility:** `gemini-pro-latest` is a rolling alias, not a pinned version. Google re-points it to whatever it considers the current Gemini Pro flagship, so the underlying model (and its behavior, context window, and pricing) can change without notice and without any change on our side. Treat it as "whatever Google ships as flagship today," not as a stable contract; pin an explicit dated version if a reproducible model is ever required.
+
 The skill always passes an explicit `model` resolved live from the provider model list at call time, never the `consult_llm` server's static default (which drifts to old versions). A user-named model (e.g. `gpt-5.4`, `gemini flash`) overrides the auto-picked flagship.
 
 Skill definition: `preseed/agents/claude/skills/consult-llm/SKILL.md`.

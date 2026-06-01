@@ -26,6 +26,8 @@ import { createMockKV } from './helpers/mock-kv';
 
 vi.mock('../lib/circuit-breakers', () => ({
   cfApiCB: { execute: (fn: () => Promise<unknown>) => fn() },
+  // resetSetupCache() (called by the configure flow) now resets breakers.
+  resetContainerBreakersForReset: vi.fn(),
 }));
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
