@@ -344,6 +344,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 ### REQ-SESSION-010: Session status observable from dashboard
 
 <!-- @impl: src/routes/session/crud.ts -->
+<!-- @impl: src/routes/session/lifecycle.ts -->
+<!-- @impl: src/lib/kv-keys.ts::reconcileStaleStatus -->
 <!-- @impl: web-ui/src/stores/session-polling.ts -->
 
 **Intent:** The dashboard displays the current status of each session (running, stopped, initializing, stopping, error) with near-real-time updates.

@@ -432,7 +432,7 @@ None. Authentication is foundational; other domains depend on it.
 **Acceptance Criteria:**
 
 1. The SaaS login page shows Codeflare branding with an animated logo.
-2. "Sign in with GitHub" button is displayed.
+2. A "Continue with <provider>" button is displayed for the configured identity provider.
 3. Available auth providers are listed.
 
 **Constraints:**

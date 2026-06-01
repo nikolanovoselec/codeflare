@@ -542,8 +542,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-009: Vault writes succeed end-to-end for SilverBullet attachment uploads
 
-<!-- @impl: src/routes/vault.ts::maybeSynthesizeCsrfHeader -->
-<!-- @impl: src/routes/vault.ts::inferOriginValidated -->
+<!-- @impl: src/routes/vault-html.ts::maybeSynthesizeCsrfHeader -->
+<!-- @impl: src/routes/vault-html.ts::inferOriginValidated -->
+<!-- @impl: src/routes/vault-html.ts::maybeIssueCsrfCookie -->
 <!-- @test: src/__tests__/routes/vault.test.ts (missing-Origin PUT path describe → AC1-AC4) -->
 
 **Intent:** SilverBullet's drag-drop attachment upload (PUT `/api/vault/<sid>/Inbox/<file>`) must succeed when the user is authenticated, regardless of whether the browser's fetch implementation set the Origin header. The previous code path required Origin to be present and allowlisted before synthesising the CSRF guard header, so a service-worker-controlled fetch or a same-origin fetch that omitted Origin landed at the auth chain without X-Requested-With and was rejected. PDF uploads from the SB Inbox plug repeatedly surfaced this as a 401 to the user.
