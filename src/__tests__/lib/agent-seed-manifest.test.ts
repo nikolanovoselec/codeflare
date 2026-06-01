@@ -797,6 +797,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(piPackage?.content).toContain('"@gaodes/pi-graphify": "0.2.2"');
   });
 
+  it('REQ-AGENT-024 AC5-AC6: Pi graphify skill preserves durable graph artifacts in git', () => {
+    const skill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/graphify/SKILL.md');
+    expect(skill?.content).toContain('Graph persistence lives with the repo, not R2');
+    expect(skill?.content).toContain('graphify-out/cache/');
+    expect(skill?.content).toContain('graphify-out/manifest.json');
+    expect(skill?.content).toContain('graphify-out/graph.json merge=graphify');
+    expect(skill?.content).toContain('graphify-out/graph.json');
+    expect(skill?.content).toContain('graphify-out/GRAPH_REPORT.md');
+    expect(skill?.content).toContain('graphify-out/graph.html');
+    expect(skill?.content).toContain('blanket `graphify-out/`');
+  });
+
   // Pi as a first-class resident: the Pi manifest's prompts/* entries are emitted
   // as native runtime assets under .pi/agent/prompts/* (piNativeKey maps prompts/* ->
   // .pi/agent/prompts/*). These are the memory-capture and vault-extract subagent prompts.

@@ -1477,11 +1477,13 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-session-start.sh -->
 <!-- @impl: preseed/agents/claude/rules/graph-first.md -->
 <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md -->
+<!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md -->
 <!-- @test: host/__tests__/entrypoint-graphify-hooks.test.js (entrypoint hook installation → AC1/AC7) -->
 <!-- @test: host/__tests__/graphify-session-start.test.js (SessionStart three-tier fallback: god-nodes, GRAPH_REPORT preamble, build-suggestion → AC1) -->
 <!-- @test: host/__tests__/graph-first-nudge.test.js (PreToolUse soft-nudge matcher set → AC7) -->
 <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (rule + SKILL preseeded in advanced only → AC2/AC3) -->
 <!-- @test: host/__tests__/skill-graphify-content.test.js (SKILL contents → AC4/AC5/AC6) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-024 AC5-AC6: Pi graphify skill preserves durable graph artifacts in git) -->
 
 **Intent:** In advanced session mode, the agent is taught to prefer the knowledge graph over Grep-style text search for structural questions, so token cost on architecture, dependency, and call-flow questions is bounded. This REQ covers the SessionStart context injection, the preseeded rule and SKILL surface, and the soft-nudge PreToolUse hook. Graph-first discipline is advisory only: there is no hard-block enforcement. The `/graphify` build dispatch lives in [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch).
 
@@ -1588,8 +1590,10 @@ None.
 
 <!-- @impl: entrypoint.sh -->
 <!-- @impl: Dockerfile -->
+<!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md -->
 <!-- @test: host/__tests__/entrypoint-graphify-bisync.test.js (rclone bisync excludes **/graphify-out/** → AC1) -->
 <!-- @test: host/__tests__/dockerfile-graphify.test.js (global merge driver registration → AC2) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-024 AC5-AC6: Pi graphify skill preserves durable graph artifacts in git) -->
 
 **Intent:** Graphify artifacts persist with the repository, not with the user, so contributors on a clone inherit the graph for free and Codeflare's R2 bisync does not carry per-repo graph data.
 

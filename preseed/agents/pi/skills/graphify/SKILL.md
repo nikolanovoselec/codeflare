@@ -93,6 +93,49 @@ Then merge into the global graph:
 flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as "$(basename "$PWD")"
 ```
 
+Then persist the durable graph outputs in git when the user owns or can push to the repo. Graph persistence lives with the repo, not R2.
+
+Add or repair repo ignore rules so only regenerable cache/intermediate files are ignored:
+
+```gitignore
+# Graphify knowledge graph
+# Commit graphify-out/graph.json, graphify-out/GRAPH_REPORT.md, and graphify-out/graph.html.
+graphify-out/cache/
+graphify-out/.cache/
+graphify-out/.chunks/
+graphify-out/manifest.json
+graphify-out/.graphify_root
+graphify-out/.graphify_labels.json
+graphify-out/obsidian/
+.graphify_ast.json
+.graphify_semantic.json
+.graphify_semantic_new.json
+.graphify_extract.json
+.graphify_detect.json
+.graphify_analysis.json
+.graphify_cached.json
+.graphify_uncached.txt
+.graphify_chunk_*.txt
+.graphify_old.json
+.graphify_root
+.graphify_labels.json
+```
+
+If `.gitignore` or `.git/info/exclude` contains a blanket `graphify-out/`, remove it or replace it with the granular list above. Add the merge-driver wiring:
+
+```gitattributes
+graphify-out/graph.json merge=graphify
+```
+
+Commit these durable outputs after the first build or any meaningful refresh:
+
+- `graphify-out/graph.json`
+- `graphify-out/GRAPH_REPORT.md`
+- `graphify-out/graph.html`
+- optional `graphify-out/wiki/` if generated
+
+Do not commit graphify caches, chunk files, manifests, `.graphify_*` intermediates, or Obsidian export unless the user explicitly asks. `graph.html` must always be generated; if it is missing, rerun the safe wrapper before reporting Graphify work complete.
+
 Use AST-only by default after source edits. It is local, bounded, and safe for the 1-CPU container.
 
 ### Full semantic + AST refresh — only when user wants semantic/docs extraction
@@ -127,4 +170,5 @@ Do not silently rebuild unless the user asked to refresh/build/update.
 - Never assume `/home/user/workspace/graphify-out/graph.json` exists.
 - Interactive semantic extraction uses in-session Pi `Agent` subagents, not headless/API-key extractors.
 - After source edits in a graphed repo, prefer the safe update wrapper before answering new structural graph questions.
+- Persist repo graph outputs in git when push permission exists: `graphify-out/graph.json`, `graphify-out/GRAPH_REPORT.md`, and `graphify-out/graph.html`; ignore only caches/intermediates.
 - Do not edit graph output JSON by hand except for diagnostic read-only inspection.
