@@ -7,7 +7,9 @@ import {
   isServiceWorkerContextFetch,
   VAULT_KEY_SHIM_SERVICE_WORKER_JS,
   VAULT_NATIVE_SERVICE_WORKER_JS,
+  VAULT_NATIVE_SW_VERBATIM,
   VAULT_NATIVE_SW_SHA256,
+  graftVaultKeyRecovery,
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_SW_ACTIVATION_TIMEOUT_MS,
   VAULT_IDB_RECORDER_MARKER,
@@ -533,10 +535,10 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
     }
 
-    it('T1: serves the native SilverBullet worker, not the key-shim', () => {
+    it('T1: serves the native SilverBullet worker with the key-recovery graft, not the key-shim', () => {
       // The native worker carries SB's sync engine + offline precache, which
       // is what restores the persistent sb_files_* store (#445). The key-shim
-      // never had `precache`/`addAll`; asserting the native bytes contain them
+      // never had `precache`/`addAll`; asserting the served bytes contain them
       // AND differ from the shim fails the moment serving is swapped back.
       expect(VAULT_NATIVE_SERVICE_WORKER_JS.length).toBeGreaterThan(50_000);
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('precache');
@@ -546,13 +548,29 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       // Cold-boot encryption rides the native worker's own key handlers.
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('set-encryption-key');
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('get-encryption-key');
+      // REQ-VAULT-008 AC7: the served worker carries the codeflare recovery
+      // graft (the verbatim upstream worker does NOT) - without it the key is
+      // lost between the bootstrap-hop and shell boot and SB bounces to .auth.
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('.vault-key');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('Recovered encryption key from codeflare');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toBe(VAULT_NATIVE_SW_VERBATIM);
     });
 
-    it('T9: matches the recorded SHA-256 drift guard', async () => {
-      // A SilverBullet version bump that changes the worker bytes must be a
-      // deliberate re-vendor (update both the constant and the hash), never a
-      // silent drift. This pins the vendored bytes to SB 2.8.1.
-      expect(await sha256Hex(VAULT_NATIVE_SERVICE_WORKER_JS)).toBe(VAULT_NATIVE_SW_SHA256);
+    it('T9: the drift guard hashes the VERBATIM upstream worker', async () => {
+      // The guard pins the upstream SB 2.8.1 bytes (pre-graft); a SilverBullet
+      // version bump that changes the worker must be a deliberate re-vendor
+      // (update the constant AND the hash), never a silent drift. The verbatim
+      // bytes are what is hashed - the graft is applied deterministically on top.
+      expect(await sha256Hex(VAULT_NATIVE_SW_VERBATIM)).toBe(VAULT_NATIVE_SW_SHA256);
+    });
+
+    it('T10: graftVaultKeyRecovery throws if the upstream get-encryption-key anchor moves', () => {
+      // The graft is anchored on an exact minified substring. If SB changes it,
+      // the transform must fail loud (forcing a re-vendor + re-verify) rather
+      // than silently serve an un-grafted worker that re-breaks REQ-VAULT-008 AC7.
+      expect(() => graftVaultKeyRecovery('definitely not the silverbullet worker')).toThrow();
+      // It is idempotent-safe on the real verbatim worker (produces the served bytes).
+      expect(graftVaultKeyRecovery(VAULT_NATIVE_SW_VERBATIM)).toBe(VAULT_NATIVE_SERVICE_WORKER_JS);
     });
   });
 

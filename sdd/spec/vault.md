@@ -343,7 +343,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 7. The native service-worker script body is identical across sessions (version-locked to the SilverBullet binary, guarded by a recorded SHA-256 drift hash); the per-session vault encryption key is delivered to it via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), never baked into the script.
 8. The native worker precaches the shell `/` via `cache.addAll` during install, BEFORE the bootstrap-hop sets the bootstrap cookie. The shell-path redirect to the bootstrap-hop is suppressed for Service-Worker-context fetches (identified by a `Sec-Fetch-Mode` header present and not equal to `navigate`) so the precache resolves against the real shell instead of a 302 that would make `cache.addAll` reject and hang the SW install. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the redirect (fail-safe), so a real first navigation never boots without the encryption key wired.
 
-**Notes:** Serving the native worker (AD69) restores the editor's persistent `sb_files_*` local-sync store, the fix for the per-cold-load full re-index regression (codeflare#445). The proxy half is implemented and unit-covered, but the end-to-end behaviour (native SW installs through the proxy, `sb_files_*` created, reload re-indexes zero files, encryption still applied) is only verifiable in a real browser against an integration deploy; until that integration verification lands, plus the `/.client/*` precache-auth exemption (reserved AC9) and the `.vault-key` mid-session recovery graft ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC7), the REQ stays Partial.
+**Notes:** Serving the native worker (AD69) restores the editor's persistent `sb_files_*` local-sync store, the fix for the per-cold-load full re-index regression (codeflare#445). The proxy half (native-SW serving, the `Sec-Fetch-Mode` 302 suppression, and the `.vault-key` recovery graft that keeps encryption alive, [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC7) is implemented and unit-covered, but the end-to-end behaviour (native SW installs through the proxy, `sb_files_*` created, reload re-indexes zero files, encryption decrypts) is only verifiable in a real browser against an integration deploy; until that integration verification lands - plus the `/.client/*` precache-auth exemption (reserved AC9), needed only if the deploy shows those precache fetches 401 - the REQ stays Partial.
 
 **Constraints:**
 
@@ -463,6 +463,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @impl: src/container/index.ts::ensureVaultKey -->
 <!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
+<!-- @impl: src/routes/vault-native-sw.ts::graftVaultKeyRecovery -->
 <!-- @impl: src/routes/vault.ts::injectVaultBootstrapHopHtml -->
 <!-- @impl: src/routes/vault.ts::injectVaultIdbRecorder -->
 <!-- @impl: src/routes/vault.ts::VAULT_BOOTSTRAP_COOKIE -->
@@ -471,9 +472,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
 <!-- @test: src/__tests__/container/index.test.ts (ensureVaultKey persistence + idempotency describe → AC1/AC2) -->
-<!-- @test: src/__tests__/routes/vault.test.ts (injectVaultEncryptionConfig + injectVaultBootScript + injectVaultBootstrapHopHtml + hasVaultBootstrapCookie describes → AC3/AC5/AC6; VAULT_NATIVE_SERVICE_WORKER_JS native-key-handler tokens describe → AC5) -->
+<!-- @test: src/__tests__/routes/vault.test.ts (injectVaultEncryptionConfig + injectVaultBootScript + injectVaultBootstrapHopHtml + hasVaultBootstrapCookie describes → AC3/AC5/AC6; VAULT_NATIVE_SERVICE_WORKER_JS native-key-handler + recovery-graft tokens + graftVaultKeyRecovery drift-throw describe → AC5/AC7) -->
 <!-- coverage-gap: AC4 (SilverBullet encrypted-KV wrapper usage) is a runtime/IDB behavioral property; no dedicated test describe block -->
-<!-- coverage-gap: AC7 (mid-session SW idle-termination key recovery) is DEFERRED to Increment 2 (AD69): the native worker is served without the .vault-key recovery graft, so after idle-termination it has no in-memory key and SB re-auths. The .vault-key endpoint still exists for the graft to consume. This is why the REQ is Partial. -->
+<!-- coverage-gap: AC7 graft is unit-covered by token + drift-throw assertions (the served worker contains the .vault-key recovery branch); the live browser idle-termination + cold-boot recovery cycle against the real .vault-key endpoint is integration-verified, not unit-tested. The REQ stays Partial until that integration verification lands. -->
 
 **Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. This REQ covers encryption-at-rest with a per-session key generated and stored by the Container DO (no user passphrase prompt); IDB lifecycle cleanup on session DELETE and dashboard-mount sweeping lives in [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters). The threat model is BitLocker-grade: defeats offline disk attacks (profile theft, backup leak, ransomware scan), does NOT defeat anyone with an authenticated browser tab. The key dies with `container.destroy()` so deletion is forward-secret.
 
@@ -487,7 +488,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 4. The editor uses the vault key to symmetrically encrypt its per-vault IndexedDB store via its built-in encrypted-KV wrapper.
 5. The Worker delivers the key through a one-time bootstrap-hop page that registers SilverBullet's native service worker, posts the key to its native `set-encryption-key` handler, persists an enable-encryption flag, and sets a bootstrap-completed cookie before redirecting to the shell; the hop is issued only for GET requests, while HEAD and other methods fall through to the SB proxy so the readiness probe reports ready only when SB is serving. On failure it shows an error and aborts without setting the cookie or flag.
 6. Subsequent shell-path requests bypass the bootstrap hop via the cookie, and no passphrase prompt is shown to the user.
-7. The service worker recovers its encryption key from the Worker when the browser terminates and re-activates the SW after idle. The Worker exposes an auth-gated `.vault-key` endpoint that returns the key; the SW fetches it on activate and as a fallback when a get-encryption-key message arrives with no key in memory. (DEFERRED to Increment 2, AD69: the native worker is served without this recovery graft in Increment 1, so this AC is not currently met - the reason the REQ is Partial.)
+7. The service worker recovers its encryption key from the Worker when its in-memory key is gone - whether the browser idle-terminated the SW, or the native worker flushed the key after the last client disconnected, or the key was simply never present yet at shell boot. A codeflare graft (`graftVaultKeyRecovery`) rewrites the native worker's `get-encryption-key` handler so that when it holds no key it first re-fetches the key from the auth-gated `.vault-key` endpoint (a same-origin SW fetch carries the session cookie) and decodes it with the worker's own key decoder before replying. Without this graft the native worker returns no key and SB navigates to `.auth` ("Authentication not enabled") - observed on cold boot, not just after idle.
 
 **Constraints:**
 
@@ -505,7 +506,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Status:** Partial
 
-**Notes:** Cold-boot encryption (AC1-AC6) is implemented and rides SilverBullet's native service worker (AD69) - the bootstrap-hop posts the key to the native worker's `set-encryption-key` handler. AC7 (mid-session SW idle-termination key recovery) is DEFERRED to Increment 2: the native worker is served without the `.vault-key` recovery graft, so after the SW is idle-terminated and re-activated it holds no key and SB re-auths. Until that graft lands, the REQ is Partial.
+**Notes:** Encryption rides SilverBullet's native service worker (AD69): the bootstrap-hop posts the key to the native worker's `set-encryption-key` handler, and a codeflare graft (`graftVaultKeyRecovery`) adds `.vault-key` recovery to its `get-encryption-key` handler (AC7) so the key survives the worker's no-clients flush and idle-termination - the first integration deploy proved the native worker loses the key even on cold boot without this graft. The graft is unit-covered by token + drift-throw assertions; the REQ stays Partial only until the live browser cycle (cold boot + idle reopen, encryption decrypts, `sb_files_*` created) is integration-verified.
 
 ---
 

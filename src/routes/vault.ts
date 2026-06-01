@@ -80,7 +80,12 @@ export {
   VAULT_SW_ACTIVATION_TIMEOUT_MS,
   VAULT_IDB_RECORDER_MARKER,
 } from './vault-html';
-export { VAULT_NATIVE_SERVICE_WORKER_JS, VAULT_NATIVE_SW_SHA256 } from './vault-native-sw';
+export {
+  VAULT_NATIVE_SERVICE_WORKER_JS,
+  VAULT_NATIVE_SW_VERBATIM,
+  VAULT_NATIVE_SW_SHA256,
+  graftVaultKeyRecovery,
+} from './vault-native-sw';
 
 const logger = createLogger('vault');
 
