@@ -4,7 +4,7 @@ name: bump-shadow-pins
 # (so Dependabot can't see them) and opens a single PR per bump.
 #
 # Currently watched:
-# - context-mode npm package (plugin.json + entrypoint.sh + hooks.json + README.md)
+# - context-mode npm package (plugin.json + entrypoint.sh + README.md)
 # - graphify PyPI package graphifyy (plugin.json; Dockerfile reads the pin via jq,
 #   so no Dockerfile literal to bump)
 # - zoxide, yazi, lazygit, silverbullet (GitHub release binaries pinned in Dockerfile)
@@ -73,7 +73,6 @@ jobs:
           const lat = process.env.LAT;
           const files = [
             'preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json',
-            'preseed/agents/claude/plugins/context-mode/hooks/hooks.json',
             'preseed/agents/claude/plugins/context-mode/README.md',
           ];
           for (const f of files) {
@@ -101,6 +100,10 @@ jobs:
           epContent = epContent.replace(
             /\|\| echo "[0-9]+\.[0-9]+\.[0-9]+"/g,
             `|| echo "${lat}"`
+          );
+          epContent = epContent.replace(
+            /npm:context-mode@[0-9]+\.[0-9]+\.[0-9]+/g,
+            `npm:context-mode@${lat}`
           );
           if (epContent !== epBefore) {
             fs.writeFileSync(ep, epContent);
@@ -137,8 +140,7 @@ jobs:
 
           Files updated by string replace + agent-seed regenerate:
           - \`preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json\`
-          - \`entrypoint.sh\` (CONTEXT_MODE_VERSION + jq/bash fallback strings)
-          - \`preseed/agents/claude/plugins/context-mode/hooks/hooks.json\` (4 hook commands)
+          - \`entrypoint.sh\` (CONTEXT_MODE_VERSION + jq/bash fallback strings + Pi disabledPackages pin)
           - \`preseed/agents/claude/plugins/context-mode/README.md\`
           - \`src/lib/agent-seed.generated.ts\` (regenerated)
 
