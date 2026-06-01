@@ -1009,40 +1009,12 @@ export default function (pi: ExtensionAPI) {
     remember(ctx);
     const state = hydratePending(ctx);
     if (!state) {
-      if (publishSummaryForCurrentPr(ctx)) return;
-      const repo = activeRepoFallback() || findGitRoot(ctx.sessionManager.getCwd());
-      if (!repo || !isSddProject(repo)) return;
-      const pr = prState(repo);
-      if (!isEnforcedPr(pr)) return;
-      const head = reviewCandidateHead(repo, pr);
-      if (!head) return;
-      if (consumeBypass()) {
-        acknowledgeBypass(repo, head, ctx);
-        return;
-      }
-      const effectivePr = { ...pr, headRefOid: head };
-      if (acked(repo, head)) {
-        publishFinalSummaryIfReady(repo, head, ctx);
-        return;
-      }
-      if (isBreakerOpen(repo, head)) return;
-
-      const review = mergeLaneState(repo, head, undefined);
-      if (review.lanes.length === 0) {
-        writeAck(repo, head);
-        clearPending(repo);
-        return;
-      }
-      const reviewBase = selectReviewBase({ lastAck: lastAckHead(repo) || undefined });
-      const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
-      resetBlockCount(repo);
-      clearBreaker(repo);
-      pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set(), requestedAt: {}, reviewStartedAt: Date.now() };
-      const initialLanes = durableReviewInitialLanes(pending.lanes);
-      savePending(pending);
-      updateReviewStatus(pending, ctx);
-      ctx.ui.notify(`PR-boundary review catch-up required for ${basename(repo)} at ${head.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
-      await spawnReviewLanes(pending, effectivePr, initialLanes, ctx, "agent_end catch-up");
+      // Passive session lifecycle events are not PR-boundary events. Opening a
+      // repo, switching branches, or reloading Pi may land on a branch with an
+      // existing PR, but review enforcement should start only from explicit PR
+      // creation/push/sync commands or from already-persisted pending review
+      // state. Keep summary publication passive and do not create catch-up work.
+      publishSummaryForCurrentPr(ctx);
       return;
     }
     const headStatus = reviewHeadStatus(state);

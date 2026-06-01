@@ -414,6 +414,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isPrBoundaryCommand('gh pr view --json number')).toBe(false);
   });
 
+  it('REQ-AGENT-036: seeded Pi review enforcement has no passive agent_end catch-up', () => {
+    const seeded = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/extensions/review-enforcement.ts');
+    expect(seeded?.content).toContain('Passive session lifecycle events are not PR-boundary events');
+    expect(seeded?.content).not.toContain('PR-boundary review catch-up required');
+    expect(seeded?.content).not.toContain('agent_end catch-up');
+  });
+
   it('REQ-AGENT-040: Pi review enforcement dedupes paired terminal events and evicts old ids', () => {
     const shouldProcess = createBoundedOnceTracker(2);
     expect(shouldProcess('tool-1')).toBe(true);
