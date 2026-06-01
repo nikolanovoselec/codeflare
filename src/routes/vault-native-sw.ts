@@ -29,10 +29,12 @@
  *
  * VAULT_NATIVE_SW_VERBATIM holds the upstream bytes UNMODIFIED; the graft is a
  * deterministic string transform applied on top, so the upstream worker stays
- * auditable and VAULT_NATIVE_SW_SHA256 (the drift guard, hashed over the
- * verbatim bytes) detects any SilverBullet version bump - a bump that moves any
- * graft anchor makes graftVaultKeyRecovery throw, forcing a deliberate
- * re-vendor + re-verify rather than a silent regression.
+ * auditable. Two complementary guards catch a SilverBullet version bump: the
+ * CI/test-time hash assertion against VAULT_NATIVE_SW_SHA256 (hashed over the
+ * verbatim bytes; see the T9 test) flags any byte change, and at RUNTIME a bump
+ * that moves a graft anchor makes graftVaultKeyRecovery throw - both force a
+ * deliberate re-vendor + re-verify rather than a silent regression. (The hash
+ * itself is not checked in production; the runtime guard is the anchor-throw.)
  *
  * Regenerate (from a running SB container):
  *   curl -s http://127.0.0.1:3030/service_worker.js -o /tmp/sw.js

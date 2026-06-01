@@ -326,7 +326,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
 <!-- @impl: src/routes/vault-html.ts::isServiceWorkerContextFetch -->
 <!-- @test: src/__tests__/routes/vault.test.ts (rewriteVaultBaseHref / rewriteVaultHtmlResponse (REQ-VAULT-013 AC1-AC4) + isServiceWorkerRegistration / REQ-VAULT-013 (SilverBullet subpath adapter) + VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-013 AC5 + isServiceWorkerContextFetch / REQ-VAULT-013 AC8 → AC1-AC8) -->
-<!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (native SW + shell-302 suppression (REQ-VAULT-013 AC5/AC9, AD69) → AC5/AC8) -->
+<!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (native SW + shell-302 suppression (REQ-VAULT-013 AC5/AC8, AD69) → AC5/AC8) -->
 
 **Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response and short-circuits Service Worker registration so the browser's SW fetch does not return 401. It serves SilverBullet's native service worker (not a stripped shim) so the editor keeps its persistent local file-sync store and indexes incrementally (AD69).
 
@@ -474,7 +474,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @test: src/__tests__/container/index.test.ts (ensureVaultKey persistence + idempotency describe → AC1/AC2) -->
 <!-- @test: src/__tests__/routes/vault.test.ts (injectVaultEncryptionConfig + injectVaultBootScript + injectVaultBootstrapHopHtml + hasVaultBootstrapCookie describes → AC3/AC5/AC6; VAULT_NATIVE_SERVICE_WORKER_JS native-key-handler + recovery-graft tokens + graftVaultKeyRecovery drift-throw describe → AC5/AC7) -->
 <!-- coverage-gap: AC4 (SilverBullet encrypted-KV wrapper usage) is a runtime/IDB behavioral property; no dedicated test describe block -->
-<!-- coverage-gap: AC7 graft is unit-covered by token + drift-throw assertions (the served worker contains the .vault-key recovery branch); the live browser idle-termination + cold-boot recovery cycle against the real .vault-key endpoint is integration-verified, not unit-tested. The REQ stays Partial until that integration verification lands. -->
+<!-- coverage-gap: AC7 graft is unit-covered by token + drift-throw assertions (the served worker contains the .vault-key recovery branch); the live browser idle-termination + cold-boot recovery cycle against the real .vault-key endpoint is integration-verified (mobile, 2026-06-01), not unit-tested - which is what carries the REQ to Implemented. -->
 
 **Intent:** SilverBullet's IndexedDB caches every vault file as raw bytes. This REQ covers encryption-at-rest with a per-session key generated and stored by the Container DO (no user passphrase prompt); IDB lifecycle cleanup on session DELETE and dashboard-mount sweeping lives in [REQ-VAULT-015](#req-vault-015-vault-idb-lifecycle-and-listing-filters). The threat model is BitLocker-grade: defeats offline disk attacks (profile theft, backup leak, ransomware scan), does NOT defeat anyone with an authenticated browser tab. The key dies with `container.destroy()` so deletion is forward-secret.
 

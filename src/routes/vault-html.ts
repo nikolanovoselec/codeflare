@@ -163,6 +163,15 @@ export function isServiceWorkerRegistration(request: Request, remainingPath: str
  * WebViews, non-browser clients) this returns false, so the 302 still fires
  * and a real navigation is never accidentally served the raw shell without
  * the bootstrap hop. Only an explicit non-`navigate` mode suppresses it.
+ *
+ * Breadth is deliberate: every non-`navigate` mode (`no-cors`, `same-origin`,
+ * `cors`, `websocket`) suppresses the 302, not just the `no-cors`/`same-origin`
+ * the precache emits. This is safe because the suppression is applied AFTER the
+ * full auth + session-ownership chain in handleVaultRequest, so it only changes
+ * whether an already-authorized request is redirected to the hop vs. proxied -
+ * it never exposes a path to an unauthenticated caller. The one functional
+ * consequence is that a non-navigation same-origin GET to `/` (e.g. a prefetch)
+ * would skip the hop; acceptable, since only top-level navigations need it.
  */
 export function isServiceWorkerContextFetch(request: Request): boolean {
   const mode = request.headers.get('Sec-Fetch-Mode');

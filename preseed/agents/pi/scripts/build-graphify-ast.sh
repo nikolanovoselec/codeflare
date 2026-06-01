@@ -93,6 +93,57 @@ def write_base_graph(code_files: list[Path]) -> None:
 def slug(label: str) -> str:
     return re.sub(r'[^a-zA-Z0-9]+', '_', label.strip().lower()).strip('_') or 'import'
 
+# Source extensions that count as a real file extension on an import label, so a
+# dotted namespace (com.foo.Bar) is split into a path while a real filename
+# (foo.dart) is left intact.
+IMPORT_EXTS = {'dart', 'kt', 'kts', 'js', 'mjs', 'ts', 'tsx', 'jsx', 'py', 'go',
+               'rs', 'java', 'swift', 'h', 'hpp', 'hh', 'hxx', 'cc', 'cpp',
+               'cxx', 'c', 'cs', 'rb', 'php', 'scala', 'm', 'mm'}
+
+def build_suffix_index(file_by_path: dict[str, str]) -> dict[str, set[str]]:
+    # Index every path-tail of every local file -> the node_ids sharing it, both
+    # with and without the trailing extension, so an import that omits the
+    # extension (Java/C#/Dart namespaces) still matches a real file.
+    idx: dict[str, set[str]] = defaultdict(set)
+    for path, node_id in file_by_path.items():
+        variants = {path}
+        if '.' in path.rsplit('/', 1)[-1]:
+            variants.add(path.rsplit('.', 1)[0])
+        for variant in variants:
+            parts = variant.split('/')
+            for i in range(len(parts)):
+                idx['/'.join(parts[i:])].add(node_id)
+    return idx
+
+def label_to_candidate(label: str) -> str | None:
+    # Normalize any import label to a path-like candidate, language-agnostically:
+    # strip a `scheme:` prefix (package:/dart:/node:/file:), strip include
+    # punctuation, and convert dotted namespaces (Java/Kotlin/C#) to slash paths.
+    s = (label or '').strip().strip('"\'<> ')
+    if not s:
+        return None
+    m = re.match(r'^[A-Za-z][A-Za-z0-9+.\-]*:(.*)$', s)
+    if m:
+        s = m.group(1).lstrip('/')
+    if not s:
+        return None
+    if '/' not in s and '.' in s and s.rsplit('.', 1)[1].lower() not in IMPORT_EXTS:
+        s = s.replace('.', '/')
+    return s or None
+
+def resolve_by_suffix(candidate: str, suffix_index: dict[str, set[str]]) -> str | None:
+    # Longest unique path-tail wins. Require >=2 segments or a filename with an
+    # extension so a bareword import never mis-merges into an unrelated file.
+    parts = candidate.split('/')
+    for i in range(len(parts)):
+        seg = len(parts) - i
+        if seg < 2 and '.' not in parts[-1]:
+            break
+        matches = suffix_index.get('/'.join(parts[i:]))
+        if matches and len(matches) == 1:
+            return next(iter(matches))
+    return None
+
 def normalize_import_targets() -> None:
     graph_json = OUT / 'graph.json'
     data = json.loads(graph_json.read_text())
@@ -106,25 +157,35 @@ def normalize_import_targets() -> None:
         if source_file and node.get('label') == Path(source_file).name:
             file_by_path[os.path.normpath(source_file)] = node_id
 
+    suffix_index = build_suffix_index(file_by_path)
+
     canonical_external: dict[str, dict] = {}
     replace: dict[str, str] = {}
     for node_id, node in list(node_by_id.items()):
         label = node.get('label') or ''
         source_file = node.get('source_file')
-        resolved = None
-        if label.startswith('package:') and '/zipline_native_app/' not in label and not label.startswith('package:zipline_native_app/'):
-            # Generic handling for non-project packages is below.
-            pass
-        if label.startswith('package:zipline_native_app/'):
-            resolved = os.path.normpath('lib/' + label.split('package:zipline_native_app/', 1)[1])
-        elif source_file and not label.startswith(('package:', 'dart:')) and (
-            label.startswith('../') or label.startswith('./') or label.endswith(('.dart', '.js', '.mjs', '.ts', '.tsx', '.jsx', '.kt', '.kts'))
-        ):
-            resolved = os.path.normpath(str(Path(source_file).parent / label))
-        if resolved and resolved in file_by_path:
-            replace[node_id] = file_by_path[resolved]
+        resolved_id = None
+
+        # 1. Relative imports resolve exactly against the importing file's dir.
+        if source_file and (label.startswith('./') or label.startswith('../')):
+            rel = os.path.normpath(str(Path(source_file).parent / label.strip('"\'')))
+            resolved_id = file_by_path.get(rel)
+
+        # 2. Everything else: match the label's longest unique path-tail against
+        #    the local-file index. Internal imports (Dart package:, Java/Kotlin/
+        #    C# namespaces, C/C++ includes, JS/TS module paths) resolve to a
+        #    file; external/stdlib imports match nothing and stay external.
+        if resolved_id is None:
+            candidate = label_to_candidate(label)
+            if candidate:
+                resolved_id = resolve_by_suffix(candidate, suffix_index)
+
+        if resolved_id and resolved_id != node_id:
+            replace[node_id] = resolved_id
             continue
-        if label.startswith(('package:', 'dart:')):
+
+        # Scheme-prefixed external/stdlib imports collapse to one node per label.
+        if re.match(r'^[A-Za-z][A-Za-z0-9+.\-]*:', label):
             canonical_id = 'import_' + slug(label)
             if canonical_id not in canonical_external:
                 canonical_external[canonical_id] = {
