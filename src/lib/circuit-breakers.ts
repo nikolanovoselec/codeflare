@@ -1,7 +1,15 @@
 import { CircuitBreaker } from './circuit-breaker';
 
-/** TTL for per-container breaker entries: 5 minutes of inactivity. */
-export const CONTAINER_BREAKER_TTL_MS = 5 * 60 * 1000;
+/** TTL for per-container breaker entries: 5 minutes of inactivity.
+ *  CF-151: test-only; unexported so prod cannot couple to it. */
+const CONTAINER_BREAKER_TTL_MS = 5 * 60 * 1000;
+
+/** CF-151/CF-023: hard cap on per-container breaker map size. The every-50-calls
+ *  TTL cleanup only prunes idle entries; a burst of distinct container IDs could
+ *  grow a map unbounded between cleanups. When a map hits the cap we evict its
+ *  least-recently-used entry (lowest lastAccessedAt) before inserting. This is
+ *  the durable bound; TTL cleanup remains as the steady-state pruner. */
+const MAX_BREAKERS = 10_000;
 
 // ---------------------------------------------------------------------------
 // Per-container circuit breaker maps (FIX-2)
@@ -30,6 +38,18 @@ function getOrCreateBreaker(
   if (existing) {
     existing.lastAccessedAt = Date.now();
     return existing.breaker;
+  }
+  // CF-151/CF-023: enforce the size cap with LRU eviction before inserting.
+  if (map.size >= MAX_BREAKERS) {
+    let lruId: string | undefined;
+    let lruAt = Infinity;
+    for (const [id, entry] of map) {
+      if (entry.lastAccessedAt < lruAt) {
+        lruAt = entry.lastAccessedAt;
+        lruId = id;
+      }
+    }
+    if (lruId !== undefined) map.delete(lruId);
   }
   const breaker = new CircuitBreaker(`${namePrefix}:${containerId}`, options);
   map.set(containerId, { breaker, lastAccessedAt: Date.now() });
@@ -82,12 +102,25 @@ export function cleanupStaleBreakers(): void {
 }
 
 /**
- * Clear all per-container breaker maps. Used in tests.
+ * Clear all per-container breaker maps.
+ * CF-151: unexported test-only symbol. Tests reach it via vi.resetModules()
+ * + dynamic re-import for module-state isolation rather than importing this
+ * directly. Production resets go through resetContainerBreakersForReset().
  */
-export function resetContainerBreakers(): void {
+function resetContainerBreakers(): void {
   containerHealthMap.clear();
   containerInternalMap.clear();
   containerSessionsMap.clear();
+}
+
+/**
+ * Production reset entry. Called by cache-reset.ts resetSetupCache() so a
+ * setup/config change drops stale per-container breakers along with the other
+ * setup caches. Thin wrapper over the (test-only-unexported) clear above so
+ * the public surface stays a single production-named function.
+ */
+export function resetContainerBreakersForReset(): void {
+  resetContainerBreakers();
 }
 
 // ---------------------------------------------------------------------------

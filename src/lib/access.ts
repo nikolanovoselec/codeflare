@@ -12,6 +12,10 @@ const logger = createLogger('access');
 
 // Module-level cache for auth config (avoids KV reads on every request)
 const AUTH_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// CF-149: pre-setup (negative/null) auth config is the spoofable-email trust
+// window. Expire it after 30s instead of 5min so a freshly-configured
+// instance stops trusting cf-access-authenticated-user-email much sooner.
+const AUTH_CONFIG_NULL_TTL_MS = 30 * 1000; // 30 seconds
 let cachedAuthDomain: string | null | undefined = undefined;
 let cachedAccessAud: string | null | undefined = undefined;
 let cachedAccessAudList: string[] | null | undefined = undefined;
@@ -23,6 +27,20 @@ let pendingAuthConfigFetch: Promise<void> | null = null;
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+// CF-019: independent double-submit CSRF token. The cookie is issued by the
+// vault GET path (see src/routes/vault.ts); state-changing requests must echo
+// it in the X-Vault-Csrf header. Validated header===cookie in authenticateRequest.
+export const CSRF_COOKIE_NAME = 'codeflare_vault_csrf';
+export const CSRF_HEADER_NAME = 'X-Vault-Csrf';
+
+/** Constant-time string equality for the double-submit token compare. */
+async function timingSafeEqualStrings(a: string, b: string): Promise<boolean> {
+  const ea = new TextEncoder().encode(a);
+  const eb = new TextEncoder().encode(b);
+  if (ea.byteLength !== eb.byteLength) return false;
+  return crypto.subtle.timingSafeEqual(ea, eb);
 }
 
 const VALID_ACCESS_TIERS = new Set<string>(['pending', 'standard', 'advanced', 'blocked']);
@@ -98,8 +116,15 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
 
   // Load auth config from KV REGARDLESS of JWT presence (FIX-1).
   // This determines whether we're in pre-setup or post-setup state.
-  // Invalidate stale cache after TTL (FIX-9)
-  if (authConfigCachedAt > 0 && Date.now() - authConfigCachedAt > AUTH_CONFIG_CACHE_TTL_MS) {
+  // Invalidate stale cache after TTL (FIX-9).
+  // CF-149: when the cached config is the negative/null (pre-setup) state, use
+  // the shorter NULL TTL so the header-trust window shrinks from 5min to 30s.
+  // A populated config (cachedAuthDomain is a non-empty string) keeps the 5min
+  // TTL. cachedAuthDomain === undefined means "not yet fetched" and is handled
+  // by the cold-fetch branch below, not here.
+  const configIsPopulated = !!cachedAuthDomain;
+  const effectiveTtlMs = configIsPopulated ? AUTH_CONFIG_CACHE_TTL_MS : AUTH_CONFIG_NULL_TTL_MS;
+  if (authConfigCachedAt > 0 && Date.now() - authConfigCachedAt > effectiveTtlMs) {
     cachedAuthDomain = undefined;
     cachedAccessAud = undefined;
     cachedAccessAudList = undefined;
@@ -376,10 +401,33 @@ export async function authenticateRequest(
   request: Request,
   env: Env
 ): Promise<{ user: AccessUser; bucketName: string }> {
-  // CSRF protection: require X-Requested-With header on state-changing methods
+  // CSRF protection on state-changing methods. Two layers:
+  //
+  //   1. CF-019 independent double-submit token. If the request carries the
+  //      CSRF cookie AND the CSRF header, they MUST match (an attacker on
+  //      another origin cannot read the cookie to forge a matching header,
+  //      and the cookie is the only way to learn the token). A present-cookie/
+  //      missing-header (or vice-versa) is the TRANSITION state - a client
+  //      that has not yet been issued / does not echo the token - and we fall
+  //      THROUGH to layer 2 rather than hard-rejecting, to avoid breaking prod
+  //      during rollout and for legitimate clients (SilverBullet client.js,
+  //      CLI) that predate the token. When both are present and EQUAL, the
+  //      request is CSRF-safe and we skip layer 2 entirely.
+  //   2. Legacy X-Requested-With requirement (defense-in-depth, unchanged).
   const method = request.method.toUpperCase();
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
-    if (!request.headers.get('X-Requested-With')) {
+    const csrfCookie = getCookieValue(request.headers.get('Cookie'), CSRF_COOKIE_NAME);
+    const csrfHeader = request.headers.get(CSRF_HEADER_NAME);
+    let doubleSubmitSatisfied = false;
+    if (csrfCookie && csrfHeader) {
+      if (!(await timingSafeEqualStrings(csrfCookie, csrfHeader))) {
+        throw new ForbiddenError('CSRF token mismatch');
+      }
+      doubleSubmitSatisfied = true;
+    }
+    // Fall back to the legacy X-Requested-With gate only when the double-submit
+    // token did not already establish CSRF safety.
+    if (!doubleSubmitSatisfied && !request.headers.get('X-Requested-With')) {
       throw new ForbiddenError('Missing X-Requested-With header');
     }
   }

@@ -128,6 +128,7 @@ export async function isAllowedOrigin(origin: string, env: Env): Promise<boolean
   try {
     hostname = new URL(origin).hostname;
   } catch {
+    // CF-026: a malformed Origin can never match the allowlist - reject it.
     return false;
   }
 

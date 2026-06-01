@@ -1,21 +1,45 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  getContainerHealthCB,
-  getContainerInternalCB,
-  getContainerSessionsCB,
-  resetContainerBreakers,
-  cleanupStaleBreakers,
-  CONTAINER_BREAKER_TTL_MS,
-} from '../../lib/circuit-breakers';
+
+/**
+ * Per-container circuit breaker isolation tests.
+ *
+ * CF-151: `resetContainerBreakers` and `CONTAINER_BREAKER_TTL_MS` are now
+ * unexported (test-only / prod-coupling-prevention). For module-state
+ * isolation between tests we therefore `vi.resetModules()` and dynamically
+ * re-import the module in beforeEach, which gives each test a fresh set of
+ * (empty) per-container maps instead of calling a reset export. The TTL is
+ * mirrored locally as a constant since it is no longer importable.
+ */
+
+// Mirrors the (now-unexported) CONTAINER_BREAKER_TTL_MS in circuit-breakers.ts.
+const CONTAINER_BREAKER_TTL_MS = 5 * 60 * 1000;
 
 describe('per-container circuit breakers', () => {
-  beforeEach(() => {
+  let getContainerHealthCB: typeof import('../../lib/circuit-breakers').getContainerHealthCB;
+  let getContainerInternalCB: typeof import('../../lib/circuit-breakers').getContainerInternalCB;
+  let getContainerSessionsCB: typeof import('../../lib/circuit-breakers').getContainerSessionsCB;
+  let cleanupStaleBreakers: typeof import('../../lib/circuit-breakers').cleanupStaleBreakers;
+
+  beforeEach(async () => {
+    vi.resetModules();
     vi.useFakeTimers();
-    resetContainerBreakers();
+    const mod = await import('../../lib/circuit-breakers');
+    getContainerHealthCB = mod.getContainerHealthCB;
+    getContainerInternalCB = mod.getContainerInternalCB;
+    getContainerSessionsCB = mod.getContainerSessionsCB;
+    cleanupStaleBreakers = mod.cleanupStaleBreakers;
   });
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  describe('CF-151: test-only symbols are not exported', () => {
+    it('does not export resetContainerBreakers or CONTAINER_BREAKER_TTL_MS', async () => {
+      const mod = await import('../../lib/circuit-breakers');
+      expect((mod as Record<string, unknown>).resetContainerBreakers).toBeUndefined();
+      expect((mod as Record<string, unknown>).CONTAINER_BREAKER_TTL_MS).toBeUndefined();
+    });
   });
 
   describe('per-container isolation', () => {
@@ -63,8 +87,7 @@ describe('per-container circuit breakers', () => {
 
   describe('lazy creation', () => {
     it('creates breaker on first access', () => {
-      resetContainerBreakers();
-      // No breakers exist yet - accessing creates one
+      // Fresh module per test (vi.resetModules) means no breakers exist yet.
       const cb = getContainerHealthCB('new-container');
       expect(cb).toBeDefined();
       expect(cb.getState()).toBe('CLOSED');
@@ -112,16 +135,45 @@ describe('per-container circuit breakers', () => {
     });
   });
 
-  describe('resetContainerBreakers', () => {
-    it('clears all container breaker maps', () => {
-      const cb = getContainerHealthCB('container-a');
-      expect(cb).toBeDefined();
+  describe('CF-151/CF-023: LRU size cap', () => {
+    // Mirrors the unexported MAX_BREAKERS in circuit-breakers.ts.
+    const MAX_BREAKERS = 10_000;
 
-      resetContainerBreakers();
+    it('evicts the least-recently-used entry when the map exceeds the cap', () => {
+      // Create the very first breaker, then advance time so it is strictly the
+      // oldest (lowest lastAccessedAt) of every breaker that follows. The TTL
+      // is 5min and we only advance by small steps, so TTL cleanup (which runs
+      // every 50 calls) will NOT evict it - only the LRU cap can.
+      const lru = getContainerHealthCB('lru-victim');
 
-      // After reset, should get a new instance
-      const cbNew = getContainerHealthCB('container-a');
-      expect(cbNew).not.toBe(cb);
+      // Advance 1ms so subsequent breakers all have a higher lastAccessedAt.
+      vi.advanceTimersByTime(1);
+
+      // Fill the map exactly to capacity with distinct IDs. After the first
+      // breaker above, that is MAX_BREAKERS - 1 more entries to reach the cap.
+      for (let i = 0; i < MAX_BREAKERS - 1; i++) {
+        getContainerHealthCB(`cap-fill-${i}`);
+      }
+
+      // Map is now AT capacity and 'lru-victim' is the least-recently-used.
+      // One more distinct insert must evict 'lru-victim'.
+      getContainerHealthCB('overflow');
+
+      // 'lru-victim' was evicted: re-accessing it yields a brand-new instance.
+      const recreated = getContainerHealthCB('lru-victim');
+      expect(recreated).not.toBe(lru);
+    });
+
+    it('does not evict when re-accessing an existing entry at capacity', () => {
+      const survivor = getContainerHealthCB('survivor');
+      vi.advanceTimersByTime(1);
+      for (let i = 0; i < MAX_BREAKERS - 1; i++) {
+        getContainerHealthCB(`fill-${i}`);
+      }
+      // Re-access an EXISTING key while at capacity - must not trigger eviction
+      // (the cap check is gated on `map.size >= MAX` AND a NEW key).
+      const same = getContainerHealthCB('survivor');
+      expect(same).toBe(survivor);
     });
   });
 });

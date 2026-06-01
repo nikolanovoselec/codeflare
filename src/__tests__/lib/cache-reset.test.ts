@@ -13,6 +13,10 @@ vi.mock('../../lib/jwt', () => ({
   resetJWKSCache: vi.fn(),
 }));
 
+vi.mock('../../lib/circuit-breakers', () => ({
+  resetContainerBreakersForReset: vi.fn(),
+}));
+
 import {
   getSetupCompleteCache,
   setSetupCompleteCache,
@@ -21,6 +25,7 @@ import {
 import { resetCorsOriginsCache } from '../../lib/cors-cache';
 import { resetAuthConfigCache } from '../../lib/access';
 import { resetJWKSCache } from '../../lib/jwt';
+import { resetContainerBreakersForReset } from '../../lib/circuit-breakers';
 
 describe('cache-reset', () => {
   beforeEach(() => {
@@ -65,6 +70,11 @@ describe('cache-reset', () => {
     it('calls resetJWKSCache', () => {
       resetSetupCache();
       expect(resetJWKSCache).toHaveBeenCalledOnce();
+    });
+
+    it('calls resetContainerBreakersForReset (CF-149)', () => {
+      resetSetupCache();
+      expect(resetContainerBreakersForReset).toHaveBeenCalledOnce();
     });
   });
 });

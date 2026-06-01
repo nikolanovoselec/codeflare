@@ -45,6 +45,7 @@ import { isAllowedOrigin } from '../lib/cors-cache';
 import { AuthError, ForbiddenError, NotFoundError, toError, toErrorMessage } from '../lib/error-types';
 import {
   maybeSynthesizeCsrfHeader,
+  maybeIssueCsrfCookie,
   isServiceWorkerRegistration,
   VAULT_KEY_SHIM_SERVICE_WORKER_JS,
   injectVaultEncryptionConfig,
@@ -61,6 +62,7 @@ import {
 // `from '../routes/vault'` paths working unchanged.
 export {
   maybeSynthesizeCsrfHeader,
+  maybeIssueCsrfCookie,
   isServiceWorkerRegistration,
   VAULT_KEY_SHIM_SERVICE_WORKER_JS,
   injectVaultEncryptionConfig,
@@ -444,14 +446,15 @@ export async function handleVaultRequest(
       try {
         const vaultEncryptionKey = await getVaultEncryptionKey(container);
         const html = injectVaultBootstrapHopHtml(sessionId, vaultEncryptionKey);
-        return new Response(html, {
-          status: 200,
-          headers: {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'no-store',
-            'X-Request-ID': requestId,
-          },
+        const hopHeaders = new Headers({
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'X-Request-ID': requestId,
         });
+        // CF-019: this GET navigation is the SPA entry point - seed the
+        // double-submit CSRF cookie here so the token exists before any write.
+        maybeIssueCsrfCookie(request, hopHeaders, sessionId);
+        return new Response(html, { status: 200, headers: hopHeaders });
       } catch (err) {
         logger.error('vault bootstrap-hop render failed', toError(err));
         return new Response(
@@ -624,7 +627,7 @@ export async function handleVaultRequest(
     }
 
     if (contentType.includes('text/html')) {
-      return rewriteVaultHtmlResponse(response, sessionId, remainingPath, vaultUrl.pathname, contentType, logger);
+      return rewriteVaultHtmlResponse(response, sessionId, remainingPath, vaultUrl.pathname, contentType, logger, request);
     }
     return response;
   } catch (err) {
