@@ -524,6 +524,10 @@ In advanced session mode, `graphify-session-start.sh` injects structural context
 
 All tiers append tool guidance (pointing at `mcp__graphify__query_graph`, `mcp__graphify__get_node`, etc.). The hook never auto-builds a graph.
 
+### Post-clone graph triage ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage))
+
+In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing. If no repo graph exists, the agent asks the user to choose either `1. Create AST-only Graphify graph` or `2. Create full semantic + AST Graphify graph`. If a graph exists, the extension compares `graphify-out/graph.json` `built_at_commit` with `git rev-parse HEAD`: fresh graphs produce an information message only; stale or unknown graphs prompt the user to choose `1. AST-only update` or `2. Full semantic + AST refresh`. Pi mirrors the same behavior through native lifecycle events and suppresses clone triage inside durable PR-boundary review lanes.
+
 ### Pi active-repo query fallback ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
 
 Pi sessions run from `~/workspace`, while checked-out repositories live under

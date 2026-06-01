@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { effectiveCwdForCommand, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
+import { cloneTargetPath, effectiveCwdForCommand, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
 import { sddCommandDecision, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
 import { attributionBlockReason, localBuildBlockReason } from "./guard-helpers";
 
@@ -67,7 +67,7 @@ function unquoteShellToken(value: string): string {
 }
 
 function effectivePathForCommand(command: string, cwd: string): string {
-  const gitC = command.match(/(?:^|[;&|]\s*)git\s+-C\s+("[^"]+"|'[^']+'|[^\s;&|]+)/);
+  const gitC = command.match(/(?:^|[;&|\n]\s*)git\s+-C\s+("[^"]+"|'[^']+'|[^\s;&|\n]+)/);
   if (gitC?.[1]) return resolve(cwd, unquoteShellToken(gitC[1]));
   return resolve(effectiveCwdForCommand(command, cwd));
 }
@@ -102,6 +102,60 @@ function hasGraph(repo: string): boolean {
   return existsSync(join(repo, "graphify-out", "graph.json"));
 }
 
+function reviewLaneActive(): boolean {
+  return ((globalThis as { __codeflareReviewLaneDepth?: number }).__codeflareReviewLaneDepth ?? 0) > 0;
+}
+
+type GraphFreshness = {
+  graphPath: string;
+  status: "fresh" | "stale" | "unknown";
+  built?: string;
+  head?: string;
+  reason?: string;
+};
+
+function graphFreshness(repo: string): GraphFreshness {
+  const graphPath = join(repo, "graphify-out", "graph.json");
+  const head = currentHead(repo);
+  try {
+    if (statSync(graphPath).size > 31457280) {
+      return { graphPath, status: "unknown", head, reason: "graph is too large to inspect synchronously" };
+    }
+    const graph = JSON.parse(readFileSync(graphPath, "utf8")) as { built_at_commit?: unknown };
+    const built = typeof graph.built_at_commit === "string" ? graph.built_at_commit : undefined;
+    if (!built || !head) {
+      return { graphPath, status: "unknown", built, head, reason: built ? "repo HEAD unavailable" : "graph has no built_at_commit metadata" };
+    }
+    return { graphPath, status: built === head ? "fresh" : "stale", built, head };
+  } catch {
+    return { graphPath, status: "unknown", head, reason: "graph metadata could not be read" };
+  }
+}
+
+function existingGraphCloneNotice(repo: string): { message: string; level: "info" | "warning"; shouldPrompt: boolean } {
+  const freshness = graphFreshness(repo);
+  const identity = repoIdentity(repo);
+  if (freshness.status === "stale" && freshness.built && freshness.head) {
+    return {
+      level: "warning",
+      shouldPrompt: true,
+      message: `Graphify graph already exists for ${identity}, but it is stale: graph built at ${freshness.built.slice(0, 12)}, repo HEAD is ${freshness.head.slice(0, 12)}.`,
+    };
+  }
+  if (freshness.status === "fresh" && freshness.head) {
+    return {
+      level: "info",
+      shouldPrompt: false,
+      message: `Graphify graph already exists for ${identity} and is fresh at ${freshness.head.slice(0, 12)}. No graph update needed; use graphify_query/path/explain for structural questions.`,
+    };
+  }
+  return {
+    level: "warning",
+    shouldPrompt: true,
+    message: `Graphify graph already exists for ${identity}, but freshness could not be verified (${freshness.reason ?? "unknown reason"}).`,
+  };
+}
+
 function graphSummary(repo: string): string | undefined {
   const graphPath = join(repo, "graphify-out", "graph.json");
   if (!existsSync(graphPath)) return undefined;
@@ -134,7 +188,7 @@ function graphSummary(repo: string): string | undefined {
 }
 
 function isGraphifyQuery(command: string): boolean {
-  return /(^|[;&|]\s*)graphify\s+(query|path|explain)\b/.test(command);
+  return /(^|[;&|\n]\s*)graphify\s+(query|path|explain)\b/.test(command);
 }
 
 function isGraphifyTool(toolName: string): boolean {
@@ -224,11 +278,11 @@ function fallbackGraphifyToolResult(event: any, ctx: ExtensionContext): { conten
 }
 
 function isGitClone(command: string): boolean {
-  return /(^|[;&|]\s*)git\s+clone\b/.test(command) || /(^|[;&|]\s*)gh\s+repo\s+clone\b/.test(command);
+  return /(^|[;&|\n]\s*)git\s+clone\b/.test(command) || /(^|[;&|\n]\s*)gh\s+repo\s+clone\b/.test(command);
 }
 
 function isGitPush(command: string): boolean {
-  return /(^|[;&|]\s*)git\s+push\b/.test(command);
+  return /(^|[;&|\n]\s*)git\s+push\b/.test(command);
 }
 
 function sddRepoState(repo: string): SddRepoState {
@@ -359,6 +413,7 @@ function newestVaultMtime(): number | undefined {
 export default function (pi: ExtensionAPI) {
   const toolStartArgs = new Map<string, any>();
   const gatedToolIds = new Set<string>();
+  const cloneTargetHadGit = new Map<string, boolean>();
 
   function toolEventId(event: any): string | undefined {
     const id = event?.toolCallId ?? event?.toolUseId ?? event?.id;
@@ -446,7 +501,7 @@ export default function (pi: ExtensionAPI) {
     // Durable PR-boundary review lanes load this extension in-process for the build-blocker and
     // other guards, but must not re-run the per-repo global-graph merge (redundant; the main
     // session already merged it). The lane runner sets this depth counter around the session.
-    if (((globalThis as { __codeflareReviewLaneDepth?: number }).__codeflareReviewLaneDepth ?? 0) > 0) return;
+    if (reviewLaneActive()) return;
     const repo = activeRepo(ctx);
     if (repo) maybeMergeGlobalGraph(repo);
     const summary = repo ? graphSummary(repo) : undefined;
@@ -480,6 +535,11 @@ export default function (pi: ExtensionAPI) {
     // this works whether or not context-mode is active. Also resolve command-local `cd ... &&`
     // and `git -C ...` forms into the active-repo sentinel before graph-first gating fires.
     if (command) {
+      const id = toolEventId(event);
+      if (id && isGitClone(command) && !cloneTargetHadGit.has(id)) {
+        const target = cloneTargetPath(command, ctx.sessionManager.getCwd());
+        if (target) cloneTargetHadGit.set(id, existsSync(join(target, ".git")));
+      }
       try {
         updateActiveRepoFromPath(effectivePathForCommand(command, ctx.sessionManager.getCwd()));
       } catch { /* active-repo tracking must never block the tool */ }
@@ -512,35 +572,50 @@ export default function (pi: ExtensionAPI) {
   const onToolEnd = (event: any, ctx: any) => {
     const command = commandText(event);
     const cwd = ctx.sessionManager.getCwd();
-    const decision = isGitClone(command)
+    const id = toolEventId(event);
+    const targetWasAlreadyCloned = id ? cloneTargetHadGit.get(id) === true : false;
+    const shouldHandleClone = isGitClone(command) && !targetWasAlreadyCloned && !reviewLaneActive();
+    const decision = shouldHandleClone
       ? graphifyClonePromptDecision({
         command,
         cwd,
         sessionId: String(ctx.sessionManager?.getSessionId?.() ?? process.ppid),
         failed: isFailedToolExecution(event),
+        output: resultText(event),
         findGitRoot,
         hasGraph,
       })
       : undefined;
     const repo = updateActiveRepoFromPath(decision?.repo ?? (command ? effectivePathForCommand(command, cwd) : cwd));
 
-    if (repo && hasGraph(repo)) maybeMergeGlobalGraph(repo);
+    if (repo && hasGraph(repo) && !reviewLaneActive()) maybeMergeGlobalGraph(repo);
 
     if (decision && !existsSync(decision.marker)) {
       writeFileSync(decision.marker, "1", "utf8");
-      pi.sendUserMessage(renderGraphifyCloneDirective(decision.action), { deliverAs: "followUp" });
+      if (decision.action.hasGraph) {
+        const notice = existingGraphCloneNotice(decision.repo);
+        if (notice.shouldPrompt) {
+          pi.sendUserMessage(`${notice.message}\n\n${renderGraphifyCloneDirective(decision.action)}`, { deliverAs: "followUp" });
+        } else {
+          ctx.ui.notify(notice.message, notice.level);
+        }
+      } else {
+        pi.sendUserMessage(renderGraphifyCloneDirective(decision.action), { deliverAs: "followUp" });
+      }
     }
 
   };
 
   pi.on("tool_result", (event: any, ctx: any) => {
-    const fallback = fallbackGraphifyToolResult(event, ctx);
-    onToolEnd(event, ctx);
+    const completed = withStartArgs(event);
+    const fallback = fallbackGraphifyToolResult(completed, ctx);
+    onToolEnd(completed, ctx);
     return fallback;
   });
   pi.on("tool_execution_end", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
 
   pi.on("agent_end", (_event, _ctx) => {
     gatedToolIds.clear();
+    cloneTargetHadGit.clear();
   });
 }

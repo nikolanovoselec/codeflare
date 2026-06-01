@@ -1562,13 +1562,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. In advanced session mode only, a PostToolUse hook on `Bash` and `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute` matchers detects `git clone` and `gh repo clone` invocations (anchored token regex, not substring; rejects echoed false positives) and injects a directive. Pi implements the same behavior with native tool lifecycle events and Pi follow-up messages.
-2. The directive branches on whether `<cloned-dir>/graphify-out/graph.json` already exists: if absent, the directive instructs the agent to prompt the user to choose AST-only (free/local) or Full semantic+AST; if present, the directive tells the agent to check freshness and offer AST-only update or Full refresh when stale.
-3. The hook is idempotent per cloned directory per session via a marker key that includes both the session identifier and cloned repository path. A fresh session re-triages the same clone and stale markers do not persist across container restarts.
+1. In advanced session mode only, a PostToolUse hook on `Bash` and `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute` matchers detects real `git clone` and `gh repo clone` invocations (anchored token regex, not substring; rejects echoed false positives) and injects a directive. Pi implements the same behavior with native tool lifecycle events and Pi follow-up messages.
+2. Clone destination resolution prefers the tool result's `Cloning into '...'` line before falling back to command parsing, so shell variables such as `$repo` never surface as literal user-facing paths.
+3. The directive branches on whether `<cloned-dir>/graphify-out/graph.json` already exists: if absent, the directive instructs the agent to prompt the user to choose `1. Create AST-only Graphify graph` or `2. Create full semantic + AST Graphify graph`; if present, the directive tells the agent to check freshness and either print information only when fresh or prompt for `1. AST-only update` / `2. Full semantic + AST refresh` when stale or unknown.
+4. The hook is idempotent per cloned directory per session via a marker key that includes both the session identifier and cloned repository path. A fresh session re-triages the same clone and stale markers do not persist across container restarts.
+5. Pi clone triage suppresses follow-up prompts for failed clone commands, skipped/already-cloned targets, and durable PR-boundary review lanes.
 
 **Constraints:**
 
-- The hook never invokes graphify directly. It only injects a directive instructing the agent to prompt the user via AskUserQuestion (or to run the bounded graphify update wrapper for the graph-present branch).
+- The hook never invokes graphify directly. It only injects a directive instructing the agent to prompt the user via AskUserQuestion (or Pi follow-up message) for the selected build/update mode.
 
 **Priority:** P1
 
@@ -1578,7 +1580,7 @@ None.
 
 **Status:** Implemented
 
-<!-- coverage-gap: Claude post-clone hook path is implemented and covered. Pi native codeflare-pi.ts implements clone triage through lifecycle events, but Pi-specific tool_execution_end arg-correlation, follow-up emission, same-session idempotency, and failed-clone suppression need dedicated behavioral coverage. -->
+<!-- coverage-gap: Claude post-clone hook path is implemented and covered. Pi native codeflare-pi.ts implements clone triage through lifecycle events, but Pi-specific fresh/stale graph prompt routing and durable review-lane suppression need dedicated behavioral coverage. -->
 
 ---
 
