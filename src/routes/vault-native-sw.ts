@@ -3,7 +3,7 @@
  *
  * Codeflare serves this through the vault proxy for browser-initiated
  * `service_worker.js` registration fetches (src/routes/vault.ts), REPLACING
- * the former key-bridge-only shim (VAULT_KEY_SHIM_SERVICE_WORKER_JS). The
+ * the former key-bridge-only shim (since removed; AD69). The
  * SilverBullet sync engine and its persistent local file store (`sb_files_*`
  * IndexedDB) live INSIDE this worker; the shim omitted them, so SilverBullet
  * kept no resumable local copy and re-indexed the whole vault over HTTP on

@@ -66,7 +66,6 @@ export {
   maybeIssueCsrfCookie,
   isServiceWorkerRegistration,
   isServiceWorkerContextFetch,
-  VAULT_KEY_SHIM_SERVICE_WORKER_JS,
   injectVaultEncryptionConfig,
   injectVaultBootScript,
   injectVaultIdbRecorder,
