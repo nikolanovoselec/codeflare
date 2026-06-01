@@ -17,7 +17,7 @@ import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructio
  * isn't available in the Workers vitest pool).
  */
 
-const VALID_KEY_PREFIXES = ['.claude/', '.codex/', '.copilot/', '.config/opencode/', '.pi/agent/'];
+const VALID_KEY_PREFIXES = ['.claude/', '.codex/', '.gemini/', '.copilot/', '.config/opencode/', '.pi/agent/'];
 
 function stripPrefix(key: string): string {
   for (const prefix of VALID_KEY_PREFIXES) {
@@ -114,6 +114,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   it('each non-Claude agent has an instructions file', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
     expect(keys.has('.codex/AGENTS.md')).toBe(true);
+    expect(keys.has('.gemini/GEMINI.md')).toBe(true);
     expect(keys.has('.copilot/copilot-instructions.md')).toBe(true);
     expect(keys.has('.config/opencode/AGENTS.md')).toBe(true);
     expect(keys.has('.pi/agent/AGENTS.md')).toBe(true);
@@ -122,6 +123,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   it('instructions files appear twice (one per mode, different content)', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
+      '.gemini/GEMINI.md',
       '.copilot/copilot-instructions.md',
       '.config/opencode/AGENTS.md',
       '.pi/agent/AGENTS.md',
@@ -160,6 +162,35 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       expect(skills.length, `${prefix} should have skills`).toBeGreaterThan(0);
       expect(agents.length, `${prefix} should have agents`).toBeGreaterThan(0);
     }
+  });
+
+  it('Antigravity (agy) has both skills and agent definitions under the .gemini global config dir', () => {
+    const docs = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.gemini/'));
+    const skills = docs.filter((d) => d.key.startsWith('.gemini/skills/'));
+    const agents = docs.filter((d) => d.key.startsWith('.gemini/agents/') && !d.key.endsWith('GEMINI.md'));
+    expect(skills.length, '.gemini should have skills (global ~/.gemini/skills auto-load)').toBeGreaterThan(0);
+    expect(agents.length, '.gemini should have agent definitions').toBeGreaterThan(0);
+    // Claude-only skills are excluded from the transformed lane.
+    expect(skills.map((d) => d.key)).not.toContain('.gemini/skills/consult-llm/SKILL.md');
+  });
+
+  it('Antigravity agents use Gemini-native tool names and ~/.gemini path rewrites', () => {
+    const agents = AGENTS_SEEDED_CONFIGS.filter(
+      (d) => d.key.startsWith('.gemini/agents/') && !d.key.endsWith('GEMINI.md')
+    );
+    const codeReviewer = agents.find((d) => d.key === '.gemini/agents/code-reviewer.md');
+    expect(codeReviewer, '.gemini/agents/code-reviewer.md should exist').toBeTruthy();
+    const toolsLine = codeReviewer!.content.match(/^tools:.*$/m)?.[0] ?? '';
+    // Gemini CLI tool vocabulary: Read->read_file, Bash->run_shell_command, etc.
+    expect(toolsLine).toContain('read_file');
+    expect(toolsLine).toContain('run_shell_command');
+    // mcp__ tool names are dropped from the frontmatter tools list (no Gemini equivalent).
+    expect(toolsLine).not.toContain('mcp__');
+    // Model pin stripped so agy defaults to the active runtime model.
+    expect(codeReviewer!.content).not.toContain('\nmodel:');
+    // Paths rewritten from ~/.claude/ to ~/.gemini/.
+    const gemini = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.gemini/GEMINI.md');
+    expect(gemini!.content).not.toContain('~/.claude/');
   });
 
   it('Pi has skills, native runtime extensions, and subagent definitions', () => {

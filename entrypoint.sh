@@ -362,8 +362,20 @@ RCLONE_FILTERS_COMMON=(
     # Perl CPAN cache — created by Perl module installs during build, regenerated
     --filter "- .cpan/**"
 
-    # Legacy .gemini/tmp exclusion retained as a no-op (the Gemini CLI agent was removed)
+    # Antigravity (agy) reads ~/.gemini; the seeded GEMINI.md, skills/, agents/
+    # and the root auth/config files (oauth_creds.json, settings.json, etc.) DO
+    # sync, so auth persists across sessions like every other agent. Exclude only
+    # the agy CLI's runtime churn under antigravity-cli/ (~33MB of regenerable or
+    # conflict-prone data), mirroring the .claude/.codex/.copilot exclusions above.
     --filter "- .gemini/tmp/**"
+    --filter "- .gemini/antigravity-cli/bin/**"               # agy binary (23MB, re-installed by Dockerfile/updater)
+    --filter "- .gemini/antigravity-cli/conversations/**"     # session conversation recordings (7MB+, like .codex/sessions)
+    --filter "- .gemini/antigravity-cli/brain/**"             # CLI runtime state cache
+    --filter "- .gemini/antigravity-cli/cache/**"             # regenerable cache
+    --filter "- .gemini/antigravity-cli/log/**"               # timestamped CLI logs (churn/conflicts)
+    --filter "- .gemini/antigravity-cli/cli.log"              # symlink to current log file
+    --filter "- .gemini/antigravity-cli/updater/**"           # auto-update download/check cache
+    --filter "- .gemini/antigravity-cli/last_check.timestamp" # update-check marker
 
     # OpenCode — session logs and SQLite temp files (WAL/SHM cause sync conflicts)
     --filter "- .local/share/opencode/log/**"
