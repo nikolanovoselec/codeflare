@@ -90,12 +90,15 @@ COMMAND=$(echo "$INPUT" | jq -r '
 #   1. Start of the command:           git push origin develop
 #   2. After a shell separator:        git add . && git push
 #   3. After && / || / | / ; / &      git status; git push
+#   4. After leading env assignments:  BROWSER="" git push  (or after a separator)
 # Anything else (e.g. `git commit -m "...git push..."`) does not match.
+# The `([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*` group consumes any
+# leading VAR=value env prefix (zero-or-more, so bare commands still match).
 # This mirrors the awk fix in enforce-review-spawn.sh PUSH_LINE.
 TRIGGER=""
-if [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$) ]]; then
+if [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$) ]]; then
   TRIGGER="pr-open"
-elif [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)git[[:space:]]+push([[:space:]]|$) ]]; then
+elif [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push([[:space:]]|$) ]]; then
   TRIGGER="git-push"
 else
   exit 0

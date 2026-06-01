@@ -127,7 +127,9 @@ PUSH_LINE=$(awk '
   # A. Bash tool_use
   # Two-pattern detection: anchored start (`"command":"git push`) catches
   # bare pushes; loose chained (`<sep> git push`) catches piped/chained
-  # pushes. The chained form is NOT anchored to start-of-command-string
+  # pushes. The anchored start tolerates a leading env-var prefix via
+  # `([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*` (zero-or-more), so
+  # `BROWSER="" git push` is detected, not silently skipped. The chained form is NOT anchored to start-of-command-string
   # because JSON-escaped quotes inside the value (e.g. `cd "/path with
   # spaces" && git push`) break the `[^"]*` inner-string constraint. The
   # outer `"name":"Bash"` guard keeps false positives bounded; Layer 2
@@ -140,13 +142,13 @@ PUSH_LINE=$(awk '
   # commit history for the "stop hook never fires after gh pr merge"
   # incident.
   /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
     if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
       print NR; next
     }
     if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
@@ -159,13 +161,13 @@ PUSH_LINE=$(awk '
   #    bare `ctx_execute` tool name handled in block C below. Blocks B and C
   #    are mutually exclusive per tool_use line.
   /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_batch_execute"/ {
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
     if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
       print NR; next
     }
     if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
@@ -179,13 +181,13 @@ PUSH_LINE=$(awk '
   #    share the line-level `mcp__` prefix without firing twice on one entry.
   /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
     if ($0 !~ /"language"[[:space:]]*:[[:space:]]*"shell"/) next
-    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
+    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
     if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
-    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
+    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
       print NR; next
     }
     if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
@@ -435,22 +437,22 @@ retroactive_ack_scan() {
   local all_push_lines
   all_push_lines=$(awk '
     /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
-      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
       if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
       if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
     }
     /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_batch_execute"/ {
-      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
       if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
       if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
     }
     /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
       if ($0 !~ /"language"[[:space:]]*:[[:space:]]*"shell"/) next
-      if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
       if ($0 ~ /(\\n|[;&|])[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) { print NR; next }
-      if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
+      if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
       if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) { print NR; next }
     }
   ' "$TRANSCRIPT")
