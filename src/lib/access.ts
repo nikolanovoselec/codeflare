@@ -29,9 +29,13 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-// CF-019: independent double-submit CSRF token. The cookie is issued by the
-// vault GET path (see src/routes/vault.ts); state-changing requests must echo
-// it in the X-Vault-Csrf header. Validated header===cookie in authenticateRequest.
+// CF-019: vault CSRF token (defense-in-depth). The cookie is issued on the
+// vault GET path (see src/routes/vault.ts) and compared header===cookie in
+// authenticateRequest. NOTE: for an origin-validated request the Worker mints
+// the X-Vault-Csrf header from the cookie (vault-html.ts), so this is NOT an
+// independent second factor that proves client token knowledge - the Origin
+// allowlist (checkVaultOrigin) remains the primary CSRF defense. The token
+// layers on top and leaves room for a future client-echoed double-submit.
 export const CSRF_COOKIE_NAME = 'codeflare_vault_csrf';
 export const CSRF_HEADER_NAME = 'X-Vault-Csrf';
 
@@ -403,17 +407,18 @@ export async function authenticateRequest(
 ): Promise<{ user: AccessUser; bucketName: string }> {
   // CSRF protection on state-changing methods. Two layers:
   //
-  //   1. CF-019 independent double-submit token. If the request carries the
-  //      CSRF cookie AND the CSRF header, they MUST match (an attacker on
-  //      another origin cannot read the cookie to forge a matching header,
-  //      and the cookie is the only way to learn the token). A present-cookie/
-  //      missing-header (or vice-versa) is the TRANSITION state - a client
-  //      that has not yet been issued / does not echo the token - and we fall
-  //      THROUGH to layer 2 rather than hard-rejecting, to avoid breaking prod
-  //      during rollout and for legitimate clients (SilverBullet client.js,
-  //      CLI) that predate the token. When both are present and EQUAL, the
-  //      request is CSRF-safe and we skip layer 2 entirely.
-  //   2. Legacy X-Requested-With requirement (defense-in-depth, unchanged).
+  //   1. CF-019 vault CSRF token (defense-in-depth, NOT an independent factor).
+  //      If the request carries both the CSRF cookie and the X-Vault-Csrf
+  //      header they MUST match. For an origin-validated vault request the
+  //      Worker itself mints the header from the cookie (vault-html.ts), so a
+  //      match does not prove independent client knowledge - the Origin
+  //      allowlist (checkVaultOrigin, applied before auth) is the real CSRF
+  //      defense and a cross-site request is already 403'd there. A present-
+  //      cookie/missing-header (or vice-versa) falls THROUGH to layer 2 rather
+  //      than hard-rejecting, so non-vault routes and clients that predate the
+  //      token (SilverBullet client.js, CLI) keep working. When both are
+  //      present and EQUAL we skip layer 2.
+  //   2. X-Requested-With requirement (defense-in-depth, unchanged).
   const method = request.method.toUpperCase();
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
     const csrfCookie = getCookieValue(request.headers.get('Cookie'), CSRF_COOKIE_NAME);

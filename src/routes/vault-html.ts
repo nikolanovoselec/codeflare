@@ -69,8 +69,10 @@ export function maybeSynthesizeCsrfHeader(request: Request, originValidated: boo
   if (!originValidated) return request;
   const method = request.method.toUpperCase();
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return request;
-  // CF-019: echo the double-submit cookie into the header when present and the
-  // client did not already supply it. Independent of X-Requested-With below.
+  // CF-019: echo the CSRF cookie into the X-Vault-Csrf header for origin-
+  // validated writes when the client did not supply it. This is what makes the
+  // token defense-in-depth rather than an independent factor (see access.ts):
+  // the Origin allowlist is the primary CSRF defense.
   const csrfCookie = readCsrfCookie(request);
   const needsCsrfEcho = !!csrfCookie && !request.headers.has(CSRF_HEADER_NAME);
   const needsXrwEcho = !request.headers.has('X-Requested-With');

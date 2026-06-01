@@ -33,13 +33,14 @@ export interface SessionListMetadata {
 }
 
 /**
- * A running session is considered stale (presumed stopped) after 3 missed 60s
+ * A running session is considered stale (presumed stopped) after 5 missed 60s
  * metrics heartbeats. collectMetrics re-stamps metrics.updatedAt (meta.m.u)
  * every 60s while running regardless of PTY input, so it is the liveness
- * heartbeat - NOT lastActiveAt (which only advances on input). 180s aligns
- * with the frontend 3-minute startup guard.
+ * heartbeat - NOT lastActiveAt (which only advances on input). 5 cycles (not 3)
+ * tolerates a transient /health flap on a live container without falsely
+ * reclaiming its slot, and stays well above the frontend 3-minute startup guard.
  */
-export const STALE_RUNNING_MS = 180_000;
+export const STALE_RUNNING_MS = 300_000;
 
 /**
  * Read-side staleness reconciliation. Returns a metadata object whose status
