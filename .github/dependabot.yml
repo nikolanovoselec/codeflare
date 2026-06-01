@@ -18,6 +18,16 @@ updates:
     schedule:
       interval: weekly
 
+  # Pi agent preseed - real package.json + lockfile (@gaodes/pi-graphify,
+  # @gotgenes/pi-subagents, context-mode). Unlike the Claude-side context-mode
+  # and graphify pins (literal version strings handled by bump-shadow-pins.yml),
+  # these live in a manifest Dependabot can manage natively.
+  - package-ecosystem: npm
+    directory: /preseed/agents/pi
+    target-branch: develop
+    schedule:
+      interval: weekly
+
   - package-ecosystem: docker
     directory: /
     target-branch: develop
