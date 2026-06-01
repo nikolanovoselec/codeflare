@@ -4,7 +4,10 @@ import {
   maybeSynthesizeCsrfHeader,
   maybeIssueCsrfCookie,
   isServiceWorkerRegistration,
+  isServiceWorkerContextFetch,
   VAULT_KEY_SHIM_SERVICE_WORKER_JS,
+  VAULT_NATIVE_SERVICE_WORKER_JS,
+  VAULT_NATIVE_SW_SHA256,
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_SW_ACTIVATION_TIMEOUT_MS,
   VAULT_IDB_RECORDER_MARKER,
@@ -521,6 +524,56 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
         source: { postMessage: (msg: unknown) => noUrlReplies.push(msg) },
       });
       expect(noUrlReplies).toEqual([]);
+    });
+  });
+
+  describe('VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-013 AC5 (native SW served, AD69)', () => {
+    async function sha256Hex(input: string): Promise<string> {
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+      return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    it('T1: serves the native SilverBullet worker, not the key-shim', () => {
+      // The native worker carries SB's sync engine + offline precache, which
+      // is what restores the persistent sb_files_* store (#445). The key-shim
+      // never had `precache`/`addAll`; asserting the native bytes contain them
+      // AND differ from the shim fails the moment serving is swapped back.
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS.length).toBeGreaterThan(50_000);
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('precache');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('addAll');
+      expect(VAULT_KEY_SHIM_SERVICE_WORKER_JS).not.toContain('precache');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toBe(VAULT_KEY_SHIM_SERVICE_WORKER_JS);
+      // Cold-boot encryption rides the native worker's own key handlers.
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('set-encryption-key');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('get-encryption-key');
+    });
+
+    it('T9: matches the recorded SHA-256 drift guard', async () => {
+      // A SilverBullet version bump that changes the worker bytes must be a
+      // deliberate re-vendor (update both the constant and the hash), never a
+      // silent drift. This pins the vendored bytes to SB 2.8.1.
+      expect(await sha256Hex(VAULT_NATIVE_SERVICE_WORKER_JS)).toBe(VAULT_NATIVE_SW_SHA256);
+    });
+  });
+
+  describe('isServiceWorkerContextFetch / REQ-VAULT-013 AC9 (SW precache vs navigation)', () => {
+    function req(headers: Record<string, string> = {}): Request {
+      return new Request('https://codeflare.ch/api/vault/abcdef12/', {
+        headers: new Headers(headers),
+      });
+    }
+
+    it('T3: false for top-level navigations, true for SW-context fetches, false when absent', () => {
+      // navigate => a real document load; the bootstrap-hop 302 must still fire.
+      expect(isServiceWorkerContextFetch(req({ 'Sec-Fetch-Mode': 'navigate' }))).toBe(false);
+      // no-cors / same-origin => the native SW's cache.addAll precache fetch;
+      // the 302 must be suppressed or the SW install hangs.
+      expect(isServiceWorkerContextFetch(req({ 'Sec-Fetch-Mode': 'no-cors' }))).toBe(true);
+      expect(isServiceWorkerContextFetch(req({ 'Sec-Fetch-Mode': 'same-origin' }))).toBe(true);
+      // Absent header (older browsers, exotic WebViews, non-browser clients):
+      // fail-safe FALSE so a real navigation is never served the raw shell
+      // without the hop. This polarity is the bug this test guards.
+      expect(isServiceWorkerContextFetch(req())).toBe(false);
     });
   });
 

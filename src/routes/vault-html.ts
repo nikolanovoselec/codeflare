@@ -207,6 +207,32 @@ export function isServiceWorkerRegistration(request: Request, remainingPath: str
 }
 
 /**
+ * Identify a fetch issued from the Service Worker context rather than a
+ * top-level browser navigation. SilverBullet's native service worker (now
+ * served by the vault proxy, see VAULT_NATIVE_SERVICE_WORKER_JS) precaches
+ * the shell `/` plus its `/.client/*` assets via `cache.addAll(...)` during
+ * `install`. Those precache fetches carry `Sec-Fetch-Mode: no-cors` (or
+ * `same-origin`), NOT `navigate` - the browser only sets `navigate` on
+ * top-level document loads. The shell-path 302 to the bootstrap-hop is meant
+ * for navigations; if it also fires on the SW precache fetch, `cache.addAll`
+ * sees a redirect, rejects atomically, and `navigator.serviceWorker.ready`
+ * hangs forever. Returning true here lets the dispatcher suppress that 302
+ * for SW-context fetches so the precache resolves against the real shell.
+ *
+ * `Sec-Fetch-Mode` is a browser-set forbidden header (page JS cannot forge
+ * it), the same trust basis already relied on at vault.ts for the WS Origin
+ * gate. Fail-safe polarity: when the header is ABSENT (older browsers, exotic
+ * WebViews, non-browser clients) this returns false, so the 302 still fires
+ * and a real navigation is never accidentally served the raw shell without
+ * the bootstrap hop. Only an explicit non-`navigate` mode suppresses it.
+ */
+export function isServiceWorkerContextFetch(request: Request): boolean {
+  const mode = request.headers.get('Sec-Fetch-Mode');
+  if (!mode) return false;
+  return mode !== 'navigate';
+}
+
+/**
  * Inject the per-session vault encryption key into a SilverBullet
  * BootConfig JSON body. The Worker is the canonical source of the key
  * (it lives in the container DO's ctx.storage and is RPC-fetched at
