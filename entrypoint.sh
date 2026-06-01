@@ -362,7 +362,8 @@ RCLONE_FILTERS_COMMON=(
     # Perl CPAN cache — created by Perl module installs during build, regenerated
     --filter "- .cpan/**"
 
-    # Legacy .gemini/tmp exclusion retained as a no-op (the Gemini CLI agent was removed)
+    # Antigravity (agy) reads ~/.gemini; exclude only its transient tmp dir from bisync
+    # (the seeded GEMINI.md, skills/, and agents/ DO sync)
     --filter "- .gemini/tmp/**"
 
     # OpenCode — session logs and SQLite temp files (WAL/SHM cause sync conflicts)

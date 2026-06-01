@@ -198,7 +198,7 @@ All preseed content is deployed via the manifest pipeline:
    non-fatal; a page refresh retries. Implements
    [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)
 7. Bisync pulls from R2 to container config directories
-   (`~/.claude/`, `~/.codex/`, `~/.copilot/`,
+   (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
 **Manifest structure** (Claude configs plus Pi-native assets; exact counts live in the manifests, not here):
@@ -338,22 +338,23 @@ files exist on disk.
 |-------|-------------------|--------|---------------|
 | CC | `~/.claude/rules/*.md` (individual) | `~/.claude/skills/<name>/SKILL.md` | `~/.claude/agents/*.md` |
 | Codex | `~/.codex/AGENTS.md` (single file) | `~/.codex/skills/<name>/SKILL.md` | N/A |
+| Antigravity (`agy`) | `~/.gemini/GEMINI.md` (single file, auto-loaded) | `~/.gemini/skills/<name>/SKILL.md` | `~/.gemini/agents/*.md` |
 | Copilot | `~/.copilot/copilot-instructions.md` (single file) | N/A | `~/.copilot/agents/<name>.agent.md` |
 | OpenCode | `~/.config/opencode/AGENTS.md` (single file) | `~/.config/opencode/skills/<name>/SKILL.md` | `~/.config/opencode/agents/*.md` |
 | Pi | `~/.pi/agent/AGENTS.md` (single file) | `~/.pi/agent/skills/<name>/SKILL.md` | `~/.pi/agent/agents/*.md` |
 
 **Tool name mapping** (adapted in agent definition frontmatter):
 
-| CC | Codex | Copilot | OpenCode | Pi |
-|--------|-------|---------|----------|----|
-| Read | read | read | read | read |
-| Write | write | editFiles | write | write |
-| Edit | edit | editFiles | edit | edit |
-| Bash | shell | execute | bash | bash |
-| Grep | grep | search | search | grep |
-| Glob | glob | search | glob | find |
+| CC | Codex | Antigravity | Copilot | OpenCode | Pi |
+|--------|-------|-------------|---------|----------|----|
+| Read | read | read_file | read | read | read |
+| Write | write | write_file | editFiles | write | write |
+| Edit | edit | replace | editFiles | edit | edit |
+| Bash | shell | run_shell_command | execute | bash | bash |
+| Grep | grep | search_file_content | search | search | grep |
+| Glob | glob | glob | search | glob | find |
 
-**What each agent gets:** Claude Code and Pi both receive the full capability set - Claude Code through its native rules/agents/commands/skills/hooks/plugins, and Pi through adapted rules/skills/agents plus native TypeScript extensions that reimplement the CC-only surfaces (slash commands, hooks, memory capture, review enforcement) on Pi primitives. Codex, Copilot, and OpenCode receive a reduced, runtime-appropriate subset: adapted rules and - where the runtime supports them - skills and agents, but none of the CC-only surfaces. The exact per-agent document counts are emitted by `scripts/generate-agent-seed.mjs` from `manifest.json` - read the generated output, not a hardcoded total here.
+**What each agent gets:** Claude Code and Pi both receive the full capability set - Claude Code through its native rules/agents/commands/skills/hooks/plugins, and Pi through adapted rules/skills/agents plus native TypeScript extensions that reimplement the CC-only surfaces (slash commands, hooks, memory capture, review enforcement) on Pi primitives. Codex, Copilot, OpenCode, and Antigravity receive a reduced, runtime-appropriate subset: adapted rules and - where the runtime supports them - skills and agents, but none of the CC-only surfaces. Antigravity (`agy`) is seeded into the Gemini CLI global config tree (`~/.gemini/`), which it reads natively; the `.gemini` -> `.agents` rename in Antigravity applies only to per-workspace config, not the home directory codeflare seeds. The exact per-agent document counts are emitted by `scripts/generate-agent-seed.mjs` from `manifest.json` - read the generated output, not a hardcoded total here.
 
 **Excluded from non-CC transformed assets**: hooks (CC hook system),
 commands (CC slash commands), plugins (CC plugin system, including

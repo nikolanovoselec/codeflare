@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD66](#ad66-security-sensitive-rate-limiters-fail-closed-on-kv-outage) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -1142,16 +1142,16 @@ Three smaller decisions bundled in:
 
 **Category:** Architecture
 
-**Status:** Active (2026-05-30)
+**Status:** Active (2026-05-30); the no-preseed-lane clause is superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) (2026-06-01).
 
 **Context:** `@google/gemini-cli` (npm, `gemini` command) was removed from the Dockerfile and entrypoint. The replacement is Antigravity (`agy`), Google's successor CLI, installed via `curl -fsSL https://antigravity.google/cli/install.sh | bash` as a Go-native binary. Because `agy` is not an npm package it is excluded from the V8 compile-cache warm-up step (same as `opencode`). The `~/.gemini/settings.json` auto-update suppressor written by Fast Start is also removed; `agy` has no equivalent config-file suppressor mechanism at this time.
 
-**Decision:** Install Antigravity via its official curl installer in the Dockerfile. Do not add it to the npm `install -g` line. Antigravity gets no preseed adaptation lane (it has no stable config-file convention to target). The legacy `--filter "- .gemini/tmp/**"` rclone filter is retained as a harmless no-op to avoid bisync filter-list churn.
+**Decision:** Install Antigravity via its official curl installer in the Dockerfile. Do not add it to the npm `install -g` line. ~~Antigravity gets no preseed adaptation lane (it has no stable config-file convention to target).~~ (Superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored): agy reads the Gemini CLI `~/.gemini/` config tree, so the lane was restored.) The `--filter "- .gemini/tmp/**"` rclone filter excludes only agy's transient tmp dir; the seeded `~/.gemini/` config does sync.
 
 **Consequences:**
 - The Gemini CLI interactive agent (`gemini`) is no longer available in containers; users needing the Google AI agent use `agy` instead.
 - The Gemini *API* (GEMINI_API_KEY, `/api/llm-keys` geminiApiKey, consult-llm model selector) is unaffected - it is a separate provider, not the CLI agent.
-- No preseed documents are generated for Antigravity; it gets no per-agent document set.
+- ~~No preseed documents are generated for Antigravity; it gets no per-agent document set.~~ Superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored): an adapted `.gemini/` lane is generated.
 
 **Related REQ:** [REQ-AGENT-001](../../sdd/spec/agents.md#req-agent-001-support-multiple-ai-coding-agents) (agent CLI pre-install).
 
@@ -1177,6 +1177,25 @@ Three smaller decisions bundled in:
 **Alternative considered:** Replace the per-isolate in-memory fallback with a Durable Object counter to keep a single global count during KV outages. Rejected as disproportionate: it adds a DO round-trip to the hot path of every limited request for a degraded-mode edge case the fail-closed flag already covers correctly.
 
 **Related REQ:** [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) (rate-limiting infrastructure - KV primary with in-memory fallback, 429 with advisory headers).
+
+---
+
+### AD67: Antigravity reads the Gemini CLI config tree; preseed lane restored
+
+**Category:** Architecture
+
+**Status:** Active (2026-06-01)
+
+**Context:** [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy) replaced the Gemini CLI agent with Antigravity (`agy`) and asserted that `agy` "has no stable config-file convention to target," so the seed generator's `gemini` adaptation lane was deleted. That premise was wrong. Antigravity is Go-native and curl-installed, but it inherits the Gemini CLI configuration tree: Google's migration guidance states that `~/.gemini/GEMINI.md` is "automatically loaded and enforced across all workspaces" and global skills under `~/.gemini/skills/` "load automatically," both unchanged from Gemini CLI. The `GEMINI.md` -> `AGENTS.md` and `.gemini/skills` -> `.agents/skills` renames apply only to per-workspace (repo-root) config; the home-directory global config that codeflare seeds is unaffected. The deletion was silently masked because the pre-AD65 lane's `.gemini/` output persisted in user R2 buckets and was bisynced back, so `agy` kept reading codeflare's skills/rules even though the generator no longer produced them.
+
+**Decision:** Restore the adaptation lane in `scripts/generate-agent-seed.mjs`, keyed `antigravity`, targeting the home config tree: rules concatenate into `~/.gemini/GEMINI.md`, skills into `~/.gemini/skills/<name>/SKILL.md`, and subagents into `~/.gemini/agents/*.md`. Claude tool names remap to the Gemini CLI vocabulary (`Read`->`read_file`, `Write`->`write_file`, `Edit`->`replace`, `Bash`->`run_shell_command`, `Grep`->`search_file_content`, `Glob`->`glob`). The lane needs no seeding-layer change: `getConfigsForMode` filters by session mode only, not agent type, so every agent's documents seed together and each agent reads its own config dir.
+
+**Consequences:**
+- Antigravity sessions receive codeflare's adapted rules, skills, and subagents from a generated source of truth instead of stale bisynced R2 artifacts that drift from the manifest.
+- The supersession is partial: AD65's curl-install / no-npm / no-V8-warmup decisions still stand; only the no-preseed-lane clause is reversed.
+- A maintainer changing the seeded agent roster must keep the `.gemini` paths home-directory-scoped; the workspace-level `.gemini` -> `.agents` rename does not apply to what codeflare seeds.
+
+**Related REQ:** [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) (single-source preseed generation), [REQ-AGENT-007](../../sdd/spec/agents.md#req-agent-007-multi-agent-adaptation-pipeline) (multi-agent adaptation pipeline).
 
 ---
 

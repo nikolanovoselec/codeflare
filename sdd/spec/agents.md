@@ -225,7 +225,7 @@ Multi-agent support, preseed system, and session modes.
 3. A build-time seed generator reads the manifest and source files, producing the runtime payload the Worker ships to the container.
 4. The generator is manifest-driven; files not in the manifest are ignored.
 5. No duplicate preseed source files exist on disk.
-6. The generator produces output for all supported agents (Claude Code as the source-of-truth lane plus adapted lanes for Codex, Copilot, OpenCode, and Pi).
+6. The generator produces output for all supported agents (Claude Code as the source-of-truth lane plus adapted lanes for Codex, Copilot, OpenCode, Antigravity, and Pi).
 
 **Constraints:**
 
@@ -255,7 +255,7 @@ Multi-agent support, preseed system, and session modes.
 
 1. Adapted configs are generated for all supported non-Claude agents from the Claude Code source.
 2. Tool names are remapped per agent (e.g., `Read` -> `read` for Codex and Pi).
-3. Instructions are concatenated into a single file for agents that use monolithic config (Codex: `AGENTS.md`, Copilot: `copilot-instructions.md`, OpenCode: `AGENTS.md`, Pi: `AGENTS.md`).
+3. Instructions are concatenated into a single file for agents that use monolithic config (Codex: `AGENTS.md`, Copilot: `copilot-instructions.md`, OpenCode: `AGENTS.md`, Antigravity: `.gemini/GEMINI.md`, Pi: `AGENTS.md`).
 4. Claude Code keeps individual rule files in `~/.claude/rules/`, and Pi receives native runtime-adapter assets for Pi extension/package/MCP/subagent surfaces.
 
 **Constraints:**
@@ -263,7 +263,7 @@ Multi-agent support, preseed system, and session modes.
 - Hooks, commands, and plugins are excluded from generic transformed agents because they are Claude-specific surfaces; Pi is the native-runtime exception and receives Pi-native equivalents (extension/package/MCP/subagent adapters, native command handlers for Claude-only slash commands, and Pi-native skills) instead of copied Claude hooks and commands. Specific Pi command/skill reimplementations live in [REQ-AGENT-050](#req-agent-050-pi-native-review-workflow-skill) and [REQ-AGENT-051](#req-agent-051-pi-debug-deploy-and-brainstorm-commands).
 - `rules/memory.md` and `consult-llm` skill are excluded from non-CC agents (they depend on CC-specific MCP).
 - Generic non-CC agents get a strictly-smaller config than Claude Code, since CC is the source-of-truth lane and those agents drop CC-specific content. Pi may receive additional Pi-native runtime adapters when equivalent Pi primitives exist.
-- Antigravity (`agy`) receives no preseed adaptation lane: it is a Go-native, curl-installed CLI with no rules/skills/agents directory convention, so the generator emits nothing for it and AC6 covers only Claude Code, Codex, Copilot, OpenCode, and Pi.
+- Antigravity (`agy`) receives an adapted lane written to its global config directory `~/.gemini/`: rules concatenate into `~/.gemini/GEMINI.md` (auto-loaded across all workspaces), skills into `~/.gemini/skills/`, and subagents into `~/.gemini/agents/`, with Claude tool names remapped to the Gemini CLI vocabulary (`read_file`, `write_file`, `replace`, `run_shell_command`, `search_file_content`). agy is Go-native and curl-installed but still reads the Gemini CLI config tree; the `.gemini` -> `.agents` rename applies only to per-workspace config, so the home-directory lane codeflare seeds remains the current convention.
 - The per-agent format transforms (frontmatter shape, removed fields, path rewrites, file extensions) live in [REQ-AGENT-030](#req-agent-030-multi-agent-format-transforms).
 
 **Priority:** P1
@@ -1491,7 +1491,7 @@ None.
 
 1. In advanced session mode only, a SessionStart hook queries the knowledge graph for the highest-connectivity nodes and injects a compressed structural summary as additionalContext. Three fallback tiers: (a) god-nodes query producing node labels with degree counts, (b) GRAPH_REPORT.md preamble when the query fails, (c) build-suggestion reminder when the cwd has source files but no graph.
 2. In advanced session mode only, a short authoritative graph-first rule is preseeded, stating MUST / MUST NOT bullets for graph vs grep and routing to the graphify skill for mechanics rather than restating them.
-3. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, and OpenCode by the seed generator.
+3. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, OpenCode, and Antigravity by the seed generator.
 4. The skill documents the safe build path for large repos (more than 2000 files).
 5. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control.
 6. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, and an optional wiki tree.
