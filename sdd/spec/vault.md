@@ -343,7 +343,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 7. The native service-worker script body is identical across sessions (version-locked to the SilverBullet binary, guarded by a recorded SHA-256 drift hash); the per-session vault encryption key is delivered to it via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), never baked into the script.
 8. The native worker precaches the shell `/` via `cache.addAll` during install, BEFORE the bootstrap-hop sets the bootstrap cookie. The shell-path redirect to the bootstrap-hop is suppressed for Service-Worker-context fetches (identified by a `Sec-Fetch-Mode` header present and not equal to `navigate`) so the precache resolves against the real shell instead of a 302 that would make `cache.addAll` reject and hang the SW install. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the redirect (fail-safe), so a real first navigation never boots without the encryption key wired.
 
-**Notes:** Serving the native worker (AD69) restores the editor's persistent `sb_files_*` local-sync store, the fix for the per-cold-load full re-index regression (codeflare#445). The proxy half (native-SW serving, the `Sec-Fetch-Mode` 302 suppression, and the `.vault-key` recovery graft that keeps encryption alive, [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC7) is implemented and unit-covered, but the end-to-end behaviour (native SW installs through the proxy, `sb_files_*` created, reload re-indexes zero files, encryption decrypts) is only verifiable in a real browser against an integration deploy; until that integration verification lands - plus the `/.client/*` precache-auth exemption (reserved AC9), needed only if the deploy shows those precache fetches 401 - the REQ stays Partial.
+**Notes:** Serving the native worker (AD69) restores the editor's persistent `sb_files_*` local-sync store, the fix for the per-cold-load full re-index regression (codeflare#445). Verified end-to-end on the integration deploy (mobile, 2026-06-01): the native SW installs through the proxy ("47 client files cached"), the SW-context `sb_files_*` IndexedDB store is created (it never existed under the shim), the `.vault-key` recovery graft fires ("Recovered encryption key from codeflare") so there is no `.auth` bounce, and the sync engine runs incremental 0-operation cycles. The one-time first-load index that populates `sb_files_*` is expected; the store now persists, so subsequent cold loads are incremental. The `/.client/*` precache-auth exemption (reserved AC9) is NOT needed - the deploy showed `cache.addAll` resolves, i.e. the precache fetches carry the session cookie.
 
 **Constraints:**
 
@@ -356,7 +356,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -504,9 +504,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
 
-**Status:** Partial
+**Status:** Implemented
 
-**Notes:** Encryption rides SilverBullet's native service worker (AD69): the bootstrap-hop posts the key to the native worker's `set-encryption-key` handler, and a codeflare graft (`graftVaultKeyRecovery`) adds `.vault-key` recovery at the worker's two key-empty checkpoints - the `config` auth-gate AND `get-encryption-key` (AC7). The first integration deploy (no graft) bounced to `.auth` on cold boot; a second (graft on `get-encryption-key` only) still bounced, which localized the real trigger to the `config` gate (it reads the key directly, never asking `get-encryption-key`); the graft now covers both. Unit-covered by token + drift-throw assertions; the REQ stays Partial until the live browser cycle (cold boot reaches the editor, reload re-indexes zero files, `sb_files_*` created, content decrypts) is integration-verified.
+**Notes:** Encryption rides SilverBullet's native service worker (AD69): the bootstrap-hop posts the key to the native worker's `set-encryption-key` handler, and a codeflare graft (`graftVaultKeyRecovery`) adds `.vault-key` recovery at the worker's two key-empty checkpoints - the `config` auth-gate AND `get-encryption-key` (AC7). The first integration deploy (no graft) bounced to `.auth` on cold boot; a second (graft on `get-encryption-key` only) still bounced, which localized the real trigger to the `config` gate (it reads the key directly, never asking `get-encryption-key`); the graft now covers both. Verified on the integration deploy (mobile, 2026-06-01): cold boot reaches the editor with no `.auth` bounce, the console logs "Recovered encryption key from codeflare" (the graft fired because the hop's `set-encryption-key` had already been flushed), and the encrypted `sb_data_*` / `sb_files_*` stores open and decrypt.
 
 ---
 
