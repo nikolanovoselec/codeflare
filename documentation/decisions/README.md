@@ -75,7 +75,9 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD62](#ad62-pi-model-name-genericization-with-codeflare_memory_model-lever) | Pi model-name genericization with `CODEFLARE_MEMORY_MODEL` lever | Architecture |
 | [AD63](#ad63-pi-safe-graphify-updatesh-is-fail-closed-and-two-step) | Pi `safe-graphify-update.sh` is fail-closed and two-step | Architecture |
 | [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) | Durable review lanes load extensions additively behind the `noExtensions` shield | Agents |
-| [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy) | Gemini CLI replaced by Antigravity (agy) | Architecture |
+| [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy) | Gemini CLI replaced by Antigravity (agy) _(no-preseed-lane clause superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored))_ | Architecture |
+| [AD66](#ad66-security-sensitive-rate-limiters-fail-closed-on-kv-outage) | Security-sensitive rate limiters fail closed on KV outage | Security |
+| [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) | Antigravity reads the Gemini CLI config tree; preseed lane restored | Architecture |
 
 ---
 

@@ -181,9 +181,10 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const codeReviewer = agents.find((d) => d.key === '.gemini/agents/code-reviewer.md');
     expect(codeReviewer, '.gemini/agents/code-reviewer.md should exist').toBeTruthy();
     const toolsLine = codeReviewer!.content.match(/^tools:.*$/m)?.[0] ?? '';
-    // Gemini CLI tool vocabulary: Read->read_file, Bash->run_shell_command, etc.
+    // Gemini CLI tool vocabulary: Read->read_file, Bash->run_shell_command, Glob->glob, etc.
     expect(toolsLine).toContain('read_file');
     expect(toolsLine).toContain('run_shell_command');
+    expect(toolsLine).toContain('glob');
     // mcp__ tool names are dropped from the frontmatter tools list (no Gemini equivalent).
     expect(toolsLine).not.toContain('mcp__');
     // Model pin stripped so agy defaults to the active runtime model.
