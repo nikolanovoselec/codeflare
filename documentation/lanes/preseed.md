@@ -253,8 +253,8 @@ All preseed content is deployed via the manifest pipeline:
   (graphify -
   [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7 - and `review`),
   capture-contract prompts (`memory-agent-prompt.md`,
-  `vault-extract-prompt.md`), and the Pi graphify wrapper script
-  (`safe-graphify-update.sh`). The
+  `vault-extract-prompt.md`), and the Pi graphify scripts
+  (`build-graphify-ast.sh` for first builds, `safe-graphify-update.sh` for existing-graph refreshes). The
   generator maps each manifest key to its deployed location by directory
   prefix: `extensions/` -> `.pi/agent/extensions/`, `skills/` ->
   `.pi/agent/skills/`, `scripts/` -> `.pi/agent/scripts/`, `prompts/`
@@ -545,11 +545,11 @@ unchanged so the agent can fall back manually.
 
 ### Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
 
-The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless `graphify extract --backend deepseek`; AST extraction uses local `graphify update`, and semantic extraction uses Pi `Agent` subagents from the running session. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema.
+The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless `graphify extract --backend deepseek`; AST-only initial build uses the local first-build script, AST-only refresh uses the bounded update wrapper, and semantic extraction uses Pi `Agent` subagents from the running session. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema.
 
-Subagents run on **Sonnet** (`model: "sonnet"`). Haiku was the original choice (cost-matching with vault-extract economics) but produced 57% malformed nodes on the codeflare corpus - missing `id` fields, numeric IDs instead of strings, missing `source_file`. The extraction prompt requires reliable schema compliance across complex document types (spec files with REQ anchors, skill instructions with cross-references, ADR ledgers). Sonnet at ~3x per-agent cost with near-zero malformation is cheaper per valid node. Opus is never used from this skill.
+Model selection is runtime-specific. Claude Code's graphify skill pins its own reliable extraction model and never escalates to Opus from this workflow. Pi does not name or pin provider-specific models: Pi `Agent` semantic subagents omit a `model` override and inherit whatever model the main Pi session is using unless the user explicitly asks for a different model.
 
-Subagents are dispatched in waves of up to `GRAPHIFY_SEMANTIC_MAX_PARALLEL` (default 10) to avoid flooding Task-tool concurrency. Each wave runs in parallel; waves are sequential. Chunk count scales with the size of the non-code corpus.
+Subagents are dispatched in bounded waves to avoid flooding agent concurrency. Each wave runs in parallel; waves are sequential. Chunk count scales with the size of the non-code corpus.
 
 ### Git persistence ([REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git))
 

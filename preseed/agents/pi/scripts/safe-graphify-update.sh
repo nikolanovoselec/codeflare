@@ -4,8 +4,10 @@ set -euo pipefail
 TARGET="${1:-.}"
 cd "$TARGET" 2>/dev/null || { echo "safe-graphify-update: target directory '$TARGET' does not exist" >&2; exit 1; }
 
-# Pi-owned bounded AST update wrapper. Keeps interactive Pi graph builds local,
-# bounded, and free of headless LLM/API-key extraction.
+# Pi-owned bounded AST update wrapper. This is for incremental refreshes of an
+# existing graph, mirroring Claude's safe-graphify-update.sh. First-time graph
+# creation must use build-graphify-ast.sh instead so it follows the full
+# detect/extract/build/cluster/report/html pipeline.
 export GRAPHIFY_MAX_WORKERS="${GRAPHIFY_MAX_WORKERS:-1}"
 export GRAPHIFY_NO_SEMANTIC="${GRAPHIFY_NO_SEMANTIC:-1}"
 # graph.html must always be generated; keep the viz node limit high even if the

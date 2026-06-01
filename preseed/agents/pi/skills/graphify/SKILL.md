@@ -79,7 +79,19 @@ If the CLI returns the node but not the file path, inspect the graph JSON node o
 
 ## Build / refresh repo graphs
 
-### AST-only refresh — default for code repos
+### AST-only initial build — first-time graph creation
+
+Use this when `graphify-out/graph.json` is missing. This mirrors Claude's first-build path: local file detection, deterministic AST extraction, graph build, clustering, report, and HTML visualization. It does **not** use an LLM or external API.
+
+From the repo root:
+
+```bash
+bash /home/user/.pi/agent/scripts/build-graphify-ast.sh .
+```
+
+### AST-only refresh — existing graphs only
+
+Use this when `graphify-out/graph.json` already exists and source changed. This mirrors Claude's safe update wrapper around `graphify update`; do not use it for first-time graph creation.
 
 From the repo root:
 
@@ -87,7 +99,9 @@ From the repo root:
 bash /home/user/.pi/agent/scripts/safe-graphify-update.sh .
 ```
 
-Then merge into the global graph:
+### Global merge and git persistence
+
+After either initial build or refresh, merge into the global graph:
 
 ```bash
 flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as "$(basename "$PWD")"
@@ -134,20 +148,19 @@ Commit these durable outputs after the first build or any meaningful refresh:
 - `graphify-out/graph.html`
 - optional `graphify-out/wiki/` if generated
 
-Do not commit graphify caches, chunk files, manifests, `.graphify_*` intermediates, or Obsidian export unless the user explicitly asks. `graph.html` must always be generated; if it is missing, rerun the safe wrapper before reporting Graphify work complete.
+Do not commit graphify caches, chunk files, manifests, `.graphify_*` intermediates, or Obsidian export unless the user explicitly asks. `graph.html` must always be generated; if it is missing, rerun the appropriate build/refresh command before reporting Graphify work complete.
 
-Use AST-only by default after source edits. It is local, bounded, and safe for the 1-CPU container.
+Use AST-only initial build by default on a new repo and AST-only refresh by default after source edits. Both are local, bounded, and safe for the 1-CPU container.
 
-### Full semantic + AST refresh — only when user wants semantic/docs extraction
+### Full semantic + AST build/refresh — only when user wants semantic/docs extraction
 
-For normal interactive Pi work, semantic extraction is done by **in-session Pi `Agent` subagents**.
-Do not run any headless/API-key extractor (`graphify extract --backend deepseek`, OpenAI, Claude, Gemini, etc.) unless the user explicitly asks for CI/headless extraction.
+For normal interactive Pi work, semantic extraction is done by **in-session Pi `Agent` subagents using the current main-session model by default**. Do not pass a `model` override unless the user explicitly asks. Do not run any headless/API-key extractor (`graphify extract --backend ...`) unless the user explicitly asks for CI/headless extraction.
 
 Interactive full mode means:
 
-1. Run local AST extraction.
+1. Run the local AST path first: `build-graphify-ast.sh` for a missing graph, or `safe-graphify-update.sh` for an existing graph.
 2. Split docs/non-code files into chunks.
-3. Spawn Pi `Agent` subagents in bounded waves, default max parallel `2`.
+3. Spawn Pi `Agent` subagents in bounded waves, default max parallel `2`, without a `model` override so they inherit the current main-session model.
 4. Require each subagent to write a JSON chunk file under `<repo>/graphify-out/`.
 5. Validate chunks, merge AST + semantic output, cluster, generate HTML, and global-add.
 
@@ -158,8 +171,9 @@ Use this only when the user explicitly chooses full semantic extraction or asks 
 For repo graphs, compare graph commit metadata to `git rev-parse HEAD` when available.
 If stale, say so and offer:
 
-- AST-only refresh: fast/local/default.
-- Full semantic refresh: slower, uses Pi subagents.
+- AST-only initial build when missing: fast/local/default.
+- AST-only refresh when stale: fast/local/default for existing graphs.
+- Full semantic build/refresh: slower, uses Pi subagents with the current main-session model by default.
 
 Do not silently rebuild unless the user asked to refresh/build/update.
 

@@ -222,6 +222,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/doc-updater.md');
     expect(skills.map((d) => d.key).filter((key) => key === '.pi/agent/skills/graphify/SKILL.md')).toHaveLength(1);
     expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/safe-graphify-update.sh');
+    expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/build-graphify-ast.sh');
     // Pi-native first-class residents: the review skill and codeflare-commands extension
     // are emitted directly (not transformed from Claude), so the Pi manifest -> seed pipeline
     // must surface them.
@@ -287,6 +288,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const missingGraphDirective = renderGraphifyCloneDirective(graphifyCloneAction('/repo', false));
     expect(missingGraphDirective).toContain('ask the user to choose one option');
     expect(missingGraphDirective).toContain('1. Create AST-only Graphify graph');
+    expect(missingGraphDirective).toContain('build-graphify-ast.sh');
+    expect(missingGraphDirective).toContain('current main-session model');
     const existingGraphDirective = renderGraphifyCloneDirective(graphifyCloneAction('/repo', true));
     expect(existingGraphDirective).toContain('If stale or freshness is unknown, ask the user to choose one option');
     expect(existingGraphDirective).toContain('1. AST-only update');
@@ -793,12 +796,26 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(keys.has('.pi/agent/npm/package-lock.json')).toBe(true);
     expect(keys.has('.pi/agent/skills/graphify/SKILL.md')).toBe(true);
     expect(keys.has('.pi/agent/scripts/safe-graphify-update.sh')).toBe(true);
+    expect(keys.has('.pi/agent/scripts/build-graphify-ast.sh')).toBe(true);
     const piPackage = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/npm/package.json');
     expect(piPackage?.content).toContain('"@gaodes/pi-graphify": "0.2.2"');
+    for (const key of [
+      '.pi/agent/extensions/graphify-helpers.ts',
+      '.pi/agent/skills/graphify/SKILL.md',
+      '.pi/agent/scripts/safe-graphify-update.sh',
+      '.pi/agent/scripts/build-graphify-ast.sh',
+    ]) {
+      const doc = AGENTS_SEEDED_CONFIGS.find((entry) => entry.key === key);
+      expect(doc?.modes, `${key} should be advanced-only`).toEqual(['advanced']);
+    }
   });
 
-  it('REQ-AGENT-024 AC5-AC6: Pi graphify skill preserves durable graph artifacts in git', () => {
+  it('REQ-AGENT-024 AC5-AC6 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic', () => {
     const skill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/graphify/SKILL.md');
+    expect(skill?.content).toContain('build-graphify-ast.sh');
+    expect(skill?.content).toContain('safe-graphify-update.sh');
+    expect(skill?.content).toContain('without a `model` override');
+    expect(skill?.content).toContain('current main-session model');
     expect(skill?.content).toContain('Graph persistence lives with the repo, not R2');
     expect(skill?.content).toContain('graphify-out/cache/');
     expect(skill?.content).toContain('graphify-out/manifest.json');
@@ -1204,10 +1221,18 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(cp?.content).toContain('--graph');
   });
 
-  it('REQ-AGENT-023: Pi safe-graphify-update.sh includes RLIMIT_AS memory cap', () => {
-    const script = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/scripts/safe-graphify-update.sh');
-    expect(script?.content).toContain('ulimit -v');
-    expect(script?.content).toContain('GRAPHIFY_SAFE_RLIMIT_KB');
+  it('REQ-AGENT-023 / REQ-AGENT-043: Pi graphify scripts split initial build from refresh and keep memory caps', () => {
+    const updateScript = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/scripts/safe-graphify-update.sh');
+    expect(updateScript?.content).toContain('ulimit -v');
+    expect(updateScript?.content).toContain('GRAPHIFY_SAFE_RLIMIT_KB');
+    expect(updateScript?.content).toContain('graphify update');
+    expect(updateScript?.content).toContain('First-time graph');
+
+    const buildScript = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/scripts/build-graphify-ast.sh');
+    expect(buildScript?.content).toContain('detect -> AST extract -> build -> cluster -> report -> HTML');
+    expect(buildScript?.content).toContain('normalize_import_targets');
+    expect(buildScript?.content).toContain('graph health check failed');
+    expect(buildScript?.content).toContain('GRAPHIFY_VIZ_NODE_LIMIT');
   });
 
   it('REQ-AGENT-049 AC1: PRESEED_CONTENT_HASH is a deterministic 16-char hex string', () => {
