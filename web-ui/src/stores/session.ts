@@ -78,7 +78,7 @@ export type { UsageWarningLevel, UsageState } from './session-usage';
 
 // ── Session Metrics ─────────────────────────────────────────────────────────
 
-interface SessionMetrics {
+export interface SessionMetrics {
   bucketName: string;
   syncStatus: 'pending' | 'syncing' | 'success' | 'failed' | 'skipped';
   cpu?: string;

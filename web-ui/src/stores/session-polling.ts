@@ -6,6 +6,9 @@ import { SESSION_LIST_POLL_INTERVAL_MS } from '../lib/constants';
 import { updateStatsFromBatch } from './storage';
 import { setUsageState } from './session-usage';
 import type { SessionWithStatus, SessionStatus } from '../types';
+// Type-only imports - erased at runtime, so they do NOT reintroduce the
+// circular dependency that the registerPollingDeps DI pattern guards against.
+import type { SessionState, SessionMetrics } from './session';
 
 /**
  * Session List Polling - extracted from session.ts (CF-013).
@@ -27,18 +30,18 @@ import type { SessionWithStatus, SessionStatus } from '../types';
 interface PollingStateView {
   sessions: SessionWithStatus[];
   activeSessionId: string | null;
-  sessionMetrics: Record<string, any>;
+  sessionMetrics: Record<string, SessionMetrics>;
 }
 
 type StateGetter = () => PollingStateView;
-type ProduceSetter = (fn: (s: any) => void) => void;
+type ProduceSetter = (fn: (s: SessionState) => void) => void;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RawSetter = (...args: any[]) => void;
 type StatusUpdater = (id: string, status: SessionStatus) => void;
 type InitChecker = (id: string) => boolean;
 type AuthExpiredSetter = (expired: boolean) => void;
 type MetricsUpdater = (
-  sessionMetrics: Record<string, any>,
+  sessionMetrics: Record<string, SessionMetrics>,
   sessionId: string,
   metrics: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string },
 ) => void;
@@ -154,7 +157,7 @@ export async function refreshSessionStatuses(): Promise<void> {
       for (const id of removedIds) {
         sessionMissCounters.delete(id);
       }
-      setStateProduce((s: any) => {
+      setStateProduce((s: SessionState) => {
         s.sessions = s.sessions.filter((sess: SessionWithStatus) => !removedIds.includes(sess.id));
       });
     }
@@ -175,7 +178,7 @@ export async function refreshSessionStatuses(): Promise<void> {
 
       // Populate sessionMetrics from batch-status metrics
       if (remote.metrics) {
-        setStateProduce((s: any) => {
+        setStateProduce((s: SessionState) => {
           applyMetricsUpdateFn(s.sessionMetrics, session.id, remote.metrics!);
         });
       }
