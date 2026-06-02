@@ -155,8 +155,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/entrypoint.sh": {
-    "mtime": 1780424085.9062653,
-    "ast_hash": "d2bfec9868a2cceb4687e028712fb5cc",
+    "mtime": 1780441582.5384457,
+    "ast_hash": "c65e381aefd53ec739cf301e5525fbd3",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/host/__audits__/dockerfile-agents.audit.js": {
@@ -170,8 +170,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/host/__audits__/entrypoint-vault.audit.js": {
-    "mtime": 1780404229.7060606,
-    "ast_hash": "07698ebeed474fffcf7b9cede46c12d5",
+    "mtime": 1780442406.1384542,
+    "ast_hash": "30871addcbedfe065572d0d322daf1df",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/host/__audits__/memory-capture-prompt.audit.js": {
@@ -235,8 +235,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/host/__tests__/entrypoint-devshm-prereq.test.js": {
-    "mtime": 1780404229.7060606,
-    "ast_hash": "66e4aaf7f0656531a6a02472ecdc36fa",
+    "mtime": 1780442395.7224543,
+    "ast_hash": "e1b69088e2f0373b9decad73548588be",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js": {
@@ -800,18 +800,18 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/container-metrics.test.ts": {
-    "mtime": 1780432097.290348,
-    "ast_hash": "00262391565f19ac3b9eaaee7283467a",
+    "mtime": 1780441656.3344467,
+    "ast_hash": "8d5c46389d0a995b14d37136401c5233",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/container/container-env.test.ts": {
-    "mtime": 1780404229.7660606,
-    "ast_hash": "25a585eb02d208ca95c0a498c156f360",
+    "mtime": 1780441470.5584447,
+    "ast_hash": "5591bde399e1ed14350b576b82ab8ffc",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/container/index.test.ts": {
-    "mtime": 1780432115.8143482,
-    "ast_hash": "79413d9d517da2aca97788e3da24f165",
+    "mtime": 1780442364.5024538,
+    "ast_hash": "6679f66ba35cf95a96f263408c55b755",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/contract/constants.test.ts": {
@@ -845,8 +845,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/index.test.ts": {
-    "mtime": 1780404229.7660606,
-    "ast_hash": "7515f5e14dd54463fb99a619de0d81bc",
+    "mtime": 1780442057.8304508,
+    "ast_hash": "d85a49ca7c35fe8b3e19df4d17089e72",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/access-auth-config-ttl.test.ts": {
@@ -885,8 +885,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/agent-seed-manifest.test.ts": {
-    "mtime": 1780428194.8143077,
-    "ast_hash": "f300c8b3602cdd01db3e12c0bf01ff2f",
+    "mtime": 1780441843.4944484,
+    "ast_hash": "058a92e42b4d765499ca0434a04384f6",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/auth-config-fetch-dedup.test.ts": {
@@ -900,8 +900,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/billing-status.test.ts": {
-    "mtime": 1780404229.7700605,
-    "ast_hash": "9b3c7026fb73f96b4dc5127c2823a5d7",
+    "mtime": 1780441985.22645,
+    "ast_hash": "e45954e7621d653e5977c15d92491c90",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/cache-reset.test.ts": {
@@ -955,8 +955,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/currency.test.ts": {
-    "mtime": 1780404229.7700605,
-    "ast_hash": "00aa155bc36e7fd4302dbafdd0595798",
+    "mtime": 1780442027.7784505,
+    "ast_hash": "6a641470c8bf6da14eb10e90e559d795",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/email.test.ts": {
@@ -1005,8 +1005,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/pro-mode-gating.test.ts": {
-    "mtime": 1780404229.7700605,
-    "ast_hash": "fd12fc4dc01e0f54568c5def7fef38a6",
+    "mtime": 1780441635.1584463,
+    "ast_hash": "b9c532b1474e2504b7232a481dbc867f",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/r2-admin.test.ts": {
@@ -1070,8 +1070,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/session-jwt.test.ts": {
-    "mtime": 1780404229.7700605,
-    "ast_hash": "c58fd0c5bb2875a9f78e89a1f2b28fe6",
+    "mtime": 1780441344.9024434,
+    "ast_hash": "0b023866452024ccbb50fbc69100508a",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/session-mode.test.ts": {
@@ -1095,8 +1095,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/subscription.test.ts": {
-    "mtime": 1780404229.7740605,
-    "ast_hash": "7c52ffa1a51be0cd446ab5e6fb662264",
+    "mtime": 1780442007.2744503,
+    "ast_hash": "8a2247e416218f5947cb90e44bc767ea",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/sync-fanout.test.ts": {
@@ -1145,8 +1145,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/middleware/rate-limit-fallback.test.ts": {
-    "mtime": 1780404229.7740605,
-    "ast_hash": "85e2f351d4ad55d98fdf664d08f05bb4",
+    "mtime": 1780442292.746453,
+    "ast_hash": "41c90cf9c693d3e05dbf563045b07bc9",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/middleware/rate-limit.test.ts": {
@@ -1275,8 +1275,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/routes/session-batch-status.test.ts": {
-    "mtime": 1780415670.4381785,
-    "ast_hash": "1c40b6c065045000e4d721c623c1fa11",
+    "mtime": 1780442419.9464545,
+    "ast_hash": "fb543eeebc58b6f3ff6b339dcb7006dc",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/routes/session-creation.test.ts": {
@@ -1375,8 +1375,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/routes/storage-validation.test.ts": {
-    "mtime": 1780404229.7820606,
-    "ast_hash": "639e61019b5a36582357dbc1118a90f9",
+    "mtime": 1780441409.046444,
+    "ast_hash": "978c09ecbdb84efc1bbc801f12b67f06",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/routes/stripe-webhook-signature.test.ts": {
@@ -1470,8 +1470,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/timekeeper/index.test.ts": {
-    "mtime": 1780404229.7820606,
-    "ast_hash": "2d49b94768d8dd33b12f59612a8e8df1",
+    "mtime": 1780442319.6664534,
+    "ast_hash": "b74286b0196e8633f08cef87ab67fc30",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/container/container-env.ts": {
@@ -1490,8 +1490,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/index.ts": {
-    "mtime": 1780404229.7820606,
-    "ast_hash": "c1a32576cfe142419cefdf72f287baf5",
+    "mtime": 1780442036.9864504,
+    "ast_hash": "b27fe4e7cd5611fdb1f7b5c404802333",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/lib/access-policy.ts": {
@@ -1550,8 +1550,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/lib/container-config-schema.ts": {
-    "mtime": 1780404229.8260605,
-    "ast_hash": "2b208f298ec822ac9a8e42ceaa0c713c",
+    "mtime": 1780441450.2504444,
+    "ast_hash": "f7004df6be90416786cdf6c0a21195d9",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/lib/container-helpers.ts": {
@@ -1565,8 +1565,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/lib/currency.ts": {
-    "mtime": 1780404229.8260605,
-    "ast_hash": "5abfecf8133490c284437f7257882714",
+    "mtime": 1780442022.8704503,
+    "ast_hash": "ca093e70d892efaef0e8da88fd1202f2",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/lib/email.ts": {
@@ -1655,8 +1655,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/lib/session-jwt.ts": {
-    "mtime": 1780404229.8300605,
-    "ast_hash": "42b1102796c449c3fd2910b0c05ca31b",
+    "mtime": 1780441324.6584432,
+    "ast_hash": "f2ad232c7b27b9b9ecf24a9982d60659",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/lib/session-mode.ts": {
@@ -1670,8 +1670,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/lib/subscription.ts": {
-    "mtime": 1780404229.8300605,
-    "ast_hash": "b959e24d9255e6b8300a0bfcde43b070",
+    "mtime": 1780442018.5224502,
+    "ast_hash": "a8dd6aac95fd745686244bea6cabb9d7",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/lib/sync-fanout.ts": {
@@ -1745,8 +1745,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/routes/container/lifecycle.ts": {
-    "mtime": 1780415670.4461787,
-    "ast_hash": "bb47cf322aae43068e04440df97fb6b4",
+    "mtime": 1780441445.8904445,
+    "ast_hash": "8c2dcb73a869d216265f209375f14c32",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/routes/container/shared.ts": {
@@ -1800,8 +1800,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/routes/session/lifecycle.ts": {
-    "mtime": 1780415670.4461787,
-    "ast_hash": "716d7287bf886f7c0c4bc5f406027603",
+    "mtime": 1780441538.8744454,
+    "ast_hash": "3364ba72e767f5618cc6e8fbb625709c",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/routes/setup/access.ts": {
@@ -1880,8 +1880,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/routes/storage/validation.ts": {
-    "mtime": 1780404229.8340607,
-    "ast_hash": "b51d75ef4fc00b60fe386be426a482d1",
+    "mtime": 1780441396.338444,
+    "ast_hash": "f1e207d57b64120e3c5c52da2fa209e0",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/routes/stripe-webhook.ts": {
@@ -1930,8 +1930,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/types.ts": {
-    "mtime": 1780404229.8380606,
-    "ast_hash": "560e5b2e384f65c20f11316caa907cdd",
+    "mtime": 1780441990.53845,
+    "ast_hash": "9962b02113050f7c51f2b46f055aa98d",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/tsconfig.json": {
@@ -2060,8 +2060,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/__tests__/components/Layout.test.tsx": {
-    "mtime": 1780404229.8500607,
-    "ast_hash": "3f57770f3b578c9abc5e3aae2fb3f858",
+    "mtime": 1780441675.4664469,
+    "ast_hash": "f3308d9f8522e8d2354d7e72ac89ddd8",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/__tests__/components/LoginPage.test.tsx": {
@@ -2195,8 +2195,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/__tests__/hooks/useTerminal.test.ts": {
-    "mtime": 1780404229.8540606,
-    "ast_hash": "fd04139278d85e7c8f22c40f6d140482",
+    "mtime": 1780442378.122454,
+    "ast_hash": "3282382cc5e5fbd2337627f53d21bfbc",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/file-icons.test.ts": {
@@ -2315,8 +2315,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/xterm-internals.test.ts": {
-    "mtime": 1780404229.8580606,
-    "ast_hash": "a3b94d6d6072cc2252b2ea62f0b19e03",
+    "mtime": 1780442071.1424508,
+    "ast_hash": "0584aff4576377828fd18ff25b12e7c4",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/__tests__/page-transparency.test.ts": {
@@ -2340,8 +2340,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/preferences.test.ts": {
-    "mtime": 1780404229.8580606,
-    "ast_hash": "9f6e7d2ee1db73dc7019c83951365014",
+    "mtime": 1780442106.3504512,
+    "ast_hash": "16c592990d09091e038f2d3502a7abb7",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/r2-readiness.test.ts": {
@@ -2490,8 +2490,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/components/Layout.tsx": {
-    "mtime": 1780404229.8620605,
-    "ast_hash": "4a5b38447c56e8d684c048982a019181",
+    "mtime": 1780441558.1104455,
+    "ast_hash": "dd4c5ebb9c644fcd5dfd6920c32e3697",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/components/LoginPage.tsx": {
@@ -2885,13 +2885,13 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/lib/xterm-internals.ts": {
-    "mtime": 1780404229.8740606,
-    "ast_hash": "fb069a04bd3dcab22249d09fb47f6131",
+    "mtime": 1780442066.2184508,
+    "ast_hash": "f1f44ae93673d9b4cbdfc8cd473e0e46",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/stores/preferences.ts": {
-    "mtime": 1780404229.8740606,
-    "ast_hash": "a8750583696d2dd415d466c13390df4b",
+    "mtime": 1780442074.7504508,
+    "ast_hash": "66273a6d92e14bf9de7dfd2adef6df2b",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/stores/r2-readiness.ts": {
@@ -2900,8 +2900,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/stores/session-polling.ts": {
-    "mtime": 1780404229.8740606,
-    "ast_hash": "139fc4a63f60893a53420b0d40e50add",
+    "mtime": 1780442595.8624563,
+    "ast_hash": "9547976ef06c2963a3316c03421b2294",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/stores/session-presets.ts": {
@@ -2920,8 +2920,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/stores/session.ts": {
-    "mtime": 1780404229.8740606,
-    "ast_hash": "5dee50526a66bb5ce38efa64eeabb896",
+    "mtime": 1780442564.890456,
+    "ast_hash": "fa857724785e2fc71d401bb74907f936",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/stores/setup.ts": {
@@ -3055,13 +3055,13 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/documentation/decisions/README.md": {
-    "mtime": 1780432353.6823506,
-    "ast_hash": "d22b6e19471370e16351a6eccfdc1f32",
+    "mtime": 1780441812.834448,
+    "ast_hash": "efb77fae4595b69fa4f1235d90d385dc",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/documentation/lanes/api-reference.md": {
-    "mtime": 1780404229.6300607,
-    "ast_hash": "070aca29598b7c0951716eb428cd598d",
+    "mtime": 1780441833.7744484,
+    "ast_hash": "62d4c470aa873fe33f49a618e3e48407",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/documentation/lanes/architecture-internals.md": {
@@ -3095,8 +3095,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/documentation/lanes/container.md": {
-    "mtime": 1780404230.0660605,
-    "ast_hash": "19289ead92a037bb42906786d3d649ae",
+    "mtime": 1780441825.5624483,
+    "ast_hash": "b59b9419c50d371c182afda4006e75fb",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/documentation/lanes/deployment.md": {
@@ -3135,8 +3135,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/documentation/lanes/troubleshooting.md": {
-    "mtime": 1780404229.6340606,
-    "ast_hash": "0b0fe4b04ccb2a06fe0637635b775436",
+    "mtime": 1780441838.2264485,
+    "ast_hash": "2e58fa987a91f4c252acac164566a5a2",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/documentation/lanes/user-provisioning.md": {
@@ -3715,8 +3715,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/.review-decisions.md": {
-    "mtime": 1780404229.7580607,
-    "ast_hash": "7f5f9e59dd14c502e02238f44af26408",
+    "mtime": 1780441915.9144492,
+    "ast_hash": "8602ef14e75b56e53d83ad66e3b70145",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/.review-queue.md": {
@@ -3725,8 +3725,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/agents.md": {
-    "mtime": 1780431898.474346,
-    "ast_hash": "cb13a29109d10042d8a537785fe81d16",
+    "mtime": 1780441785.3544478,
+    "ast_hash": "1759092b28e484a9f734e0f76dbd0326",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/authentication.md": {
@@ -3755,13 +3755,13 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/memory.md": {
-    "mtime": 1780404229.7660606,
-    "ast_hash": "ed2e0e0c787e12d99f41f697e9b81936",
+    "mtime": 1780441694.754447,
+    "ast_hash": "a734446a9c5cb5e3b7c3f89e6efa0aaa",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/mobile.md": {
-    "mtime": 1780404229.7660606,
-    "ast_hash": "58c15becde988f93209868bf71b601c3",
+    "mtime": 1780441788.210448,
+    "ast_hash": "a1128d60fe746e78d26243b088e4b7ca",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/operations.md": {
@@ -3775,18 +3775,18 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/security.md": {
-    "mtime": 1780404229.7660606,
-    "ast_hash": "4b1418511239ebd5a22dd4836be7c90f",
+    "mtime": 1780441808.7864482,
+    "ast_hash": "2fb8e1e1dbfbccefd1415747f34524b0",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/session-lifecycle.md": {
-    "mtime": 1780432067.6943476,
-    "ast_hash": "a75352fe2ad5f5e81916166932e563b5",
+    "mtime": 1780441810.7184482,
+    "ast_hash": "89be21453ad18f2d9614e9c64edce5a3",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/setup.md": {
-    "mtime": 1780404229.7660606,
-    "ast_hash": "5babfadf2b03ee55476900f0072b9eb2",
+    "mtime": 1780441812.558448,
+    "ast_hash": "118aca4662bf89495cddafff357d1564",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/storage.md": {
@@ -3795,8 +3795,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/subscription.md": {
-    "mtime": 1780404229.7660606,
-    "ast_hash": "04dc0bbc253ad83aa7ba477a02f3807f",
+    "mtime": 1780441814.2944481,
+    "ast_hash": "f919a297f44abb75f9a281709bf403f4",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/terminal.md": {
@@ -3805,8 +3805,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/sdd/spec/vault.md": {
-    "mtime": 1780432273.7623498,
-    "ast_hash": "d27a35ee9b781e542f48acf9daeb70df",
+    "mtime": 1780441898.746449,
+    "ast_hash": "65603c3ad9d0c411835617c81bb6ff7a",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/index.html": {
@@ -3892,6 +3892,31 @@
   "/home/user/workspace/codeflare/web-ui/public/og.svg": {
     "mtime": 1780404229.8460605,
     "ast_hash": "0dbbb0a93644848bd7ed2512d82e1a48",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/container-config-schema.test.ts": {
+    "mtime": 1780442223.2624524,
+    "ast_hash": "cd6462294b5b5072bd8277c431086da9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/sessions-sync.test.ts": {
+    "mtime": 1780441637.1184464,
+    "ast_hash": "6a6e1309d1c9ae49c52032331cc753e0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/vault-html-direct.test.ts": {
+    "mtime": 1780442266.7104528,
+    "ast_hash": "1aefe3469475de698998a76b573134d5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/vault-native-sw-direct.test.ts": {
+    "mtime": 1780442277.050453,
+    "ast_hash": "cb27c17e223219a2526b9b9104b6e80e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/security/early-return-security.test.ts": {
+    "mtime": 1780442852.0184588,
+    "ast_hash": "a411712161754152c3c56d1bf4d78349",
     "semantic_hash": ""
   }
 }

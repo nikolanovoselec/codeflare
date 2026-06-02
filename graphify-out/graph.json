@@ -6908,7 +6908,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L12",
       "id": "claude_manifest_agents_code_reviewer_md",
-      "community": 74,
+      "community": 1,
       "norm_label": "agents/code-reviewer.md"
     },
     {
@@ -6917,7 +6917,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L13",
       "id": "claude_manifest_agents_code_reviewer_md_modes",
-      "community": 74,
+      "community": 1,
       "norm_label": "modes"
     },
     {
@@ -6926,7 +6926,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L17",
       "id": "claude_manifest_agents_memory_capture_md",
-      "community": 430,
+      "community": 1,
       "norm_label": "agents/memory-capture.md"
     },
     {
@@ -6935,7 +6935,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L18",
       "id": "claude_manifest_agents_memory_capture_md_modes",
-      "community": 430,
+      "community": 1,
       "norm_label": "modes"
     },
     {
@@ -6962,7 +6962,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L27",
       "id": "claude_manifest_agents_deep_reviewer_md",
-      "community": 1,
+      "community": 430,
       "norm_label": "agents/deep-reviewer.md"
     },
     {
@@ -6971,7 +6971,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L28",
       "id": "claude_manifest_agents_deep_reviewer_md_modes",
-      "community": 1,
+      "community": 430,
       "norm_label": "modes"
     },
     {
@@ -6980,7 +6980,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L32",
       "id": "claude_manifest_agents_doc_updater_md",
-      "community": 74,
+      "community": 1,
       "norm_label": "agents/doc-updater.md"
     },
     {
@@ -6989,7 +6989,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L33",
       "id": "claude_manifest_agents_doc_updater_md_modes",
-      "community": 74,
+      "community": 1,
       "norm_label": "modes"
     },
     {
@@ -7016,7 +7016,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L42",
       "id": "claude_manifest_agents_security_reviewer_md",
-      "community": 1,
+      "community": 435,
       "norm_label": "agents/security-reviewer.md"
     },
     {
@@ -7025,7 +7025,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L43",
       "id": "claude_manifest_agents_security_reviewer_md_modes",
-      "community": 1,
+      "community": 435,
       "norm_label": "modes"
     },
     {
@@ -7034,7 +7034,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L47",
       "id": "claude_manifest_agents_spec_reviewer_md",
-      "community": 435,
+      "community": 1,
       "norm_label": "agents/spec-reviewer.md"
     },
     {
@@ -7043,7 +7043,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L48",
       "id": "claude_manifest_agents_spec_reviewer_md_modes",
-      "community": 435,
+      "community": 1,
       "norm_label": "modes"
     },
     {
@@ -7106,7 +7106,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L67",
       "id": "claude_manifest_commands_deploy_md",
-      "community": 1,
+      "community": 511,
       "norm_label": "commands/deploy.md"
     },
     {
@@ -7115,7 +7115,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L68",
       "id": "claude_manifest_commands_deploy_md_modes",
-      "community": 1,
+      "community": 511,
       "norm_label": "modes"
     },
     {
@@ -7214,7 +7214,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L97",
       "id": "claude_manifest_plugins_codeflare_hooks_scripts_enforce_review_spawn_sh",
-      "community": 74,
+      "community": 1,
       "norm_label": "plugins/codeflare-hooks/scripts/enforce-review-spawn.sh"
     },
     {
@@ -7223,7 +7223,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L98",
       "id": "claude_manifest_plugins_codeflare_hooks_scripts_enforce_review_spawn_sh_modes",
-      "community": 74,
+      "community": 1,
       "norm_label": "modes"
     },
     {
@@ -7304,7 +7304,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L122",
       "id": "claude_manifest_plugins_codeflare_memory_scripts_memory_agent_prompt_md",
-      "community": 1,
+      "community": 74,
       "norm_label": "plugins/codeflare-memory/scripts/memory-agent-prompt.md"
     },
     {
@@ -7313,7 +7313,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L123",
       "id": "claude_manifest_plugins_codeflare_memory_scripts_memory_agent_prompt_md_modes",
-      "community": 1,
+      "community": 74,
       "norm_label": "modes"
     },
     {
@@ -7394,7 +7394,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L147",
       "id": "claude_manifest_plugins_codeflare_memory_scripts_memory_context_inject_sh",
-      "community": 1,
+      "community": 74,
       "norm_label": "plugins/codeflare-memory/scripts/memory-context-inject.sh"
     },
     {
@@ -7403,7 +7403,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L148",
       "id": "claude_manifest_plugins_codeflare_memory_scripts_memory_context_inject_sh_modes",
-      "community": 1,
+      "community": 74,
       "norm_label": "modes"
     },
     {
@@ -7556,7 +7556,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L194",
       "id": "claude_manifest_plugins_graphify_scripts_graph_first_nudge_sh",
-      "community": 1,
+      "community": 74,
       "norm_label": "plugins/graphify/scripts/graph-first-nudge.sh"
     },
     {
@@ -7565,7 +7565,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L195",
       "id": "claude_manifest_plugins_graphify_scripts_graph_first_nudge_sh_modes",
-      "community": 1,
+      "community": 74,
       "norm_label": "modes"
     },
     {
@@ -7718,7 +7718,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L242",
       "id": "claude_manifest_rules_documentation_discipline_md",
-      "community": 74,
+      "community": 1,
       "norm_label": "rules/documentation-discipline.md"
     },
     {
@@ -7727,7 +7727,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L243",
       "id": "claude_manifest_rules_documentation_discipline_md_modes",
-      "community": 74,
+      "community": 1,
       "norm_label": "modes"
     },
     {
@@ -8006,7 +8006,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L324",
       "id": "claude_manifest_rules_swift_patterns_md",
-      "community": 1,
+      "community": 74,
       "norm_label": "rules/swift/patterns.md"
     },
     {
@@ -8015,7 +8015,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L325",
       "id": "claude_manifest_rules_swift_patterns_md_modes",
-      "community": 1,
+      "community": 74,
       "norm_label": "modes"
     },
     {
@@ -8150,7 +8150,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L364",
       "id": "claude_manifest_rules_vault_note_capture_md",
-      "community": 511,
+      "community": 1,
       "norm_label": "rules/vault-note-capture.md"
     },
     {
@@ -8159,7 +8159,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L365",
       "id": "claude_manifest_rules_vault_note_capture_md_modes",
-      "community": 511,
+      "community": 1,
       "norm_label": "modes"
     },
     {
@@ -8240,7 +8240,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L391",
       "id": "claude_manifest_skills_consult_llm_skill_md",
-      "community": 1,
+      "community": 74,
       "norm_label": "skills/consult-llm/skill.md"
     },
     {
@@ -8249,7 +8249,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L392",
       "id": "claude_manifest_skills_consult_llm_skill_md_modes",
-      "community": 1,
+      "community": 74,
       "norm_label": "modes"
     },
     {
@@ -8402,7 +8402,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L437",
       "id": "claude_manifest_skills_frontend_patterns_skill_md",
-      "community": 74,
+      "community": 1,
       "norm_label": "skills/frontend-patterns/skill.md"
     },
     {
@@ -8411,7 +8411,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L438",
       "id": "claude_manifest_skills_frontend_patterns_skill_md_modes",
-      "community": 74,
+      "community": 1,
       "norm_label": "modes"
     },
     {
@@ -8492,7 +8492,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L465",
       "id": "claude_manifest_skills_graphify_skill_md",
-      "community": 74,
+      "community": 1,
       "norm_label": "skills/graphify/skill.md"
     },
     {
@@ -8501,7 +8501,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L466",
       "id": "claude_manifest_skills_graphify_skill_md_modes",
-      "community": 74,
+      "community": 1,
       "norm_label": "modes"
     },
     {
@@ -8978,7 +8978,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L601",
       "id": "claude_manifest_skills_vault_operations_skill_md",
-      "community": 1,
+      "community": 74,
       "norm_label": "skills/vault-operations/skill.md"
     },
     {
@@ -8987,7 +8987,7 @@
       "source_file": "preseed/agents/claude/manifest.json",
       "source_location": "L602",
       "id": "claude_manifest_skills_vault_operations_skill_md_modes",
-      "community": 1,
+      "community": 74,
       "norm_label": "modes"
     },
     {
@@ -14753,7 +14753,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L1",
       "id": "fuzz_input_validation_fuzz_test",
-      "community": 78,
+      "community": 71,
       "norm_label": "input-validation.fuzz.test.ts"
     },
     {
@@ -14762,7 +14762,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L27",
       "id": "fuzz_input_validation_fuzz_test_num_runs",
-      "community": 78,
+      "community": 71,
       "norm_label": "num_runs"
     },
     {
@@ -14771,7 +14771,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L770",
       "id": "fuzz_input_validation_fuzz_test_cbstate",
-      "community": 78,
+      "community": 71,
       "norm_label": "cbstate"
     },
     {
@@ -14780,7 +14780,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L772",
       "id": "fuzz_input_validation_fuzz_test_cbmodel",
-      "community": 78,
+      "community": 71,
       "norm_label": "cbmodel"
     },
     {
@@ -14789,7 +14789,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L779",
       "id": "fuzz_input_validation_fuzz_test_cbreal",
-      "community": 78,
+      "community": 71,
       "norm_label": "cbreal"
     },
     {
@@ -14906,7 +14906,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L982",
       "id": "fuzz_input_validation_fuzz_test_matchespatterncorscache",
-      "community": 78,
+      "community": 71,
       "norm_label": "matchespatterncorscache()"
     },
     {
@@ -14915,7 +14915,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L1199",
       "id": "fuzz_input_validation_fuzz_test_normalizeemail",
-      "community": 78,
+      "community": 71,
       "norm_label": "normalizeemail()"
     },
     {
@@ -14924,7 +14924,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L1242",
       "id": "fuzz_input_validation_fuzz_test_getcookievalue",
-      "community": 78,
+      "community": 71,
       "norm_label": "getcookievalue()"
     },
     {
@@ -14933,7 +14933,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L1546",
       "id": "fuzz_input_validation_fuzz_test_extracttag",
-      "community": 78,
+      "community": 71,
       "norm_label": "extracttag()"
     },
     {
@@ -14942,7 +14942,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L1597",
       "id": "fuzz_input_validation_fuzz_test_isretryable",
-      "community": 78,
+      "community": 71,
       "norm_label": "isretryable()"
     },
     {
@@ -14951,7 +14951,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L1902",
       "id": "fuzz_input_validation_fuzz_test_cachemodel",
-      "community": 78,
+      "community": 71,
       "norm_label": "cachemodel"
     },
     {
@@ -14960,7 +14960,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L1906",
       "id": "fuzz_input_validation_fuzz_test_cachereal",
-      "community": 78,
+      "community": 71,
       "norm_label": "cachereal"
     },
     {
@@ -15086,7 +15086,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L2123",
       "id": "fuzz_input_validation_fuzz_test_istextcontenttype",
-      "community": 78,
+      "community": 71,
       "norm_label": "istextcontenttype()"
     },
     {
@@ -15095,7 +15095,7 @@
       "source_file": "src/__tests__/fuzz/input-validation.fuzz.test.ts",
       "source_location": "L2136",
       "id": "fuzz_input_validation_fuzz_test_isimagecontenttype",
-      "community": 78,
+      "community": 71,
       "norm_label": "isimagecontenttype()"
     },
     {
@@ -15230,7 +15230,7 @@
       "source_file": "src/__tests__/index.test.ts",
       "source_location": "L1",
       "id": "tests_index_test",
-      "community": 48,
+      "community": 46,
       "norm_label": "index.test.ts"
     },
     {
@@ -15239,7 +15239,7 @@
       "source_file": "src/__tests__/index.test.ts",
       "source_location": "L6",
       "id": "tests_index_test_mockhonoapp",
-      "community": 48,
+      "community": 46,
       "norm_label": "_mockhonoapp"
     },
     {
@@ -15248,7 +15248,7 @@
       "source_file": "src/__tests__/index.test.ts",
       "source_location": "L31",
       "id": "tests_index_test_createmockenv",
-      "community": 48,
+      "community": 46,
       "norm_label": "createmockenv()"
     },
     {
@@ -15257,7 +15257,7 @@
       "source_file": "src/__tests__/index.test.ts",
       "source_location": "L46",
       "id": "tests_index_test_createmockctx",
-      "community": 48,
+      "community": 46,
       "norm_label": "createmockctx()"
     },
     {
@@ -15320,7 +15320,7 @@
       "source_file": "src/__tests__/lib/access-tier.test.ts",
       "source_location": "L1",
       "id": "lib_access_tier_test",
-      "community": 48,
+      "community": 72,
       "norm_label": "access-tier.test.ts"
     },
     {
@@ -15608,7 +15608,7 @@
       "source_file": "src/__tests__/lib/constants.test.ts",
       "source_location": "L1",
       "id": "lib_constants_test",
-      "community": 376,
+      "community": 3,
       "norm_label": "constants.test.ts"
     },
     {
@@ -15869,7 +15869,7 @@
       "source_file": "src/__tests__/lib/logger.test.ts",
       "source_location": "L1",
       "id": "lib_logger_test",
-      "community": 48,
+      "community": 71,
       "norm_label": "logger.test.ts"
     },
     {
@@ -15878,7 +15878,7 @@
       "source_file": "src/__tests__/lib/logger.test.ts",
       "source_location": "L28",
       "id": "lib_logger_test_parselogoutput",
-      "community": 48,
+      "community": 71,
       "norm_label": "parselogoutput()"
     },
     {
@@ -15977,7 +15977,7 @@
       "source_file": "src/__tests__/lib/r2-client.test.ts",
       "source_location": "L1",
       "id": "lib_r2_client_test",
-      "community": 78,
+      "community": 71,
       "norm_label": "r2-client.test.ts"
     },
     {
@@ -15986,7 +15986,7 @@
       "source_file": "src/__tests__/lib/r2-client.test.ts",
       "source_location": "L10",
       "id": "lib_r2_client_test_mocksign",
-      "community": 78,
+      "community": 71,
       "norm_label": "mocksign"
     },
     {
@@ -15995,7 +15995,7 @@
       "source_file": "src/__tests__/lib/r2-client.test.ts",
       "source_location": "L17",
       "id": "lib_r2_client_test_constructor",
-      "community": 78,
+      "community": 71,
       "norm_label": "constructor()"
     },
     {
@@ -16004,7 +16004,7 @@
       "source_file": "src/__tests__/lib/r2-client.test.ts",
       "source_location": "L330",
       "id": "lib_r2_client_test_createclient",
-      "community": 78,
+      "community": 71,
       "norm_label": "createclient()"
     },
     {
@@ -16013,7 +16013,7 @@
       "source_file": "src/__tests__/lib/r2-client.test.ts",
       "source_location": "L334",
       "id": "lib_r2_client_test_listxml",
-      "community": 78,
+      "community": 71,
       "norm_label": "listxml()"
     },
     {
@@ -16580,7 +16580,7 @@
       "source_file": "src/__tests__/middleware/rate-limit-fallback.test.ts",
       "source_location": "L1",
       "id": "middleware_rate_limit_fallback_test",
-      "community": 71,
+      "community": 376,
       "norm_label": "rate-limit-fallback.test.ts"
     },
     {
@@ -16589,7 +16589,7 @@
       "source_file": "src/__tests__/middleware/rate-limit-fallback.test.ts",
       "source_location": "L14",
       "id": "middleware_rate_limit_fallback_test_createmockcontext",
-      "community": 71,
+      "community": 376,
       "norm_label": "createmockcontext()"
     },
     {
@@ -16598,7 +16598,7 @@
       "source_file": "src/__tests__/middleware/rate-limit-fallback.test.ts",
       "source_location": "L153",
       "id": "middleware_rate_limit_fallback_test_createworkingkv",
-      "community": 71,
+      "community": 376,
       "norm_label": "createworkingkv()"
     },
     {
@@ -16607,7 +16607,7 @@
       "source_file": "src/__tests__/middleware/rate-limit-fallback.test.ts",
       "source_location": "L230",
       "id": "middleware_rate_limit_fallback_test_makefailingkv",
-      "community": 71,
+      "community": 376,
       "norm_label": "makefailingkv()"
     },
     {
@@ -16616,7 +16616,7 @@
       "source_file": "src/__tests__/middleware/rate-limit.test.ts",
       "source_location": "L1",
       "id": "middleware_rate_limit_test",
-      "community": 71,
+      "community": 376,
       "norm_label": "rate-limit.test.ts"
     },
     {
@@ -16625,7 +16625,7 @@
       "source_file": "src/__tests__/middleware/rate-limit.test.ts",
       "source_location": "L22",
       "id": "middleware_rate_limit_test_createtestapp",
-      "community": 71,
+      "community": 376,
       "norm_label": "createtestapp()"
     },
     {
@@ -16634,7 +16634,7 @@
       "source_file": "src/__tests__/middleware/rate-limit.test.ts",
       "source_location": "L283",
       "id": "middleware_rate_limit_test_createstresstestapp",
-      "community": 71,
+      "community": 376,
       "norm_label": "createstresstestapp()"
     },
     {
@@ -16643,7 +16643,7 @@
       "source_file": "src/__tests__/redirect-with-headers.test.ts",
       "source_location": "L1",
       "id": "tests_redirect_with_headers_test",
-      "community": 48,
+      "community": 46,
       "norm_label": "redirect-with-headers.test.ts"
     },
     {
@@ -16679,7 +16679,7 @@
       "source_file": "src/__tests__/routes/auth-redirects.test.ts",
       "source_location": "L1",
       "id": "routes_auth_redirects_test",
-      "community": 48,
+      "community": 3,
       "norm_label": "auth-redirects.test.ts"
     },
     {
@@ -16688,7 +16688,7 @@
       "source_file": "src/__tests__/routes/auth-redirects.test.ts",
       "source_location": "L15",
       "id": "routes_auth_redirects_test_createapp",
-      "community": 48,
+      "community": 3,
       "norm_label": "createapp()"
     },
     {
@@ -17714,7 +17714,7 @@
       "source_file": "src/__tests__/routes/session.test.ts",
       "source_location": "L690",
       "id": "routes_session_test_createratelimitapp",
-      "community": 71,
+      "community": 376,
       "norm_label": "createratelimitapp()"
     },
     {
@@ -18371,7 +18371,7 @@
       "source_file": "src/__tests__/routes/terminal-route-validate.test.ts",
       "source_location": "L1",
       "id": "routes_terminal_route_validate_test",
-      "community": 48,
+      "community": 46,
       "norm_label": "terminal-route-validate.test.ts"
     },
     {
@@ -18380,7 +18380,7 @@
       "source_file": "src/__tests__/routes/terminal-route-validate.test.ts",
       "source_location": "L18",
       "id": "routes_terminal_route_validate_test_wsrequest",
-      "community": 48,
+      "community": 46,
       "norm_label": "wsrequest()"
     },
     {
@@ -18389,7 +18389,7 @@
       "source_file": "src/__tests__/routes/terminal-ws.test.ts",
       "source_location": "L1",
       "id": "routes_terminal_ws_test",
-      "community": 48,
+      "community": 46,
       "norm_label": "terminal-ws.test.ts"
     },
     {
@@ -18398,7 +18398,7 @@
       "source_file": "src/__tests__/routes/terminal-ws.test.ts",
       "source_location": "L16",
       "id": "routes_terminal_ws_test_mockauthresult",
-      "community": 48,
+      "community": 46,
       "norm_label": "mockauthresult"
     },
     {
@@ -18407,7 +18407,7 @@
       "source_file": "src/__tests__/routes/terminal-ws.test.ts",
       "source_location": "L41",
       "id": "routes_terminal_ws_test_mockcontainerfetch",
-      "community": 48,
+      "community": 46,
       "norm_label": "mockcontainerfetch"
     },
     {
@@ -18416,7 +18416,7 @@
       "source_file": "src/__tests__/routes/terminal-ws.test.ts",
       "source_location": "L45",
       "id": "routes_terminal_ws_test_mockcontainergetstate",
-      "community": 48,
+      "community": 46,
       "norm_label": "mockcontainergetstate"
     },
     {
@@ -18425,7 +18425,7 @@
       "source_file": "src/__tests__/routes/terminal-ws.test.ts",
       "source_location": "L90",
       "id": "routes_terminal_ws_test_createrequest",
-      "community": 48,
+      "community": 46,
       "norm_label": "createrequest()"
     },
     {
@@ -18434,7 +18434,7 @@
       "source_file": "src/__tests__/routes/terminal.test.ts",
       "source_location": "L1",
       "id": "routes_terminal_test",
-      "community": 48,
+      "community": 46,
       "norm_label": "terminal.test.ts"
     },
     {
@@ -18857,7 +18857,7 @@
       "source_file": "src/__tests__/security/rate-limit-security.test.ts",
       "source_location": "L19",
       "id": "security_rate_limit_security_test_buildapp",
-      "community": 71,
+      "community": 376,
       "norm_label": "buildapp()"
     },
     {
@@ -19109,7 +19109,7 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L1",
       "id": "timekeeper_index_test",
-      "community": 2,
+      "community": 408,
       "norm_label": "index.test.ts"
     },
     {
@@ -19118,7 +19118,7 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L4",
       "id": "timekeeper_index_test_mockkv",
-      "community": 2,
+      "community": 408,
       "norm_label": "mockkv"
     },
     {
@@ -19127,7 +19127,7 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L9",
       "id": "timekeeper_index_test_mockstorage",
-      "community": 2,
+      "community": 408,
       "norm_label": "mockstorage"
     },
     {
@@ -19136,7 +19136,7 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L30",
       "id": "timekeeper_index_test_now",
-      "community": 2,
+      "community": 408,
       "norm_label": "now"
     },
     {
@@ -19145,7 +19145,7 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L31",
       "id": "timekeeper_index_test_today",
-      "community": 2,
+      "community": 408,
       "norm_label": "today"
     },
     {
@@ -19154,7 +19154,7 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L32",
       "id": "timekeeper_index_test_this_month",
-      "community": 2,
+      "community": 408,
       "norm_label": "this_month"
     },
     {
@@ -19163,7 +19163,7 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L33",
       "id": "timekeeper_index_test_this_year",
-      "community": 2,
+      "community": 408,
       "norm_label": "this_year"
     },
     {
@@ -19172,7 +19172,7 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L34",
       "id": "timekeeper_index_test_this_week_start",
-      "community": 2,
+      "community": 408,
       "norm_label": "this_week_start"
     },
     {
@@ -19181,7 +19181,7 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L35",
       "id": "timekeeper_index_test_yesterday",
-      "community": 2,
+      "community": 408,
       "norm_label": "yesterday"
     },
     {
@@ -19190,7 +19190,7 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L37",
       "id": "timekeeper_index_test_createtimekeeper",
-      "community": 2,
+      "community": 408,
       "norm_label": "createtimekeeper()"
     },
     {
@@ -19199,7 +19199,7 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L45",
       "id": "timekeeper_index_test_pingrequest",
-      "community": 2,
+      "community": 408,
       "norm_label": "pingrequest()"
     },
     {
@@ -19208,7 +19208,7 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L504",
       "id": "timekeeper_index_test_mockstandardactiveuser",
-      "community": 2,
+      "community": 408,
       "norm_label": "mockstandardactiveuser()"
     },
     {
@@ -19251,7 +19251,7 @@
       "label": "SetBucketNameCreds",
       "file_type": "code",
       "source_file": "src/container/container-env.ts",
-      "source_location": "L62",
+      "source_location": "L63",
       "id": "container_container_env_setbucketnamecreds",
       "community": 68,
       "norm_label": "setbucketnamecreds"
@@ -19260,7 +19260,7 @@
       "label": "validateBucketNameInput()",
       "file_type": "code",
       "source_file": "src/container/container-env.ts",
-      "source_location": "L89",
+      "source_location": "L91",
       "id": "container_container_env_validatebucketnameinput",
       "community": 68,
       "norm_label": "validatebucketnameinput()"
@@ -19269,7 +19269,7 @@
       "label": "normalizeIanaTz()",
       "file_type": "code",
       "source_file": "src/container/container-env.ts",
-      "source_location": "L144",
+      "source_location": "L146",
       "id": "container_container_env_normalizeianatz",
       "community": 68,
       "norm_label": "normalizeianatz()"
@@ -19278,7 +19278,7 @@
       "label": "buildEnvVars()",
       "file_type": "code",
       "source_file": "src/container/container-env.ts",
-      "source_location": "L158",
+      "source_location": "L160",
       "id": "container_container_env_buildenvvars",
       "community": 68,
       "norm_label": "buildenvvars()"
@@ -19287,7 +19287,7 @@
       "label": "applyBucketName()",
       "file_type": "code",
       "source_file": "src/container/container-env.ts",
-      "source_location": "L224",
+      "source_location": "L226",
       "id": "container_container_env_applybucketname",
       "community": 68,
       "norm_label": "applybucketname()"
@@ -19296,7 +19296,7 @@
       "label": "applyPrefsOnRestart()",
       "file_type": "code",
       "source_file": "src/container/container-env.ts",
-      "source_location": "L306",
+      "source_location": "L308",
       "id": "container_container_env_applyprefsonrestart",
       "community": 68,
       "norm_label": "applyprefsonrestart()"
@@ -19559,7 +19559,7 @@
       "source_file": "src/index.ts",
       "source_location": "L65",
       "id": "src_index_withsecurityheaders",
-      "community": 48,
+      "community": 46,
       "norm_label": "withsecurityheaders()"
     },
     {
@@ -19568,7 +19568,7 @@
       "source_file": "src/index.ts",
       "source_location": "L80",
       "id": "src_index_redirectwithheaders",
-      "community": 48,
+      "community": 46,
       "norm_label": "redirectwithheaders()"
     },
     {
@@ -19613,7 +19613,7 @@
       "source_file": "src/index.ts",
       "source_location": "L293",
       "id": "src_index_fetch",
-      "community": 48,
+      "community": 46,
       "norm_label": "fetch()"
     },
     {
@@ -19703,7 +19703,7 @@
       "source_file": "src/lib/access-tier.ts",
       "source_location": "L1",
       "id": "lib_access_tier",
-      "community": 48,
+      "community": 72,
       "norm_label": "access-tier.ts"
     },
     {
@@ -19712,7 +19712,7 @@
       "source_file": "src/lib/access-tier.ts",
       "source_location": "L18",
       "id": "lib_access_tier_isactiveuser",
-      "community": 48,
+      "community": 72,
       "norm_label": "isactiveuser()"
     },
     {
@@ -20207,7 +20207,7 @@
       "source_file": "src/lib/constants.ts",
       "source_location": "L1",
       "id": "src_lib_constants_ts_lib_constants",
-      "community": 376,
+      "community": 3,
       "norm_label": "constants.ts"
     },
     {
@@ -20216,7 +20216,7 @@
       "source_file": "src/lib/constants.ts",
       "source_location": "L13",
       "id": "lib_constants_default_allowed_origins",
-      "community": 376,
+      "community": 3,
       "norm_label": "default_allowed_origins"
     },
     {
@@ -20225,7 +20225,7 @@
       "source_file": "src/lib/constants.ts",
       "source_location": "L73",
       "id": "lib_constants_protected_paths",
-      "community": 376,
+      "community": 3,
       "norm_label": "protected_paths"
     },
     {
@@ -20234,7 +20234,7 @@
       "source_file": "src/lib/constants.ts",
       "source_location": "L85",
       "id": "lib_constants_getmaxsessions",
-      "community": 376,
+      "community": 2,
       "norm_label": "getmaxsessions()"
     },
     {
@@ -21215,7 +21215,7 @@
       "source_file": "src/lib/logger.ts",
       "source_location": "L1",
       "id": "src_lib_logger_ts_lib_logger",
-      "community": 48,
+      "community": 71,
       "norm_label": "logger.ts"
     },
     {
@@ -21224,7 +21224,7 @@
       "source_file": "src/lib/logger.ts",
       "source_location": "L5",
       "id": "src_lib_logger_ts_lib_logger_loglevel",
-      "community": 48,
+      "community": 71,
       "norm_label": "loglevel"
     },
     {
@@ -21233,7 +21233,7 @@
       "source_file": "src/lib/logger.ts",
       "source_location": "L11",
       "id": "lib_logger_logentry",
-      "community": 48,
+      "community": 71,
       "norm_label": "logentry"
     },
     {
@@ -21242,7 +21242,7 @@
       "source_file": "src/lib/logger.ts",
       "source_location": "L38",
       "id": "src_lib_logger_ts_lib_logger_logger",
-      "community": 48,
+      "community": 71,
       "norm_label": "logger"
     },
     {
@@ -21251,7 +21251,7 @@
       "source_file": "src/lib/logger.ts",
       "source_location": "L54",
       "id": "src_lib_logger_ts_lib_logger_log_levels",
-      "community": 48,
+      "community": 71,
       "norm_label": "log_levels"
     },
     {
@@ -21260,7 +21260,7 @@
       "source_file": "src/lib/logger.ts",
       "source_location": "L75",
       "id": "lib_logger_setloglevel",
-      "community": 48,
+      "community": 71,
       "norm_label": "setloglevel()"
     },
     {
@@ -21269,7 +21269,7 @@
       "source_file": "src/lib/logger.ts",
       "source_location": "L121",
       "id": "lib_logger_createlogger",
-      "community": 48,
+      "community": 71,
       "norm_label": "createlogger()"
     },
     {
@@ -21359,7 +21359,7 @@
       "source_file": "src/lib/onboarding.ts",
       "source_location": "L1",
       "id": "lib_onboarding",
-      "community": 48,
+      "community": 2,
       "norm_label": "onboarding.ts"
     },
     {
@@ -21368,7 +21368,7 @@
       "source_file": "src/lib/onboarding.ts",
       "source_location": "L5",
       "id": "lib_onboarding_isonboardinglandingpageactive",
-      "community": 48,
+      "community": 2,
       "norm_label": "isonboardinglandingpageactive()"
     },
     {
@@ -21377,7 +21377,7 @@
       "source_file": "src/lib/onboarding.ts",
       "source_location": "L9",
       "id": "lib_onboarding_issaasmodeactive",
-      "community": 48,
+      "community": 2,
       "norm_label": "issaasmodeactive()"
     },
     {
@@ -21494,7 +21494,7 @@
       "source_file": "src/lib/r2-client.ts",
       "source_location": "L1",
       "id": "lib_r2_client",
-      "community": 78,
+      "community": 71,
       "norm_label": "r2-client.ts"
     },
     {
@@ -21512,7 +21512,7 @@
       "source_file": "src/lib/r2-client.ts",
       "source_location": "L27",
       "id": "lib_r2_client_getr2url",
-      "community": 78,
+      "community": 71,
       "norm_label": "getr2url()"
     },
     {
@@ -21521,7 +21521,7 @@
       "source_file": "src/lib/r2-client.ts",
       "source_location": "L40",
       "id": "lib_r2_client_parselistobjectsxml",
-      "community": 78,
+      "community": 71,
       "norm_label": "parselistobjectsxml()"
     },
     {
@@ -21530,7 +21530,7 @@
       "source_file": "src/lib/r2-client.ts",
       "source_location": "L80",
       "id": "lib_r2_client_parseinitiatemultipartuploadxml",
-      "community": 78,
+      "community": 71,
       "norm_label": "parseinitiatemultipartuploadxml()"
     },
     {
@@ -21539,7 +21539,7 @@
       "source_file": "src/lib/r2-client.ts",
       "source_location": "L96",
       "id": "lib_r2_client_emptyr2bucket",
-      "community": 78,
+      "community": 71,
       "norm_label": "emptyr2bucket()"
     },
     {
@@ -21548,7 +21548,7 @@
       "source_file": "src/lib/r2-client.ts",
       "source_location": "L157",
       "id": "lib_r2_client_extracttag",
-      "community": 78,
+      "community": 71,
       "norm_label": "extracttag()"
     },
     {
@@ -22187,7 +22187,7 @@
       "source_file": "src/lib/subscription.ts",
       "source_location": "L44",
       "id": "lib_subscription_subscribable_tier_ids",
-      "community": 71,
+      "community": 72,
       "norm_label": "subscribable_tier_ids"
     },
     {
@@ -22232,7 +22232,7 @@
       "source_file": "src/lib/subscription.ts",
       "source_location": "L243",
       "id": "lib_subscription_isactivetier",
-      "community": 48,
+      "community": 72,
       "norm_label": "isactivetier()"
     },
     {
@@ -22331,7 +22331,7 @@
       "source_file": "src/lib/turnstile.ts",
       "source_location": "L1",
       "id": "lib_turnstile",
-      "community": 71,
+      "community": 72,
       "norm_label": "turnstile.ts"
     },
     {
@@ -22340,7 +22340,7 @@
       "source_file": "src/lib/turnstile.ts",
       "source_location": "L1",
       "id": "lib_turnstile_turnstileverificationresult",
-      "community": 71,
+      "community": 72,
       "norm_label": "turnstileverificationresult"
     },
     {
@@ -22349,7 +22349,7 @@
       "source_file": "src/lib/turnstile.ts",
       "source_location": "L6",
       "id": "lib_turnstile_verifyturnstiletoken",
-      "community": 71,
+      "community": 72,
       "norm_label": "verifyturnstiletoken()"
     },
     {
@@ -22502,7 +22502,7 @@
       "source_file": "src/lib/xml-utils.ts",
       "source_location": "L26",
       "id": "lib_xml_utils_decodexmlentities",
-      "community": 78,
+      "community": 71,
       "norm_label": "decodexmlentities()"
     },
     {
@@ -22556,7 +22556,7 @@
       "source_file": "src/middleware/rate-limit.ts",
       "source_location": "L1",
       "id": "middleware_rate_limit",
-      "community": 71,
+      "community": 376,
       "norm_label": "rate-limit.ts"
     },
     {
@@ -22565,7 +22565,7 @@
       "source_file": "src/middleware/rate-limit.ts",
       "source_location": "L9",
       "id": "middleware_rate_limit_logger",
-      "community": 71,
+      "community": 376,
       "norm_label": "logger"
     },
     {
@@ -22574,7 +22574,7 @@
       "source_file": "src/middleware/rate-limit.ts",
       "source_location": "L17",
       "id": "middleware_rate_limit_ratelimitconfig",
-      "community": 71,
+      "community": 376,
       "norm_label": "ratelimitconfig"
     },
     {
@@ -22583,7 +22583,7 @@
       "source_file": "src/middleware/rate-limit.ts",
       "source_location": "L54",
       "id": "middleware_rate_limit_createratelimiter",
-      "community": 71,
+      "community": 376,
       "norm_label": "createratelimiter()"
     },
     {
@@ -22628,7 +22628,7 @@
       "source_file": "src/routes/auth-redirects.ts",
       "source_location": "L1",
       "id": "routes_auth_redirects",
-      "community": 48,
+      "community": 3,
       "norm_label": "auth-redirects.ts"
     },
     {
@@ -22637,7 +22637,7 @@
       "source_file": "src/routes/auth-redirects.ts",
       "source_location": "L7",
       "id": "routes_auth_redirects_logger",
-      "community": 48,
+      "community": 3,
       "norm_label": "logger"
     },
     {
@@ -22646,7 +22646,7 @@
       "source_file": "src/routes/auth-redirects.ts",
       "source_location": "L9",
       "id": "routes_auth_redirects_app",
-      "community": 48,
+      "community": 3,
       "norm_label": "app"
     },
     {
@@ -22655,7 +22655,7 @@
       "source_file": "src/routes/auth.ts",
       "source_location": "L1",
       "id": "routes_auth",
-      "community": 71,
+      "community": 72,
       "norm_label": "auth.ts"
     },
     {
@@ -22664,7 +22664,7 @@
       "source_file": "src/routes/auth.ts",
       "source_location": "L20",
       "id": "routes_auth_logger",
-      "community": 71,
+      "community": 72,
       "norm_label": "logger"
     },
     {
@@ -22673,7 +22673,7 @@
       "source_file": "src/routes/auth.ts",
       "source_location": "L22",
       "id": "routes_auth_app",
-      "community": 71,
+      "community": 72,
       "norm_label": "app"
     },
     {
@@ -22682,7 +22682,7 @@
       "source_file": "src/routes/auth.ts",
       "source_location": "L150",
       "id": "routes_auth_requestaccessratelimiter",
-      "community": 71,
+      "community": 72,
       "norm_label": "requestaccessratelimiter"
     },
     {
@@ -22691,7 +22691,7 @@
       "source_file": "src/routes/auth.ts",
       "source_location": "L157",
       "id": "routes_auth_requestaccessschema",
-      "community": 71,
+      "community": 72,
       "norm_label": "requestaccessschema"
     },
     {
@@ -22700,7 +22700,7 @@
       "source_file": "src/routes/auth.ts",
       "source_location": "L237",
       "id": "routes_auth_subscriberatelimiter",
-      "community": 71,
+      "community": 72,
       "norm_label": "subscriberatelimiter"
     },
     {
@@ -22709,7 +22709,7 @@
       "source_file": "src/routes/auth.ts",
       "source_location": "L243",
       "id": "routes_auth_subscribeschema",
-      "community": 71,
+      "community": 72,
       "norm_label": "subscribeschema"
     },
     {
@@ -22718,7 +22718,7 @@
       "source_file": "src/routes/auth.ts",
       "source_location": "L426",
       "id": "routes_auth_contactteamratelimiter",
-      "community": 71,
+      "community": 72,
       "norm_label": "contactteamratelimiter"
     },
     {
@@ -23249,7 +23249,7 @@
       "source_file": "src/routes/public/index.ts",
       "source_location": "L1",
       "id": "public_index",
-      "community": 71,
+      "community": 72,
       "norm_label": "index.ts"
     },
     {
@@ -23258,7 +23258,7 @@
       "source_file": "src/routes/public/index.ts",
       "source_location": "L15",
       "id": "public_index_logger",
-      "community": 71,
+      "community": 72,
       "norm_label": "logger"
     },
     {
@@ -23267,7 +23267,7 @@
       "source_file": "src/routes/public/index.ts",
       "source_location": "L17",
       "id": "public_index_waitlistrequestschema",
-      "community": 71,
+      "community": 72,
       "norm_label": "waitlistrequestschema"
     },
     {
@@ -23276,7 +23276,7 @@
       "source_file": "src/routes/public/index.ts",
       "source_location": "L22",
       "id": "public_index_app",
-      "community": 71,
+      "community": 72,
       "norm_label": "app"
     },
     {
@@ -23285,7 +23285,7 @@
       "source_file": "src/routes/public/index.ts",
       "source_location": "L24",
       "id": "public_index_waitlistratelimiter",
-      "community": 71,
+      "community": 72,
       "norm_label": "waitlistratelimiter"
     },
     {
@@ -23294,7 +23294,7 @@
       "source_file": "src/routes/public/index.ts",
       "source_location": "L38",
       "id": "public_index_sendwaitlistemail",
-      "community": 71,
+      "community": 72,
       "norm_label": "sendwaitlistemail()"
     },
     {
@@ -24032,7 +24032,7 @@
       "source_file": "src/routes/storage/delete.ts",
       "source_location": "L1",
       "id": "storage_delete",
-      "community": 78,
+      "community": 71,
       "norm_label": "delete.ts"
     },
     {
@@ -24041,7 +24041,7 @@
       "source_file": "src/routes/storage/delete.ts",
       "source_location": "L14",
       "id": "storage_delete_logger",
-      "community": 78,
+      "community": 71,
       "norm_label": "logger"
     },
     {
@@ -24050,7 +24050,7 @@
       "source_file": "src/routes/storage/delete.ts",
       "source_location": "L16",
       "id": "storage_delete_storagedeleteratelimiter",
-      "community": 78,
+      "community": 71,
       "norm_label": "storagedeleteratelimiter"
     },
     {
@@ -24059,7 +24059,7 @@
       "source_file": "src/routes/storage/delete.ts",
       "source_location": "L25",
       "id": "storage_delete_deletebodyschema",
-      "community": 78,
+      "community": 71,
       "norm_label": "deletebodyschema"
     },
     {
@@ -24068,7 +24068,7 @@
       "source_file": "src/routes/storage/delete.ts",
       "source_location": "L33",
       "id": "storage_delete_app",
-      "community": 78,
+      "community": 71,
       "norm_label": "app"
     },
     {
@@ -24212,7 +24212,7 @@
       "source_file": "src/routes/storage/stats.ts",
       "source_location": "L1",
       "id": "storage_stats",
-      "community": 72,
+      "community": 376,
       "norm_label": "stats.ts"
     },
     {
@@ -24221,7 +24221,7 @@
       "source_file": "src/routes/storage/stats.ts",
       "source_location": "L12",
       "id": "storage_stats_logger",
-      "community": 72,
+      "community": 376,
       "norm_label": "logger"
     },
     {
@@ -24230,7 +24230,7 @@
       "source_file": "src/routes/storage/stats.ts",
       "source_location": "L14",
       "id": "storage_stats_storagestatsratelimiter",
-      "community": 72,
+      "community": 376,
       "norm_label": "storagestatsratelimiter"
     },
     {
@@ -24239,7 +24239,7 @@
       "source_file": "src/routes/storage/stats.ts",
       "source_location": "L21",
       "id": "storage_stats_empty_stats",
-      "community": 72,
+      "community": 376,
       "norm_label": "empty_stats"
     },
     {
@@ -24248,7 +24248,7 @@
       "source_file": "src/routes/storage/stats.ts",
       "source_location": "L23",
       "id": "storage_stats_cachedstats",
-      "community": 72,
+      "community": 376,
       "norm_label": "cachedstats"
     },
     {
@@ -24257,7 +24257,7 @@
       "source_file": "src/routes/storage/stats.ts",
       "source_location": "L31",
       "id": "storage_stats_app",
-      "community": 72,
+      "community": 376,
       "norm_label": "app"
     },
     {
@@ -24437,7 +24437,7 @@
       "source_file": "src/routes/terminal.ts",
       "source_location": "L1",
       "id": "routes_terminal",
-      "community": 48,
+      "community": 46,
       "norm_label": "terminal.ts"
     },
     {
@@ -24464,7 +24464,7 @@
       "source_file": "src/routes/terminal.ts",
       "source_location": "L62",
       "id": "routes_terminal_validatewebsocketroute",
-      "community": 48,
+      "community": 46,
       "norm_label": "validatewebsocketroute()"
     },
     {
@@ -24473,7 +24473,7 @@
       "source_file": "src/routes/terminal.ts",
       "source_location": "L110",
       "id": "routes_terminal_handlewebsocketupgrade",
-      "community": 48,
+      "community": 46,
       "norm_label": "handlewebsocketupgrade()"
     },
     {
@@ -24833,7 +24833,7 @@
       "source_file": "src/routes/vault.ts",
       "source_location": "L250",
       "id": "routes_vault_assertactivetier",
-      "community": 48,
+      "community": 72,
       "norm_label": "assertactivetier()"
     },
     {
@@ -24914,7 +24914,7 @@
       "source_file": "src/timekeeper/index.ts",
       "source_location": "L50",
       "id": "timekeeper_index_resetuserrecordcache",
-      "community": 2,
+      "community": 408,
       "norm_label": "resetuserrecordcache()"
     },
     {
@@ -34011,7 +34011,7 @@
       "label": "registerPreferencesDeps()",
       "file_type": "code",
       "source_file": "web-ui/src/stores/preferences.ts",
-      "source_location": "L30",
+      "source_location": "L29",
       "id": "stores_preferences_registerpreferencesdeps",
       "community": 11,
       "norm_label": "registerpreferencesdeps()"
@@ -34020,7 +34020,7 @@
       "label": "loadPreferences()",
       "file_type": "code",
       "source_file": "web-ui/src/stores/preferences.ts",
-      "source_location": "L42",
+      "source_location": "L39",
       "id": "stores_preferences_loadpreferences",
       "community": 11,
       "norm_label": "loadpreferences()"
@@ -34029,7 +34029,7 @@
       "label": "updateUserPreferences()",
       "file_type": "code",
       "source_file": "web-ui/src/stores/preferences.ts",
-      "source_location": "L52",
+      "source_location": "L49",
       "id": "stores_preferences_updateuserpreferences",
       "community": 11,
       "norm_label": "updateuserpreferences()"
@@ -34938,7 +34938,7 @@
       "label": "isAtSessionLimit()",
       "file_type": "code",
       "source_file": "web-ui/src/stores/session.ts",
-      "source_location": "L543",
+      "source_location": "L542",
       "id": "stores_session_isatsessionlimit",
       "community": 11,
       "norm_label": "isatsessionlimit()"
@@ -34947,7 +34947,7 @@
       "label": "hasRecentContext()",
       "file_type": "code",
       "source_file": "web-ui/src/stores/session.ts",
-      "source_location": "L549",
+      "source_location": "L548",
       "id": "stores_session_hasrecentcontext",
       "community": 11,
       "norm_label": "hasrecentcontext()"
@@ -34956,7 +34956,7 @@
       "label": "sessionStore",
       "file_type": "code",
       "source_file": "web-ui/src/stores/session.ts",
-      "source_location": "L554",
+      "source_location": "L553",
       "id": "stores_session_sessionstore",
       "community": 67,
       "norm_label": "sessionstore"
@@ -45470,7 +45470,7 @@
       "source_file": "preseed/agents/claude/skills/backend-patterns/SKILL.md",
       "source_location": "L129",
       "id": "backend_patterns_skill_database_patterns",
-      "community": 408,
+      "community": 190,
       "norm_label": "database patterns"
     },
     {
@@ -45479,7 +45479,7 @@
       "source_file": "preseed/agents/claude/skills/backend-patterns/SKILL.md",
       "source_location": "L131",
       "id": "backend_patterns_skill_query_optimization",
-      "community": 408,
+      "community": 190,
       "norm_label": "query optimization"
     },
     {
@@ -45488,7 +45488,7 @@
       "source_file": "preseed/agents/claude/skills/backend-patterns/SKILL.md",
       "source_location": "L148",
       "id": "backend_patterns_skill_n_1_query_prevention",
-      "community": 408,
+      "community": 190,
       "norm_label": "n+1 query prevention"
     },
     {
@@ -45497,7 +45497,7 @@
       "source_file": "preseed/agents/claude/skills/backend-patterns/SKILL.md",
       "source_location": "L168",
       "id": "backend_patterns_skill_transaction_pattern",
-      "community": 408,
+      "community": 190,
       "norm_label": "transaction pattern"
     },
     {
@@ -56179,7 +56179,7 @@
       "file_type": "code",
       "source_file": "src/index.ts",
       "source_location": "L249",
-      "community": 48,
+      "community": 46,
       "norm_label": "resetsetupcache()",
       "id": "src_index_resetsetupcache"
     },
@@ -94831,9 +94831,9 @@
       "source_file": "src/__tests__/routes/sessions-sync.test.ts",
       "source_location": "L18",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_sessions_sync_test",
-      "target": "helpers_mock_kv",
-      "confidence_score": 1.0
+      "target": "helpers_mock_kv"
     },
     {
       "relation": "imports_from",
@@ -95722,9 +95722,9 @@
       "source_file": "src/__tests__/routes/sessions-sync.test.ts",
       "source_location": "L18",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_sessions_sync_test",
-      "target": "helpers_mock_kv_createmockkv",
-      "confidence_score": 1.0
+      "target": "helpers_mock_kv_createmockkv"
     },
     {
       "relation": "imports",
@@ -96246,9 +96246,9 @@
       "source_file": "src/__tests__/routes/sessions-sync.test.ts",
       "source_location": "L19",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_sessions_sync_test",
-      "target": "helpers_test_app",
-      "confidence_score": 1.0
+      "target": "helpers_test_app"
     },
     {
       "relation": "imports_from",
@@ -96422,9 +96422,9 @@
       "source_file": "src/__tests__/routes/sessions-sync.test.ts",
       "source_location": "L19",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_sessions_sync_test",
-      "target": "helpers_test_app_createtestapp",
-      "confidence_score": 1.0
+      "target": "helpers_test_app_createtestapp"
     },
     {
       "relation": "imports",
@@ -97583,9 +97583,9 @@
       "source_file": "src/__tests__/lib/container-config-schema.test.ts",
       "source_location": "L2",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "lib_container_config_schema_test",
-      "target": "lib_container_config_schema",
-      "confidence_score": 1.0
+      "target": "lib_container_config_schema"
     },
     {
       "relation": "imports",
@@ -97594,9 +97594,9 @@
       "source_file": "src/__tests__/lib/container-config-schema.test.ts",
       "source_location": "L2",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "lib_container_config_schema_test",
-      "target": "lib_container_config_schema_setbucketnamebodyschema",
-      "confidence_score": 1.0
+      "target": "lib_container_config_schema_setbucketnamebodyschema"
     },
     {
       "relation": "imports",
@@ -97605,9 +97605,9 @@
       "source_file": "src/__tests__/lib/container-config-schema.test.ts",
       "source_location": "L2",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "lib_container_config_schema_test",
-      "target": "lib_container_config_schema_setsessionidbodyschema",
-      "confidence_score": 1.0
+      "target": "lib_container_config_schema_setsessionidbodyschema"
     },
     {
       "relation": "contains",
@@ -97615,9 +97615,9 @@
       "source_file": "src/__tests__/lib/container-config-schema.test.ts",
       "source_location": "L10",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "lib_container_config_schema_test",
-      "target": "lib_container_config_schema_test_validbucketnamebody",
-      "confidence_score": 1.0
+      "target": "lib_container_config_schema_test_validbucketnamebody"
     },
     {
       "relation": "imports_from",
@@ -101094,9 +101094,9 @@
       "source_file": "src/__tests__/middleware/rate-limit-fallback.test.ts",
       "source_location": "L153",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "middleware_rate_limit_fallback_test",
-      "target": "middleware_rate_limit_fallback_test_createworkingkv",
-      "confidence_score": 1.0
+      "target": "middleware_rate_limit_fallback_test_createworkingkv"
     },
     {
       "relation": "contains",
@@ -103706,9 +103706,9 @@
       "source_file": "src/__tests__/routes/session-batch-status.test.ts",
       "source_location": "L15",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_session_batch_status_test",
-      "target": "lib_kv_keys_gettimekeeperkey",
-      "confidence_score": 1.0
+      "target": "lib_kv_keys_gettimekeeperkey"
     },
     {
       "relation": "imports",
@@ -103717,9 +103717,9 @@
       "source_file": "src/__tests__/routes/session-batch-status.test.ts",
       "source_location": "L15",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_session_batch_status_test",
-      "target": "lib_kv_keys_getutcdatestring",
-      "confidence_score": 1.0
+      "target": "lib_kv_keys_getutcdatestring"
     },
     {
       "relation": "imports",
@@ -103728,9 +103728,9 @@
       "source_file": "src/__tests__/routes/session-batch-status.test.ts",
       "source_location": "L15",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_session_batch_status_test",
-      "target": "lib_kv_keys_getutcmonthstring",
-      "confidence_score": 1.0
+      "target": "lib_kv_keys_getutcmonthstring"
     },
     {
       "relation": "imports",
@@ -103750,9 +103750,9 @@
       "source_file": "src/__tests__/routes/session-batch-status.test.ts",
       "source_location": "L23",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_session_batch_status_test",
-      "target": "lib_onboarding",
-      "confidence_score": 1.0
+      "target": "lib_onboarding"
     },
     {
       "relation": "imports",
@@ -103761,9 +103761,9 @@
       "source_file": "src/__tests__/routes/session-batch-status.test.ts",
       "source_location": "L23",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_session_batch_status_test",
-      "target": "lib_onboarding_issaasmodeactive",
-      "confidence_score": 1.0
+      "target": "lib_onboarding_issaasmodeactive"
     },
     {
       "relation": "imports_from",
@@ -103772,9 +103772,9 @@
       "source_file": "src/__tests__/routes/session-batch-status.test.ts",
       "source_location": "L24",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_session_batch_status_test",
-      "target": "lib_subscription",
-      "confidence_score": 1.0
+      "target": "lib_subscription"
     },
     {
       "relation": "imports",
@@ -103783,9 +103783,9 @@
       "source_file": "src/__tests__/routes/session-batch-status.test.ts",
       "source_location": "L24",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_session_batch_status_test",
-      "target": "lib_subscription_getdefaulttiers",
-      "confidence_score": 1.0
+      "target": "lib_subscription_getdefaulttiers"
     },
     {
       "relation": "imports",
@@ -103794,9 +103794,9 @@
       "source_file": "src/__tests__/routes/session-batch-status.test.ts",
       "source_location": "L24",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_session_batch_status_test",
-      "target": "lib_subscription_geteffectivetierforuser",
-      "confidence_score": 1.0
+      "target": "lib_subscription_geteffectivetierforuser"
     },
     {
       "relation": "imports",
@@ -103805,9 +103805,9 @@
       "source_file": "src/__tests__/routes/session-batch-status.test.ts",
       "source_location": "L24",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_session_batch_status_test",
-      "target": "lib_subscription_resettierconfigcache",
-      "confidence_score": 1.0
+      "target": "lib_subscription_resettierconfigcache"
     },
     {
       "relation": "contains",
@@ -103825,9 +103825,9 @@
       "source_file": "src/__tests__/routes/session-batch-status.test.ts",
       "source_location": "L400",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_session_batch_status_test",
-      "target": "routes_session_batch_status_test_createsaasapp",
-      "confidence_score": 1.0
+      "target": "routes_session_batch_status_test_createsaasapp"
     },
     {
       "relation": "contains",
@@ -103857,9 +103857,9 @@
       "source_file": "src/__tests__/routes/session-batch-status.test.ts",
       "source_location": "L12",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_session_batch_status_test",
-      "target": "src_types_usagerecord",
-      "confidence_score": 1.0
+      "target": "src_types_usagerecord"
     },
     {
       "relation": "contains",
@@ -104521,9 +104521,9 @@
       "source_file": "src/__tests__/routes/sessions-sync.test.ts",
       "source_location": "L20",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_sessions_sync_test",
-      "target": "lib_kv_keys",
-      "confidence_score": 1.0
+      "target": "lib_kv_keys"
     },
     {
       "relation": "imports",
@@ -104532,9 +104532,9 @@
       "source_file": "src/__tests__/routes/sessions-sync.test.ts",
       "source_location": "L20",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_sessions_sync_test",
-      "target": "lib_kv_keys_buildsessionmetadata",
-      "confidence_score": 1.0
+      "target": "lib_kv_keys_buildsessionmetadata"
     },
     {
       "relation": "contains",
@@ -104542,9 +104542,9 @@
       "source_file": "src/__tests__/routes/sessions-sync.test.ts",
       "source_location": "L38",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_sessions_sync_test",
-      "target": "routes_sessions_sync_test_containerbehavior",
-      "confidence_score": 1.0
+      "target": "routes_sessions_sync_test_containerbehavior"
     },
     {
       "relation": "contains",
@@ -104552,9 +104552,9 @@
       "source_file": "src/__tests__/routes/sessions-sync.test.ts",
       "source_location": "L65",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_sessions_sync_test",
-      "target": "routes_sessions_sync_test_createapp",
-      "confidence_score": 1.0
+      "target": "routes_sessions_sync_test_createapp"
     },
     {
       "relation": "contains",
@@ -104562,9 +104562,9 @@
       "source_file": "src/__tests__/routes/sessions-sync.test.ts",
       "source_location": "L72",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_sessions_sync_test",
-      "target": "routes_sessions_sync_test_makesession",
-      "confidence_score": 1.0
+      "target": "routes_sessions_sync_test_makesession"
     },
     {
       "relation": "contains",
@@ -104572,9 +104572,9 @@
       "source_file": "src/__tests__/routes/sessions-sync.test.ts",
       "source_location": "L83",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_sessions_sync_test",
-      "target": "routes_sessions_sync_test_seedrunning",
-      "confidence_score": 1.0
+      "target": "routes_sessions_sync_test_seedrunning"
     },
     {
       "relation": "imports_from",
@@ -104583,9 +104583,9 @@
       "source_file": "src/__tests__/routes/sessions-sync.test.ts",
       "source_location": "L55",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_sessions_sync_test",
-      "target": "session_lifecycle",
-      "confidence_score": 1.0
+      "target": "session_lifecycle"
     },
     {
       "relation": "calls",
@@ -104594,9 +104594,9 @@
       "source_file": "src/__tests__/routes/sessions-sync.test.ts",
       "source_location": "L84",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_sessions_sync_test_seedrunning",
-      "target": "routes_sessions_sync_test_makesession",
-      "confidence_score": 1.0
+      "target": "routes_sessions_sync_test_makesession"
     },
     {
       "relation": "calls",
@@ -106994,9 +106994,9 @@
       "source_file": "src/__tests__/routes/vault-html-direct.test.ts",
       "source_location": "L9",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_vault_html_direct_test",
-      "target": "routes_vault_html",
-      "confidence_score": 1.0
+      "target": "routes_vault_html"
     },
     {
       "relation": "imports",
@@ -107005,9 +107005,9 @@
       "source_file": "src/__tests__/routes/vault-html-direct.test.ts",
       "source_location": "L9",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_vault_html_direct_test",
-      "target": "routes_vault_html_filtervaultfslisting",
-      "confidence_score": 1.0
+      "target": "routes_vault_html_filtervaultfslisting"
     },
     {
       "relation": "imports",
@@ -107016,9 +107016,9 @@
       "source_file": "src/__tests__/routes/vault-html-direct.test.ts",
       "source_location": "L9",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_vault_html_direct_test",
-      "target": "routes_vault_html_hasvaultbootstrapcookie",
-      "confidence_score": 1.0
+      "target": "routes_vault_html_hasvaultbootstrapcookie"
     },
     {
       "relation": "imports",
@@ -107027,9 +107027,9 @@
       "source_file": "src/__tests__/routes/vault-html-direct.test.ts",
       "source_location": "L9",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_vault_html_direct_test",
-      "target": "routes_vault_html_inferoriginvalidated",
-      "confidence_score": 1.0
+      "target": "routes_vault_html_inferoriginvalidated"
     },
     {
       "relation": "imports",
@@ -107038,9 +107038,9 @@
       "source_file": "src/__tests__/routes/vault-html-direct.test.ts",
       "source_location": "L9",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_vault_html_direct_test",
-      "target": "routes_vault_html_injectvaultbootscript",
-      "confidence_score": 1.0
+      "target": "routes_vault_html_injectvaultbootscript"
     },
     {
       "relation": "imports",
@@ -107049,9 +107049,9 @@
       "source_file": "src/__tests__/routes/vault-html-direct.test.ts",
       "source_location": "L9",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_vault_html_direct_test",
-      "target": "routes_vault_html_injectvaultencryptionconfig",
-      "confidence_score": 1.0
+      "target": "routes_vault_html_injectvaultencryptionconfig"
     },
     {
       "relation": "imports",
@@ -107060,9 +107060,9 @@
       "source_file": "src/__tests__/routes/vault-html-direct.test.ts",
       "source_location": "L9",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_vault_html_direct_test",
-      "target": "routes_vault_html_rewritevaultbasehref",
-      "confidence_score": 1.0
+      "target": "routes_vault_html_rewritevaultbasehref"
     },
     {
       "relation": "imports_from",
@@ -107071,9 +107071,9 @@
       "source_file": "src/__tests__/routes/vault-native-sw-direct.test.ts",
       "source_location": "L8",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_vault_native_sw_direct_test",
-      "target": "routes_vault_native_sw",
-      "confidence_score": 1.0
+      "target": "routes_vault_native_sw"
     },
     {
       "relation": "imports",
@@ -107082,9 +107082,9 @@
       "source_file": "src/__tests__/routes/vault-native-sw-direct.test.ts",
       "source_location": "L8",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_vault_native_sw_direct_test",
-      "target": "routes_vault_native_sw_graftvaultkeyrecovery",
-      "confidence_score": 1.0
+      "target": "routes_vault_native_sw_graftvaultkeyrecovery"
     },
     {
       "relation": "imports",
@@ -107093,9 +107093,9 @@
       "source_file": "src/__tests__/routes/vault-native-sw-direct.test.ts",
       "source_location": "L8",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "routes_vault_native_sw_direct_test",
-      "target": "routes_vault_native_sw_vault_native_service_worker_js",
-      "confidence_score": 1.0
+      "target": "routes_vault_native_sw_vault_native_service_worker_js"
     },
     {
       "relation": "imports_from",
@@ -107434,9 +107434,9 @@
       "source_file": "src/__tests__/security/early-return-security.test.ts",
       "source_location": "L63",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "security_early_return_security_test",
-      "target": "security_early_return_security_test_createbaseenv",
-      "confidence_score": 1.0
+      "target": "security_early_return_security_test_createbaseenv"
     },
     {
       "relation": "contains",
@@ -107444,9 +107444,9 @@
       "source_file": "src/__tests__/security/early-return-security.test.ts",
       "source_location": "L59",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "security_early_return_security_test",
-      "target": "security_early_return_security_test_createmockctx",
-      "confidence_score": 1.0
+      "target": "security_early_return_security_test_createmockctx"
     },
     {
       "relation": "contains",
@@ -107454,9 +107454,9 @@
       "source_file": "src/__tests__/security/early-return-security.test.ts",
       "source_location": "L21",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "security_early_return_security_test",
-      "target": "security_early_return_security_test_vaultroutestate",
-      "confidence_score": 1.0
+      "target": "security_early_return_security_test_vaultroutestate"
     },
     {
       "relation": "contains",
@@ -107464,9 +107464,9 @@
       "source_file": "src/__tests__/security/early-return-security.test.ts",
       "source_location": "L17",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "security_early_return_security_test",
-      "target": "security_early_return_security_test_wsroutestate",
-      "confidence_score": 1.0
+      "target": "security_early_return_security_test_wsroutestate"
     },
     {
       "relation": "calls",
@@ -107475,9 +107475,9 @@
       "source_file": "src/__tests__/security/early-return-security.test.ts",
       "source_location": "L73",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "security_early_return_security_test_createbaseenv",
-      "target": "security_early_return_security_test_createmockctx",
-      "confidence_score": 1.0
+      "target": "security_early_return_security_test_createmockctx"
     },
     {
       "relation": "imports_from",
@@ -108327,9 +108327,9 @@
       "source_file": "src/__tests__/timekeeper/index.test.ts",
       "source_location": "L504",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "timekeeper_index_test",
-      "target": "timekeeper_index_test_mockstandardactiveuser",
-      "confidence_score": 1.0
+      "target": "timekeeper_index_test_mockstandardactiveuser"
     },
     {
       "relation": "contains",
@@ -110271,9 +110271,9 @@
       "source_file": "src/index.ts",
       "source_location": "L65",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "src_index_ts_src_index",
-      "target": "src_index_withsecurityheaders",
-      "confidence_score": 1.0
+      "target": "src_index_withsecurityheaders"
     },
     {
       "relation": "imports",
@@ -110337,9 +110337,9 @@
       "source_file": "src/index.ts",
       "source_location": "L308",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "src_index_fetch",
-      "target": "src_index_withsecurityheaders",
-      "confidence_score": 1.0
+      "target": "src_index_withsecurityheaders"
     },
     {
       "relation": "calls",
@@ -136292,9 +136292,9 @@
       "source_file": "web-ui/src/__tests__/components/Layout.test.tsx",
       "source_location": "L41",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "components_layout_test",
-      "target": "components_layout_test_mockpreferences",
-      "confidence_score": 1.0
+      "target": "components_layout_test_mockpreferences"
     },
     {
       "relation": "contains",
@@ -136312,9 +136312,9 @@
       "source_file": "web-ui/src/__tests__/components/Layout.test.tsx",
       "source_location": "L82",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "components_layout_test",
-      "target": "components_layout_test_preferences",
-      "confidence_score": 1.0
+      "target": "components_layout_test_preferences"
     },
     {
       "relation": "contains",
@@ -155623,9 +155623,9 @@
       "source_file": "web-ui/src/stores/session-polling.ts",
       "source_location": "L11",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "stores_session_polling",
-      "target": "stores_session_sessionmetrics",
-      "confidence_score": 1.0
+      "target": "stores_session_sessionmetrics"
     },
     {
       "relation": "imports",
@@ -155634,9 +155634,9 @@
       "source_file": "web-ui/src/stores/session-polling.ts",
       "source_location": "L11",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "stores_session_polling",
-      "target": "stores_session_sessionstate",
-      "confidence_score": 1.0
+      "target": "stores_session_sessionstate"
     },
     {
       "relation": "imports_from",
@@ -155733,9 +155733,9 @@
       "source_file": "web-ui/src/stores/session-polling.ts",
       "source_location": "L33",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "stores_session_polling_pollingstateview",
-      "target": "stores_session_sessionmetrics",
-      "confidence_score": 1.0
+      "target": "stores_session_sessionmetrics"
     },
     {
       "relation": "contains",
@@ -161364,9 +161364,9 @@
       "source_file": "documentation/decisions/README.md",
       "source_location": "L1281",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decisions_readme_decisions",
-      "target": "decisions_readme_ad71_preseed_corpus_statically_imported_into_the_worker_bundle_bound_by_compressed_bundle_size_ci_guarded",
-      "confidence_score": 1.0
+      "target": "decisions_readme_ad71_preseed_corpus_statically_imported_into_the_worker_bundle_bound_by_compressed_bundle_size_ci_guarded"
     },
     {
       "relation": "contains",
@@ -177334,9 +177334,9 @@
       "source_file": "sdd/spec/.review-decisions.md",
       "source_location": "L138",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "spec_review_decisions_review_decisions",
-      "target": "spec_review_decisions_cycle_2_2026_06_03",
-      "confidence_score": 1.0
+      "target": "spec_review_decisions_cycle_2_2026_06_03"
     },
     {
       "relation": "contains",
@@ -177514,9 +177514,9 @@
       "source_file": "sdd/spec/.review-decisions.md",
       "source_location": "L142",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "spec_review_decisions_cycle_2_2026_06_03",
-      "target": "spec_review_decisions_cf_002_deferred",
-      "confidence_score": 1.0
+      "target": "spec_review_decisions_cf_002_deferred"
     },
     {
       "relation": "contains",
@@ -177524,9 +177524,9 @@
       "source_file": "sdd/spec/.review-decisions.md",
       "source_location": "L162",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "spec_review_decisions_cycle_2_2026_06_03",
-      "target": "spec_review_decisions_cf_006_ignored",
-      "confidence_score": 1.0
+      "target": "spec_review_decisions_cf_006_ignored"
     },
     {
       "relation": "contains",
@@ -177534,9 +177534,9 @@
       "source_file": "sdd/spec/.review-decisions.md",
       "source_location": "L166",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "spec_review_decisions_cycle_2_2026_06_03",
-      "target": "spec_review_decisions_cf_007_ignored",
-      "confidence_score": 1.0
+      "target": "spec_review_decisions_cf_007_ignored"
     },
     {
       "relation": "contains",
@@ -177544,9 +177544,9 @@
       "source_file": "sdd/spec/.review-decisions.md",
       "source_location": "L170",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "spec_review_decisions_cycle_2_2026_06_03",
-      "target": "spec_review_decisions_cf_008_ignored",
-      "confidence_score": 1.0
+      "target": "spec_review_decisions_cf_008_ignored"
     },
     {
       "relation": "contains",
@@ -177554,9 +177554,9 @@
       "source_file": "sdd/spec/.review-decisions.md",
       "source_location": "L174",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "spec_review_decisions_cycle_2_2026_06_03",
-      "target": "spec_review_decisions_cf_010_ignored",
-      "confidence_score": 1.0
+      "target": "spec_review_decisions_cf_010_ignored"
     },
     {
       "relation": "contains",
@@ -177564,9 +177564,9 @@
       "source_file": "sdd/spec/.review-decisions.md",
       "source_location": "L146",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "spec_review_decisions_cycle_2_2026_06_03",
-      "target": "spec_review_decisions_cf_017_deferred",
-      "confidence_score": 1.0
+      "target": "spec_review_decisions_cf_017_deferred"
     },
     {
       "relation": "contains",
@@ -177574,9 +177574,9 @@
       "source_file": "sdd/spec/.review-decisions.md",
       "source_location": "L150",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "spec_review_decisions_cycle_2_2026_06_03",
-      "target": "spec_review_decisions_cf_019_deferred",
-      "confidence_score": 1.0
+      "target": "spec_review_decisions_cf_019_deferred"
     },
     {
       "relation": "contains",
@@ -177584,9 +177584,9 @@
       "source_file": "sdd/spec/.review-decisions.md",
       "source_location": "L154",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "spec_review_decisions_cycle_2_2026_06_03",
-      "target": "spec_review_decisions_cf_021_deferred",
-      "confidence_score": 1.0
+      "target": "spec_review_decisions_cf_021_deferred"
     },
     {
       "relation": "contains",
@@ -177594,9 +177594,9 @@
       "source_file": "sdd/spec/.review-decisions.md",
       "source_location": "L158",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "spec_review_decisions_cycle_2_2026_06_03",
-      "target": "spec_review_decisions_cf_026_deferred",
-      "confidence_score": 1.0
+      "target": "spec_review_decisions_cf_026_deferred"
     },
     {
       "relation": "contains",
@@ -192231,5 +192231,5 @@
       "source_file": "web-ui/index.html"
     }
   ],
-  "built_at_commit": "8d6d99179a9dd839aaa0dd25bfeffadfaab4e5a4"
+  "built_at_commit": "c1d3de502cb0396464ab6e27095c216f7b9ca3a6"
 }
