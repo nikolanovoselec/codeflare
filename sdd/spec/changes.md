@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-06-02
+
+- [REQ-AGENT-023](agents.md#req-agent-023-knowledge-graph-capability-graphify) / [REQ-AGENT-025](agents.md#req-agent-025-post-clone-graph-triage) / [REQ-AGENT-043](agents.md#req-agent-043-graphify-build-mode-dispatch): Pi graphify now follows official Graphify flows for AST/build/cache/cluster/label output. The bounded Pi update wrapper is a thin safety wrapper around upstream `graphify update`; Pi first-build AST uses Graphify's own detect/extract/build/cluster/report/export modules without Codeflare-specific file allowlists or import rewrites; Full mode has Pi Agent subagents write semantic chunks into Graphify's cache, then official `graphify extract` consumes that complete cache and `graphify label` names communities. Clone triage is simplified to a YES/NO graph-build prompt for missing graphs, with AST-only vs Full selection deferred to the graphify skill after detection. The Docker image now installs the Graphify Gemini extra so official community labeling works in-session; this does not change the rule that uncached interactive semantic extraction is performed by running-session agents, not headless provider extraction.
+
 ## 2026-06-01
 
 - [REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions): Pi no longer creates a PR-boundary review window from passive lifecycle events such as opening a repo, switching branches, reloading Pi, or ending a normal assistant turn. Existing protected-base PRs are enforced only after explicit head-moving PR-boundary commands (`git push`, `gh pr create`, `gh pr update-branch`, `gh repo sync`, merge) or when already-persisted pending review state exists.

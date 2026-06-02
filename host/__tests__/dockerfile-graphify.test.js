@@ -33,10 +33,10 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
     );
   });
 
-  it('REQ-AGENT-023 AC1: installs graphifyy with the [mcp,sql,pdf] extras at the pinned version', () => {
+  it('REQ-AGENT-023 AC1: installs graphifyy with the [mcp,sql,pdf,gemini] extras at the pinned version', () => {
     assert.ok(
-      dockerfile.includes('uv tool install "graphifyy[mcp,sql,pdf]==$VER"'),
-      'Dockerfile must `uv tool install graphifyy[mcp,sql,pdf]==$VER` (extras + pinned version)'
+      dockerfile.includes('uv tool install "graphifyy[mcp,sql,pdf,gemini]==$VER"'),
+      'Dockerfile must `uv tool install graphifyy[mcp,sql,pdf,gemini]==$VER` (extras + pinned version + official community labeling support)'
     );
   });
 

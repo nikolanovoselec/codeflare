@@ -11,8 +11,8 @@ export function graphifyCloneAction(repo: string, hasGraph: boolean): GraphifyCl
     hasGraph,
     mode: hasGraph ? "existing-graph" : "missing-graph",
     choices: hasGraph
-      ? ["check freshness", "AST-only update", "Full semantic + AST refresh", "skip"]
-      : ["AST-only build", "Full semantic + AST build", "skip"],
+      ? ["use existing graph", "AST-only update", "skip"]
+      : ["build graph", "skip"],
   };
 }
 
@@ -22,19 +22,18 @@ export function renderGraphifyCloneDirective(action: GraphifyCloneAction): strin
       `Repository cloned at ${action.repo} and an existing graphify graph was found at ${action.repo}/graphify-out/graph.json.`,
       "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is /home/user/Vault/graphify-out/graph.json; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
       "Check freshness by comparing graph.json built_at_commit to git HEAD.",
-      "If stale or freshness is unknown, ask the user to choose one option before doing more work in this repo:",
-      `1. AST-only update — recommended default for an existing graph; free, local, no LLM/API key; run \`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh ${action.repo}\`.`,
-      "2. Full semantic + AST refresh — refresh local AST, then use bounded Pi Agent subagent waves for docs/papers/images with the current main-session model unless the user explicitly picks another model, then merge and cluster.",
+      "Do not ask the user to rebuild just because a graph exists. If stale or freshness is unknown, refresh the AST portion with upstream Graphify via the local safety wrapper:",
+      `\`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh ${action.repo}\``,
+      "Full semantic refresh is owned by the `/graphify` skill after it detects the corpus and asks the build-mode question; semantic extraction must use Pi Agent subagents from this running session, never a headless backend/API-key extractor.",
       `If fresh, print an information message only, then use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` before broad text search. Codeflare Pi automatically retries those native tools against \`${action.repo}/graphify-out/graph.json\` if the first attempt looks at the workspace root; if that retry still fails, fall back to the CLI with \`--graph ${action.repo}/graphify-out/graph.json\`.`,
     ].join("\n");
   }
   return [
     `Repository cloned at ${action.repo}; no graphify graph exists yet at ${action.repo}/graphify-out/graph.json.`,
     "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is /home/user/Vault/graphify-out/graph.json; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
-    "Before doing anything else with this repo, ask the user to choose one option:",
-    `1. Create AST-only Graphify graph — recommended default for first build; free, local, no LLM/API key; run \`bash /home/user/.pi/agent/scripts/build-graphify-ast.sh ${action.repo}\` so graph.json, GRAPH_REPORT.md, and graph.html are generated.`,
-    "2. Create full semantic + AST Graphify graph — start from the same local AST first-build path, then use bounded Pi Agent subagent waves for docs/papers/images with the current main-session model unless the user explicitly picks another model, then merge and cluster.",
-    "Do not use headless `graphify extract --backend ...` for this interactive workflow.",
+    `Before doing anything else with this repo, ask the user a single YES/NO question: "Build a graphify knowledge graph for ${action.repo}?"`,
+    "If yes, invoke `/graphify` from the repo root. Do NOT ask about AST-only vs Full at clone time; the graphify skill asks that after it runs upstream Graphify detection and can show corpus counts.",
+    "If no, proceed without a graph. Do not use headless backend/API-key extraction for this interactive workflow; semantic extraction must use Pi Agent subagents from this running session.",
   ].join("\n");
 }
 

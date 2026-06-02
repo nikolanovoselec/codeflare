@@ -73,7 +73,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter) | Pi memory capture reuses the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) contract and transcript prefilter | Memory |
 | [AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) | Pi `/review` ships as a dedicated native skill (Claude commands do not deploy to Pi) | Architecture |
 | [AD62](#ad62-pi-model-name-genericization-with-codeflare_memory_model-lever) | Pi model-name genericization with `CODEFLARE_MEMORY_MODEL` lever | Architecture |
-| [AD63](#ad63-pi-safe-graphify-updatesh-is-fail-closed-and-two-step) | Pi `safe-graphify-update.sh` is fail-closed and two-step | Architecture |
+| [AD63](#ad63-pi-safe-graphify-updatesh-is-a-thin-bounded-upstream-update-wrapper) | Pi `safe-graphify-update.sh` is a thin bounded upstream-update wrapper | Architecture |
 | [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) | Durable review lanes load extensions additively behind the `noExtensions` shield | Agents |
 | [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy) | Gemini CLI replaced by Antigravity (agy) _(no-preseed-lane clause superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored))_ | Architecture |
 | [AD66](#ad66-security-sensitive-rate-limiters-fail-closed-on-kv-outage) | Security-sensitive rate limiters fail closed on KV outage | Security |
@@ -1094,25 +1094,25 @@ Three smaller decisions bundled in:
 
 ---
 
-### AD63: Pi `safe-graphify-update.sh` is fail-closed and two-step
+### AD63: Pi `safe-graphify-update.sh` is a thin bounded upstream-update wrapper
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-05-29)
+**Status:** Accepted (2026-05-29); revised (2026-06-02)
 
-**Context:** [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking)'s graphify hot-reload wrapper hardens `graphify update` on the 1 vCPU container by capping virtual memory (`ulimit -v`) and worker count so a runaway AST rebuild dies with ENOMEM instead of OOM-killing the session. The Claude wrapper (`preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh`) is a single-step `graphify update` invocation. The Pi wrapper, deployed to `~/.pi/agent/scripts/safe-graphify-update.sh`, runs in a different launch context (Pi extension dispatch, where the working directory and environment are not guaranteed to match the Claude hook environment) and feeds a structural gate in `codeflare-pi.ts`. Applying the Claude wrapper's fail-open posture verbatim risked silently updating against the wrong directory or proceeding with an unbounded address space if the `ulimit` call failed.
+**Context:** [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking)'s graphify hot-reload wrapper hardens `graphify update` on the 1 vCPU container by capping virtual memory (`ulimit -v`) and worker count so a runaway AST rebuild dies with ENOMEM instead of OOM-killing the session. Earlier Pi guidance added a divergent two-step wrapper that ran extra clustering/report logic after `graphify update`. That divergence proved brittle as upstream Graphify gained the desired extract/build/cluster/label/report/html pipeline: Codeflare-specific post-processing risked stale IDs, duplicate edges, and drift from official `safishamsi/graphify` output.
 
-**Decision:** The Pi wrapper deliberately diverges from the Claude single-step wrapper on two axes. (1) Fail-closed hardening: a `cd` guard aborts if the target repository directory cannot be entered, the `RLIMIT_AS` `ulimit` is fail-closed (if the limit cannot be applied the wrapper aborts rather than running unbounded), a `command -v graphify` check aborts when the CLI is absent, and `GRAPHIFY_VIZ_NODE_LIMIT=100000` is re-exported so the visualization is always generated. (2) Two-step execution: the wrapper runs `graphify update` (AST extraction) and then a cluster-only pass, rather than the Claude wrapper's single `update`. Separately, `codeflare-pi.ts`'s `graphSummary` skips graphs over 30 MB and applies a 5-second git timeout, and the structural gate that consumes the wrapper fails open (a missing or failed graph never blocks the user) even though the wrapper itself fails closed.
+**Decision:** The Pi wrapper stays only as a safety envelope around upstream `graphify update`. It resolves the target repository, applies the bounded resource environment (`GRAPHIFY_MAX_WORKERS`, `GRAPHIFY_SAFE_RLIMIT_KB`, and `GRAPHIFY_VIZ_NODE_LIMIT`), then delegates graph output to Graphify. It does not hand-edit graph JSON, normalize imports, apply Codeflare-specific allowlists, or run a custom cluster pass. First-time Pi AST builds use `build-graphify-ast.sh`, which calls Graphify's own detect/extract/build/cluster/report/export modules for the missing-graph case. Full semantic builds have Pi Agent subagents write Graphify-schema cache chunks, then official `graphify extract` consumes that completed cache and official `graphify label` names communities.
 
 **Consequences:**
-- A misresolved working directory or a failed memory cap aborts the Pi update with a clear error instead of corrupting the graph or risking an OOM, which matters more on Pi because the launch context is less constrained than the Claude hook environment.
-- The two-step update keeps the cluster data fresh as a distinct pass, so the structural gate reads a consistent graph.
-- The two wrappers intentionally differ. The divergence is documented here so a future maintainer does not "unify" them and reintroduce the fail-open behavior on the Pi launch path.
-- Layering is deliberate: the wrapper fails closed (correctness of the build), while the `codeflare-pi.ts` structural gate fails open (never lock the user out). The 30 MB skip and 5-second git timeout bound the gate's own cost on large repos.
+- Codeflare keeps the 1-vCPU safety limits without forking Graphify's output semantics.
+- Graph IDs, clusters, report contents, HTML visualization, and community labels stay compatible with upstream Graphify.
+- Pi and Claude Graphify behavior converge around official Graphify flows; Pi-specific code exists only for runtime prompting, cache production by session agents, active-repo fallback, and resource bounds.
+- The structural gate in `codeflare-pi.ts` remains fail-open: a missing or failed graph never blocks user work.
 
-**Alternative considered:** Share one wrapper between Claude and Pi. Rejected because the launch contexts differ (hook environment vs Pi extension dispatch) and the Pi path needs the `cd` guard and fail-closed `ulimit` that the Claude single-step path does not; a shared wrapper would either over-constrain Claude or under-protect Pi.
+**Alternative considered:** Keep the previous fail-closed/two-step Pi wrapper. Rejected because the custom post-processing duplicated upstream responsibilities and could reintroduce stale/duplicated graph structure after Graphify upgrades.
 
-**Alternative considered:** Make the Pi wrapper fail-open like the Claude one and rely on the `codeflare-pi.ts` gate to absorb failures. Rejected because fail-open at the wrapper means a failed memory cap runs unbounded and a misresolved directory updates the wrong graph silently; the gate's fail-open is about not blocking the user, not about tolerating a corrupt build.
+**Alternative considered:** Run bare `graphify update` without a wrapper. Rejected because the 1-vCPU Codeflare container still needs bounded memory and worker defaults to avoid crashing the session.
 
 **Related REQ:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) (knowledge-graph capability via graphify), [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) (graphify build-mode dispatch).
 

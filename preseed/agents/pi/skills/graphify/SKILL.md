@@ -1,29 +1,20 @@
 ---
 name: graphify
-description: Graphify knowledge-graph workflow for Pi/Codeflare. Use for any request to build, refresh, query, explain, trace, or locate code/vault/session knowledge in graphs. Covers repo graphs, Vault graph, global graph, native Pi tools, CLI fallbacks, and using in-session Pi Agent subagents for interactive semantic extraction instead of headless/API-key extraction.
+description: Graphify workflow for Pi/Codeflare. Build, refresh, query, explain, trace, or locate repo/Vault/session knowledge. Uses official Graphify CLI flows for AST/build/cluster/label, and Pi Agent subagents only to produce semantic cache chunks.
 ---
 
 # Graphify in Pi / Codeflare
 
-Use this skill whenever the user asks to:
+Use this skill for Graphify build, refresh, query, explain, path, and repo/Vault/global graph work.
 
-- find or explain something with Graphify
-- query remembered/session/vault context
-- trace how concepts connect
-- build or refresh a repo graph
-- locate definitions/dependencies from a graph
-- diagnose a missing/stale graph
+Hard rules:
 
-## First decision: which graph?
+- **Use official Graphify flows** for AST detection/extraction, graph build/merge, clustering, community labeling, report, and HTML generation.
+- **Do not hand-edit graph JSON.** Do not add Codeflare-specific AST allowlists, import rewrites, or graph normalization.
+- **Interactive semantic extraction uses Pi `Agent` subagents from this running session.** Do not run headless semantic extraction for uncached docs/images.
+- Community labeling is a separate official Graphify label step. It is not semantic extraction.
 
-| User intent | Graph to use | Best command/tool |
-|---|---|---|
-| Current repo/code question | `<repo>/graphify-out/graph.json` | native `graphify_query/path/explain` first |
-| Vault note, memory capture, session history, remembered context | `/home/user/.graphify/global-graph.json` | CLI with explicit `--graph` |
-| Cross-repo + vault context | `/home/user/.graphify/global-graph.json` | CLI with explicit `--graph` |
-| Raw Vault-only inspection | `/home/user/Vault/graphify-out/graph.json` | CLI with explicit `--graph` |
-
-Important paths:
+## Graph paths
 
 ```text
 Repo graph:   <repo>/graphify-out/graph.json
@@ -31,21 +22,17 @@ Vault graph:  /home/user/Vault/graphify-out/graph.json
 Global graph: /home/user/.graphify/global-graph.json
 ```
 
-There is normally **no** graph at `/home/user/workspace/graphify-out/graph.json`.
-If a wrapper looks there and fails, retry immediately with an explicit graph path.
-Do not consult `graphify --help` for this.
+There is normally no `/home/user/workspace/graphify-out/graph.json`.
 
-## Query commands
+## Query workflow
 
-### Repo/code queries
-
-Use native Pi tools first when working inside a repo or when an active repo sentinel exists:
+For repo/code questions, use native Pi tools first:
 
 - Broad context: `graphify_query({ question, mode: "bfs" })`
-- Path/trace: `graphify_query({ question, mode: "dfs" })` or `graphify_path`
+- Trace/path: `graphify_query({ question, mode: "dfs" })` or `graphify_path`
 - Node details: `graphify_explain({ concept })`
 
-If the native tool fails because it looked under `/home/user/workspace/graphify-out`, resolve the repo and use CLI fallback:
+If the native tool resolves the workspace root instead of the active repo, use CLI fallback:
 
 ```bash
 graphify query "<question>" --graph <repo>/graphify-out/graph.json
@@ -53,136 +40,222 @@ graphify path "A" "B" --graph <repo>/graphify-out/graph.json
 graphify explain "X" --graph <repo>/graphify-out/graph.json
 ```
 
-Resolve `<repo>` by:
-
-1. `/home/user/.cache/codeflare-hooks/graphify-active-cwd` if present.
-2. `git rev-parse --show-toplevel` from the current directory.
-3. The obvious child repo under `/home/user/workspace/`.
-
-### Vault, memory, and cross-session queries
-
-Always use the global graph explicitly:
+For Vault/session/cross-repo memory, use the global graph explicitly:
 
 ```bash
-graphify query "<question-or-concept>" --graph /home/user/.graphify/global-graph.json
-graphify path "A" "B" --graph /home/user/.graphify/global-graph.json
-graphify explain "X" --graph /home/user/.graphify/global-graph.json
+graphify query "<question>" --graph /home/user/.graphify/global-graph.json
 ```
 
-Good search handles for memory captures are usually wikilink concepts from the note, not the full title. Example:
+## Clone-time triage
 
-```bash
-graphify query "PiClaudeParity" --graph /home/user/.graphify/global-graph.json
-```
+Clone-time prompt is YES/NO only: “Build a graphify knowledge graph for `<repo>`?”
 
-If the CLI returns the node but not the file path, inspect the graph JSON node only as a last step.
+Do **not** ask AST-only vs Full at clone time. This skill owns the mode choice after Graphify detection has real corpus counts.
 
-## Build / refresh repo graphs
-
-### AST-only initial build — first-time graph creation
-
-Use this when `graphify-out/graph.json` is missing. This mirrors Claude's first-build path: local file detection, deterministic AST extraction, graph build, clustering, report, and HTML visualization. It does **not** use an LLM or external API.
+## Detect corpus
 
 From the repo root:
+
+```bash
+/root/.local/share/uv/tools/graphifyy/bin/python - <<'PY'
+import json
+from pathlib import Path
+from graphify.detect import detect
+Path('.graphify_detect.json').write_text(json.dumps(detect(Path('.').resolve()), indent=2), encoding='utf-8')
+PY
+/root/.local/share/uv/tools/graphifyy/bin/python - <<'PY'
+import json
+from pathlib import Path
+result = json.loads(Path('.graphify_detect.json').read_text())
+print(f"Corpus: {result.get('total_files', 0)} files · ~{result.get('total_words', 0)} words")
+for key in ['code', 'document', 'paper', 'image', 'video']:
+    count = len(result.get('files', {}).get(key, []))
+    if count:
+        print(f"  {key}: {count}")
+PY
+```
+
+If the user asks to ignore a file class (for example images), pass matching `--exclude` flags to official Graphify commands. Do not alter code detection.
+
+## Mandatory mode choice
+
+After detection, ask the user to choose exactly one mode unless there are zero docs/papers/images:
+
+1. **AST-only** — official Graphify AST/code graph, free/local.
+2. **Full (AST + semantic)** — Pi Agent subagents produce semantic chunks for docs/papers/images, then official Graphify consumes the semantic cache and builds/labels the graph.
+
+## AST-only initial build
+
+Use this only when `graphify-out/graph.json` is missing:
 
 ```bash
 bash /home/user/.pi/agent/scripts/build-graphify-ast.sh .
+graphify label . --backend=gemini
 ```
 
-### AST-only refresh — existing graphs only
+The script uses Graphify’s own `detect`, `extract`, `build`, `cluster`, `report`, and `export` modules only. It does not rewrite Graphify output.
 
-Use this when `graphify-out/graph.json` already exists and source changed. This mirrors Claude's safe update wrapper around `graphify update`; do not use it for first-time graph creation.
+If `graphify label` cannot label communities because credentials are unavailable, continue with the graph but tell the user communities remain placeholders.
 
-From the repo root:
+## AST-only refresh for an existing graph
+
+Use this when `graphify-out/graph.json` exists and source code changed:
 
 ```bash
 bash /home/user/.pi/agent/scripts/safe-graphify-update.sh .
+graphify label . --backend=gemini
 ```
 
-### Global merge and git persistence
+The safety wrapper only sets `GRAPHIFY_MAX_WORKERS`, applies `ulimit -v`, and execs upstream `graphify update`.
 
-After either initial build or refresh, merge into the global graph:
+## Full build/update without headless semantic extraction
+
+### Step 1 — create semantic file list
+
+Use Graphify detection. Include documents, papers, and images unless the user explicitly excludes images.
+
+```bash
+/root/.local/share/uv/tools/graphifyy/bin/python - <<'PY'
+import json
+from pathlib import Path
+from graphify.cache import check_semantic_cache
+root = Path('.').resolve()
+detect_result = json.loads(Path('.graphify_detect.json').read_text())
+skip_images = Path('graphify-out/.graphify_skip_images').exists()
+categories = ['document', 'paper'] + ([] if skip_images else ['image'])
+files = [f for cat in categories for f in detect_result.get('files', {}).get(cat, [])]
+Path('graphify-out').mkdir(exist_ok=True)
+Path('graphify-out/.graphify_semantic_files.txt').write_text('\n'.join(files), encoding='utf-8')
+cached_nodes, cached_edges, cached_hyperedges, uncached = check_semantic_cache(files, root=root)
+Path('graphify-out/.graphify_cached.json').write_text(json.dumps({'nodes': cached_nodes, 'edges': cached_edges, 'hyperedges': cached_hyperedges}, ensure_ascii=False), encoding='utf-8')
+Path('graphify-out/.graphify_uncached.txt').write_text('\n'.join(uncached), encoding='utf-8')
+print(f"Semantic cache: {len(files) - len(uncached)} hit, {len(uncached)} need Pi Agent extraction")
+PY
+```
+
+### Step 2 — dispatch Pi Agent semantic subagents for uncached files
+
+Split `graphify-out/.graphify_uncached.txt` into chunks:
+
+- text docs/papers: 20–25 files per chunk
+- images: one per chunk, only when included
+- launch all chunks with `run_in_background: true`; Pi queues beyond its concurrency limit
+
+Do not pass a model override. The subagents use the running session model.
+
+Each subagent must write one JSON file under `graphify-out/.graphify_chunk_NNN.json` matching Graphify schema:
+
+```json
+{"nodes":[],"edges":[],"hyperedges":[],"input_tokens":0,"output_tokens":0}
+```
+
+Rules for subagents:
+
+- Read only the assigned files.
+- Use repo-relative `source_file` values.
+- Valid `file_type`: `code`, `document`, `paper`, `image`, `rationale`, `concept`.
+- Valid `confidence`: `EXTRACTED`, `INFERRED`, `AMBIGUOUS`.
+- Every edge needs `confidence_score`.
+- Do not invent unreadable files or facts.
+
+### Step 3 — merge chunks into Graphify semantic cache
+
+Use Graphify's cache API; do not hand-edit graph output JSON:
+
+```bash
+/root/.local/share/uv/tools/graphifyy/bin/python - <<'PY'
+import glob
+import json
+from pathlib import Path
+from graphify.cache import save_semantic_cache
+root = Path('.').resolve()
+merged = {'nodes': [], 'edges': [], 'hyperedges': [], 'input_tokens': 0, 'output_tokens': 0}
+for name in sorted(glob.glob('graphify-out/.graphify_chunk_*.json')):
+    chunk = json.loads(Path(name).read_text())
+    merged['nodes'].extend(chunk.get('nodes', []))
+    merged['edges'].extend(chunk.get('edges', []))
+    merged['hyperedges'].extend(chunk.get('hyperedges', []))
+    merged['input_tokens'] += int(chunk.get('input_tokens', 0) or 0)
+    merged['output_tokens'] += int(chunk.get('output_tokens', 0) or 0)
+Path('graphify-out/.graphify_semantic_new.json').write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding='utf-8')
+saved = save_semantic_cache(merged['nodes'], merged['edges'], merged['hyperedges'], root=root)
+print(f"Semantic cache saved for {saved} files")
+PY
+```
+
+Re-run Step 1's cache check. If any selected semantic files are still uncached, stop and fix the failed chunks. Do not let official `graphify extract` perform semantic extraction for misses.
+
+### Step 4 — official Graphify build from AST + cached semantic
+
+Now run official Graphify extraction. Because the semantic cache is complete, this performs AST extraction and consumes cached semantic chunks.
+
+Use image excludes if the user asked to skip images:
+
+```bash
+GRAPHIFY_MAX_WORKERS=1 graphify extract . --backend=gemini --max-workers 1
+# example when skipping images:
+GRAPHIFY_MAX_WORKERS=1 graphify extract . --backend=gemini --max-workers 1 \
+  --exclude '*.png' --exclude '*.jpg' --exclude '*.jpeg' --exclude '*.gif' --exclude '*.webp' --exclude '*.svg'
+```
+
+The output must say semantic cache hits and zero misses, for example:
+
+```text
+[graphify extract] semantic cache: N hit / 0 miss
+[graphify extract] semantic cache: N cached, 0 re-extracted
+```
+
+If Gemini credentials are unavailable, stop and tell the user the final official extract step needs credentials even though cache misses must be zero. If it reports semantic extraction on uncached files, stop; do not continue.
+
+### Step 5 — official community labeling and outputs
+
+Run official label/report/html generation:
+
+```bash
+graphify label . --backend=gemini
+```
+
+Then generate callflow when requested:
+
+```bash
+graphify export callflow-html --graph graphify-out/graph.json --output graphify-out/callflow.html
+```
+
+If the `graphify export callflow-html` CLI form is unavailable, use the Pi `graphify_export_callflow` tool with explicit paths.
+
+## Validation checklist
+
+After build/refresh, verify:
+
+- `graphify-out/graph.json` exists
+- `graphify-out/GRAPH_REPORT.md` exists
+- `graphify-out/graph.html` exists
+- node/edge counts are nonzero
+- duplicate IDs = 0
+- dangling edges = 0
+- semantic cache was preserved for Full mode
+- communities are named; if many remain `Community N`, report that labeling was incomplete
+
+## Global merge and git persistence
+
+Merge into the global graph:
 
 ```bash
 flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as "$(basename "$PWD")"
 ```
 
-Then persist the durable graph outputs in git when the user owns or can push to the repo. Graph persistence lives with the repo, not R2.
-
-Add or repair repo ignore rules so only regenerable cache/intermediate files are ignored:
-
-```gitignore
-# Graphify knowledge graph
-# Commit graphify-out/graph.json, graphify-out/GRAPH_REPORT.md, and graphify-out/graph.html.
-graphify-out/cache/
-graphify-out/.cache/
-graphify-out/.chunks/
-graphify-out/manifest.json
-graphify-out/.graphify_root
-graphify-out/.graphify_labels.json
-graphify-out/obsidian/
-.graphify_ast.json
-.graphify_semantic.json
-.graphify_semantic_new.json
-.graphify_extract.json
-.graphify_detect.json
-.graphify_analysis.json
-.graphify_cached.json
-.graphify_uncached.txt
-.graphify_chunk_*.txt
-.graphify_old.json
-.graphify_root
-.graphify_labels.json
-```
-
-If `.gitignore` or `.git/info/exclude` contains a blanket `graphify-out/`, remove it or replace it with the granular list above. Add the merge-driver wiring:
-
-```gitattributes
-graphify-out/graph.json merge=graphify
-```
-
-Commit these durable outputs after the first build or any meaningful refresh:
+Commit only durable outputs when the user can push:
 
 - `graphify-out/graph.json`
 - `graphify-out/GRAPH_REPORT.md`
 - `graphify-out/graph.html`
-- optional `graphify-out/wiki/` if generated
+- optional `graphify-out/callflow.html`
+- optional `graphify-out/wiki/`
 
-Do not commit graphify caches, chunk files, manifests, `.graphify_*` intermediates, or Obsidian export unless the user explicitly asks. `graph.html` must always be generated; if it is missing, rerun the appropriate build/refresh command before reporting Graphify work complete.
+Do not commit caches, manifests, chunks, or `.graphify_*` intermediates unless explicitly asked.
 
-Use AST-only initial build by default on a new repo and AST-only refresh by default after source edits. Both are local, bounded, and safe for the 1-CPU container.
+Ensure `.gitattributes` contains:
 
-### Full semantic + AST build/refresh — only when user wants semantic/docs extraction
-
-For normal interactive Pi work, semantic extraction is done by **in-session Pi `Agent` subagents using the current main-session model by default**. Do not pass a `model` override unless the user explicitly asks. Do not run any headless/API-key extractor (`graphify extract --backend ...`) unless the user explicitly asks for CI/headless extraction.
-
-Interactive full mode means:
-
-1. Run the local AST path first: `build-graphify-ast.sh` for a missing graph, or `safe-graphify-update.sh` for an existing graph.
-2. Split docs/non-code files into chunks.
-3. Spawn Pi `Agent` subagents in bounded waves, default max parallel `2`, without a `model` override so they inherit the current main-session model.
-4. Require each subagent to write a JSON chunk file under `<repo>/graphify-out/`.
-5. Validate chunks, merge AST + semantic output, cluster, generate HTML, and global-add.
-
-Use this only when the user explicitly chooses full semantic extraction or asks for docs/papers/images to be semantically represented.
-
-## Freshness check
-
-For repo graphs, compare graph commit metadata to `git rev-parse HEAD` when available.
-If stale, say so and offer:
-
-- AST-only initial build when missing: fast/local/default.
-- AST-only refresh when stale: fast/local/default for existing graphs.
-- Full semantic build/refresh: slower, uses Pi subagents with the current main-session model by default.
-
-Do not silently rebuild unless the user asked to refresh/build/update.
-
-## Rules
-
-- Use explicit `--graph /home/user/.graphify/global-graph.json` for Vault/memory/session questions.
-- Use native wrappers first only for repo/code graph questions.
-- Never assume `/home/user/workspace/graphify-out/graph.json` exists.
-- Interactive semantic extraction uses in-session Pi `Agent` subagents, not headless/API-key extractors.
-- After source edits in a graphed repo, prefer the safe update wrapper before answering new structural graph questions.
-- Persist repo graph outputs in git when push permission exists: `graphify-out/graph.json`, `graphify-out/GRAPH_REPORT.md`, and `graphify-out/graph.html`; ignore only caches/intermediates.
-- Do not edit graph output JSON by hand except for diagnostic read-only inspection.
+```gitattributes
+graphify-out/graph.json merge=graphify
+```

@@ -455,7 +455,7 @@ export default function (pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const repo = activeRepo(ctx) ?? ctx.sessionManager.getCwd();
       if (args.trim() === "refresh") {
-        await sendWorkflowMessage(pi, ctx, "/graphify refresh", `Refresh the graphify graph for ${repo}. Use the safe AST-only update first, then merge ${repo}/graphify-out/graph.json into the global graph if present.`);
+        await sendWorkflowMessage(pi, ctx, "/graphify refresh", `Refresh the graphify graph for ${repo}. Use upstream Graphify via /home/user/.pi/agent/scripts/safe-graphify-update.sh for AST refresh, and only run semantic refresh through Pi Agent subagents from this session if the user chooses Full mode in the graphify skill. Merge ${repo}/graphify-out/graph.json into the global graph if present.`);
         return;
       }
       await sendWorkflowMessage(pi, ctx, `/graphify ${args}`.trim(), `${skillPrompt("graphify", "Use graphify to build/query the project graph.")}\n\nTarget repo: ${repo}\nUser command: /graphify ${args}`);

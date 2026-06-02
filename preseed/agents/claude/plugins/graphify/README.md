@@ -26,7 +26,7 @@ The plugin folder ships a bare manifest (`name`, `description`, `version`), this
   - **SessionStart** (matcher: `startup`) - inspects cwd for `graphify-out/graph.json` and injects a system reminder pointing the agent at `GRAPH_REPORT.md` and the MCP tools.
   - **PostToolUse** (matchers: `Bash`, `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute`) - detects `git clone` and `gh repo clone` invocations and injects a directive instructing the agent to ask the user via AskUserQuestion whether to build a graph for the cloned repo.
 
-graphify is installed globally during the Docker image build via `uv tool install graphifyy[mcp,sql,pdf]==<ver>`, version read from this plugin's `plugin.json`. The `graphify` CLI shim lands at `/root/.local/bin/graphify`; the MCP server entry-point is `python3 -m graphify.serve` from the same isolated venv.
+graphify is installed globally during the Docker image build via `uv tool install graphifyy[mcp,sql,pdf,gemini]==<ver>`, version read from this plugin's `plugin.json`. The `graphify` CLI shim lands at `/root/.local/bin/graphify`; the MCP server entry-point is `python3 -m graphify.serve` from the same isolated venv. The Gemini extra supports official `graphify label` community naming; semantic extraction still uses the interactive agent workflow.
 
 Plugin updates ship as a Dependabot PR bumping the version in this `plugin.json`. The Dockerfile reads that file at build time, so the same PR rebuilds the image with the new version, keeping the runtime binary and the plugin manifest in lockstep.
 
@@ -35,7 +35,7 @@ Plugin updates ship as a Dependabot PR bumping the version in this `plugin.json`
 context-mode is preseeded only for the Custom tier (effectiveTier `unlimited` + Pro session mode). The vast majority of users (Standard, Advanced, Max tiers) run graphify without context-mode. The integration is designed to function in both regimes:
 
 - **Without context-mode**: `/graphify` extraction uses upstream graphify's own subagent-chunking model. Each subagent reads a chunk of files, returns a short summary, and writes a chunk file to disk. The main agent's context stays bounded.
-- **With context-mode**: subagent `Read`/`Grep`/`Glob`/`Agent` calls during extraction route through `ctx_execute` (bonus per-subagent token savings). The `graphify` CLI first-word is added to `enforce-ctx-mode.sh` whitelist so `graphify update .` is not denied.
+- **With context-mode**: subagent `Read`/`Grep`/`Glob`/`Agent` calls during extraction can route through `ctx_execute` (bonus per-subagent token savings). Graphify runs unimpeded because the old context-mode Bash deny-gate was removed.
 
 The MCP query tools (`query_graph`, `get_node`, `get_neighbors`, `shortest_path`) return bounded structured responses in both regimes; context-mode does not intercept MCP calls.
 
@@ -49,6 +49,6 @@ We deliver the plugin folder as a preseed asset (R2 bisync) rather than installi
 
 ## Persistence across sessions
 
-`graphify-out/graph.json` and `graphify-out/GRAPH_REPORT.md` round-trip through R2 bisync (filter entries in `entrypoint.sh` rclone setup). One session builds the graph; every other session for the same user-project reads it. `graph.html`, `wiki/`, and `.cache/` are excluded (regenerable or local-only).
+Repo graph persistence lives in git, not R2. When the user can push, commit `graphify-out/graph.json`, `graphify-out/GRAPH_REPORT.md`, and `graphify-out/graph.html` (plus optional `wiki/`) with `graphify-out/graph.json merge=graphify` in `.gitattributes`; caches and intermediates stay ignored. R2 bisync excludes `graphify-out/` so large graph artifacts do not churn session storage.
 
 See `documentation/decisions/README.md` for the full architecture decision record (AD52).

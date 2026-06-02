@@ -286,26 +286,26 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(cloneTargetPath('owner=$(gh api user --jq .login)\ngh repo clone "$owner/codeflare" "$repo"', '/home/user/workspace')).toBeUndefined();
 
     const missingGraphDirective = renderGraphifyCloneDirective(graphifyCloneAction('/repo', false));
-    expect(missingGraphDirective).toContain('ask the user to choose one option');
-    expect(missingGraphDirective).toContain('1. Create AST-only Graphify graph');
-    expect(missingGraphDirective).toContain('build-graphify-ast.sh');
-    expect(missingGraphDirective).toContain('current main-session model');
+    expect(missingGraphDirective).toContain('ask the user a single YES/NO question');
+    expect(missingGraphDirective).toContain('Build a graphify knowledge graph for /repo?');
+    expect(missingGraphDirective).toContain('Do NOT ask about AST-only vs Full at clone time');
+    expect(missingGraphDirective).toContain('Pi Agent subagents from this running session');
     const existingGraphDirective = renderGraphifyCloneDirective(graphifyCloneAction('/repo', true));
-    expect(existingGraphDirective).toContain('If stale or freshness is unknown, ask the user to choose one option');
-    expect(existingGraphDirective).toContain('1. AST-only update');
-    expect(existingGraphDirective).toContain('2. Full semantic + AST refresh');
+    expect(existingGraphDirective).toContain('refresh the AST portion with upstream Graphify via the local safety wrapper');
+    expect(existingGraphDirective).toContain('safe-graphify-update.sh /repo');
+    expect(existingGraphDirective).toContain('Full semantic refresh is owned by the `/graphify` skill');
 
     expect(graphifyCloneAction('/repo', false)).toEqual({
       repo: '/repo',
       hasGraph: false,
       mode: 'missing-graph',
-      choices: ['AST-only build', 'Full semantic + AST build', 'skip'],
+      choices: ['build graph', 'skip'],
     });
     expect(graphifyCloneAction('/repo', true)).toEqual({
       repo: '/repo',
       hasGraph: true,
       mode: 'existing-graph',
-      choices: ['check freshness', 'AST-only update', 'Full semantic + AST refresh', 'skip'],
+      choices: ['use existing graph', 'AST-only update', 'skip'],
     });
     expect(graphifyPromptMarker('/home/user/workspace/r', 'session-1')).toBe('/tmp/codeflare-graphify-prompted-session-1_home_user_workspace_r');
     expect(isFailedGraphifyToolExecution({ status: 'error' })).toBe(true);
@@ -326,7 +326,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         repo: '/home/user/workspace/r/.git-root',
         hasGraph: true,
         mode: 'existing-graph',
-        choices: ['check freshness', 'AST-only update', 'Full semantic + AST refresh', 'skip'],
+        choices: ['use existing graph', 'AST-only update', 'skip'],
       },
     });
     expect(graphifyClonePromptDecision({
@@ -821,16 +821,15 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const skill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/graphify/SKILL.md');
     expect(skill?.content).toContain('build-graphify-ast.sh');
     expect(skill?.content).toContain('safe-graphify-update.sh');
-    expect(skill?.content).toContain('without a `model` override');
-    expect(skill?.content).toContain('current main-session model');
-    expect(skill?.content).toContain('Graph persistence lives with the repo, not R2');
-    expect(skill?.content).toContain('graphify-out/cache/');
-    expect(skill?.content).toContain('graphify-out/manifest.json');
+    expect(skill?.content).toContain('Do not pass a model override');
+    expect(skill?.content).toContain('running session model');
+    expect(skill?.content).toContain('official Graphify consumes the semantic cache');
+    expect(skill?.content).toContain('graphify label . --backend=gemini');
+    expect(skill?.content).toContain('Do not commit caches, manifests, chunks, or `.graphify_*` intermediates');
     expect(skill?.content).toContain('graphify-out/graph.json merge=graphify');
     expect(skill?.content).toContain('graphify-out/graph.json');
     expect(skill?.content).toContain('graphify-out/GRAPH_REPORT.md');
     expect(skill?.content).toContain('graphify-out/graph.html');
-    expect(skill?.content).toContain('blanket `graphify-out/`');
   });
 
   // Pi as a first-class resident: the Pi manifest's prompts/* entries are emitted
@@ -1233,12 +1232,13 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(updateScript?.content).toContain('ulimit -v');
     expect(updateScript?.content).toContain('GRAPHIFY_SAFE_RLIMIT_KB');
     expect(updateScript?.content).toContain('graphify update');
-    expect(updateScript?.content).toContain('First-time graph');
+    expect(updateScript?.content).toContain('thin safety wrapper around upstream');
 
     const buildScript = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/scripts/build-graphify-ast.sh');
-    expect(buildScript?.content).toContain('detect -> AST extract -> build -> cluster -> report -> HTML');
-    expect(buildScript?.content).toContain('normalize_import_targets');
-    expect(buildScript?.content).toContain('graph health check failed');
+    expect(buildScript?.content).toContain('Graphify primitives only');
+    expect(buildScript?.content).toContain('from graphify.detect import detect');
+    expect(buildScript?.content).toContain('from graphify.build import build');
+    expect(buildScript?.content).not.toContain('normalize_import_targets');
     expect(buildScript?.content).toContain('GRAPHIFY_VIZ_NODE_LIMIT');
   });
 

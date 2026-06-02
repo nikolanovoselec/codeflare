@@ -254,7 +254,7 @@ All preseed content is deployed via the manifest pipeline:
   [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7 - and `review`),
   capture-contract prompts (`memory-agent-prompt.md`,
   `vault-extract-prompt.md`), and the Pi graphify scripts
-  (`build-graphify-ast.sh` for first builds, `safe-graphify-update.sh` for existing-graph refreshes). The
+  (`build-graphify-ast.sh` for first AST builds using Graphify's own modules, `safe-graphify-update.sh` as a thin bounded wrapper around upstream `graphify update`). The
   generator maps each manifest key to its deployed location by directory
   prefix: `extensions/` -> `.pi/agent/extensions/`, `skills/` ->
   `.pi/agent/skills/`, `scripts/` -> `.pi/agent/scripts/`, `prompts/`
@@ -527,7 +527,7 @@ All tiers append tool guidance (pointing at `mcp__graphify__query_graph`, `mcp__
 
 ### Post-clone graph triage ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage))
 
-In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing. If no repo graph exists, the agent asks the user to choose either `1. Create AST-only Graphify graph` or `2. Create full semantic + AST Graphify graph`. If a graph exists, the extension compares `graphify-out/graph.json` `built_at_commit` with `git rev-parse HEAD`: fresh graphs produce an information message only; stale or unknown graphs prompt the user to choose `1. AST-only update` or `2. Full semantic + AST refresh`. Pi mirrors the same behavior through native lifecycle events and suppresses clone triage inside durable PR-boundary review lanes.
+In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing. If no repo graph exists, the agent asks one YES/NO question about building a graph and then invokes the graphify skill when the user accepts; AST-only vs Full selection is deferred until after Graphify detection has real corpus counts. If a graph exists, the extension compares `graphify-out/graph.json` `built_at_commit` with `git rev-parse HEAD`: fresh graphs produce an information message only; stale or unknown graphs refresh the AST portion through the bounded upstream-update wrapper. Full semantic refresh is owned by the graphify skill after detection. Pi mirrors the same behavior through native lifecycle events and suppresses clone triage inside durable PR-boundary review lanes.
 
 ### Pi active-repo query fallback ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
 
@@ -546,7 +546,7 @@ unchanged so the agent can fall back manually.
 
 ### Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
 
-The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless `graphify extract --backend deepseek`; AST-only initial build uses the local first-build script, AST-only refresh uses the bounded update wrapper, and semantic extraction uses Pi `Agent` subagents from the running session. Each subagent reads a chunk of files and emits structured JSON matching graphify's node/edge schema.
+The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless semantic extraction for uncached docs/images: subagents read chunks and write Graphify-schema JSON, Graphify's cache helpers persist those chunks, and official `graphify extract` consumes the complete semantic cache while performing AST/build/cluster output. `graphify label` then names communities using the official Graphify label flow. AST-only initial build uses the local first-build script built from Graphify's own modules; AST-only refresh uses the bounded upstream-update wrapper.
 
 Model selection is runtime-specific. Claude Code's graphify skill pins its own reliable extraction model and never escalates to Opus from this workflow. Pi does not name or pin provider-specific models: Pi `Agent` semantic subagents omit a `model` override and inherit whatever model the main Pi session is using unless the user explicitly asks for a different model.
 

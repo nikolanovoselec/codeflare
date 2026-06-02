@@ -6,7 +6,7 @@ trigger: /graphify
 
 # /graphify (Codeflare-managed skill)
 
-This skill drives `/graphify` knowledge-graph extraction inside the Codeflare container. The `graphifyy` Python tool is pre-installed at build time (`uv tool install graphifyy[mcp,sql,pdf]`); the `graphify` CLI is on PATH at `/root/.local/bin/graphify` and the MCP server is pre-registered in `~/.claude.json` as `/root/.local/share/uv/tools/graphifyy/bin/python -m graphify.serve`. You do not need to install or wire anything.
+This skill drives `/graphify` knowledge-graph extraction inside the Codeflare container. The `graphifyy` Python tool is pre-installed at build time (`uv tool install graphifyy[mcp,sql,pdf,gemini]`); the `graphify` CLI is on PATH at `/root/.local/bin/graphify` and the MCP server is pre-registered in `~/.claude.json` as `/root/.local/share/uv/tools/graphifyy/bin/python -m graphify.serve`. You do not need to install or wire anything.
 
 ## Quick Reference
 
