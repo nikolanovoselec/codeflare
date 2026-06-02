@@ -148,8 +148,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md -->
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
+<!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::deterministicVaultGraph -->
+<!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (three-marker pattern presence → AC2/AC6) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault shares Claude vault-extract.last marker semantics and vault-monitor exclusions → AC1/AC4) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault shares Claude vault-extract.last marker semantics and vault-monitor exclusions → AC1/AC4; deterministicVaultGraph emits canonical file_type/source_file/relation nodes + heading sub-sections → AC8; vault-extract prompt publishes viz to Raw/Graphs → AC7) -->
 
 **Intent:** A user adds a note in SilverBullet (or any other editor) and within roughly one daemon tick the new content shows up in `mcp__graphify__*` query results.
 
@@ -163,10 +165,13 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 4. The vault-extract subagent deletes the trigger marker as its first step (dedup gate), runs graph extraction per changed file, merges via the shared global-graph add command, touches the high-water marker, and removes the in-flight sentinel as its final step.
 5. If any of the extract-merge-advance steps fail, the high-water marker is not advanced; the next daemon tick re-discovers the same files.
 6. The vault initializer bumps the high-water marker after rewriting any preseed page so the first post-boot daemon tick does not interpret the preseed copy as a user change. This is belt-and-braces for any future preseed page that misses the daemon-exclusion list.
+7. After merging, the extraction re-renders the vault viz HTML (`graphify cluster-only .` from the vault root) and copies `graph.html` to `Raw/Graphs/vault-graph.html` so the `Vault Graph.md` index-page link resolves through the SilverBullet `.fs/` route (`graphify-out/` is excluded from R2 bisync and the `.fs/` route). This publish step is non-fatal: a failure leaves a stale viz HTML but never blocks high-water-marker advancement, since the graph data is already persisted.
+8. The extracted graph uses the canonical graphify node/edge schema shared with the repo and global graphs: document and code nodes carry `file_type` and a truthy `source_file` so the global merge preserves their identity rather than label-merging them; concept nodes carry `file_type: "concept"` with `source_file: null` so the global merge dedupes them by label; edges carry a canonical `relation` plus `confidence`/`confidence_score`. The Pi deterministic baseline additionally emits a sub-section node for each markdown heading (level 2 and deeper) linked to its document by a `contains` edge. The Pi extension baseline and its vault-extract subagent both emit this schema, matching the Claude runtime; the legacy `type`/`path`/`mentions` shape is never written.
 
 **Constraints:**
 
 - The polling cadence is intentional; inotify was rejected as overkill for the expected edit rate.
+- AC7's viz publish is verified by manual check (the cluster-only render + copy is prompt-driven prose, like REQ-VAULT-011); the Pi prompt's publish step is also source-asserted in `agent-seed-manifest.test.ts`. AC8's canonical-schema baseline is verified by the `deterministicVaultGraph` unit test.
 - The in-flight sentinel (5-minute TTL) prevents the hook from re-spawning the agent on every prompt while extraction is already running. The sentinel is created by the hook on emission and removed by the agent as its final step.
 - The vault-extract subagent is pinned to sonnet at the subagent-definition level (per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)) so the dispatching parent cannot silently downgrade the model.
 - PDF-specific ingestion behavior is specified in [REQ-VAULT-011](#req-vault-011-vault-extract-ingests-pdf-files).

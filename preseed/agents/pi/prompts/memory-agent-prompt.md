@@ -221,21 +221,27 @@ the `{ "nodes": [...], "links": [...] }` shape. Read it if it exists;
 start from `{ "nodes": [], "links": [] }` if it does not. Preserve every
 existing node and link - merge, never replace.
 
-For the note you just wrote, add (deduping by `id`, so re-running is
-idempotent):
+Use the **canonical graphify schema** - the same `file_type`/`source_file`/
+`relation`/`confidence` shape the repo, global, and vault-extract graphs
+use. Never write the legacy `type`/`path`/`mentions`/`related` fields:
+`graphify global add` label-merges any node lacking `source_file`, so a
+document without one loses its identity in the global graph. For the note
+you just wrote, add (deduping by `id`, so re-running is idempotent):
 
 - One **document node** for the file: `id` a stable slug of the relative
   path (for example `vault_raw_sessions_<filename_stem>`), `label` the
-  `# Session ...` heading, `type: "note"`, `path` the absolute file path,
-  `source: "user_vault"`.
+  `# Session ...` heading, `file_type: "document"`, `source_file` the
+  absolute file path, `source: "user_vault"`.
 - One **concept node** per `[[wikilink]]` you used: `label` the wikilink
-  target verbatim, `type: "concept"`, `source: "user_vault"`, and a
-  stable `id` derived from the label (lowercase, `[a-z0-9_]` only). Keep
-  concept ids label-derived and free of any file prefix so graphify's
-  external-label dedup unifies them across graphs.
-- One **link** `{ "source": <docId>, "target": <conceptId>, "type":
-  "mentions" }` for each wikilink, and a `{ ..., "type": "related" }`
-  link between two concept ids when they co-occur in a single bullet.
+  target verbatim, `file_type: "concept"`, `source_file: null` (this is
+  what triggers graphify's external-label dedup across graphs). Before
+  adding one, reuse an existing node with the same `label`; otherwise mint
+  `id` = `concept:<label lowercased to [a-z0-9_]>`.
+- One **link** `{ "source": <docId>, "target": <conceptId>, "relation":
+  "references", "confidence": "EXTRACTED", "confidence_score": 1.0 }` for
+  each wikilink, and a `{ ..., "relation": "conceptually_related_to",
+  "confidence": "INFERRED", "confidence_score": 0.75 }` link between two
+  concept ids when they co-occur in a single bullet.
 
 Write the merged object back to
 `/home/user/Vault/graphify-out/graph.json` with the Write tool. This

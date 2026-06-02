@@ -3,7 +3,7 @@ import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-see
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
-import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, stableId, titleFor, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, deterministicVaultGraph, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, stableId, titleFor, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 
@@ -1219,12 +1219,57 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(titleFor('/vault/Docs/report.pdf', '')).toBe('report.pdf');
   });
 
-  it('REQ-VAULT-004: memory-vault.ts extracts wikilink concept nodes and non-text document nodes', () => {
+  it('REQ-VAULT-003 AC8: memory-vault.ts builds the baseline via the canonical-schema helper', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
-    expect(mv?.content).toContain('concept:');
-    expect(mv?.content).toContain('mentions');
-    expect(mv?.content).toContain('"document"');
-    expect(mv?.content).toContain('isText ? "note" : "document"');
+    expect(mv?.content).toContain('deterministicVaultGraph');
+    const helpers = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault-helpers.ts');
+    // Canonical graphify schema (file_type/source_file/relation/confidence), not the legacy type/path/mentions shape.
+    expect(helpers?.content).toContain('file_type: "concept"');
+    expect(helpers?.content).toContain('relation: "references"');
+    expect(helpers?.content).toContain('relation: "contains"');
+    expect(helpers?.content).not.toContain('type: "mentions"');
+  });
+
+  it('REQ-VAULT-003 AC7: Pi vault-extract prompt publishes the viz to Raw/Graphs', () => {
+    const prompt = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/prompts/vault-extract-prompt.md');
+    expect(prompt?.content).toContain('graphify cluster-only .');
+    expect(prompt?.content).toContain('Raw/Graphs/vault-graph.html');
+  });
+
+  it('REQ-VAULT-003 AC8: deterministicVaultGraph emits canonical document/concept/heading nodes and edges', () => {
+    const { nodes, links } = deterministicVaultGraph(
+      [{ rel: 'Notes/a.md', path: '/home/user/Vault/Notes/a.md', content: '# Title\n## Section\nSee [[Foo]].', isText: true }],
+      { nodes: [], links: [] },
+    );
+    const doc = nodes.find((n) => n.label === 'Title');
+    expect(doc.file_type).toBe('document');
+    expect(doc.source_file).toBe('/home/user/Vault/Notes/a.md');
+    const concept = nodes.find((n) => n.label === 'Foo');
+    expect(concept.file_type).toBe('concept');
+    expect(concept.source_file).toBeNull();
+    const section = nodes.find((n) => n.label === 'Section');
+    expect(section.file_type).toBe('document');
+    expect(links.some((l) => l.relation === 'references' && l.target === concept.id)).toBe(true);
+    expect(links.some((l) => l.relation === 'contains' && l.target === section.id)).toBe(true);
+    expect(links.every((l) => l.confidence === 'EXTRACTED' && l.confidence_score === 1)).toBe(true);
+  });
+
+  it('REQ-VAULT-003 AC8: deterministicVaultGraph maps non-text files to document nodes with a source_file', () => {
+    const { nodes } = deterministicVaultGraph(
+      [{ rel: 'Raw/Pasted/x.pdf', path: '/home/user/Vault/Raw/Pasted/x.pdf', content: '', isText: false }],
+      { nodes: [], links: [] },
+    );
+    expect(nodes[0].file_type).toBe('document');
+    expect(nodes[0].source_file).toBe('/home/user/Vault/Raw/Pasted/x.pdf');
+  });
+
+  it('REQ-VAULT-003 AC8: re-extraction drops a changed doc\'s stale links but keeps the monotonic node set', () => {
+    const first = deterministicVaultGraph([{ rel: 'a.md', path: '/v/a.md', content: '[[Foo]]', isText: true }], { nodes: [], links: [] });
+    const second = deterministicVaultGraph([{ rel: 'a.md', path: '/v/a.md', content: '[[Bar]]', isText: true }], first);
+    expect(second.links.some((l) => l.target === stableId('concept:Bar'))).toBe(true);
+    expect(second.links.some((l) => l.target === stableId('concept:Foo'))).toBe(false);
+    // The Foo concept node persists (graph grows monotonically) even though its link was re-derived away.
+    expect(second.nodes.some((n) => n.id === stableId('concept:Foo'))).toBe(true);
   });
 
   it('REQ-AGENT-023 AC4: codeflare-pi.ts tolerates missing graph and reports present graph', () => {

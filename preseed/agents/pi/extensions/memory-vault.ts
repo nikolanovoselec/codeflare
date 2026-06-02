@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, isFirstMessage, isResumedSession, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, stableId as stableIdHelper, titleFor as titleForHelper, withCurrentPrompt } from "./memory-vault-helpers";
+import { buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, deterministicVaultGraph, isFirstMessage, isResumedSession, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, withCurrentPrompt } from "./memory-vault-helpers";
 
 const USER_HOME = "/home/user";
 const VAULT_ROOT = join(USER_HOME, "Vault");
@@ -121,8 +121,6 @@ function vaultGraphPath(): string {
   return join(VAULT_ROOT, "graphify-out", "graph.json");
 }
 
-function stableId(input: string): string { return stableIdHelper(input); }
-
 function readGraph(): { nodes: any[]; links: any[] } {
   try {
     const graph = JSON.parse(readFileSync(vaultGraphPath(), "utf8"));
@@ -135,43 +133,14 @@ function readGraph(): { nodes: any[]; links: any[] } {
   }
 }
 
-function titleFor(path: string, content: string): string { return titleForHelper(path, content); }
-
 function writeDeterministicVaultGraph(changed: string[]): void {
-  const graph = readGraph();
-  const nodes = new Map(graph.nodes.map((node) => [String(node.id), node]));
-  const changedDocIds = new Set(changed.map((path) => stableId(relative(VAULT_ROOT, path))));
-  const nextLinks = graph.links.filter((link) => {
-    const source = String(link.source ?? link.from ?? "");
-    return !changedDocIds.has(source);
-  });
-
-  for (const path of changed) {
-    const rel = relative(VAULT_ROOT, path);
-    const docId = stableId(rel);
-    changedDocIds.add(docId);
+  const items = changed.map((path) => {
     const isText = /\.(md|txt|json|yaml|yml)$/i.test(path);
-    const content = isText ? readFileSync(path, "utf8") : "";
-    nodes.set(docId, {
-      id: docId,
-      label: titleFor(path, content),
-      type: isText ? "note" : "document",
-      path,
-      source: "user_vault",
-    });
-    if (isText) {
-      for (const match of content.matchAll(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g)) {
-        const targetLabel = match[1].trim();
-        if (!targetLabel) continue;
-        const targetId = stableId(`concept:${targetLabel}`);
-        nodes.set(targetId, { id: targetId, label: targetLabel, type: "concept", source: "user_vault" });
-        nextLinks.push({ source: docId, target: targetId, type: "mentions" });
-      }
-    }
-  }
-
+    return { rel: relative(VAULT_ROOT, path), path, content: isText ? readFileSync(path, "utf8") : "", isText };
+  });
+  const graph = deterministicVaultGraph(items, readGraph());
   mkdirSync(dirname(vaultGraphPath()), { recursive: true });
-  writeFileSync(vaultGraphPath(), JSON.stringify({ nodes: [...nodes.values()], links: nextLinks }, null, 2) + "\n", "utf8");
+  writeFileSync(vaultGraphPath(), JSON.stringify(graph, null, 2) + "\n", "utf8");
 }
 
 function bestEffortMergeGraphs(): void {

@@ -17,15 +17,22 @@ CLI for any merge.
 Before spawning you, the Pi extension ALREADY:
 
 1. Wrote the **deterministic** vault graph to
-   `/home/user/Vault/graphify-out/graph.json` (document/note nodes for
-   each changed file plus a `concept` node and `mentions` link for every
-   `[[wikilink]]` it found by regex), and
+   `/home/user/Vault/graphify-out/graph.json` in the **canonical graphify
+   schema** (the same `file_type`/`source_file`/`relation`/`confidence`
+   shape the repo and global graphs use): a `file_type: "document"` node
+   for each changed file, a `file_type: "document"` sub-section node for
+   every markdown heading (level 2+) linked to its file by a `contains`
+   edge, and a `file_type: "concept"` node (`source_file: null`) plus a
+   `references` edge for every `[[wikilink]]` it found by regex, and
 2. **Touched the shared high-water marker** (`vault-extract.last`) after
    the deterministic graph merge, and
 3. Attempted a best-effort merge of that graph into the unified global
    graph under the `user_vault` tag.
 
-So the structural baseline is DONE. You are layering semantics on top.
+So the structural baseline is DONE, and it is in canonical schema. You
+match that schema exactly when you add nodes and edges - never reintroduce
+the legacy `type`/`path`/`mentions` fields. You are layering the semantics
+a regex pass cannot see on top.
 
 Hard limits, because the baseline is already persisted:
 
@@ -80,6 +87,10 @@ tool. For each, identify what the regex baseline could not:
   bracketing it). These become `[[PascalCase]]`-style concept nodes.
 - **Relationships stated in prose**: "X depends on Y", "A replaces B",
   "this supersedes ADR N" - candidate concept-to-concept links.
+- **Code symbols** named in code fences or backtick references - function,
+  class, method, or exported-symbol names the note discusses (for example
+  a debugging note that walks through `updateKvStatus` or `collectMetrics`).
+  These become `file_type: "code"` nodes sourced from the note's path.
 - **Concrete artifacts to preserve VERBATIM** when you label a node:
   `REQ-*` IDs, `AD-*` / ADR numbers, PR numbers, commit SHAs, file paths,
   function and package names. Never paraphrase an identifier - copy
@@ -87,8 +98,11 @@ tool. For each, identify what the regex baseline could not:
   identifier is worse than omitting it.
 
 PDFs and other binaries in `changedFiles`: the baseline already minted a
-document node for them from the filename. You cannot add meaningful
-semantics without reading them, so skip them here and move on.
+`file_type: "document"` node for them from the filename. The Pi Read tool
+does not render PDF page content (unlike the Claude runtime, which reads
+PDFs natively), so you cannot add visual/scanned-PDF semantics here - skip
+them and move on. Full PDF text-layer ingestion on Pi is tracked
+separately (REQ-VAULT-011); do not attempt to hand-write a PDF parser.
 
 If `changedFiles` is empty, or none of the files yield a concept beyond
 what the baseline already captured, there is nothing to enrich - skip to
@@ -100,31 +114,46 @@ with the rest.
 
 Read the existing graph at `graphPath`. It is in the
 `{ "nodes": [...], "links": [...] }` shape and already holds the
-extension's deterministic nodes and links plus any prior `user_vault`
-subgraph. PRESERVE all of it - you are adding to a monotonically growing
-graph, never replacing it. Start from the file's current contents, not
-from an empty object.
+extension's deterministic **canonical-schema** nodes and links plus any
+prior `user_vault` subgraph. PRESERVE all of it - you are adding to a
+monotonically growing graph, never replacing it. Start from the file's
+current contents, not from an empty object.
 
-For each new concept you found in step 2, add (deduping by `id`, so
-re-running is idempotent and never duplicates a node the baseline already
-made):
+**Match the canonical schema exactly.** Every node you add carries
+`file_type` (`"document"`, `"code"`, or `"concept"`), a `source_file`
+(the absolute path of the note it came from for document/code nodes;
+`null` for concept nodes so the global merge dedupes them by label), and
+`"source": "user_vault"`. Every edge you add carries `relation`,
+`confidence`, and `confidence_score`. Never emit the legacy
+`type`/`path`/`mentions`/`related` fields - they break the global merge.
 
-- A **concept node**: `label` the concept verbatim, `type: "concept"`,
-  `source: "user_vault"`, and a stable `id` derived from the label
-  (lowercase, `[a-z0-9_]` only, no file prefix). Keeping ids
-  label-derived lets graphify's external-label dedup unify the concept
-  with the same-labelled node from any other graph. If a node with that
-  `id` already exists (the baseline minted it from a real `[[wikilink]]`),
-  do not add a duplicate.
-- A **link** from the changed file's document node to the concept,
-  `{ "source": <docId>, "target": <conceptId>, "type": "mentions" }`. The
-  document node already exists (the baseline created it); reuse its `id`
-  rather than minting a new one. If you cannot determine the existing
-  document-node id for a file, derive a stable slug from the relative
-  path consistently and reuse it for every link from that file.
-- A concept-to-concept link `{ "source": <a>, "target": <b>, "type":
-  "related" }` when two concepts co-occur in a single bullet or sentence
-  and the prose states a relationship between them.
+**Reuse existing ids; never duplicate by label.** The document node for
+each changed file already exists - find it by matching its `source_file`
+to the file's path and reuse its `id` as the link source. Before adding a
+concept node, scan the existing nodes for one whose `label` equals the
+concept (case-insensitive): if found, reuse that `id` and only add the
+missing edge; otherwise mint a new concept node with `id` =
+`concept:<label lowercased to [a-z0-9_]>`. This keeps the baseline's
+wikilink concept and your prose concept as a single node.
+
+For what you found in step 2, add:
+
+- A **concept node** for a prose-named concept:
+  `{ "id": "concept:<slug>", "label": "<verbatim>", "file_type": "concept", "source_file": null, "source": "user_vault" }`,
+  and a `references` edge from the document node:
+  `{ "source": <docId>, "target": <conceptId>, "relation": "references", "confidence": "INFERRED", "confidence_score": 0.75 }`.
+- A **code node** for a named symbol the note discusses:
+  `{ "id": "<docslug>_<symbol>", "label": "<symbol>", "file_type": "code", "source_file": "<abs path>", "source": "user_vault" }`,
+  and a `contains` edge from the document node
+  (`"relation": "contains", "confidence": "EXTRACTED", "confidence_score": 1.0`).
+- A **concept-to-concept edge** when two concepts co-occur in a single
+  bullet or sentence and the prose states a relationship:
+  `{ "source": <a>, "target": <b>, "relation": "conceptually_related_to", "confidence": "INFERRED", "confidence_score": 0.75 }`.
+
+Confidence rubric: `EXTRACTED` / 1.0 for an explicit structural fact (a
+backticked symbol, a stated containment); `INFERRED` / 0.85 when the prose
+states the relationship directly, 0.75 when you are reading it between the
+lines. Do not invent `AMBIGUOUS` speculative edges.
 
 Write the merged object back to `graphPath` with the Write tool. Every
 node and link that was already there must still be present afterward;
