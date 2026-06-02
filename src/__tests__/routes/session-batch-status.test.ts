@@ -108,10 +108,12 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
   });
 
-  // Read-side staleness reconciliation (#153): a KV-running session with a
-  // stale metrics heartbeat is reported stopped without writing back to KV.
-  describe('batch-status reconciles stale running sessions', () => {
-    it('downgrades a running session whose metrics heartbeat is stale to stopped', async () => {
+  // KV status is authoritative: a session KV-marked running is reported
+  // running regardless of metrics-heartbeat age. The container writes
+  // 'stopped' on exit (collectMetrics/onError), so there is no read-side
+  // staleness reconciliation that could falsely downgrade a live session.
+  describe('batch-status reports KV status verbatim (no staleness reconciliation)', () => {
+    it('reports a running session as running even when its metrics heartbeat is stale', async () => {
       const staleU = new Date(Date.now() - 600_000).toISOString(); // 10 min ago
       const session: Session = {
         ...makeSession('aabbccdd11223344', 'running'),
@@ -122,25 +124,20 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       const app = createApp();
       const res = await app.request('/sessions/batch-status');
       const body = await res.json() as { statuses: Record<string, { status: string; ptyActive: boolean }> };
-      expect(body.statuses['aabbccdd11223344'].status).toBe('stopped');
-      expect(body.statuses['aabbccdd11223344'].ptyActive).toBe(false);
+      expect(body.statuses['aabbccdd11223344'].status).toBe('running');
     });
 
-    it('keeps a running session with a fresh metrics heartbeat running', async () => {
-      const freshU = new Date(Date.now() - 5_000).toISOString();
-      const session: Session = {
-        ...makeSession('aabbccdd11223344', 'running'),
-        metrics: { cpu: '5%', mem: '128MB', hdd: '1GB', syncStatus: 'success', updatedAt: freshU },
-      };
+    it('reports a stopped session as stopped', async () => {
+      const session = makeSession('aabbccdd11223344', 'stopped');
       mockKV._set('session:test-bucket:aabbccdd11223344', session, buildSessionMetadata(session));
 
       const app = createApp();
       const res = await app.request('/sessions/batch-status');
       const body = await res.json() as { statuses: Record<string, { status: string }> };
-      expect(body.statuses['aabbccdd11223344'].status).toBe('running');
+      expect(body.statuses['aabbccdd11223344'].status).toBe('stopped');
     });
 
-    it('reconciles the fallback (pre-migration, no metadata) path too', async () => {
+    it('reports KV status verbatim on the fallback (pre-migration, no metadata) path too', async () => {
       const staleU = new Date(Date.now() - 600_000).toISOString();
       const session: Session = {
         ...makeSession('aabbccdd11223344', 'running'),
@@ -152,7 +149,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       const app = createApp();
       const res = await app.request('/sessions/batch-status');
       const body = await res.json() as { statuses: Record<string, { status: string }> };
-      expect(body.statuses['aabbccdd11223344'].status).toBe('stopped');
+      expect(body.statuses['aabbccdd11223344'].status).toBe('running');
     });
   });
 

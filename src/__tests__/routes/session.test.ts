@@ -98,13 +98,15 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
       expect(body.sessions[1].id).toBe('session1234567890ab');
     });
 
-    it('reflects status stopped for a running session with a stale metrics heartbeat', async () => {
+    it('keeps a running session running even when its metrics heartbeat is stale (no false downgrade)', async () => {
       const app = createCrudApp();
       // System time pinned to 2024-01-15T10:00:00Z; heartbeat 10 min earlier is stale.
+      // KV status is authoritative (the container writes 'stopped' on exit), so a
+      // stale heartbeat must NOT downgrade a live session - that was the false-kick bug.
       const staleU = '2024-01-15T09:50:00.000Z';
       const session: Session = {
         id: 'phantom1234567890ab',
-        name: 'Phantom',
+        name: 'Live',
         userId: 'test-bucket',
         status: 'running',
         createdAt: '2024-01-15T08:00:00.000Z',
@@ -115,7 +117,7 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
 
       const res = await app.request('/sessions');
       const body = await res.json() as { sessions: Array<{ id: string; status?: string }> };
-      expect(body.sessions[0].status).toBe('stopped');
+      expect(body.sessions[0].status).toBe('running');
     });
 
     it('keeps status running for a running session with a fresh metrics heartbeat', async () => {

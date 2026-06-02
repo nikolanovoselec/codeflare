@@ -17,8 +17,6 @@ import {
   buildSessionMetadata,
   expandSessionMetadata,
   putSessionWithMetadata,
-  reconcileStaleStatus,
-  STALE_RUNNING_MS,
   getBaseUrl,
 } from '../../lib/kv-keys';
 import type { Session } from '../../types';
@@ -371,65 +369,6 @@ describe('putSessionWithMetadata', () => {
       JSON.stringify(session),
       { metadata: expect.objectContaining({ s: 'r' }) },
     );
-  });
-});
-
-
-describe('reconcileStaleStatus', () => {
-  const NOW = Date.parse('2026-06-01T12:00:00Z');
-  const fresh = new Date(NOW - 10_000).toISOString(); // 10s ago
-  const stale = new Date(NOW - (STALE_RUNNING_MS + 60_000)).toISOString(); // >3min ago
-
-  it('downgrades running -> stopped when metrics heartbeat is stale', () => {
-    const result = reconcileStaleStatus({ s: 'r', m: { u: stale } }, NOW);
-    expect(result.s).toBe('s');
-  });
-
-  it('keeps running when metrics heartbeat is fresh', () => {
-    const result = reconcileStaleStatus({ s: 'r', m: { u: fresh } }, NOW);
-    expect(result.s).toBe('r');
-  });
-
-  it('downgrades running -> stopped when no metrics but lastStartedAt is old (startup grace expired)', () => {
-    const result = reconcileStaleStatus({ s: 'r', sa: stale }, NOW);
-    expect(result.s).toBe('s');
-  });
-
-  it('keeps running when no metrics and lastStartedAt is recent (startup grace)', () => {
-    const result = reconcileStaleStatus({ s: 'r', sa: fresh }, NOW);
-    expect(result.s).toBe('r');
-  });
-
-  it('keeps running when no metrics and no lastStartedAt (startup grace)', () => {
-    const result = reconcileStaleStatus({ s: 'r' }, NOW);
-    expect(result.s).toBe('r');
-  });
-
-  it('leaves stopped sessions stopped', () => {
-    const result = reconcileStaleStatus({ s: 's', m: { u: stale } }, NOW);
-    expect(result.s).toBe('s');
-  });
-
-  it('treats an unparseable metrics heartbeat (NaN) as not-stale -> keeps running', () => {
-    const result = reconcileStaleStatus({ s: 'r', m: { u: 'not-a-date' } }, NOW);
-    expect(result.s).toBe('r');
-  });
-
-  it('treats an unparseable lastStartedAt (NaN) as not-stale -> keeps running', () => {
-    const result = reconcileStaleStatus({ s: 'r', sa: 'not-a-date' }, NOW);
-    expect(result.s).toBe('r');
-  });
-
-  it('does not mutate the input metadata (immutable)', () => {
-    const input = { s: 'r' as const, m: { u: stale } };
-    const result = reconcileStaleStatus(input, NOW);
-    expect(input.s).toBe('r');
-    expect(result).not.toBe(input);
-  });
-
-  it('returns the same reference when unchanged', () => {
-    const input = { s: 'r' as const, m: { u: fresh } };
-    expect(reconcileStaleStatus(input, NOW)).toBe(input);
   });
 });
 

@@ -65,13 +65,20 @@ export class container extends Container<Env> implements ContainerEnvState {
   // collectMetrics(), which polls the in-container /activity endpoint every 60s
   // and explicitly calls stop('SIGTERM') when idleMs > idleTimeoutPref.
   //
-  // Why: @cloudflare/containers v0.2.x refreshes the SDK timer on every
-  // WebSocket message in both directions (client↔container). That means the
-  // SDK timer tracks "any activity", whereas we want "user-input activity" -
-  // a container running `tail -f` or `yes` should still sleep when the user
-  // walks away. collectMetrics reads lastInputAt from the in-container
-  // terminal server, which tracks PTY input only, giving us the correct
-  // semantics independent of the SDK.
+  // Why: @cloudflare/containers v0.3.5 refreshes the SDK timer on every
+  // WebSocket message in both directions (client<->container)
+  // (parseTimeExpression('24h') = 86400s). That means the SDK timer tracks
+  // "any activity", whereas we want "user-input activity" - a container running
+  // `tail -f` or `yes` should still sleep when the user walks away.
+  // collectMetrics reads lastInputAt from the in-container terminal server,
+  // which tracks PTY input only, giving us the correct semantics independent of
+  // the SDK.
+  //
+  // NOTE: pinning the SDK timer does NOT stop Cloudflare from reaping an idle
+  // container instance at the platform level. That reap arrives as onError
+  // (the monitor sees the container gone), NOT onActivityExpired/onStop - see
+  // the lifecycle contract above onStart(). It is why containers can stop with
+  // none of our timeouts having fired.
   override sleepAfter = '24h';
 
   // User-configured idle timeout (5m/15m/30m/1h/2h). Enforced by collectMetrics,
@@ -548,6 +555,46 @@ export class container extends Container<Env> implements ContainerEnvState {
     });
   }
 
+  /**
+   * CONTAINER LIFECYCLE + KV STATUS CONTRACT
+   * (canonical reference - collectMetrics() and kv-keys.ts point here)
+   *
+   * KV `status` ('running' | 'stopped') is the single source of truth the
+   * dashboard reads (REQ-SESSION-010). Keeping it accurate is the job of these
+   * hooks. @cloudflare/containers v0.3.5 invokes them as follows:
+   *
+   *   onStart()            container is up -> write 'running'; (re)arm the
+   *                        collectMetrics alarm loop.
+   *   onStop(params)       GRACEFUL stop ONLY - reached via stop() / destroy()
+   *                        or the SDK's default onActivityExpired -> write
+   *                        'stopped'. (this._shutdownStartedAt is set only by
+   *                        destroy(), so onStop's shutdownElapsedMs is non-null
+   *                        ONLY for a user Stop/Delete; null for other stops.)
+   *   onError(error)       UNEXPECTED exit caught by the SDK container monitor:
+   *                        a process crash, a Worker code DEPLOY that resets the
+   *                        DO ("Durable Object reset because its code was
+   *                        updated") and rolls the running container, or
+   *                        Cloudflare reaping an idle container at the platform
+   *                        level. The SDK does NOT call onStop here, so onError
+   *                        MUST write 'stopped' or the session dangles 'running'
+   *                        forever (codeflare#153). Empirically this is the
+   *                        COMMON way idle containers die: over a 96h prod
+   *                        sample onActivityExpired fired 0x and the idle-stop
+   *                        3x, while onError fired on every unexpected exit
+   *                        (including a near-daily ~00:00 UTC platform reap and
+   *                        any deploy that lands while a session is live).
+   *   onActivityExpired()  SDK sleepAfter timer (pinned to 24h, see the
+   *                        `sleepAfter` field) -> default stop() -> onStop.
+   *                        Effectively never fires; collectMetrics owns idle.
+   *   destroy()            user Stop/Delete -> graceful SIGTERM -> onStop.
+   *
+   * There is NO legacy 30-minute (or any other) hard idle timeout anywhere -
+   * a recurring misconception. The only idle stops we own are collectMetrics'
+   * idle-stop at idleTimeoutPref (default 2h, logs "idle exceeded threshold")
+   * and the in-container PTY reaper (PTY_KEEPALIVE_MS, a 2h safety net). A
+   * container can still vanish well before any of those via onError
+   * (deploy / platform reap), which is unrelated to any configured timeout.
+   */
   /** Called when the container starts successfully. */
   override async onStart(): Promise<void> {
     this.containerStartedAt = Date.now();
@@ -676,8 +723,13 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   /** Called when the container encounters an error. */
-  override onError(error: unknown): void {
+  override async onError(error: unknown): Promise<void> {
     this.logger.error('Container error', error instanceof Error ? error : new Error(toErrorMessage(error)));
+    // The SDK calls onError (not onStop) on an unexpected container exit, so
+    // write 'stopped' to KV here too - otherwise the session dangles as
+    // 'running' forever. onStart() re-asserts 'running' if the container
+    // restarts; DO methods are serialized so there is no race with onStart.
+    await updateKvStatus(this.ctx, this.env, this._bucketName, 'stopped', 'lastActiveAt');
   }
 
 }

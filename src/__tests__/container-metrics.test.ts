@@ -256,6 +256,36 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toHaveLength(0);
     });
 
+    it('writes status=stopped to KV when the container is not running (dangling-running guard)', async () => {
+      // The container exited unexpectedly (crash / deploy-roll / platform reap).
+      // The SDK calls onError, not onStop, so this early-return is the
+      // authoritative path that marks the session stopped - otherwise it
+      // dangles as 'running' in KV forever.
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+
+      testState.scheduleCalls = [];
+      testState.containerRunning = false;
+      await containerInstance.collectMetrics();
+
+      // Status persisted as stopped...
+      const putCall = mockKV.put.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+      );
+      expect(putCall).toBeDefined();
+      const stored = JSON.parse(putCall![1] as string) as Session;
+      expect(stored.status).toBe('stopped');
+      // ...and the dead loop is NOT re-armed.
+      expect(testState.scheduleCalls).toHaveLength(0);
+    });
+
     it('should handle fetch failure gracefully without crashing', async () => {
       testState.tcpFetchShouldFail = true;
 

@@ -340,12 +340,15 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-<!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 describe -> batch-status uses KV list metadata no kv.get + r/s compression + metrics in metadata + lastActiveAt/lastStartedAt + SESSION_LIST_POLL_INTERVAL_MS constant -> AC1,2,3,5,6; batch-status reconciles stale running sessions -> reconcileStaleStatus staleness path) -->
+<!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 describe -> batch-status uses KV list metadata no kv.get + r/s compression + metrics in metadata + lastActiveAt/lastStartedAt + SESSION_LIST_POLL_INTERVAL_MS constant -> AC1,2,3,5,6; batch-status reports KV status verbatim no staleness reconciliation -> AC8) -->
+<!-- @test: src/__tests__/container-metrics.test.ts (collectMetrics describe -> writes status=stopped to KV when the container is not running -> AC8) -->
+<!-- @test: src/__tests__/container/index.test.ts (onError describe -> updates KV with status stopped on unexpected exit -> AC8) -->
 ### REQ-SESSION-010: Session status observable from dashboard
 
 <!-- @impl: src/routes/session/crud.ts -->
 <!-- @impl: src/routes/session/lifecycle.ts -->
-<!-- @impl: src/lib/kv-keys.ts::reconcileStaleStatus -->
+<!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+<!-- @impl: src/container/index.ts::onError -->
 <!-- @impl: web-ui/src/stores/session-polling.ts -->
 
 **Intent:** The dashboard displays the current status of each session (running, stopped, initializing, stopping, error) with near-real-time updates.
@@ -361,6 +364,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 5. Container metrics (CPU, memory, disk, sync status) are surfaced on the session cards with up to ~60s staleness.
 6. Last-active and last-started timestamps are available for sleep-timer countdown display.
 7. When polling transitions a session to stopped, its terminal connections are disposed; the currently active session is exempt from this poll-driven stop (guarded) and is not cleared.
+8. Persisted status is authoritative: a container that exits for any reason - graceful stop, crash, or an unexpected exit surfaced by the SDK as an error - transitions the persisted status to stopped, so the dashboard reflects reality directly from the KV record with no read-side staleness reconciliation.
 
 **Constraints:**
 

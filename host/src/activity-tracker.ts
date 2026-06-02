@@ -2,17 +2,23 @@
  * Activity tracker for smart hibernation.
  *
  * Tracks WebSocket client connection/disconnection events and user input
- * timestamps to determine container idle time for hibernation decisions.
+ * timestamps. The container DO polls /activity every 60s; its idle policy is
+ * keyed off lastInputAt (PTY keystrokes only) in collectMetrics and stops the
+ * container at the configured idle timeout - see src/container/index.ts.
  *
- * The container DO polls /activity every 60s and renews sleepAfter only
- * when lastInputAt has changed (new user input detected).
+ * NOTE: there is NO 30-minute (or any) disconnect-based auto-expire.
+ * `disconnectedForMs` / `lastAllDisconnectedAt` are still computed here but are
+ * NOT consumed by any stop decision - a vestige of an earlier hibernation
+ * design (the /activity endpoint the DO reads does not even expose them).
  */
 
 import type { ActivityTracker, ActivityInfo, ActivitySessionManager } from './types.js';
 
 export function createActivityTracker(): ActivityTracker {
   const tracker: ActivityTracker = {
-    // Initialize to Date.now() so fresh containers auto-expire after 30min if nobody connects
+    // Vestigial: seeds disconnectedForMs, which no idle-stop consumes anymore
+    // (the DO stops on lastInputAt, not on disconnect). Kept only for the
+    // /activity payload shape; see the header note. NOT a 30-minute timer.
     lastAllDisconnectedAt: Date.now(),
 
     // Called on every WS attach (idempotent — just clears the disconnect timer)
