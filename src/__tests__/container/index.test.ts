@@ -1001,6 +1001,39 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(writtenSession.status).toBe('stopped');
     });
 
+    it('onError updates KV with status stopped (unexpected exit dangling-running guard)', async () => {
+      // The SDK calls onError (not onStop) when a container exits unexpectedly
+      // (crash / deploy-roll / platform reap). onError must persist 'stopped'
+      // so the session does not dangle as 'running' in KV forever.
+      const mockKvPut = vi.fn().mockResolvedValue(undefined);
+      const mockKvGet = vi.fn().mockResolvedValue({
+        id: 'sess123',
+        status: 'running',
+        name: 'Test',
+      });
+      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
+
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      await instance.onError(new Error('Container error'));
+
+      await vi.waitFor(() => {
+        expect(mockKvPut).toHaveBeenCalled();
+      });
+      const putArgs = mockKvPut.mock.calls[0];
+      const writtenSession = JSON.parse(putArgs[1]);
+      expect(writtenSession.status).toBe('stopped');
+    });
+
     it('onStop does NOT set tombstone', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';

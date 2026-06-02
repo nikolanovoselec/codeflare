@@ -27,55 +27,17 @@ export interface SessionListMetadata {
     h?: string;
     /** syncStatus */
     y?: string;
-    /** updatedAt */
+    /**
+     * updatedAt: wall-clock heartbeat re-stamped by collectMetrics every tick
+     * regardless of PTY input. For the metrics-staleness display ONLY - it is
+     * NOT a liveness signal (it freezes whenever the collectMetrics alarm loop
+     * is not running, e.g. during DO/container hibernation). Liveness comes from
+     * the authoritative KV `status`, written by the container lifecycle hooks
+     * (src/container/index.ts onStart/onStop/onError). A heartbeat-age heuristic
+     * here previously caused false "stopped" kicks; removed in codeflare#153.
+     */
     u?: string;
   };
-}
-
-/**
- * A running session is considered stale (presumed stopped) after 5 missed 60s
- * metrics heartbeats. collectMetrics re-stamps metrics.updatedAt (meta.m.u)
- * every 60s while running regardless of PTY input, so it is the liveness
- * heartbeat - NOT lastActiveAt (which only advances on input). 5 cycles (not 3)
- * tolerates a transient /health flap on a live container without falsely
- * reclaiming its slot, and stays well above the frontend 3-minute startup guard.
- */
-export const STALE_RUNNING_MS = 300_000;
-
-/**
- * Read-side staleness reconciliation. Returns a metadata object whose status
- * reflects container liveness inferred from the metrics heartbeat, without
- * any I/O. Pure and immutable - for display/counting only; never written back
- * to KV.
- *
- * A session marked running ('r') is downgraded to stopped ('s') when:
- *   - metrics.updatedAt (m.u) is present and older than STALE_RUNNING_MS, OR
- *   - m.u is absent (no metrics tick yet) but lastStartedAt (sa) is present
- *     and older than STALE_RUNNING_MS (startup grace expired).
- * When m.u is absent and sa is absent or recent, the session is left running
- * (startup grace). Unparseable dates (NaN) are treated as not-stale to avoid
- * false downgrades.
- */
-export function reconcileStaleStatus(meta: SessionListMetadata, now: number): SessionListMetadata {
-  if (meta.s !== 'r') return meta;
-
-  const heartbeat = meta.m?.u;
-  if (heartbeat) {
-    const t = Date.parse(heartbeat);
-    if (!Number.isNaN(t) && now - t > STALE_RUNNING_MS) {
-      return { ...meta, s: 's' };
-    }
-    return meta;
-  }
-
-  // No metrics heartbeat yet - apply startup grace against lastStartedAt.
-  if (meta.sa) {
-    const t = Date.parse(meta.sa);
-    if (!Number.isNaN(t) && now - t > STALE_RUNNING_MS) {
-      return { ...meta, s: 's' };
-    }
-  }
-  return meta;
 }
 
 /** Build compressed list metadata from a Session object. */

@@ -76,7 +76,7 @@ vi.mock('../../lib/agent-config', () => ({
 
 const mockListAllKvKeys = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<unknown>>());
 vi.mock('../../lib/kv-keys', async () => ({
-  // Real pure helpers (reconcileStaleStatus, buildSessionMetadata, ...) come
+  // Real pure helpers (buildSessionMetadata, expandSessionMetadata, ...) come
   // from the actual module; only listAllKvKeys / putSessionWithMetadata are
   // overridden so the test controls KV interaction.
   ...(await vi.importActual<typeof import('../../lib/kv-keys')>('../../lib/kv-keys')),

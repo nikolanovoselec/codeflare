@@ -120,6 +120,32 @@ export async function updateKvStatus(
  * Collect health metrics, detect idle state, ping Timekeeper, and re-arm the schedule.
  *
  * Mutates `state` (lastSeenInputAt, _usageSeconds) in place.
+ *
+ * ALARM-LOOP LIFECYCLE: this runs as a one-shot DO alarm that re-arms itself
+ * (callbacks.schedule(60, ...)) ONLY while ctx.container.running. If the
+ * container is not running on entry, the loop marks the session stopped (the
+ * authoritative catch-all for an exit the SDK surfaced as onError, not onStop)
+ * and returns WITHOUT re-arming; onStart() restarts the loop on the next start.
+ * Consequences worth knowing: (a) DO alarms can fire late (observed ~60s drift
+ * in prod); (b) the loop does NOT run while the DO/container is hibernated, so
+ * the metrics heartbeat (m.u) can go stale on a perfectly healthy session.
+ * That staleness is why a heartbeat-age heuristic is NOT a valid liveness
+ * signal - KV status must come from the lifecycle hooks (see the contract above
+ * container/index.ts::onStart). Removing that heuristic is codeflare#153.
+ *
+ * TIMESTAMP TAXONOMY (four distinct clocks - do not conflate):
+ *   lastInputAt        in-container /activity: wall-clock of the last PTY
+ *                      KEYSTROKE (user input) only. Does NOT advance on terminal
+ *                      OUTPUT, WebSocket traffic, vault/SilverBullet activity, or
+ *                      an autonomously-working agent. The idle reference:
+ *                      idleMs = Date.now() - (lastInputAt ?? containerStartedAt).
+ *   lastSeenInputAt    MetricsState's cached copy of lastInputAt for this tick.
+ *   lastActiveAt (KV)  mirrors lastInputAt (input-driven). Feeds the dashboard
+ *                      sleep-timer countdown. NOT a liveness signal.
+ *   metrics.updatedAt  KV meta m.u: wall-clock re-stamped here EVERY tick
+ *     (m.u)            regardless of input. Metrics-staleness display only; it
+ *                      freezes whenever this loop is not running (see above), so
+ *                      it must not be used to infer liveness.
  */
 export async function collectMetrics(
   state: MetricsState,
@@ -127,10 +153,15 @@ export async function collectMetrics(
   env: Env,
   callbacks: MetricsCallbacks,
 ): Promise<void> {
-  // Don't collect or re-arm if container process is dead.
-  // onStart() will restart the schedule loop on next container start.
+  // Container process is dead (crash, deploy-roll, or platform idle-reap).
+  // The SDK calls onError (not onStop) on an unexpected exit, so neither the
+  // idle-stop nor onStop writes KV here - this is the authoritative catch-all
+  // that marks the session stopped so the dashboard reflects reality instead
+  // of dangling 'running'. Don't re-arm; onStart() restarts the loop on the
+  // next container start.
   if (!ctx.container?.running) {
-    logger.info('collectMetrics: container not running, skipping');
+    logger.info('collectMetrics: container not running, marking stopped');
+    await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
     return;
   }
 

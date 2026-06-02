@@ -423,7 +423,7 @@ describe('Container Lifecycle Routes', () => {
       expect(res.status).toBe(200);
     });
 
-    it('does not count a phantom-running session (stale metrics heartbeat) against the limit', async () => {
+    it('counts every KV-running session against the limit regardless of metrics-heartbeat age', async () => {
       const fetch = createLifecycleApp();
       container().getState.mockResolvedValue({ status: 'stopped' });
       container().fetch.mockResolvedValue(
@@ -432,7 +432,7 @@ describe('Container Lifecycle Routes', () => {
 
       const staleU = new Date(Date.now() - 600_000).toISOString(); // 10 min ago
 
-      // 2 genuinely-running sessions (fresh heartbeat) ...
+      // 2 running sessions with a fresh heartbeat ...
       for (let i = 1; i <= 2; i++) {
         const id = `runningsession${String(i).padStart(8, '0')}`;
         const session = {
@@ -446,25 +446,27 @@ describe('Container Lifecycle Routes', () => {
         };
         mockKV._set(`session:test-bucket:${id}`, session, buildSessionMetadata(session));
       }
-      // ... plus 1 phantom-running session with a stale heartbeat. Without
-      // reconciliation this would be the 3rd slot and block the start.
-      const phantom = {
-        id: 'phantomsession00000001',
-        name: 'Phantom',
+      // ... plus a 3rd running session whose heartbeat is stale. KV status is
+      // authoritative (the container writes 'stopped' on exit), so it still
+      // counts -> 3 running == limit of 3 -> the new start is blocked.
+      const stale = {
+        id: 'stalesession0000000001',
+        name: 'Stale',
         userId: 'test-bucket',
         status: 'running' as const,
         createdAt: new Date().toISOString(),
         lastAccessedAt: new Date().toISOString(),
         metrics: { cpu: '5%', mem: '128MB', hdd: '1GB', syncStatus: 'success', updatedAt: staleU },
       };
-      mockKV._set('session:test-bucket:phantomsession00000001', phantom, buildSessionMetadata(phantom));
+      mockKV._set('session:test-bucket:stalesession0000000001', stale, buildSessionMetadata(stale));
 
       const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
         method: 'POST',
       });
 
-      // Only 2 effective running sessions < limit of 3 -> start allowed.
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(402);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('QUOTA_EXCEEDED');
     });
 
     it('excludes the session being started from running count (restart)', async () => {
