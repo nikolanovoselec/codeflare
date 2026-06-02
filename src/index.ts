@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { HTTPException } from 'hono/http-exception';
 import type { Env } from './types';
 import userRoutes from './routes/user-profile';
 import containerRoutes from './routes/container/index';
@@ -278,6 +279,12 @@ app.onError((err, c) => {
       statusCode: err.statusCode,
     });
     return c.json(err.toJSON(), err.statusCode as AppStatusCode);
+  }
+
+  // Hono throws HTTPException for framework-level rejections (e.g. bodyLimit ->
+  // 413). Preserve its real status instead of masking it as a generic 500.
+  if (err instanceof HTTPException) {
+    return err.getResponse();
   }
 
   logger.error('Unexpected error', toError(err), { requestId });
