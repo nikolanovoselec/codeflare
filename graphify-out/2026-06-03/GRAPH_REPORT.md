@@ -1,7 +1,7 @@
 # Graph Report - codeflare  (2026-06-03)
 
 ## Corpus Check
-- 754 files · ~1,703,718 words
+- 754 files · ~1,703,752 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `8d6d9917`
+- Built from commit: `c1d3de50`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -595,15 +595,15 @@ Nodes (22): createTestPage(), createMockR2Config(), createTestApp(), createStatu
 
 ### Community 1 - "Claude Agent Manifest"
 Cohesion: 0.04
-Nodes (46): agents/deep-reviewer.md, modes, agents/security-reviewer.md, modes, commands/deploy.md, modes, commands/review.md, modes (+38 more)
+Nodes (46): agents/code-reviewer.md, modes, agents/doc-updater.md, modes, agents/memory-capture.md, modes, agents/spec-reviewer.md, modes (+38 more)
 
 ### Community 2 - "Container Lifecycle Route"
-Cohesion: 0.05
-Nodes (76): getDeployKeys(), getLlmKeys(), collectMetrics(), logger, parseSleepAfterMs(), updateKvStatus(), app, containerStartRateLimiter (+68 more)
+Cohesion: 0.06
+Nodes (70): getDeployKeys(), getLlmKeys(), collectMetrics(), logger, parseSleepAfterMs(), updateKvStatus(), app, containerStartRateLimiter (+62 more)
 
 ### Community 3 - "Worker Input Validation Fuzz Test"
 Cohesion: 0.04
-Nodes (54): app, createMockKV(), MockDelete, MockGet, MockKV, MockList, MockPut, StoreEntry (+46 more)
+Nodes (59): app, createMockKV(), MockDelete, MockGet, MockKV, MockList, MockPut, StoreEntry (+51 more)
 
 ### Community 4 - "Repository Cluster"
 Cohesion: 0.03
@@ -774,16 +774,16 @@ Cohesion: 0.08
 Nodes (29): deleteDeployKeys(), DeployKeysResponse, getPreferences(), markOnboardingComplete(), updateDeployKeys(), updateLlmKeys(), updatePreferences(), mockFetch (+21 more)
 
 ### Community 46 - "Worker Error Types Status Library"
-Cohesion: 0.12
-Nodes (22): containerLogger, app, buildReadyResponse(), buildSyncingResponse(), populateMetrics(), StartupResponse, StartupStage, checkContainerHealth() (+14 more)
+Cohesion: 0.07
+Nodes (33): containerLogger, app, buildReadyResponse(), buildSyncingResponse(), populateMetrics(), StartupResponse, StartupStage, checkContainerHealth() (+25 more)
 
 ### Community 47 - "Docs CI Cd Lane"
 Cohesion: 0.11
 Nodes (23): Cloudflare Deploy Pipeline, PR Checks CI Workflow, CI/CD and Testing Documentation, CodeQL Static Analysis, Dependabot Configuration, Dependabot Weekly Updates, GitHub Dependency Review, Deploy After Green PR Checks Gate (+15 more)
 
 ### Community 48 - "Worker Access Library"
-Cohesion: 0.04
-Nodes (66): authenticateRequest(), getBucketName(), getCookieValue(), getUserFromRequest(), logger, normalizeEmail(), resetAuthConfigCache(), resolveOrProvisionUser() (+58 more)
+Cohesion: 0.07
+Nodes (41): authenticateRequest(), getBucketName(), getCookieValue(), getUserFromRequest(), logger, normalizeEmail(), resetAuthConfigCache(), resolveOrProvisionUser() (+33 more)
 
 ### Community 49 - "Web Mobile Utility"
 Cohesion: 0.10
@@ -874,12 +874,12 @@ Cohesion: 0.20
 Nodes (14): CircuitBreaker, CircuitBreakerOptions, CircuitState, BreakerEntry, cfApiCB, cleanupStaleBreakers(), containerHealthMap, containerInternalMap (+6 more)
 
 ### Community 71 - "Worker Email Library"
-Cohesion: 0.07
-Nodes (43): buildPlanChangeRows(), buildSubscriptionDetailRows(), getModeLabel(), logger, sendAccessRequestNotification(), sendEmail(), SendEmailOptions, sendSubscriptionAdminNotification() (+35 more)
+Cohesion: 0.06
+Nodes (48): CacheModel, CacheReal, CBModel, CBReal, CBState, extractTag(), NUM_RUNS, buildPlanChangeRows() (+40 more)
 
 ### Community 72 - "Worker Subscription Library"
-Cohesion: 0.10
-Nodes (35): getTiersConfigKey(), clampSessionModeToTier(), resolveSessionMode(), ACTIVE_TIERS, countPaidSlots(), EffectiveEntitlements, getAllowedSessionModes(), getDefaultTiers() (+27 more)
+Cohesion: 0.07
+Nodes (48): isActiveUser(), getTiersConfigKey(), clampSessionModeToTier(), resolveSessionMode(), ACTIVE_TIERS, countPaidSlots(), EffectiveEntitlements, getAllowedSessionModes() (+40 more)
 
 ### Community 73 - "Root Package Metadata"
 Cohesion: 0.10
@@ -887,7 +887,7 @@ Nodes (20): scripts, build, deploy, dev, generate:agent-seed, generate:tutorial-
 
 ### Community 74 - "Docs Architecture Lane"
 Cohesion: 0.04
-Nodes (46): agents/code-reviewer.md, modes, agents/doc-updater.md, modes, plugins/codeflare-hooks/scripts/enforce-review-spawn.sh, modes, plugins/codeflare-memory/scripts/memory-capture-block.sh, modes (+38 more)
+Nodes (46): plugins/codeflare-memory/scripts/memory-agent-prompt.md, modes, plugins/codeflare-memory/scripts/memory-capture-block.sh, modes, plugins/codeflare-memory/scripts/memory-context-inject.sh, modes, plugins/codeflare-vault/.claude-plugin/plugin.json, modes (+38 more)
 
 ### Community 75 - "Security Policy Cluster"
 Cohesion: 0.15
@@ -902,8 +902,8 @@ Cohesion: 0.15
 Nodes (15): Cloudflare Credentials Contract, Cloudflare Workers Deployment Pipeline, Cloudflare Resource Provisioning, Credential Check Then Fallback Protocol, Dependency Version Resolution, GitHub Actions Deploy Workflow, GitHub to Cloudflare Shipping Workflow, GitHub Credentials Contract (+7 more)
 
 ### Community 78 - "Worker R2 Seed Library"
-Cohesion: 0.03
-Nodes (66): ensureBucketAndSeed(), mockCreateBucketIfNotExists, mockGetContainer, mockGetOrCreateScopedR2Token, mockGetR2Config, mockGetStoredBucketName, mockSeedGettingStartedDocs, passThroughCB (+58 more)
+Cohesion: 0.05
+Nodes (45): ensureBucketAndSeed(), mockCreateBucketIfNotExists, mockGetContainer, mockGetOrCreateScopedR2Token, mockGetR2Config, mockGetStoredBucketName, mockSeedGettingStartedDocs, passThroughCB (+37 more)
 
 ### Community 79 - "Web Tsconfig Options"
 Cohesion: 0.12
@@ -1346,8 +1346,8 @@ Cohesion: 0.33
 Nodes (6): SDD Clean Mode-Aware Rescue, SDD Git Clean Gate, SDD Init Resume Mode, Spec-Driven Development Command, sdd-clean Skill, sdd-init Skill
 
 ### Community 190 - "Root Knip Config"
-Cohesion: 0.09
-Nodes (22): API Design Patterns, Authentication & Authorization, Backend Development Patterns, Background Jobs & Queues, Cache-Aside Pattern, Caching Strategies, Centralized Error Handler, Error Handling Patterns (+14 more)
+Cohesion: 0.08
+Nodes (26): API Design Patterns, Authentication & Authorization, Backend Development Patterns, Background Jobs & Queues, Cache-Aside Pattern, Caching Strategies, Centralized Error Handler, Database Patterns (+18 more)
 
 ### Community 191 - "Worker Cors Cache Library"
 Cohesion: 0.09
@@ -1874,8 +1874,8 @@ Cohesion: 0.33
 Nodes (5): Build a Personal CV Website with Contact Form, Design, Development Approach, Pages, Technical Details
 
 ### Community 376 - "Community 376"
-Cohesion: 0.40
-Nodes (3): DEFAULT_ALLOWED_ORIGINS, getMaxSessions(), PROTECTED_PATHS
+Cohesion: 0.18
+Nodes (12): createRateLimiter(), logger, RateLimitConfig, createStressTestApp(), createTestApp(), createRateLimitApp(), buildApp(), app (+4 more)
 
 ### Community 377 - "Community 377"
 Cohesion: 0.33
@@ -2002,8 +2002,8 @@ Cohesion: 0.50
 Nodes (4): Cursor-Based (Scalable), Offset-Based (Simple), Pagination, When to Use Which
 
 ### Community 408 - "Community 408"
-Cohesion: 0.50
-Nodes (4): Database Patterns, N+1 Query Prevention, Query Optimization, Transaction Pattern
+Cohesion: 0.15
+Nodes (9): resetUserRecordCache(), mockKV, mockStorage, NOW, THIS_MONTH, THIS_WEEK_START, THIS_YEAR, TODAY (+1 more)
 
 ### Community 409 - "Community 409"
 Cohesion: 0.50
@@ -2069,7 +2069,7 @@ Nodes (3): Review Support, Secret Management, TypeScript/JavaScript Security
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Terminal Tab` connect `E2E Helpers Test` to `Worker Error Types Library`, `Container Lifecycle Route`, `Worker Input Validation Fuzz Test`, `Web Terminal Store`, `Web Use Terminal Hook`, `Web Session Store`, `Docs API Reference Lane`, `Web Tiling Store`, `Web Header Test`, `Worker Vault Route`, `SDD Terminal Spec`, `Web App Onboarding File`, `Web Types File`, `Web Session Tabs Store`, `Setup Access Route`, `Web Session Presets Store`, `Worker Error Types Status Library`, `Worker Access Library`, `Web Mobile Utility`, `Web Layout Component`, `Web Terminal Area Component`, `Web Header Component`, `Worker Circuit Breaker Library`, `Worker Subscription Library`, `Codeflare Ephemeral Cluster`, `SDD Terminal Session Lifecycle Spec`, `Web Terminal Url Detection Store`, `Web Terminal Tabs Component`, `Worker Auth Gaps Test`?**
+- **Why does `Terminal Tab` connect `E2E Helpers Test` to `Worker Error Types Library`, `Container Lifecycle Route`, `Worker Input Validation Fuzz Test`, `Web Terminal Store`, `Web Use Terminal Hook`, `Web Session Store`, `Docs API Reference Lane`, `Web Tiling Store`, `Web Header Test`, `Worker Vault Route`, `SDD Terminal Spec`, `Web App Onboarding File`, `Web Types File`, `Web Session Tabs Store`, `Setup Access Route`, `Web Session Presets Store`, `Worker Error Types Status Library`, `Worker Access Library`, `Web Mobile Utility`, `Web Layout Component`, `Web Terminal Area Component`, `Web Header Component`, `Worker Circuit Breaker Library`, `Worker Email Library`, `Worker Subscription Library`, `Codeflare Ephemeral Cluster`, `SDD Terminal Session Lifecycle Spec`, `Web Terminal Url Detection Store`, `Web Terminal Tabs Component`, `Worker Auth Gaps Test`?**
   _High betweenness centrality (0.073) - this node is a cross-community bridge._
 - **Why does `Subscription Domain Specification` connect `SDD Subscription Spec` to `Web R2 Readiness Store`, `Worker Subscription Library`, `SDD Vault Spec`, `Docs Vault Lane`, `SDD Storage Spec`?**
   _High betweenness centrality (0.018) - this node is a cross-community bridge._
@@ -2082,4 +2082,4 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `Claude Agent Manifest` be split into smaller, more focused modules?**
   _Cohesion score 0.043478260869565216 - nodes in this community are weakly interconnected._
 - **Should `Container Lifecycle Route` be split into smaller, more focused modules?**
-  _Cohesion score 0.04690530770587198 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.056806227645697455 - nodes in this community are weakly interconnected._

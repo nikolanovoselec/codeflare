@@ -1475,8 +1475,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/container/container-env.ts": {
-    "mtime": 1780404229.7820606,
-    "ast_hash": "6b4f68c97a6f8bb1d26da51253ce8bea",
+    "mtime": 1780443291.3024635,
+    "ast_hash": "2fb56e0c2735c3aba40dbdb146a986c5",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/container/container-metrics.ts": {
@@ -2340,8 +2340,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/preferences.test.ts": {
-    "mtime": 1780442106.3504512,
-    "ast_hash": "16c592990d09091e038f2d3502a7abb7",
+    "mtime": 1780443449.3064651,
+    "ast_hash": "955e67f1698c855554e3ee338b3b20b0",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/r2-readiness.test.ts": {
@@ -2890,8 +2890,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/stores/preferences.ts": {
-    "mtime": 1780442074.7504508,
-    "ast_hash": "66273a6d92e14bf9de7dfd2adef6df2b",
+    "mtime": 1780443393.9464645,
+    "ast_hash": "2c272fa7f1fe7ce7a9b748543e0ee3c5",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/stores/r2-readiness.ts": {
@@ -2920,8 +2920,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/stores/session.ts": {
-    "mtime": 1780442564.890456,
-    "ast_hash": "fa857724785e2fc71d401bb74907f936",
+    "mtime": 1780443407.5424647,
+    "ast_hash": "3b0e7afdd831bb7dd35b394d4a6b3c3e",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/web-ui/src/stores/setup.ts": {
@@ -3060,8 +3060,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/documentation/lanes/api-reference.md": {
-    "mtime": 1780441833.7744484,
-    "ast_hash": "62d4c470aa873fe33f49a618e3e48407",
+    "mtime": 1780443646.654467,
+    "ast_hash": "e999ba685fcce9983cee1d2b9d42f60f",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/documentation/lanes/architecture-internals.md": {
@@ -3145,8 +3145,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/documentation/lanes/vault.md": {
-    "mtime": 1780432375.9823508,
-    "ast_hash": "2cc775c4abb0c2d499bb2c03e3290fe9",
+    "mtime": 1780443640.550467,
+    "ast_hash": "a87b8f5bb448f97775f889fafdda48f6",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/preseed/agents/claude/agents/architect.md": {
