@@ -645,3 +645,152 @@ jobs:
           - [ ] CI green (Docker build verifies checksum)
           EOF
           )"
+
+  pi-preseed:
+    # @gotgenes/pi-subagents, @gaodes/pi-graphify and context-mode are pinned
+    # in preseed/agents/pi/package.json AND (for the two pi packages) as literal
+    # install specs in entrypoint.sh's Pi settings `required` array, and all are
+    # baked into src/lib/agent-seed.generated.ts. Dependabot only sees the
+    # manifest, so it cannot keep the entrypoint literals / generated seed in
+    # sync. This job owns every copy and regenerates the seed, like context-mode.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Diff current pins against npm latest
+        id: ver
+        run: |
+          set -euo pipefail
+          PKG=preseed/agents/pi/package.json
+          SUB_CUR=$(jq -r '.dependencies["@gotgenes/pi-subagents"]' "$PKG")
+          GRA_CUR=$(jq -r '.dependencies["@gaodes/pi-graphify"]' "$PKG")
+          CTX_CUR=$(jq -r '.dependencies["context-mode"]' "$PKG")
+          SUB_LAT=$(npm view @gotgenes/pi-subagents version)
+          GRA_LAT=$(npm view @gaodes/pi-graphify version)
+          CTX_LAT=$(npm view context-mode version)
+          {
+            echo "sub_cur=$SUB_CUR"
+            echo "sub_lat=$SUB_LAT"
+            echo "gra_cur=$GRA_CUR"
+            echo "gra_lat=$GRA_LAT"
+            echo "ctx_cur=$CTX_CUR"
+            echo "ctx_lat=$CTX_LAT"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$SUB_CUR" = "$SUB_LAT" ] && [ "$GRA_CUR" = "$GRA_LAT" ] && [ "$CTX_CUR" = "$CTX_LAT" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "All three already latest, nothing to do."
+          else
+            echo "Bumping: subagents $SUB_CUR->$SUB_LAT, graphify $GRA_CUR->$GRA_LAT, context-mode $CTX_CUR->$CTX_LAT"
+          fi
+
+      - name: Skip if a branch for these versions already exists
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        run: |
+          BRANCH="bump/pi-preseed-s${{ steps.ver.outputs.sub_lat }}-g${{ steps.ver.outputs.gra_lat }}-c${{ steps.ver.outputs.ctx_lat }}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply bump
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "${{ steps.branch.outputs.branch }}"
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const e = process.env;
+          // Targeted replacements only (never a bare version replaceAll) so an
+          // unrelated "0.2.2" elsewhere can never be rewritten.
+          function bump(s) {
+            return s
+              .replaceAll(`"@gotgenes/pi-subagents": "${e.SUB_CUR}"`, `"@gotgenes/pi-subagents": "${e.SUB_LAT}"`)
+              .replaceAll(`npm:@gotgenes/pi-subagents@${e.SUB_CUR}`, `npm:@gotgenes/pi-subagents@${e.SUB_LAT}`)
+              .replaceAll(`"@gaodes/pi-graphify": "${e.GRA_CUR}"`, `"@gaodes/pi-graphify": "${e.GRA_LAT}"`)
+              .replaceAll(`npm:@gaodes/pi-graphify@${e.GRA_CUR}`, `npm:@gaodes/pi-graphify@${e.GRA_LAT}`)
+              .replaceAll(`"context-mode": "${e.CTX_CUR}"`, `"context-mode": "${e.CTX_LAT}"`);
+          }
+          const files = [
+            'preseed/agents/pi/package.json',
+            'entrypoint.sh',
+            'src/__tests__/lib/agent-seed-manifest.test.ts',
+          ];
+          for (const f of files) {
+            const before = fs.readFileSync(f, 'utf-8');
+            const after = bump(before);
+            if (before !== after) { fs.writeFileSync(f, after); console.log(`updated ${f}`); }
+          }
+          NODE
+
+          # Regenerate the pi preseed lockfile to match the bumped manifest, then
+          # regenerate the embedded agent seed from the preseed tree.
+          ( cd preseed/agents/pi && npm install --package-lock-only --no-audit --no-fund )
+          npm ci --no-audit --no-fund --silent
+          npm run generate:agent-seed
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing changed (replacements found nothing) - aborting."
+            exit 1
+          fi
+          git commit -m "chore(deps): bump pi preseed (subagents ${SUB_CUR}->${SUB_LAT}, graphify ${GRA_CUR}->${GRA_LAT}, context-mode ${CTX_CUR}->${CTX_LAT})"
+          git push -u origin "${{ steps.branch.outputs.branch }}"
+        env:
+          SUB_CUR: ${{ steps.ver.outputs.sub_cur }}
+          SUB_LAT: ${{ steps.ver.outputs.sub_lat }}
+          GRA_CUR: ${{ steps.ver.outputs.gra_cur }}
+          GRA_LAT: ${{ steps.ver.outputs.gra_lat }}
+          CTX_CUR: ${{ steps.ver.outputs.ctx_cur }}
+          CTX_LAT: ${{ steps.ver.outputs.ctx_lat }}
+
+      - name: Open PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUB_CUR: ${{ steps.ver.outputs.sub_cur }}
+          SUB_LAT: ${{ steps.ver.outputs.sub_lat }}
+          GRA_CUR: ${{ steps.ver.outputs.gra_cur }}
+          GRA_LAT: ${{ steps.ver.outputs.gra_lat }}
+          CTX_CUR: ${{ steps.ver.outputs.ctx_cur }}
+          CTX_LAT: ${{ steps.ver.outputs.ctx_lat }}
+        run: |
+          set -euo pipefail
+          BODY=$(cat <<EOF
+          Auto-generated bump of the Pi preseed npm pins:
+          - \`@gotgenes/pi-subagents\` \`$SUB_CUR\` -> \`$SUB_LAT\`
+          - \`@gaodes/pi-graphify\` \`$GRA_CUR\` -> \`$GRA_LAT\`
+          - \`context-mode\` \`$CTX_CUR\` -> \`$CTX_LAT\`
+
+          These versions are pinned in more than the manifest (the entrypoint.sh Pi \`required\` install specs + the generated agent seed), so Dependabot can't keep them in sync - \`bump-shadow-pins.yml\` owns them.
+
+          Files updated by targeted string replace + lockfile + seed regenerate:
+          - \`preseed/agents/pi/package.json\` + \`package-lock.json\`
+          - \`entrypoint.sh\` (Pi settings \`required\` install specs)
+          - \`src/__tests__/lib/agent-seed-manifest.test.ts\` (pinned-version assertions)
+          - \`src/lib/agent-seed.generated.ts\` (regenerated)
+
+          ## Test plan
+          - [ ] CI green
+          - [ ] Review the \`@gotgenes/pi-subagents\` CHANGELOG for the bumped range - MAJOR bumps can change the subagents API
+          - [ ] Smoke test on integration: Pi loads subagents without error
+          EOF
+          )
+          gh pr create \
+            --base develop \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --title "chore(deps): bump pi preseed (subagents $SUB_LAT, graphify $GRA_LAT, context-mode $CTX_LAT)" \
+            --body "$BODY"

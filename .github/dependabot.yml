@@ -18,15 +18,15 @@ updates:
     schedule:
       interval: weekly
 
-  # Pi agent preseed - real package.json + lockfile (@gaodes/pi-graphify,
-  # @gotgenes/pi-subagents, context-mode). Unlike the Claude-side context-mode
-  # and graphify pins (literal version strings handled by bump-shadow-pins.yml),
-  # these live in a manifest Dependabot can manage natively.
-  - package-ecosystem: npm
-    directory: /preseed/agents/pi
-    target-branch: develop
-    schedule:
-      interval: weekly
+  # Pi agent preseed (@gaodes/pi-graphify, @gotgenes/pi-subagents, context-mode)
+  # is intentionally NOT managed by Dependabot. Although it has a real
+  # package.json + lockfile, every version here is ALSO pinned as a literal
+  # install spec in entrypoint.sh (the Pi settings `required` array) and baked
+  # into src/lib/agent-seed.generated.ts. Dependabot only sees the manifest, so
+  # it would bump the manifest while the entrypoint literal + generated seed
+  # drift out of sync. The `pi-preseed` job in bump-shadow-pins.yml owns these
+  # pins instead: it updates the manifest, lockfile, entrypoint.sh, the
+  # agent-seed-manifest tests, and regenerates the seed in one PR.
 
   - package-ecosystem: docker
     directory: /
