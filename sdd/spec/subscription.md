@@ -155,7 +155,7 @@ Tiers, billing, usage tracking, and quotas.
 1. When the payment provider is configured, the direct-subscribe endpoint rejects paid tiers with a clear "checkout required" error; only the free tier remains directly subscribable.
 2. The checkout endpoint creates a hosted checkout session pre-populated with the visitor's email and the tier/mode metadata, and returns the externally-hosted checkout URL.
 3. After payment, the provider sends a checkout-completed webhook that records the checkout outcome and triggers an authoritative state sync.
-4. The frontend polls the auth-status endpoint after the checkout redirect with a bounded total wait so subscription activation feels immediate to the user.
+4. The frontend polls the auth-status endpoint after the checkout redirect on a fixed interval with no bounded total wait (the poll has no deadline and continues until activation is observed) so subscription activation feels immediate to the user.
 5. The webhook handler covers the three relevant lifecycle events: checkout completion, subscription update, and subscription deletion.
 6. The webhook endpoint is publicly reachable but enforces signed-payload verification with a short timestamp tolerance.
 7. Webhook events are de-duplicated by event identifier with a multi-day retention window so replayed events do not double-apply.
@@ -357,7 +357,7 @@ Tiers, billing, usage tracking, and quotas.
 ### REQ-SUB-010: Tier Config Cached with 60-Second TTL
 
 <!-- @impl: src/lib/subscription.ts::getTierConfig -->
-<!-- @impl: src/lib/cache-reset.ts -->
+<!-- @impl: src/lib/subscription.ts::resetTierConfigCache -->
 <!-- @test: src/__tests__/lib/subscription.test.ts (getTierConfig describe → KV fallback + module cache single-KV-read + resetTierConfigCache cache-bust → AC1-AC5) -->
 
 **Intent:** Tier configuration reads must be fast (avoid KV round-trip on every request) while still reflecting admin changes within a bounded delay.

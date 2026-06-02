@@ -114,7 +114,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 3. Step 3 stores the R2 access credentials as Worker secrets.
 4. On reconfigure, stale users removed from the allowlist are cleaned up before continuing.
 5. Step 4 configures the custom domain by upserting the DNS record and Worker route.
-6. Step 5 upserts the CF Access application, groups, and policies; this step is skipped entirely in SaaS mode.
+6. Step 5 upserts the CF Access application, groups, and policies; this step is bypassed when an OAuth client ID is configured (the SaaS OAuth path per AD38), not unconditionally in SaaS mode.
 7. Step 6 provisions a Turnstile widget when onboarding or SaaS mode is active; Step 7 writes final state and marks setup complete.
 
 **Constraints:**

@@ -1219,7 +1219,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(titleFor('/vault/Docs/report.pdf', '')).toBe('report.pdf');
   });
 
-  it('REQ-VAULT-003 AC8: memory-vault.ts builds the baseline via the canonical-schema helper', () => {
+  it('REQ-VAULT-016: memory-vault.ts builds the baseline via the canonical-schema helper', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
     expect(mv?.content).toContain('deterministicVaultGraph');
     const helpers = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault-helpers.ts');

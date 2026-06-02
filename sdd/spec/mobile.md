@@ -365,7 +365,6 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 ### REQ-MOB-008: Cursor visible for all supported agents
 
 <!-- @impl: web-ui/src/hooks/useTerminal.ts::applyCursorVisibility -->
-<!-- @impl: web-ui/src/lib/terminal-config.ts -->
 
 **Intent:** The terminal cursor must be visible and correctly rendered for all supported CLI agents (Claude Code, Copilot, etc.) without duplication or visual artifacts.
 

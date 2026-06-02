@@ -594,7 +594,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. File download responses use `Content-Disposition: attachment` with sanitized filenames.
 2. Special characters are stripped from filenames.
-3. Filenames are truncated to prevent header injection.
+3. Header-injection control characters are stripped from filenames.
 
 **Constraints:**
 
