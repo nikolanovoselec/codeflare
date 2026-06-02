@@ -14,8 +14,13 @@ export function validateKey(key: string, label = 'key'): string {
   if (sanitized.length > MAX_KEY_LENGTH) {
     throw new ValidationError(`${label} must be at most ${MAX_KEY_LENGTH} characters`);
   }
-  // CF-012: Decode URI-encoded sequences before path traversal check
-  // to catch %2E%2E and double-encoded (%252E%252E) attacks.
+  // CF-012/CF-066: Decode once before the path-traversal check. This rejects
+  // single-encoded sequences such as %2E%2E that decode to '..'. It does NOT
+  // detect double-encoded input (%252E%252E decodes once to the literal '%2E%2E',
+  // which contains no '..' and so passes). That is safe here: the returned key is
+  // used verbatim as an R2 object key (see getR2Url in lib/r2-client.ts) and is
+  // never decoded again, so a stored '%2E%2E' is an inert literal key segment and
+  // cannot traverse.
   let decoded: string;
   try {
     decoded = decodeURIComponent(sanitized);

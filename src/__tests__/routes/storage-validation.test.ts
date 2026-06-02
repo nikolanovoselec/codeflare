@@ -67,4 +67,27 @@ describe('validateKey', () => {
     const result = validateKey('workspace/file.ts');
     expect(result).toBe('workspace/file.ts');
   });
+
+  // CF-066: single-decode traversal guard guarantees, and literal-key handling
+  // of double-encoded input (the comment must not claim double-encode detection).
+  describe('CF-066 path-traversal decode semantics', () => {
+    it('rejects single-encoded traversal that decodes to ..', () => {
+      // %2E%2E decodes once to '..'
+      expect(() => validateKey('foo/%2E%2E/bar')).toThrow('path traversal not allowed');
+      // %2E%2E%2F decodes once to '../'
+      expect(() => validateKey('%2E%2E%2Fbar')).toThrow('path traversal not allowed');
+      // literal '..' is rejected directly
+      expect(() => validateKey('foo/../bar')).toThrow('path traversal not allowed');
+    });
+
+    it('accepts double-encoded input and returns the literal decoded-once key', () => {
+      // %252E%252E decodes ONCE to the literal '%2E%2E' (no '..'), so it passes.
+      // This documents that single-decode validation does NOT detect double-encoding.
+      const result = validateKey('foo/%252E%252E/bar');
+      // The returned key is the literal decoded-once string, used verbatim as the
+      // R2 object key (getR2Url). It still contains '%2E%2E', never re-decoded to '..'.
+      expect(result).toBe('foo/%2E%2E/bar');
+      expect(result).not.toContain('..');
+    });
+  });
 });
