@@ -308,7 +308,10 @@ describe('preseed manifest entries (REQ-VAULT-007 AC1)', () => {
     'skills/vault-operations/SKILL.md',
   ];
   for (const path of required) {
-    it(`registers ${path}`, () => {
+    // CF-052 // REQ-VAULT-007 AC1 anchor in the per-entry test name so each
+    // generated assertion is greppable to the requirement, not just the parent
+    // describe.
+    it(`REQ-VAULT-007 AC1: registers ${path}`, () => {
       assert.ok(manifest[path], `manifest must include ${path}`);
     });
   }
@@ -484,7 +487,10 @@ describe('vault preseed files exist on disk (REQ-VAULT-007 AC1)', () => {
     'preseed/silverbullet/STYLES.md',
   ];
   for (const file of files) {
-    it(`${file} exists`, () => {
+    // CF-052 // REQ-VAULT-007 AC1 anchor in the per-entry test name so each
+    // generated assertion is greppable to the requirement, not just the parent
+    // describe.
+    it(`REQ-VAULT-007 AC1: ${file} exists`, () => {
       assert.ok(existsSync(resolve(repoRoot, file)), `${file} must exist on disk`);
     });
   }

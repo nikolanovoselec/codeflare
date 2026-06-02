@@ -760,6 +760,44 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(mockKvPut).not.toHaveBeenCalled();
     });
 
+    // CF-050
+    // Positive counterpart to the cleared-identifiers test above. That test is a
+    // pure negative (no KV write after destroy clears the identifiers), which on
+    // its own could pass even if onStop never wrote under ANY condition. This
+    // test pins the intended behaviour: with identifiers present, onStop writes
+    // status='stopped' to KV. Together the two prove the negative above is the
+    // result of the cleared identifiers, not of onStop being inert.
+    // REQ-SESSION-018: persisted status is authoritative on container exit.
+    it('onStop writes status=stopped to KV when bucketName + sessionId are present', async () => {
+      const mockKvPut = vi.fn().mockResolvedValue(undefined);
+      const mockKvGet = vi.fn().mockResolvedValue({
+        id: 'sess123',
+        status: 'running',
+        name: 'Test',
+      });
+      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
+
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      await instance.onStop();
+
+      await vi.waitFor(() => {
+        expect(mockKvPut).toHaveBeenCalled();
+      });
+      const writtenSession = JSON.parse(mockKvPut.mock.calls[0][1]);
+      expect(writtenSession.status).toBe('stopped');
+      expect(writtenSession.lastActiveAt).toBeDefined();
+    });
+
     it('graceful shutdown: sends SIGTERM and exits the polling loop once the container reports !running', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
@@ -1068,6 +1106,43 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       await instance.onError(new Error('Transient startup error'));
 
       await new Promise(resolve => setTimeout(resolve, 50));
+      expect(mockKvPut).not.toHaveBeenCalled();
+    });
+
+    // CF-044
+    // Remaining onError branch: container NOT running (so the !running guard is
+    // satisfied and updateKvStatus IS reached) but the identifiers were already
+    // cleared by a prior destroy(). updateKvStatus re-reads sessionId/bucketName
+    // from storage on every call; with both absent it must no-op rather than
+    // resurrect the KV record. This is the post-destroy resurrection guard
+    // documented in onError's comment (destroy() clears identifiers first).
+    // REQ-SESSION-009: a post-destroy write must not resurrect the session.
+    it('onError after destroy does NOT write to KV when identifiers are cleared (resurrection guard)', async () => {
+      const mockKvPut = vi.fn().mockResolvedValue(undefined);
+      const mockKvGet = vi.fn().mockResolvedValue({
+        id: 'sess123',
+        status: 'running',
+        name: 'Test',
+      });
+      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
+
+      // Identifiers already gone (post-destroy): storage returns null for both
+      // bucketName and _sessionId, and _bucketName on the instance is null.
+      mockStorage.get.mockImplementation(async () => null);
+
+      // Unexpected exit: container reports not-running so the !running guard
+      // passes and updateKvStatus is actually invoked.
+      mockContainerRuntime.running = false;
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockCtx.blockConcurrencyWhile).toHaveBeenCalled();
+      });
+
+      await instance.onError(new Error('Unexpected exit after destroy'));
+
+      await new Promise(resolve => setTimeout(resolve, 50));
+      // No identifiers -> updateKvStatus returns early -> no KV write.
       expect(mockKvPut).not.toHaveBeenCalled();
     });
 

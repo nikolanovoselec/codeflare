@@ -286,6 +286,71 @@ describe('useTerminal hook', () => {
     });
   });
 
+  // CF-051
+  // The WS connect effect stores the cleanup function returned by
+  // terminalStore.connect() and invokes it on dispose (the stop path). The
+  // existing URL-detection tests cover start/stopUrlDetection but never assert
+  // that connect() runs, nor that its returned cleanup (which tears down /
+  // allows reconnect of the socket) is invoked on unmount.
+  describe('WebSocket connect / stop path', () => {
+    it('should call terminalStore.connect with the terminal once the session is ready', () => {
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(terminalStore.connect).toHaveBeenCalledWith(
+        defaultProps.sessionId,
+        defaultProps.terminalId,
+        expect.anything(),
+        undefined,
+        false,
+      );
+
+      dispose();
+    });
+
+    it('should invoke the cleanup returned by connect() on dispose (socket teardown / reconnect path)', () => {
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+
+      const connectCleanup = vi.fn();
+      vi.mocked(terminalStore.connect).mockReturnValue(connectCleanup);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Cleanup must not run while the hook is mounted.
+      expect(connectCleanup).not.toHaveBeenCalled();
+
+      dispose();
+
+      // On unmount the connect cleanup runs, tearing down the socket so a
+      // remount can reconnect cleanly.
+      expect(connectCleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('should NOT connect while the session is initializing before the mounting stage', () => {
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(true);
+      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'provisioning' } as any);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(terminalStore.connect).not.toHaveBeenCalled();
+
+      dispose();
+    });
+  });
+
   describe('resize handling', () => {
     it('should register fit addon in the store on mount', () => {
       const dispose = createRoot((dispose) => {

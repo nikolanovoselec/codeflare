@@ -144,6 +144,79 @@ describe('checkRateLimit failClosed semantics / REQ-SEC-019 AC3 (security-critic
   });
 });
 
+// CF-048
+// Happy path: KV is reachable. The fallback/failClosed/cap suites above all
+// drive checkRateLimit with a failing KV; none cover the primary branch where
+// kv.get / kv.put succeed, the window count increments, and the limit is
+// enforced from the KV-backed count. This pins that branch directly.
+describe('checkRateLimit KV happy path / REQ-SEC-007 AC2 (KV is the primary store)', () => {
+  function createWorkingKv(): { kv: KVNamespace; store: Map<string, string> } {
+    const store = new Map<string, string>();
+    const kv = {
+      get: vi.fn(async (key: string, _type?: string) => {
+        const raw = store.get(key);
+        return raw ? JSON.parse(raw) : null;
+      }),
+      put: vi.fn(async (key: string, value: string) => {
+        store.set(key, value);
+      }),
+    } as unknown as KVNamespace;
+    return { kv, store };
+  }
+
+  it('allows the first request and persists the window to KV', async () => {
+    const { checkRateLimit } = await import('../../lib/rate-limit-core');
+    const { kv } = createWorkingKv();
+
+    const result = await checkRateLimit({
+      kv,
+      key: 'happy:user',
+      limit: 3,
+      windowMs: 60_000,
+      ttlSeconds: 120,
+    });
+
+    expect(result.allowed).toBe(true);
+    expect(result.count).toBe(1);
+    expect(result.retryAfterSec).toBe(0);
+    // KV.put is the persistence side-effect of the happy path.
+    expect((kv.put as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
+      'happy:user',
+      expect.any(String),
+      expect.objectContaining({ expirationTtl: 120 }),
+    );
+  });
+
+  it('increments the count from the KV-backed window on subsequent requests', async () => {
+    const { checkRateLimit } = await import('../../lib/rate-limit-core');
+    const { kv } = createWorkingKv();
+    const params = { kv, key: 'happy:counter', limit: 5, windowMs: 60_000, ttlSeconds: 120 };
+
+    const first = await checkRateLimit(params);
+    const second = await checkRateLimit(params);
+    const third = await checkRateLimit(params);
+
+    expect(first.count).toBe(1);
+    expect(second.count).toBe(2);
+    expect(third.count).toBe(3);
+    expect(third.allowed).toBe(true);
+  });
+
+  it('denies once the KV-backed count exceeds the limit and returns a retryAfter', async () => {
+    const { checkRateLimit } = await import('../../lib/rate-limit-core');
+    const { kv } = createWorkingKv();
+    const params = { kv, key: 'happy:limit', limit: 2, windowMs: 60_000, ttlSeconds: 120 };
+
+    await checkRateLimit(params); // count 1
+    await checkRateLimit(params); // count 2 (at limit, still allowed)
+    const overLimit = await checkRateLimit(params); // count 3 -> denied
+
+    expect(overLimit.allowed).toBe(false);
+    expect(overLimit.count).toBe(3);
+    expect(overLimit.retryAfterSec).toBeGreaterThan(0);
+  });
+});
+
 describe('checkRateLimit in-memory fallback size cap / CF-149 (bounded fallback Map evicts oldest entry past MAX_FALLBACK_ENTRIES)', () => {
   // Mirrors the unexported MAX_FALLBACK_ENTRIES in rate-limit-core.ts.
   const MAX_FALLBACK_ENTRIES = 10_000;

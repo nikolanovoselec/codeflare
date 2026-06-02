@@ -495,6 +495,56 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
     });
   });
 
+  // CF-049
+  // REQ-SUB-007: quota enforcement on the SaaS paid-tier monthlySeconds cap.
+  // The existing tests cover the free tier (14400s) and the trialing branch.
+  // Neither covers a paid, ACTIVE (non-trialing) SaaS subscriber tripping the
+  // tier.monthlySeconds else-if branch. 'standard' (active) caps at 144000s.
+  describe('SaaS paid-tier quota enforcement (CF-049)', () => {
+    function mockStandardActiveUser(monthlySeconds: number) {
+      mockKV.get.mockImplementation(async (key: string, type?: string) => {
+        if (key === 'tiers:config') return null; // use defaults
+        if (key.startsWith('user:')) return JSON.stringify({
+          subscriptionTier: 'standard', billingStatus: 'active', role: 'user',
+        });
+        if (key.startsWith('timekeeper:')) {
+          const record = {
+            today: { date: TODAY, seconds: 0 },
+            thisWeek: { weekStart: THIS_WEEK_START, seconds: 0 },
+            thisMonth: { month: THIS_MONTH, seconds: monthlySeconds },
+            thisYear: { year: THIS_YEAR, seconds: monthlySeconds },
+            allTime: { seconds: monthlySeconds },
+            lastUpdatedAt: YESTERDAY,
+          };
+          return type === 'json' ? record : JSON.stringify(record);
+        }
+        return null;
+      });
+    }
+
+    it('returns quotaExceeded=true when an active standard subscriber reaches the 144000s monthly cap', async () => {
+      // 143900 in KV + 200s delta (clamped <=300) crosses 144000.
+      mockStandardActiveUser(143900);
+      const tk = createTimekeeper();
+      const res = await tk.fetch(pingRequest({
+        bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 200, email: 'alice@example.com',
+      }));
+      const body = await res.json() as { quotaExceeded: boolean; totalMonthlySeconds: number };
+      expect(body.quotaExceeded).toBe(true);
+      expect(body.totalMonthlySeconds).toBeGreaterThanOrEqual(144000);
+    });
+
+    it('returns quotaExceeded=false when an active standard subscriber is below the monthly cap', async () => {
+      mockStandardActiveUser(1000);
+      const tk = createTimekeeper();
+      const res = await tk.fetch(pingRequest({
+        bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 60, email: 'alice@example.com',
+      }));
+      const body = await res.json() as { quotaExceeded: boolean };
+      expect(body.quotaExceeded).toBe(false);
+    });
+  });
+
   describe('User record cache', () => {
     it('caches user record across consecutive pings', async () => {
       const userRecord = JSON.stringify({ subscriptionTier: 'standard', billingStatus: 'active' });
