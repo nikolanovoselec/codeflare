@@ -10,8 +10,8 @@ const DEFAULT_TTL_SECONDS = 3600; // 1 hour
 
 /**
  * Audience claim for session JWTs. Minted on new tokens and enforced on verify
- * ONLY when the token carries an `aud` - legacy tokens (minted before this claim
- * existed) verify unchanged for backward compatibility.
+ * whenever an expectedAud is supplied - a token with no `aud`, or a mismatched
+ * `aud`, is rejected.
  */
 export const SESSION_JWT_AUD = 'codeflare-session';
 const HEADER_B64 = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
@@ -97,9 +97,9 @@ export async function signSessionJWT(
  * Verify and decode a session JWT.
  * Returns null if signature invalid, expired, or malformed.
  *
- * When `expectedAud` is provided, the token's `aud` (if present) must match.
- * Legacy tokens minted without an `aud` are accepted regardless of
- * `expectedAud` so old cookies and 2-arg callers stay valid.
+ * When `expectedAud` is provided, the token's `aud` must equal it - a token
+ * with no `aud` claim is rejected. The 2-arg form (no `expectedAud`) skips the
+ * audience check entirely, so callers that do not care about aud stay valid.
  */
 export async function verifySessionJWT(
   token: string,
@@ -146,9 +146,9 @@ export async function verifySessionJWT(
   const now = Math.floor(Date.now() / 1000);
   if (payload.exp <= now) return null;
 
-  // Enforce audience only when both an expected aud and a token aud are present.
-  // Legacy tokens (no aud) remain valid for backward compatibility.
-  if (expectedAud && payload.aud !== undefined && payload.aud !== expectedAud) {
+  // Enforce audience whenever an expectedAud is set. A token with no aud claim,
+  // or with a mismatched aud, is rejected - an aud is required once one is expected.
+  if (expectedAud && payload.aud !== expectedAud) {
     return null;
   }
 
