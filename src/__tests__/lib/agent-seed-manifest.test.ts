@@ -827,7 +827,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(skill?.content).toContain('running session model');
     expect(skill?.content).toContain('Pi main session agent');
     expect(skill?.content).toContain('local-graphify-labels.sh apply .');
-    expect(skill?.content).toContain('graphify cluster-only . --no-label');
+    expect(skill?.content).toContain('existing community assignments');
     expect(skill?.content).not.toContain('graphify label . --backend=gemini');
     expect(skill?.content).not.toContain('--backend=gemini');
     expect(skill?.content).toContain('Do not commit caches, manifests, chunks, or `.graphify_*` intermediates other than `.graphify_labels.json`');

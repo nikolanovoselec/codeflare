@@ -10,7 +10,7 @@ Use this skill for Graphify build, refresh, query, explain, path, and repo/Vault
 Hard rules:
 
 - **Never use external/provider LLM backends for interactive Graphify work.** Do not run `graphify label`, do not pass `--backend`, and do not use Gemini/OpenAI/Anthropic/DeepSeek/Kimi/Ollama extraction from this skill.
-- **Use the Pi main session agent for community labels.** The main session writes `graphify-out/.graphify_labels.json`; then Graphify regenerates report/html locally with `graphify cluster-only . --no-label`.
+- **Use the Pi main session agent for community labels.** The main session writes `graphify-out/.graphify_labels.json`; then Graphify regenerates report/html locally from the graph's existing community assignments.
 - **Use Pi `Agent` subagents only for uncached Full-mode semantic extraction chunks.** Do not run headless semantic extraction for uncached docs/images.
 - **Use official Graphify flows** for AST detection/extraction, graph build/merge, clustering, report generation, HTML generation, query/path/explain, global merge, and callflow export.
 - **Do not hand-edit graph output JSON.** Do not add Codeflare-specific AST allowlists, import rewrites, or graph normalization.
@@ -246,7 +246,7 @@ Then label communities using the **Local main-session community labels** section
 
 This is the only allowed label path in Pi interactive Graphify.
 
-1. Prepare a label worklist:
+1. Prepare a label worklist from the graph's existing community assignments:
 
 ```bash
 bash /home/user/.pi/agent/scripts/local-graphify-labels.sh prepare .
@@ -272,13 +272,9 @@ Every current community id must be present. Labels should be 2–6 words and mus
 bash /home/user/.pi/agent/scripts/local-graphify-labels.sh apply .
 ```
 
-The apply script validates the labels, then runs:
+The apply script validates labels before and after regeneration, then uses Graphify's local Python modules to rebuild `GRAPH_REPORT.md` and `graph.html` from the graph's existing community assignments. It intentionally does **not** recluster during label application, because reclustering can change community IDs after the main session labels them.
 
-```bash
-graphify cluster-only . --no-label
-```
-
-`--no-label` is intentional: it prevents Graphify from falling back to provider labeling if the label file is missing. Never run `graphify label` in this workflow.
+Never run `graphify label` in this workflow.
 
 Every build/update/label-apply path must leave `graphify-out/callflow.html` next to `graph.html`. The installed scripts already run:
 

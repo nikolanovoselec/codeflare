@@ -30,9 +30,9 @@ graphify-out/obsidian/
 .graphify_uncached.txt
 .graphify_chunk_*.txt
 .graphify_old.json
-# Per-machine markers - absolute path / regenerable label cache:
+# Per-machine markers - absolute path / root-level transient labels:
 .graphify_root
-.graphify_labels.json
+/.graphify_labels.json
 
 # Phase 7a source-anchor verifier output (regenerated every /sdd init run)
 .verify-anchors.json

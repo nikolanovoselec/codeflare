@@ -1523,7 +1523,7 @@ None.
 <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md -->
 <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch) → AC4-AC5) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-043 Pi graphify skill override avoids headless semantic extraction and routes uncached Full mode files to Pi Agent subagents -> AC7) -->
 
-**Intent:** Before a `/graphify` build dispatches semantic-extraction subagents, the user must explicitly choose between a free AST-only build and a full build that costs LLM tokens. In Pi, uncached semantic extraction must use running-session Pi `Agent` subagents that inherit the current main-session model; community labels are written by the active Pi main session to `.graphify_labels.json`; official Graphify CLI/module flows own AST extraction, cache merge, graph build, clustering, report generation, visualization, and local `cluster-only --no-label` regeneration.
+**Intent:** Before a `/graphify` build dispatches semantic-extraction subagents, the user must explicitly choose between a free AST-only build and a full build that costs LLM tokens. In Pi, uncached semantic extraction must use running-session Pi `Agent` subagents that inherit the current main-session model; community labels are written by the active Pi main session to `.graphify_labels.json`; official Graphify CLI/module flows own AST extraction, cache merge, graph build, clustering, report generation, and visualization, while label application regenerates report/html from existing graph community assignments.
 
 **Applies To:** Agent
 
@@ -1535,7 +1535,7 @@ None.
 4. In advanced session mode only, Claude Code Part B semantic subagents use the Claude graphify skill's configured reliable extraction model, while Pi Part B semantic subagents omit `model` overrides so they inherit the current main-session model.
 5. Claude's graphify skill never escalates to Opus from this workflow, and Pi's native graphify skill does not name or pin any provider-specific model.
 6. The Part C merge step preserves all data structures produced by Part B subagents - including hyperedges - by saving subagent chunks into Graphify's semantic cache before official Graphify extraction/build consumes the cache.
-7. Pi's native graphify skill does not instruct the agent to run headless semantic extraction or Graphify provider labeling. AST-only initial build uses the Pi-owned first-build script built from Graphify's own modules, AST-only refresh uses the bounded upstream-update wrapper, Full mode uses Pi `Agent` subagents for uncached semantic chunks, the Pi main session writes community labels into `.graphify_labels.json`, and local `graphify cluster-only . --no-label` regenerates the final graph/report/html. Build, update, and label-apply paths generate `graphify-out/callflow.html`.
+7. Pi's native graphify skill does not instruct the agent to run headless semantic extraction or Graphify provider labeling. AST-only initial build uses the Pi-owned first-build script built from Graphify's own modules, AST-only refresh uses the bounded upstream-update wrapper, Full mode uses Pi `Agent` subagents for uncached semantic chunks, the Pi main session writes community labels into `.graphify_labels.json`, and local Graphify module calls regenerate the final report/html from existing graph community assignments. Build, update, and label-apply paths generate `graphify-out/callflow.html`.
 
 **Constraints:**
 

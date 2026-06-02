@@ -4,8 +4,8 @@
 # This script deliberately cannot call Graphify provider labeling. It never uses
 # `graphify label`, `--backend`, Gemini, OpenAI, or any external LLM. The Pi main
 # session reads the prepared worklist and writes graphify-out/.graphify_labels.json;
-# this script validates that file and asks Graphify to regenerate report/html from
-# the existing labels using local clustering only.
+# this script validates that file, regenerates GRAPH_REPORT.md/graph.html from
+# the graph's existing community assignments, and exports callflow.html.
 set -euo pipefail
 
 MODE="${1:-}"
@@ -19,8 +19,9 @@ Usage:
 prepare: write graphify-out/.graphify_community_label_worklist.json and
          graphify-out/.graphify_community_label_batches/*.md for the Pi main
          session to label.
-apply:   validate graphify-out/.graphify_labels.json and regenerate
-         GRAPH_REPORT.md/graph.html locally with graphify cluster-only --no-label.
+apply:   validate graphify-out/.graphify_labels.json, regenerate
+         GRAPH_REPORT.md/graph.html locally from existing graph communities,
+         and export graphify-out/callflow.html.
 USAGE
   exit 2
 fi
@@ -41,11 +42,47 @@ if [ -z "$PY" ]; then
 fi
 [ -n "$PY" ] || { echo "local-graphify-labels: graphify Python interpreter not found" >&2; exit 127; }
 
+validate_labels() {
+  "$PY" - <<'PY'
+import json
+import re
+from pathlib import Path
+
+out = Path('graphify-out')
+graph_path = out / 'graph.json'
+labels_path = out / '.graphify_labels.json'
+if not graph_path.exists():
+    raise SystemExit('local-graphify-labels: graphify-out/graph.json is missing')
+if not labels_path.exists():
+    raise SystemExit('local-graphify-labels: .graphify_labels.json is missing; run prepare and have the Pi main session write labels first')
+
+data = json.loads(graph_path.read_text(encoding='utf-8'))
+communities = sorted({str(n.get('community')) for n in data.get('nodes', []) if n.get('community') is not None}, key=lambda x: int(x) if x.isdigit() else 10**9)
+labels = json.loads(labels_path.read_text(encoding='utf-8'))
+if not isinstance(labels, dict):
+    raise SystemExit('local-graphify-labels: .graphify_labels.json must be a JSON object')
+missing = [cid for cid in communities if cid not in labels]
+blank = [cid for cid in communities if not isinstance(labels.get(cid), str) or not labels.get(cid, '').strip()]
+placeholder = [cid for cid in communities if re.fullmatch(r'Community\s+\d+', str(labels.get(cid, '')).strip())]
+if missing or blank or placeholder:
+    problems = []
+    if missing:
+        problems.append(f"missing={missing[:20]}{'...' if len(missing) > 20 else ''}")
+    if blank:
+        problems.append(f"blank={blank[:20]}{'...' if len(blank) > 20 else ''}")
+    if placeholder:
+        problems.append(f"placeholder={placeholder[:20]}{'...' if len(placeholder) > 20 else ''}")
+    raise SystemExit('local-graphify-labels: invalid labels: ' + '; '.join(problems))
+ordered = {cid: labels[cid].strip() for cid in communities}
+labels_path.write_text(json.dumps(ordered, ensure_ascii=False, indent=2), encoding='utf-8')
+print(f"local-graphify-labels: validated {len(ordered)} labels")
+PY
+}
+
 case "$MODE" in
   prepare)
     "$PY" - <<'PY'
 import json
-import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -147,46 +184,72 @@ print(f"batches:  {batch_dir}")
 PY
     ;;
   apply)
+    validate_labels
     "$PY" - <<'PY'
 import json
-import re
+from collections import defaultdict
 from pathlib import Path
+from graphify.analyze import god_nodes, surprising_connections, suggest_questions
+from graphify.build import build_from_json
+from graphify.cluster import score_all
+from graphify.export import to_html
+from graphify.report import generate
 
+root = Path('.').resolve()
 out = Path('graphify-out')
 graph_path = out / 'graph.json'
 labels_path = out / '.graphify_labels.json'
-if not graph_path.exists():
-    raise SystemExit('local-graphify-labels: graphify-out/graph.json is missing')
-if not labels_path.exists():
-    raise SystemExit('local-graphify-labels: .graphify_labels.json is missing; run prepare and have the Pi main session write labels first')
-
-data = json.loads(graph_path.read_text(encoding='utf-8'))
-communities = sorted({str(n.get('community')) for n in data.get('nodes', []) if n.get('community') is not None}, key=lambda x: int(x) if x.isdigit() else 10**9)
-labels = json.loads(labels_path.read_text(encoding='utf-8'))
-if not isinstance(labels, dict):
-    raise SystemExit('local-graphify-labels: .graphify_labels.json must be a JSON object')
-missing = [cid for cid in communities if cid not in labels]
-blank = [cid for cid, label in labels.items() if not isinstance(label, str) or not label.strip()]
-placeholder = [cid for cid in communities if re.fullmatch(r'Community\s+\d+', str(labels.get(cid, '')).strip())]
-if missing or blank or placeholder:
-    problems = []
-    if missing:
-        problems.append(f"missing={missing[:20]}{'...' if len(missing) > 20 else ''}")
-    if blank:
-        problems.append(f"blank={blank[:20]}{'...' if len(blank) > 20 else ''}")
-    if placeholder:
-        problems.append(f"placeholder={placeholder[:20]}{'...' if len(placeholder) > 20 else ''}")
-    raise SystemExit('local-graphify-labels: invalid labels: ' + '; '.join(problems))
-# Canonicalize keys/order before Graphify reads it.
-ordered = {cid: labels[cid].strip() for cid in communities}
-labels_path.write_text(json.dumps(ordered, ensure_ascii=False, indent=2), encoding='utf-8')
-print(f"local-graphify-labels: validated {len(ordered)} labels")
+raw = json.loads(graph_path.read_text(encoding='utf-8'))
+labels = {int(k): v for k, v in json.loads(labels_path.read_text(encoding='utf-8')).items()}
+G = build_from_json(raw, directed=bool(raw.get('directed', False)), root=root)
+communities_map: dict[int, list[str]] = defaultdict(list)
+next_cid = 0
+for node in raw.get('nodes', []):
+    node_id = node.get('id')
+    if node_id is None:
+        continue
+    cid = node.get('community')
+    if cid is None:
+        while next_cid in communities_map:
+            next_cid += 1
+        cid = next_cid
+        next_cid += 1
+    communities_map[int(cid)].append(node_id)
+communities = {cid: sorted(nodes) for cid, nodes in sorted(communities_map.items())}
+cohesion = score_all(G, communities)
+gods = god_nodes(G)
+surprises = surprising_connections(G, communities)
+questions = suggest_questions(G, communities, labels)
+if Path('.graphify_detect.json').exists():
+    detection = json.loads(Path('.graphify_detect.json').read_text(encoding='utf-8'))
+else:
+    detection = {'warning': 'label apply mode — file stats not available'}
+tokens = {'input': raw.get('input_tokens', 0), 'output': raw.get('output_tokens', 0)}
+report = generate(
+    G,
+    communities,
+    cohesion,
+    labels,
+    gods,
+    surprises,
+    detection,
+    tokens,
+    str(root),
+    suggested_questions=questions,
+    built_at_commit=raw.get('built_at_commit'),
+)
+(out / 'GRAPH_REPORT.md').write_text(report, encoding='utf-8')
+try:
+    to_html(G, communities, out / 'graph.html', community_labels=labels or None)
+except ValueError as exc:
+    html = out / 'graph.html'
+    if html.exists():
+        html.unlink()
+    print(f'local-graphify-labels: skipped graph.html: {exc}')
+print(f"local-graphify-labels: applied labels to {len(communities)} communities")
 PY
-    # --no-label prevents Graphify from falling back to provider labeling if the
-    # labels file is ever absent. With a validated labels file present, cluster-only
-    # reads it and regenerates report/html locally.
-    graphify cluster-only . --no-label
     graphify export callflow-html --graph graphify-out/graph.json --output graphify-out/callflow.html
+    validate_labels
     ;;
   *)
     echo "local-graphify-labels: unknown mode '$MODE'" >&2
