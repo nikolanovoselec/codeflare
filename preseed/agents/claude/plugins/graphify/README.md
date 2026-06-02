@@ -26,7 +26,7 @@ The plugin folder ships a bare manifest (`name`, `description`, `version`), this
   - **SessionStart** (matcher: `startup`) - inspects cwd for `graphify-out/graph.json` and injects a system reminder pointing the agent at `GRAPH_REPORT.md` and the MCP tools.
   - **PostToolUse** (matchers: `Bash`, `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute`) - detects `git clone` and `gh repo clone` invocations and injects a directive instructing the agent to ask the user via AskUserQuestion whether to build a graph for the cloned repo.
 
-graphify is installed globally during the Docker image build via `uv tool install graphifyy[mcp,sql,pdf,gemini]==<ver>`, version read from this plugin's `plugin.json`. The `graphify` CLI shim lands at `/root/.local/bin/graphify`; the MCP server entry-point is `python3 -m graphify.serve` from the same isolated venv. The Gemini extra supports official `graphify label` community naming; semantic extraction still uses the interactive agent workflow.
+graphify is installed globally during the Docker image build via `uv tool install graphifyy[mcp,sql,pdf]==<ver>`, version read from this plugin's `plugin.json`. The `graphify` CLI shim lands at `/root/.local/bin/graphify`; the MCP server entry-point is `python3 -m graphify.serve` from the same isolated venv. Provider/backend extras are intentionally omitted; interactive semantic extraction and community labels are produced by the active agent session, not Graphify provider backends.
 
 Plugin updates ship as a Dependabot PR bumping the version in this `plugin.json`. The Dockerfile reads that file at build time, so the same PR rebuilds the image with the new version, keeping the runtime binary and the plugin manifest in lockstep.
 
@@ -49,6 +49,6 @@ We deliver the plugin folder as a preseed asset (R2 bisync) rather than installi
 
 ## Persistence across sessions
 
-Repo graph persistence lives in git, not R2. When the user can push, commit `graphify-out/graph.json`, `graphify-out/GRAPH_REPORT.md`, and `graphify-out/graph.html` (plus optional `wiki/`) with `graphify-out/graph.json merge=graphify` in `.gitattributes`; caches and intermediates stay ignored. R2 bisync excludes `graphify-out/` so large graph artifacts do not churn session storage.
+Repo graph persistence lives in git, not R2. When the user can push, commit `graphify-out/graph.json`, `graphify-out/GRAPH_REPORT.md`, `graphify-out/graph.html`, `graphify-out/callflow.html`, and `.graphify_labels.json` (plus optional `wiki/`) with `graphify-out/graph.json merge=graphify` in `.gitattributes`; caches and intermediates stay ignored. R2 bisync excludes `graphify-out/` so large graph artifacts do not churn session storage.
 
 See `documentation/decisions/README.md` for the full architecture decision record (AD52).

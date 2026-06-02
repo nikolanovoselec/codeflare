@@ -1445,7 +1445,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. The `graphifyy` Python package is installed in every container image at build time with the MCP, SQL, PDF, and Gemini extras, pinned to a single version Dependabot tracks; version bumps rebuild the image in lockstep. The Gemini extra supports official Graphify community labeling; interactive semantic extraction remains agent-driven.
+1. The `graphifyy` Python package is installed in every container image at build time with the MCP, SQL, and PDF extras, pinned to a single version Dependabot tracks; version bumps rebuild the image in lockstep. Provider/backend extras such as Gemini are not installed for Graphify; interactive semantic extraction and community labeling remain agent-driven.
 2. Claude Code receives the graphify MCP server as a session-level capability in every session (default and advanced modes). Pi receives the equivalent native graphify tool package in every session; the Pi graphify workflow skill, clone triage helper, and build/update scripts are advanced-mode preseed surfaces. MCP parity in Pi is optional and not required for the Pi graphify workflow.
 3. AC1 and AC2 hold across all paid tiers for ambient query/build capability; advanced-mode agent orchestration keeps `/graphify` extraction context bounded via subagent chunking.
 4. The Claude MCP server and Pi native graphify surface both tolerate a missing graph artefact at startup: Claude presents an empty graph initially and rebinds after a graph appears or changes, while advanced-mode Pi prompts for AST-only or Full graph creation after clone and answers queries against the active repository's `graphify-out/graph.json` once it exists.
@@ -1458,7 +1458,7 @@ None.
 - When Pi's packaged native graphify tool resolves the session cwd (`/home/user/workspace`) and reports its `graphify-out/graph.json` missing, the Codeflare Pi adapter retries `graphify_query`, `graphify_path`, and `graphify_explain` against `<active-repo>/graphify-out/graph.json` via the graphify CLI and returns the retry as the tool result.
 - The ambient MCP/native graphify capability is available in every session mode; the graph-first agent discipline ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)), Pi graphify workflow skill/scripts, clone triage helper, and active-repo tracking (AC5) are mode-gated to advanced.
 - Per-branch graphs are not supported; users refresh the graph after a branch checkout.
-- Optional office/video/Neo4j/local-backend extras are not installed by default; users who need them install upstream extras manually. The Gemini extra is installed specifically for official Graphify community labeling.
+- Optional office/video/Neo4j/local-backend/provider extras are not installed by default; users who need them install upstream extras manually. Codeflare's interactive Graphify workflow does not use provider extras for community labeling.
 - Preseed surfaces that refresh an existing graph call the bounded update wrapper rather than bare `graphify update`, so a runaway rebuild cannot OOM-kill the container session. The Pi-owned update wrapper is a thin safety wrapper around upstream `graphify update`: it applies `RLIMIT_AS`, sets `GRAPHIFY_MAX_WORKERS`, preserves `GRAPHIFY_VIZ_NODE_LIMIT`, and does not rewrite graph output. Pi first-time AST graph creation uses `build-graphify-ast.sh`, which calls Graphify's own detect/extract/build/cluster/report/export modules without Codeflare-specific file allowlists or import normalization.
 - The Pi session-start graph summary is bounded against blocking: graphs larger than 30MB report availability without a synchronous parse, the git probes are wrapped with a short timeout, and the structural-search gate is fail-open (any unexpected error never locks the user out of search).
 - The container entrypoint ensures `/dev/shm` is present and tmpfs-mounted at boot. Graphify's AST extractor uses Python's `concurrent.futures.ProcessPoolExecutor`, which allocates a `multiprocessing.Lock` that requires POSIX shared memory at `/dev/shm`; on a cold Firecracker microVM boot the rootfs ships without the mountpoint directory and the executor fails at startup. The same prerequisite covers the memory-capture hook's chunker and the vault-extract subagent's writer.
@@ -1498,7 +1498,7 @@ None.
 3. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, OpenCode, and Antigravity by the seed generator.
 4. The skill documents the safe build path for large repos (more than 2000 files).
 5. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control.
-6. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, and an optional wiki tree.
+6. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, the generated `callflow.html`, `.graphify_labels.json`, and an optional wiki tree.
 7. In advanced session mode only, a soft-nudge hook fires on grep-class tool calls and emits a reminder to prefer the graph MCP tools when a graph exists for the cwd; the hook never blocks.
 
 **Constraints:**
@@ -1523,7 +1523,7 @@ None.
 <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md -->
 <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch) → AC4-AC5) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-043 Pi graphify skill override avoids headless semantic extraction and routes uncached Full mode files to Pi Agent subagents -> AC7) -->
 
-**Intent:** Before a `/graphify` build dispatches semantic-extraction subagents, the user must explicitly choose between a free AST-only build and a full build that costs LLM tokens. In Pi, uncached semantic extraction must use running-session Pi `Agent` subagents that inherit the current main-session model; official Graphify CLI/module flows own AST extraction, cache merge, graph build, clustering, community labeling, report generation, and visualization.
+**Intent:** Before a `/graphify` build dispatches semantic-extraction subagents, the user must explicitly choose between a free AST-only build and a full build that costs LLM tokens. In Pi, uncached semantic extraction must use running-session Pi `Agent` subagents that inherit the current main-session model; community labels are written by the active Pi main session to `.graphify_labels.json`; official Graphify CLI/module flows own AST extraction, cache merge, graph build, clustering, report generation, visualization, and local `cluster-only --no-label` regeneration.
 
 **Applies To:** Agent
 
@@ -1535,7 +1535,7 @@ None.
 4. In advanced session mode only, Claude Code Part B semantic subagents use the Claude graphify skill's configured reliable extraction model, while Pi Part B semantic subagents omit `model` overrides so they inherit the current main-session model.
 5. Claude's graphify skill never escalates to Opus from this workflow, and Pi's native graphify skill does not name or pin any provider-specific model.
 6. The Part C merge step preserves all data structures produced by Part B subagents - including hyperedges - by saving subagent chunks into Graphify's semantic cache before official Graphify extraction/build consumes the cache.
-7. Pi's native graphify skill does not instruct the agent to run headless semantic extraction for uncached docs/images. AST-only initial build uses the Pi-owned first-build script built from Graphify's own modules, AST-only refresh uses the bounded upstream-update wrapper, Full mode uses Pi `Agent` subagents for uncached semantic chunks, and the final graph/report/html uses official `graphify extract` plus `graphify label` after the semantic cache is complete.
+7. Pi's native graphify skill does not instruct the agent to run headless semantic extraction or Graphify provider labeling. AST-only initial build uses the Pi-owned first-build script built from Graphify's own modules, AST-only refresh uses the bounded upstream-update wrapper, Full mode uses Pi `Agent` subagents for uncached semantic chunks, the Pi main session writes community labels into `.graphify_labels.json`, and local `graphify cluster-only . --no-label` regenerates the final graph/report/html. Build, update, and label-apply paths generate `graphify-out/callflow.html`.
 
 **Constraints:**
 

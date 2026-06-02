@@ -88,6 +88,11 @@
       "advanced"
     ]
   },
+  "scripts/local-graphify-labels.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "prompts/memory-agent-prompt.md": {
     "modes": [
       "advanced"

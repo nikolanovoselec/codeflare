@@ -124,3 +124,5 @@ print(
     f'{G.number_of_nodes()} nodes, {G.number_of_edges()} edges, {len(communities)} communities'
 )
 PY
+
+graphify export callflow-html --graph graphify-out/graph.json --output graphify-out/callflow.html

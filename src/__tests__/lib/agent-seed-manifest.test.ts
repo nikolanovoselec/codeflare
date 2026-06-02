@@ -804,6 +804,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(keys.has('.pi/agent/skills/graphify/SKILL.md')).toBe(true);
     expect(keys.has('.pi/agent/scripts/safe-graphify-update.sh')).toBe(true);
     expect(keys.has('.pi/agent/scripts/build-graphify-ast.sh')).toBe(true);
+    expect(keys.has('.pi/agent/scripts/local-graphify-labels.sh')).toBe(true);
     const piPackage = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/npm/package.json');
     expect(piPackage?.content).toContain('"@gaodes/pi-graphify": "0.2.2"');
     for (const key of [
@@ -811,6 +812,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/skills/graphify/SKILL.md',
       '.pi/agent/scripts/safe-graphify-update.sh',
       '.pi/agent/scripts/build-graphify-ast.sh',
+      '.pi/agent/scripts/local-graphify-labels.sh',
     ]) {
       const doc = AGENTS_SEEDED_CONFIGS.find((entry) => entry.key === key);
       expect(doc?.modes, `${key} should be advanced-only`).toEqual(['advanced']);
@@ -823,13 +825,17 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(skill?.content).toContain('safe-graphify-update.sh');
     expect(skill?.content).toContain('Do not pass a model override');
     expect(skill?.content).toContain('running session model');
-    expect(skill?.content).toContain('official Graphify consumes the semantic cache');
-    expect(skill?.content).toContain('graphify label . --backend=gemini');
-    expect(skill?.content).toContain('Do not commit caches, manifests, chunks, or `.graphify_*` intermediates');
+    expect(skill?.content).toContain('Pi main session agent');
+    expect(skill?.content).toContain('local-graphify-labels.sh apply .');
+    expect(skill?.content).toContain('graphify cluster-only . --no-label');
+    expect(skill?.content).not.toContain('graphify label . --backend=gemini');
+    expect(skill?.content).not.toContain('--backend=gemini');
+    expect(skill?.content).toContain('Do not commit caches, manifests, chunks, or `.graphify_*` intermediates other than `.graphify_labels.json`');
     expect(skill?.content).toContain('graphify-out/graph.json merge=graphify');
     expect(skill?.content).toContain('graphify-out/graph.json');
     expect(skill?.content).toContain('graphify-out/GRAPH_REPORT.md');
     expect(skill?.content).toContain('graphify-out/graph.html');
+    expect(skill?.content).toContain('graphify-out/callflow.html');
   });
 
   // Pi as a first-class resident: the Pi manifest's prompts/* entries are emitted

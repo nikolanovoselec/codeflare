@@ -304,15 +304,14 @@ EOF
 # plugin.json so a Dependabot bump to that file rebuilds the image with the
 # new graphify version in lockstep (same pattern as context-mode above).
 #
-# Extras: [mcp,sql,pdf,gemini]
+# Extras: [mcp,sql,pdf]
 #   - mcp: the MCP stdio server (python -m graphify.serve)
 #   - sql: tree-sitter-sql for SQL schema extraction
 #   - pdf: pypdf + markdownify for PDF docs
-#   - gemini: OpenAI-compatible client used by official `graphify label`
-#     community naming. Interactive semantic extraction still uses the agent's
-#     session model via the /graphify skill, not headless provider extraction.
-# Omitted: [office] [google] [video] [neo4j] [ollama] [bedrock]
-#   - users who need other extras can `uv tool install --upgrade graphifyy[all]`.
+# Omitted: provider/backend extras such as [gemini], plus [office] [google]
+# [video] [neo4j] [ollama] [bedrock]. Interactive semantic extraction and
+# community labels are produced by the active agent session, not Graphify
+# provider backends.
 #
 # Layer cost: ~220MB (Python + 30 tree-sitter wheels). One-time at build, not
 # per-session. The `graphify` shim lands at /root/.local/bin/graphify and the
@@ -335,7 +334,7 @@ if [ -z "$VER" ]; then
   echo "[Dockerfile] FATAL: graphify plugin.json has no .version field; build cannot proceed" >&2
   exit 1
 fi
-echo "[Dockerfile] installing graphifyy==$VER with [mcp,sql,pdf,gemini] extras"
+echo "[Dockerfile] installing graphifyy==$VER with [mcp,sql,pdf] extras"
 # graphifyy 0.8.25+ pulls tree-sitter-dm, an sdist-only grammar (no manylinux
 # wheel), which uv compiles from source. tree-sitter-dm builds a CPython
 # extension module, so it needs both a C compiler AND the Python dev headers
@@ -347,7 +346,7 @@ echo "[Dockerfile] installing graphifyy==$VER with [mcp,sql,pdf,gemini] extras"
 # directory" (and, before that, "x86_64-linux-gnu-gcc: No such file or directory").
 apt-get update
 apt-get install -y --no-install-recommends gcc g++ python3-dev
-uv tool install "graphifyy[mcp,sql,pdf,gemini]==$VER"
+uv tool install "graphifyy[mcp,sql,pdf]==$VER"
 apt-get purge -y gcc g++ python3-dev
 apt-get autoremove -y
 rm -rf /var/lib/apt/lists/*

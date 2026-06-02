@@ -6,7 +6,7 @@ trigger: /graphify
 
 # /graphify (Codeflare-managed skill)
 
-This skill drives `/graphify` knowledge-graph extraction inside the Codeflare container. The `graphifyy` Python tool is pre-installed at build time (`uv tool install graphifyy[mcp,sql,pdf,gemini]`); the `graphify` CLI is on PATH at `/root/.local/bin/graphify` and the MCP server is pre-registered in `~/.claude.json` as `/root/.local/share/uv/tools/graphifyy/bin/python -m graphify.serve`. You do not need to install or wire anything.
+This skill drives `/graphify` knowledge-graph extraction inside the Codeflare container. The `graphifyy` Python tool is pre-installed at build time (`uv tool install graphifyy[mcp,sql,pdf]`); the `graphify` CLI is on PATH at `/root/.local/bin/graphify` and the MCP server is pre-registered in `~/.claude.json` as `/root/.local/share/uv/tools/graphifyy/bin/python -m graphify.serve`. You do not need to install or wire anything.
 
 ## Quick Reference
 
@@ -76,7 +76,7 @@ Reruns community detection on existing `graph.json`. No extraction, no tokens.
      graphify-out/graph.json merge=graphify
      ```
      This wires the graphify semantic merge driver for `graph.json`. The driver itself is registered globally in the container image, so this `.gitattributes` line is the only per-repo setup needed. Without it, concurrent edits produce corrupt JSON on merge.
-   - Stage and commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `graph.html`, and optionally `wiki/`.
+   - Stage and commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `graph.html`, `callflow.html`, `.graphify_labels.json`, and optionally `wiki/`.
    - For repos the user does NOT have push permission to (cloned open-source projects, read-only forks): graphify-out/ stays in the working tree only, ephemeral, no R2 fallback. Do not try to persist via bisync.
    - **Before the commit step, merge this repo's graph into the unified global graph** so `mcp__graphify__*` tool calls see it alongside the vault and any other active repos: `flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as <repo-basename>`. Hash-keyed and idempotent. The `flock -w 5` serialises against the capture agent and the vault-extract agent; the 5s timeout prevents a wedged writer from blocking the queue.
 

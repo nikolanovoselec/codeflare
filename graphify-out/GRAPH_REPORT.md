@@ -4,214 +4,214 @@
 - cluster-only mode — file stats not available
 
 ## Summary
-- 4376 nodes · 8605 edges · 298 communities (261 shown, 37 thin omitted)
-- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 87 edges (avg confidence: 0.78)
+- 7006 nodes · 12073 edges · 533 communities (410 shown, 123 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 93 edges (avg confidence: 0.78)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `7767c8ac`
+- Built from commit: `b061ad8a`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_App Configuration and Tiers|App Configuration and Tiers]]
-- [[_COMMUNITY_Metrics and Deployment Utilities|Metrics and Deployment Utilities]]
-- [[_COMMUNITY_AI Agent Manifests|AI Agent Manifests]]
-- [[_COMMUNITY_Stripe Billing and Sessions|Stripe Billing and Sessions]]
-- [[_COMMUNITY_Validation and Cache Helpers|Validation and Cache Helpers]]
-- [[_COMMUNITY_Access Policy Management|Access Policy Management]]
+- [[_COMMUNITY_Auth and Validation Schemas|Auth and Validation Schemas]]
+- [[_COMMUNITY_Container Metrics and Lifecycle|Container Metrics and Lifecycle]]
+- [[_COMMUNITY_Agent and Plugin Scripts|Agent and Plugin Scripts]]
+- [[_COMMUNITY_Stripe Checkout and R2 Config|Stripe Checkout and R2 Config]]
+- [[_COMMUNITY_Community 4|Community 4]]
+- [[_COMMUNITY_Request Authentication Middleware|Request Authentication Middleware]]
 - [[_COMMUNITY_Review Enforcement Logic|Review Enforcement Logic]]
-- [[_COMMUNITY_Repository Context Management|Repository Context Management]]
-- [[_COMMUNITY_User and Subscription UI|User and Subscription UI]]
-- [[_COMMUNITY_Request Authentication Core|Request Authentication Core]]
-- [[_COMMUNITY_Review Job Helpers|Review Job Helpers]]
-- [[_COMMUNITY_Rate Limiting and Vault Auth|Rate Limiting and Vault Auth]]
-- [[_COMMUNITY_Session Lifecycle Management|Session Lifecycle Management]]
-- [[_COMMUNITY_KV Encryption and Credentials|KV Encryption and Credentials]]
-- [[_COMMUNITY_Agent Seeding and Rules|Agent Seeding and Rules]]
+- [[_COMMUNITY_Context Mode Command Logic|Context Mode Command Logic]]
+- [[_COMMUNITY_User and Billing Management|User and Billing Management]]
+- [[_COMMUNITY_OAuth State and Security|OAuth State and Security]]
+- [[_COMMUNITY_Durable Review Job Helpers|Durable Review Job Helpers]]
+- [[_COMMUNITY_Container Status and Metrics|Container Status and Metrics]]
+- [[_COMMUNITY_User Preferences Management|User Preferences Management]]
+- [[_COMMUNITY_App and Storage Mocks|App and Storage Mocks]]
+- [[_COMMUNITY_Bucket and Content Validation|Bucket and Content Validation]]
 - [[_COMMUNITY_Memory Vault Storage|Memory Vault Storage]]
-- [[_COMMUNITY_Container Environment Config|Container Environment Config]]
-- [[_COMMUNITY_API Fetch and Storage|API Fetch and Storage]]
-- [[_COMMUNITY_Backend Design Standards|Backend Design Standards]]
-- [[_COMMUNITY_Auth and Billing UI|Auth and Billing UI]]
-- [[_COMMUNITY_Dashboard Session Components|Dashboard Session Components]]
-- [[_COMMUNITY_Splash Cursor Animation|Splash Cursor Animation]]
-- [[_COMMUNITY_Review Lane Shell Scripts|Review Lane Shell Scripts]]
-- [[_COMMUNITY_Terminal UI and Hooks|Terminal UI and Hooks]]
+- [[_COMMUNITY_Container Environment Configuration|Container Environment Configuration]]
+- [[_COMMUNITY_Fetch Helpers and Storage API|Fetch Helpers and Storage API]]
+- [[_COMMUNITY_API Design and Security|API Design and Security]]
+- [[_COMMUNITY_Login and Billing Pages|Login and Billing Pages]]
+- [[_COMMUNITY_Session Creation Dialogs|Session Creation Dialogs]]
+- [[_COMMUNITY_Splash Cursor UI Component|Splash Cursor UI Component]]
+- [[_COMMUNITY_Review Spawn Shell Scripts|Review Spawn Shell Scripts]]
+- [[_COMMUNITY_Terminal UI Controls|Terminal UI Controls]]
 - [[_COMMUNITY_API Contract Schemas|API Contract Schemas]]
-- [[_COMMUNITY_Storage Browser Component|Storage Browser Component]]
-- [[_COMMUNITY_Durable Review Job Processing|Durable Review Job Processing]]
-- [[_COMMUNITY_Terminal Connection Management|Terminal Connection Management]]
-- [[_COMMUNITY_CI and Cloudflare Skills|CI and Cloudflare Skills]]
-- [[_COMMUNITY_UI Components and Store|UI Components and Store]]
-- [[_COMMUNITY_Agent Seed Generation|Agent Seed Generation]]
-- [[_COMMUNITY_E2E Test Setup|E2E Test Setup]]
-- [[_COMMUNITY_Architecture and Memory Specs|Architecture and Memory Specs]]
-- [[_COMMUNITY_Subscription Requirements|Subscription Requirements]]
-- [[_COMMUNITY_Operations and CICD Specs|Operations and CI/CD Specs]]
-- [[_COMMUNITY_Codeflare Command Extensions|Codeflare Command Extensions]]
-- [[_COMMUNITY_Onboarding and App Initialization|Onboarding and App Initialization]]
-- [[_COMMUNITY_Graph and Vault Skills|Graph and Vault Skills]]
-- [[_COMMUNITY_Container Readiness and Metrics|Container Readiness and Metrics]]
-- [[_COMMUNITY_Container Entrypoint Initialization|Container Entrypoint Initialization]]
-- [[_COMMUNITY_Cloudflare Access Groups|Cloudflare Access Groups]]
-- [[_COMMUNITY_Header and Dashboard Tips|Header and Dashboard Tips]]
-- [[_COMMUNITY_Session Initialization Progress|Session Initialization Progress]]
+- [[_COMMUNITY_Storage Browser UI Component|Storage Browser UI Component]]
+- [[_COMMUNITY_PR Review Command Helpers|PR Review Command Helpers]]
+- [[_COMMUNITY_Terminal WebSocket Debugging|Terminal WebSocket Debugging]]
+- [[_COMMUNITY_Community 28|Community 28]]
+- [[_COMMUNITY_Subscription Tier Management|Subscription Tier Management]]
+- [[_COMMUNITY_Agent Configuration and Seeding|Agent Configuration and Seeding]]
+- [[_COMMUNITY_E2E Session Testing|E2E Session Testing]]
+- [[_COMMUNITY_System Architecture Overview|System Architecture Overview]]
+- [[_COMMUNITY_Billing and Subscription Requirements|Billing and Subscription Requirements]]
+- [[_COMMUNITY_CICD and Operations Specs|CI/CD and Operations Specs]]
+- [[_COMMUNITY_Codeflare Extension Manifests|Codeflare Extension Manifests]]
+- [[_COMMUNITY_Onboarding and Setup Components|Onboarding and Setup Components]]
+- [[_COMMUNITY_Graphify and Vault Skills|Graphify and Vault Skills]]
+- [[_COMMUNITY_Architecture Decision Records|Architecture Decision Records]]
+- [[_COMMUNITY_Container Entrypoint Scripts|Container Entrypoint Scripts]]
+- [[_COMMUNITY_Cloudflare Access App Management|Cloudflare Access App Management]]
+- [[_COMMUNITY_Terminal UI Hooks|Terminal UI Hooks]]
+- [[_COMMUNITY_Initialization Progress UI|Initialization Progress UI]]
 - [[_COMMUNITY_Onboarding and Key Management|Onboarding and Key Management]]
-- [[_COMMUNITY_Core Architecture Overview|Core Architecture Overview]]
-- [[_COMMUNITY_User Preferences API|User Preferences API]]
+- [[_COMMUNITY_Community 44|Community 44]]
+- [[_COMMUNITY_Session Entitlements and Tiers|Session Entitlements and Tiers]]
 - [[_COMMUNITY_Account and Domain Setup|Account and Domain Setup]]
-- [[_COMMUNITY_Terminal Tab Management|Terminal Tab Management]]
-- [[_COMMUNITY_Security and Validation Specs|Security and Validation Specs]]
-- [[_COMMUNITY_R2 Storage Requirements|R2 Storage Requirements]]
-- [[_COMMUNITY_Session Presets Management|Session Presets Management]]
-- [[_COMMUNITY_Agent Definitions and Verification|Agent Definitions and Verification]]
+- [[_COMMUNITY_Session Tab Management|Session Tab Management]]
+- [[_COMMUNITY_Security and Validation Requirements|Security and Validation Requirements]]
+- [[_COMMUNITY_Storage and Sync Requirements|Storage and Sync Requirements]]
+- [[_COMMUNITY_Session Presets and Shells|Session Presets and Shells]]
+- [[_COMMUNITY_AI Agent Definitions|AI Agent Definitions]]
 - [[_COMMUNITY_Security and Auth Documentation|Security and Auth Documentation]]
-- [[_COMMUNITY_Terminal WebSocket Validation|Terminal WebSocket Validation]]
+- [[_COMMUNITY_AI Agent Domain Specs|AI Agent Domain Specs]]
 - [[_COMMUNITY_Session Lifecycle Requirements|Session Lifecycle Requirements]]
 - [[_COMMUNITY_Cloudflare API Client|Cloudflare API Client]]
-- [[_COMMUNITY_Terminal Backend Dependencies|Terminal Backend Dependencies]]
-- [[_COMMUNITY_Terminal Touch Gestures|Terminal Touch Gestures]]
+- [[_COMMUNITY_Project Dependencies|Project Dependencies]]
+- [[_COMMUNITY_Terminal UI and Input|Terminal UI and Input]]
 - [[_COMMUNITY_Vault and Sync Requirements|Vault and Sync Requirements]]
-- [[_COMMUNITY_CICD and Testing Specs|CI/CD and Testing Specs]]
-- [[_COMMUNITY_Setup and Onboarding Specs|Setup and Onboarding Specs]]
-- [[_COMMUNITY_Dashboard File Preview|Dashboard File Preview]]
-- [[_COMMUNITY_Storage Toolbar and Breadcrumbs|Storage Toolbar and Breadcrumbs]]
-- [[_COMMUNITY_Review Helper Utilities|Review Helper Utilities]]
+- [[_COMMUNITY_CICD and Testing Workflows|CI/CD and Testing Workflows]]
+- [[_COMMUNITY_Setup and Onboarding Requirements|Setup and Onboarding Requirements]]
+- [[_COMMUNITY_Dashboard Session Management|Dashboard Session Management]]
+- [[_COMMUNITY_Storage UI Stat Cards|Storage UI Stat Cards]]
+- [[_COMMUNITY_Memory and Vault Requirements|Memory and Vault Requirements]]
 - [[_COMMUNITY_Mobile Terminal Requirements|Mobile Terminal Requirements]]
-- [[_COMMUNITY_Documentation Enforcement Skills|Documentation Enforcement Skills]]
-- [[_COMMUNITY_TDD and Spec Enforcement|TDD and Spec Enforcement]]
-- [[_COMMUNITY_PTY Server Configuration|PTY Server Configuration]]
-- [[_COMMUNITY_Setup Wizard State|Setup Wizard State]]
+- [[_COMMUNITY_Documentation Quality Standards|Documentation Quality Standards]]
+- [[_COMMUNITY_TDD and SDD Configuration|TDD and SDD Configuration]]
+- [[_COMMUNITY_Server and PTY Configuration|Server and PTY Configuration]]
+- [[_COMMUNITY_Specification Change Log|Specification Change Log]]
 - [[_COMMUNITY_Storage Performance Testing|Storage Performance Testing]]
 - [[_COMMUNITY_API Integration Tests|API Integration Tests]]
 - [[_COMMUNITY_Authentication Domain Specs|Authentication Domain Specs]]
-- [[_COMMUNITY_Source Coverage Scripts|Source Coverage Scripts]]
-- [[_COMMUNITY_Lazy Graph Loading|Lazy Graph Loading]]
+- [[_COMMUNITY_Coverage Enumeration Scripts|Coverage Enumeration Scripts]]
+- [[_COMMUNITY_Lazy Graph Implementation|Lazy Graph Implementation]]
 - [[_COMMUNITY_Circuit Breaker Pattern|Circuit Breaker Pattern]]
-- [[_COMMUNITY_Email Notification Service|Email Notification Service]]
-- [[_COMMUNITY_Memory and Sync Requirements|Memory and Sync Requirements]]
-- [[_COMMUNITY_Project Script Commands|Project Script Commands]]
-- [[_COMMUNITY_Graphify Infrastructure Requirements|Graphify Infrastructure Requirements]]
-- [[_COMMUNITY_Cloudflare Deployment Skills|Cloudflare Deployment Skills]]
-- [[_COMMUNITY_Settings Panel Components|Settings Panel Components]]
-- [[_COMMUNITY_Terminal Layout Components|Terminal Layout Components]]
-- [[_COMMUNITY_Agent Review Requirements|Agent Review Requirements]]
+- [[_COMMUNITY_Access Policy Management|Access Policy Management]]
+- [[_COMMUNITY_Plugin and Skill Manifests|Plugin and Skill Manifests]]
+- [[_COMMUNITY_Project Scripts|Project Scripts]]
+- [[_COMMUNITY_Community 78|Community 78]]
+- [[_COMMUNITY_Community 79|Community 79]]
+- [[_COMMUNITY_Settings Panel UI|Settings Panel UI]]
+- [[_COMMUNITY_Terminal Layout Containers|Terminal Layout Containers]]
+- [[_COMMUNITY_Community 82|Community 82]]
 - [[_COMMUNITY_Frontend TypeScript Config|Frontend TypeScript Config]]
-- [[_COMMUNITY_Memory and Vault Pipeline|Memory and Vault Pipeline]]
-- [[_COMMUNITY_Multi-Agent System Specs|Multi-Agent System Specs]]
+- [[_COMMUNITY_Vault and Agent Preseed|Vault and Agent Preseed]]
+- [[_COMMUNITY_Agent Domain Requirements|Agent Domain Requirements]]
+- [[_COMMUNITY_Backend TypeScript Config|Backend TypeScript Config]]
+- [[_COMMUNITY_File Upload Helpers|File Upload Helpers]]
+- [[_COMMUNITY_Terminal and Session Requirements|Terminal and Session Requirements]]
+- [[_COMMUNITY_Session and PTY Management|Session and PTY Management]]
+- [[_COMMUNITY_Session Manager Implementation|Session Manager Implementation]]
 - [[_COMMUNITY_Shared TypeScript Config|Shared TypeScript Config]]
-- [[_COMMUNITY_File Upload Utilities|File Upload Utilities]]
-- [[_COMMUNITY_Terminal and Tab Requirements|Terminal and Tab Requirements]]
-- [[_COMMUNITY_PTY Session Instance|PTY Session Instance]]
-- [[_COMMUNITY_Session Manager Service|Session Manager Service]]
-- [[_COMMUNITY_Root TypeScript Config|Root TypeScript Config]]
-- [[_COMMUNITY_Antigravity and Vault Specs|Antigravity and Vault Specs]]
-- [[_COMMUNITY_Operations and Configuration Specs|Operations and Configuration Specs]]
+- [[_COMMUNITY_Agent and Preseed Updates|Agent and Preseed Updates]]
+- [[_COMMUNITY_Backend Security Architecture|Backend Security Architecture]]
 - [[_COMMUNITY_Layout and View State|Layout and View State]]
-- [[_COMMUNITY_Container Lifecycle Mocks|Container Lifecycle Mocks]]
+- [[_COMMUNITY_API Reference Documentation|API Reference Documentation]]
 - [[_COMMUNITY_Terminal URL Detection|Terminal URL Detection]]
-- [[_COMMUNITY_JWT Authentication Utilities|JWT Authentication Utilities]]
-- [[_COMMUNITY_Vault Cache Cleanup|Vault Cache Cleanup]]
-- [[_COMMUNITY_Turnstile Bot Protection|Turnstile Bot Protection]]
+- [[_COMMUNITY_JWT and JWKS Utilities|JWT and JWKS Utilities]]
+- [[_COMMUNITY_Vault Cache Management|Vault Cache Management]]
+- [[_COMMUNITY_Turnstile and Setup Retry|Turnstile and Setup Retry]]
 - [[_COMMUNITY_Requirement Enforcement Rules|Requirement Enforcement Rules]]
-- [[_COMMUNITY_Documentation Templates|Documentation Templates]]
-- [[_COMMUNITY_Terminal Tab UI|Terminal Tab UI]]
-- [[_COMMUNITY_SDD Initialization Templates|SDD Initialization Templates]]
-- [[_COMMUNITY_Graphify File Scanner|Graphify File Scanner]]
-- [[_COMMUNITY_Setup Flow Mocks|Setup Flow Mocks]]
-- [[_COMMUNITY_Terminal Layout Engine|Terminal Layout Engine]]
-- [[_COMMUNITY_Git Hook Review Reminder|Git Hook Review Reminder]]
-- [[_COMMUNITY_Workflow and Review Skills|Workflow and Review Skills]]
-- [[_COMMUNITY_API Throughput Testing|API Throughput Testing]]
-- [[_COMMUNITY_Session Lifecycle Testing|Session Lifecycle Testing]]
-- [[_COMMUNITY_Usage and Formatting Utilities|Usage and Formatting Utilities]]
-- [[_COMMUNITY_API and Architecture Docs|API and Architecture Docs]]
-- [[_COMMUNITY_Example Project Specifications|Example Project Specifications]]
-- [[_COMMUNITY_Debugging and Brainstorming Rules|Debugging and Brainstorming Rules]]
-- [[_COMMUNITY_CI-Only Development Rules|CI-Only Development Rules]]
-- [[_COMMUNITY_Mock Factory Utilities|Mock Factory Utilities]]
-- [[_COMMUNITY_Storage Integration Tests|Storage Integration Tests]]
-- [[_COMMUNITY_Activity and Prewarm Config|Activity and Prewarm Config]]
-- [[_COMMUNITY_File and Folder Icons|File and Folder Icons]]
-- [[_COMMUNITY_Appearance and Settings UI|Appearance and Settings UI]]
-- [[_COMMUNITY_Core Backend Dependencies|Core Backend Dependencies]]
-- [[_COMMUNITY_Storage Mock Utilities|Storage Mock Utilities]]
-- [[_COMMUNITY_Transcript Cleanup Scripts|Transcript Cleanup Scripts]]
-- [[_COMMUNITY_Test Environment Mocks|Test Environment Mocks]]
-- [[_COMMUNITY_Setup Coverage Tests|Setup Coverage Tests]]
-- [[_COMMUNITY_Timekeeper and Cache Mocks|Timekeeper and Cache Mocks]]
-- [[_COMMUNITY_Bisync Behavior Testing|Bisync Behavior Testing]]
-- [[_COMMUNITY_Vault Extraction Specs|Vault Extraction Specs]]
-- [[_COMMUNITY_Agent Workflow Dispatch|Agent Workflow Dispatch]]
-- [[_COMMUNITY_Frontend Fuzzing and MD5|Frontend Fuzzing and MD5]]
-- [[_COMMUNITY_Graphify Retrieval Skills|Graphify Retrieval Skills]]
-- [[_COMMUNITY_OAuth State Management|OAuth State Management]]
-- [[_COMMUNITY_Context Mode Entrypoint Tests|Context Mode Entrypoint Tests]]
-- [[_COMMUNITY_Frontend Dev Dependencies|Frontend Dev Dependencies]]
-- [[_COMMUNITY_Container Lifecycle API Tests|Container Lifecycle API Tests]]
-- [[_COMMUNITY_Security and Provisioning Specs|Security and Provisioning Specs]]
-- [[_COMMUNITY_R2 Readiness Polling|R2 Readiness Polling]]
-- [[_COMMUNITY_CI and Context-Mode Wiring|CI and Context-Mode Wiring]]
-- [[_COMMUNITY_Multi-Perspective Review Workflow|Multi-Perspective Review Workflow]]
-- [[_COMMUNITY_Git Review Pipeline Specs|Git Review Pipeline Specs]]
-- [[_COMMUNITY_Local Build Block Hook|Local Build Block Hook]]
-- [[_COMMUNITY_Terminal Link Provider|Terminal Link Provider]]
-- [[_COMMUNITY_WebSocket Debug Counters|WebSocket Debug Counters]]
-- [[_COMMUNITY_Memory Capture Pipeline|Memory Capture Pipeline]]
-- [[_COMMUNITY_Backend Test Dependencies|Backend Test Dependencies]]
-- [[_COMMUNITY_Tutorial Seed Generation|Tutorial Seed Generation]]
-- [[_COMMUNITY_Graphify Active Repo Hook|Graphify Active Repo Hook]]
-- [[_COMMUNITY_Terminal Tiling Layouts|Terminal Tiling Layouts]]
-- [[_COMMUNITY_Swift Coding Standards|Swift Coding Standards]]
-- [[_COMMUNITY_SDD Phase Verifier Tests|SDD Phase Verifier Tests]]
-- [[_COMMUNITY_Oxlint Linting Rules|Oxlint Linting Rules]]
-- [[_COMMUNITY_Security Hardening Controls|Security Hardening Controls]]
-- [[_COMMUNITY_Billing and Internals Docs|Billing and Internals Docs]]
-- [[_COMMUNITY_Header Integration Tests|Header Integration Tests]]
-- [[_COMMUNITY_Vault Graph Extraction|Vault Graph Extraction]]
-- [[_COMMUNITY_General Coding Style Rules|General Coding Style Rules]]
-- [[_COMMUNITY_Graphify Plugin Discipline|Graphify Plugin Discipline]]
-- [[_COMMUNITY_AI Toolchain and Graphify|AI Toolchain and Graphify]]
-- [[_COMMUNITY_Storage and Startup Specs|Storage and Startup Specs]]
-- [[_COMMUNITY_Cache Command Pattern|Cache Command Pattern]]
-- [[_COMMUNITY_Terminal Scroll Correction|Terminal Scroll Correction]]
-- [[_COMMUNITY_Source Anchor Verification|Source Anchor Verification]]
-- [[_COMMUNITY_Memory Capture Hook Tests|Memory Capture Hook Tests]]
+- [[_COMMUNITY_Documentation Templates and Ownership|Documentation Templates and Ownership]]
+- [[_COMMUNITY_Terminal Tab UI Config|Terminal Tab UI Config]]
+- [[_COMMUNITY_Documentation Verification Workflow|Documentation Verification Workflow]]
+- [[_COMMUNITY_Graphify Detection Config|Graphify Detection Config]]
+- [[_COMMUNITY_Setup Flow Integration Tests|Setup Flow Integration Tests]]
+- [[_COMMUNITY_Graphify Command Helpers|Graphify Command Helpers]]
+- [[_COMMUNITY_Git Hook Review Tests|Git Hook Review Tests]]
+- [[_COMMUNITY_Documentation and Workflow Skills|Documentation and Workflow Skills]]
+- [[_COMMUNITY_API Throughput Benchmarking|API Throughput Benchmarking]]
+- [[_COMMUNITY_Session Lifecycle Benchmarking|Session Lifecycle Benchmarking]]
+- [[_COMMUNITY_Dashboard UI Components|Dashboard UI Components]]
+- [[_COMMUNITY_API and Documentation Index|API and Documentation Index]]
+- [[_COMMUNITY_Community 113|Community 113]]
+- [[_COMMUNITY_Debugging and Investigation Rules|Debugging and Investigation Rules]]
+- [[_COMMUNITY_Cloudflare Stack Testing Rules|Cloudflare Stack Testing Rules]]
+- [[_COMMUNITY_Test Mock Factories|Test Mock Factories]]
+- [[_COMMUNITY_Mock KV and App Testing|Mock KV and App Testing]]
+- [[_COMMUNITY_Community 118|Community 118]]
+- [[_COMMUNITY_File Icon Mapping|File Icon Mapping]]
+- [[_COMMUNITY_Security and Rate Limiting|Security and Rate Limiting]]
+- [[_COMMUNITY_Backend Package Dependencies|Backend Package Dependencies]]
+- [[_COMMUNITY_Storage Service Integration Tests|Storage Service Integration Tests]]
+- [[_COMMUNITY_Transcript Cleanup Tests|Transcript Cleanup Tests]]
+- [[_COMMUNITY_Setup and WebSocket Mocks|Setup and WebSocket Mocks]]
+- [[_COMMUNITY_Setup Coverage Integration Tests|Setup Coverage Integration Tests]]
+- [[_COMMUNITY_Timekeeper and Cache Tests|Timekeeper and Cache Tests]]
+- [[_COMMUNITY_Community 127|Community 127]]
+- [[_COMMUNITY_Vault and Memory Agents|Vault and Memory Agents]]
+- [[_COMMUNITY_Codeflare Workflow Dispatchers|Codeflare Workflow Dispatchers]]
+- [[_COMMUNITY_API Stress Testing|API Stress Testing]]
+- [[_COMMUNITY_Graphify Skill and Enrichment|Graphify Skill and Enrichment]]
+- [[_COMMUNITY_Vault and Memory System|Vault and Memory System]]
+- [[_COMMUNITY_Entrypoint Context Mode Tests|Entrypoint Context Mode Tests]]
+- [[_COMMUNITY_Community 134|Community 134]]
+- [[_COMMUNITY_Container Lifecycle Integration Tests|Container Lifecycle Integration Tests]]
+- [[_COMMUNITY_Community 136|Community 136]]
+- [[_COMMUNITY_Community 137|Community 137]]
+- [[_COMMUNITY_Community 138|Community 138]]
+- [[_COMMUNITY_Community 139|Community 139]]
+- [[_COMMUNITY_Community 140|Community 140]]
+- [[_COMMUNITY_Community 141|Community 141]]
+- [[_COMMUNITY_Community 142|Community 142]]
+- [[_COMMUNITY_Mobile Terminal Architecture|Mobile Terminal Architecture]]
+- [[_COMMUNITY_Community 144|Community 144]]
+- [[_COMMUNITY_Community 145|Community 145]]
+- [[_COMMUNITY_Community 146|Community 146]]
+- [[_COMMUNITY_Active Repo Detection Hook|Active Repo Detection Hook]]
+- [[_COMMUNITY_Community 148|Community 148]]
+- [[_COMMUNITY_Community 149|Community 149]]
+- [[_COMMUNITY_Community 150|Community 150]]
+- [[_COMMUNITY_Community 151|Community 151]]
+- [[_COMMUNITY_Spec Reviewer Agent Guide|Spec Reviewer Agent Guide]]
+- [[_COMMUNITY_Community 153|Community 153]]
+- [[_COMMUNITY_Community 154|Community 154]]
+- [[_COMMUNITY_Vault Graph Extraction Workflow|Vault Graph Extraction Workflow]]
+- [[_COMMUNITY_Community 156|Community 156]]
+- [[_COMMUNITY_Graphify Infrastructure and Rules|Graphify Infrastructure and Rules]]
+- [[_COMMUNITY_Review Queue Ledger|Review Queue Ledger]]
+- [[_COMMUNITY_Container and Storage Lanes|Container and Storage Lanes]]
+- [[_COMMUNITY_Command Execution Patterns|Command Execution Patterns]]
+- [[_COMMUNITY_Community 161|Community 161]]
+- [[_COMMUNITY_Community 162|Community 162]]
+- [[_COMMUNITY_Community 163|Community 163]]
 - [[_COMMUNITY_System and Disk Metrics|System and Disk Metrics]]
-- [[_COMMUNITY_Knip Dead-Code Config|Knip Dead-Code Config]]
-- [[_COMMUNITY_Frontend Script Commands|Frontend Script Commands]]
-- [[_COMMUNITY_Session API Mock Tests|Session API Mock Tests]]
-- [[_COMMUNITY_SDD Autonomy Modes|SDD Autonomy Modes]]
-- [[_COMMUNITY_Safe Graphify Update Script|Safe Graphify Update Script]]
-- [[_COMMUNITY_Vault and Tier Gating|Vault and Tier Gating]]
-- [[_COMMUNITY_Terminal Disposal Utilities|Terminal Disposal Utilities]]
-- [[_COMMUNITY_Rate Limit Validation Tests|Rate Limit Validation Tests]]
-- [[_COMMUNITY_Frontend UI Dependencies|Frontend UI Dependencies]]
-- [[_COMMUNITY_Memory Vault Graph Skills|Memory Vault Graph Skills]]
-- [[_COMMUNITY_Go Coding Patterns|Go Coding Patterns]]
-- [[_COMMUNITY_LLM Provider Skills|LLM Provider Skills]]
-- [[_COMMUNITY_Review Command Dispatch|Review Command Dispatch]]
-- [[_COMMUNITY_Subagent Package Dependencies|Subagent Package Dependencies]]
-- [[_COMMUNITY_Graphify Session Start Hook|Graphify Session Start Hook]]
-- [[_COMMUNITY_User Preferences Store|User Preferences Store]]
-- [[_COMMUNITY_Graphify Hook Entrypoint Tests|Graphify Hook Entrypoint Tests]]
-- [[_COMMUNITY_Graph-First Nudge Hook|Graph-First Nudge Hook]]
-- [[_COMMUNITY_Preseed Config Treeview Tests|Preseed Config Treeview Tests]]
-- [[_COMMUNITY_Shared Package Metadata|Shared Package Metadata]]
-- [[_COMMUNITY_Vault Entrypoint Audit|Vault Entrypoint Audit]]
-- [[_COMMUNITY_PR Workflow Contracts|PR Workflow Contracts]]
-- [[_COMMUNITY_Content Hash Caching|Content Hash Caching]]
-- [[_COMMUNITY_Deployment and Health Specs|Deployment and Health Specs]]
-- [[_COMMUNITY_Knip Configuration|Knip Configuration]]
-- [[_COMMUNITY_Sleep Timer Logic|Sleep Timer Logic]]
-- [[_COMMUNITY_Marketplace Plugin Registry|Marketplace Plugin Registry]]
-- [[_COMMUNITY_Graphify Clone Prompt Hook|Graphify Clone Prompt Hook]]
-- [[_COMMUNITY_Memory Capture Block Hook|Memory Capture Block Hook]]
-- [[_COMMUNITY_Context Mode Entrypoint Wiring|Context Mode Entrypoint Wiring]]
-- [[_COMMUNITY_Graphify MCP Entrypoint Wiring|Graphify MCP Entrypoint Wiring]]
-- [[_COMMUNITY_Entrypoint Config Merging|Entrypoint Config Merging]]
-- [[_COMMUNITY_Entrypoint Executable Setup|Entrypoint Executable Setup]]
+- [[_COMMUNITY_Community 165|Community 165]]
+- [[_COMMUNITY_Community 166|Community 166]]
+- [[_COMMUNITY_Architectural Design Principles|Architectural Design Principles]]
+- [[_COMMUNITY_Community 168|Community 168]]
+- [[_COMMUNITY_Community 169|Community 169]]
+- [[_COMMUNITY_Doc Updater Agent Guide|Doc Updater Agent Guide]]
+- [[_COMMUNITY_Multi-Agent Review Workflow|Multi-Agent Review Workflow]]
+- [[_COMMUNITY_Community 172|Community 172]]
+- [[_COMMUNITY_Frontend Package Dependencies|Frontend Package Dependencies]]
+- [[_COMMUNITY_System Constraints and Reliability|System Constraints and Reliability]]
+- [[_COMMUNITY_Community 175|Community 175]]
+- [[_COMMUNITY_Community 176|Community 176]]
+- [[_COMMUNITY_Community 177|Community 177]]
+- [[_COMMUNITY_Community 179|Community 179]]
+- [[_COMMUNITY_Community 180|Community 180]]
+- [[_COMMUNITY_Changelog and Commit Discipline|Changelog and Commit Discipline]]
+- [[_COMMUNITY_Community 182|Community 182]]
+- [[_COMMUNITY_Community 183|Community 183]]
+- [[_COMMUNITY_Community 184|Community 184]]
+- [[_COMMUNITY_Community 185|Community 185]]
+- [[_COMMUNITY_Community 186|Community 186]]
+- [[_COMMUNITY_Community 187|Community 187]]
+- [[_COMMUNITY_Content-Hash Caching Pattern|Content-Hash Caching Pattern]]
+- [[_COMMUNITY_CICD Deployment Patterns|CI/CD Deployment Patterns]]
+- [[_COMMUNITY_Community 190|Community 190]]
+- [[_COMMUNITY_Header and Session Stats|Header and Session Stats]]
+- [[_COMMUNITY_Community 192|Community 192]]
+- [[_COMMUNITY_Community 193|Community 193]]
+- [[_COMMUNITY_Community 194|Community 194]]
+- [[_COMMUNITY_Community 195|Community 195]]
+- [[_COMMUNITY_Community 196|Community 196]]
+- [[_COMMUNITY_Community 197|Community 197]]
+- [[_COMMUNITY_Community 198|Community 198]]
 - [[_COMMUNITY_Community 199|Community 199]]
 - [[_COMMUNITY_Community 200|Community 200]]
 - [[_COMMUNITY_Community 201|Community 201]]
@@ -220,7 +220,7 @@
 - [[_COMMUNITY_Community 204|Community 204]]
 - [[_COMMUNITY_Community 205|Community 205]]
 - [[_COMMUNITY_Community 206|Community 206]]
-- [[_COMMUNITY_Community 207|Community 207]]
+- [[_COMMUNITY_Code Reviewer Agent Guide|Code Reviewer Agent Guide]]
 - [[_COMMUNITY_Community 208|Community 208]]
 - [[_COMMUNITY_Community 209|Community 209]]
 - [[_COMMUNITY_Community 210|Community 210]]
@@ -236,16 +236,17 @@
 - [[_COMMUNITY_Community 220|Community 220]]
 - [[_COMMUNITY_Community 221|Community 221]]
 - [[_COMMUNITY_Community 222|Community 222]]
-- [[_COMMUNITY_Community 223|Community 223]]
-- [[_COMMUNITY_Community 224|Community 224]]
+- [[_COMMUNITY_Frontend Development Patterns|Frontend Development Patterns]]
+- [[_COMMUNITY_Backend Development Patterns|Backend Development Patterns]]
 - [[_COMMUNITY_Community 225|Community 225]]
 - [[_COMMUNITY_Community 226|Community 226]]
 - [[_COMMUNITY_Community 227|Community 227]]
 - [[_COMMUNITY_Community 228|Community 228]]
 - [[_COMMUNITY_Community 229|Community 229]]
+- [[_COMMUNITY_Parallel Agent Dispatch Rules|Parallel Agent Dispatch Rules]]
 - [[_COMMUNITY_Community 231|Community 231]]
 - [[_COMMUNITY_Community 232|Community 232]]
-- [[_COMMUNITY_Community 233|Community 233]]
+- [[_COMMUNITY_SDD Workflow and Review|SDD Workflow and Review]]
 - [[_COMMUNITY_Community 234|Community 234]]
 - [[_COMMUNITY_Community 235|Community 235]]
 - [[_COMMUNITY_Community 236|Community 236]]
@@ -275,9 +276,10 @@
 - [[_COMMUNITY_Community 261|Community 261]]
 - [[_COMMUNITY_Community 262|Community 262]]
 - [[_COMMUNITY_Community 263|Community 263]]
+- [[_COMMUNITY_Community 265|Community 265]]
 - [[_COMMUNITY_Community 266|Community 266]]
 - [[_COMMUNITY_Community 267|Community 267]]
-- [[_COMMUNITY_Community 268|Community 268]]
+- [[_COMMUNITY_Subscription System Requirements|Subscription System Requirements]]
 - [[_COMMUNITY_Community 269|Community 269]]
 - [[_COMMUNITY_Community 270|Community 270]]
 - [[_COMMUNITY_Community 271|Community 271]]
@@ -286,22 +288,254 @@
 - [[_COMMUNITY_Community 276|Community 276]]
 - [[_COMMUNITY_Community 280|Community 280]]
 - [[_COMMUNITY_Community 281|Community 281]]
+- [[_COMMUNITY_Community 282|Community 282]]
+- [[_COMMUNITY_Community 283|Community 283]]
+- [[_COMMUNITY_Community 285|Community 285]]
+- [[_COMMUNITY_Community 286|Community 286]]
 - [[_COMMUNITY_Community 287|Community 287]]
 - [[_COMMUNITY_Community 288|Community 288]]
 - [[_COMMUNITY_Community 290|Community 290]]
-- [[_COMMUNITY_Core System Glossary|Core System Glossary]]
+- [[_COMMUNITY_Agent Toolchain Deployment|Agent Toolchain Deployment]]
+- [[_COMMUNITY_Project Quickstart Guide|Project Quickstart Guide]]
+- [[_COMMUNITY_Operations and DevOps Requirements|Operations and DevOps Requirements]]
+- [[_COMMUNITY_Security Infrastructure Requirements|Security Infrastructure Requirements]]
+- [[_COMMUNITY_API Design Standards|API Design Standards]]
+- [[_COMMUNITY_Graphify Operational Notes|Graphify Operational Notes]]
+- [[_COMMUNITY_CICD Testing Documentation|CI/CD Testing Documentation]]
+- [[_COMMUNITY_Authentication Mode Requirements|Authentication Mode Requirements]]
+- [[_COMMUNITY_Database Migration Patterns|Database Migration Patterns]]
+- [[_COMMUNITY_Session State and Presets|Session State and Presets]]
+- [[_COMMUNITY_Authentication Flow Documentation|Authentication Flow Documentation]]
+- [[_COMMUNITY_Environment and Permissions Config|Environment and Permissions Config]]
+- [[_COMMUNITY_Agent Preseed System|Agent Preseed System]]
+- [[_COMMUNITY_Session Lifecycle Requirements|Session Lifecycle Requirements]]
+- [[_COMMUNITY_TDD Testing Antipatterns|TDD Testing Antipatterns]]
+- [[_COMMUNITY_TDD Guide and Workflow|TDD Guide and Workflow]]
+- [[_COMMUNITY_Container Environment Documentation|Container Environment Documentation]]
+- [[_COMMUNITY_Penetration Testing Guide|Penetration Testing Guide]]
+- [[_COMMUNITY_AI Integration Patterns|AI Integration Patterns]]
+- [[_COMMUNITY_Security Reviewer Agent Guide|Security Reviewer Agent Guide]]
+- [[_COMMUNITY_System Architecture Overview|System Architecture Overview]]
+- [[_COMMUNITY_Security Policy Documentation|Security Policy Documentation]]
+- [[_COMMUNITY_Security and Architecture Decisions|Security and Architecture Decisions]]
+- [[_COMMUNITY_Storage and R2 Requirements|Storage and R2 Requirements]]
+- [[_COMMUNITY_Vault and Graph Requirements|Vault and Graph Requirements]]
+- [[_COMMUNITY_Refactor Cleaner Agent Guide|Refactor Cleaner Agent Guide]]
+- [[_COMMUNITY_Troubleshooting and Common Issues|Troubleshooting and Common Issues]]
+- [[_COMMUNITY_Spec-Driven Development Guide|Spec-Driven Development Guide]]
+- [[_COMMUNITY_Requirement and AC Standards|Requirement and AC Standards]]
+- [[_COMMUNITY_Mobile Terminal Requirements|Mobile Terminal Requirements]]
+- [[_COMMUNITY_Project Contribution Guidelines|Project Contribution Guidelines]]
+- [[_COMMUNITY_Graphify Build Workflow|Graphify Build Workflow]]
+- [[_COMMUNITY_SDD Transition Quality Checks|SDD Transition Quality Checks]]
+- [[_COMMUNITY_Setup and Configuration Requirements|Setup and Configuration Requirements]]
+- [[_COMMUNITY_Documentation Enforcement Rules|Documentation Enforcement Rules]]
+- [[_COMMUNITY_Memory and Vault Specs|Memory and Vault Specs]]
+- [[_COMMUNITY_Documentation Truth-Check Passes|Documentation Truth-Check Passes]]
+- [[_COMMUNITY_Storage and Sync Documentation|Storage and Sync Documentation]]
+- [[_COMMUNITY_SDD Lane Emission Workflow|SDD Lane Emission Workflow]]
+- [[_COMMUNITY_Terminal Requirement Specs|Terminal Requirement Specs]]
+- [[_COMMUNITY_Build Error Resolver Guide|Build Error Resolver Guide]]
+- [[_COMMUNITY_Documentation Shape and Templates|Documentation Shape and Templates]]
+- [[_COMMUNITY_Iterative Retrieval Patterns|Iterative Retrieval Patterns]]
+- [[_COMMUNITY_Architecture Internals Documentation|Architecture Internals Documentation]]
+- [[_COMMUNITY_Vault Extraction Agent Workflow|Vault Extraction Agent Workflow]]
+- [[_COMMUNITY_Vault and Note-Taking Guide|Vault and Note-Taking Guide]]
+- [[_COMMUNITY_Project Overview and Tiers|Project Overview and Tiers]]
+- [[_COMMUNITY_Memory Capture Agent Workflow|Memory Capture Agent Workflow]]
+- [[_COMMUNITY_Deployment Process Guide|Deployment Process Guide]]
+- [[_COMMUNITY_Cloudflare Wrangler Templates|Cloudflare Wrangler Templates]]
+- [[_COMMUNITY_Community 348|Community 348]]
+- [[_COMMUNITY_Community 349|Community 349]]
+- [[_COMMUNITY_Community 350|Community 350]]
+- [[_COMMUNITY_Community 351|Community 351]]
+- [[_COMMUNITY_Community 352|Community 352]]
+- [[_COMMUNITY_Community 353|Community 353]]
+- [[_COMMUNITY_Community 354|Community 354]]
+- [[_COMMUNITY_Community 355|Community 355]]
+- [[_COMMUNITY_Community 356|Community 356]]
+- [[_COMMUNITY_Community 357|Community 357]]
+- [[_COMMUNITY_Community 358|Community 358]]
+- [[_COMMUNITY_Community 359|Community 359]]
+- [[_COMMUNITY_Community 360|Community 360]]
+- [[_COMMUNITY_Community 361|Community 361]]
+- [[_COMMUNITY_Community 362|Community 362]]
+- [[_COMMUNITY_Community 363|Community 363]]
+- [[_COMMUNITY_Community 364|Community 364]]
+- [[_COMMUNITY_Community 365|Community 365]]
+- [[_COMMUNITY_Community 366|Community 366]]
+- [[_COMMUNITY_Community 367|Community 367]]
+- [[_COMMUNITY_Community 368|Community 368]]
+- [[_COMMUNITY_Community 369|Community 369]]
+- [[_COMMUNITY_Community 370|Community 370]]
+- [[_COMMUNITY_Community 371|Community 371]]
+- [[_COMMUNITY_Community 372|Community 372]]
+- [[_COMMUNITY_Community 373|Community 373]]
+- [[_COMMUNITY_Community 374|Community 374]]
+- [[_COMMUNITY_Community 375|Community 375]]
+- [[_COMMUNITY_Community 376|Community 376]]
+- [[_COMMUNITY_Community 377|Community 377]]
+- [[_COMMUNITY_Community 378|Community 378]]
+- [[_COMMUNITY_Community 379|Community 379]]
+- [[_COMMUNITY_Community 380|Community 380]]
+- [[_COMMUNITY_Community 381|Community 381]]
+- [[_COMMUNITY_Community 382|Community 382]]
+- [[_COMMUNITY_Community 383|Community 383]]
+- [[_COMMUNITY_Community 384|Community 384]]
+- [[_COMMUNITY_Community 385|Community 385]]
+- [[_COMMUNITY_Community 386|Community 386]]
+- [[_COMMUNITY_Community 387|Community 387]]
+- [[_COMMUNITY_Community 388|Community 388]]
+- [[_COMMUNITY_Community 389|Community 389]]
+- [[_COMMUNITY_Community 390|Community 390]]
+- [[_COMMUNITY_Community 391|Community 391]]
+- [[_COMMUNITY_Community 392|Community 392]]
+- [[_COMMUNITY_Community 393|Community 393]]
+- [[_COMMUNITY_Community 394|Community 394]]
+- [[_COMMUNITY_Community 395|Community 395]]
+- [[_COMMUNITY_Community 396|Community 396]]
+- [[_COMMUNITY_Community 397|Community 397]]
+- [[_COMMUNITY_Community 398|Community 398]]
+- [[_COMMUNITY_Community 399|Community 399]]
+- [[_COMMUNITY_Community 400|Community 400]]
+- [[_COMMUNITY_Community 401|Community 401]]
+- [[_COMMUNITY_Community 402|Community 402]]
+- [[_COMMUNITY_Community 403|Community 403]]
+- [[_COMMUNITY_Community 404|Community 404]]
+- [[_COMMUNITY_Community 405|Community 405]]
+- [[_COMMUNITY_Community 406|Community 406]]
+- [[_COMMUNITY_Community 407|Community 407]]
+- [[_COMMUNITY_Community 408|Community 408]]
+- [[_COMMUNITY_Community 409|Community 409]]
+- [[_COMMUNITY_Community 410|Community 410]]
+- [[_COMMUNITY_Community 411|Community 411]]
+- [[_COMMUNITY_Community 412|Community 412]]
+- [[_COMMUNITY_Community 413|Community 413]]
+- [[_COMMUNITY_Community 414|Community 414]]
+- [[_COMMUNITY_Community 415|Community 415]]
+- [[_COMMUNITY_Community 416|Community 416]]
+- [[_COMMUNITY_Community 417|Community 417]]
+- [[_COMMUNITY_Community 418|Community 418]]
+- [[_COMMUNITY_Community 419|Community 419]]
+- [[_COMMUNITY_Community 420|Community 420]]
+- [[_COMMUNITY_Community 421|Community 421]]
+- [[_COMMUNITY_Community 422|Community 422]]
+- [[_COMMUNITY_Community 423|Community 423]]
+- [[_COMMUNITY_Community 424|Community 424]]
+- [[_COMMUNITY_Community 425|Community 425]]
+- [[_COMMUNITY_Community 426|Community 426]]
+- [[_COMMUNITY_Community 427|Community 427]]
+- [[_COMMUNITY_Community 428|Community 428]]
+- [[_COMMUNITY_Community 429|Community 429]]
+- [[_COMMUNITY_Community 430|Community 430]]
+- [[_COMMUNITY_Community 431|Community 431]]
+- [[_COMMUNITY_Community 432|Community 432]]
+- [[_COMMUNITY_Community 433|Community 433]]
+- [[_COMMUNITY_Community 434|Community 434]]
+- [[_COMMUNITY_Community 435|Community 435]]
+- [[_COMMUNITY_Community 436|Community 436]]
+- [[_COMMUNITY_Community 437|Community 437]]
+- [[_COMMUNITY_Community 438|Community 438]]
+- [[_COMMUNITY_Community 440|Community 440]]
+- [[_COMMUNITY_Community 441|Community 441]]
+- [[_COMMUNITY_Community 442|Community 442]]
+- [[_COMMUNITY_Community 443|Community 443]]
+- [[_COMMUNITY_Community 444|Community 444]]
+- [[_COMMUNITY_Community 445|Community 445]]
+- [[_COMMUNITY_Community 446|Community 446]]
+- [[_COMMUNITY_Community 447|Community 447]]
+- [[_COMMUNITY_Community 448|Community 448]]
+- [[_COMMUNITY_Community 449|Community 449]]
+- [[_COMMUNITY_Community 450|Community 450]]
+- [[_COMMUNITY_Community 451|Community 451]]
+- [[_COMMUNITY_Community 452|Community 452]]
+- [[_COMMUNITY_Community 453|Community 453]]
+- [[_COMMUNITY_Community 454|Community 454]]
+- [[_COMMUNITY_Community 455|Community 455]]
+- [[_COMMUNITY_Community 456|Community 456]]
+- [[_COMMUNITY_Community 457|Community 457]]
+- [[_COMMUNITY_Community 458|Community 458]]
+- [[_COMMUNITY_Community 459|Community 459]]
+- [[_COMMUNITY_Community 460|Community 460]]
+- [[_COMMUNITY_Community 461|Community 461]]
+- [[_COMMUNITY_Community 462|Community 462]]
+- [[_COMMUNITY_Community 463|Community 463]]
+- [[_COMMUNITY_Community 464|Community 464]]
+- [[_COMMUNITY_Community 465|Community 465]]
+- [[_COMMUNITY_Community 466|Community 466]]
+- [[_COMMUNITY_Community 467|Community 467]]
+- [[_COMMUNITY_Community 468|Community 468]]
+- [[_COMMUNITY_Community 469|Community 469]]
+- [[_COMMUNITY_Community 470|Community 470]]
+- [[_COMMUNITY_Community 471|Community 471]]
+- [[_COMMUNITY_Community 472|Community 472]]
+- [[_COMMUNITY_Community 473|Community 473]]
+- [[_COMMUNITY_Community 474|Community 474]]
+- [[_COMMUNITY_Community 475|Community 475]]
+- [[_COMMUNITY_Community 476|Community 476]]
+- [[_COMMUNITY_Community 477|Community 477]]
+- [[_COMMUNITY_Community 478|Community 478]]
+- [[_COMMUNITY_Community 479|Community 479]]
+- [[_COMMUNITY_Community 480|Community 480]]
+- [[_COMMUNITY_Community 481|Community 481]]
+- [[_COMMUNITY_Community 482|Community 482]]
+- [[_COMMUNITY_Community 483|Community 483]]
+- [[_COMMUNITY_Community 484|Community 484]]
+- [[_COMMUNITY_Community 485|Community 485]]
+- [[_COMMUNITY_Community 486|Community 486]]
+- [[_COMMUNITY_Community 487|Community 487]]
+- [[_COMMUNITY_Community 488|Community 488]]
+- [[_COMMUNITY_Community 489|Community 489]]
+- [[_COMMUNITY_Community 490|Community 490]]
+- [[_COMMUNITY_Community 491|Community 491]]
+- [[_COMMUNITY_Community 492|Community 492]]
+- [[_COMMUNITY_Community 493|Community 493]]
+- [[_COMMUNITY_Community 494|Community 494]]
+- [[_COMMUNITY_Community 495|Community 495]]
+- [[_COMMUNITY_Community 496|Community 496]]
+- [[_COMMUNITY_Community 497|Community 497]]
+- [[_COMMUNITY_Community 498|Community 498]]
+- [[_COMMUNITY_Community 499|Community 499]]
+- [[_COMMUNITY_Community 500|Community 500]]
+- [[_COMMUNITY_Community 501|Community 501]]
+- [[_COMMUNITY_Community 502|Community 502]]
+- [[_COMMUNITY_Community 503|Community 503]]
+- [[_COMMUNITY_Community 504|Community 504]]
+- [[_COMMUNITY_Community 505|Community 505]]
+- [[_COMMUNITY_Community 506|Community 506]]
+- [[_COMMUNITY_Community 507|Community 507]]
+- [[_COMMUNITY_Community 508|Community 508]]
+- [[_COMMUNITY_Community 509|Community 509]]
+- [[_COMMUNITY_Community 510|Community 510]]
+- [[_COMMUNITY_Community 511|Community 511]]
+- [[_COMMUNITY_Community 512|Community 512]]
+- [[_COMMUNITY_Community 513|Community 513]]
+- [[_COMMUNITY_Community 514|Community 514]]
+- [[_COMMUNITY_Community 515|Community 515]]
+- [[_COMMUNITY_Community 516|Community 516]]
+- [[_COMMUNITY_Community 517|Community 517]]
+- [[_COMMUNITY_Community 518|Community 518]]
+- [[_COMMUNITY_Community 519|Community 519]]
+- [[_COMMUNITY_Community 520|Community 520]]
+- [[_COMMUNITY_Community 521|Community 521]]
+- [[_COMMUNITY_Community 522|Community 522]]
+- [[_COMMUNITY_Community 523|Community 523]]
+- [[_COMMUNITY_Community 524|Community 524]]
+- [[_COMMUNITY_Community 525|Community 525]]
+- [[_COMMUNITY_Community 526|Community 526]]
+- [[_COMMUNITY_Community 527|Community 527]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `Env` - 104 edges
+1. `Env` - 113 edges
 2. `modes` - 101 edges
 3. `Terminal Tab` - 90 edges
-4. `createMockKV()` - 77 edges
-5. `AuthVariables` - 52 edges
-6. `toError()` - 42 edges
-7. `fetchApi()` - 40 edges
-8. `AppError` - 39 edges
-9. `ValidationError` - 39 edges
-10. `Preferences API` - 39 edges
+4. `createMockKV()` - 85 edges
+5. `Decisions` - 70 edges
+6. `AuthVariables` - 56 edges
+7. `Agents Domain Specification` - 56 edges
+8. `Spec Changes` - 54 edges
+9. `ValidationError` - 44 edges
+10. `toError()` - 43 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `cleanupMapByPrefix()` --calls--> `teardown()`  [INFERRED]
@@ -312,8 +546,8 @@
   host/__tests__/entrypoint-bisync-behavior.test.js → preseed/agents/pi/extensions/memory-vault.ts
 - `AppContent()` --calls--> `AuthError`  [INFERRED]
   web-ui/src/App.tsx → src/lib/error-types.ts
-- `CI/CD and Testing Documentation` --references--> `Shadow Pin Bump Automation`  [EXTRACTED]
-  documentation/lanes/ci-cd.md → .github/workflows/bump-shadow-pins.yml
+- `SubscribePage()` --calls--> `BillingStatus`  [INFERRED]
+  web-ui/src/components/SubscribePage.tsx → src/types.ts
 
 ## Import Cycles
 - None detected.
@@ -386,283 +620,283 @@
 - **Zero-UI Vault Encryption Flow** — req_vault_008, vault_encryption_key, vault_bootstrap_hop, native_service_worker, silverbullet_editor, vault_idb_cache_lifecycle [EXTRACTED 1.00]
 - **Public Landing Social-share Metadata** — req_setup_010, web_ui_index_document, social_share_preview_metadata, codeflare_brand_tagline [EXTRACTED 1.00]
 
-## Communities (298 total, 37 thin omitted)
+## Communities (533 total, 123 thin omitted)
 
-### Community 0 - "App Configuration and Tiers"
+### Community 0 - "Auth and Validation Schemas"
+Cohesion: 0.03
+Nodes (96): app, PutTiersBodySchema, TierConfigSchema, app, Deploy Keys API, createMockKV(), AppError, AuthError (+88 more)
+
+### Community 1 - "Container Metrics and Lifecycle"
+Cohesion: 0.06
+Nodes (70): getDeployKeys(), getLlmKeys(), collectMetrics(), logger, parseSleepAfterMs(), updateKvStatus(), app, containerStartRateLimiter (+62 more)
+
+### Community 2 - "Agent and Plugin Scripts"
 Cohesion: 0.04
-Nodes (57): app, PutTiersBodySchema, TierConfigSchema, app, MockDelete, MockGet, MockKV, MockList (+49 more)
+Nodes (46): agents/code-reviewer.md, modes, agents/doc-updater.md, modes, agents/memory-capture.md, modes, agents/spec-reviewer.md, modes (+38 more)
 
-### Community 1 - "Metrics and Deployment Utilities"
+### Community 3 - "Stripe Checkout and R2 Config"
+Cohesion: 0.06
+Nodes (46): getBucketName(), trimTrailingHyphens(), getBaseUrl(), isValidCustomDomain(), getR2Config(), CachedPrice, CheckoutSessionOptions, CheckoutSessionResult (+38 more)
+
+### Community 4 - "Community 4"
+Cohesion: 0.50
+Nodes (4): Database Patterns, N+1 Query Prevention, Query Optimization, Transaction Pattern
+
+### Community 5 - "Request Authentication Middleware"
 Cohesion: 0.04
-Nodes (72): getDeployKeys(), getLlmKeys(), applyBucketName(), SetBucketNameCreds, collectMetrics(), logger, MetricsCallbacks, MetricsState (+64 more)
-
-### Community 2 - "AI Agent Manifests"
-Cohesion: 0.04
-Nodes (102): agents/architect.md, agents/build-error-resolver.md, agents/code-reviewer.md, agents/deep-reviewer.md, agents/doc-updater.md, agents/memory-capture.md, agents/refactor-cleaner.md, agents/security-reviewer.md (+94 more)
-
-### Community 3 - "Stripe Billing and Sessions"
-Cohesion: 0.04
-Nodes (67): setPreference(), createMockKV(), getTiersConfigKey(), clampSessionModeToTier(), resolveSessionMode(), CachedPrice, CheckoutSessionOptions, CheckoutSessionResult (+59 more)
-
-### Community 4 - "Validation and Cache Helpers"
-Cohesion: 0.05
-Nodes (56): CacheModel, CacheReal, CBModel, CBReal, CBState, extractTag(), NUM_RUNS, DEFAULT_ALLOWED_ORIGINS (+48 more)
-
-### Community 5 - "Access Policy Management"
-Cohesion: 0.05
-Nodes (61): CfAccessAppsResponse, CfAccessPoliciesResponse, getAdminEmails(), getAllUsers(), logger, isActiveUser(), getSetupCompleteCache(), resetSetupCache() (+53 more)
+Nodes (66): authenticateRequest(), getCookieValue(), getUserFromRequest(), logger, normalizeEmail(), resetAuthConfigCache(), resolveOrProvisionUser(), resolveUserFromKV() (+58 more)
 
 ### Community 6 - "Review Enforcement Logic"
 Cohesion: 0.06
-Nodes (60): acked(), ackPath(), activeRepoFallback(), blockCountPath(), breakerPath(), claimReviewAnnouncement(), clearBreaker(), clearPending() (+52 more)
+Nodes (61): acked(), ackPath(), activeRepoFallback(), blockCountPath(), breakerPath(), claimReviewAnnouncement(), clearBreaker(), clearPending() (+53 more)
 
-### Community 7 - "Repository Context Management"
+### Community 7 - "Context Mode Command Logic"
+Cohesion: 0.11
+Nodes (16): ACTIVE_REPO_FILE, commandText(), CONTEXT_MODE_DISABLED_PACKAGE, contextModeEnabled(), contextModeStatusText(), effectivePathForCommand(), isContextModePackage(), packageIdentity() (+8 more)
+
+### Community 8 - "User and Billing Management"
 Cohesion: 0.05
-Nodes (53): ACTIVE_REPO_FILE, activeRepo(), commandText(), CONTEXT_MODE_DISABLED_PACKAGE, contextModeEnabled(), contextModeStatusText(), currentBranch(), currentHead() (+45 more)
+Nodes (48): ResolvedUser, SECTION_LABELS, TIER_ORDER, UserManagementProps, BillingStatusSchema, CheckoutResponseSchema, deleteDeployKeys(), deleteLlmKeys() (+40 more)
 
-### Community 8 - "User and Subscription UI"
+### Community 9 - "OAuth State and Security"
+Cohesion: 0.11
+Nodes (25): { mockLoggerWarn }, { mockSendWelcomeEmail }, b64url(), b64urlDecode(), claimOauthNonce(), enc, hmacKey(), parseOauthState() (+17 more)
+
+### Community 10 - "Durable Review Job Helpers"
+Cohesion: 0.06
+Nodes (44): installReviewMessageDedupe(), actionableReviewCount(), aggregateReviewSeverityCounts(), allDurableReviewLanesComplete(), cleanReviewText(), compactDurableReviewStatus(), durableReviewEligibleLanes(), durableReviewInitialLanes() (+36 more)
+
+### Community 11 - "Container Status and Metrics"
 Cohesion: 0.05
-Nodes (51): EDITABLE_TIERS, SubManagementProps, MOCK_TIERS, mockedGetTiers, mockedUpdateTiers, TierConfig, ResolvedUser, SECTION_LABELS (+43 more)
+Nodes (63): buildSetBucketNameBody(), configureContainerDO(), containerLogger, fetchWithTimeout(), getStoredBucketName(), app, buildReadyResponse(), buildSyncingResponse() (+55 more)
 
-### Community 9 - "Request Authentication Core"
-Cohesion: 0.06
-Nodes (36): authenticateRequest(), getBucketName(), getCookieValue(), getUserFromRequest(), logger, normalizeEmail(), resetAuthConfigCache(), resolveOrProvisionUser() (+28 more)
+### Community 12 - "User Preferences Management"
+Cohesion: 0.05
+Nodes (44): getPreferences(), getCurrentPreferences(), loadPreferences(), PreferencesApi, PreferencesLogger, registerPreferencesDeps(), updateUserPreferences(), [authExpired, setAuthExpired] (+36 more)
 
-### Community 10 - "Review Job Helpers"
-Cohesion: 0.06
-Nodes (48): attributionBlockReason(), BypassFs, isLocalBuildCommand(), localBuildBlockReason(), installReviewMessageDedupe(), requestReviewAutofix(), sessionUserMessages(), actionableReviewCount() (+40 more)
-
-### Community 11 - "Rate Limiting and Vault Auth"
-Cohesion: 0.08
-Nodes (39): checkRateLimit(), inMemoryFallback, logger, RateLimitResult, passThroughCB, app, assertActiveTier(), assertSessionOwnership() (+31 more)
-
-### Community 12 - "Session Lifecycle Management"
-Cohesion: 0.06
-Nodes (36): BatchStatusEntry, loadSessions(), AuthExpiredSetter, clearSessionStartedGuard(), InitChecker, isWithinStartupGuard(), markSessionStarted(), MetricsUpdater (+28 more)
-
-### Community 13 - "KV Encryption and Credentials"
+### Community 13 - "App and Storage Mocks"
 Cohesion: 0.07
-Nodes (32): setupR2Credentials(), Deploy Keys API, cryptoLogger, decodeBase64Key(), decryptFromKV(), encryptAndStore(), encryptForKV(), getAndDecrypt() (+24 more)
+Nodes (30): mockCreateBucketIfNotExists, mockGetContainer, mockGetOrCreateScopedR2Token, mockGetR2Config, mockGetStoredBucketName, mockSeedGettingStartedDocs, passThroughCB, cryptoLogger (+22 more)
 
-### Community 14 - "Agent Seeding and Rules"
-Cohesion: 0.07
-Nodes (31): ensureBucketAndSeed(), claudeDocs(), codeflareRules(), ECC_FILES_PER_SUBDIR, ECC_SUBDIRS, eccRules(), AGENTS_SEEDED_CONFIGS, env (+23 more)
+### Community 14 - "Bucket and Content Validation"
+Cohesion: 0.05
+Nodes (50): ensureBucketAndSeed(), CacheModel, CacheReal, CBModel, CBReal, CBState, extractTag(), NUM_RUNS (+42 more)
 
 ### Community 15 - "Memory Vault Storage"
 Cohesion: 0.07
-Nodes (40): addGraphToGlobal(), bestEffortMergeGraphs(), CACHE_DIR, captureVars(), compactMessages(), currentConversationMessages(), buildSpawnOptions(), captureFilename() (+32 more)
+Nodes (45): addGraphToGlobal(), bestEffortMergeGraphs(), CACHE_DIR, captureVars(), compactMessages(), currentConversationMessages(), buildSpawnOptions(), captureFilename() (+37 more)
 
-### Community 16 - "Container Environment Config"
+### Community 16 - "Container Environment Configuration"
 Cohesion: 0.06
-Nodes (11): applyPrefsOnRestart(), buildEnvVars(), ContainerEnvState, logger, normalizeIanaTz(), RestartPrefsInput, baseEnv, validateBucketNameInput() (+3 more)
+Nodes (19): applyBucketName(), applyPrefsOnRestart(), buildEnvVars(), ContainerEnvState, logger, normalizeIanaTz(), RestartPrefsInput, SetBucketNameCreds (+11 more)
 
-### Community 17 - "API Fetch and Storage"
-Cohesion: 0.09
-Nodes (34): ApiError, baseFetch(), BaseFetchOptions, mockFetch, abortMultipartUpload(), browseStorage(), completeMultipartUpload(), deleteFiles() (+26 more)
-
-### Community 18 - "Backend Design Standards"
-Cohesion: 0.06
-Nodes (39): API Authentication and Authorization Controls, API Design Shipping Checklist, API Design Skill, API Filter Sort and Search Contract, API Pagination Strategy, API Rate Limiting Contract, API Response Envelope and Error Format, API Versioning Strategy (+31 more)
-
-### Community 19 - "Auth and Billing UI"
-Cohesion: 0.06
-Nodes (32): createCheckoutSession(), createPortalSession(), getAuthStatus(), getBillingStatus(), OAUTH_ERROR_MESSAGES, mockedGetAuthProviders, mockedGetAuthStatus, Props (+24 more)
-
-### Community 20 - "Dashboard Session Components"
-Cohesion: 0.07
-Nodes (25): AgentOption, sessionStoreState, DashboardProps, HeaderProps, STATUS_ORDER, SessionStatCardProps, statusDotVariant, statusPulses (+17 more)
-
-### Community 21 - "Splash Cursor Animation"
+### Community 17 - "Fetch Helpers and Storage API"
 Cohesion: 0.10
-Nodes (28): SplashCursorProps, createSplashSimulation(), SplashConfig, SplashSimulation, correctDeltaX(), correctRadius(), getResolution(), hashCode() (+20 more)
+Nodes (30): ApiError, baseFetch(), BaseFetchOptions, mockFetch, abortMultipartUpload(), browseStorage(), completeMultipartUpload(), deleteFiles() (+22 more)
 
-### Community 22 - "Review Lane Shell Scripts"
-Cohesion: 0.07
-Nodes (15): enforce-review-spawn.sh script, all_required_lanes_completed_for_current_head(), clear_counter(), emit_block(), lane_completed_after_line(), lane_completed_for_current_head(), lane_has_coverage_after_line(), lane_has_current_coverage() (+7 more)
+### Community 18 - "API Design and Security"
+Cohesion: 0.09
+Nodes (23): API Authentication and Authorization Controls, API Design Shipping Checklist, API Filter Sort and Search Contract, API Pagination Strategy, API Rate Limiting Contract, API Versioning Strategy, Backend Background Job Queue, Backend Caching Strategies (+15 more)
 
-### Community 23 - "Terminal UI and Hooks"
+### Community 19 - "Login and Billing Pages"
+Cohesion: 0.10
+Nodes (36): createCheckoutSession(), createPortalSession(), createSwitchSession(), getAuthStatus(), getBillingStatus(), getPublicTiers(), subscribe(), getProviderIcon() (+28 more)
+
+### Community 20 - "Session Creation Dialogs"
 Cohesion: 0.08
-Nodes (29): mobileMock, settingsMock, speechMock, mockAttachCustomKeyEventHandler, mockFit, mockFocus, mockLoadAddon, mockRefresh (+21 more)
+Nodes (16): AGENT_OPTIONS, AgentOption, CreateSessionDialogProps, sessionStoreState, SessionDropdownProps, STATUS_ORDER, isMobileMock, UseTerminalResult (+8 more)
+
+### Community 21 - "Splash Cursor UI Component"
+Cohesion: 0.09
+Nodes (29): SplashCursorProps, createSplashSimulation(), SplashConfig, SplashSimulation, correctDeltaX(), correctDeltaY(), correctRadius(), getResolution() (+21 more)
+
+### Community 22 - "Review Spawn Shell Scripts"
+Cohesion: 0.10
+Nodes (35): enforce-review-spawn.sh script, all_required_lanes_completed_for_current_head(), clear_counter(), emit_block(), lane_completed_after_line(), lane_completed_for_current_head(), lane_has_coverage_after_line(), lane_has_current_coverage() (+27 more)
+
+### Community 23 - "Terminal UI Controls"
+Cohesion: 0.14
+Nodes (17): FloatingTerminalButtonsProps, authUrl(), mobileMock, normalUrl(), settingsMock, speechMock, terminalStoreMock, getMicPermissionState() (+9 more)
 
 ### Community 24 - "API Contract Schemas"
-Cohesion: 0.07
-Nodes (32): SetupStatusResponse, mockFetch, AccessTierSchema, AgentTypeSchema, AuthProvidersResponseSchema, AuthStatusResponseSchema, BatchSessionStatusResponseSchema, CloudflareAccountSchema (+24 more)
-
-### Community 25 - "Storage Browser Component"
 Cohesion: 0.06
-Nodes (19): mockBreadcrumbs, mockBrowse, mockClearSelection, mockClosePreview, mockDeleteSelected, { mockExtractFilesFromDrop }, mockNavigateTo, mockObjects (+11 more)
+Nodes (42): SetupStatusResponse, mockFetch, AccessTierSchema, AgentTypeSchema, AuthProvidersResponseSchema, AuthStatusResponseSchema, BatchSessionStatusResponseSchema, CloudflareAccountSchema (+34 more)
 
-### Community 26 - "Durable Review Job Processing"
-Cohesion: 0.13
-Nodes (31): formatDurableReviewResult(), laneExtensionSources(), recoverDurableReviewLaneState(), reviewSummaryTable(), deriveStatus(), DurableReviewJob, DurableReviewJobInput, DurableReviewLane (+23 more)
+### Community 25 - "Storage Browser UI Component"
+Cohesion: 0.09
+Nodes (38): activeSessionId(), breadcrumbs(), currentPrefix(), error(), loading(), mockBreadcrumbs, mockBrowse, mockClearSelection (+30 more)
 
-### Community 27 - "Terminal Connection Management"
-Cohesion: 0.11
-Nodes (29): abortControllers, [authUrl, setAuthUrl], cancelPendingFlush(), cancelScheduledDisconnect(), connect(), connections, disconnect(), dispose() (+21 more)
+### Community 26 - "PR Review Command Helpers"
+Cohesion: 0.09
+Nodes (40): ALL_REVIEW_LANES, bypassAckHeadForStatus(), extractBackgroundAgentId(), ghPrCreateBase(), isFailedToolExecution(), isGhPrCreateCommand(), isPrBoundaryCommand(), prCreateBoundaryBase() (+32 more)
 
-### Community 28 - "CI and Cloudflare Skills"
+### Community 27 - "Terminal WebSocket Debugging"
+Cohesion: 0.05
+Nodes (57): getTerminalWebSocketUrl(), counters, getCounters(), PerKeyCounters, recordFlush(), recordFrame(), recordRestore(), abortControllers (+49 more)
+
+### Community 28 - "Community 28"
+Cohesion: 0.25
+Nodes (8): CI Only Test Execution Contract, CI Terminal Result Contract, Playwright E2E Testing, Python Pytest Testing Contract, Python Testing Rules, Swift Testing Contract, Swift Testing Rules, TypeScript JavaScript Testing Rules
+
+### Community 29 - "Subscription Tier Management"
+Cohesion: 0.05
+Nodes (24): EDITABLE_TIERS, SubManagementProps, SubscriptionManagement(), MOCK_TIERS, mockedGetTiers, mockedUpdateTiers, noop(), TierConfig (+16 more)
+
+### Community 30 - "Agent Configuration and Seeding"
 Cohesion: 0.08
-Nodes (31): CI Monitoring Invocation Rule, CI Monitoring Skill, CI Only Test Execution Contract, Single Continuous Background CI Monitor, CI Stale Run Cancellation, CI Terminal Result Contract, Cloudflare Workers Cohort Pinning, Cloudflare Discovery and Requirement Steering (+23 more)
+Nodes (32): AGENT_COMMANDS, getDefaultTabConfig(), EXPECTED_COMMANDS, adaptAgentFrontmatter(), adaptPaths(), adaptPiSkillContent(), adaptSkillContent(), AGENT_CONFIGS (+24 more)
 
-### Community 29 - "UI Components and Store"
-Cohesion: 0.09
-Nodes (13): storeMethods, storeState, Icon(), IconProps, mockedGetSetupStatus, mockedGetUser, REQ-SETUP-002 Setup Wizard Configures Domain Auth R2 Credentials and Turnstile, AuthState (+5 more)
+### Community 31 - "E2E Session Testing"
+Cohesion: 0.28
+Nodes (15): createSession(), TIMEOUTS, checkSetupComplete(), createMobilePage(), createPage(), createSessionViaApi(), createTestPage(), deleteAllSessionsViaApi() (+7 more)
 
-### Community 30 - "Agent Seed Generation"
-Cohesion: 0.11
-Nodes (27): adaptAgentFrontmatter(), adaptPaths(), adaptPiSkillContent(), adaptSkillContent(), classifyFile(), CLAUDE_ONLY_CATEGORIES, CLAUDE_ONLY_FILES, CLAUDE_ONLY_SKILLS (+19 more)
+### Community 32 - "System Architecture Overview"
+Cohesion: 0.14
+Nodes (18): Architecture Overview, Cloudflare Container, Cloudflare Worker Hono Router, Container Durable Object, Contributing Guide, AD11 Suffix-Pattern CORS with Credentials, Dashboard Session Status Polling, Dashboard WebSocket Disconnect Flow (+10 more)
 
-### Community 31 - "E2E Test Setup"
-Cohesion: 0.29
-Nodes (14): createSession(), TIMEOUTS, checkSetupComplete(), createMobilePage(), createPage(), createTestPage(), deleteAllSessionsViaApi(), deleteSessionViaApi() (+6 more)
-
-### Community 32 - "Architecture and Memory Specs"
-Cohesion: 0.09
-Nodes (27): Architecture Overview, Cloudflare Container, Cloudflare Worker Hono Router, Container Durable Object, Contributing Guide, AD11 Suffix-Pattern CORS with Credentials, Cross-Session Memory Capture, Dashboard Session Status Polling (+19 more)
-
-### Community 33 - "Subscription Requirements"
+### Community 33 - "Billing and Subscription Requirements"
 Cohesion: 0.09
 Nodes (27): BillingStatus, Effective Tier, REQ-SEC-015 Blocked User Cannot Self-upgrade Subscription, REQ-SUB-002 Tier Property Definitions, REQ-SUB-003 Free Tier Requires No Payment, REQ-SUB-004 Paid Tiers Integrate with Stripe Checkout, REQ-SUB-005 Trial Is Compute-based Not Time-based, REQ-SUB-006 Real-time Usage Tracking via Timekeeper DO (+19 more)
 
-### Community 34 - "Operations and CI/CD Specs"
-Cohesion: 0.09
-Nodes (27): CI/CD Workflows, Container Tier, Deploy Pipeline, Docker Image Vulnerability Scan, E2E Testing Workflow, Operations Domain Specification, REQ-OPS-001 Deploy Workflow Trigger and Pre-deploy Pipeline, REQ-OPS-002 Docker Image Build Vulnerability Scan and Registry Push (+19 more)
-
-### Community 35 - "Codeflare Command Extensions"
-Cohesion: 0.14
-Nodes (26): extensions/codeflare-commands.ts, extensions/codeflare-pi.ts, extensions/commands-helpers.ts, extensions/graphify-helpers.ts, extensions/guard-helpers.ts, extensions/memory-vault-helpers.ts, extensions/memory-vault.ts, extensions/review-command.ts (+18 more)
-
-### Community 36 - "Onboarding and App Initialization"
+### Community 34 - "CI/CD and Operations Specs"
 Cohesion: 0.10
-Nodes (16): getAuthProviders(), getOnboardingConfig(), getSetupStatus(), getUser(), getSetupStatusMock, getUserMock, mockedGetOnboardingConfig, mockedGetUser (+8 more)
+Nodes (24): CI/CD Workflows, Container Tier, Deploy Pipeline, Docker Image Vulnerability Scan, E2E Testing Workflow, Operations Domain Specification, REQ-OPS-001 Deploy Workflow Trigger and Pre-deploy Pipeline, REQ-OPS-002 Docker Image Build Vulnerability Scan and Registry Push (+16 more)
 
-### Community 37 - "Graph and Vault Skills"
+### Community 35 - "Codeflare Extension Manifests"
+Cohesion: 0.06
+Nodes (50): extensions/codeflare-commands.ts, modes, extensions/codeflare-pi.ts, modes, extensions/commands-helpers.ts, modes, extensions/graphify-helpers.ts, modes (+42 more)
+
+### Community 36 - "Onboarding and Setup Components"
+Cohesion: 0.10
+Nodes (22): getAuthProviders(), getOnboardingConfig(), getSetupStatus(), getUser(), getOnboardingConfigMock, getSetupStatusMock, getUserMock, OnboardingLanding() (+14 more)
+
+### Community 37 - "Graphify and Vault Skills"
 Cohesion: 0.12
 Nodes (26): AST-only Graph Build Refresh, Deterministic Vault Graph Baseline, Pi Graphify Skill, Pi Memory Capture Contract, Pi Vault Extraction Contract, SilverBullet CONFIG Preseed, Vault Note Capture Skill, Vault Operations Skill (+18 more)
 
-### Community 38 - "Container Readiness and Metrics"
-Cohesion: 0.11
-Nodes (18): buildSetBucketNameBody(), configureContainerDO(), containerLogger, fetchWithTimeout(), getStoredBucketName(), app, buildReadyResponse(), buildSyncingResponse() (+10 more)
+### Community 38 - "Architecture Decision Records"
+Cohesion: 0.03
+Nodes (70): AD10: Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation, AD11: Suffix-pattern CORS with credentials, AD12: KV-based setup lock (non-atomic), AD13: Per-user scoped R2 tokens, AD14: Never auto-`--resync` on bisync failure, AD15: TabConfigSchema allows arbitrary command strings, AD16: entrypoint.sh ~1090 lines complexity, AD17: Merged into AD6 (+62 more)
 
-### Community 39 - "Container Entrypoint Initialization"
+### Community 39 - "Container Entrypoint Scripts"
 Cohesion: 0.14
 Nodes (24): bisync_with_r2(), cleanup_old_pi_transcripts(), cleanup_old_transcripts(), CODEFLARE_INIT_FLAG_FILE, configure_tab_autostart(), create_rclone_config(), establish_bisync_baseline(), GRAPHIFY_VIZ_NODE_LIMIT (+16 more)
 
-### Community 40 - "Cloudflare Access Groups"
+### Community 40 - "Cloudflare Access App Management"
 Cohesion: 0.15
-Nodes (23): toErrorMessage(), AccessApp, AccessAppResult, AccessGroup, AccessGroupResult, getAccessGroupNames(), getLegacyManagedDomains(), getManagedAppDomain() (+15 more)
+Nodes (22): AccessApp, AccessAppResult, AccessGroup, AccessGroupResult, getAccessGroupNames(), getLegacyManagedDomains(), getManagedAppDomain(), getManagedAppName() (+14 more)
 
-### Community 41 - "Header and Dashboard Tips"
-Cohesion: 0.13
-Nodes (20): Header(), ALL_TIPS, DashboardCard(), filterTips(), shuffle(), Tip, TipsCard(), cleanupDebugOverlay() (+12 more)
+### Community 41 - "Terminal UI Hooks"
+Cohesion: 0.14
+Nodes (22): FloatingTerminalButtons(), mockAttachCustomKeyEventHandler, mockFit, mockFocus, mockLoadAddon, mockRefresh, mockScrollToBottom, mockTerminalDispose (+14 more)
 
-### Community 42 - "Session Initialization Progress"
-Cohesion: 0.11
-Nodes (20): InitProgressComponent(), InitProgressProps, stageIcons, stages, stageKeys, StageTime, stageOrder, AuthStatus (+12 more)
+### Community 42 - "Initialization Progress UI"
+Cohesion: 0.29
+Nodes (10): InitProgressComponent(), InitProgressProps, stageIcons, stages, stageKeys, StageTime, useStageTimings(), stageOrder (+2 more)
 
 ### Community 43 - "Onboarding and Key Management"
-Cohesion: 0.12
-Nodes (20): DeployKeysResponse, markOnboardingComplete(), updateLlmKeys(), updatePreferences(), mockDeleteDeployKeys, mockGetDeployKeys, CloudflareAccount, CodingAgent (+12 more)
+Cohesion: 0.10
+Nodes (25): DeployKeysResponse, markOnboardingComplete(), updateDeployKeys(), updateLlmKeys(), updatePreferences(), mockDeleteDeployKeys, mockGetDeployKeys, mockUpdateDeployKeys (+17 more)
 
-### Community 44 - "Core Architecture Overview"
-Cohesion: 0.13
-Nodes (24): Browser Native Terminal, Codeflare Ephemeral Cloud IDE, Codeflare Pro Mode Advanced Sessions, Codeflare Security Model, Codeflare SilverBullet Theme, Worker Durable Object Container R2 Architecture, Global Constraints Specification, Isolated Container Session (+16 more)
+### Community 44 - "Community 44"
+Cohesion: 0.29
+Nodes (10): Browser Native Terminal, Codeflare Ephemeral Cloud IDE, Codeflare Pro Mode Advanced Sessions, Worker Durable Object Container R2 Architecture, Persistent R2 Storage and Bisync, REQ-AGENT-015 Multi-Perspective Review Command, Codeflare Specification README, SDD Spec Domain Map (+2 more)
 
-### Community 45 - "User Preferences API"
-Cohesion: 0.09
-Nodes (19): AGENT_COMMANDS, getDefaultTabConfig(), EXPECTED_COMMANDS, UserPreferencesSchema, Preferences API, app, logger, preferencesPatchRateLimiter (+11 more)
+### Community 45 - "Session Entitlements and Tiers"
+Cohesion: 0.07
+Nodes (39): UserPreferencesSchema, clampSessionModeToTier(), resolveSessionMode(), ACTIVE_TIERS, countPaidSlots(), EffectiveEntitlements, getAllowedSessionModes(), getMaxSessionsForTier() (+31 more)
 
 ### Community 46 - "Account and Domain Setup"
-Cohesion: 0.20
+Cohesion: 0.18
 Nodes (15): SetupError, handleGetAccount(), mockFetch, createWorkerRoute(), handleConfigureCustomDomain(), resolveAccountSubdomain(), resolveZone(), mockFetch (+7 more)
 
-### Community 47 - "Terminal Tab Management"
+### Community 47 - "Session Tab Management"
 Cohesion: 0.14
-Nodes (21): deleteSession(), startSession(), addTerminalTab(), cleanupTerminalsForSession(), createTabOne(), getTerminalsForSession(), initializeTerminalsForSession(), loadTerminalsFromStorage() (+13 more)
+Nodes (21): startSession(), addTerminalTab(), cleanupTerminalsForSession(), createTabOne(), getTerminalsForSession(), initializeTerminalsForSession(), loadTerminalsFromStorage(), normalizeSessionTerminals() (+13 more)
 
-### Community 48 - "Security and Validation Specs"
+### Community 48 - "Security and Validation Requirements"
 Cohesion: 0.10
 Nodes (23): Authentication Gate, Input Validation, Rate Limiting, REQ-OPS-008 Stress Testing Validates Rate Limits and Concurrency, REQ-SEC-001 Authenticated Endpoints Reject Unauthenticated Requests, REQ-SEC-002 API Tokens Never Enter Containers, REQ-SEC-003 Per-user R2 Tokens Scoped to User Bucket, REQ-SEC-005 R2 Files Encrypted at Rest with SSE-C (+15 more)
 
-### Community 49 - "R2 Storage Requirements"
+### Community 49 - "Storage and Sync Requirements"
 Cohesion: 0.11
 Nodes (23): Newest-File-Wins Conflict Resolution, R2 Bucket, REQ-SESSION-003 R2 Bucket Mounted and Synced on Start, REQ-STOR-001 Dedicated Per-user R2 Bucket, REQ-STOR-002 File Persistence Across Sessions, REQ-STOR-003 Bidirectional Sync Every 15 Minutes with Manual Triggers, REQ-STOR-006 Storage Quota Enforced per Tier at Session Start, REQ-STOR-007 Web File Browser (+15 more)
 
-### Community 50 - "Session Presets Management"
-Cohesion: 0.12
-Nodes (21): makeSession(), mockedApi, setupState(), applyPresetToSession(), deletePreset(), ErrorSetter, formatCommandForTerminal(), loadPresets() (+13 more)
+### Community 50 - "Session Presets and Shells"
+Cohesion: 0.16
+Nodes (17): deletePreset(), ErrorSetter, formatCommandForTerminal(), loadPresets(), registerPresetsDeps(), renamePreset(), saveBookmarkForSession(), savePreset() (+9 more)
 
-### Community 51 - "Agent Definitions and Verification"
+### Community 51 - "AI Agent Definitions"
 Cohesion: 0.15
 Nodes (22): Architect Agent Definition, Build Error Resolver Agent Definition, Code Reviewer Agent Definition, Deep Reviewer Agent Definition, Doc Updater Agent Definition, Refactor Cleaner Agent Definition, Security Reviewer Agent Definition, TDD Guide Agent Definition (+14 more)
 
 ### Community 52 - "Security and Auth Documentation"
-Cohesion: 0.12
-Nodes (22): Authentication and Billing Documentation, Authentication Modes, Cloudflare Access Authentication, Container Auth Token, Container Isolation, X-Requested-With CSRF Protection, Direct GitHub OAuth Authentication, AD66 Fail-Closed Security-Sensitive Rate Limiters (+14 more)
+Cohesion: 0.13
+Nodes (20): Authentication and Billing Documentation, Authentication Modes, Cloudflare Access Authentication, Container Auth Token, Container Isolation, X-Requested-With CSRF Protection, Direct GitHub OAuth Authentication, GitHub Security Features (+12 more)
 
-### Community 53 - "Terminal WebSocket Validation"
-Cohesion: 0.10
-Nodes (11): mockTerminalInstance, isMobileMock, webUiRoot, app, logger, validateWebSocketRoute(), WebSocketRouteResult, mockAuthResult (+3 more)
+### Community 53 - "AI Agent Domain Specs"
+Cohesion: 0.04
+Nodes (56): Agents Domain Specification, Domain Dependencies, Key Concepts, Out of Scope, REQ-AGENT-001: Support Multiple AI Coding Agents, REQ-AGENT-002: Agent Selection at Session Creation, REQ-AGENT-003: Agent CLI Auto-Started in Tab 1, REQ-AGENT-004: Two Session Modes: Standard and Pro (+48 more)
 
 ### Community 54 - "Session Lifecycle Requirements"
-Cohesion: 0.13
-Nodes (16): Pre-warm PTY, REQ-SESSION-005 Input-based Idle Detection, REQ-SESSION-006 User Can Stop Restart and Delete Sessions, REQ-SESSION-007 Running Session Count Limited per Tier, REQ-SESSION-008 Container Restart Preserves R2 Bucket, REQ-SESSION-009 Container Destroy Wipes Session State, REQ-SESSION-010 Session Status Observable from Dashboard, REQ-SESSION-013 Sleep Timer Countdown UI (+8 more)
+Cohesion: 0.08
+Nodes (27): AI Coding Agent, Cloudflare Worker, Durable Object, Glossary, Preseed Pipeline, REQ-MEM-008 Memory Prompt Files Preseeded via Manifest Pipeline, REQ-OPS-006 Idle Containers Hibernate and Cost Zero, REQ-SESSION-001 Session Creation with Name and Agent Type (+19 more)
 
 ### Community 55 - "Cloudflare API Client"
-Cohesion: 0.11
-Nodes (13): mockFetch, CfApiBaseSchema, CfApiResponse, parseCfResponse(), r2AdminCB, mockParseCfResponse, mockR2AdminCB, deleteAccessApp() (+5 more)
+Cohesion: 0.16
+Nodes (9): mockFetch, CfApiBaseSchema, CfApiResponse, parseCfResponse(), deleteScopedR2Token(), mockFetch, mockParseCfResponse, mockR2AdminCB (+1 more)
 
-### Community 56 - "Terminal Backend Dependencies"
+### Community 56 - "Project Dependencies"
 Cohesion: 0.10
 Nodes (20): dependencies, node-pty, ws, @xterm/addon-serialize, @xterm/headless, description, devDependencies, fast-check (+12 more)
 
-### Community 57 - "Terminal Touch Gestures"
-Cohesion: 0.13
-Nodes (15): ARROW, attachSwipeGestures(), Direction, getScrollPxPerLine(), sendTerminalKey(), getIframeInput(), getRemoveFocusGuard(), getXtermCore() (+7 more)
+### Community 57 - "Terminal UI and Input"
+Cohesion: 0.10
+Nodes (26): Terminal(), TerminalProps, useTerminal(), disableVirtualKeyboardOverlay(), enableVirtualKeyboardOverlay(), isIOSDevice(), activateStickyCtrl(), deactivateStickyCtrl() (+18 more)
 
 ### Community 58 - "Vault and Sync Requirements"
-Cohesion: 0.12
-Nodes (20): Capture Agent, Multi-writer Graph Lock, Native SilverBullet Service Worker, REQ-STOR-005 Graceful Shutdown Performs Final Sync, REQ-VAULT-002 Conversation Captures Land in Vault as Markdown, REQ-VAULT-003 User-curated Edits Detected and Ingested Within 60s, REQ-VAULT-005 Worker Proxy Exposes In-container Vault Editor, REQ-VAULT-006 Shutdown Bisync Completes Vault Writes Before SIGKILL (+12 more)
+Cohesion: 0.10
+Nodes (25): Capture Agent, Multi-writer Graph Lock, Native SilverBullet Service Worker, REQ-STOR-005 Graceful Shutdown Performs Final Sync, REQ-VAULT-002 Conversation Captures Land in Vault as Markdown, REQ-VAULT-003 User-curated Edits Detected and Ingested Within 60s, REQ-VAULT-005 Worker Proxy Exposes In-container Vault Editor, REQ-VAULT-006 Shutdown Bisync Completes Vault Writes Before SIGKILL (+17 more)
 
-### Community 59 - "CI/CD and Testing Specs"
-Cohesion: 0.13
-Nodes (20): Cloudflare Deploy Pipeline, PR Checks CI Workflow, CI/CD and Testing Documentation, CodeQL Static Analysis, GitHub Dependency Review, Deploy After Green PR Checks Gate, Docker Hub Deploy Fallback, E2E Service Auth Contract (+12 more)
-
-### Community 60 - "Setup and Onboarding Specs"
+### Community 59 - "CI/CD and Testing Workflows"
 Cohesion: 0.11
-Nodes (20): Codeflare Brand Tagline, Direct GitHub OAuth, NDJSON Setup Stream, Onboarding Mode, REQ-SEC-014 SaaS Service-token Header Not Trusted in SaaS Mode, REQ-SETUP-001 First-time Setup Requires Zero Pre-configuration, REQ-SETUP-003 Three Deployment Modes, REQ-SETUP-004 Setup Is Idempotent (+12 more)
+Nodes (24): Cloudflare Deploy Pipeline, PR Checks CI Workflow, CI/CD and Testing Documentation, CodeQL Static Analysis, GitHub Dependency Review, Deploy After Green PR Checks Gate, Docker Hub Deploy Fallback, E2E Service Auth Contract (+16 more)
 
-### Community 61 - "Dashboard File Preview"
-Cohesion: 0.13
-Nodes (9): Dashboard(), mockSessions, FilePreviewProps, PreviewFile, createMockPreviewFile(), getBrowserTimezone(), syncBrowserTimezone(), SyncBrowserTimezoneInput (+1 more)
+### Community 60 - "Setup and Onboarding Requirements"
+Cohesion: 0.10
+Nodes (21): Codeflare Brand Tagline, Direct GitHub OAuth, NDJSON Setup Stream, Onboarding Mode, REQ-SEC-014 SaaS Service-token Header Not Trusted in SaaS Mode, REQ-SETUP-001 First-time Setup Requires Zero Pre-configuration, REQ-SETUP-002 Setup Wizard Configures Domain Auth R2 Credentials and Turnstile, REQ-SETUP-003 Three Deployment Modes (+13 more)
 
-### Community 62 - "Storage Toolbar and Breadcrumbs"
-Cohesion: 0.13
-Nodes (11): StatCardsProps, shouldUseMultipart(), StorageToolbarProps, initialState, PreviewFile, [state, setState], StorageObject, StorageStats (+3 more)
+### Community 61 - "Dashboard Session Management"
+Cohesion: 0.11
+Nodes (19): getDownloadUrl(), Dashboard(), maxSessions(), mockSessions, preseedUpgrading(), previewFile(), sessions(), stats() (+11 more)
 
-### Community 63 - "Review Helper Utilities"
-Cohesion: 0.12
-Nodes (19): changedVaultFiles(), isVaultExcludedPath(), isAncestor(), mergeLaneState(), ALL_REVIEW_LANES, bypassAckHeadForStatus(), classifyReviewFiles(), createBoundedOnceTracker() (+11 more)
+### Community 62 - "Storage UI Stat Cards"
+Cohesion: 0.09
+Nodes (14): StatCardsProps, StorageStats, FileWithPath, StorageBreadcrumbsProps, StorageToolbarProps, initialState, PreviewFile, [state, setState] (+6 more)
+
+### Community 63 - "Memory and Vault Requirements"
+Cohesion: 0.14
+Nodes (21): Memory Dedup Carrier File, Memory Domain Specification, rclone Bisync, REQ-MEM-001 Conversation Context Automatically Captured to Vault, REQ-MEM-002 Capture Triggers Every 15 User Messages, REQ-MEM-004 Vault Contents Synced to R2 Across Sessions, REQ-MEM-006 Memory Available Only in Pro Advanced Mode, REQ-MEM-009 Vault Graph Accumulates Monotonically Across Extractions (+13 more)
 
 ### Community 64 - "Mobile Terminal Requirements"
 Cohesion: 0.11
 Nodes (20): IME Composition Buffering, Mobile Terminal Domain Specification, REQ-MOB-001 Terminal Fully Usable on Mobile Devices, REQ-MOB-002 Virtual Keyboard Opens Reliably on Tap, REQ-MOB-003 Samsung Internet Keyboard Viewport State, REQ-MOB-004 Scroll-drop Detection During Burst Output, REQ-MOB-005 Swipe Gestures Send Arrow Keys or Scroll, REQ-MOB-006 Sticky Ctrl Button for Mobile (+12 more)
 
-### Community 65 - "Documentation Enforcement Skills"
-Cohesion: 0.16
-Nodes (19): Canonical API Endpoint Rendering, Documentation Authoring Quality Review, Documentation Lane Enforcement Skill, Documentation Enforcement Orchestrator Skill, Documentation Enforcement Manifest, Documentation Lane Discipline, Doc Source Anchor Truth Check, Documentation Structural Shape (+11 more)
+### Community 65 - "Documentation Quality Standards"
+Cohesion: 0.10
+Nodes (22): Canonical API Endpoint Rendering, Documentation Authoring Quality Review, Documentation Enforcement Manifest, Documentation Lane Discipline, Documentation Structural Shape, Documentation Truth Checks, Phase 6 Documentation Lane Emission, Plan Mode Gate (+14 more)
 
-### Community 66 - "TDD and Spec Enforcement"
-Cohesion: 0.15
-Nodes (19): Content Preservation On Shrink, Contract Not Implementation Testing, CQ-SOURCE Source Anchor Truth Check, CQ-TEST Test Anchor Coverage, SDD Config Template, Spec Enforce Truth Skill, TDD Enforce Skill, enforce_tdd Gate (+11 more)
+### Community 66 - "TDD and SDD Configuration"
+Cohesion: 0.17
+Nodes (16): Content Preservation On Shrink, Contract Not Implementation Testing, CQ-TEST Test Anchor Coverage, SDD Config Template, Spec Enforce Truth Skill, TDD Enforce Skill, enforce_tdd Gate, Forbidden Content Allowlist (+8 more)
 
-### Community 67 - "PTY Server Configuration"
-Cohesion: 0.12
-Nodes (15): getWorkingDirectory(), log(), parsedTabConfig, PORT, PTY_CLEANUP_INTERVAL_MS, PTY_KEEPALIVE_MS, server, SERVER_START_TIME (+7 more)
+### Community 67 - "Server and PTY Configuration"
+Cohesion: 0.09
+Nodes (18): getPrewarmConfig(), activityTracker, parsedTabConfig, PORT, prewarmConfig, PTY_CLEANUP_INTERVAL_MS, PTY_KEEPALIVE_MS, server (+10 more)
 
-### Community 68 - "Setup Wizard State"
-Cohesion: 0.11
-Nodes (4): initialState, SetupState, [state, setState], mockFetch
+### Community 68 - "Specification Change Log"
+Cohesion: 0.04
+Nodes (54): 2026-02-22, 2026-02-25, 2026-02-26, 2026-02-28, 2026-03-01, 2026-03-05, 2026-03-08, 2026-03-09 (+46 more)
 
 ### Community 69 - "Storage Performance Testing"
 Cohesion: 0.11
@@ -676,115 +910,111 @@ Nodes (7): BASE_URL, deleteAllPresets(), deleteAllSessions(), setup(), teardown(
 Cohesion: 0.22
 Nodes (18): Authentication Domain Specification, REQ-AUTH-001 Two Authentication Modes, REQ-AUTH-002 Direct GitHub OAuth SaaS Mode, REQ-AUTH-003 Cloudflare Access Mode, REQ-AUTH-004 Service Token Authentication, REQ-AUTH-005 Three-Tier Authorization Middleware, REQ-AUTH-006 User Email Normalization, REQ-AUTH-008 Session Cookie Auto-Refresh (+10 more)
 
-### Community 72 - "Source Coverage Scripts"
+### Community 72 - "Coverage Enumeration Scripts"
 Cohesion: 0.25
 Nodes (17): bool, int, Path, str, collect_anchored_paths(), collect_triage_paths(), count_source_lines(), CoverageReport (+9 more)
 
-### Community 73 - "Lazy Graph Loading"
+### Community 73 - "Lazy Graph Implementation"
 Cohesion: 0.19
 Nodes (12): DiGraph, Path, str, _lazy_load_graph(), LazyGraph, Return (repo_root, graph_path). Either may be None.      Priority: global merged, nx.DiGraph that rebinds to whichever repo is currently active.      Reads from g, Replace internal dicts with fresh empty ones, atomically. (+4 more)
 
 ### Community 74 - "Circuit Breaker Pattern"
-Cohesion: 0.14
-Nodes (11): CircuitState, BreakerEntry, cleanupStaleBreakers(), containerHealthMap, containerInternalMap, containerSessionsMap, getContainerHealthCB(), getContainerSessionsCB() (+3 more)
+Cohesion: 0.20
+Nodes (14): CircuitBreaker, CircuitBreakerOptions, CircuitState, BreakerEntry, cfApiCB, cleanupStaleBreakers(), containerHealthMap, containerInternalMap (+6 more)
 
-### Community 75 - "Email Notification Service"
-Cohesion: 0.28
-Nodes (15): buildPlanChangeRows(), buildSubscriptionDetailRows(), getModeLabel(), logger, sendAccessRequestNotification(), sendEmail(), SendEmailOptions, sendSubscriptionAdminNotification() (+7 more)
+### Community 75 - "Access Policy Management"
+Cohesion: 0.05
+Nodes (63): CfAccessAppsResponse, CfAccessGroupsResponse, CfAccessPoliciesResponse, getAdminEmails(), getAllUsers(), logger, syncAccessPolicy(), UserEntry (+55 more)
 
-### Community 76 - "Memory and Sync Requirements"
-Cohesion: 0.16
-Nodes (18): Memory Dedup Carrier File, Memory Domain Specification, rclone Bisync, REQ-MEM-001 Conversation Context Automatically Captured to Vault, REQ-MEM-002 Capture Triggers Every 15 User Messages, REQ-MEM-004 Vault Contents Synced to R2 Across Sessions, REQ-MEM-009 Vault Graph Accumulates Monotonically Across Extractions, REQ-MEM-010 Memory Capture Hook Plumbing (+10 more)
+### Community 76 - "Plugin and Skill Manifests"
+Cohesion: 0.04
+Nodes (46): plugins/codeflare-memory/scripts/memory-agent-prompt.md, modes, plugins/codeflare-memory/scripts/memory-capture-block.sh, modes, plugins/codeflare-memory/scripts/memory-context-inject.sh, modes, plugins/codeflare-vault/.claude-plugin/plugin.json, modes (+38 more)
 
-### Community 77 - "Project Script Commands"
-Cohesion: 0.11
-Nodes (18): scripts, build, deploy, dev, lint, lint:fix, postinstall, prebuild (+10 more)
+### Community 77 - "Project Scripts"
+Cohesion: 0.10
+Nodes (20): scripts, build, deploy, dev, generate:agent-seed, generate:tutorial-seed, lint, lint:fix (+12 more)
 
-### Community 78 - "Graphify Infrastructure Requirements"
-Cohesion: 0.14
-Nodes (17): Antigravity Preseed Adaptation Lane, Review Graphify Refresh, Graphify Hard-Block Enforcement Retired, Pi Graphify Build Update Contract, REQ-AGENT-023 Ambient Graphify Infrastructure, REQ-AGENT-023 Graphify Knowledge-Graph Capability, REQ-AGENT-024 Graph-First Discipline, REQ-AGENT-025 Post-Clone Graph Exists (+9 more)
+### Community 78 - "Community 78"
+Cohesion: 0.22
+Nodes (10): Antigravity Preseed Adaptation Lane, Graphify Hard-Block Enforcement Retired, Pi Graphify Build Update Contract, REQ-AGENT-024 Graph-First Discipline, REQ-AGENT-043 Graphify Build Mode Dispatch, REQ-VAULT-008 Zero-UI Vault Encryption, REQ-VAULT-013 SilverBullet Subpath Adapter, Spec Changes Changelog (+2 more)
 
-### Community 79 - "Cloudflare Deployment Skills"
-Cohesion: 0.15
-Nodes (17): Cloudflare Credentials Contract, Cloudflare Workers Deployment Pipeline, Cloudflare Resource Provisioning, Credential Check Then Fallback Protocol, Dependency Version Resolution, Deploy Credentials Skill, GitHub Actions Deploy Workflow, GitHub Cloudflare Ship Skill (+9 more)
+### Community 79 - "Community 79"
+Cohesion: 0.27
+Nodes (9): Cloudflare Credentials Contract, Cloudflare Workers Deployment Pipeline, Credential Check Then Fallback Protocol, GitHub Actions Deploy Workflow, GitHub to Cloudflare Shipping Workflow, GitHub Credentials Contract, GitHub Setup Phase, Secret Handling Contract (+1 more)
 
-### Community 80 - "Settings Panel Components"
-Cohesion: 0.12
-Nodes (10): ACCORDION_SUBTITLES, AccordionGroup, AccordionSectionProps, SettingsPanelProps, localStorageMock, mobileState, mockGetDeployKeys, mockGetLlmKeys (+2 more)
-
-### Community 81 - "Terminal Layout Components"
-Cohesion: 0.15
-Nodes (5): TerminalArea(), mockSessions, LAYOUT_SLOTS, LayoutOption, TileLayout
-
-### Community 82 - "Agent Review Requirements"
+### Community 80 - "Settings Panel UI"
 Cohesion: 0.13
-Nodes (17): REQ-AGENT-021 SDD Workflow Preseed and Portability, REQ-AGENT-022 Legacy Import Mode Discovery, REQ-AGENT-036 PR-Boundary Review Triggers, REQ-AGENT-037 SDD Clean Rescue and Autonomy Modes, REQ-AGENT-038 Resume Mode Drain Workflow, REQ-AGENT-040 Review Lane Classification and Dispatch, REQ-AGENT-041 Review Bypass Surfaces, REQ-AGENT-044 Review Agent Discipline Enforcement (+9 more)
+Nodes (25): ACCORDION_SUBTITLES, AccordionGroup, AccordionSection(), AccordionSectionProps, SettingsPanelProps, isSamsungBrowser(), localStorageMock, mobileState (+17 more)
+
+### Community 81 - "Terminal Layout Containers"
+Cohesion: 0.09
+Nodes (13): TerminalArea(), TerminalAreaProps, mockSessions, getLayoutClass(), LAYOUT_SLOTS, TiledTerminalContainer(), TiledTerminalContainerProps, TilingButtonProps (+5 more)
+
+### Community 82 - "Community 82"
+Cohesion: 0.25
+Nodes (8): REQ-AGENT-036 PR-Boundary Review Triggers, REQ-AGENT-040 Review Lane Classification and Dispatch, REQ-AGENT-041 Review Bypass Surfaces, REQ-AGENT-053 Pi Durable Review Status and Fix Loop, REQ-AGENT-054 Pi Durable Review Fail-Closed Handling, REQ-AGENT-055 Pi PR Review Window Advancement, Review Decisions Ledger, SDD Review Decisions Ledger
 
 ### Community 83 - "Frontend TypeScript Config"
 Cohesion: 0.12
 Nodes (16): compilerOptions, allowSyntheticDefaultImports, esModuleInterop, isolatedModules, jsx, jsxImportSource, lib, module (+8 more)
 
-### Community 84 - "Memory and Vault Pipeline"
-Cohesion: 0.19
-Nodes (16): Memory Capture Agent Definition, Agent Preseed System, Vault Lane, Graphify Build Mode Dispatch, Hooks Plugins and Optional Context-Mode MCP, Manifest-Driven Preseed and Auto-Upgrade, Memory Capture Hook Mechanics, Multi-Agent Preseed Adaptation Pipeline (+8 more)
-
-### Community 85 - "Multi-Agent System Specs"
-Cohesion: 0.21
-Nodes (16): Agents Domain Specification, REQ-AGENT-001 Multi-Agent Support, REQ-AGENT-002 Agent Selection at Session Creation, REQ-AGENT-003 Agent CLI Auto-Start in Tab 1, REQ-AGENT-004 Standard and Pro Session Modes, REQ-AGENT-005 Pro Mode Preseed Suite, REQ-AGENT-006 Single Source Preseed Generation, REQ-AGENT-007 Multi-Agent Adaptation Pipeline (+8 more)
-
-### Community 86 - "Shared TypeScript Config"
-Cohesion: 0.12
-Nodes (15): compilerOptions, declaration, esModuleInterop, forceConsistentCasingInFileNames, module, moduleResolution, outDir, resolveJsonModule (+7 more)
-
-### Community 87 - "File Upload Utilities"
-Cohesion: 0.14
-Nodes (8): extractFilesFromDrop(), fileToBase64(), FileWithPath, readAllEntries(), splitIntoParts(), MockEntry, MockFileReader, traverseDirectory()
-
-### Community 88 - "Terminal and Tab Requirements"
-Cohesion: 0.16
-Nodes (16): Process Name Control Messages, REQ-SESSION-012 Wake-loop Prevention, REQ-TERM-001 Up to 6 Terminal Tabs per Session, REQ-TERM-002 WebSocket Connection to Container PTY, REQ-TERM-003 Automatic WebSocket Reconnection on Transient Failures, REQ-TERM-004 Close Code 4503 Is Authoritative, REQ-TERM-006 User-created Tabs Start with Plain Bash, REQ-TERM-007 Tiling Layouts (+8 more)
-
-### Community 89 - "PTY Session Instance"
+### Community 84 - "Vault and Agent Preseed"
 Cohesion: 0.18
-Nodes (5): containsUserInput(), Session, stripTerminalResponses(), TabConfigMap, WsEventLogger
+Nodes (17): Memory Capture Agent Definition, Agent Preseed System, Vault Lane, Graphify Build Mode Dispatch, Hooks Plugins and Optional Context-Mode MCP, Manifest-Driven Preseed and Auto-Upgrade, Memory Capture Hook Mechanics, Multi-Agent Preseed Adaptation Pipeline (+9 more)
 
-### Community 90 - "Session Manager Service"
-Cohesion: 0.19
-Nodes (4): SessionManager, Logger, SessionJSON, SessionOptions
+### Community 85 - "Agent Domain Requirements"
+Cohesion: 0.23
+Nodes (15): Agents Domain Specification, REQ-AGENT-001 Multi-Agent Support, REQ-AGENT-002 Agent Selection at Session Creation, REQ-AGENT-003 Agent CLI Auto-Start in Tab 1, REQ-AGENT-004 Standard and Pro Session Modes, REQ-AGENT-005 Pro Mode Preseed Suite, REQ-AGENT-006 Single Source Preseed Generation, REQ-AGENT-007 Multi-Agent Adaptation Pipeline (+7 more)
 
-### Community 91 - "Root TypeScript Config"
+### Community 86 - "Backend TypeScript Config"
+Cohesion: 0.12
+Nodes (16): compilerOptions, declaration, declarationMap, esModuleInterop, forceConsistentCasingInFileNames, module, moduleResolution, outDir (+8 more)
+
+### Community 87 - "File Upload Helpers"
+Cohesion: 0.22
+Nodes (14): extractFilesFromDrop(), fileToBase64(), readAllEntries(), shouldUseMultipart(), splitIntoParts(), buildFileSystemEntry(), createFallbackDataTransfer(), createMockDataTransfer() (+6 more)
+
+### Community 88 - "Terminal and Session Requirements"
+Cohesion: 0.15
+Nodes (17): Pre-warm PTY, Process Name Control Messages, REQ-SESSION-015 Container Port-readiness Gating with Pre-warm, REQ-STOR-004 Initial Sync Restores Files on Container Start, REQ-TERM-001 Up to 6 Terminal Tabs per Session, REQ-TERM-002 WebSocket Connection to Container PTY, REQ-TERM-003 Automatic WebSocket Reconnection on Transient Failures, REQ-TERM-005 Tab 1 Auto-starts the Configured Agent (+9 more)
+
+### Community 89 - "Session and PTY Management"
+Cohesion: 0.15
+Nodes (8): containsUserInput(), Session, SessionManagerLike, stripTerminalResponses(), Logger, SessionJSON, TabConfigMap, WsEventLogger
+
+### Community 91 - "Shared TypeScript Config"
 Cohesion: 0.12
 Nodes (15): compilerOptions, allowSyntheticDefaultImports, forceConsistentCasingInFileNames, isolatedModules, lib, module, moduleResolution, noEmit (+7 more)
 
-### Community 92 - "Antigravity and Vault Specs"
+### Community 92 - "Agent and Preseed Updates"
 Cohesion: 0.14
 Nodes (15): Antigravity Agent, AD67 Antigravity Preseed Lane Restored, Shadow Pin Bump Automation, AD49 context-mode Preseed Plugin, Dependabot Configuration, Dependabot Weekly Updates, AD64 Durable Review Lanes Additive Extensions, Node LTS Docker Image Pinning (+7 more)
 
-### Community 93 - "Operations and Configuration Specs"
-Cohesion: 0.20
-Nodes (15): Configurable Auto-Sleep sleepAfter Policy, Credential Encryption at Rest and R2 SSE-C, Deploy and LLM Key Injection, Development File Structure and Cost Model, Configuration Lane, Development and Deployment Lane, Stress Testing Lane, Worker and Container Environment Configuration (+7 more)
+### Community 93 - "Backend Security Architecture"
+Cohesion: 0.13
+Nodes (23): API Token Containment, Container Auth Token Lifecycle, Credential Encryption at Rest and R2 SSE-C, Deploy and LLM Key Injection, Development File Structure and Cost Model, Configuration Lane, Development and Deployment Lane, Security Lane (+15 more)
 
 ### Community 94 - "Layout and View State"
-Cohesion: 0.15
-Nodes (6): Layout(), LayoutProps, mockSessions, ViewState, startVaultReadinessProbe(), VaultReadinessOptions
+Cohesion: 0.16
+Nodes (17): Layout(), LayoutProps, activeSessionId(), createMockSession(), error(), isSamsungBrowser(), loading(), mockSessions (+9 more)
 
-### Community 95 - "Container Lifecycle Mocks"
-Cohesion: 0.13
-Nodes (9): mockCreateBucketIfNotExists, mockGetContainer, mockGetOrCreateScopedR2Token, mockGetR2Config, mockGetStoredBucketName, mockSeedGettingStartedDocs, passThroughCB, passThroughCB (+1 more)
+### Community 95 - "API Reference Documentation"
+Cohesion: 0.06
+Nodes (32): Admin, API Reference, Auth (SaaS Mode), Authentication, Billing, Common Response Headers, Configuration Steps, Container Lifecycle (+24 more)
 
 ### Community 96 - "Terminal URL Detection"
-Cohesion: 0.20
-Nodes (13): ACTIONABLE_URL_PATTERNS, WS_RETRYABLE_CLOSE_CODES, getBufferActive(), getLastUrlFromBuffer(), isActionableUrl(), isLikelyUrlContinuation(), registerUrlDetectionDeps(), setAuthUrlFn() (+5 more)
+Cohesion: 0.18
+Nodes (14): ACTIONABLE_URL_PATTERNS, WS_RETRYABLE_CLOSE_CODES, TerminalsGetter, getLastUrlFromBuffer(), isActionableUrl(), isLikelyUrlContinuation(), registerUrlDetectionDeps(), setAuthUrlFn() (+6 more)
 
-### Community 97 - "JWT Authentication Utilities"
+### Community 97 - "JWT and JWKS Utilities"
 Cohesion: 0.17
 Nodes (11): base64UrlDecode(), getPublicKeys(), JWK, JWKS, JWTHeader, JWTPayload, base64UrlEncode(), createTestJWT() (+3 more)
 
-### Community 98 - "Vault Cache Cleanup"
-Cohesion: 0.26
-Nodes (9): cleanupSessionVaultCache(), deleteRecordedIdbs(), getIDB(), getLS(), getSW(), listSessionMarkers(), readRecordedIdbNames(), sweepOrphanVaultCaches() (+1 more)
+### Community 98 - "Vault Cache Management"
+Cohesion: 0.23
+Nodes (10): cleanupSessionVaultCache(), deleteRecordedIdbs(), getIDB(), getLS(), getSW(), listSessionMarkers(), readRecordedIdbNames(), sweepOrphanVaultCaches() (+2 more)
 
-### Community 99 - "Turnstile Bot Protection"
+### Community 99 - "Turnstile and Setup Retry"
 Cohesion: 0.24
 Nodes (12): withSetupRetry(), buildTurnstileDomains(), findExistingWidget(), getManagedTurnstileWidgetName(), handleConfigureTurnstile(), isDuplicateWidgetError(), listWidgets(), rotateWidgetSecret() (+4 more)
 
@@ -792,391 +1022,391 @@ Nodes (12): withSetupRetry(), buildTurnstileDomains(), findExistingWidget(), get
 Cohesion: 0.20
 Nodes (14): AC Granularity Rules, Backlog Re-triage, Commit Prefix and Two Round Limit, Cross Cutting Policy REQ Family, Deprecated REQ Deletion, Spec Enforce AC Skill, Spec Enforce Skill, Execution Manifest Evidence Counts (+6 more)
 
-### Community 101 - "Documentation Templates"
+### Community 101 - "Documentation Templates and Ownership"
 Cohesion: 0.19
 Nodes (14): Canonical Glossary, Conditional Documentation Lane Emission, Constraints and Boundaries Template, Documentation Deployment Template, Documentation README Template, Root README Template, SDD Changes Template, SDD Constraints Template (+6 more)
 
-### Community 102 - "Terminal Tab UI"
-Cohesion: 0.27
+### Community 102 - "Terminal Tab UI Config"
+Cohesion: 0.26
 Nodes (12): getTabType(), resolveTabIcon(), resolveTabLabel(), SortableTab(), StaticTab(), TerminalTabsProps, AGENT_ICON_MAP, getTabDisplayName() (+4 more)
 
-### Community 103 - "SDD Initialization Templates"
-Cohesion: 0.29
-Nodes (14): SDD Documentation Template Set, Documentation API Reference Template, Documentation Architecture Template, Documentation Configuration Template, Documentation Decisions README Template, Import Mode Two-Output Model, Phase 4 Behavioral Enumeration, Phase 7b Enumeration Coverage Verification (+6 more)
+### Community 103 - "Documentation Verification Workflow"
+Cohesion: 0.22
+Nodes (17): CQ-SOURCE Source Anchor Truth Check, Doc Source Anchor Truth Check, SDD Documentation Template Set, Documentation API Reference Template, Documentation Architecture Template, Documentation Configuration Template, Documentation Decisions README Template, Import Mode Two-Output Model (+9 more)
 
-### Community 104 - "Graphify File Scanner"
+### Community 104 - "Graphify Detection Config"
 Cohesion: 0.14
 Nodes (13): files, code, document, image, paper, video, graphifyignore_patterns, needs_graph (+5 more)
 
-### Community 105 - "Setup Flow Mocks"
-Cohesion: 0.19
-Nodes (9): cfApiCB, accessAppFlowMocks(), baseFlowMocks(), createUrlMockFetch(), customDomainFlowMocks(), defaultIdpMock, jsonHeaders, mockFullSuccessFlow() (+1 more)
+### Community 105 - "Setup Flow Integration Tests"
+Cohesion: 0.21
+Nodes (8): accessAppFlowMocks(), baseFlowMocks(), createUrlMockFetch(), customDomainFlowMocks(), defaultIdpMock, jsonHeaders, mockFullSuccessFlow(), mockResponses
 
-### Community 106 - "Terminal Layout Engine"
-Cohesion: 0.18
-Nodes (13): getTerminal(), clearFitAddons(), ConnectionsGetter, fitAddons, getLayoutChangeCounter(), [layoutChangeCounter, setLayoutChangeCounter], makeKey(), refitAllTerminals() (+5 more)
+### Community 106 - "Graphify Command Helpers"
+Cohesion: 0.11
+Nodes (26): cloneTargetPath(), cloneTargetPathFromOutput(), effectiveCwdForCommand(), graphifyCloneAction, graphifyCloneDirective(), graphifyClonePromptDecision, graphifyPromptMarker(), isFailedToolExecution() (+18 more)
 
-### Community 107 - "Git Hook Review Reminder"
+### Community 107 - "Git Hook Review Tests"
 Cohesion: 0.15
 Nodes (4): __dirname, HOOK, runHook(), runHookWithInput()
 
-### Community 108 - "Workflow and Review Skills"
+### Community 108 - "Documentation and Workflow Skills"
 Cohesion: 0.15
 Nodes (13): doc-enforce Workflow, Documentation Lane Separation, Git Workflow Skill Routes, Parallel Review Agents, SDD Opt-In PR Boundary, Documentation Discipline Rule, Git Workflow Rule, ci-monitoring Skill (+5 more)
 
-### Community 109 - "API Throughput Testing"
+### Community 109 - "API Throughput Benchmarking"
 Cohesion: 0.15
 Nodes (9): AUTH_HEADERS, CONCURRENCY, errorRate, healthDuration, options, preferencesGetDuration, sessionListDuration, storageBrowseDuration (+1 more)
 
-### Community 110 - "Session Lifecycle Testing"
+### Community 110 - "Session Lifecycle Benchmarking"
 Cohesion: 0.15
 Nodes (10): CONCURRENCY, errorRate, HEADERS, options, rateLimitHits, READ_HEADERS, sessionCreateDuration, sessionDeleteDuration (+2 more)
 
-### Community 111 - "Usage and Formatting Utilities"
-Cohesion: 0.24
-Nodes (9): getUsage(), WelcomeCard(), UsagePage(), formatDuration(), formatRelativeTime(), formatSize(), trimTrailingZero(), UsagePage (+1 more)
+### Community 111 - "Dashboard UI Components"
+Cohesion: 0.10
+Nodes (25): getUsage(), DashboardProps, Props, ScrambleText(), mockMatchMedia(), ALL_TIPS, DashboardCard(), DashboardCardProps (+17 more)
 
-### Community 112 - "API and Architecture Docs"
+### Community 112 - "API and Documentation Index"
 Cohesion: 0.17
 Nodes (12): API Reference, API Endpoint Catalog, Architecture Decisions, AD10 Bootstrap Window Setup Auth Tradeoff, Documentation Index, Documentation Lane System, Health Endpoint, LLM API Keys API (+4 more)
 
-### Community 113 - "Example Project Specifications"
-Cohesion: 0.21
-Nodes (12): Cloudflare Access Management Authentication, Cloudflare KV R2 Durable Object Bindings, CV Website Contact Form Example Spec, Hello World Worker Example Spec, Public Blog Platform Example Spec, TDD Specification Examples Workflow, Turnstile Protected Contact Form, Advanced Public Blog Specification (+4 more)
+### Community 113 - "Community 113"
+Cohesion: 0.33
+Nodes (7): CV Website Contact Form Example Spec, Hello World Worker Example Spec, TDD Specification Examples Workflow, Turnstile Protected Contact Form, Intermediate CV Website Specification, Examples Introduction, Simple Hello World Worker Specification
 
-### Community 114 - "Debugging and Brainstorming Rules"
+### Community 114 - "Debugging and Investigation Rules"
 Cohesion: 0.17
 Nodes (12): Brainstorm No-Implementation Gate, Brainstorm Option and Tradeoff Workflow, Karpathy Goal-Driven Execution, Karpathy Simplicity First, Karpathy Surgical Changes, Karpathy Think Before Coding, Root Cause Investigation Gate, Systematic Debugging Workflow (+4 more)
 
-### Community 115 - "CI-Only Development Rules"
+### Community 115 - "Cloudflare Stack Testing Rules"
 Cohesion: 0.18
 Nodes (11): CI Verification Instead of Local Execution, Cloudflare Stack Default, Go CI-Only Testing, HTTPS Git and Noreply Identity Contract, No-Browser CLI Contract, No Local Builds, Tests, or Lint Contract, One-CPU Container Constraint, Cloudflare Environment Rule (+3 more)
 
-### Community 116 - "Mock Factory Utilities"
+### Community 116 - "Test Mock Factories"
 Cohesion: 0.20
 Nodes (6): createMockErrorResponse(), createMockFetchResponse(), PreviewFile, UserInfo, createMockSession(), createMockUserInfo()
 
-### Community 117 - "Storage Integration Tests"
-Cohesion: 0.17
-Nodes (4): createMockR2Config(), {
-  mockFetch,
-  mockCreateR2Client,
-  mockGetR2Url,
-  mockParseListObjectsXml,
-  mockCreateBucketIfNotExists,
-  mockSeedGettingStartedDocs,
-  mockSeedAgentConfigs,
-}, { mockFetch, mockSign, mockCreateR2Client, mockGetR2Url }, mockFetch
+### Community 117 - "Mock KV and App Testing"
+Cohesion: 0.03
+Nodes (31): createMockR2Config(), MockDelete, MockGet, MockKV, MockList, MockPut, StoreEntry, createTestApp() (+23 more)
 
-### Community 118 - "Activity and Prewarm Config"
-Cohesion: 0.21
-Nodes (9): createActivityTracker(), getPrewarmConfig(), ActivityInfo, ActivitySessionManager, HealthResponse, LogLevel, PrewarmConfig, TabConfigEntry (+1 more)
+### Community 118 - "Community 118"
+Cohesion: 0.31
+Nodes (7): createActivityTracker(), ActivityInfo, ActivitySessionManager, ActivityTracker, HealthResponse, LogLevel, WsEvent
 
-### Community 119 - "File and Folder Icons"
-Cohesion: 0.21
-Nodes (8): DEFAULT_ICON, EXTENSION_MAP, FOLDER_ICON, getFileIcon(), ALWAYS_VISIBLE_SPECIAL_PREFIXES, getSpecialFolder(), FileListProps, getFolderName()
+### Community 119 - "File Icon Mapping"
+Cohesion: 0.15
+Nodes (13): DEFAULT_ICON, EXTENSION_MAP, FileIcon, FOLDER_ICON, getFileIcon(), ALWAYS_VISIBLE_SPECIAL_PREFIXES, getSpecialFolder(), SPECIAL_FOLDERS (+5 more)
 
-### Community 120 - "Appearance and Settings UI"
-Cohesion: 0.36
-Nodes (8): applyAccentColor(), defaultSettings, hexToHSL(), isValidHex(), saveSettings(), Settings, AppearanceSectionProps, SessionSectionProps
+### Community 120 - "Security and Rate Limiting"
+Cohesion: 0.06
+Nodes (31): Adding a new rate limiter, API Token Containment, Authentication Gate, Body Limit, Container Auth Token (REQ-SEC-012), Container Image Scanning ([REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)), Content-Disposition Hardening, Contents (+23 more)
 
-### Community 121 - "Core Backend Dependencies"
-Cohesion: 0.17
-Nodes (11): dependencies, aws4fetch, hono, zod, name, overrides, glob, minimatch (+3 more)
+### Community 121 - "Backend Package Dependencies"
+Cohesion: 0.15
+Nodes (12): dependencies, aws4fetch, @cloudflare/containers, hono, zod, name, overrides, glob (+4 more)
 
-### Community 122 - "Storage Mock Utilities"
+### Community 122 - "Storage Service Integration Tests"
 Cohesion: 0.17
 Nodes (11): _resetForTests(), mockBrowseStorage, mockCompleteMultipartUpload, mockDeleteFiles, mockGetPreview, mockGetStats, mockInitiateMultipartUpload, mockShouldUseMultipart (+3 more)
 
-### Community 123 - "Transcript Cleanup Scripts"
-Cohesion: 0.17
-Nodes (6): __dirname, ENTRYPOINT, FN, __dirname, ENTRYPOINT, FN
+### Community 123 - "Transcript Cleanup Tests"
+Cohesion: 0.19
+Nodes (8): __dirname, ENTRYPOINT, FN, makeScratch(), runCleanupIn(), __dirname, ENTRYPOINT, FN
 
-### Community 124 - "Test Environment Mocks"
-Cohesion: 0.18
+### Community 124 - "Setup and WebSocket Mocks"
+Cohesion: 0.15
 Nodes (3): localStorageMock, MockResizeObserver, MockWebSocket
 
-### Community 125 - "Setup Coverage Tests"
+### Community 125 - "Setup Coverage Integration Tests"
 Cohesion: 0.23
 Nodes (8): accessAppFlowMocks(), baseFlowMocks(), createUrlMockFetch(), customDomainFlowMocks(), jsonHeaders, mockFullSuccessFlow(), mockResponses, standardBody
 
-### Community 126 - "Timekeeper and Cache Mocks"
+### Community 126 - "Timekeeper and Cache Tests"
 Cohesion: 0.17
 Nodes (9): resetUserRecordCache(), mockKV, mockStorage, NOW, THIS_MONTH, THIS_WEEK_START, THIS_YEAR, TODAY (+1 more)
 
-### Community 127 - "Bisync Behavior Testing"
-Cohesion: 0.20
-Nodes (7): openTierView(), buildHarness(), daemonBody, __dirname, ENTRYPOINT, spawnHarness(), waitFor()
+### Community 127 - "Community 127"
+Cohesion: 0.25
+Nodes (5): buildHarness(), daemonBody, __dirname, ENTRYPOINT, spawnHarness()
 
-### Community 128 - "Vault Extraction Specs"
+### Community 128 - "Vault and Memory Agents"
 Cohesion: 0.18
 Nodes (11): Asserted ISO Timestamp Contract, Memory Capture Agent, Transcript Prefilter and Chunking, Vault Extract Background Agent, Vault Extraction Contract, Vault Graph Chunk Schema, vault-monitor-hook Trigger, Vault Raw Session Note (+3 more)
 
-### Community 129 - "Agent Workflow Dispatch"
+### Community 129 - "Codeflare Workflow Dispatchers"
 Cohesion: 0.40
 Nodes (9): dispatchBrainstorm(), dispatchDebug(), dispatchDeploy(), sendUserPrompt(), BRAINSTORM_WORKFLOW, commandInstructions(), DEBUG_WORKFLOW, DEPLOY_WORKFLOW (+1 more)
 
-### Community 130 - "Frontend Fuzzing and MD5"
-Cohesion: 0.31
-Nodes (5): NUM_RUNS, getGravatarUrl(), md5(), md5blk(), md5cycle()
+### Community 130 - "API Stress Testing"
+Cohesion: 0.06
+Nodes (31): API Throughput, API Throughput (`api-throughput.js`), Concurrency Scaling, Configuration Reference, Container start quota check, Contents, Endpoints not yet stress-tested, Files (+23 more)
 
-### Community 131 - "Graphify Retrieval Skills"
+### Community 131 - "Graphify Skill and Enrichment"
 Cohesion: 0.25
-Nodes (11): Graphify Incremental Update, Graphify Persistence in Git, Graphify Canonical Pipeline, Graphify Query Path Explain Tools, Graphify Semantic Subagent Extraction, Graphify Skill, Iterative Retrieval Loop, Iterative Retrieval Skill (+3 more)
+Nodes (9): Graphify Incremental Update, Graphify Persistence in Git, Graphify Canonical Pipeline, Graphify Query Path Explain Tools, Graphify Semantic Subagent Extraction, Graphify Skill, Iterative Retrieval Loop, Phase 5 Enrichment Pass (+1 more)
 
-### Community 132 - "OAuth State Management"
-Cohesion: 0.35
-Nodes (8): b64url(), b64urlDecode(), claimOauthNonce(), enc, hmacKey(), parseOauthState(), signOauthState(), verifyOauthState()
+### Community 132 - "Vault and Memory System"
+Cohesion: 0.06
+Nodes (31): Attachment Cost Caveat (REQ-VAULT-011 AC1), Capture Path (REQ-VAULT-002), CONFIG.md and Library/Std (base_fs), Contents, Counter Storage, Directory Layout, First-session Expectations, Hook Mechanics (+23 more)
 
-### Community 133 - "Context Mode Entrypoint Tests"
+### Community 133 - "Entrypoint Context Mode Tests"
 Cohesion: 0.20
 Nodes (4): __dirname, entrypoint, extractMergeFilter(), runJqMerge()
 
-### Community 134 - "Frontend Dev Dependencies"
+### Community 134 - "Community 134"
 Cohesion: 0.18
 Nodes (11): devDependencies, fast-check, jsdom, oxlint, @solidjs/testing-library, @testing-library/jest-dom, @types/node, typescript (+3 more)
 
-### Community 135 - "Container Lifecycle API Tests"
-Cohesion: 0.20
-Nodes (9): stopSessionViaApi(), mockCreateBucketIfNotExists, mockGetContainer, mockGetOrCreateScopedR2Token, mockGetR2Config, mockGetStoredBucketName, mockListAllKvKeys, mockReconcileAgentConfigs (+1 more)
+### Community 135 - "Container Lifecycle Integration Tests"
+Cohesion: 0.24
+Nodes (11): stopSessionViaApi(), waitForContainerReadyViaApi(), mockCreateBucketIfNotExists, mockGetContainer, mockGetOrCreateScopedR2Token, mockGetR2Config, mockGetStoredBucketName, mockListAllKvKeys (+3 more)
 
-### Community 136 - "Security and Provisioning Specs"
+### Community 136 - "Community 136"
 Cohesion: 0.33
 Nodes (10): Authenticated Endpoint Gate, CF Access Strategy in SaaS Mode, workers.dev CORS Wildcard Accepted Risk, Penetration Test Report Lane, User Provisioning Lane, JIT User Provisioning, External Black-Box Penetration Test, REQ-SEC Security Control Requirements (+2 more)
 
-### Community 137 - "R2 Readiness Polling"
-Cohesion: 0.29
+### Community 137 - "Community 137"
+Cohesion: 0.35
 Nodes (9): r2Ready(), checkR2Status(), isR2Ready(), R2Api, [r2Ready, setR2Ready], registerR2ReadinessDeps(), _resetR2Ready(), startR2Polling() (+1 more)
 
-### Community 138 - "CI and Context-Mode Wiring"
+### Community 138 - "Community 138"
 Cohesion: 0.18
 Nodes (11): Bounded CI Polling, CI Monitoring Explicit-Only Contract, context-mode Entrypoint Wiring, context-mode Esbuild Require Patch, Context-Mode Shell Routing, context-mode Tier Gating, CI-Gated Deploy Workflow, Wrangler Environment Deploy (+3 more)
 
-### Community 139 - "Multi-Perspective Review Workflow"
+### Community 139 - "Community 139"
 Cohesion: 0.22
 Nodes (10): Cross-Reference Deduplication, Deep REQ Behavioral Verification, Interactive Triage Decisions, LLM Verification Two-Call Budget, Mandatory Review Scope Flags, Multi-Perspective Review Workflow, Reality Filter Q1-Q6, Review Context Preservation Contract (+2 more)
 
-### Community 140 - "Git Review Pipeline Specs"
+### Community 140 - "Community 140"
 Cohesion: 0.27
 Nodes (10): Pi Git Review Pipeline Skill, Pi PR Workflow Skill, REQ Shape Example Template, No Manual Review Agent Spawn Guard, Pi PR Creation Workflow, PR Boundary Review Policy, PR Creation No Review or CI Monitoring, REQ Backlink Contract (+2 more)
 
-### Community 141 - "Local Build Block Hook"
-Cohesion: 0.20
-Nodes (3): block-local-builds.sh script, __dirname, HOOK
+### Community 141 - "Community 141"
+Cohesion: 0.31
+Nodes (9): block-local-builds.sh script, bashInvocation(), ctxBatchShell(), ctxExecuteJs(), ctxExecuteShell(), __dirname, HOOK, runHook() (+1 more)
 
-### Community 142 - "Terminal Link Provider"
-Cohesion: 0.24
-Nodes (7): findLogicalLineStart(), isLikelyUrlContinuation(), registerMultiLineLinkProvider(), createMockBuffer(), createMockTerminal(), XTermBuffer, XTermLine
+### Community 142 - "Community 142"
+Cohesion: 0.33
+Nodes (8): findLogicalLineStart(), isLikelyUrlContinuation(), registerMultiLineLinkProvider(), createMockBuffer(), createMockLine(), createMockTerminal(), XTermBuffer, XTermLine
 
-### Community 143 - "WebSocket Debug Counters"
-Cohesion: 0.27
-Nodes (7): counters, getCounters(), PerKeyCounters, recordFlush(), recordFrame(), recordRestore(), flushWriteBuffer()
+### Community 143 - "Mobile Terminal Architecture"
+Cohesion: 0.06
+Nodes (30): `baselineInnerHeight` Immutability, `baselineInnerHeight` / `viewportGrowth` Compensation, Bottom-Following Re-Anchor, Contents, Cursor Visibility, Distance-Based Detection, FitAddon Management, Input Architecture (+22 more)
 
-### Community 144 - "Memory Capture Pipeline"
-Cohesion: 0.20
-Nodes (4): Memory Capture Pipeline, __dirname, PREFILTER, PROMPT
+### Community 144 - "Community 144"
+Cohesion: 0.33
+Nodes (10): Memory Capture Pipeline, assistantTextLine(), __dirname, metaLine(), PREFILTER, PROMPT, realUserLine(), syntheticUserLine() (+2 more)
 
-### Community 145 - "Backend Test Dependencies"
+### Community 145 - "Community 145"
 Cohesion: 0.20
 Nodes (10): devDependencies, @cloudflare/vitest-pool-workers, fast-check, oxlint, puppeteer, @types/node, typescript, vitest (+2 more)
 
-### Community 146 - "Tutorial Seed Generation"
+### Community 146 - "Community 146"
 Cohesion: 0.27
 Nodes (9): collectRelativeFilePaths(), __dirname, __filename, generate(), inferContentType(), outputFile, rootDir, toGeneratedModuleSource() (+1 more)
 
-### Community 147 - "Graphify Active Repo Hook"
-Cohesion: 0.22
-Nodes (4): __dirname, HOOK, makeRepo(), makeRepoWithGraph()
+### Community 147 - "Active Repo Detection Hook"
+Cohesion: 0.27
+Nodes (8): graphify-active-repo.sh script, __dirname, HOOK, makeRepo(), makeRepoWithGraph(), runHook(), runHookNoGraphify(), sentinel()
 
-### Community 148 - "Terminal Tiling Layouts"
+### Community 148 - "Community 148"
 Cohesion: 0.38
 Nodes (8): getBestLayoutForTabCount(), getTabOrder(), getTilingForSession(), isLayoutCompatible(), LAYOUT_MIN_TABS, LAYOUT_UPGRADE_ORDER, registerSessionStoreAccess(), setTilingLayout()
 
-### Community 149 - "Swift Coding Standards"
+### Community 149 - "Community 149"
 Cohesion: 0.20
 Nodes (10): Swift Actor Pattern, Swift API Design Guidelines, Swift Coding Style Rules, Swift Dependency Injection, Swift Formatting Toolchain, Swift Patterns Rules, Swift Protocol Oriented Design, Swift Strict Concurrency (+2 more)
 
-### Community 150 - "SDD Phase Verifier Tests"
-Cohesion: 0.20
-Nodes (4): __dirname, VERIFIER, __dirname, VERIFIER
+### Community 150 - "Community 150"
+Cohesion: 0.25
+Nodes (7): __dirname, VERIFIER, __dirname, makeFixture(), runVerifier(), VERIFIER, writeLoadBearing()
 
-### Community 151 - "Oxlint Linting Rules"
+### Community 151 - "Community 151"
 Cohesion: 0.20
 Nodes (9): rules, eslint/no-unassigned-vars, no-this-alias, no-unassigned-vars, no-unused-vars, no-useless-spread, typescript/no-this-alias, unicorn/no-useless-spread (+1 more)
 
-### Community 152 - "Security Hardening Controls"
-Cohesion: 0.28
-Nodes (9): API Token Containment, Container Auth Token Lifecycle, Security Lane, Dual R2 Credential Architecture, Path Traversal Prevention, REQ-SEC-010 Path Traversal Prevention on Storage Endpoints, Pre-Launch Security Hardening Controls, Cloudflare and GitHub Token Permission Model (+1 more)
+### Community 152 - "Spec Reviewer Agent Guide"
+Cohesion: 0.07
+Nodes (28): Cross-session signals (prior REQ decisions and user preferences), Domain mapping (project-agnostic), Exit checklist (verify before reporting done), First action: invoke spec-enforce skill (binding), Graph-first for sync (Phase 1) and citation truth-check, Known failure modes (watch yourself here), Lane discipline, Mode: auto (+20 more)
 
-### Community 153 - "Billing and Internals Docs"
+### Community 153 - "Community 153"
 Cohesion: 0.31
 Nodes (9): Architecture Internals, Billing and Subscription Documentation, Paygate Quota Enforcement, Stripe Checkout and Webhook, AD37 Stripe Signal and Sync Billing, Eight-Tier Subscription System, Timekeeper Durable Object Usage Tracking, Workers KV Configuration and Cache (+1 more)
 
-### Community 154 - "Header Integration Tests"
-Cohesion: 0.22
-Nodes (4): defaultSessionProps, isMobileMock, sessionStoreState, usageStateMock
+### Community 154 - "Community 154"
+Cohesion: 0.20
+Nodes (5): defaultSessionProps, isMobileMock, sessionStoreState, terminalStoreMock, usageStateMock
 
-### Community 155 - "Vault Graph Extraction"
-Cohesion: 0.22
-Nodes (9): Agent-Dispatched Graphify Extraction, Cumulative Vault Graph, PDF Vault Extraction, Vault Changed-File High-Water Workflow, Vault Global Graph Merge, Vault Graph Visualization, Vault Extraction Agent Prompt, REQ-MEM-009 Cumulative Vault Graph (+1 more)
+### Community 155 - "Vault Graph Extraction Workflow"
+Cohesion: 0.12
+Nodes (16): Agent-Dispatched Graphify Extraction, Cross-Session Memory Vault Graph, Cumulative Vault Graph, Memory Session-Start Graph Query, PDF Vault Extraction, Vault Changed-File High-Water Workflow, Vault Edit Extraction Hook, Vault Global Graph Merge (+8 more)
 
-### Community 156 - "General Coding Style Rules"
+### Community 156 - "Community 156"
 Cohesion: 0.22
 Nodes (9): Documentation Integrity Rule, Go Context and Timeouts, Go Secret Management, Immutability Rule, Secret Handling Contract, Security Checklist Rule, Validate at Boundaries Rule, Common Coding Style Rule (+1 more)
 
-### Community 157 - "Graphify Plugin Discipline"
-Cohesion: 0.25
-Nodes (9): Graphify Discipline-vs-Capability Split, Graphify MCP Server Registration, Graphify R2 Bisync Persistence, Graphify Pro Discipline Hooks, Graphify Refresh After Edits, Graphify First Rule, graphify Plugin README, AD52 Graphify Split Rationale (+1 more)
+### Community 157 - "Graphify Infrastructure and Rules"
+Cohesion: 0.18
+Nodes (12): Graphify Discipline-vs-Capability Split, Graphify MCP Server Registration, Graphify R2 Bisync Persistence, Graphify Pro Discipline Hooks, Graphify Refresh After Edits, Review Graphify Refresh, Graphify First Rule, graphify Plugin README (+4 more)
 
-### Community 158 - "AI Toolchain and Graphify"
-Cohesion: 0.33
-Nodes (9): Container Image and AI CLI Toolchain, Container Lane, Fast CLI Start Policy, AD53 Graphify Hot-Reload Wrapper and Active Repo Sentinel, Graphify Knowledge Graph, AD52 Graphify MCP Available Everywhere, Discipline Advanced-Only, Pi Extension NPM Seed Cache, AD63 Pi Safe Graphify Update Wrapper (+1 more)
+### Community 158 - "Review Queue Ledger"
+Cohesion: 0.07
+Nodes (28): 2026-05-10 - PR #307 (develop -> main) - RESOLVED, 2026-05-11 - PR #320 (develop -> main) - RESOLVED, 2026-05-15 - PR #360 (develop -> main) - RESOLVED, 2026-05-17 - PR #380 (develop -> main) - RESOLVED, 2026-05-18 - PR #385 commit 43cf208 (spec-reviewer r12) - RESOLVED, 2026-05-18 - PR #385 (develop -> main) - ALL RESOLVED, 2026-05-23 - /sdd clean pass 10 (deeper SDD compliance pass) - RESOLVED, 2026-05-23 - /sdd clean pass 12 (Verification-field canonicalization + leakage closure) - RESOLVED (+20 more)
 
-### Community 159 - "Storage and Startup Specs"
-Cohesion: 0.36
-Nodes (9): Container Startup and Init-Complete Pre-Warm Gate, Storage and Sync Lane, Troubleshooting Lane, Manual Sync and Shutdown Durability, Per-User R2 Storage Quota, rclone Bisync Strategy and Sync Modes, REQ-STOR Storage Sync Requirements, Startup and Graphify Troubleshooting Diagnostics (+1 more)
+### Community 159 - "Container and Storage Lanes"
+Cohesion: 0.18
+Nodes (18): Configurable Auto-Sleep sleepAfter Policy, Container Image and AI CLI Toolchain, Container Startup and Init-Complete Pre-Warm Gate, Container Lane, Storage and Sync Lane, Troubleshooting Lane, Fast CLI Start Policy, AD53 Graphify Hot-Reload Wrapper and Active Repo Sentinel (+10 more)
 
-### Community 160 - "Cache Command Pattern"
-Cohesion: 0.44
+### Community 160 - "Command Execution Patterns"
+Cohesion: 0.14
 Nodes (5): ExecuteFailCommand, ExecuteSuccessCommand, ResetCacheCommand, ResetCommand, SetCacheCommand
 
-### Community 161 - "Terminal Scroll Correction"
+### Community 161 - "Community 161"
 Cohesion: 0.36
-Nodes (7): ScrollCorrectionParams, isVirtualKeyboardOpen(), clearScrollIntent(), hasRecentScrollIntent(), intentByKey, makeKey(), markScrollIntent()
+Nodes (7): ScrollCorrectionParams, useScrollCorrection(), clearScrollIntent(), hasRecentScrollIntent(), intentByKey, makeKey(), markScrollIntent()
 
-### Community 162 - "Source Anchor Verification"
+### Community 162 - "Community 162"
 Cohesion: 0.33
 Nodes (8): int, Path, str, collect_anchors(), main(), Return {status, reason}. Status is resolved | orphaned | drifted., Return (anchors, malformed, unreadable)., verify_anchor()
 
-### Community 164 - "System and Disk Metrics"
-Cohesion: 0.28
-Nodes (8): cachedDiskMetrics, execFileAsync, getDiskMetrics(), getSyncStatus(), getSystemMetrics(), CachedDiskMetrics, SyncStatus, SystemMetrics
+### Community 163 - "Community 163"
+Cohesion: 0.31
+Nodes (9): memory-capture.sh script, commandWrapperLine(), __dirname, HOOK, makeFixture(), realUserLine(), runHook(), toolResultLine() (+1 more)
 
-### Community 165 - "Knip Dead-Code Config"
+### Community 164 - "System and Disk Metrics"
+Cohesion: 0.21
+Nodes (11): cachedDiskMetrics, execFileAsync, getDiskMetrics(), getSyncStatus(), getSystemMetrics(), getWorkingDirectory(), log(), shutdown() (+3 more)
+
+### Community 165 - "Community 165"
 Cohesion: 0.22
 Nodes (8): ignore, ignoreDependencies, ignoreExportsUsedInFile, project, rules, classMembers, enumMembers, $schema
 
-### Community 166 - "Frontend Script Commands"
+### Community 166 - "Community 166"
 Cohesion: 0.22
 Nodes (9): scripts, build, dev, lint, lint:fix, preview, test, test:watch (+1 more)
 
-### Community 167 - "Session API Mock Tests"
-Cohesion: 0.25
-Nodes (7): deleteSession(), applyMetricsUpdate(), mockGetBatchSessionStatus, mockGetSessions, mockRecreateAgentConfigs, mockSendInputToTerminal, mockStopSession
+### Community 167 - "Architectural Design Principles"
+Cohesion: 0.07
+Nodes (26): 0. Check for Specification and Existing Decisions, 1. Current State Analysis, 1. Modularity & Separation of Concerns, 2. Requirements Gathering, 2. Scalability, 3. Design Proposal, 3. Maintainability, 4. Security (+18 more)
 
-### Community 168 - "SDD Autonomy Modes"
+### Community 168 - "Community 168"
 Cohesion: 0.25
 Nodes (8): SDD Clean Mode-Aware Rescue, SDD Git Clean Gate, SDD Init Resume Mode, Spec-Driven Development Command, AD46 Review Reality Filter, AD44 SDD Three-Mode Autonomy, sdd-clean Skill, sdd-init Skill
 
-### Community 169 - "Safe Graphify Update Script"
-Cohesion: 0.29
-Nodes (6): safe-graphify-update.sh script, GRAPHIFY_MAX_WORKERS, GRAPHIFY_MAX_WORKERS, GRAPHIFY_NO_SEMANTIC, GRAPHIFY_VIZ_NODE_LIMIT, restore_backup()
+### Community 169 - "Community 169"
+Cohesion: 0.22
+Nodes (7): safe-graphify-update.sh script, safe-graphify-update.sh script, GRAPHIFY_MAX_WORKERS, GRAPHIFY_MAX_WORKERS, GRAPHIFY_NO_SEMANTIC, GRAPHIFY_VIZ_NODE_LIMIT, restore_backup()
 
-### Community 170 - "Vault and Tier Gating"
-Cohesion: 0.25
-Nodes (8): REQ-MEM-006 Memory Available Only in Pro Advanced Mode, REQ-MEM-011 Session-mode Storage Resolution and Propagation, REQ-SUB-014 Session Mode Gating by Tier, REQ-VAULT-008 Zero-UI Vault Encryption, REQ-VAULT-015 Vault IDB Lifecycle and Listing Filters, Vault Bootstrap-hop Page, Vault Encryption Key, Vault IndexedDB Cache Lifecycle
+### Community 170 - "Doc Updater Agent Guide"
+Cohesion: 0.07
+Nodes (26): Cross-session signals (doc structure preferences and prior decisions), Documentation Specialist, Exit checklist (verify before reporting done), First action: invoke doc-enforce skill (binding), Graph-first for documentation truth-check, Known failure modes (watch yourself here), Mode: auto, Mode: interactive (sdd/config.yml says interactive) (+18 more)
 
-### Community 171 - "Terminal Disposal Utilities"
-Cohesion: 0.25
-Nodes (4): cleanupMapByPrefix(), disposeSession(), cleanupFitAddonsByPrefix(), _MockWebSocket
+### Community 171 - "Multi-Agent Review Workflow"
+Cohesion: 0.07
+Nodes (26): Agent Prompt Template, Batching Rules, Comprehensive Multi-Perspective Codebase Review, Context Preservation (load-bearing), CRITICAL: All 6 agents MUST be launched in a SINGLE message with 6 parallel Task tool calls., Important Notes, Phase 10: Update Architecture Decisions + Create Tech Debt Issues (Task agent), Phase 11: Enter Plan Mode (main agent) (+18 more)
 
-### Community 172 - "Rate Limit Validation Tests"
+### Community 172 - "Community 172"
 Cohesion: 0.25
 Nodes (5): HEADERS, options, rateLimitHits, READ_HEADERS, unexpectedErrors
 
-### Community 173 - "Frontend UI Dependencies"
-Cohesion: 0.25
-Nodes (8): dependencies, @mdi/js, solid-js, @solidjs/router, @thisbeyond/solid-dnd, @xterm/addon-fit, @xterm/xterm, zod
+### Community 173 - "Frontend Package Dependencies"
+Cohesion: 0.13
+Nodes (14): dependencies, @mdi/js, solid-js, @solidjs/router, @thisbeyond/solid-dnd, @xterm/addon-fit, @xterm/xterm, zod (+6 more)
 
-### Community 174 - "Memory Vault Graph Skills"
-Cohesion: 0.29
-Nodes (7): Cross-Session Memory Vault Graph, Memory Session-Start Graph Query, Vault Edit Extraction Hook, Vault Note Capture Route, Memory Rule, vault-note-capture Skill, vault-operations Skill
+### Community 174 - "System Constraints and Reliability"
+Cohesion: 0.07
+Nodes (26): Additional Cost Mechanisms, Additional Performance Metrics, Additional Reliability Mechanisms, Additional Security Controls, Boundaries, CON-COST-001: Idle containers hibernate (zero cost when not running), CON-PERF-001: Dashboard polling interval 5 seconds, CON-PERF-002: Bisync interval 15 minutes (with manual triggers) (+18 more)
 
-### Community 175 - "Go Coding Patterns"
+### Community 175 - "Community 175"
 Cohesion: 0.29
 Nodes (7): Go Dependency Injection, Go Error Wrapping, Go gofmt and goimports Contract, Go Functional Options, Go Small Interfaces, Go Coding Style Rule, Go Patterns Rule
 
-### Community 176 - "LLM Provider Skills"
+### Community 176 - "Community 176"
 Cohesion: 0.43
-Nodes (7): Consult LLM Context Rich Prompting, Consult LLM Latest Model Resolution, consult_llm MCP Tool, Consult LLM Provider Selection, Consult LLM Skill, Google Gemini Provider, OpenAI GPT Provider
+Nodes (6): Consult LLM Context Rich Prompting, Consult LLM Latest Model Resolution, consult_llm MCP Tool, Consult LLM Provider Selection, Google Gemini Provider, OpenAI GPT Provider
 
-### Community 177 - "Review Command Dispatch"
+### Community 177 - "Community 177"
 Cohesion: 0.48
 Nodes (6): dispatchReview(), findGitRoot(), helpText(), sendUserPrompt(), shell(), skillPrompt()
 
-### Community 179 - "Subagent Package Dependencies"
+### Community 179 - "Community 179"
 Cohesion: 0.29
 Nodes (6): dependencies, context-mode, @gaodes/pi-graphify, @gotgenes/pi-subagents, name, private
 
-### Community 180 - "Graphify Session Start Hook"
-Cohesion: 0.33
-Nodes (4): __dirname, HOOK, runFromCwd(), safeParse()
+### Community 180 - "Community 180"
+Cohesion: 0.39
+Nodes (7): graphify-session-start.sh script, emit_reminder(), __dirname, HOOK, makeGraph(), runFromCwd(), safeParse()
 
-### Community 181 - "User Preferences Store"
-Cohesion: 0.48
-Nodes (5): getCurrentPreferences(), loadPreferences(), PreferencesLogger, registerPreferencesDeps(), updateUserPreferences()
+### Community 181 - "Changelog and Commit Discipline"
+Cohesion: 0.07
+Nodes (26): Allowlist (acceptable in REQs), Backlog re-triage, Changelog discipline, Changelog drift, Commit-prefix contract (load-bearing for anti-spiral), Conservative JUDGMENT auto-resolution (unleashed), Deprecated REQs are deleted, Execution contract (binding) (+18 more)
 
-### Community 182 - "Graphify Hook Entrypoint Tests"
-Cohesion: 0.33
+### Community 182 - "Community 182"
+Cohesion: 0.32
 Nodes (6): __dirname, entrypoint, buildHarness(), __dirname, entrypoint, extractAdvancedSettingsBlock()
 
-### Community 183 - "Graph-First Nudge Hook"
+### Community 183 - "Community 183"
 Cohesion: 0.33
 Nodes (4): __dirname, HOOK, runHook(), safeParse()
 
-### Community 184 - "Preseed Config Treeview Tests"
+### Community 184 - "Community 184"
 Cohesion: 0.33
 Nodes (4): CONFIG_PATH, __dirname, extractTreeviewRegexRules(), stripLuaComments()
 
-### Community 185 - "Shared Package Metadata"
-Cohesion: 0.29
-Nodes (6): name, overrides, yaml, private, type, version
+### Community 185 - "Community 185"
+Cohesion: 0.33
+Nodes (7): changedVaultFiles(), isVaultExcludedPath(), changedFiles(), isAncestor(), mergeLaneState(), classifyReviewFiles(), reusablePendingReview()
 
-### Community 186 - "Vault Entrypoint Audit"
+### Community 186 - "Community 186"
 Cohesion: 0.33
 Nodes (5): __dirname, dockerfile, entrypoint, manifest, repoRoot
 
-### Community 187 - "PR Workflow Contracts"
+### Community 187 - "Community 187"
 Cohesion: 0.47
 Nodes (6): Branch Protection Contract, Git Review Pipeline Skill, PR-Boundary Review Pipeline, Pull Request Workflow Skill, Pull Request Creation Contract, Review Agents Execution Order
 
-### Community 188 - "Content Hash Caching"
-Cohesion: 0.53
-Nodes (6): Cache Corruption Graceful Degradation, Cache Service Layer Wrapper, Content Hash Cache Key, Content Hash Cache Pattern Skill, Content Hash File Storage, Content Hash Path Independence Rationale
+### Community 188 - "Content-Hash Caching Pattern"
+Cohesion: 0.13
+Nodes (17): Cache Corruption Graceful Degradation, Cache Service Layer Wrapper, Content Hash Cache Key, 1. Content-Hash Based Cache Key, 2. Frozen Dataclass for Cache Entry, 3. File-Based Cache Storage, 4. Service Layer Wrapper (SRP), Anti-Patterns to Avoid (+9 more)
 
-### Community 189 - "Deployment and Health Specs"
-Cohesion: 0.40
-Nodes (6): CI/CD Pipeline Contract, Deployment Patterns Skill, Deployment Strategies, Health Check Contract, Rollback and Production Readiness, Twelve-Factor Configuration Validation
+### Community 189 - "CI/CD Deployment Patterns"
+Cohesion: 0.06
+Nodes (34): CI/CD Pipeline Contract, Application, Blue-Green Deployment, Canary Deployment, CI/CD Pipeline, Configuration Validation, Deployment Patterns, Deployment Strategies (+26 more)
 
-### Community 190 - "Knip Configuration"
-Cohesion: 0.33
-Nodes (5): ignore, project, $schema, knip, knip
+### Community 190 - "Community 190"
+Cohesion: 0.25
+Nodes (7): ignore, project, $schema, knip, knip, knip, knip
 
-### Community 191 - "Sleep Timer Logic"
-Cohesion: 0.53
-Nodes (4): getSleepTimerInfo(), parseSleepAfterMs(), SLEEP_AFTER_MS, SleepTimerInfo
+### Community 191 - "Header and Session Stats"
+Cohesion: 0.11
+Nodes (23): Header(), HeaderProps, SessionStatCard(), SessionStatCardProps, statusDotVariant, statusPulses, createSession(), preseedUpgrading() (+15 more)
 
-### Community 192 - "Marketplace Plugin Registry"
-Cohesion: 0.33
-Nodes (5): claude-plugins-official, installLocation, lastUpdated, repo, source
+### Community 192 - "Community 192"
+Cohesion: 0.38
+Nodes (6): claude-plugins-official, installLocation, lastUpdated, source, repo, source
 
-### Community 193 - "Graphify Clone Prompt Hook"
-Cohesion: 0.40
-Nodes (4): __dirname, HOOK, runHook(), safeParse()
+### Community 193 - "Community 193"
+Cohesion: 0.43
+Nodes (6): graphify-clone-prompt.sh script, graph_present_in(), __dirname, HOOK, runHook(), safeParse()
 
-### Community 195 - "Context Mode Entrypoint Wiring"
+### Community 194 - "Community 194"
+Cohesion: 0.39
+Nodes (6): memory-capture-block.sh script, __dirname, HOOK, makeFixture(), runHook(), writeVars()
+
+### Community 195 - "Community 195"
 Cohesion: 0.47
 Nodes (5): buildHarness(), __dirname, entrypoint, extractContextModeMcpBlock(), extractPluginsConfigBranch()
 
-### Community 196 - "Graphify MCP Entrypoint Wiring"
+### Community 196 - "Community 196"
 Cohesion: 0.47
 Nodes (5): buildHarness(), __dirname, entrypoint, extractGraphifyMcpBlock(), extractPluginsConfigBranch()
 
-### Community 197 - "Entrypoint Config Merging"
+### Community 197 - "Community 197"
 Cohesion: 0.40
 Nodes (5): __dirname, ENTRYPOINT, extractMergeFilter(), MANAGED_CFG, runMerge()
 
-### Community 198 - "Entrypoint Executable Setup"
+### Community 198 - "Community 198"
 Cohesion: 0.40
 Nodes (4): __dirname, ENTRYPOINT, extractChmodSnippet(), runChmodStep()
 
@@ -1200,9 +1430,9 @@ Nodes (4): __dirname, repoRoot, serverSrc, sessionSrc
 Cohesion: 0.60
 Nodes (5): Mobile Terminal Lane, Mobile Keyboard and Samsung VirtualKeyboard Handling, Mobile Touch Voice Input and WebSocket Recovery, REQ-MOB Mobile Terminal Requirements, xterm Scroll Stability Controls
 
-### Community 207 - "Community 207"
-Cohesion: 0.60
-Nodes (3): EUR_COUNTRIES, getCurrencyForCountry(), SupportedCurrency
+### Community 207 - "Code Reviewer Agent Guide"
+Cohesion: 0.08
+Nodes (25): AI-Generated Code Review, Approval Criteria, Best Practices (LOW), Code Quality (HIGH), Confidence-Based Filtering, Cross-session signals (user preferences), Exit checklist (verify before reporting done), Graph-first for change impact (+17 more)
 
 ### Community 208 - "Community 208"
 Cohesion: 0.40
@@ -1256,9 +1486,13 @@ Nodes (3): __dirname, entrypoint, repoRoot
 Cohesion: 0.50
 Nodes (3): __dirname, repoRoot, serverSrc
 
-### Community 223 - "Community 223"
-Cohesion: 0.50
-Nodes (4): Frontend Component Patterns, Frontend Hooks and State Patterns, Frontend Patterns Skill, Frontend Performance and Accessibility Patterns
+### Community 223 - "Frontend Development Patterns"
+Cohesion: 0.07
+Nodes (27): Frontend Component Patterns, Frontend Hooks and State Patterns, Accessibility Patterns, Animation Patterns, Async Data Fetching Hook, Code Splitting & Lazy Loading, Component Patterns, Composition Over Inheritance (+19 more)
+
+### Community 224 - "Backend Development Patterns"
+Cohesion: 0.09
+Nodes (22): API Design Patterns, Authentication & Authorization, Backend Development Patterns, Background Jobs & Queues, Cache-Aside Pattern, Caching Strategies, Centralized Error Handler, Error Handling Patterns (+14 more)
 
 ### Community 225 - "Community 225"
 Cohesion: 0.50
@@ -1280,6 +1514,10 @@ Nodes (3): description, name, version
 Cohesion: 0.50
 Nodes (3): description, name, version
 
+### Community 230 - "Parallel Agent Dispatch Rules"
+Cohesion: 0.08
+Nodes (25): Batching rules, Context preservation, Hard rules (recap), No-scope help, Phase 10: Update architecture decisions + create tech-debt issues (single `code-reviewer` `Agent` call), Phase 11: Enter plan mode (main session), Phase 1: Parse arguments + create run directory (main session), Phase 2: Parallel subagent dispatch (6 `Agent` calls) (+17 more)
+
 ### Community 231 - "Community 231"
 Cohesion: 0.50
 Nodes (4): Python Coding Style Rules, Python Formatting Toolchain, Python Immutable Data Structures, Python PEP 8 and Type Annotation Contract
@@ -1288,21 +1526,25 @@ Nodes (4): Python Coding Style Rules, Python Formatting Toolchain, Python Immuta
 Cohesion: 0.50
 Nodes (4): Python Dataclass DTO Pattern, Python Patterns Rules, Python Protocol Duck Typing, Python Context Manager and Generator Resource Pattern
 
-### Community 233 - "Community 233"
-Cohesion: 0.50
-Nodes (4): REQ-AGENT-033 SDD Init Scaffolding and Canonical Render, REQ-AGENT-034 SDD Init Graphify Enrichment, REQ-AGENT-035 Phase 7a Source Anchor Verifier, REQ-AGENT-039 Phase 7b Enumeration Coverage Verifier
+### Community 233 - "SDD Workflow and Review"
+Cohesion: 0.17
+Nodes (13): REQ-AGENT-021 SDD Workflow Preseed and Portability, REQ-AGENT-022 Legacy Import Mode Discovery, REQ-AGENT-033 SDD Init Scaffolding and Canonical Render, REQ-AGENT-034 SDD Init Graphify Enrichment, REQ-AGENT-035 Phase 7a Source Anchor Verifier, REQ-AGENT-037 SDD Clean Rescue and Autonomy Modes, REQ-AGENT-038 Resume Mode Drain Workflow, REQ-AGENT-039 Phase 7b Enumeration Coverage Verifier (+5 more)
+
+### Community 234 - "Community 234"
+Cohesion: 0.47
+Nodes (4): block-attributed-commits.sh script, __dirname, HOOK, runHook()
 
 ### Community 235 - "Community 235"
-Cohesion: 0.50
-Nodes (3): GRAPHIFY_MAX_WORKERS, GRAPHIFY_NO_SEMANTIC, GRAPHIFY_VIZ_NODE_LIMIT
+Cohesion: 0.40
+Nodes (4): build-graphify-ast.sh script, GRAPHIFY_MAX_WORKERS, GRAPHIFY_NO_SEMANTIC, GRAPHIFY_VIZ_NODE_LIMIT
 
 ### Community 236 - "Community 236"
 Cohesion: 0.50
 Nodes (3): __dirname, files, root
 
 ### Community 237 - "Community 237"
-Cohesion: 0.67
-Nodes (3): mapTier(), migrateUsers(), TierMapping
+Cohesion: 0.50
+Nodes (4): mapTier(), migrateUsers(), TierMapping, UserRecord
 
 ### Community 238 - "Community 238"
 Cohesion: 0.83
@@ -1348,29 +1590,605 @@ Nodes (3): Explicit Security Review Routing, TypeScript Environment Variable Sec
 Cohesion: 0.67
 Nodes (3): REQ-AGENT-010 Deploy Credential Storage, REQ-AGENT-028 Deploy Credential Token Creation UX, REQ-AGENT-029 Deploy Credential Propagation to Container
 
-### Community 298 - "Core System Glossary"
+### Community 268 - "Subscription System Requirements"
+Cohesion: 0.08
+Nodes (25): Domain Dependencies, Key Concepts, Out of Scope, REQ-SUB-001: Eight-Tier Subscription System, REQ-SUB-002: Tier Property Definitions, REQ-SUB-003: Free Tier Requires No Payment, REQ-SUB-004: Paid Tiers Integrate with Stripe Checkout, REQ-SUB-005: Trial Is Compute-Based, Not Time-Based (+17 more)
+
+### Community 298 - "Agent Toolchain Deployment"
+Cohesion: 0.08
+Nodes (24): Ask your agent:, Ask your agent:, Ask your agent:, Ask your agent:, Ask your agent:, Environment Variables vs Secrets, Or do it yourself:, Or do it yourself: (+16 more)
+
+### Community 299 - "Project Quickstart Guide"
+Cohesion: 0.08
+Nodes (24): 1. Fork this repo, 2. Set secrets, 3. Deploy, 4. Run the setup wizard, Architecture, CI/CD, Cloudflare WAF blocking API requests, Docs (+16 more)
+
+### Community 300 - "Operations and DevOps Requirements"
+Cohesion: 0.08
+Nodes (24): Domain Dependencies, Key Concepts, Operations, Out of Scope, REQ-OPS-001: Deploy workflow trigger and pre-deploy pipeline, REQ-OPS-002: Docker image build, vulnerability scan, and registry push, REQ-OPS-003: PR checks run lint, test, typecheck, and security audit, REQ-OPS-004: E2E test workflow setup and job graph (+16 more)
+
+### Community 301 - "Security Infrastructure Requirements"
+Cohesion: 0.08
+Nodes (24): Domain Dependencies, Key Concepts, Out of Scope, REQ-SEC-001: Authenticated endpoints reject unauthenticated requests, REQ-SEC-002: API tokens never enter containers, REQ-SEC-003: Per-user R2 tokens scoped to user bucket, REQ-SEC-004: Credential encryption-at-rest cryptographic contract, REQ-SEC-005: R2 files encrypted at rest with SSE-C when operator configures an encryption key (+16 more)
+
+### Community 302 - "API Design Standards"
+Cohesion: 0.08
+Nodes (24): API Design Checklist, API Design Patterns, Authentication and Authorization, Authorization Patterns, Common Mistakes, Go (net/http), Header Versioning, Headers (+16 more)
+
+### Community 303 - "Graphify Operational Notes"
+Cohesion: 0.08
+Nodes (23): Codeflare-specific operational notes, For --cluster-only, /graphify (Codeflare-managed skill), Honesty Rules, Incremental Updates, Part A - Structural extraction for code files, Part B - Semantic extraction (parallel subagents), Part C - Merge AST + semantic into final extraction (+15 more)
+
+### Community 304 - "CI/CD Testing Documentation"
+Cohesion: 0.08
+Nodes (23): Backend Tests, CI/CD (GitHub Actions), CI/CD & Testing, Contents, Dependabot Configuration, Deploy Workflow Detail, E2E API Tests, E2E Infrastructure (+15 more)
+
+### Community 305 - "Authentication Mode Requirements"
+Cohesion: 0.08
+Nodes (23): Authentication, Domain Dependencies, Key Concepts, Out of Scope, REQ-AUTH-001: Two authentication modes, REQ-AUTH-002: SaaS mode uses Direct GitHub OAuth, REQ-AUTH-003: CF Access mode for all other deployments, REQ-AUTH-004: Service token authentication for E2E testing (+15 more)
+
+### Community 306 - "Database Migration Patterns"
+Cohesion: 0.09
+Nodes (23): Adding a Column Safely, Adding an Index Without Downtime, Anti-Patterns, Core Principles, Data Migration, Database Migration Patterns, Django (Python), Drizzle (TypeScript/Node.js) (+15 more)
+
+### Community 307 - "Session State and Presets"
+Cohesion: 0.12
+Nodes (21): AuthStatus, InitProgressDetail, SessionStatus, SessionTerminals, TabPreset, TilingState, makeSession(), mockedApi (+13 more)
+
+### Community 308 - "Authentication Flow Documentation"
+Cohesion: 0.09
+Nodes (21): Auth Flow, Auth Resolution Order, Authentication & Billing, Authentication Modes, Bucket Auto-Creation, CF Access Flow, CF Access Resources, Common Pitfalls (+13 more)
+
+### Community 309 - "Environment and Permissions Config"
+Cohesion: 0.09
+Nodes (21): Account Permissions, Account Permissions, Additional Scopes You May Need, API Token Permissions, Cloudflare API Token (Operator), Cloudflare API Token (User), Configuration, Container Environment (+13 more)
+
+### Community 310 - "Agent Preseed System"
+Cohesion: 0.09
+Nodes (21): Agent Preseed System, Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch)), Common Issues, Contents, Git persistence ([REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git)), Graphify ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)), Multi-Agent Preseed, Pi active-repo query fallback ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5) (+13 more)
+
+### Community 311 - "Session Lifecycle Requirements"
+Cohesion: 0.09
+Nodes (21): Domain Dependencies, Key Concepts, Out of Scope, REQ-SESSION-001: Session creation with name and agent type, REQ-SESSION-002: One container per session (isolation), REQ-SESSION-003: R2 bucket mounted and synced on start, REQ-SESSION-004: Idle containers sleep after configurable timeout, REQ-SESSION-005: Input-based idle detection (+13 more)
+
+### Community 312 - "TDD Testing Antipatterns"
+Cohesion: 0.09
+Nodes (21): 1. Text-matching theater, 2. Tautology, 3. Mock-only theater, 4. Implementation-coupled call counts, 5. Empty body / missing assertions, 6. Skipped tests without justification, 7. Trivial assertions on trivial values, 8. Test name lies about what's asserted (+13 more)
+
+### Community 313 - "TDD Guide and Workflow"
+Cohesion: 0.10
+Nodes (20): 1. Write Test First (RED), 2. Run Test — Verify it FAILS, 3. Write Minimal Implementation (GREEN), 4. Run Test — Verify it PASSES, 5. Refactor (IMPROVE), 6. Repeat, CI-Only Test Execution, Eval-Driven TDD (+12 more)
+
+### Community 314 - "Container Environment Documentation"
+Cohesion: 0.10
+Nodes (20): Auto-sleep (Configurable sleepAfter), Browser Shims, Claude Code Integration, Container, Container Environment Variables, Container Image, Container Startup, Contents (+12 more)
+
+### Community 315 - "Penetration Testing Guide"
+Cohesion: 0.10
+Nodes (20): 10. Endpoint Fuzzing, 11. HTTP Methods, 12. Technology Stack, 13. Rate Limiting, 1. Authentication Gate, 2. Header Spoofing, 3. Path Traversal, 4. CORS Configuration (+12 more)
+
+### Community 316 - "AI Integration Patterns"
+Cohesion: 0.10
+Nodes (21): AI/LLM Integration, Anti-Patterns, Content & Publishing, Data & APIs, Decision Matrix, Development Tooling, Example 1: "Add dead link checking", Example 2: "Add HTTP client wrapper" (+13 more)
+
+### Community 317 - "Security Reviewer Agent Guide"
+Cohesion: 0.10
+Nodes (19): 1. Initial Scan, 2. OWASP Top 10 Check, 3. Code Pattern Review, Analysis Commands, Common False Positives, Core Responsibilities, Cross-session signals (prior security decisions), Emergency Response (+11 more)
+
+### Community 318 - "System Architecture Overview"
+Cohesion: 0.10
+Nodes (19): Architecture, Architecture Overview, Container DO (container), Contents, Dashboard WS Disconnect Flow, Data Flow, Design Rationale, Frontend (SolidJS + xterm.js) (+11 more)
+
+### Community 319 - "Security Policy Documentation"
+Cohesion: 0.10
+Nodes (19): Authentication, Automated Penetration Testing, Container Isolation, CORS Policy, CSRF Protection, Email System (Resend), GitHub Security Features, Input Validation (+11 more)
+
+### Community 320 - "Security and Architecture Decisions"
+Cohesion: 0.10
+Nodes (19): CF-018 at getBaseUrl (security / open-redirect-if-misconfigured), CF-019 at vault routes (security / CSRF via header synthesis, Origin-allowlist reliant), CF-020 at GitHub OAuth handler (security / 502 detail disclosure), CF-021 at PROTECTED_PATHS (security / dotfiles browsable), CF-022 at Env interface (architecture / god-interface), CF-023 at circuit-breaker cleanup (architecture / performance, amortized on global counter), CF-026 at silent corrupt-data catches (code-comment hygiene), CF-047 at coverage config (CI-policy / 50% threshold permissive) (+11 more)
+
+### Community 321 - "Storage and R2 Requirements"
+Cohesion: 0.10
+Nodes (19): Domain Dependencies, Key Concepts, Out of Scope, REQ-STOR-001: Dedicated Per-User R2 Bucket, REQ-STOR-002: File Persistence Across Sessions, REQ-STOR-003: Bidirectional Sync Every 15 Minutes (with Manual Triggers), REQ-STOR-004: Initial Sync Restores Files on Container Start, REQ-STOR-005: Graceful Shutdown Performs Final Sync (+11 more)
+
+### Community 322 - "Vault and Graph Requirements"
+Cohesion: 0.10
+Nodes (19): Domain Dependencies, Key Concepts, Out of Scope, REQ-VAULT-001: Persistent vault directory survives across sessions, REQ-VAULT-002: Conversation captures land in the vault as markdown, REQ-VAULT-003: User-curated edits are detected and ingested within ~60s, REQ-VAULT-004: Unified global graph merges vault and active repos, REQ-VAULT-005: Worker proxy exposes the in-container vault editor (+11 more)
+
+### Community 323 - "Refactor Cleaner Agent Guide"
+Cohesion: 0.11
+Nodes (18): 1. Analyze, 2. Verify, 3. Remove Safely, 4. Consolidate Duplicates, Core Responsibilities, Cross-session signals (prior dead-code decisions), Detection Commands, Exit checklist (verify before reporting done) (+10 more)
+
+### Community 324 - "Troubleshooting and Common Issues"
+Cohesion: 0.11
+Nodes (18): `/api/*` Returns HTML (SPA Swallow), Auth Error After Successful Access Login, Chrome in CI (Ubuntu 22.04), Common Failure Modes, Common Issues, Container Stuck at "Waiting for Services", Contents, Diagnostic Commands (+10 more)
+
+### Community 325 - "Spec-Driven Development Guide"
+Cohesion: 0.11
+Nodes (18): Auto-detection — when SDD enforcement runs without /sdd, How it works at a glance, Plan Mode integration, REQ format, /sdd add — creating a new domain, /sdd edit — adding or modifying requirements, /sdd mode — switching autonomy, Source-anchor convention (binding, single source of truth) (+10 more)
+
+### Community 326 - "Requirement and AC Standards"
+Cohesion: 0.11
+Nodes (17): Acceptance criteria, Accretion guard (diff-level check), Actor coherence (one actor per REQ), Cap and basic shape, Chain enforcement (binding), Concern-boundary split (sub-feature trigger below the numeric cap), Cross-cutting concerns get their own REQ family, Granularity — one behaviour per AC (binding) (+9 more)
+
+### Community 327 - "Mobile Terminal Requirements"
+Cohesion: 0.11
+Nodes (17): Domain Dependencies, Key Concepts, Mobile Terminal, Out of Scope, REQ-MOB-001: Terminal fully usable on mobile devices, REQ-MOB-002: Virtual keyboard opens reliably on tap, REQ-MOB-003: Samsung Internet keyboard viewport state, REQ-MOB-004: Scroll-drop detection during burst output (+9 more)
+
+### Community 328 - "Project Contribution Guidelines"
+Cohesion: 0.12
+Nodes (16): Branch Naming, Code Style, Contributing to Codeflare, Development, Getting Started, License, Linting and Type Checking, Project Structure (+8 more)
+
+### Community 329 - "Graphify Build Workflow"
+Cohesion: 0.12
+Nodes (16): AST-only initial build, AST-only refresh for an existing graph, Clone-time triage, Detect corpus, Full build/update without headless semantic extraction, Global merge and git persistence, Graph paths, Graphify in Pi / Codeflare (+8 more)
+
+### Community 330 - "SDD Transition Quality Checks"
+Cohesion: 0.12
+Nodes (16): ADR Context anchors, Anchor parsing, Auto-demote suppression during SDD transition, CQ-1 — REQ-test truth-check, CQ-2 — Vendor / external-interface drift, CQ-3 — Content-preservation on shrink, CQ-SOURCE during SDD transition, CQ-SOURCE output (+8 more)
+
+### Community 331 - "Setup and Configuration Requirements"
+Cohesion: 0.12
+Nodes (16): Domain Dependencies, Key Concepts, Out of Scope, REQ-SETUP-001: First-time setup requires zero pre-configuration, REQ-SETUP-002: Setup wizard configures domain, auth, R2 credentials, and Turnstile, REQ-SETUP-003: Three deployment modes, REQ-SETUP-004: Setup is idempotent, REQ-SETUP-005: Post-setup reconfiguration requires admin auth (+8 more)
+
+### Community 332 - "Documentation Enforcement Rules"
+Cohesion: 0.12
+Nodes (16): Allowlist (acceptable in documentation/), Documentation Enforcement (orchestrator), Execution contract (binding), Forbidden content in documentation/, Inputs, No file-level line cap, Orchestration logic, Output contract (+8 more)
+
+### Community 333 - "Memory and Vault Specs"
+Cohesion: 0.12
+Nodes (15): Domain Dependencies, Key Concepts, Memory, Out of Scope, REQ-MEM-001: Conversation context automatically captured to vault, REQ-MEM-002: Capture triggers every 15 user messages, REQ-MEM-004: Vault contents synced to R2 across sessions, REQ-MEM-006: Memory available only in Pro (Advanced) mode (+7 more)
+
+### Community 334 - "Documentation Truth-Check Passes"
+Cohesion: 0.13
+Nodes (14): Block-emit at /sdd init time, Cross-reference: spec CQ-SOURCE, Documentation Enforcement — Truth-check passes, Inputs, Output, Pass 10 — Stale code-block detection, Pass 11 — Content-preservation on trim, Pass 12 — Stranger cold-read (+6 more)
+
+### Community 335 - "Storage and Sync Documentation"
+Cohesion: 0.13
+Nodes (14): Conflict Resolution, Contents, Initial Sync on Startup, Manual Sync Triggers (REQ-STOR-015), rclone Sync Modes (REQ-STOR-003), Related Documentation, Session Transcript Cleanup, Specification Coverage (+6 more)
+
+### Community 336 - "SDD Lane Emission Workflow"
+Cohesion: 0.13
+Nodes (15): Aborts, Behavioral enumeration (Phase 4), Conditional lane emission, Dependency version resolution, Enrichment pass (Phase 5 — binding for greenfield and Import Mode), Greenfield — lean two-confirm flow, Import Mode — two-output model, Per-lane content generation (+7 more)
+
+### Community 337 - "Terminal Requirement Specs"
+Cohesion: 0.13
+Nodes (14): Domain Dependencies, Key Concepts, Out of Scope, REQ-TERM-001: Up to 6 terminal tabs per session, REQ-TERM-002: WebSocket connection to container PTY, REQ-TERM-003: Automatic WebSocket reconnection on transient failures, REQ-TERM-004: Close code 4503 is authoritative (no retry), REQ-TERM-005: Tab 1 auto-starts the configured agent (+6 more)
+
+### Community 338 - "Build Error Resolver Guide"
+Cohesion: 0.14
+Nodes (13): 1. Collect All Errors, 2. Fix Strategy (MINIMAL CHANGES), 3. Common Fixes, Build Error Resolver, Core Responsibilities, Diagnostic Commands, DO and DON'T, Operating Mode: Write + Report (+5 more)
+
+### Community 339 - "Documentation Shape and Templates"
+Cohesion: 0.14
+Nodes (13): Binding endpoint template, Documentation Enforcement — Structural shape, Implements-column link rule (binding), Index-table link rule (binding), Inputs, Jump-TOC at file top (lane files, binding), Output, Pass 5 — Format-template field presence (+5 more)
+
+### Community 340 - "Iterative Retrieval Patterns"
+Cohesion: 0.14
+Nodes (14): Best Practices, Example 1: Bug Fix Context, Example 2: Feature Implementation, Integration with Agents, Iterative Retrieval Pattern, Phase 1: DISPATCH, Phase 2: EVALUATE, Phase 3: REFINE (+6 more)
+
+### Community 341 - "Architecture Internals Documentation"
+Cohesion: 0.14
+Nodes (13): Admin User Management, Appendix: CF-NNN Code Index, Architecture Internals, Backend Libraries, Code Structure (Pre-Launch Refactoring), Contents, LoginPage (`web-ui/src/components/LoginPage.tsx`), Related Documentation (+5 more)
+
+### Community 342 - "Vault Extraction Agent Workflow"
+Cohesion: 0.14
+Nodes (13): 1. Delete the trigger marker (dedup gate), 2. List files changed since last successful extraction, 3. Read files and emit a chunk JSON, 3a. PDF handling (do NOT skip PDFs as binary), 4. Build a vault graph.json from the chunk, merging into the persistent vault-graph, 5. Merge the cumulative vault graph into the unified global graph, 6. Re-render the vault viz HTML, 7. Advance the high-water mark - FINAL step (+5 more)
+
+### Community 343 - "Vault and Note-Taking Guide"
+Cohesion: 0.14
+Nodes (13): Ask your coding agent to capture for you, Capture a quick note, Create a regular note, Drop a PDF or screenshot, Examples, Hooks (cross-session memory), How to use it, Things to avoid (+5 more)
+
+### Community 344 - "Project Overview and Tiers"
+Cohesion: 0.15
+Nodes (12): Architecture, Built By, Codeflare, Cost Estimate, Deployment, License, Pro Mode (Advanced Sessions), Resource Tiers (+4 more)
+
+### Community 345 - "Memory Capture Agent Workflow"
+Cohesion: 0.15
+Nodes (12): 1.5. Derive ISO_TS via Bash (MANDATORY - do not skip, do not improvise), 1. Read vars, delete vars, 2. Prefilter and chunk the transcript, 3. Per-chunk extraction into a scratchpad, 4. Synthesise the final capture from the scratchpad, 5. Read `$TARGET` and emit a chunk JSON, 6. Build the vault graph.json from the chunk, 7. Merge into the unified global graph (+4 more)
+
+### Community 346 - "Deployment Process Guide"
+Cohesion: 0.17
+Nodes (11): Arguments, Deploy, Instructions, Shell execution (applies to every step), Step 1: Pre-flight, Step 2: Cancel Stale CI, Step 3: Push, Step 4: Monitor CI — bounded per-iteration polling (+3 more)
+
+### Community 347 - "Cloudflare Wrangler Templates"
+Cohesion: 0.17
+Nodes (11): Environment Variables, Minimal Worker Entry Point (JavaScript), Minimal Worker Entry Point (TypeScript), Static Site (Workers Assets), Workers with D1 Database, Workers with Durable Objects, Workers with JavaScript, Workers with KV Binding (+3 more)
+
+### Community 348 - "Community 348"
+Cohesion: 0.18
+Nodes (11): Cloudflare Stack: Build for Deployment, Communication Style, Full-stack (static + API), How the Skills Work Together, Project Structure Conventions, Static site (most common), Step 1: Discovery — Understand What the User Wants, Step 3: After Building — Ask About Publishing (+3 more)
+
+### Community 349 - "Community 349"
+Cohesion: 0.18
+Nodes (11): activeRepo(), ensureCacheDir(), fallbackGraphifyToolResult(), findGitRoot(), graphifyFallbackArgs(), graphifyToolInput(), hasGraph(), isGraphifyTool() (+3 more)
+
+### Community 350 - "Community 350"
+Cohesion: 0.18
+Nodes (10): Admin Subscription Management, Billing & Subscription System, Contents, Email Notifications, Paygate Enforcement, Related Documentation, Specification Coverage, Stripe Payment Integration (+2 more)
+
+### Community 351 - "Community 351"
+Cohesion: 0.18
+Nodes (10): Contents, Cost Analysis, Critical Paths Inside Container, Development, Development & Deployment, File Structure, Intentional Schema Duplication (Bundle Boundary), Per-Container Pricing (+2 more)
+
+### Community 352 - "Community 352"
+Cohesion: 0.18
+Nodes (10): CF Access Configuration Strategy, Contents, Frontend Components, JIT User Provisioning, Legacy Compatibility, Related Documentation, Self-Service Subscription Flow, Session Mode Authorization (+2 more)
+
+### Community 353 - "Community 353"
+Cohesion: 0.18
+Nodes (10): Actors, Changelog, Constraints, Design Principles, Documentation, Domains, Glossary, Out of Scope (+2 more)
+
+### Community 354 - "Community 354"
+Cohesion: 0.20
+Nodes (9): First action: validate inputs, Graph-first for impl-surface and AC reachability, Hard rules, Inputs you will receive in the prompt, Known failure modes (watch yourself here), Operating Mode: Research + Report, Output format, Severity rubric (+1 more)
+
+### Community 355 - "Community 355"
+Cohesion: 0.20
+Nodes (9): Instructions, Output, Phase 1: Root Cause Investigation, Phase 2: Pattern Analysis, Phase 3: Hypothesis and Testing, Phase 4: Implementation, Red Flags — STOP and return to Phase 1, Systematic Debugging (+1 more)
+
+### Community 356 - "Community 356"
+Cohesion: 0.29
+Nodes (7): claudeDocs(), codeflareRules(), ECC_FILES_PER_SUBDIR, ECC_SUBDIRS, eccRules(), AGENTS_SEEDED_CONFIGS, SeedDocument
+
+### Community 357 - "Community 357"
+Cohesion: 0.33
+Nodes (8): ARROW, attachSwipeGestures(), Direction, getScrollPxPerLine(), sendTerminalKey(), createMockTerminal(), makeTouchEvent(), getXtermCore()
+
+### Community 358 - "Community 358"
+Cohesion: 0.20
+Nodes (9): 1. Read vars, then immediately delete vars (dedup gate), 2. Stage the transcript and chunk it, 3. Per-chunk extraction into a scratchpad, 4. Synthesise the final capture from the scratchpad, 5. Enrich the vault graph (best effort, never blocks), 6. Cleanup, Pi Memory Capture Contract, Steps (+1 more)
+
+### Community 359 - "Community 359"
+Cohesion: 0.20
+Nodes (9): 1. Read vars, then immediately delete vars (dedup gate), 2. Read the changed files, 3. Enrich the vault graph in place (preserve, never replace), 4. Best-effort re-merge into the global graph, Done, Pi Vault Extraction Contract, Steps, Variables (delivered inline in VARS_FILE) (+1 more)
+
+### Community 360 - "Community 360"
+Cohesion: 0.20
+Nodes (9): Adding Deploy Step to Existing CI Workflow, CI & Deploy (Cloudflare Workers), Common .gitignore Templates, Generic, GitHub Actions Workflow Templates, Minimal CI (static sites), Node.js, Node.js CI (no tests) (+1 more)
+
+### Community 361 - "Community 361"
+Cohesion: 0.20
+Nodes (9): Getting Started, Pro Mode (Advanced Sessions), Settings Worth Knowing About, The 30-Second Version, Voice Input, What Now, What's in Each Tab, Your Files Persist (You Don't Have to Think About It) (+1 more)
+
+### Community 362 - "Community 362"
 Cohesion: 0.22
-Nodes (9): AI Coding Agent, Cloudflare Worker, Durable Object, Glossary, Preseed Pipeline, REQ-MEM-008 Memory Prompt Files Preseeded via Manifest Pipeline, REQ-SESSION-001 Session Creation with Name and Agent Type, Session (+1 more)
+Nodes (8): Arguments, Brainstorm, Instructions, Step 1: Understand the Problem, Step 2: Explore Context, Step 3: Generate Options, Step 4: Trade-off Discussion, Step 5: Recommendation
+
+### Community 363 - "Community 363"
+Cohesion: 0.22
+Nodes (9): Big-O jargon in narrative documentation, Documentation Enforcement — Lane discipline, Dual-narrative ADRs, Inputs, Layout conformance, Output, Pass 3 — Implementation-prose detection, Pass 4 — Lane-violation detection (pattern-based) (+1 more)
+
+### Community 364 - "Community 364"
+Cohesion: 0.22
+Nodes (8): Development Approach, Image Upload and R2 Storage, Navigation and SEO, Protected Management Area, Public Blog on Cloudflare Workers, Public Blog Pages, Stack and Constraints, View Counter (Durable Objects)
+
+### Community 365 - "Community 365"
+Cohesion: 0.22
+Nodes (9): Phase 2: Cloudflare Workers Deployment, Step 10: Store Credentials as GitHub Secrets, Step 11: Configure Workers, Step 12: Provision Cloudflare Resources, Step 13: Push and Deploy, Step 14: Verify and Celebrate, Step 7: Check Project Compatibility, Step 8: Check Existing Cloudflare Configuration (+1 more)
+
+### Community 366 - "Community 366"
+Cohesion: 0.22
+Nodes (8): Cloudflare Resources, Deployment, Environment-specific configuration, Local Development, Prerequisites, Production Deployment, Related Documentation, Tests
+
+### Community 367 - "Community 367"
+Cohesion: 0.22
+Nodes (8): Hard rules (NEVER), Layout, Reading, Vault-monitor hook, Vault Operations, Wikilink convention, Worker proxy boundary, Writing (who writes where)
+
+### Community 368 - "Community 368"
+Cohesion: 0.25
+Nodes (8): Binding invocation rule, Continuous background monitor pattern, Launch wrappers, On-Demand CI Monitoring, Reading the result, Stale-run cancellation, The monitor (shell body, identical for both toolsets), Toolset selection - runs under Bash *or* `ctx_*`
+
+### Community 369 - "Community 369"
+Cohesion: 0.36
+Nodes (8): Codeflare Security Model, Global Constraints Specification, Isolated Container Session, Performance Reliability and Cost Contracts, Security Controls Contract, Subscription and Container Tiers, Technology Stack Constraints, Worker Runtime Boundaries
+
+### Community 370 - "Community 370"
+Cohesion: 0.25
+Nodes (8): Consult LLM: Query External AI Models, Example Usage, Prerequisites, Step 1 - Decide which provider(s) to consult, Step 2 - Resolve the LATEST flagship model (never an old default), Step 3 - Build the prompt and call, Step 4 - Present and synthesize, Troubleshooting
+
+### Community 371 - "Community 371"
+Cohesion: 0.43
+Nodes (7): Expand Contract Zero Downtime Migrations, Forward Only Immutable Migrations, Migration Safety Contract, Migration Tooling Workflows, PostgreSQL Concurrent Indexing, Production Database Auditability, Schema and Data Migration Separation
+
+### Community 372 - "Community 372"
+Cohesion: 0.25
+Nodes (7): Binding invocation rule, Branch protection on main (proactive surfacing during CI setup), Execution order when SDD is bootstrapped (partial parallelism), PR-boundary trigger semantics (SDD mode), Recommended workflow, SDD Review Pipeline, The three agents (SDD mode only)
+
+### Community 373 - "Community 373"
+Cohesion: 0.25
+Nodes (8): Additional Resources, Communication Style, Important: No Local Test Execution, Reference Files, Shell execution (applies to every step), Ship: From Code to Live URL, Target Audience, Workflow
+
+### Community 375 - "Community 375"
+Cohesion: 0.25
+Nodes (7): Architecture, Components, Data Flow, Overview, Related Documentation, Request Lifecycle, Source Modules
+
+### Community 376 - "Community 376"
+Cohesion: 0.25
+Nodes (7): Jump-TOC, Lane ownership, {PROJECT_NAME} — Documentation, Reading order for a new contributor, Related, REQ backlinks, Synonym glossary
+
+### Community 377 - "Community 377"
+Cohesion: 0.25
+Nodes (7): Boundaries, CON-PERF-001: {Title}, CON-REL-001: {Title}, CON-SEC-001: {Title}, Constraints, Non-Functional Requirements, Technology Stack
+
+### Community 378 - "Community 378"
+Cohesion: 0.38
+Nodes (7): Cloudflare Workers Cohort Pinning, SDD Commit Prefix Contract, SDD Lane Separation, SDD PR Boundary Enforcement, SDD Status Vocabulary, SDD Subcommand Routing, Spec Discipline Rules
+
+### Community 379 - "Community 379"
+Cohesion: 0.38
+Nodes (6): Cloudflare Discovery and Requirement Steering, Cloudflare New Project Default Stack, Cloudflare Non Technical Communication, Cloudflare Storage Mapping, Cloudflare Unsupported Technology Avoidance, Cloudflare Workers Supported Technologies
+
+### Community 380 - "Community 380"
+Cohesion: 0.29
+Nodes (6): Cloudflare Resource Provisioning, Dependency Version Resolution, No Local Test Execution Contract, Workers Assets Static Site Safety, GitHub Actions Workflow Templates Reference, Wrangler Configuration Templates Reference
+
+### Community 381 - "Community 381"
+Cohesion: 0.38
+Nodes (7): Codeflare SilverBullet Theme, Persistent Vault with SilverBullet, Vault and SilverBullet README, Quick Note and Journal Workflow, Codeflare SilverBullet Styles, SilverBullet Vault Dashboard, Vault Transcript Capture and Monitor Hooks
+
+### Community 382 - "Community 382"
+Cohesion: 0.29
+Nodes (3): FilePreviewProps, PreviewFile, createMockPreviewFile()
+
+### Community 383 - "Community 383"
+Cohesion: 0.29
+Nodes (7): Cross-Session Memory Capture, AD58 Memory Capture Prefilter and Scratchpad, Per-User R2 Bucket Storage, AD3 Per-User R2 Buckets, AD60 Pi Memory Capture Reuses AD58 Contract, Codeflare README, AD13 Per-User Scoped R2 Tokens
+
+### Community 384 - "Community 384"
+Cohesion: 0.29
+Nodes (7): Check-then-fallback, Deploy Credentials, Environment Variables, Important notes, Security, What you can do with CLOUDFLARE_API_TOKEN, What you can do with GH_TOKEN
+
+### Community 385 - "Community 385"
+Cohesion: 0.29
+Nodes (6): Architecture Decisions, Audience Guide, Codeflare Documentation, Documentation Principles, Lane Index, Other Documentation
+
+### Community 386 - "Community 386"
+Cohesion: 0.48
+Nodes (7): currentBranch(), currentHead(), existingGraphCloneNotice(), GraphFreshness, graphSummary(), repoIdentity(), shell()
+
+### Community 387 - "Community 387"
+Cohesion: 0.33
+Nodes (5): SDD_SUBCOMMANDS, sddCommandDecision, SddRepoState, sddSkillForSubcommand(), SddSubcommand
+
+### Community 388 - "Community 388"
+Cohesion: 0.29
+Nodes (6): Branch-protection note, Execution order reference, Git Review Pipeline in Pi, Non-negotiable guard, PR-boundary policy, What to do after opening a PR
+
+### Community 389 - "Community 389"
+Cohesion: 0.29
+Nodes (7): Phase 1: GitHub Setup, Step 1: Verify Project Exists, Step 2: Authenticate with GitHub, Step 3: Create Repository, Step 4: Create CI Workflow, Step 5: Commit and Push, Step 6: Verify GitHub Setup
+
+### Community 390 - "Community 390"
+Cohesion: 0.29
+Nodes (6): graphify plugin (Codeflare-managed), How it works, Persistence across sessions, Tier gating, Why preseed not runtime config, Works with and without context-mode
+
+### Community 391 - "Community 391"
+Cohesion: 0.29
+Nodes (6): Hook-triggered capture (every 15 user messages), Memory, Session start, Vault-edit hook (vault-extract subagent), Vault operations, When user asks about memory
+
+### Community 392 - "Community 392"
+Cohesion: 0.29
+Nodes (6): Actors, Codeflare Specification, Domains, How This Spec Works, Out of Scope, Principles
+
+### Community 393 - "Community 393"
+Cohesion: 0.29
+Nodes (6): Concurrency, Error Handling, Formatting, Immutability, Naming, Swift Coding Style
+
+### Community 394 - "Community 394"
+Cohesion: 0.29
+Nodes (6): Configuration, Configuration Files, Environment Variables, Platform Bindings, Related Documentation, Secrets
+
+### Community 395 - "Community 395"
+Cohesion: 0.33
+Nodes (6): API Response Envelope and Error Format, Backend Layered Architecture, TypeScript API Response Format, TypeScript Custom Hooks Pattern, TypeScript JavaScript Patterns Rules, TypeScript Repository Pattern
+
+### Community 396 - "Community 396"
+Cohesion: 0.33
+Nodes (5): Coding Style, Documentation integrity, Immutability, Security, Validate at boundaries, trust inside
+
+### Community 397 - "Community 397"
+Cohesion: 0.33
+Nodes (5): Build a Personal CV Website with Contact Form, Design, Development Approach, Pages, Technical Details
+
+### Community 398 - "Community 398"
+Cohesion: 0.33
+Nodes (6): Cleanup: Delete Project, Step 1: Confirm, Step 2: Delete the Cloudflare Worker, Step 2b: Delete Provisioned Resources, Step 3: Delete the GitHub Repository, Step 4: Delete Local Files
+
+### Community 399 - "Community 399"
+Cohesion: 0.33
+Nodes (5): Binding invocation rule, Pull Request Workflow, Title guidance, After the PR is open, Body template
+
+### Community 400 - "Community 400"
+Cohesion: 0.33
+Nodes (5): Critical boundary, Pull Request Workflow in Pi, Steps, After the PR is open, Body template
+
+### Community 401 - "Community 401"
+Cohesion: 0.33
+Nodes (5): 1. Think Before Coding, 2. Simplicity First, 3. Surgical Changes, 4. Goal-Driven Execution, Karpathy Guidelines
+
+### Community 402 - "Community 402"
+Cohesion: 0.33
+Nodes (5): Actor Pattern, Dependency Injection, Protocol-Oriented Design, Swift Patterns, Value Types
+
+### Community 403 - "Community 403"
+Cohesion: 0.33
+Nodes (5): Coverage, Framework, Parameterized Tests, Swift Testing, Test Isolation
+
+### Community 404 - "Community 404"
+Cohesion: 0.33
+Nodes (5): Admin API, API Reference, {METHOD} {/path}, Public API, Related Documentation
+
+### Community 405 - "Community 405"
+Cohesion: 0.33
+Nodes (5): Documentation, License, {PROJECT_NAME}, Project Structure, Quick Start
+
+### Community 406 - "Community 406"
+Cohesion: 0.33
+Nodes (5): Console.log, Error Handling, Immutability, Input Validation, TypeScript/JavaScript Coding Style
+
+### Community 407 - "Community 407"
+Cohesion: 0.40
+Nodes (5): Collection Response (with Pagination), Error Response, Response Envelope Variants, Response Format, Success Response
+
+### Community 408 - "Community 408"
+Cohesion: 0.40
+Nodes (5): Filtering, Filtering, Sorting, and Search, Full-Text Search, Sorting, Sparse Fieldsets
+
+### Community 409 - "Community 409"
+Cohesion: 0.50
+Nodes (4): CI Monitoring Invocation Rule, Single Continuous Background CI Monitor, CI Stale Run Cancellation, GitHub Cloudflare Ship Handoff
+
+### Community 410 - "Community 410"
+Cohesion: 0.60
+Nodes (5): Cloudflare Access Management Authentication, Cloudflare KV R2 Durable Object Bindings, Public Blog Platform Example Spec, Advanced Public Blog Specification, ViewCounter Durable Object
+
+### Community 411 - "Community 411"
+Cohesion: 0.40
+Nodes (5): Cloudflare cohort pinning, NOT Supported — Do Not Use, Step 2: Build with the Right Tech Stack, Supported Technologies, What to Do When the User's Idea Needs Unsupported Tech
+
+### Community 412 - "Community 412"
+Cohesion: 0.40
+Nodes (4): Hard gates (apply before any sub-command runs), Spec-Driven Development, When the user types `/sdd <subcommand>`, When the user types `/sdd` with no arguments
+
+### Community 413 - "Community 413"
+Cohesion: 0.40
+Nodes (4): context-mode plugin (Codeflare-managed), How it works, Tier gating, Why preseed not runtime config
+
+### Community 414 - "Community 414"
+Cohesion: 0.40
+Nodes (4): Difficulty Levels, Examples, How to Use, Writing Your Own Specs
+
+### Community 415 - "Community 415"
+Cohesion: 0.40
+Nodes (4): Design Principles, Error Handling, Formatting, Go Coding Style
+
+### Community 416 - "Community 416"
+Cohesion: 0.40
+Nodes (4): Dependency Injection, Functional Options, Go Patterns, Small Interfaces
+
+### Community 417 - "Community 417"
+Cohesion: 0.40
+Nodes (4): Context & Timeouts, Go Security, Secret Management, Security Scanning
+
+### Community 418 - "Community 418"
+Cohesion: 0.40
+Nodes (4): Coverage (CI only), Framework, Go Testing, Race Detection (CI only)
+
+### Community 419 - "Community 419"
+Cohesion: 0.40
+Nodes (4): Formatting, Immutability, Python Coding Style, Standards
+
+### Community 420 - "Community 420"
+Cohesion: 0.40
+Nodes (4): Context Managers & Generators, Dataclasses as DTOs, Protocol (Duck Typing), Python Patterns
+
+### Community 421 - "Community 421"
+Cohesion: 0.40
+Nodes (4): Coverage (CI only), Framework, Python Testing, Test Organization
+
+### Community 422 - "Community 422"
+Cohesion: 0.40
+Nodes (4): Git Workflow, Hard obligations, SDD opt-in is binary, Triggers and routes
+
+### Community 423 - "Community 423"
+Cohesion: 0.40
+Nodes (4): Commit-prefix contract (load-bearing), Lane separation, Spec Discipline, Status vocabulary (mid-task keepsake)
+
+### Community 424 - "Community 424"
+Cohesion: 0.40
+Nodes (4): Recent incomplete tasks, Recent journal entries, Recent quick notes, Recently modified pages
+
+### Community 425 - "Community 425"
+Cohesion: 0.40
+Nodes (4): Input Validation, Secret Management, Swift Security, Transport Security
+
+### Community 426 - "Community 426"
+Cohesion: 0.40
+Nodes (4): AD1: {First decision title}, Architecture Decision Records, Decision Index, What is NOT an ADR
+
+### Community 427 - "Community 427"
+Cohesion: 0.40
+Nodes (4): API Response Format, Custom Hooks Pattern, Repository Pattern, TypeScript/JavaScript Patterns
+
+### Community 428 - "Community 428"
+Cohesion: 0.40
+Nodes (4): Edge cases, Hard rules, Vault note capture, Workflow
+
+### Community 429 - "Community 429"
+Cohesion: 0.50
+Nodes (4): Cursor-Based (Scalable), Offset-Based (Simple), Pagination, When to Use Which
+
+### Community 431 - "Community 431"
+Cohesion: 0.50
+Nodes (4): Custom SQL Migration, Prisma (TypeScript/Node.js), Schema Example, Workflow
+
+### Community 432 - "Community 432"
+Cohesion: 0.50
+Nodes (3): Architecture Decisions, Decision Index, Related Documentation
+
+### Community 433 - "Community 433"
+Cohesion: 0.67
+Nodes (4): Enforcement Skill Invocation Obligation, TDD Enforcement Workflow, Test Discipline Rules, Test Theater Gut Check
+
+### Community 434 - "Community 434"
+Cohesion: 0.50
+Nodes (3): Deploy a Hello World Worker, Development Approach, Routes
+
+### Community 436 - "Community 436"
+Cohesion: 0.50
+Nodes (3): Notes, Vault Graph, What you'll see
+
+### Community 437 - "Community 437"
+Cohesion: 0.50
+Nodes (3): Installation, Internals, Silverbullet PDF
+
+### Community 438 - "Community 438"
+Cohesion: 0.50
+Nodes (3): Python Security, Secret Management, Security Scanning
+
+### Community 440 - "Community 440"
+Cohesion: 0.50
+Nodes (3): Cloudflare-Environment Defaults, Communication, Hard constraints (never violate)
+
+### Community 441 - "Community 441"
+Cohesion: 0.50
+Nodes (3): Documentation Discipline, Lane summary (mid-task keepsake), Severity / mode
+
+### Community 442 - "Community 442"
+Cohesion: 0.50
+Nodes (3): Example Domain, REQ-EXAMPLE-001: One-line title in sentence case, REQ-EXAMPLE-002: Second REQ shows the empty-field rendering
+
+### Community 443 - "Community 443"
+Cohesion: 0.50
+Nodes (3): Adding a top bar toggle icon, Configuration, SilverBullet TreeView plug
+
+### Community 444 - "Community 444"
+Cohesion: 0.50
+Nodes (3): Review Support, Secret Management, TypeScript/JavaScript Security
+
+### Community 445 - "Community 445"
+Cohesion: 0.67
+Nodes (3): hasOpenInitTriage(), isDirtyWorkingTree(), sddRepoState()
 
 ## Knowledge Gaps
-- **1321 isolated node(s):** `code`, `document`, `paper`, `image`, `video` (+1316 more)
+- **3112 isolated node(s):** `code`, `document`, `paper`, `image`, `video` (+3107 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **37 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **123 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Terminal Tab` connect `Terminal WebSocket Validation` to `App Configuration and Tiers`, `Metrics and Deployment Utilities`, `Stripe Billing and Sessions`, `Access Policy Management`, `Request Authentication Core`, `Rate Limiting and Vault Auth`, `Session Lifecycle Management`, `Dashboard Session Components`, `Terminal Tiling Layouts`, `Terminal UI and Hooks`, `Header Integration Tests`, `Terminal Connection Management`, `E2E Test Setup`, `Terminal Scroll Correction`, `Onboarding and App Initialization`, `Cloudflare Access Groups`, `Header and Dashboard Tips`, `Session Initialization Progress`, `Terminal Disposal Utilities`, `Terminal Tab Management`, `Session Presets Management`, `Terminal Touch Gestures`, `Circuit Breaker Pattern`, `Terminal Layout Components`, `Terminal and Tab Requirements`, `Layout and View State`, `Terminal Tab UI`?**
-  _High betweenness centrality (0.154) - this node is a cross-community bridge._
-- **Why does `API Reference` connect `API and Architecture Docs` to `Architecture and Memory Specs`, `Billing and Internals Docs`, `User Preferences API`, `KV Encryption and Credentials`?**
-  _High betweenness centrality (0.062) - this node is a cross-community bridge._
-- **Why does `Glossary` connect `Core System Glossary` to `Architecture and Memory Specs`, `Subscription Requirements`, `Stripe Billing and Sessions`, `Vault and Tier Gating`, `Memory and Sync Requirements`, `R2 Storage Requirements`, `UI Components and Store`?**
+- **Why does `Terminal Tab` connect `Request Authentication Middleware` to `Auth and Validation Schemas`, `Container Metrics and Lifecycle`, `Container Status and Metrics`, `User Preferences Management`, `Session Creation Dialogs`, `Community 148`, `Terminal UI Controls`, `Community 154`, `Terminal WebSocket Debugging`, `E2E Session Testing`, `Community 161`, `Onboarding and Setup Components`, `Terminal UI Hooks`, `Initialization Progress UI`, `Session Entitlements and Tiers`, `Session Tab Management`, `Session Presets and Shells`, `Session State and Presets`, `Terminal UI and Input`, `Header and Session Stats`, `Circuit Breaker Pattern`, `Settings Panel UI`, `Terminal Layout Containers`, `Terminal and Session Requirements`, `Layout and View State`, `Terminal Tab UI Config`?**
+  _High betweenness centrality (0.081) - this node is a cross-community bridge._
+- **Why does `Cloudflare Container` connect `System Architecture Overview` to `Backend Package Dependencies`, `Session Lifecycle Requirements`, `Community 383`?**
+  _High betweenness centrality (0.056) - this node is a cross-community bridge._
+- **Why does `Codeflare README` connect `Community 383` to `System Architecture Overview`, `Community 44`, `Community 153`, `CI/CD and Testing Workflows`, `Agent and Preseed Updates`, `Backend Security Architecture`, `Container and Storage Lanes`?**
   _High betweenness centrality (0.056) - this node is a cross-community bridge._
 - **What connects `code`, `document`, `paper` to the rest of the system?**
-  _1362 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `App Configuration and Tiers` be split into smaller, more focused modules?**
-  _Cohesion score 0.03969288715051427 - nodes in this community are weakly interconnected._
-- **Should `Metrics and Deployment Utilities` be split into smaller, more focused modules?**
-  _Cohesion score 0.04160524160524161 - nodes in this community are weakly interconnected._
-- **Should `AI Agent Manifests` be split into smaller, more focused modules?**
-  _Cohesion score 0.038454216638111556 - nodes in this community are weakly interconnected._
+  _3153 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `Auth and Validation Schemas` be split into smaller, more focused modules?**
+  _Cohesion score 0.033577298407806884 - nodes in this community are weakly interconnected._
+- **Should `Container Metrics and Lifecycle` be split into smaller, more focused modules?**
+  _Cohesion score 0.06074561403508772 - nodes in this community are weakly interconnected._
+- **Should `Agent and Plugin Scripts` be split into smaller, more focused modules?**
+  _Cohesion score 0.043478260869565216 - nodes in this community are weakly interconnected._
