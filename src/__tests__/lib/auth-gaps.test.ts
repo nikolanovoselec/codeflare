@@ -46,6 +46,7 @@ import {
   signSessionJWT,
   shouldRefreshJWT,
   verifySessionJWT,
+  SESSION_JWT_AUD,
 } from '../../lib/session-jwt';
 
 const TEST_JWT_SECRET = 'test-hmac-secret-32-chars-minimum!!';
@@ -286,7 +287,7 @@ describe('REQ-AUTH-001: SaaS mode mutual exclusivity', () => {
     });
 
     const token = await signSessionJWT(
-      { email: 'alice@example.com', sub: 'gh-12345', ghLogin: 'alice' },
+      { email: 'alice@example.com', sub: 'gh-12345', ghLogin: 'alice', aud: SESSION_JWT_AUD },
       TEST_JWT_SECRET,
     );
 
@@ -569,7 +570,7 @@ describe('REQ-AUTH-011: Auth resolution order', () => {
     });
 
     const saasToken = await signSessionJWT(
-      { email: 'saas-primary@example.com', sub: 'gh-88', ghLogin: 'saasprimary' },
+      { email: 'saas-primary@example.com', sub: 'gh-88', ghLogin: 'saasprimary', aud: SESSION_JWT_AUD },
       TEST_JWT_SECRET,
     );
 

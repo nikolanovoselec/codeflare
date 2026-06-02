@@ -54,7 +54,7 @@ vi.mock('../../routes/stripe-webhook', () => {
   return { default: r };
 });
 
-import worker from '../../index';
+import worker, { withSecurityHeaders } from '../../index';
 
 function createMockCtx() {
   return { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
@@ -137,21 +137,17 @@ describe('CF-001: security headers on pre-Hono early-return responses', () => {
     expect(res.headers.get('Strict-Transport-Security')).toContain('max-age=');
   });
 
-  // CF-001: 101 WebSocket upgrade must NOT carry the headers (no-op path)
-  it('CF-001: a 101 WebSocket upgrade response does NOT carry SECURITY_HEADERS', async () => {
-    wsRouteState.validate = () => ({ isWebSocketRoute: true });
-    wsRouteState.upgrade = () => new Response(null, { status: 101 });
+  // CF-001: 101 WebSocket upgrade must NOT carry the headers (no-op path).
+  // A real 101 Response cannot be built via the constructor in this runtime
+  // (RangeError: status must be 200-599), so the 101 branch is verified by
+  // calling the exported helper directly with a 101-shaped response.
+  it('CF-001: withSecurityHeaders is a no-op for 101 WebSocket upgrade responses', () => {
+    const upgrade = { status: 101, headers: new Headers() } as unknown as Response;
+    const out = withSecurityHeaders(upgrade);
 
-    const { env, ctx } = createBaseEnv();
-    const res = await worker.fetch(
-      new Request('https://example.com/api/terminal/abcd1234/ws', { headers: { Upgrade: 'websocket' } }),
-      env,
-      ctx,
-    );
-
-    expect(res.status).toBe(101);
-    expect(res.headers.get('X-Content-Type-Options')).toBeNull();
-    expect(res.headers.get('Strict-Transport-Security')).toBeNull();
+    expect(out).toBe(upgrade);
+    expect(out.headers.get('X-Content-Type-Options')).toBeNull();
+    expect(out.headers.get('Strict-Transport-Security')).toBeNull();
   });
 });
 
