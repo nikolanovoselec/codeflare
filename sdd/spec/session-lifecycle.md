@@ -341,8 +341,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 ---
 
 <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 describe -> batch-status uses KV list metadata no kv.get + r/s compression + metrics in metadata + lastActiveAt/lastStartedAt + SESSION_LIST_POLL_INTERVAL_MS constant -> AC1,2,3,5,6; batch-status reports KV status verbatim no staleness reconciliation -> AC8) -->
-<!-- @test: src/__tests__/container-metrics.test.ts (collectMetrics describe -> writes status=stopped to KV when the container is not running -> AC8) -->
-<!-- @test: src/__tests__/container/index.test.ts (onError describe -> updates KV with status stopped on unexpected exit -> AC8) -->
+<!-- @test: src/__tests__/container-metrics.test.ts (collectMetrics describe -> writes status=stopped to KV when the container is not running (dangling-running guard) -> AC8) -->
+<!-- @test: src/__tests__/container/index.test.ts (onStop lifecycle describe -> onError updates KV with status stopped (unexpected exit dangling-running guard) -> AC8) -->
 ### REQ-SESSION-010: Session status observable from dashboard
 
 <!-- @impl: src/routes/session/crud.ts -->

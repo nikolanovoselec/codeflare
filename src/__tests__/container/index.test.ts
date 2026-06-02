@@ -1003,8 +1003,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
 
     it('onError updates KV with status stopped (unexpected exit dangling-running guard)', async () => {
       // The SDK calls onError (not onStop) when a container exits unexpectedly
-      // (crash / deploy-roll / platform reap). onError must persist 'stopped'
-      // so the session does not dangle as 'running' in KV forever.
+      // (crash / deploy-roll / platform reap). When the container is no longer
+      // running, onError must persist 'stopped' so the session does not dangle
+      // as 'running' in KV forever.
       const mockKvPut = vi.fn().mockResolvedValue(undefined);
       const mockKvGet = vi.fn().mockResolvedValue({
         id: 'sess123',
@@ -1019,6 +1020,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
         return null;
       });
 
+      // Unexpected exit: the runtime has already torn the container down.
+      mockContainerRuntime.running = false;
+
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => {
         expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
@@ -1032,6 +1036,38 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       const putArgs = mockKvPut.mock.calls[0];
       const writtenSession = JSON.parse(putArgs[1]);
       expect(writtenSession.status).toBe('stopped');
+    });
+
+    it('onError does NOT write stopped while the container is still running (startup error guard)', async () => {
+      // A transient error during startup can fire onError while the container
+      // is still coming up. The !running guard must keep a live session from
+      // being flipped to 'stopped'; collectMetrics is the 60s catch-all.
+      const mockKvPut = vi.fn().mockResolvedValue(undefined);
+      const mockKvGet = vi.fn().mockResolvedValue({
+        id: 'sess123',
+        status: 'running',
+        name: 'Test',
+      });
+      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
+
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      // Container is still running when the error fires.
+      mockContainerRuntime.running = true;
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      await instance.onError(new Error('Transient startup error'));
+
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(mockKvPut).not.toHaveBeenCalled();
     });
 
     it('onStop does NOT set tombstone', async () => {

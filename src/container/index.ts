@@ -725,11 +725,21 @@ export class container extends Container<Env> implements ContainerEnvState {
   /** Called when the container encounters an error. */
   override async onError(error: unknown): Promise<void> {
     this.logger.error('Container error', error instanceof Error ? error : new Error(toErrorMessage(error)));
-    // The SDK calls onError (not onStop) on an unexpected container exit, so
-    // write 'stopped' to KV here too - otherwise the session dangles as
-    // 'running' forever. onStart() re-asserts 'running' if the container
-    // restarts; DO methods are serialized so there is no race with onStart.
-    await updateKvStatus(this.ctx, this.env, this._bucketName, 'stopped', 'lastActiveAt');
+    // The SDK (@cloudflare/containers v0.3.5) calls onError - and awaits it -
+    // when its monitor detects the container exited unexpectedly (crash,
+    // deploy-roll, platform reap); it does NOT call onStop on that path, so
+    // without this write the session dangles 'running' forever (codeflare#153).
+    // Guard on !running so a transient startup port-check error (onError can
+    // fire while the container is still coming up) cannot flip a live session
+    // to 'stopped'; the collectMetrics not-running branch is the 60s catch-all
+    // if this is skipped. No cross-await serialization is assumed: updateKvStatus
+    // re-reads sessionId/bucketName from storage and the session from KV on
+    // every call, and destroy() clears those first, so a post-destroy write
+    // no-ops instead of resurrecting the record. onStart() re-asserts 'running'
+    // on the next start.
+    if (!this.ctx.container?.running) {
+      await updateKvStatus(this.ctx, this.env, this._bucketName, 'stopped', 'lastActiveAt');
+    }
   }
 
 }
