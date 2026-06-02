@@ -256,6 +256,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toHaveLength(0);
     });
 
+    // REQ-SESSION-018: Persisted status is authoritative on container exit
     it('writes status=stopped to KV when the container is not running (dangling-running guard)', async () => {
       // The container exited unexpectedly (crash / deploy-roll / platform reap).
       // The SDK calls onError, not onStop, so this early-return is the

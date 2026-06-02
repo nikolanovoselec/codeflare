@@ -340,16 +340,11 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
-<!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 describe -> batch-status uses KV list metadata no kv.get + r/s compression + metrics in metadata + lastActiveAt/lastStartedAt + SESSION_LIST_POLL_INTERVAL_MS constant -> AC1,2,3,5,6; batch-status reports KV status verbatim no staleness reconciliation -> AC8) -->
-<!-- @test: src/__tests__/container-metrics.test.ts (collectMetrics describe -> writes status=stopped to KV when the container is not running (dangling-running guard) -> AC8) -->
-<!-- @test: src/__tests__/container/index.test.ts (onStop lifecycle describe -> onError updates KV with status stopped (unexpected exit dangling-running guard) -> AC8) -->
-<!-- @test: src/__tests__/container/index.test.ts (onStop lifecycle describe -> onStop updates KV with lastActiveAt and sets status to stopped -> AC8) -->
+<!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 describe -> batch-status uses KV list metadata no kv.get + r/s compression + metrics in metadata + lastActiveAt/lastStartedAt + SESSION_LIST_POLL_INTERVAL_MS constant -> AC1,2,3,5,6) -->
 ### REQ-SESSION-010: Session status observable from dashboard
 
 <!-- @impl: src/routes/session/crud.ts -->
 <!-- @impl: src/routes/session/lifecycle.ts -->
-<!-- @impl: src/container/container-metrics.ts::collectMetrics -->
-<!-- @impl: src/container/index.ts::onError -->
 <!-- @impl: web-ui/src/stores/session-polling.ts -->
 
 **Intent:** The dashboard displays the current status of each session (running, stopped, initializing, stopping, error) with near-real-time updates.
@@ -365,19 +360,17 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 5. Container metrics (CPU, memory, disk, sync status) are surfaced on the session cards with up to ~60s staleness.
 6. Last-active and last-started timestamps are available for sleep-timer countdown display.
 7. When polling transitions a session to stopped, its terminal connections are disposed; the currently active session is exempt from this poll-driven stop (guarded) and is not cleared.
-8. Persisted status is authoritative: a container that exits for any reason - graceful stop, crash, or an unexpected exit surfaced by the SDK as an error - transitions the persisted status to stopped, so the dashboard reflects reality directly from the KV record with no read-side staleness reconciliation.
 
 **Constraints:**
 
 - Storage eventual consistency causes ~60s propagation delay for newly created sessions.
 - Dashboard status is a pure storage read; no container is contacted, preserving container hibernation.
-- Newly started sessions have a 3-minute startup guard during which only the container-stopped close code can transition them to stopped (anti-flapping).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Batch-status read path - [Integration test](../../src/__tests__/routes/session-batch-status.test.ts); exit-writes-stopped paths (AC8) - [collectMetrics catch-all](../../src/__tests__/container-metrics.test.ts) and [onError / onStop lifecycle](../../src/__tests__/container/index.test.ts). The `@test` anchors above are the authoritative per-AC mapping.
+**Verification:** [Integration test](../../src/__tests__/routes/session-batch-status.test.ts) (batch-status read path). The `@test` anchors above are the authoritative per-AC mapping.
 
 **Status:** Implemented
 
@@ -622,5 +615,35 @@ None.
 **Dependencies:** [REQ-SESSION-015](#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
 **Verification:** [Automated test](../../src/__tests__/routes/container-status.test.ts)
+
+**Status:** Implemented
+
+---
+
+<!-- @test: src/__tests__/container-metrics.test.ts (collectMetrics describe -> writes status=stopped to KV when the container is not running (dangling-running guard) -> AC1) -->
+<!-- @test: src/__tests__/container/index.test.ts (onStop lifecycle describe -> onError updates KV with status stopped (unexpected exit dangling-running guard) -> AC1) -->
+<!-- @test: src/__tests__/container/index.test.ts (onStop lifecycle describe -> onStop updates KV with lastActiveAt and sets status to stopped -> AC1) -->
+### REQ-SESSION-018: Persisted status is authoritative on container exit
+
+<!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+<!-- @impl: src/container/index.ts::onError -->
+
+**Intent:** Session status in KV is the single source of truth. A container that exits for any reason writes `stopped` to its KV record, so the dashboard ([REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)) reflects reality directly from the record without any read-side staleness guess.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Persisted status is authoritative: a container that exits for any reason - graceful stop, crash, or an unexpected exit surfaced by the SDK as an error - transitions the persisted status to stopped, so the dashboard reflects reality directly from the KV record with no read-side staleness reconciliation. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/index.ts::onError -->
+
+**Constraints:**
+
+- Newly started sessions have a 3-minute startup guard during which only the container-stopped close code can transition them to stopped (anti-flapping).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)
+
+**Verification:** [collectMetrics catch-all](../../src/__tests__/container-metrics.test.ts), [onError / onStop lifecycle](../../src/__tests__/container/index.test.ts)
 
 **Status:** Implemented

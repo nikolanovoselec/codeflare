@@ -288,8 +288,8 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
   });
 
-  // REQ-VAULT-013 AC5-AC7 (browser-initiated SW registration short-circuit: method+path+Service-Worker header selector)
-  describe('isServiceWorkerRegistration / REQ-VAULT-013 (SilverBullet subpath adapter)', () => {
+  // REQ-VAULT-017 AC1-AC3 (browser-initiated SW registration short-circuit: method+path+Service-Worker header selector)
+  describe('isServiceWorkerRegistration / REQ-VAULT-017 (native SW short-circuit selector)', () => {
     function swRequest(
       method: string,
       headers: Record<string, string> = {},
@@ -347,7 +347,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
   });
 
-  describe('VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-013 AC5 (native SW served, AD69)', () => {
+  describe('VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-017 AC1 (native SW served, AD69)', () => {
     async function sha256Hex(input: string): Promise<string> {
       const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
       return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -400,7 +400,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
   });
 
-  describe('isServiceWorkerContextFetch / REQ-VAULT-013 AC8 (SW precache vs navigation)', () => {
+  describe('isServiceWorkerContextFetch / REQ-VAULT-017 AC4 (SW precache vs navigation)', () => {
     function req(headers: Record<string, string> = {}): Request {
       return new Request('https://codeflare.ch/api/vault/abcdef12/', {
         headers: new Headers(headers),

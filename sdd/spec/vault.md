@@ -324,12 +324,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 <!-- @impl: src/routes/vault.ts::rewriteVaultBaseHref -->
 <!-- @impl: src/routes/vault.ts::rewriteVaultHtmlResponse -->
-<!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
-<!-- @impl: src/routes/vault-html.ts::isServiceWorkerContextFetch -->
-<!-- @test: src/__tests__/routes/vault.test.ts (rewriteVaultBaseHref / rewriteVaultHtmlResponse (REQ-VAULT-013 AC1-AC4) + isServiceWorkerRegistration / REQ-VAULT-013 (SilverBullet subpath adapter) + VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-013 AC5 + isServiceWorkerContextFetch / REQ-VAULT-013 AC8 → AC1-AC8) -->
-<!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (native SW + shell-302 suppression (REQ-VAULT-013 AC5/AC8, AD69) → AC5/AC8) -->
+<!-- @test: src/__tests__/routes/vault.test.ts (rewriteVaultBaseHref / rewriteVaultHtmlResponse (REQ-VAULT-013 AC1-AC4) → AC1-AC4) -->
 
-**Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response and short-circuits Service Worker registration so the browser's SW fetch does not return 401. It serves SilverBullet's native service worker (not a stripped shim) so the editor keeps its persistent local file-sync store and indexes incrementally (AD69).
+**Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response so the editor's relative asset references resolve back through the subpath proxy. The companion native-service-worker contract (registration short-circuit, key delivery, precache) is [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker).
 
 **Applies To:** User
 
@@ -339,23 +336,51 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. Non-HTML responses (JS bundles, images, manifests, markdown page bodies, JSON API replies, binary assets) pass through unchanged; the HTML-only guard is sufficient because the editor's API endpoints return non-HTML content types.
 3. When the body is rewritten, both the content-length and content-encoding headers are dropped because the rewrite path auto-decompresses upstream compression, and the original headers would otherwise trigger a browser decoding failure.
 4. When the rewrite runs but the body did not contain the expected base-href substring (no-op rewrite), a warning is logged so a future editor-template change surfaces as a logged signal instead of a silent white-screen regression.
-5. Browser-initiated Service Worker registration GETs for the editor's service-worker script short-circuit the auth chain and receive SilverBullet's native service worker from the Worker (vendored verbatim, AD69), so the editor keeps its persistent local file-sync store and indexes incrementally. Cold-boot encryption rides the native worker's own `set-encryption-key`/`get-encryption-key` handlers, fed by the bootstrap-hop page (see [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5 for the key-delivery contract).
-6. The short-circuit selector requires all of: GET method, exact path match for the service-worker script, and the browser-only Service-Worker request header (a Fetch-spec forbidden header name not settable from page JavaScript). Cookie presence is intentionally not checked because Samsung Internet and other Chromium forks may send cookies on SW registration fetches; rejecting those requests would force the registration through the cookie-gated proxy chain and 401.
-7. The native service-worker script body is identical across sessions (version-locked to the SilverBullet binary, guarded by a recorded SHA-256 drift hash); the per-session vault encryption key is delivered to it via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), never baked into the script.
-8. The native worker precaches the shell `/` via `cache.addAll` during install, BEFORE the bootstrap-hop sets the bootstrap cookie. The shell-path redirect to the bootstrap-hop is suppressed for Service-Worker-context fetches (identified by a `Sec-Fetch-Mode` header present and not equal to `navigate`) so the precache resolves against the real shell instead of a 302 that would make `cache.addAll` reject and hang the SW install. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the redirect (fail-safe), so a real first navigation never boots without the encryption key wired.
-
-**Notes:** Serving the native worker (AD69) restores the editor's persistent `sb_files_*` local-sync store, the fix for the per-cold-load full re-index regression (codeflare#445). Verified end-to-end on the integration deploy (mobile, 2026-06-01): the native SW installs through the proxy ("47 client files cached"), the SW-context `sb_files_*` IndexedDB store is created (it never existed under the shim), the `.vault-key` recovery graft fires ("Recovered encryption key from codeflare") so there is no `.auth` bounce, and the sync engine runs incremental 0-operation cycles. The one-time first-load index that populates `sb_files_*` is expected; the store now persists, so subsequent cold loads are incremental. The `/.client/*` precache-auth exemption (reserved AC9) is NOT needed - the deploy showed `cache.addAll` resolves, i.e. the precache fetches carry the session cookie.
 
 **Constraints:**
 
 - The editor honors a URL-prefix environment variable for rendering the base tag, but the prefix is per-session (the Worker knows the session ID, the container does not); baking it in at supervisor start is not viable, so the per-response Worker rewrite is the per-session adapter.
-- Browsers omit credentials on service-worker script fetches (Chrome 76+ per spec, Samsung Internet and other Chromium forks may not), so the normal cookie-auth path would return 401 and service-worker registration would fail permanently without this short-circuit. The selector is browser-agnostic: it works regardless of whether cookies are present.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
 **Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
+
+**Status:** Implemented
+
+---
+
+<!-- @test: src/__tests__/routes/vault.test.ts (isServiceWorkerRegistration / REQ-VAULT-017 (native SW short-circuit selector) + VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-017 AC1 (native SW served, AD69) + isServiceWorkerContextFetch / REQ-VAULT-017 AC4 (SW precache vs navigation) → AC1-AC4) -->
+<!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (native SW + shell-302 suppression (REQ-VAULT-017 AC1/AC4, AD69) → AC1/AC4) -->
+### REQ-VAULT-017: SilverBullet native service worker
+
+<!-- @impl: src/routes/vault.ts::handleVaultRequest -->
+<!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
+<!-- @impl: src/routes/vault-html.ts::isServiceWorkerContextFetch -->
+
+**Intent:** SilverBullet's native service worker (not a stripped shim) is served for the editor's service-worker registration fetch so the editor keeps its persistent local file-sync store and indexes incrementally (AD69). The Worker short-circuits the auth chain for the registration GET (the browser sends no credentials on that fetch, so the cookie-gated path would 401), serves the version-locked native worker body, and suppresses the bootstrap-hop redirect for Service-Worker-context fetches so the worker's precache resolves. The per-session encryption key reaches the worker via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5).
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Browser-initiated Service Worker registration GETs for the editor's service-worker script short-circuit the auth chain and receive SilverBullet's native service worker from the Worker (vendored verbatim, AD69), so the editor keeps its persistent local file-sync store and indexes incrementally. Cold-boot encryption rides the native worker's own `set-encryption-key`/`get-encryption-key` handlers, fed by the bootstrap-hop page (see [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5 for the key-delivery contract).
+2. The short-circuit selector requires all of: GET method, exact path match for the service-worker script, and the browser-only Service-Worker request header (a Fetch-spec forbidden header name not settable from page JavaScript). Cookie presence is intentionally not checked because Samsung Internet and other Chromium forks may send cookies on SW registration fetches; rejecting those requests would force the registration through the cookie-gated proxy chain and 401.
+3. The native service-worker script body is identical across sessions (version-locked to the SilverBullet binary, guarded by a recorded SHA-256 drift hash); the per-session vault encryption key is delivered to it via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), never baked into the script.
+4. The native worker precaches the shell `/` via `cache.addAll` during install, BEFORE the bootstrap-hop sets the bootstrap cookie. The shell-path redirect to the bootstrap-hop is suppressed for Service-Worker-context fetches (identified by a `Sec-Fetch-Mode` header present and not equal to `navigate`) so the precache resolves against the real shell instead of a 302 that would make `cache.addAll` reject and hang the SW install. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the redirect (fail-safe), so a real first navigation never boots without the encryption key wired.
+
+**Notes:** Documented in [AD69](../../documentation/decisions/README.md) and the [vault lane](../../documentation/lanes/vault.md#service-worker-registration-noop-bypass). The `/.client/*` precache-auth exemption was evaluated and left unimplemented (the integration deploy showed `cache.addAll` resolves because the precache fetches carry the session cookie); it is reserved only as a future fallback if a browser strips credentials on precache fetches.
+
+**Constraints:**
+
+- Browsers omit credentials on service-worker script fetches (Chrome 76+ per spec, Samsung Internet and other Chromium forks may not), so the normal cookie-auth path would return 401 and service-worker registration would fail permanently without this short-circuit. The selector is browser-agnostic: it works regardless of whether cookies are present.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-VAULT-013](#req-vault-013-silverbullet-subpath-adapter), [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption)
+
+**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts), [Auth-chain test](../../src/__tests__/routes/vault-auth-chain.test.ts)
 
 **Status:** Implemented
 

@@ -1001,6 +1001,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(writtenSession.status).toBe('stopped');
     });
 
+    // REQ-SESSION-018: Persisted status is authoritative on container exit
     it('onError updates KV with status stopped (unexpected exit dangling-running guard)', async () => {
       // The SDK calls onError (not onStop) when a container exits unexpectedly
       // (crash / deploy-roll / platform reap). When the container is no longer

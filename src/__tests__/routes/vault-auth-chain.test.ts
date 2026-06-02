@@ -276,7 +276,7 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
     expect(body.code).toBe('CONTAINER_NOT_READY');
   });
 
-  describe('native SW + shell-302 suppression (REQ-VAULT-013 AC5/AC8, AD69)', () => {
+  describe('native SW + shell-302 suppression (REQ-VAULT-017 AC1/AC4, AD69)', () => {
     it('T4: serves the native SW pre-auth for the registration fetch, container untouched', async () => {
       // service_worker.js + `service-worker: script` short-circuits BEFORE the
       // auth chain (the browser strips cookies on SW registration fetches), so
