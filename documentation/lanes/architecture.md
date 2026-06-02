@@ -211,8 +211,9 @@ stateDiagram-v2
     stopping --> stopped : poll stopped
     running --> stopped : collectMetrics (idle &gt; idleTimeoutPref)
     running --> stopped : onError / collectMetrics (unexpected exit: crash, deploy-roll, platform reap)
-    error --> stopped : onError writes KV stopped
 ```
+
+(`error` is a frontend-ephemeral state, never persisted - AC2; it resolves to `stopped` on the next batch-status poll, not via a KV write. The SDK's `onError()` fires on a **running** container's unexpected exit, hence the `running --> stopped` transition above.)
 
 **Stop (unexpected exit):** A crash, deploy-roll, or platform idle-reap exits the container without a graceful `stop()`, so the SDK fires `onError()` (**not** `onStop()`). `onError()` writes KV `status: 'stopped'` (guarded on `!ctx.container.running`); if it is skipped, the `collectMetrics()` `!running` branch writes `stopped` on the next 60s tick. Either way KV converges to `stopped` rather than dangling at `running`. See rationale #5 / #17 and [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation).
 

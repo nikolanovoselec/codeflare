@@ -1269,7 +1269,7 @@ Two facts from the SB 2.8.1 source reshape the fix. First, SB's real service wor
 **Consequences:**
 - Dangling `running` is eliminated: a container that exits for any reason converges to `stopped` within ~60s without manual deletion.
 - The false kick is eliminated at the root: with no heartbeat-age heuristic, a live-but-idle session can never be inferred `stopped` from a paused alarm loop.
-- The dashboard becomes a pure mirror of KV `status`; the frontend `running→stopped` disposal path (REQ-SESSION-010 AC7) stays, but now acts on an authoritative signal rather than a guess.
+- The dashboard becomes a pure mirror of KV `status`; the frontend `running→stopped` disposal path (REQ-SESSION-010 AC7) stays, but now fires on the authoritative KV status written on exit (AC8) rather than a read-side guess.
 - Trade-off: a brief, accurate `stopped` can appear during a failed start before `onStart()` re-asserts `running`. Acceptable - it reflects reality.
 
 **Related REQ:** [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) (session status observable from dashboard, AC8). Tracks [codeflare#153](https://github.com/nikolanovoselec/codeflare/issues/153). Refines [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity).
