@@ -18,10 +18,15 @@ const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8
 // the harness exercises the real merge chain (codeflare-memory + ctx +
 // graphify) rather than the graphify slice alone.
 function extractAdvancedSettingsBlock() {
-  const start = entrypoint.indexOf('if [ "${SESSION_MODE:-default}" = "advanced" ]; then');
-  if (start === -1) throw new Error('advanced-mode SETTINGS_CONFIG block start not found');
-  const validateMarker = entrypoint.indexOf("Hardening: validate SETTINGS_CONFIG", start);
+  // The SETTINGS_CONFIG assembly is the advanced-mode guard immediately
+  // preceding the unique "Hardening: validate SETTINGS_CONFIG" marker. Anchor
+  // on that marker and search backwards, so other advanced-mode guards added
+  // earlier in entrypoint.sh (e.g. the vault rclone-filter gate) are not picked
+  // up by mistake.
+  const validateMarker = entrypoint.indexOf("Hardening: validate SETTINGS_CONFIG");
   if (validateMarker === -1) throw new Error('SETTINGS_CONFIG validate marker not found');
+  const start = entrypoint.lastIndexOf('if [ "${SESSION_MODE:-default}" = "advanced" ]; then', validateMarker);
+  if (start === -1) throw new Error('advanced-mode SETTINGS_CONFIG block start not found');
   const fiIdx = entrypoint.indexOf('\nfi\n', validateMarker);
   if (fiIdx === -1) throw new Error('advanced-mode block fi-terminator not found');
   return entrypoint.slice(start, fiIdx + 4);
