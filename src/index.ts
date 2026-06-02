@@ -22,7 +22,6 @@ import { REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, CORS_MAX_AGE_SECONDS } from './l
 import { AppError, toError } from './lib/error-types';
 import { isAllowedOrigin } from './lib/cors-cache';
 import {
-  resetSetupCache as resetSetupCacheShared,
   getSetupCompleteCache,
   setSetupCompleteCache,
 } from './lib/cache-reset';
@@ -53,6 +52,25 @@ const SECURITY_HEADERS: Record<string, string> = {
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
   'Content-Security-Policy': "default-src 'none'",
 };
+
+/**
+ * CF-001: Apply SECURITY_HEADERS to a response built outside the Hono pipeline.
+ * The module-level fetch handler returns early (vault/websocket routes) BEFORE
+ * app.fetch, so those responses never hit the post-handler middleware that sets
+ * SECURITY_HEADERS. Wrapping those early returns here closes the gap.
+ *
+ * No-op for 101 (WebSocket upgrade) responses, which cannot carry these headers,
+ * and for responses that already have them (avoids double-cloning the SPA path).
+ */
+export function withSecurityHeaders(response: Response): Response {
+  if (response.status === 101) return response;
+  if (response.headers.has('X-Content-Type-Options')) return response;
+  const secured = new Response(response.body, response);
+  for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+    secured.headers.set(key, value);
+  }
+  return secured;
+}
 
 /**
  * Create a redirect response that includes security headers (HSTS, etc.).
@@ -150,7 +168,7 @@ app.use('*', async (c, next) => {
     if (allowedOrigin) {
       headers['Access-Control-Allow-Origin'] = allowedOrigin;
       headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With';
+      headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-Vault-Csrf';
       headers['Access-Control-Allow-Credentials'] = 'true';
       headers['Access-Control-Max-Age'] = CORS_MAX_AGE_SECONDS.toString();
     }
@@ -217,6 +235,9 @@ app.get('/public/auth/providers', async (c) => {
 
 // Setup routes (public - no auth required)
 app.route('/api/setup', setupRoutes);
+// CF-004: Stripe is mounted outside /api/*, so the /api/* bodyLimit doesn't cover it.
+// The webhook reads the raw body before signature verification - cap it (1 MiB).
+app.use('/public/stripe/*', bodyLimit({ maxSize: 1024 * 1024 }));
 app.route('/public/stripe', stripeWebhookRoute);  // Must be before /public catch-all
 app.route('/public', publicRoutes);
 
@@ -238,17 +259,6 @@ app.route('/api/billing', billingRoutes);
 
 // 404 fallback - only for API routes
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
-
-/**
- * Reset the in-memory setup cache. Call this when setup completes
- * so the next request re-checks KV.
- *
- * Resets the local setupComplete flag plus all shared caches
- * (CORS origins, auth config, JWKS) via the centralized helper.
- */
-export function resetSetupCache() {
-  resetSetupCacheShared();
-}
 
 // ============================================================================
 // Global Error Handler
@@ -295,11 +305,11 @@ export default {
     if (wsRouteResult.isWebSocketRoute) {
       // Return early error if validation failed
       if (wsRouteResult.errorResponse) {
-        return wsRouteResult.errorResponse;
+        return withSecurityHeaders(wsRouteResult.errorResponse);
       }
 
-      // Handle WebSocket upgrade
-      return handleWebSocketUpgrade(request, env, ctx, wsRouteResult);
+      // Handle WebSocket upgrade (101 responses are passed through unchanged)
+      return withSecurityHeaders(await handleWebSocketUpgrade(request, env, ctx, wsRouteResult));
     }
 
     // Vault proxy (HTTP + WS) - intercept BEFORE Hono so SilverBullet's
@@ -310,10 +320,10 @@ export default {
     const vaultRouteResult = validateVaultRoute(request);
     if (vaultRouteResult.isVaultRoute) {
       if (vaultRouteResult.errorResponse) {
-        return vaultRouteResult.errorResponse;
+        return withSecurityHeaders(vaultRouteResult.errorResponse);
       }
       if (vaultRouteResult.remainingPath !== '/status') {
-        return handleVaultRequest(request, env, ctx, vaultRouteResult);
+        return withSecurityHeaders(await handleVaultRequest(request, env, ctx, vaultRouteResult));
       }
     }
 
