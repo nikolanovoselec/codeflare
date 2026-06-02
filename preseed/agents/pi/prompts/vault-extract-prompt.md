@@ -145,9 +145,38 @@ effort and must never fail the turn:
 external-label pass dedupes concept nodes by label, so re-merging the
 content the extension already merged plus your additions is safe and only
 adds the new semantics. The `( ... ) || true` wrapper means a lock
-timeout or a missing CLI exits cleanly. Optionally refresh the rendered
-graph with `( cd /home/user/Vault && graphify cluster-only . ) || true`
-and skip it silently on any error.
+timeout or a missing CLI exits cleanly.
+
+### 4b. Re-render the vault viz HTML and publish to `Raw/Graphs/`
+
+The vault `Raw/Graphs/Vault Graph.md` index page links to a sibling
+`vault-graph.html`. The rendered HTML lives in `graphify-out/`, which is
+EXCLUDED from R2 bisync and the SilverBullet `.fs/` route - so it must be
+copied into `Raw/Graphs/` (a synced, served path) or the index-page link
+404s. Re-render from the per-run `graph.json` via `cluster-only` (which
+re-emits `graph.html` + `GRAPH_REPORT.md` without re-extracting), then copy
+the HTML into `Raw/Graphs/`.
+
+Never use the `graphify_build` tool or any `--backend`/provider extraction
+here: `graphify_build`'s `semanticBackend` defaults to DeepSeek and requires
+`DEEPSEEK_API_KEY`, which is not set in this container, so it fails. Use
+`cluster-only`, which is local and deterministic. `cluster-only` takes a
+PROJECT root and writes to `<root>/graphify-out/`, so pass `.` with
+cwd=`/home/user/Vault` (passing `graphify-out` nests to
+`graphify-out/graphify-out/` and FileNotFoundErrors).
+
+```bash
+(
+    cd /home/user/Vault && \
+    /usr/local/bin/graphify cluster-only . 2>/dev/null && \
+    mkdir -p Raw/Graphs && \
+    cp -f graphify-out/graph.html "Raw/Graphs/vault-graph.html"
+) || echo "[vault-extract] viz re-render skipped (cluster-only failed; HTML may be stale)"
+```
+
+Failure here is intentionally NON-fatal: the graph data is already
+persisted by step 4, the only loss is a stale viz HTML; the next
+successful extraction re-renders.
 
 Do NOT advance the marker here. The extension already touched
 `vault-extract.last`; if you skipped enrichment entirely (empty change

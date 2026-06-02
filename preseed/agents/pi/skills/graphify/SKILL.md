@@ -10,6 +10,8 @@ Use this skill for Graphify build, refresh, query, explain, path, and repo/Vault
 Hard rules:
 
 - **Never use external/provider LLM backends for interactive Graphify work.** Do not run `graphify label`, do not pass `--backend`, and do not use Gemini/OpenAI/Anthropic/DeepSeek/Kimi/Ollama extraction from this skill.
+- **Never use the `graphify_build` tool.** Its `semanticBackend` parameter defaults to DeepSeek (an external provider requiring `DEEPSEEK_API_KEY`, which is NOT set in this container), so it fails with `backend 'deepseek' requires DEEPSEEK_API_KEY`. Use the local scripts/flows in this skill instead (`build-graphify-ast.sh`, `safe-graphify-update.sh`, `graphify cluster-only`).
+- **Vault graph rebuilds publish to `Raw/Graphs/`.** After a local `graphify cluster-only .` from `/home/user/Vault`, copy `graphify-out/graph.html` to `Raw/Graphs/vault-graph.html` so the seeded `Raw/Graphs/Vault Graph.md` index link resolves through the SilverBullet `.fs/` route. `graphify-out/` is excluded from R2 bisync and the `.fs/` route, so without the copy the link 404s.
 - **Use the Pi main session agent for community labels.** The main session writes `graphify-out/.graphify_labels.json`; then Graphify regenerates report/html locally from the graph's existing community assignments.
 - **Use Pi `Agent` subagents only for uncached Full-mode semantic extraction chunks.** Do not run headless semantic extraction for uncached docs/images.
 - **Use official Graphify flows** for AST detection/extraction, graph build/merge, clustering, report generation, HTML generation, query/path/explain, global merge, and callflow export.
