@@ -46,6 +46,7 @@ validate_labels() {
   "$PY" - <<'PY'
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 out = Path('graphify-out')
@@ -64,7 +65,25 @@ if not isinstance(labels, dict):
 missing = [cid for cid in communities if cid not in labels]
 blank = [cid for cid in communities if not isinstance(labels.get(cid), str) or not labels.get(cid, '').strip()]
 placeholder = [cid for cid in communities if re.fullmatch(r'Community\s+\d+', str(labels.get(cid, '')).strip())]
-if missing or blank or placeholder:
+ordered = {cid: labels[cid].strip() for cid in communities if cid in labels and isinstance(labels.get(cid), str)}
+label_counts = Counter(v.casefold() for v in ordered.values())
+duplicate_exact = [label for label in ordered.values() if label_counts[label.casefold()] > 1]
+
+def base_label(label: str) -> str:
+    return re.sub(r'\s+\d+$', '', label).strip().casefold()
+
+base_counts = Counter(base_label(v) for v in ordered.values())
+numbered_duplicate = [
+    label
+    for label in ordered.values()
+    if re.search(r'\s+\d+$', label) and base_counts[base_label(label)] > 1
+]
+duplicate_base = [
+    label
+    for label in ordered.values()
+    if base_counts[base_label(label)] > 1 and base_label(label) != label.casefold()
+]
+if missing or blank or placeholder or duplicate_exact or numbered_duplicate or duplicate_base:
     problems = []
     if missing:
         problems.append(f"missing={missing[:20]}{'...' if len(missing) > 20 else ''}")
@@ -72,8 +91,16 @@ if missing or blank or placeholder:
         problems.append(f"blank={blank[:20]}{'...' if len(blank) > 20 else ''}")
     if placeholder:
         problems.append(f"placeholder={placeholder[:20]}{'...' if len(placeholder) > 20 else ''}")
-    raise SystemExit('local-graphify-labels: invalid labels: ' + '; '.join(problems))
-ordered = {cid: labels[cid].strip() for cid in communities}
+    if duplicate_exact:
+        problems.append(f"duplicate_exact={duplicate_exact[:20]}{'...' if len(duplicate_exact) > 20 else ''}")
+    if numbered_duplicate:
+        problems.append(f"numbered_duplicate={numbered_duplicate[:20]}{'...' if len(numbered_duplicate) > 20 else ''}")
+    if duplicate_base:
+        problems.append(f"duplicate_base={duplicate_base[:20]}{'...' if len(duplicate_base) > 20 else ''}")
+    raise SystemExit(
+        'local-graphify-labels: invalid labels: ' + '; '.join(problems) +
+        '. Main-session labels must be unique semantic names, not numeric suffixes; add a source/domain qualifier instead.'
+    )
 labels_path.write_text(json.dumps(ordered, ensure_ascii=False, indent=2), encoding='utf-8')
 print(f"local-graphify-labels: validated {len(ordered)} labels")
 PY
@@ -143,7 +170,7 @@ worklist = {
     'instructions': [
         'Local Pi main session only: do not call graphify label, --backend, Gemini, OpenAI, or external LLM providers.',
         'Write graphify-out/.graphify_labels.json as a JSON object mapping every community id string to a concise human label.',
-        'Labels should be 2-6 words, specific, and should not be placeholders like Community N.',
+        'Labels must be unique 2-6 word semantic names. Do not use placeholders, repeated generic labels, or numeric suffixes like PR Review Workflow 77.',
     ],
     'community_count': len(items),
     'communities': items,
@@ -165,7 +192,7 @@ for i in range(0, len(items), batch_size):
         '# Graphify community labels batch',
         '',
         'Local Pi main session only. Do not call external LLM providers.',
-        'For each community, choose a concise 2-6 word label.',
+        'For each community, choose a unique concise 2-6 word semantic label. Do not use numeric suffixes; qualify by source/domain instead.'
         '',
     ]
     for item in batch:

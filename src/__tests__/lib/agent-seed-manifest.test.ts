@@ -223,6 +223,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(skills.map((d) => d.key).filter((key) => key === '.pi/agent/skills/graphify/SKILL.md')).toHaveLength(1);
     expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/safe-graphify-update.sh');
     expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/build-graphify-ast.sh');
+    expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/build-graphify-architecture.sh');
     // Pi-native first-class residents: the review skill and codeflare-commands extension
     // are emitted directly (not transformed from Claude), so the Pi manifest -> seed pipeline
     // must surface them.
@@ -804,6 +805,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(keys.has('.pi/agent/skills/graphify/SKILL.md')).toBe(true);
     expect(keys.has('.pi/agent/scripts/safe-graphify-update.sh')).toBe(true);
     expect(keys.has('.pi/agent/scripts/build-graphify-ast.sh')).toBe(true);
+    expect(keys.has('.pi/agent/scripts/build-graphify-architecture.sh')).toBe(true);
     expect(keys.has('.pi/agent/scripts/local-graphify-labels.sh')).toBe(true);
     const piPackage = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/npm/package.json');
     expect(piPackage?.content).toContain('"@gaodes/pi-graphify": "0.2.2"');
@@ -812,6 +814,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/skills/graphify/SKILL.md',
       '.pi/agent/scripts/safe-graphify-update.sh',
       '.pi/agent/scripts/build-graphify-ast.sh',
+      '.pi/agent/scripts/build-graphify-architecture.sh',
       '.pi/agent/scripts/local-graphify-labels.sh',
     ]) {
       const doc = AGENTS_SEEDED_CONFIGS.find((entry) => entry.key === key);
@@ -822,6 +825,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   it('REQ-AGENT-024 AC5-AC6 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic', () => {
     const skill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/graphify/SKILL.md');
     expect(skill?.content).toContain('build-graphify-ast.sh');
+    expect(skill?.content).toContain('build-graphify-architecture.sh');
     expect(skill?.content).toContain('safe-graphify-update.sh');
     expect(skill?.content).toContain('Do not pass a model override');
     expect(skill?.content).toContain('running session model');
@@ -1246,6 +1250,11 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(buildScript?.content).toContain('from graphify.build import build');
     expect(buildScript?.content).not.toContain('normalize_import_targets');
     expect(buildScript?.content).toContain('GRAPHIFY_VIZ_NODE_LIMIT');
+
+    const architectureScript = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/scripts/build-graphify-architecture.sh');
+    expect(architectureScript?.content).toContain('architecture-focused module graph build');
+    expect(architectureScript?.content).toContain('GRAPHIFY_ARCH_KEEP_ISOLATES');
+    expect(architectureScript?.content).toContain("'.graphify_scope'");
   });
 
   it('REQ-AGENT-049 AC1: PRESEED_CONTENT_HASH is a deterministic 16-char hex string', () => {

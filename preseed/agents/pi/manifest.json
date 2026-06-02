@@ -88,6 +88,11 @@
       "advanced"
     ]
   },
+  "scripts/build-graphify-architecture.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "scripts/local-graphify-labels.sh": {
     "modes": [
       "advanced"

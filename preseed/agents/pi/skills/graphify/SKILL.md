@@ -78,16 +78,34 @@ PY
 
 If the user asks to ignore a file class (for example images), exclude that class from semantic extraction and/or pass matching `--exclude` flags to Graphify code-refresh commands. Do not alter code detection.
 
-## Mandatory mode choice
+## Mandatory graph refresh choice
 
-After detection, ask the user to choose exactly one mode unless there are zero docs/papers/images:
+After detection, present these choices and wait for the user to choose one:
 
-1. **AST-only** — official Graphify AST/code graph, free/local.
-2. **Full (AST + semantic)** — Pi Agent subagents produce semantic chunks for docs/papers/images, then Graphify consumes local semantic fragments and rebuilds locally.
+1. **Architecture graph** — recommended for large/noisy repos and daily navigation. Builds a smaller runtime-source graph by excluding tests, fixtures, generated files, docs/spec bulk, and build artifacts. Free/local.
+2. **Full repo AST-only** — official Graphify AST/code graph for every detected code file. Free/local, but can be noisy on large repos.
+3. **Full repo semantic** — Pi Agent subagents produce semantic chunks for docs/papers/images, then Graphify consumes local semantic fragments and rebuilds locally.
+4. **No, I don't want to create/update a graph right now.** — stop without modifying `graphify-out`.
 
-## AST-only initial build
+If there are zero docs/papers/images, hide only the semantic option; still offer Architecture graph, Full repo AST-only, and the no-graph option. For repos with more than ~200 files, recommend Architecture graph unless the user explicitly wants exhaustive coverage.
 
-Use this only when `graphify-out/graph.json` is missing:
+If the user chooses the no-graph option, do not build, update, label, delete, or regenerate any Graphify outputs. Acknowledge and stop.
+
+## Architecture graph build
+
+Use this when the user chooses Architecture graph:
+
+```bash
+bash /home/user/.pi/agent/scripts/build-graphify-architecture.sh .
+```
+
+The script uses Graphify’s own `detect`, `extract`, `build`, `cluster`, and `report` modules after applying generic architecture filters. It does not rewrite Graphify output. It deliberately defers user-facing `graph.html` and `callflow.html` until labels exist.
+
+Then label communities using the **Local main-session community labels** section below. Do not push or present HTML outputs until label apply regenerates them from `.graphify_labels.json`.
+
+## Full repo AST-only initial build
+
+Use this only when the user chooses Full repo AST-only and `graphify-out/graph.json` is missing:
 
 ```bash
 bash /home/user/.pi/agent/scripts/build-graphify-ast.sh .
@@ -97,9 +115,9 @@ The script uses Graphify’s own `detect`, `extract`, `build`, `cluster`, and `r
 
 Then label communities using the **Local main-session community labels** section below. Do not push or present HTML outputs until label apply regenerates them from `.graphify_labels.json`.
 
-## AST-only refresh for an existing graph
+## Full repo AST-only refresh for an existing graph
 
-Use this when `graphify-out/graph.json` exists and source code changed:
+Use this when the user chooses Full repo AST-only, `graphify-out/graph.json` exists, and source code changed:
 
 ```bash
 bash /home/user/.pi/agent/scripts/safe-graphify-update.sh .
@@ -198,7 +216,13 @@ Re-run Step 1's cache check. If any selected semantic files are still uncached, 
 
 ### Step 4 — local graph rebuild/merge from cached semantic
 
-If this is the first graph, run the AST-only initial build script first to create the AST graph. If `graphify-out/graph.json` already exists, refresh code first with the safe wrapper.
+Recreate the AST baseline first, even when `graphify-out/graph.json` already exists:
+
+```bash
+bash /home/user/.pi/agent/scripts/build-graphify-ast.sh .
+```
+
+Full semantic merge must start from an AST-only graph. Do not merge cached semantic data into a previously semantic graph, because stale semantic nodes from changed docs can linger when their replacement chunks use different IDs.
 
 Then merge the local semantic fragment into the graph with Graphify modules:
 
@@ -216,8 +240,10 @@ root = Path('.').resolve()
 out = Path('graphify-out')
 sem = json.loads((out / '.graphify_semantic.json').read_text()) if (out / '.graphify_semantic.json').exists() else {'nodes': [], 'edges': [], 'hyperedges': []}
 detect_result = json.loads(Path('.graphify_detect.json').read_text())
-semantic_sources = [line for line in (out / '.graphify_semantic_files.txt').read_text().splitlines() if line.strip()] if (out / '.graphify_semantic_files.txt').exists() else []
-G = build_merge([sem], graph_path=out / 'graph.json', prune_sources=semantic_sources or None, dedup=True, root=root)
+# Merge cached/new semantic data into the existing AST graph. Do not pass
+# semantic source files as prune_sources here: build_merge prunes after adding,
+# so doing that deletes the semantic nodes that were just merged.
+G = build_merge([sem], graph_path=out / 'graph.json', prune_sources=None, dedup=True, root=root)
 communities = cluster(G)
 cohesion = score_all(G, communities)
 labels_path = out / '.graphify_labels.json'
@@ -252,7 +278,13 @@ This is the only allowed label path in Pi interactive Graphify.
 bash /home/user/.pi/agent/scripts/local-graphify-labels.sh prepare .
 ```
 
-2. The **Pi main session agent** reads `graphify-out/.graphify_community_label_worklist.json` or the markdown batches under `graphify-out/.graphify_community_label_batches/` and writes one JSON object:
+2. The **Pi main session agent** labels communities exactly like upstream Graphify expects: read the worklist/batches, inspect each community's node labels and source paths, and choose a 2–6 word plain-language name.
+
+This is the current Pi session doing the inference. It is not a Graphify backend/provider call. Do **not** generate labels with a deterministic keyword script, do **not** reuse a generic label with numeric suffixes, and do **not** fabricate labels for communities you did not inspect.
+
+For large/noisy graphs, check `community_count` in `graphify-out/.graphify_community_label_worklist.json` before labeling. If there are too many communities to label honestly in the main session, stop and tell the user the graph needs a narrower scope or architecture-mode graph. Do not produce garbage labels just to finish.
+
+Write one JSON object:
 
 ```text
 graphify-out/.graphify_labels.json
@@ -264,7 +296,7 @@ Shape:
 {"0":"Container Runtime","1":"Agent Preseed System"}
 ```
 
-Every current community id must be present. Labels should be 2–6 words and must not be placeholders like `Community 12`.
+Every current community id must be present. Labels must be unique, specific, 2–6 words, and must not be placeholders like `Community 12` or numbered duplicates like `PR Review Workflow 77`. If two communities share a broad domain, qualify them by concrete source or responsibility, e.g. `Review Spawn Hooks`, `Review Job Storage`, `Review Enforcement Rules`.
 
 3. Apply the labels and regenerate report/html with the exact local command:
 
@@ -272,7 +304,7 @@ Every current community id must be present. Labels should be 2–6 words and mus
 bash /home/user/.pi/agent/scripts/local-graphify-labels.sh apply .
 ```
 
-The apply script validates labels before and after regeneration, then uses Graphify's local Python modules to rebuild `GRAPH_REPORT.md` and the final user-facing `graph.html` from the graph's existing community assignments. It intentionally does **not** recluster during label application, because reclustering can change community IDs after the main session labels them. This is the point where labeled HTML becomes final.
+The apply script validates labels before and after regeneration, rejects placeholders/repeated labels/numeric suffixes, then uses Graphify's local Python modules to rebuild `GRAPH_REPORT.md` and the final user-facing `graph.html` from the graph's existing community assignments. It intentionally does **not** recluster during label application, because reclustering can change community IDs after the main session labels them. This is the point where labeled HTML becomes final.
 
 Never run `graphify label` in this workflow.
 
@@ -296,7 +328,7 @@ After build/refresh, verify:
 - duplicate IDs = 0
 - dangling edges = 0
 - semantic cache was preserved for Full mode
-- `graphify-out/.graphify_labels.json` exists and has non-placeholder labels for all communities
+- `graphify-out/.graphify_labels.json` exists and has complete, unique, non-placeholder, non-numbered labels for all communities
 
 ## Global merge and git persistence
 
