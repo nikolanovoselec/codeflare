@@ -71,11 +71,6 @@ export function setIframeInput(terminal: Terminal, input: HTMLInputElement): voi
   iframeInputMap.set(terminal, input);
 }
 
-/** Remove the iframe input association. */
-export function removeIframeInput(terminal: Terminal): void {
-  iframeInputMap.delete(terminal);
-}
-
 /** Get the focus guard removal callback for a terminal. */
 export function getRemoveFocusGuard(terminal: Terminal): (() => void) | undefined {
   return removeFocusGuardMap.get(terminal);

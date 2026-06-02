@@ -1,5 +1,5 @@
 
-export const SUPPORTED_CURRENCIES = ['chf', 'usd', 'eur', 'gbp'] as const;
+const SUPPORTED_CURRENCIES = ['chf', 'usd', 'eur', 'gbp'] as const;
 type SupportedCurrency = typeof SUPPORTED_CURRENCIES[number];
 
 /** All European countries default to EUR (except CH/LI → CHF, GB → GBP). */

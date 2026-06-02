@@ -3,7 +3,6 @@ import {
   registerPreferencesDeps,
   loadPreferences,
   updateUserPreferences,
-  getCurrentPreferences,
 } from '../../stores/preferences';
 
 describe('Preferences Store', () => {
@@ -68,24 +67,6 @@ describe('Preferences Store', () => {
       await updateUserPreferences({ lastAgentType: 'codex' });
 
       expect(mockLogger.warn).toHaveBeenCalled();
-    });
-  });
-
-  describe('getCurrentPreferences', () => {
-    it('returns current preferences', () => {
-      storedPrefs = { lastAgentType: 'bash' as const };
-
-      const result = getCurrentPreferences();
-
-      expect(result).toEqual({ lastAgentType: 'bash' });
-    });
-
-    it('returns empty object when no preferences set', () => {
-      storedPrefs = {};
-
-      const result = getCurrentPreferences();
-
-      expect(result).toEqual({});
     });
   });
 });

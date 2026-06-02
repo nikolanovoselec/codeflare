@@ -23,7 +23,7 @@ vi.mock('../routes/setup', () => {
 vi.mock('../routes/admin', () => ({ default: new Hono() }));
 
 // Import after mocks are set up
-import worker, { resetSetupCache } from '../index';
+import worker from '../index';
 import { resetSetupCache as resetSetupCacheShared } from '../lib/cache-reset';
 import { validateWebSocketRoute, handleWebSocketUpgrade } from '../routes/terminal';
 import { createMockKV } from './helpers/mock-kv';
@@ -54,7 +54,7 @@ describe('Edge-level setup redirect', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset the in-memory cache before each test
-    resetSetupCache();
+    resetSetupCacheShared();
 
     // Reset the terminal mock to default (not a WebSocket route)
     vi.mocked(validateWebSocketRoute).mockReturnValue({ isWebSocketRoute: false });
@@ -199,7 +199,7 @@ describe('Edge-level setup redirect', () => {
     expect(mockKV.get).toHaveBeenCalledTimes(1);
 
     // Reset cache
-    resetSetupCache();
+    resetSetupCacheShared();
 
     // Now setup is NOT complete
     mockKV.get.mockResolvedValue(null);
@@ -274,7 +274,7 @@ describe('Edge-level setup redirect', () => {
 describe('X-Request-ID validation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resetSetupCache();
+    resetSetupCacheShared();
     vi.mocked(validateWebSocketRoute).mockReturnValue({ isWebSocketRoute: false });
   });
 
@@ -347,7 +347,7 @@ describe('X-Request-ID validation', () => {
 describe('REQ-OPS-008 AC6 (SAAS_MODE + STRESS_TEST_MODE conflict guard)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resetSetupCache();
+    resetSetupCacheShared();
     vi.mocked(validateWebSocketRoute).mockReturnValue({ isWebSocketRoute: false });
   });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getCurrencyForCountry, SUPPORTED_CURRENCIES } from '../../lib/currency';
+import { getCurrencyForCountry } from '../../lib/currency';
 
 describe('getCurrencyForCountry', () => {
   it('returns CHF for Switzerland', () => {
@@ -62,18 +62,5 @@ describe('getCurrencyForCountry', () => {
 
   it('returns USD for empty string', () => {
     expect(getCurrencyForCountry('')).toBe('usd');
-  });
-});
-
-describe('SUPPORTED_CURRENCIES', () => {
-  it('contains exactly 4 currencies', () => {
-    expect(SUPPORTED_CURRENCIES).toHaveLength(4);
-  });
-
-  it('includes chf, usd, eur, gbp', () => {
-    expect(SUPPORTED_CURRENCIES).toContain('chf');
-    expect(SUPPORTED_CURRENCIES).toContain('usd');
-    expect(SUPPORTED_CURRENCIES).toContain('eur');
-    expect(SUPPORTED_CURRENCIES).toContain('gbp');
   });
 });

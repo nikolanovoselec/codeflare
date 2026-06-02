@@ -58,7 +58,3 @@ export async function updateUserPreferences(prefs: Partial<UserPreferences>): Pr
     log?.warn('[Preferences] Failed to update preferences:', err);
   }
 }
-
-export function getCurrentPreferences(): UserPreferences {
-  return getPreferences?.() ?? {};
-}

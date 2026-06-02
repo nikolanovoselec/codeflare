@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   SubscriptionTierSchema,
-  UsageRecordSchema,
   type SubscriptionTierConfig,
   type SubscriptionTier,
 } from '../../types';
@@ -10,7 +9,6 @@ import {
   getTierConfig,
   getUserTier,
   isActiveTier,
-  getMaxSessionsForTier,
   getAllowedSessionModes,
   resetTierConfigCache,
   getEffectiveTier,
@@ -41,42 +39,6 @@ describe('SubscriptionTierSchema / REQ-SUB-001 AC1 (8 tier identifiers) / REQ-SU
   });
 });
 
-describe('UsageRecordSchema', () => {
-  const validRecord = {
-    today: { date: '2026-03-18', seconds: 3600 },
-    thisWeek: { weekStart: '2026-03-16', seconds: 10800 },
-    thisMonth: { month: '2026-03', seconds: 36000 },
-    thisYear: { year: '2026', seconds: 180000 },
-    allTime: { seconds: 720000 },
-    lastUpdatedAt: '2026-03-18T12:00:00Z',
-  };
-
-  it('validates a correct usage record', () => {
-    const result = UsageRecordSchema.parse(validRecord);
-    expect(result).toEqual(validRecord);
-  });
-
-  it('rejects record with missing fields', () => {
-    const { today: _today, ...partial } = validRecord;
-    expect(() => UsageRecordSchema.parse(partial)).toThrow();
-  });
-
-  it('rejects record with negative seconds', () => {
-    const bad = {
-      ...validRecord,
-      today: { date: '2026-03-18', seconds: -1 },
-    };
-    expect(() => UsageRecordSchema.parse(bad)).toThrow();
-  });
-
-  it('accepts zero seconds', () => {
-    const zero = {
-      ...validRecord,
-      today: { date: '2026-03-18', seconds: 0 },
-    };
-    expect(UsageRecordSchema.parse(zero).today.seconds).toBe(0);
-  });
-});
 
 describe('SubscriptionTierConfig interface / REQ-SUB-002 (tier property definitions including unlimited=null monthlySeconds and non-purchasable null priceMonthly)', () => {
   it('type-checks a valid tier config object', () => {
@@ -301,42 +263,6 @@ describe('isActiveTier', () => {
   it('returns false for blocked', () => expect(isActiveTier('blocked')).toBe(false));
   it('returns false for pending', () => expect(isActiveTier('pending')).toBe(false));
   it('returns true for undefined (backward compat)', () => expect(isActiveTier(undefined)).toBe(true));
-});
-
-describe('getMaxSessionsForTier', () => {
-  const tiers = getDefaultTiers();
-
-  it('returns 0 for blocked', () => {
-    expect(getMaxSessionsForTier('blocked', tiers)).toBe(0);
-  });
-
-  it('returns 0 for pending', () => {
-    expect(getMaxSessionsForTier('pending', tiers)).toBe(0);
-  });
-
-  it('returns 1 for free', () => {
-    expect(getMaxSessionsForTier('free', tiers)).toBe(1);
-  });
-
-  it('returns 2 for trial', () => {
-    expect(getMaxSessionsForTier('trial', tiers)).toBe(2);
-  });
-
-  it('returns 1 for standard', () => {
-    expect(getMaxSessionsForTier('standard', tiers)).toBe(1);
-  });
-
-  it('returns 2 for advanced', () => {
-    expect(getMaxSessionsForTier('advanced', tiers)).toBe(2);
-  });
-
-  it('returns 3 for max', () => {
-    expect(getMaxSessionsForTier('max', tiers)).toBe(3);
-  });
-
-  it('returns 5 for unlimited', () => {
-    expect(getMaxSessionsForTier('unlimited', tiers)).toBe(5);
-  });
 });
 
 describe('getAllowedSessionModes', () => {

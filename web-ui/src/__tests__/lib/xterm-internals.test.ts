@@ -4,7 +4,6 @@ import {
   getIframeInput,
   setIframeInput,
   getBufferActive,
-  removeIframeInput,
   getRemoveFocusGuard,
   setRemoveFocusGuard,
 } from '../../lib/xterm-internals';
@@ -48,16 +47,6 @@ describe('xterm-internals', () => {
       const input = document.createElement('input');
       setIframeInput(term, input);
       expect(getIframeInput(term)).toBe(input);
-    });
-  });
-
-  describe('removeIframeInput', () => {
-    it('removes the stored value', () => {
-      const term = makeMockTerminal();
-      const input = document.createElement('input');
-      setIframeInput(term, input);
-      removeIframeInput(term);
-      expect(getIframeInput(term)).toBeUndefined();
     });
   });
 

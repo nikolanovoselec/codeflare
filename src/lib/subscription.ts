@@ -30,8 +30,7 @@
  *
  * - **{@link getTierConfig}** - reads the admin-configurable tier table from
  *   KV (1-minute cache) or falls back to {@link getDefaultTiers}. Pass the
- *   result to `getUserTier`, `getMaxSessionsForTier`, or
- *   `getAllowedSessionModes`.
+ *   result to `getUserTier` or `getAllowedSessionModes`.
  */
 import type { SubscriptionTier, SubscriptionTierConfig, SessionMode } from '../types';
 import { BILLING_STATUS } from '../types';
@@ -337,17 +336,6 @@ export function getEffectiveTierForUser(
     maxSessions: config.maxSessions,
     monthlyQuotaSeconds: config.monthlySeconds,
   };
-}
-
-/**
- * Get the max concurrent sessions allowed for a tier.
- */
-export function getMaxSessionsForTier(
-  tierValue: SubscriptionTier | string,
-  tiers: SubscriptionTierConfig[]
-): number {
-  const tier = tiers.find((t) => t.id === tierValue);
-  return tier?.maxSessions ?? 0;
 }
 
 /**
