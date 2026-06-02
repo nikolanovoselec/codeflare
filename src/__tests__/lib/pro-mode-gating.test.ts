@@ -66,6 +66,26 @@ describe('REQ-MEM-006 AC3: memory + vault rules and plugins are advanced-only / 
     }
   });
 
+  // CF-064 // REQ-MEM-006 AC2: a default-mode session is local-only -- none of
+  // the vault/memory machinery (rules, plugins) is delivered, so the capture
+  // hook has nothing to write into a synced vault. We assert the seed-level
+  // invariant: no doc that touches the vault/memory subsystem lists 'default'
+  // among its modes, which means default-mode seeding skips all of it.
+  it('CF-064: default mode receives no vault or memory machinery (local-only)', () => {
+    const vaultOrMemory = AGENTS_SEEDED_CONFIGS.filter((d) =>
+      d.key === '.claude/rules/memory.md' ||
+      d.key === '.claude/rules/vault-note-capture.md' ||
+      d.key.startsWith('.claude/plugins/codeflare-memory/') ||
+      d.key.startsWith('.claude/plugins/codeflare-vault/')
+    );
+    expect(vaultOrMemory.length, 'expected at least one vault/memory seed doc to assert against').toBeGreaterThan(0);
+    for (const doc of vaultOrMemory) {
+      expect(doc.modes,
+        `${doc.key} must NOT be delivered in default mode (default sessions are local-only, REQ-MEM-006 AC2)`
+      ).not.toContain('default');
+    }
+  });
+
   it('non-Claude agents do not receive memory or vault plugins', () => {
     // The memory and vault subsystems depend on Claude-specific MCP and
     // hook systems; shipping them to Codex/Gemini/Copilot/OpenCode would

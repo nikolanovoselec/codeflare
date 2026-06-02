@@ -3,7 +3,11 @@ import { render, screen, cleanup } from '@solidjs/testing-library';
 
 // Mock all child components to isolate Layout testing
 vi.mock('../../components/Header', () => ({
-  default: (_props: any) => <header data-testid="header" />
+  default: (props: any) => {
+    // Store props on window for inspection in tests (CF-075 vault gating).
+    (window as any).__headerProps = props;
+    return <header data-testid="header" />;
+  }
 }));
 
 vi.mock('../../components/TerminalArea', () => ({
@@ -34,6 +38,7 @@ vi.mock('../../components/StoragePanel', () => ({
 // Module-level variables allow tests to set up specific states before rendering.
 let mockSessions: any[] = [];
 let mockActiveSessionId: string | null = null;
+let mockPreferences: Record<string, any> = {};
 
 vi.mock('../../stores/session', () => ({
   sessionStore: {
@@ -74,7 +79,7 @@ vi.mock('../../stores/session', () => ({
     startSessionListPolling: vi.fn(),
     stopSessionListPolling: vi.fn(),
     presets: [],
-    preferences: {},
+    get preferences() { return mockPreferences; },
   },
   getUsageWarningLevel: vi.fn(() => 'none'),
   isAtUsageQuota: vi.fn(() => false),
@@ -120,8 +125,10 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vi.clearAllMocks();
     mockSessions = [];
     mockActiveSessionId = null;
+    mockPreferences = {};
     mockIsSamsungBrowser = false;
     delete (window as any).__terminalAreaProps;
+    delete (window as any).__headerProps;
   });
 
   afterEach(() => {
@@ -195,6 +202,59 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
       const header = screen.queryByTestId('header');
       expect(header).not.toBeInTheDocument();
+    });
+  });
+
+  // =========================================================================
+  // CF-075 // REQ-VAULT-012: the vault affordance is advanced-mode-only.
+  //
+  // The Header renders its vault button only when it receives an onVaultOpen
+  // prop. Layout passes onVaultOpen only when there is an active session AND
+  // the session mode is 'advanced' (sessionStore.preferences.sessionMode).
+  // In default mode the prop is undefined, so the button never renders.
+  // We assert the gating by inspecting the prop Layout hands to Header.
+  // =========================================================================
+
+  describe('Vault button gating (CF-075 / REQ-VAULT-012)', () => {
+    it('does NOT pass onVaultOpen (vault button hidden) when active session is default mode', () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'default' };
+
+      render(() => <Layout />);
+
+      expect((window as any).__headerProps.onVaultOpen).toBeUndefined();
+    });
+
+    it('does NOT pass onVaultOpen when mode is unset (defaults to non-advanced)', () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = {};
+
+      render(() => <Layout />);
+
+      expect((window as any).__headerProps.onVaultOpen).toBeUndefined();
+    });
+
+    it('passes onVaultOpen (vault button shown) when active session is advanced mode', () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+
+      render(() => <Layout />);
+
+      expect(typeof (window as any).__headerProps.onVaultOpen).toBe('function');
+    });
+
+    it('does NOT pass onVaultOpen in advanced mode when there is no active session', () => {
+      mockActiveSessionId = null;
+      mockPreferences = { sessionMode: 'advanced' };
+
+      render(() => <Layout />);
+
+      // No active session => dashboard view => Header not rendered at all,
+      // so onVaultOpen is never provided regardless of mode.
+      expect((window as any).__headerProps?.onVaultOpen).toBeUndefined();
     });
   });
 

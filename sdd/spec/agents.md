@@ -34,7 +34,7 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: Dockerfile -->
 <!-- @impl: entrypoint.sh -->
-<!-- @impl: src/lib/schemas.ts -->
+<!-- @impl: src/types.ts::AgentTypeSchema -->
 <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness describe → AC1/AC2) -->
 <!-- @test: host/__tests__/dockerfile-graphify.test.js (npm install + V8 warm-up + Pi npm warm-cache behavior → AC3/AC4/AC5) -->
 
@@ -69,7 +69,7 @@ Multi-agent support, preseed system, and session modes.
 ### REQ-AGENT-002: Agent Selection at Session Creation
 
 <!-- @impl: src/routes/session/crud.ts -->
-<!-- @impl: src/lib/schemas.ts -->
+<!-- @impl: src/types.ts::AgentTypeSchema -->
 <!-- @test: src/__tests__/lib/agent-config.test.ts (getDefaultTabConfig describe → AC1/AC2/AC5) -->
 
 **Intent:** Users must be able to choose which AI agent to use when creating a session.
@@ -185,7 +185,7 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. Pro mode delivers a strict superset of the content Standard mode delivers, covering memory persistence, language rules, agent definitions, slash commands, cherry-picked skills, the discipline triad (spec, docs, tests), and the commit-attribution and PR-boundary review hooks. The canonical per-content-category matrix lives in [documentation/preseed.md](../../documentation/lanes/preseed.md#session-modes); the spec lane documents the user-observable contract only.
-2. Pro mode enables persistent memory by syncing the user's Vault directory tree to their R2 bucket; Standard mode excludes the Vault tree so memory does not persist across container restarts. The legacy `.memory/` directory is no longer written.
+2. Pro mode enables persistent memory by including the user's Vault directory tree in the R2 sync filters so it syncs to their bucket; Standard mode explicitly excludes the Vault tree from those filters so memory does not persist across container restarts. The legacy `.memory/` directory is no longer written.
 3. Pro-mode hooks fire uniformly regardless of which tool surface invoked the underlying command, so coverage is identical whether the user is on Custom tier (commands route through context-mode) or any other tier (commands run directly): commit attribution is blocked before the commit lands, the SDD review pipeline is triggered at every PR-to-`main` boundary event, the turn cannot end while a PR HEAD remains unreviewed, and memory capture runs on the user-prompt cadence.
 4. Pi agents remain fully functional without context-mode: native Bash/Read/Grep/Find/Edit/Write plus graphify tools are sufficient on their own, and no context-mode MCP registration is required. The shared agent definitions' context-mode helper tools are remapped to their Pi-native names (`ctx_execute`, `ctx_batch_execute`, `ctx_execute_file`, `ctx_search`, `ctx_fetch_and_index`) and kept in the Pi agent frontmatter rather than stripped: they are absent at runtime when context-mode is disabled (Pi drops the unavailable tools) and usable when `/ctx on` enables it, with no Pi-specific agent variants.
 5. Pi always starts with context-mode disabled. The Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off`; `/ctx on` enables the context-mode package for the current running session and reloads resources, while the next Codeflare container start resets Pi back to disabled.

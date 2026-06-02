@@ -291,6 +291,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: web-ui/src/components/Layout.tsx -->
 <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
 <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header describe → Vault button gating + readiness probe state machine → AC1-AC5) -->
+<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012) describe → onVaultOpen wired only for advanced-mode active sessions → AC1) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (startVaultReadinessProbe describe → no-give-up retry / first-success latch / SB-crash recovery / cancel / mid-probe cancel → AC5) -->
 
 **Intent:** The Vault button only appears when usable and only enables after a per-session probe confirms the in-container editor is actually reachable, so users never land on `VAULT_UPSTREAM_UNREACHABLE`. SilverBullet's landing page is the codeflare dashboard. SilverBullet subpath asset adaptation lives in [REQ-VAULT-013](#req-vault-013-silverbullet-subpath-adapter).
@@ -299,7 +300,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The Vault control in the header renders only when an active session exists and the parent surface has wired up the vault-open handler; the control is scoped to the terminal view alongside the related Bookmarks and Storage entrypoints.
+1. The Vault control in the header renders only when an active session exists, the session is in advanced mode, and the parent surface has wired up the vault-open handler; the control is scoped to the terminal view alongside the related Bookmarks and Storage entrypoints. In default mode the handler is not wired up, so the control does not render.
 2. The editor opens to the codeflare dashboard page on every Vault click; the supervisor explicitly pins the dashboard as the editor's index page before launching the binary.
 3. The README page is reachable from the dashboard via a link at the top.
 4. The Vault control is rendered disabled with an "initializing" tooltip until a per-session readiness probe against the vault proxy succeeds.
@@ -353,6 +354,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @test: src/__tests__/routes/vault.test.ts (isServiceWorkerRegistration / REQ-VAULT-017 (native SW short-circuit selector) + VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-017 AC1 (native SW served, AD69) + isServiceWorkerContextFetch / REQ-VAULT-017 AC4 (SW precache vs navigation) → AC1-AC4) -->
 <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (native SW + shell-302 suppression (REQ-VAULT-017 AC1/AC4, AD69) → AC1/AC4) -->
+<!-- @cites: REQ-VAULT-013 (split-prose: the native-service-worker contract foreshadowed in REQ-VAULT-013's Intent - registration short-circuit, key delivery, precache - is specified here) -->
 ### REQ-VAULT-017: SilverBullet native service worker
 
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
@@ -611,6 +613,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (deterministicVaultGraph emits canonical file_type/source_file/relation nodes + heading sub-sections → AC1; vault-extract prompt publishes viz to Raw/Graphs → AC2) -->
+<!-- @cites: REQ-VAULT-003 (split-prose: the canonical-schema output contract foreshadowed in REQ-VAULT-003 AC4's extract-merge-advance step lands here) -->
 
 **Intent:** The graph produced by vault extraction is structurally interchangeable with the repo and global graphs, and the re-rendered visualization is published where the vault index page can link to it. This is the output-shape contract; detection and dispatch latency are [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s).
 
