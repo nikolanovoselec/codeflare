@@ -93,9 +93,9 @@ Use this only when `graphify-out/graph.json` is missing:
 bash /home/user/.pi/agent/scripts/build-graphify-ast.sh .
 ```
 
-The script uses Graphify’s own `detect`, `extract`, `build`, `cluster`, `report`, and `export` modules only. It does not rewrite Graphify output.
+The script uses Graphify’s own `detect`, `extract`, `build`, `cluster`, and `report` modules only. It does not rewrite Graphify output. It deliberately defers user-facing `graph.html` and `callflow.html` until labels exist.
 
-Then label communities using the **Local main-session community labels** section below.
+Then label communities using the **Local main-session community labels** section below. Do not push or present HTML outputs until label apply regenerates them from `.graphify_labels.json`.
 
 ## AST-only refresh for an existing graph
 
@@ -105,9 +105,9 @@ Use this when `graphify-out/graph.json` exists and source code changed:
 bash /home/user/.pi/agent/scripts/safe-graphify-update.sh .
 ```
 
-The safety wrapper only sets `GRAPHIFY_MAX_WORKERS`, applies `ulimit -v`, and execs upstream `graphify update`.
+The safety wrapper only sets `GRAPHIFY_MAX_WORKERS`, applies `ulimit -v`, and runs upstream `graphify update`. Any `graph.html` produced by upstream update is provisional.
 
-Then label communities using the **Local main-session community labels** section below.
+Then label communities using the **Local main-session community labels** section below. Do not push or present HTML outputs until label apply regenerates them from `.graphify_labels.json`.
 
 ## Full build/update without provider LLMs
 
@@ -210,7 +210,7 @@ from graphify.analyze import god_nodes, surprising_connections, suggest_question
 from graphify.build import build_merge
 from graphify.cluster import cluster, score_all
 from graphify.detect import save_manifest
-from graphify.export import to_html, to_json
+from graphify.export import to_json
 from graphify.report import generate
 root = Path('.').resolve()
 out = Path('graphify-out')
@@ -231,10 +231,10 @@ questions = suggest_questions(G, communities, labels)
 tokens = {'input': sem.get('input_tokens', 0), 'output': sem.get('output_tokens', 0)}
 (out / 'GRAPH_REPORT.md').write_text(generate(G, communities, cohesion, labels, gods, surprises, detect_result, tokens, str(root), suggested_questions=questions), encoding='utf-8')
 to_json(G, communities, out / 'graph.json', force=True)
-try:
-    to_html(G, communities, out / 'graph.html', community_labels=labels or None)
-except ValueError as exc:
-    print(f"Skipped graph.html: {exc}")
+for deferred in (out / 'graph.html', out / 'callflow.html'):
+    if deferred.exists():
+        deferred.unlink()
+print('HTML outputs deferred until local labels are applied')
 save_manifest(detect_result.get('files', {}), manifest_path=str(out / 'manifest.json'), kind='both')
 print(f"Graph refreshed locally: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges, {len(communities)} communities")
 PY
@@ -272,17 +272,17 @@ Every current community id must be present. Labels should be 2–6 words and mus
 bash /home/user/.pi/agent/scripts/local-graphify-labels.sh apply .
 ```
 
-The apply script validates labels before and after regeneration, then uses Graphify's local Python modules to rebuild `GRAPH_REPORT.md` and `graph.html` from the graph's existing community assignments. It intentionally does **not** recluster during label application, because reclustering can change community IDs after the main session labels them.
+The apply script validates labels before and after regeneration, then uses Graphify's local Python modules to rebuild `GRAPH_REPORT.md` and the final user-facing `graph.html` from the graph's existing community assignments. It intentionally does **not** recluster during label application, because reclustering can change community IDs after the main session labels them. This is the point where labeled HTML becomes final.
 
 Never run `graphify label` in this workflow.
 
-Every build/update/label-apply path must leave `graphify-out/callflow.html` next to `graph.html`. The installed scripts already run:
+Every completed build/update must finish by running label apply, and label apply must leave `graphify-out/callflow.html` next to the final labeled `graph.html`. The apply script runs:
 
 ```bash
 graphify export callflow-html --graph graphify-out/graph.json --output graphify-out/callflow.html
 ```
 
-If the `graphify export callflow-html` CLI form is unavailable, use the Pi `graphify_export_callflow` tool with explicit paths before reporting completion.
+If the `graphify export callflow-html` CLI form is unavailable, use the Pi `graphify_export_callflow` tool with explicit paths before reporting completion. Never push or present `graph.html`/`callflow.html` from before label apply as final output.
 
 ## Validation checklist
 

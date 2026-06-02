@@ -44,7 +44,7 @@ from graphify.analyze import god_nodes, surprising_connections, suggest_question
 from graphify.build import build
 from graphify.cluster import cluster, score_all
 from graphify.detect import detect, save_manifest
-from graphify.export import to_html, to_json
+from graphify.export import to_json
 from graphify.extract import extract
 from graphify.report import generate
 
@@ -110,13 +110,13 @@ report = generate(
 )
 (OUT / 'GRAPH_REPORT.md').write_text(report, encoding='utf-8')
 to_json(G, communities, OUT / 'graph.json', force=True)
-try:
-    to_html(G, communities, OUT / 'graph.html', community_labels=labels or None)
-except ValueError as exc:
-    html = OUT / 'graph.html'
-    if html.exists():
-        html.unlink()
-    print(f'build-graphify-ast: skipped graph.html: {exc}')
+html = OUT / 'graph.html'
+if html.exists():
+    html.unlink()
+callflow = OUT / 'callflow.html'
+if callflow.exists():
+    callflow.unlink()
+print('build-graphify-ast: graph.html/callflow.html deferred until local labels are applied')
 
 save_manifest(detection.get('files', {}), manifest_path=str(OUT / 'manifest.json'), kind='ast')
 print(
@@ -124,5 +124,3 @@ print(
     f'{G.number_of_nodes()} nodes, {G.number_of_edges()} edges, {len(communities)} communities'
 )
 PY
-
-graphify export callflow-html --graph graphify-out/graph.json --output graphify-out/callflow.html

@@ -183,7 +183,7 @@ else
 fi
 ```
 
-The update runs at most once per `/review` invocation, with a 180s hard timeout. Failures (non-zero exit, timeout, missing CLI) are non-fatal and write `.no-graph.notice`; downstream phases fall back to grep-equivalent search instead of risking stale-graph false positives. When `.no-graph.notice` is present this run: Reality Filter Q3 falls back to category-only grouping, Q5 skips its graph step, and Q6 is inert. The safe wrapper is the Pi-allowlisted path `/home/user/.pi/agent/scripts/safe-graphify-update.sh`; it generates `graphify-out/graph.html` and must not be skipped unless the user asks.
+The update runs at most once per `/review` invocation, with a 180s hard timeout. Failures (non-zero exit, timeout, missing CLI) are non-fatal and write `.no-graph.notice`; downstream phases fall back to grep-equivalent search instead of risking stale-graph false positives. When `.no-graph.notice` is present this run: Reality Filter Q3 falls back to category-only grouping, Q5 skips its graph step, and Q6 is inert. The safe wrapper is the Pi-allowlisted path `/home/user/.pi/agent/scripts/safe-graphify-update.sh`; review uses it only to refresh graph structure, not to produce final labeled HTML artifacts.
 
 ## Phase 2: Parallel subagent dispatch (6 `Agent` calls)
 
