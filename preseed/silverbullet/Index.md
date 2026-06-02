@@ -5,41 +5,57 @@ New to this? Read [[README]] for what the vault is, why it exists, and how to us
 > _First-load tip: on a fresh browser the dashboard takes ~30 seconds to populate while SilverBullet indexes its standard library into IndexedDB. Subsequent loads are instant from cache._
 
 # Recent quick notes
-${widgets.commandButton "Quick Note"}
+${(function() local ok, r = pcall(function() return widgets.commandButton("Quick Note") end); return ok and r or "" end)()}
 
-${some(query[[
-  from p = tags.page
-  where p.name:startsWith("Inbox/")
-  order by p.lastModified desc
-  limit 10 select templates.fullPageItem(p)
-]]) or "_No quick notes yet. Use the button above to capture one._"}
+${(function()
+  local ok, r = pcall(function() return some(query[[
+    from p = tags.page
+    where p.name:startsWith("Inbox/")
+    order by p.lastModified desc
+    limit 10 select templates.fullPageItem(p)
+  ]]) end)
+  if not ok then return "_Indexing your vault, reload in a few seconds..._" end
+  return r or "_No quick notes yet. Use the button above to capture one._"
+end)()}
 
 # Recent journal entries
-${widgets.commandButton "Journal: Today"}
+${(function() local ok, r = pcall(function() return widgets.commandButton("Journal: Today") end); return ok and r or "" end)()}
 
-${some(query[[
-  from j = index.tag(config.get("journal.tag"))
-  where j.tag == "page"
-  order by j.date desc
-  limit 14
-  select templates.pageItem(j)
-]]) or "_No journal entries yet. Start one with the button above._"}
+${(function()
+  local ok, r = pcall(function() return some(query[[
+    from j = index.tag(config.get("journal.tag"))
+    where j.tag == "page"
+    order by j.date desc
+    limit 14
+    select templates.pageItem(j)
+  ]]) end)
+  if not ok then return "_Indexing your vault, reload in a few seconds..._" end
+  return r or "_No journal entries yet. Start one with the button above._"
+end)()}
 
 # Recent incomplete tasks
-${some(query[[
-  from t = tags.task
-  where not t.done
-  order by t.pageLastModified
-  desc limit 10
-  select templates.taskItem(t)
-]]) or "_All tasks done!_"}
+${(function()
+  local ok, r = pcall(function() return some(query[[
+    from t = tags.task
+    where not t.done
+    order by t.pageLastModified
+    desc limit 10
+    select templates.taskItem(t)
+  ]]) end)
+  if not ok then return "_Indexing your vault, reload in a few seconds..._" end
+  return r or "_All tasks done!_"
+end)()}
 
 # Recently modified pages
-${query[[
-  from p = index.contentPages()
-  where p.name != "Index" and p.name != "CONFIG"
-    and p.name != "README" and p.name != "STYLES"
-  order by p.lastModified desc
-  limit 10
-  select templates.fullPageItem(p) 
-]]}
+${(function()
+  local ok, r = pcall(function() return query[[
+    from p = index.contentPages()
+    where p.name != "Index" and p.name != "CONFIG"
+      and p.name != "README" and p.name != "STYLES"
+    order by p.lastModified desc
+    limit 10
+    select templates.fullPageItem(p)
+  ]] end)
+  if not ok then return "_Indexing your vault, reload in a few seconds..._" end
+  return r
+end)()}
