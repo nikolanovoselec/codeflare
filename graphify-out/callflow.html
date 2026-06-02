@@ -60,7 +60,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
 <div class="container">
 
 <h1>codeflare — Complete Call Flow &amp; Architecture Documentation</h1>
-<p class="subtitle">Generated from graphify knowledge graph: 7014 nodes, 12082 edges, 526 communities. Commit: 3935490</p>
+<p class="subtitle">Generated from graphify knowledge graph: 7015 nodes, 12084 edges, 525 communities. Commit: 40233fb</p>
 
 <div class="nav">
     <a href="#overview">Architecture Overview</a>
@@ -75,9 +75,9 @@ hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
     <a href="#pi-review-enforcement">Pi Review Enforcement</a>
     <a href="#sdd-requirements">SDD Requirements</a>
     <a href="#pi-review-enforcement-2">Pi Review Enforcement 2</a>
+    <a href="#pr-review-workflow-5">PR Review Workflow 5</a>
     <a href="#pr-review-workflow-9">PR Review Workflow 9</a>
     <a href="#terminal-runtime">Terminal Runtime</a>
-    <a href="#subscription-tiers-5">Subscription Tiers 5</a>
     <a href="#other">Other</a>
 </div>
 
@@ -90,46 +90,46 @@ hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
 flowchart LR
     EXTRACT_PIPELINE_5F350230("Extraction Pipeline<br/><small>99 nodes</small>")
     class EXTRACT_PIPELINE_5F350230 module;
-    BUILD_GRAPH_321CBB04("Graph Build<br/><small>478 nodes</small>")
+    BUILD_GRAPH_321CBB04("Graph Build<br/><small>471 nodes</small>")
     class BUILD_GRAPH_321CBB04 module;
-    OUTPUTS_DOCS_ED82387C("Outputs &amp; Docs<br/><small>668 nodes</small>")
+    OUTPUTS_DOCS_ED82387C("Outputs &amp; Docs<br/><small>673 nodes</small>")
     class OUTPUTS_DOCS_ED82387C module;
     CLI_SKILLS_9964CBB8("CLI &amp; Skill Installers<br/><small>1733 nodes</small>")
     class CLI_SKILLS_9964CBB8 module;
-    INGEST_CACHE_UPDATE_FF457338("Ingestion &amp; Updates<br/><small>73 nodes</small>")
+    INGEST_CACHE_UPDATE_FF457338("Ingestion &amp; Updates<br/><small>72 nodes</small>")
     class INGEST_CACHE_UPDATE_FF457338 module;
-    SERVE_API_35EC8E86("Serving API<br/><small>220 nodes</small>")
+    SERVE_API_35EC8E86("Serving API<br/><small>264 nodes</small>")
     class SERVE_API_35EC8E86 module;
     SECURITY_GLOBAL_5B9C6A04("Security &amp; Global Graph<br/><small>260 nodes</small>")
     class SECURITY_GLOBAL_5B9C6A04 module;
-    TESTS_FIXTURES_B84B1DCC("Tests &amp; Fixtures<br/><small>2656 nodes</small>")
+    TESTS_FIXTURES_B84B1DCC("Tests &amp; Fixtures<br/><small>2586 nodes</small>")
     class TESTS_FIXTURES_B84B1DCC module;
-    PI_REVIEW_ENFORCEMENT_15F12DA7("Pi Review Enforcement<br/><small>78 nodes</small>")
+    PI_REVIEW_ENFORCEMENT_15F12DA7("Pi Review Enforcement<br/><small>80 nodes</small>")
     class PI_REVIEW_ENFORCEMENT_15F12DA7 module;
     SDD_REQUIREMENTS_DB847D95("SDD Requirements<br/><small>55 nodes</small>")
     class SDD_REQUIREMENTS_DB847D95 module;
-    PI_REVIEW_ENFORCEMENT_2_BE6C5F8F("Pi Review Enforcement 2<br/><small>50 nodes</small>")
+    PI_REVIEW_ENFORCEMENT_2_BE6C5F8F("Pi Review Enforcement 2<br/><small>45 nodes</small>")
     class PI_REVIEW_ENFORCEMENT_2_BE6C5F8F module;
+    PR_REVIEW_WORKFLOW_5_FE5099E1("PR Review Workflow 5<br/><small>36 nodes</small>")
+    class PR_REVIEW_WORKFLOW_5_FE5099E1 module;
     PR_REVIEW_WORKFLOW_9_0C72E3CA("PR Review Workflow 9<br/><small>34 nodes</small>")
     class PR_REVIEW_WORKFLOW_9_0C72E3CA module;
     TERMINAL_RUNTIME_95D82740("Terminal Runtime<br/><small>34 nodes</small>")
     class TERMINAL_RUNTIME_95D82740 module;
-    SUBSCRIPTION_TIERS_5_A5AEF68E("Subscription Tiers 5<br/><small>27 nodes</small>")
-    class SUBSCRIPTION_TIERS_5_A5AEF68E module;
-    OTHER_D0941E68("Other<br/><small>549 nodes</small>")
+    OTHER_D0941E68("Other<br/><small>573 nodes</small>")
     class OTHER_D0941E68 module;
-    SERVE_API_35EC8E86 -->|imports x107| TESTS_FIXTURES_B84B1DCC
-    CLI_SKILLS_9964CBB8 -->|contains x98| BUILD_GRAPH_321CBB04
-    TESTS_FIXTURES_B84B1DCC -->|imports x33| TERMINAL_RUNTIME_95D82740
-    TESTS_FIXTURES_B84B1DCC -->|imports x30| SERVE_API_35EC8E86
-    TESTS_FIXTURES_B84B1DCC -->|imports x24| OTHER_D0941E68
+    SERVE_API_35EC8E86 -->|imports x125| TESTS_FIXTURES_B84B1DCC
+    CLI_SKILLS_9964CBB8 -->|contains x97| BUILD_GRAPH_321CBB04
+    TESTS_FIXTURES_B84B1DCC -->|imports x44| SERVE_API_35EC8E86
+    TESTS_FIXTURES_B84B1DCC -->|imports x32| TERMINAL_RUNTIME_95D82740
     OTHER_D0941E68 -->|imports x20| TESTS_FIXTURES_B84B1DCC
+    PI_REVIEW_ENFORCEMENT_15F12DA7 -->|imports x19| TESTS_FIXTURES_B84B1DCC
     PI_REVIEW_ENFORCEMENT_2_BE6C5F8F -->|imports x19| TESTS_FIXTURES_B84B1DCC
-    PI_REVIEW_ENFORCEMENT_15F12DA7 -->|imports x18| PI_REVIEW_ENFORCEMENT_2_BE6C5F8F
-    PI_REVIEW_ENFORCEMENT_15F12DA7 -->|imports x17| TESTS_FIXTURES_B84B1DCC
     BUILD_GRAPH_321CBB04 -->|imports x16| TESTS_FIXTURES_B84B1DCC
+    PI_REVIEW_ENFORCEMENT_15F12DA7 -->|imports x16| PI_REVIEW_ENFORCEMENT_2_BE6C5F8F
     TERMINAL_RUNTIME_95D82740 -->|contains x16| TESTS_FIXTURES_B84B1DCC
     TESTS_FIXTURES_B84B1DCC -->|imports x12| INGEST_CACHE_UPDATE_FF457338
+    SERVE_API_35EC8E86 -->|references x11| OTHER_D0941E68
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
     classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
@@ -146,19 +146,19 @@ flowchart LR
     <h4>Architecture Layers</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>Layer</th><th>Nodes</th><th>Communities</th></tr>
-      <tr><td>Extraction Pipeline</td><td>99</td><td><code>58, 359, 28, 175, 395, 406, 419, 420, 421, 427, 231, 232, 444, 251, 252, 448, 529</code></td></tr><tr><td>Graph Build</td><td>478</td><td><code>15, 35, 56, 77, 145, 63, 83, 86, 91, 173, 104, 338, 121, 134, 151, 78, 165, 166, 179, 192, 210, 235, 436, 253, 255, 263, 373, 380, 384, 449, 450, 452, 454, 456, 457, 459, 460, 461, 462, 463, 464, 465, 466, 467, 468, 470, 471, 472, 473, 474, 475, 476, 477, 478, 479, 480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491, 492, 493, 494, 495, 496, 507, 514, 515, 522, 284</code></td></tr><tr><td>Outputs &amp; Docs</td><td>668</td><td><code>38, 132, 143, 298, 299, 304, 308, 309, 310, 314, 315, 60, 318, 324, 59, 159, 52, 32, 84, 335, 383, 92, 341, 93, 344, 350, 351, 352, 44, 136, 153, 366, 375, 376, 385, 394, 206, 426, 432, 441</code></td></tr><tr><td>CLI &amp; Skill Installers</td><td>1733</td><td><code>53, 76, 2, 189, 65, 30, 365, 152, 158, 223, 167, 170, 171, 181, 207, 230, 37, 18, 302, 303, 79, 306, 224, 312, 51, 313, 316, 329, 66, 323, 188, 325, 326, 72, 73, 330, 332, 334, 336, 85, 100, 101, 339, 340, 342, 343, 108, 233, 345, 114, 115, 157, 346, 347, 128, 348, 353, 131, 138, 139, 149, 354, 355, 358, 360, 126, 155, 156, 162, 362, 363, 367, 154, 168, 368, 370, 371, 372, 377, 82, 140, 176, 177, 190, 378, 379, 388, 390, 391, 393, 187, 396, 399, 400, 401, 402, 403, 405, 407, 408, 409, 411, 412, 413, 415, 416, 418, 422, 423, 428, 225, 226, 227, 228, 229, 249, 4, 429, 431, 433, 440, 442, 256, 261, 265, 446, 447, 282, 283, 285, 286, 455, 469, 497, 498, 499, 500, 501, 502, 503, 504, 505, 506, 508, 509, 510, 511, 512, 513, 516, 517, 518, 519, 520, 523, 524, 527</code></td></tr><tr><td>Ingestion &amp; Updates</td><td>73</td><td><code>39, 96, 98, 169, 521</code></td></tr><tr><td>Serving API</td><td>220</td><td><code>8, 95, 174, 311, 64, 54, 109, 112, 90, 404, 267</code></td></tr><tr><td>Security &amp; Global Graph</td><td>260</td><td><code>120, 34, 300, 301, 48, 317, 319, 320, 322, 116, 193, 369, 417, 425, 238, 239, 438</code></td></tr><tr><td>Tests &amp; Fixtures</td><td>2656</td><td><code>117, 5, 0, 1, 12, 57, 3, 13, 24, 11, 50, 16, 14, 19, 29, 106, 45, 21, 20, 25, 22, 43, 80, 61, 75, 130, 36, 31, 94, 81, 40, 62, 374, 46, 111, 74, 9, 102, 307, 119, 160, 42, 70, 17, 328, 87, 125, 382, 97, 99, 107, 123, 124, 105, 135, 122, 147, 23, 133, 137, 141, 142, 144, 150, 163, 41, 47, 55, 127, 180, 182, 185, 194, 357, 183, 184, 191, 195, 196, 197, 198, 199, 200, 201, 202, 203, 234, 129, 213, 214, 215, 216, 217, 218, 219, 220, 240, 241, 242, 243, 244, 245, 246, 247, 248, 430, 254, 257, 258, 259, 260, 262, 264, 270, 271, 272, 273, 274, 275, 277, 278, 279, 289, 291, 292, 293, 532, 533</code></td></tr><tr><td>Pi Review Enforcement</td><td>78</td><td><code>6</code></td></tr><tr><td>SDD Requirements</td><td>55</td><td><code>68</code></td></tr><tr><td>Pi Review Enforcement 2</td><td>50</td><td><code>10</code></td></tr><tr><td>PR Review Workflow 9</td><td>34</td><td><code>26</code></td></tr><tr><td>Terminal Runtime</td><td>34</td><td><code>27</code></td></tr><tr><td>Subscription Tiers 5</td><td>27</td><td><code>33</code></td></tr><tr><td>Other</td><td>549</td><td><code>268, 7, 305, 49, 67, 89, 321, 69, 327, 71, 331, 88, 333, 337, 110, 113, 164, 103, 349, 146, 361, 118, 364, 148, 161, 172, 178, 381, 386, 387, 392, 186, 397, 204, 205, 208, 209, 211, 212, 237, 414, 424, 221, 222, 236, 434, 437, 443, 250, 445, 266, 269, 276, 356, 525, 526, 280, 281, 287, 288, 290, 294, 295, 296, 297, 528, 530, 531</code></td></tr>
+      <tr><td>Extraction Pipeline</td><td>99</td><td><code>58, 359, 28, 175, 395, 406, 419, 420, 421, 427, 231, 232, 444, 251, 252, 448, 529</code></td></tr><tr><td>Graph Build</td><td>471</td><td><code>15, 35, 56, 77, 145, 63, 83, 86, 166, 91, 104, 338, 134, 151, 78, 165, 121, 173, 179, 192, 210, 235, 436, 253, 255, 263, 380, 382, 384, 449, 450, 452, 454, 456, 457, 459, 460, 461, 462, 463, 464, 465, 466, 467, 468, 470, 471, 472, 473, 474, 475, 476, 477, 478, 479, 480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491, 492, 493, 494, 495, 496, 507, 514, 515, 522, 284</code></td></tr><tr><td>Outputs &amp; Docs</td><td>673</td><td><code>38, 132, 143, 298, 299, 304, 59, 308, 309, 310, 314, 315, 60, 318, 32, 324, 159, 84, 335, 383, 52, 92, 341, 93, 344, 350, 351, 352, 44, 136, 153, 366, 375, 376, 385, 394, 206, 426, 432, 441</code></td></tr><tr><td>CLI &amp; Skill Installers</td><td>1733</td><td><code>53, 76, 2, 189, 65, 30, 365, 152, 158, 223, 167, 170, 171, 181, 207, 224, 230, 37, 18, 302, 303, 79, 306, 312, 51, 313, 316, 329, 66, 323, 188, 325, 326, 72, 73, 330, 332, 334, 336, 85, 100, 101, 339, 340, 342, 343, 108, 233, 345, 114, 115, 157, 346, 347, 128, 348, 353, 131, 138, 139, 149, 354, 355, 358, 360, 126, 155, 156, 162, 362, 363, 367, 154, 168, 368, 370, 371, 372, 377, 82, 140, 176, 177, 190, 378, 379, 388, 390, 391, 393, 187, 396, 399, 400, 401, 402, 403, 405, 407, 408, 409, 411, 412, 413, 415, 416, 418, 422, 423, 428, 225, 226, 227, 228, 229, 249, 429, 431, 433, 440, 442, 256, 261, 265, 446, 447, 282, 283, 285, 286, 455, 469, 497, 498, 499, 500, 501, 502, 503, 504, 505, 506, 508, 509, 510, 511, 512, 513, 516, 517, 518, 519, 520, 523, 524, 527</code></td></tr><tr><td>Ingestion &amp; Updates</td><td>72</td><td><code>39, 96, 98, 169, 521</code></td></tr><tr><td>Serving API</td><td>264</td><td><code>8, 24, 95, 174, 311, 64, 54, 109, 112, 90, 404, 267</code></td></tr><tr><td>Security &amp; Global Graph</td><td>260</td><td><code>120, 34, 300, 301, 48, 317, 319, 320, 322, 116, 193, 369, 417, 425, 238, 239, 438</code></td></tr><tr><td>Tests &amp; Fixtures</td><td>2586</td><td><code>117, 5, 3, 31, 12, 57, 1, 13, 4, 0, 47, 16, 14, 11, 29, 50, 61, 25, 22, 43, 45, 80, 46, 9, 130, 111, 81, 106, 19, 40, 69, 62, 75, 74, 102, 70, 307, 36, 119, 160, 129, 99, 17, 20, 328, 87, 94, 42, 97, 107, 123, 124, 105, 122, 125, 147, 23, 133, 137, 141, 142, 144, 150, 163, 185, 349, 41, 127, 180, 182, 194, 357, 183, 184, 55, 191, 195, 196, 197, 198, 199, 200, 201, 202, 203, 234, 213, 214, 215, 216, 217, 218, 219, 220, 373, 240, 241, 242, 243, 244, 245, 246, 247, 248, 374, 430, 254, 257, 258, 259, 260, 262, 264, 270, 271, 272, 273, 274, 275, 277, 278, 279, 289, 291, 292, 293, 532, 533</code></td></tr><tr><td>Pi Review Enforcement</td><td>80</td><td><code>6</code></td></tr><tr><td>SDD Requirements</td><td>55</td><td><code>68</code></td></tr><tr><td>Pi Review Enforcement 2</td><td>45</td><td><code>10</code></td></tr><tr><td>PR Review Workflow 5</td><td>36</td><td><code>21</code></td></tr><tr><td>PR Review Workflow 9</td><td>34</td><td><code>26</code></td></tr><tr><td>Terminal Runtime</td><td>34</td><td><code>27</code></td></tr><tr><td>Other</td><td>573</td><td><code>7, 33, 268, 305, 49, 67, 89, 321, 327, 71, 331, 88, 333, 135, 337, 110, 113, 164, 161, 103, 146, 361, 386, 118, 364, 148, 172, 178, 381, 387, 392, 186, 397, 204, 205, 208, 209, 211, 212, 237, 414, 424, 221, 222, 236, 434, 437, 443, 250, 356, 266, 269, 276, 525, 526, 280, 281, 287, 288, 290, 294, 295, 296, 297, 528, 530, 531</code></td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Core Flow</h4>
-    <div class="arrow-chain">SDD Requirements -&gt; Extraction Pipeline -&gt; Graph Build -&gt; Tests &amp; Fixtures -&gt; Terminal Runtime -&gt; Other -&gt; Serving API</div>
+    <div class="arrow-chain">SDD Requirements -&gt; Extraction Pipeline -&gt; Graph Build -&gt; Tests &amp; Fixtures -&gt; Serving API -&gt; Other -&gt; Terminal Runtime</div>
   </div>
 </div>
 <div class="grid">
   <div class="card">
     <h4>Graph Report Highlights</h4>
     <ul>
-      <li>7014 nodes · 12082 edges · 526 communities (403 shown, 123 thin omitted)</li>
+      <li>7015 nodes · 12084 edges · 525 communities (402 shown, 123 thin omitted)</li>
       <li>Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 93 edges (avg confidence: 0.78)</li>
       <li>Token cost: 0 input · 0 output</li>
       <li>1. `Env` - 113 edges</li>
@@ -517,12 +517,12 @@ flowchart LR
 
 <!-- ====== 3. Graph Build ====== -->
 <h2 id="build-graph">3. Graph Build</h2>
-<p>Graph Build groups implementation around agents, preseed, manifestjson, claude, mostly in agents/claude/manifest.json, agents/pi/manifest.json, package.json. This section covers 478 nodes and 489 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Graph Build groups implementation around agents, preseed, manifestjson, claude, mostly in agents/claude/manifest.json, agents/pi/manifest.json, package.json. This section covers 471 nodes and 481 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Graph Build (478 nodes, 489 edges)
+    %% Section: Graph Build (471 nodes, 481 edges)
     subgraph build_graph_pi_extensions_memory_vault_helpers_t_a7d7455f["pi/extensions/memory-vault-helpers.ts"]
         extensions_memory_vault_helpers_capturetimestamp_086cf8e6("captureTimestamp()<br/><small>pi/extensions/memory-vault-helpers.ts</small>")
         extensions_memory_vault_helpers_messagetext_a1d94ae3("messageText()<br/><small>pi/extensions/memory-vault-helpers.ts</small>")
@@ -555,7 +555,7 @@ flowchart LR
     extensions_memory_vault_helpers_messagetext_a1d94ae3 -->|calls| extensions_memory_vault_helpers_withcurrentpromp_6ca18541
     extensions_memory_vault_helpers_withcurrentpromp_6ca18541 -->|calls| extensions_memory_vault_currentconversationmessa_85b6b724
     extensions_memory_vault_helpers_compactmessages_db04a194 -->|calls| extensions_memory_vault_compactmessages_3eb81cac
-    %% Omitted for readability: 460 nodes, 0 edges
+    %% Omitted for readability: 453 nodes, 0 edges
     class extensions_memory_vault_helpers_capturetimestamp_086cf8e6 function;
     class extensions_memory_vault_helpers_messagetext_a1d94ae3 function;
     class extensions_memory_vault_helpers_buildspawnoption_d8604c64 function;
@@ -844,9 +844,9 @@ flowchart LR
       <tr><th>File</th><th>Coverage</th></tr>
       <tr><td><code>agents/claude/manifest.json</code></td><td>98 nodes</td></tr>
 <tr><td><code>agents/pi/manifest.json</code></td><td>53 nodes</td></tr>
-<tr><td><code>package.json</code></td><td>45 nodes</td></tr>
+<tr><td><code>package.json</code></td><td>40 nodes</td></tr>
 <tr><td><code>web-ui/package.json</code></td><td>37 nodes</td></tr>
-<tr><td><code>pi/extensions/memory-vault.ts</code></td><td>34 nodes</td></tr>
+<tr><td><code>pi/extensions/memory-vault.ts</code></td><td>32 nodes</td></tr>
 <tr><td><code>host/package.json</code></td><td>21 nodes</td></tr>
 <tr><td><code>host/tsconfig.json</code></td><td>17 nodes</td></tr>
 <tr><td><code>pi/extensions/memory-vault-helpers.ts</code></td><td>17 nodes</td></tr>
@@ -854,19 +854,19 @@ flowchart LR
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x397, references x32, calls x29, imports x16. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x390, references x32, calls x28, imports x16. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
 
 <!-- ====== 4. Outputs & Docs ====== -->
 <h2 id="outputs-docs">4. Outputs &amp; Docs</h2>
-<p>Outputs &amp; Docs groups implementation around documentation, lanes, readmemd, decisions, mostly in documentation/decisions/README.md, documentation/lanes/vault.md, documentation/lanes/ci-cd.md. This section covers 668 nodes and 722 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Outputs &amp; Docs groups implementation around documentation, lanes, readmemd, decisions, mostly in documentation/decisions/README.md, documentation/lanes/vault.md, documentation/lanes/ci-cd.md. This section covers 673 nodes and 727 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Outputs &amp; Docs (668 nodes, 722 edges)
+    %% Section: Outputs &amp; Docs (673 nodes, 727 edges)
     subgraph outputs_docs_documentation_lanes_ci_cd_md_87c715f9["documentation/lanes/ci-cd.md"]
         ci_cd_testing_doc_622ca396("CI/CD and Testing Documentation<br/><small>documentation/lanes/ci-cd.md</small>")
         dependabot_weekly_updates_60f49b5c("Dependabot Weekly Updates<br/><small>documentation/lanes/ci-cd.md</small>")
@@ -894,7 +894,7 @@ flowchart LR
     ci_cd_testing_doc_622ca396 -->|references| codeql_static_analysis_f6e8fdbd
     ci_cd_testing_doc_622ca396 -->|references| dependabot_weekly_updates_60f49b5c
     ci_cd_testing_doc_622ca396 -->|references| e2e_service_auth_contract_0168cad3
-    %% Omitted for readability: 650 nodes, 0 edges
+    %% Omitted for readability: 655 nodes, 0 edges
     class ci_cd_testing_doc_622ca396 concept;
     class dependabot_weekly_updates_60f49b5c klass;
     class codeql_static_analysis_f6e8fdbd klass;
@@ -1193,7 +1193,7 @@ flowchart LR
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x455, references x151, implements x70, explains x28. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x460, references x151, implements x70, explains x28. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
@@ -1552,12 +1552,12 @@ flowchart LR
 
 <!-- ====== 6. Ingestion & Updates ====== -->
 <h2 id="ingest-cache-update">6. Ingestion &amp; Updates</h2>
-<p>Ingestion &amp; Updates groups implementation around web, entrypointsh, graphify, vault, mostly in entrypoint.sh, src/stores/terminal-url-detection.ts, src/lib/vault-cache.ts. This section covers 73 nodes and 115 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Ingestion &amp; Updates groups implementation around web, entrypointsh, graphify, vault, mostly in entrypoint.sh, src/stores/terminal-url-detection.ts, src/lib/vault-cache.ts. This section covers 72 nodes and 114 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Ingestion &amp; Updates (73 nodes, 115 edges)
+    %% Section: Ingestion &amp; Updates (72 nodes, 114 edges)
     subgraph ingest_cache_update_entrypoint_sh_3cb3bd2d["entrypoint.sh"]
         home_user_workspace_codeflare_entrypoint_sh_entr_b3d93c9b("entrypoint.sh script<br/><small>entrypoint.sh</small>")
         entrypoint_bisync_with_r2_d17e2a29("bisync_with_r2()<br/><small>entrypoint.sh</small>")
@@ -1595,7 +1595,7 @@ flowchart LR
     entrypoint_establish_bisync_baseline_ca64a699 -->|calls| entrypoint_start_sync_daemon_5c68b636
     entrypoint_bisync_with_r2_d17e2a29 -->|calls| entrypoint_start_sync_daemon_5c68b636
     entrypoint_start_sync_daemon_5c68b636 -->|calls| entrypoint_update_sync_status_00d9ee8e
-    %% Omitted for readability: 55 nodes, 0 edges
+    %% Omitted for readability: 54 nodes, 0 edges
     class home_user_workspace_codeflare_entrypoint_sh_entr_b3d93c9b function;
     class entrypoint_bisync_with_r2_d17e2a29 function;
     class entrypoint_recover_vanished_files_6cdb1438 function;
@@ -1894,41 +1894,43 @@ flowchart LR
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: calls x42, defines x31, contains x28, imports x12. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: calls x42, defines x31, contains x27, imports x12. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
 
 <!-- ====== 7. Serving API ====== -->
 <h2 id="serve-api">7. Serving API</h2>
-<p>Serving API groups implementation around api, spec, sdd, session, mostly in documentation/lanes/api-reference.md, src/api/client.ts, sdd/spec/session-lifecycle.md. This section covers 220 nodes and 252 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Serving API groups implementation around api, web, spec, sdd, mostly in documentation/lanes/api-reference.md, src/api/client.ts, sdd/spec/session-lifecycle.md. This section covers 264 nodes and 324 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Serving API (220 nodes, 252 edges)
+    %% Section: Serving API (264 nodes, 324 edges)
     subgraph serve_api_host_src_session_manager_ts_e1f4312c["host/src/session-manager.ts"]
         src_session_manager_sessionmanager_10b44250("SessionManager<br/><small>host/src/session-manager.ts</small>")
-        src_session_manager_sessionmanager_getorcreate_32a7cc49("getOrCreate()<br/><small>host/src/session-manager.ts</small>")
         src_session_manager_sessionmanager_cleanupdeadse_03525a77("cleanupDeadSessions()<br/><small>host/src/session-manager.ts</small>")
         src_session_manager_sessionmanager_clients_e01087b5("clients()<br/><small>host/src/session-manager.ts</small>")
         src_session_manager_sessionmanager_constructor_8386ba95("constructor()<br/><small>host/src/session-manager.ts</small>")
         src_session_manager_sessionmanager_delete_136a7b4d("delete()<br/><small>host/src/session-manager.ts</small>")
         src_session_manager_sessionmanager_get_f99ac8af("get()<br/><small>host/src/session-manager.ts</small>")
+        src_session_manager_sessionmanager_getorcreate_32a7cc49("getOrCreate()<br/><small>host/src/session-manager.ts</small>")
         src_session_manager_sessionmanager_killall_055381ea("killAll()<br/><small>host/src/session-manager.ts</small>")
         src_session_manager_sessionmanager_startcleanup_13c04106("startCleanup()<br/><small>host/src/session-manager.ts</small>")
         src_session_manager_sessionmanager_stopcleanup_9f19d084("stopCleanup()<br/><small>host/src/session-manager.ts</small>")
     end
     subgraph serve_api_src_api_client_ts_e86a89f6["src/api/client.ts"]
         api_client_fetchapi_34595a4e("fetchApi()<br/><small>src/api/client.ts</small>")
-        api_client_userentry_91e1b13e("UserEntry<br/><small>src/api/client.ts</small>")
         api_client_deletellmkeys_f6d3a1a5("deleteLlmKeys()<br/><small>src/api/client.ts</small>")
         api_client_deletepreset_2954512d("deletePreset()<br/><small>src/api/client.ts</small>")
         api_client_deletesession_8eba61a2("deleteSession()<br/><small>src/api/client.ts</small>")
-        api_client_deleteuser_0d2cbd51("deleteUser()<br/><small>src/api/client.ts</small>")
+    end
+    subgraph serve_api_src_api_storage_ts_faee8cf1["src/api/storage.ts"]
+        api_storage_storagefetch_75e04732("storageFetch()<br/><small>src/api/storage.ts</small>")
+        api_storage_a8d9e34a("storage.ts")
     end
     api_client_test_ffc8cebd("client.test.ts")
-    stores_session_test_e05b7d47("session.test.ts")
+    web_ui_src_tests_api_storage_test_ts_api_storage_b760e501("storage.test.ts")
     src_session_manager_sessionmanager_10b44250 -->|method| src_session_manager_sessionmanager_cleanupdeadse_03525a77
     src_session_manager_sessionmanager_10b44250 -->|method| src_session_manager_sessionmanager_clients_e01087b5
     src_session_manager_sessionmanager_10b44250 -->|method| src_session_manager_sessionmanager_constructor_8386ba95
@@ -1945,28 +1947,28 @@ flowchart LR
     api_client_fetchapi_34595a4e -->|calls| api_client_deletellmkeys_f6d3a1a5
     api_client_fetchapi_34595a4e -->|calls| api_client_deletepreset_2954512d
     api_client_fetchapi_34595a4e -->|calls| api_client_deletesession_8eba61a2
-    api_client_fetchapi_34595a4e -->|calls| api_client_deleteuser_0d2cbd51
     api_client_test_ffc8cebd -->|imports| api_client_deletellmkeys_f6d3a1a5
     api_client_test_ffc8cebd -->|imports| api_client_deletesession_8eba61a2
-    %% Omitted for readability: 202 nodes, 0 edges
+    web_ui_src_tests_api_storage_test_ts_api_storage_b760e501 -->|imports| api_storage_a8d9e34a
+    %% Omitted for readability: 246 nodes, 0 edges
     class src_session_manager_sessionmanager_10b44250 klass;
-    class src_session_manager_sessionmanager_getorcreate_32a7cc49 function;
     class src_session_manager_sessionmanager_cleanupdeadse_03525a77 function;
     class src_session_manager_sessionmanager_clients_e01087b5 entry;
     class src_session_manager_sessionmanager_constructor_8386ba95 function;
     class src_session_manager_sessionmanager_delete_136a7b4d function;
     class src_session_manager_sessionmanager_get_f99ac8af function;
+    class src_session_manager_sessionmanager_getorcreate_32a7cc49 function;
     class src_session_manager_sessionmanager_killall_055381ea function;
     class src_session_manager_sessionmanager_startcleanup_13c04106 function;
     class src_session_manager_sessionmanager_stopcleanup_9f19d084 function;
     class api_client_fetchapi_34595a4e api;
-    class api_client_userentry_91e1b13e klass;
     class api_client_deletellmkeys_f6d3a1a5 function;
     class api_client_deletepreset_2954512d function;
     class api_client_deletesession_8eba61a2 function;
-    class api_client_deleteuser_0d2cbd51 function;
+    class api_storage_storagefetch_75e04732 function;
+    class api_storage_a8d9e34a module;
     class api_client_test_ffc8cebd test;
-    class stores_session_test_e05b7d47 test;
+    class web_ui_src_tests_api_storage_test_ts_api_storage_b760e501 test;
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
     classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
@@ -2001,7 +2003,7 @@ flowchart LR
   <td><code>session.test.ts</code><br><small style="color:var(--muted)">__tests__/stores/session.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
-  <td><code>applyMetricsUpdate()</code><br><small style="color:var(--muted)">src/stores/session.ts</small><br><code>client.ts</code><br><small style="color:var(--muted)">src/api/client.ts</small></td>
+  <td><code>applyMetricsUpdate()</code><br><small style="color:var(--muted)">src/stores/session.ts</small><br><code>client.ts</code><br><small style="color:var(--muted)">src/api/client.ts</small><br><code>storage.ts</code><br><small style="color:var(--muted)">src/api/storage.ts</small></td>
   <td>Module file in __tests__/stores/session.test.ts.</td>
 </tr>
 <tr>
@@ -2073,7 +2075,7 @@ flowchart LR
   <td><code>client.ts</code><br><small style="color:var(--muted)">src/api/client.ts</small></td>
   <td><span class="tag tag-cmd">Entry</span></td>
   <td><code>client.test.ts</code><br><small style="color:var(--muted)">__tests__/api/client.test.ts</small><br><code>session.test.ts</code><br><small style="color:var(--muted)">__tests__/stores/session.test.ts</small></td>
-  <td><code>UserManagement.tsx</code><br><small style="color:var(--muted)">components/admin/UserManagement.tsx</small></td>
+  <td><code>ApiError</code><br><small style="color:var(--muted)">src/api/fetch-helper.ts</small><br><code>baseFetch()</code><br><small style="color:var(--muted)">src/api/fetch-helper.ts</small><br><code>fetch-helper.ts</code><br><small style="color:var(--muted)">src/api/fetch-helper.ts</small><br>+1 more</td>
   <td>Module file in src/api/client.ts.</td>
 </tr>
 <tr>
@@ -2081,7 +2083,7 @@ flowchart LR
   <td><code>fetchApi()</code><br><small style="color:var(--muted)">src/api/client.ts</small></td>
   <td><span class="tag tag-endpoint">API</span></td>
   <td>External entry / no inbound edge</td>
-  <td><code>deleteLlmKeys()</code><br><small style="color:var(--muted)">src/api/client.ts</small><br><code>deletePreset()</code><br><small style="color:var(--muted)">src/api/client.ts</small><br><code>deleteSession()</code><br><small style="color:var(--muted)">src/api/client.ts</small><br>+15 more</td>
+  <td><code>baseFetch()</code><br><small style="color:var(--muted)">src/api/fetch-helper.ts</small><br><code>deleteLlmKeys()</code><br><small style="color:var(--muted)">src/api/client.ts</small><br><code>deletePreset()</code><br><small style="color:var(--muted)">src/api/client.ts</small><br>+15 more</td>
   <td>fetchApi() node in src/api/client.ts.</td>
 </tr>
 <tr>
@@ -2236,18 +2238,18 @@ flowchart LR
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
       <tr><td><code>documentation/lanes/api-reference.md</code></td><td>40 nodes</td></tr>
-<tr><td><code>src/api/client.ts</code></td><td>37 nodes</td></tr>
+<tr><td><code>src/api/client.ts</code></td><td>36 nodes</td></tr>
 <tr><td><code>sdd/spec/session-lifecycle.md</code></td><td>35 nodes</td></tr>
 <tr><td><code>sdd/spec/constraints.md</code></td><td>27 nodes</td></tr>
+<tr><td><code>src/api/storage.ts</code></td><td>21 nodes</td></tr>
 <tr><td><code>sdd/spec/mobile.md</code></td><td>20 nodes</td></tr>
 <tr><td><code>e2e/stress/api-throughput.js</code></td><td>13 nodes</td></tr>
 <tr><td><code>host/src/session-manager.ts</code></td><td>10 nodes</td></tr>
-<tr><td><code>__tests__/stores/session.test.ts</code></td><td>9 nodes</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x149, references x37, calls x23, imports x14. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x177, imports x41, references x37, calls x33. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
@@ -2596,12 +2598,12 @@ flowchart LR
 
 <!-- ====== 9. Tests & Fixtures ====== -->
 <h2 id="tests-fixtures">9. Tests &amp; Fixtures</h2>
-<p>Tests &amp; Fixtures groups implementation around tests, web, routes, components, mostly in src/lib/schemas.ts, __tests__/fuzz/input-validation.fuzz.test.ts, __tests__/components/StorageBrowser.test.tsx. This section covers 2656 nodes and 6608 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Tests &amp; Fixtures groups implementation around tests, web, routes, components, mostly in __tests__/fuzz/input-validation.fuzz.test.ts, __tests__/components/StorageBrowser.test.tsx, src/lib/schemas.ts. This section covers 2586 nodes and 6431 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Tests &amp; Fixtures (2656 nodes, 6608 edges)
+    %% Section: Tests &amp; Fixtures (2586 nodes, 6431 edges)
     subgraph tests_fixtures_e2e_helpers_ts_9bf5518b["e2e/helpers.ts"]
         e2e_helpers_createpage_8a378c47("createPage()<br/><small>e2e/helpers.ts</small>")
         e2e_helpers_createmobilepage_5370d435("createMobilePage()<br/><small>e2e/helpers.ts</small>")
@@ -2641,7 +2643,7 @@ flowchart LR
     e2e_helpers_checksetupcomplete_2cc9d709 -->|calls| e2e_setup_apirequest_b061087e
     fuzz_input_validation_fuzz_test_6bbac2f5 -->|imports| lib_error_types_toerror_23b44c03
     src_index_ts_src_index_91ef65a5 -->|imports| lib_error_types_toerror_23b44c03
-    %% Omitted for readability: 2638 nodes, 0 edges
+    %% Omitted for readability: 2568 nodes, 0 edges
     class e2e_helpers_createpage_8a378c47 function;
     class e2e_helpers_createmobilepage_5370d435 function;
     class e2e_helpers_createtestpage_32676222 function;
@@ -2683,38 +2685,6 @@ flowchart LR
 </tr>
 <tr>
   <td>1</td>
-  <td><code>container-metrics.test.ts</code><br><small style="color:var(--muted)">src/__tests__/container-metrics.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>container</code><br><small style="color:var(--muted)">src/container/index.ts</small><br><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br>+1 more</td>
-  <td>Module file in src/__tests__/container-metrics.test.ts.</td>
-</tr>
-<tr>
-  <td>2</td>
-  <td><code>testState</code><br><small style="color:var(--muted)">src/__tests__/container-metrics.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Verifies imports, entry points, or version behavior.</td>
-</tr>
-<tr>
-  <td>3</td>
-  <td><code>mock-factories.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-factories.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Module file in __tests__/helpers/mock-factories.ts.</td>
-</tr>
-<tr>
-  <td>4</td>
-  <td><code>createMockR2Config()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-factories.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>rate-limits.test.ts</code><br><small style="color:var(--muted)">__tests__/routes/rate-limits.test.ts</small><br><code>storage-browse.test.ts</code><br><small style="color:var(--muted)">__tests__/routes/storage-browse.test.ts</small><br><code>storage-preview.test.ts</code><br><small style="color:var(--muted)">__tests__/routes/storage-preview.test.ts</small><br>+2 more</td>
-  <td>Reads, resolves, or persists project configuration.</td>
-</tr>
-<tr>
-  <td>5</td>
   <td><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td><code>container-lifecycle.test.ts</code><br><small style="color:var(--muted)">e2e/api/container-lifecycle.test.ts</small><br><code>container-metrics.test.ts</code><br><small style="color:var(--muted)">src/__tests__/container-metrics.test.ts</small></td>
@@ -2722,7 +2692,7 @@ flowchart LR
   <td>Module file in __tests__/helpers/mock-kv.ts.</td>
 </tr>
 <tr>
-  <td>6</td>
+  <td>2</td>
   <td><code>StoreEntry</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2730,7 +2700,7 @@ flowchart LR
   <td>StoreEntry node in __tests__/helpers/mock-kv.ts.</td>
 </tr>
 <tr>
-  <td>7</td>
+  <td>3</td>
   <td><code>MockGet</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2738,7 +2708,7 @@ flowchart LR
   <td>MockGet node in __tests__/helpers/mock-kv.ts.</td>
 </tr>
 <tr>
-  <td>8</td>
+  <td>4</td>
   <td><code>MockPut</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2746,7 +2716,7 @@ flowchart LR
   <td>MockPut node in __tests__/helpers/mock-kv.ts.</td>
 </tr>
 <tr>
-  <td>9</td>
+  <td>5</td>
   <td><code>MockDelete</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2754,7 +2724,7 @@ flowchart LR
   <td>MockDelete node in __tests__/helpers/mock-kv.ts.</td>
 </tr>
 <tr>
-  <td>10</td>
+  <td>6</td>
   <td><code>MockList</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2762,15 +2732,7 @@ flowchart LR
   <td>MockList node in __tests__/helpers/mock-kv.ts.</td>
 </tr>
 <tr>
-  <td>11</td>
-  <td><code>MockKV</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td><code>container-metrics.test.ts</code><br><small style="color:var(--muted)">src/__tests__/container-metrics.test.ts</small></td>
-  <td><code>container-metrics.ts</code><br><small style="color:var(--muted)">src/container/container-metrics.ts</small></td>
-  <td>MockKV node in __tests__/helpers/mock-kv.ts.</td>
-</tr>
-<tr>
-  <td>12</td>
+  <td>7</td>
   <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td><code>container-lifecycle.test.ts</code><br><small style="color:var(--muted)">e2e/api/container-lifecycle.test.ts</small><br><code>container-metrics.test.ts</code><br><small style="color:var(--muted)">src/__tests__/container-metrics.test.ts</small></td>
@@ -2778,7 +2740,7 @@ flowchart LR
   <td>createMockKV() node in __tests__/helpers/mock-kv.ts.</td>
 </tr>
 <tr>
-  <td>13</td>
+  <td>8</td>
   <td><code>test-app.ts</code><br><small style="color:var(--muted)">__tests__/helpers/test-app.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2786,7 +2748,7 @@ flowchart LR
   <td>Module file in __tests__/helpers/test-app.ts.</td>
 </tr>
 <tr>
-  <td>14</td>
+  <td>9</td>
   <td><code>RouteRegistration</code><br><small style="color:var(--muted)">__tests__/helpers/test-app.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2794,7 +2756,7 @@ flowchart LR
   <td>RouteRegistration node in __tests__/helpers/test-app.ts.</td>
 </tr>
 <tr>
-  <td>15</td>
+  <td>10</td>
   <td><code>TestAppOptions</code><br><small style="color:var(--muted)">__tests__/helpers/test-app.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2802,63 +2764,7 @@ flowchart LR
   <td>Verifies imports, entry points, or version behavior.</td>
 </tr>
 <tr>
-  <td>16</td>
-  <td><code>createTestApp()</code><br><small style="color:var(--muted)">__tests__/helpers/test-app.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>container-r2-start.test.ts</code><br><small style="color:var(--muted)">__tests__/routes/container-r2-start.test.ts</small><br><code>container-status.test.ts</code><br><small style="color:var(--muted)">__tests__/routes/container-status.test.ts</small><br><code>lifecycle.test.ts</code><br><small style="color:var(--muted)">routes/container/lifecycle.test.ts</small><br>+10 more</td>
-  <td>Verifies imports, entry points, or version behavior.</td>
-</tr>
-<tr>
-  <td>17</td>
-  <td><code>access.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/access.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
-  <td><code>access.ts</code><br><small style="color:var(--muted)">src/lib/access.ts</small><br><code>authenticateRequest()</code><br><small style="color:var(--muted)">src/lib/access.ts</small><br><code>AuthError</code><br><small style="color:var(--muted)">src/lib/error-types.ts</small><br>+8 more</td>
-  <td>Module file in __tests__/lib/access.test.ts.</td>
-</tr>
-<tr>
-  <td>18</td>
-  <td><code>{ mockLoggerWarn }</code><br><small style="color:var(--muted)">__tests__/lib/access.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>{ mockLoggerWarn } node in __tests__/lib/access.test.ts.</td>
-</tr>
-<tr>
-  <td>19</td>
-  <td><code>{ mockSendWelcomeEmail }</code><br><small style="color:var(--muted)">__tests__/lib/access.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>{ mockSendWelcomeEmail } node in __tests__/lib/access.test.ts.</td>
-</tr>
-<tr>
-  <td>20</td>
-  <td><code>makeEnv()</code><br><small style="color:var(--muted)">__tests__/lib/access.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>makeEnv() node in __tests__/lib/access.test.ts.</td>
-</tr>
-<tr>
-  <td>21</td>
-  <td><code>seedUser()</code><br><small style="color:var(--muted)">__tests__/lib/access.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>seedUser() node in __tests__/lib/access.test.ts.</td>
-</tr>
-<tr>
-  <td>22</td>
-  <td><code>makeRequest()</code><br><small style="color:var(--muted)">__tests__/lib/access.test.ts</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>makeRequest() node in __tests__/lib/access.test.ts.</td>
-</tr>
-<tr>
-  <td>23</td>
+  <td>11</td>
   <td><code>error-types.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/error-types.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2866,7 +2772,7 @@ flowchart LR
   <td>Module file in __tests__/lib/error-types.test.ts.</td>
 </tr>
 <tr>
-  <td>24</td>
+  <td>12</td>
   <td><code>jit-provisioning.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/jit-provisioning.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
@@ -2874,7 +2780,7 @@ flowchart LR
   <td>Module file in __tests__/lib/jit-provisioning.test.ts.</td>
 </tr>
 <tr>
-  <td>25</td>
+  <td>13</td>
   <td><code>makeEnv()</code><br><small style="color:var(--muted)">__tests__/lib/jit-provisioning.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2882,7 +2788,79 @@ flowchart LR
   <td>makeEnv() node in __tests__/lib/jit-provisioning.test.ts.</td>
 </tr>
 <tr>
-  <td>26</td>
+  <td>14</td>
+  <td><code>r2-config.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/r2-config.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
+  <td><code>getR2Config()</code><br><small style="color:var(--muted)">src/lib/r2-config.ts</small><br><code>r2-config.ts</code><br><small style="color:var(--muted)">src/lib/r2-config.ts</small></td>
+  <td>Module file in __tests__/lib/r2-config.test.ts.</td>
+</tr>
+<tr>
+  <td>15</td>
+  <td><code>createEnv()</code><br><small style="color:var(--muted)">__tests__/lib/r2-config.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>createEnv() node in __tests__/lib/r2-config.test.ts.</td>
+</tr>
+<tr>
+  <td>16</td>
+  <td><code>user-profile.test.ts</code><br><small style="color:var(--muted)">__tests__/lib/user-profile.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
+  <td><code>auth.ts</code><br><small style="color:var(--muted)">src/middleware/auth.ts</small><br><code>AuthVariables</code><br><small style="color:var(--muted)">src/middleware/auth.ts</small><br><code>Env</code><br><small style="color:var(--muted)">src/types.ts</small><br>+1 more</td>
+  <td>Module file in __tests__/lib/user-profile.test.ts.</td>
+</tr>
+<tr>
+  <td>17</td>
+  <td><code>createTestApp()</code><br><small style="color:var(--muted)">__tests__/lib/user-profile.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Verifies imports, entry points, or version behavior.</td>
+</tr>
+<tr>
+  <td>18</td>
+  <td><code>auth-saas.test.ts</code><br><small style="color:var(--muted)">__tests__/middleware/auth-saas.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
+  <td><code>access.ts</code><br><small style="color:var(--muted)">src/lib/access.ts</small><br><code>AccessUser</code><br><small style="color:var(--muted)">src/types.ts</small><br><code>AppError</code><br><small style="color:var(--muted)">src/lib/error-types.ts</small><br>+8 more</td>
+  <td>Module file in __tests__/middleware/auth-saas.test.ts.</td>
+</tr>
+<tr>
+  <td>19</td>
+  <td><code>mockAuthResult</code><br><small style="color:var(--muted)">__tests__/middleware/auth-saas.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>mockAuthResult node in __tests__/middleware/auth-saas.test.ts.</td>
+</tr>
+<tr>
+  <td>20</td>
+  <td><code>mockedAuth</code><br><small style="color:var(--muted)">__tests__/middleware/auth-saas.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>mockedAuth node in __tests__/middleware/auth-saas.test.ts.</td>
+</tr>
+<tr>
+  <td>21</td>
+  <td><code>createApp()</code><br><small style="color:var(--muted)">__tests__/middleware/auth-saas.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>createApp() node in __tests__/middleware/auth-saas.test.ts.</td>
+</tr>
+<tr>
+  <td>22</td>
+  <td><code>createAdminApp()</code><br><small style="color:var(--muted)">__tests__/middleware/auth-saas.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>createAdminApp() node in __tests__/middleware/auth-saas.test.ts.</td>
+</tr>
+<tr>
+  <td>23</td>
   <td><code>auth.test.ts</code><br><small style="color:var(--muted)">__tests__/middleware/auth.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
@@ -2890,7 +2868,7 @@ flowchart LR
   <td>Module file in __tests__/middleware/auth.test.ts.</td>
 </tr>
 <tr>
-  <td>27</td>
+  <td>24</td>
   <td><code>createTestApp()</code><br><small style="color:var(--muted)">__tests__/middleware/auth.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2898,7 +2876,7 @@ flowchart LR
   <td>Verifies imports, entry points, or version behavior.</td>
 </tr>
 <tr>
-  <td>28</td>
+  <td>25</td>
   <td><code>makeEnv()</code><br><small style="color:var(--muted)">__tests__/middleware/auth.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2906,7 +2884,7 @@ flowchart LR
   <td>makeEnv() node in __tests__/middleware/auth.test.ts.</td>
 </tr>
 <tr>
-  <td>29</td>
+  <td>26</td>
   <td><code>createAdminApp()</code><br><small style="color:var(--muted)">__tests__/middleware/auth.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td>External entry / no inbound edge</td>
@@ -2914,12 +2892,36 @@ flowchart LR
   <td>createAdminApp() node in __tests__/middleware/auth.test.ts.</td>
 </tr>
 <tr>
-  <td>30</td>
-  <td><code>admin-tiers.test.ts</code><br><small style="color:var(--muted)">__tests__/routes/admin-tiers.test.ts</small></td>
+  <td>27</td>
+  <td><code>auth-request-access.test.ts</code><br><small style="color:var(--muted)">__tests__/routes/auth-request-access.test.ts</small></td>
   <td><span class="tag tag-func">Test</span></td>
   <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
-  <td><code>AppError</code><br><small style="color:var(--muted)">src/lib/error-types.ts</small><br><code>auth.ts</code><br><small style="color:var(--muted)">src/middleware/auth.ts</small><br><code>AuthVariables</code><br><small style="color:var(--muted)">src/middleware/auth.ts</small><br>+6 more</td>
-  <td>Module file in __tests__/routes/admin-tiers.test.ts.</td>
+  <td><code>AccessUser</code><br><small style="color:var(--muted)">src/types.ts</small><br><code>AppError</code><br><small style="color:var(--muted)">src/lib/error-types.ts</small><br><code>auth.ts</code><br><small style="color:var(--muted)">src/middleware/auth.ts</small><br>+4 more</td>
+  <td>Module file in __tests__/routes/auth-request-access.test.ts.</td>
+</tr>
+<tr>
+  <td>28</td>
+  <td><code>mockAuthResult</code><br><small style="color:var(--muted)">__tests__/routes/auth-request-access.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>mockAuthResult node in __tests__/routes/auth-request-access.test.ts.</td>
+</tr>
+<tr>
+  <td>29</td>
+  <td><code>createApp()</code><br><small style="color:var(--muted)">__tests__/routes/auth-request-access.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>createApp() node in __tests__/routes/auth-request-access.test.ts.</td>
+</tr>
+<tr>
+  <td>30</td>
+  <td><code>auth-subscribe.test.ts</code><br><small style="color:var(--muted)">__tests__/routes/auth-subscribe.test.ts</small></td>
+  <td><span class="tag tag-func">Test</span></td>
+  <td><code>createMockKV()</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small><br><code>mock-kv.ts</code><br><small style="color:var(--muted)">__tests__/helpers/mock-kv.ts</small></td>
+  <td><code>AccessUser</code><br><small style="color:var(--muted)">src/types.ts</small><br><code>AppError</code><br><small style="color:var(--muted)">src/lib/error-types.ts</small><br><code>auth.ts</code><br><small style="color:var(--muted)">src/middleware/auth.ts</small><br>+4 more</td>
+  <td>Module file in __tests__/routes/auth-subscribe.test.ts.</td>
 </tr>
 </table>
 
@@ -2928,9 +2930,9 @@ flowchart LR
     <h4>Key Files</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>src/lib/schemas.ts</code></td><td>43 nodes</td></tr>
-<tr><td><code>__tests__/fuzz/input-validation.fuzz.test.ts</code></td><td>39 nodes</td></tr>
+      <tr><td><code>__tests__/fuzz/input-validation.fuzz.test.ts</code></td><td>39 nodes</td></tr>
 <tr><td><code>__tests__/components/StorageBrowser.test.tsx</code></td><td>39 nodes</td></tr>
+<tr><td><code>src/lib/schemas.ts</code></td><td>34 nodes</td></tr>
 <tr><td><code>documentation/lanes/stress-test.md</code></td><td>32 nodes</td></tr>
 <tr><td><code>src/types.ts</code></td><td>29 nodes</td></tr>
 <tr><td><code>src/lib/kv-keys.ts</code></td><td>27 nodes</td></tr>
@@ -2940,57 +2942,60 @@ flowchart LR
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x2277, imports x2237, imports x1189, calls x647. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x2212, imports x2189, imports x1180, calls x600. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
 
 <!-- ====== 10. Pi Review Enforcement ====== -->
 <h2 id="pi-review-enforcement">10. Pi Review Enforcement</h2>
-<p>Pi Review Enforcement groups implementation around review, preseed, agents, extensions, mostly in pi/extensions/review-enforcement.ts, pi/extensions/review-jobs.ts, pi/extensions/review-helpers.ts. This section covers 78 nodes and 165 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Pi Review Enforcement groups implementation around preseed, agents, extensions, review, mostly in pi/extensions/review-enforcement.ts, pi/extensions/review-jobs.ts, pi/extensions/review-helpers.ts. This section covers 80 nodes and 169 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Pi Review Enforcement (78 nodes, 165 edges)
-    extensions_review_enforcement_986cda0e("review-enforcement.ts")
-    extensions_review_enforcement_isenforcedpr_7cc3b014("isEnforcedPr()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_updatereviewstatus_2f83d64a("updateReviewStatus()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_breakerpath_ef5bcf2c("breakerPath()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_claimreviewannounc_89be7ab2("claimReviewAnnouncement()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_pendingpath_a23b5ba1("pendingPath()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_prstate_cfc80a71("PrState<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_shell_55a94d76("shell()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_localhead_c424cae7("localHead()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_findgitroot_24d8e7c7("findGitRoot()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_hydratepending_6b746e87("hydratePending()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_publishsummaryforc_ca35ef6a("publishSummaryForCurrentPr()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_activerepofallback_54b23ea9("activeRepoFallback()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_commandtext_51aafe69("commandText()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_withstartargs_9ff4ce17("withStartArgs()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_issddproject_c23f4076("isSddProject()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_prforboundarycomma_cb5cefc5("prForBoundaryCommand()<br/><small>pi/extensions/review-enforcement.ts</small>")
-    extensions_review_enforcement_reviewcandidatehea_834d7c5e("reviewCandidateHead()<br/><small>pi/extensions/review-enforcement.ts</small>")
+    %% Section: Pi Review Enforcement (80 nodes, 169 edges)
+    subgraph pi_review_enforcement_pi_extensions_review_enfor_a9158ea4["pi/extensions/review-enforcement.ts"]
+        extensions_review_enforcement_986cda0e("review-enforcement.ts")
+        extensions_review_enforcement_isenforcedpr_7cc3b014("isEnforcedPr()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_updatereviewstatus_2f83d64a("updateReviewStatus()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_breakerpath_ef5bcf2c("breakerPath()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_claimreviewannounc_89be7ab2("claimReviewAnnouncement()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_pendingpath_a23b5ba1("pendingPath()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_isancestor_ad4baf4c("isAncestor()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_mergelanestate_b67a51b0("mergeLaneState()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_prstate_cfc80a71("PrState<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_shell_55a94d76("shell()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_localhead_c424cae7("localHead()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_findgitroot_24d8e7c7("findGitRoot()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_hydratepending_6b746e87("hydratePending()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_publishsummaryforc_ca35ef6a("publishSummaryForCurrentPr()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_activerepofallback_54b23ea9("activeRepoFallback()<br/><small>pi/extensions/review-enforcement.ts</small>")
+        extensions_review_enforcement_commandtext_51aafe69("commandText()<br/><small>pi/extensions/review-enforcement.ts</small>")
+    end
+    subgraph pi_review_enforcement_pi_extensions_memory_vault_c12c08b4["pi/extensions/memory-vault.ts"]
+        extensions_memory_vault_isvaultexcludedpath_fe4a060b("isVaultExcludedPath()<br/><small>pi/extensions/memory-vault.ts</small>")
+        extensions_memory_vault_changedvaultfiles_53641e54("changedVaultFiles()<br/><small>pi/extensions/memory-vault.ts</small>")
+    end
+    extensions_memory_vault_isvaultexcludedpath_fe4a060b -->|calls| extensions_memory_vault_changedvaultfiles_53641e54
+    extensions_memory_vault_changedvaultfiles_53641e54 -->|calls| extensions_review_enforcement_isancestor_ad4baf4c
+    extensions_memory_vault_changedvaultfiles_53641e54 -->|calls| extensions_review_enforcement_mergelanestate_b67a51b0
     extensions_review_enforcement_prstate_cfc80a71 -->|calls| extensions_review_enforcement_shell_55a94d76
     extensions_review_enforcement_shell_55a94d76 -->|calls| extensions_review_enforcement_localhead_c424cae7
     extensions_review_enforcement_findgitroot_24d8e7c7 -->|calls| extensions_review_enforcement_hydratepending_6b746e87
     extensions_review_enforcement_findgitroot_24d8e7c7 -->|calls| extensions_review_enforcement_publishsummaryforc_ca35ef6a
     extensions_review_enforcement_activerepofallback_54b23ea9 -->|calls| extensions_review_enforcement_hydratepending_6b746e87
     extensions_review_enforcement_activerepofallback_54b23ea9 -->|calls| extensions_review_enforcement_publishsummaryforc_ca35ef6a
-    extensions_review_enforcement_commandtext_51aafe69 -->|calls| extensions_review_enforcement_withstartargs_9ff4ce17
-    extensions_review_enforcement_issddproject_c23f4076 -->|calls| extensions_review_enforcement_publishsummaryforc_ca35ef6a
-    extensions_review_enforcement_localhead_c424cae7 -->|calls| extensions_review_enforcement_prforboundarycomma_cb5cefc5
-    extensions_review_enforcement_localhead_c424cae7 -->|calls| extensions_review_enforcement_reviewcandidatehea_834d7c5e
-    extensions_review_enforcement_isenforcedpr_7cc3b014 -->|calls| extensions_review_enforcement_prforboundarycomma_cb5cefc5
     extensions_review_enforcement_isenforcedpr_7cc3b014 -->|calls| extensions_review_enforcement_publishsummaryforc_ca35ef6a
-    extensions_review_enforcement_reviewcandidatehea_834d7c5e -->|calls| extensions_review_enforcement_publishsummaryforc_ca35ef6a
-    %% Omitted for readability: 60 nodes, 0 edges
+    %% Omitted for readability: 62 nodes, 0 edges
     class extensions_review_enforcement_986cda0e module;
     class extensions_review_enforcement_isenforcedpr_7cc3b014 function;
     class extensions_review_enforcement_updatereviewstatus_2f83d64a function;
     class extensions_review_enforcement_breakerpath_ef5bcf2c function;
     class extensions_review_enforcement_claimreviewannounc_89be7ab2 function;
     class extensions_review_enforcement_pendingpath_a23b5ba1 function;
+    class extensions_review_enforcement_isancestor_ad4baf4c function;
+    class extensions_review_enforcement_mergelanestate_b67a51b0 function;
     class extensions_review_enforcement_prstate_cfc80a71 klass;
     class extensions_review_enforcement_shell_55a94d76 function;
     class extensions_review_enforcement_localhead_c424cae7 function;
@@ -2999,10 +3004,8 @@ flowchart LR
     class extensions_review_enforcement_publishsummaryforc_ca35ef6a function;
     class extensions_review_enforcement_activerepofallback_54b23ea9 function;
     class extensions_review_enforcement_commandtext_51aafe69 entry;
-    class extensions_review_enforcement_withstartargs_9ff4ce17 function;
-    class extensions_review_enforcement_issddproject_c23f4076 function;
-    class extensions_review_enforcement_prforboundarycomma_cb5cefc5 entry;
-    class extensions_review_enforcement_reviewcandidatehea_834d7c5e function;
+    class extensions_memory_vault_isvaultexcludedpath_fe4a060b function;
+    class extensions_memory_vault_changedvaultfiles_53641e54 function;
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
     classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
@@ -3026,6 +3029,22 @@ flowchart LR
 </tr>
 <tr>
   <td>1</td>
+  <td><code>isVaultExcludedPath()</code><br><small style="color:var(--muted)">pi/extensions/memory-vault.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>changedVaultFiles()</code><br><small style="color:var(--muted)">pi/extensions/memory-vault.ts</small></td>
+  <td>isVaultExcludedPath() node in pi/extensions/memory-vault.ts.</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>changedVaultFiles()</code><br><small style="color:var(--muted)">pi/extensions/memory-vault.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>isVaultExcludedPath()</code><br><small style="color:var(--muted)">pi/extensions/memory-vault.ts</small></td>
+  <td><code>isAncestor()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small><br><code>mergeLaneState()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
+  <td>changedVaultFiles() node in pi/extensions/memory-vault.ts.</td>
+</tr>
+<tr>
+  <td>3</td>
   <td><code>review-enforcement.ts</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-class">Module</span></td>
   <td>External entry / no inbound edge</td>
@@ -3033,7 +3052,7 @@ flowchart LR
   <td>Module file in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>2</td>
+  <td>4</td>
   <td><code>PrState</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3041,7 +3060,7 @@ flowchart LR
   <td>PrState node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>3</td>
+  <td>5</td>
   <td><code>PendingReview</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3049,7 +3068,7 @@ flowchart LR
   <td>PendingReview node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>4</td>
+  <td>6</td>
   <td><code>shell()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>PrState</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3057,7 +3076,7 @@ flowchart LR
   <td>shell() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>5</td>
+  <td>7</td>
   <td><code>findGitRoot()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3065,7 +3084,7 @@ flowchart LR
   <td>Turns a local path or remote repository into analysis context.</td>
 </tr>
 <tr>
-  <td>6</td>
+  <td>8</td>
   <td><code>cwdFromCommand()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-cmd">Entry</span></td>
   <td>External entry / no inbound edge</td>
@@ -3073,7 +3092,7 @@ flowchart LR
   <td>cwdFromCommand() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>7</td>
+  <td>9</td>
   <td><code>activeRepoFallback()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3081,7 +3100,7 @@ flowchart LR
   <td>activeRepoFallback() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>8</td>
+  <td>10</td>
   <td><code>commandText()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-cmd">Entry</span></td>
   <td>External entry / no inbound edge</td>
@@ -3089,7 +3108,7 @@ flowchart LR
   <td>commandText() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>9</td>
+  <td>11</td>
   <td><code>isGhPrMerge()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3097,7 +3116,7 @@ flowchart LR
   <td>isGhPrMerge() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>10</td>
+  <td>12</td>
   <td><code>isSddProject()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3105,7 +3124,7 @@ flowchart LR
   <td>isSddProject() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>11</td>
+  <td>13</td>
   <td><code>localHead()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>shell()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3113,7 +3132,7 @@ flowchart LR
   <td>localHead() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>12</td>
+  <td>14</td>
   <td><code>isEnforcedPr()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3121,7 +3140,7 @@ flowchart LR
   <td>isEnforcedPr() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>13</td>
+  <td>15</td>
   <td><code>ackPath()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3129,7 +3148,7 @@ flowchart LR
   <td>ackPath() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>14</td>
+  <td>16</td>
   <td><code>pendingPath()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3137,7 +3156,7 @@ flowchart LR
   <td>pendingPath() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>15</td>
+  <td>17</td>
   <td><code>blockCountPath()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3145,7 +3164,7 @@ flowchart LR
   <td>blockCountPath() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>16</td>
+  <td>18</td>
   <td><code>lastAckHead()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>ackPath()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3153,7 +3172,7 @@ flowchart LR
   <td>lastAckHead() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>17</td>
+  <td>19</td>
   <td><code>acked()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>lastAckHead()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3161,7 +3180,7 @@ flowchart LR
   <td>acked() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>18</td>
+  <td>20</td>
   <td><code>writeAck()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>ackPath()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3169,7 +3188,7 @@ flowchart LR
   <td>writeAck() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>19</td>
+  <td>21</td>
   <td><code>clearPending()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>pendingPath()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3177,7 +3196,7 @@ flowchart LR
   <td>clearPending() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>20</td>
+  <td>22</td>
   <td><code>resetBlockCount()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>blockCountPath()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3185,7 +3204,7 @@ flowchart LR
   <td>resetBlockCount() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>21</td>
+  <td>23</td>
   <td><code>incrementBlockCount()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>blockCountPath()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3193,7 +3212,7 @@ flowchart LR
   <td>incrementBlockCount() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>22</td>
+  <td>24</td>
   <td><code>breakerPath()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3201,7 +3220,7 @@ flowchart LR
   <td>breakerPath() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>23</td>
+  <td>25</td>
   <td><code>isBreakerOpen()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>breakerPath()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3209,7 +3228,7 @@ flowchart LR
   <td>isBreakerOpen() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>24</td>
+  <td>26</td>
   <td><code>openBreaker()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>breakerPath()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3217,7 +3236,7 @@ flowchart LR
   <td>openBreaker() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>25</td>
+  <td>27</td>
   <td><code>clearBreaker()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>breakerPath()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3225,7 +3244,7 @@ flowchart LR
   <td>clearBreaker() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>26</td>
+  <td>28</td>
   <td><code>consumeBypass()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3233,7 +3252,7 @@ flowchart LR
   <td>consumeBypass() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>27</td>
+  <td>29</td>
   <td><code>stringifyReviewResult()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3241,28 +3260,12 @@ flowchart LR
   <td>stringifyReviewResult() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 <tr>
-  <td>28</td>
+  <td>30</td>
   <td><code>toolResultPayload()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
   <td>toolResultPayload() node in pi/extensions/review-enforcement.ts.</td>
-</tr>
-<tr>
-  <td>29</td>
-  <td><code>persistReviewResult()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td><code>stringifyReviewResult()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
-  <td><code>publishReviewResult()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small><br><code>reviewResultPath()</code><br><small style="color:var(--muted)">pi/extensions/review-jobs.ts</small><br><code>reviewResultsDir()</code><br><small style="color:var(--muted)">pi/extensions/review-jobs.ts</small></td>
-  <td>persistReviewResult() node in pi/extensions/review-enforcement.ts.</td>
-</tr>
-<tr>
-  <td>30</td>
-  <td><code>pruneReviewResults()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>pruneReviewResults() node in pi/extensions/review-enforcement.ts.</td>
 </tr>
 </table>
 
@@ -3274,12 +3277,13 @@ flowchart LR
       <tr><td><code>pi/extensions/review-enforcement.ts</code></td><td>69 nodes</td></tr>
 <tr><td><code>pi/extensions/review-jobs.ts</code></td><td>4 nodes</td></tr>
 <tr><td><code>pi/extensions/review-helpers.ts</code></td><td>3 nodes</td></tr>
+<tr><td><code>pi/extensions/memory-vault.ts</code></td><td>2 nodes</td></tr>
 <tr><td><code>pi/extensions/review-job-helpers.ts</code></td><td>2 nodes</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: calls x83, contains x68, imports x9. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: calls x86, contains x69, imports x9. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
@@ -3626,12 +3630,12 @@ flowchart LR
 
 <!-- ====== 12. Pi Review Enforcement 2 ====== -->
 <h2 id="pi-review-enforcement-2">12. Pi Review Enforcement 2</h2>
-<p>Pi Review Enforcement 2 groups implementation around review, preseed, agents, extensions, mostly in pi/extensions/review-job-helpers.ts, pi/extensions/review-enforcement.ts, pi/extensions/review-jobs.ts. This section covers 50 nodes and 70 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Pi Review Enforcement 2 groups implementation around review, preseed, agents, extensions, mostly in pi/extensions/review-job-helpers.ts, pi/extensions/review-enforcement.ts, pi/extensions/review-jobs.ts. This section covers 45 nodes and 65 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Pi Review Enforcement 2 (50 nodes, 70 edges)
+    %% Section: Pi Review Enforcement 2 (45 nodes, 65 edges)
     subgraph pi_review_enforcement_2_pi_extensions_review_job_218a0d7e["pi/extensions/review-job-helpers.ts"]
         extensions_review_job_helpers_mergedreviewsummar_c1a4aaa8("mergedReviewSummaryModel<br/><small>pi/extensions/review-job-helpers.ts</small>")
         extensions_review_job_helpers_reviewfinding_a8bec9e2("ReviewFinding<br/><small>pi/extensions/review-job-helpers.ts</small>")
@@ -3670,7 +3674,7 @@ flowchart LR
     extensions_review_job_helpers_stripexistingrevie_c947b540 -->|calls| extensions_review_job_helpers_reviewfindingbody_a11d03e6
     extensions_review_job_helpers_actionablereviewco_b46a70e3 -->|calls| extensions_review_job_helpers_mergedreviewrecomm_20e663b5
     extensions_review_job_helpers_reviewfindingbody_a11d03e6 -->|calls| extensions_review_job_helpers_extractreviewfindi_751d5ef0
-    %% Omitted for readability: 32 nodes, 0 edges
+    %% Omitted for readability: 27 nodes, 0 edges
     class extensions_review_job_helpers_mergedreviewsummar_c1a4aaa8 function;
     class extensions_review_job_helpers_reviewfinding_a8bec9e2 klass;
     class extensions_review_job_helpers_stripexistingrevie_c947b540 function;
@@ -3768,14 +3772,6 @@ flowchart LR
 </tr>
 <tr>
   <td>8</td>
-  <td><code>durableReviewSummaryModel</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>durableReviewSummaryModel node in pi/extensions/review-job-helpers.ts.</td>
-</tr>
-<tr>
-  <td>9</td>
   <td><code>DurableReviewSummaryRecord</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3783,7 +3779,7 @@ flowchart LR
   <td>DurableReviewSummaryRecord node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>10</td>
+  <td>9</td>
   <td><code>ReviewFindingSeverity</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3791,7 +3787,7 @@ flowchart LR
   <td>ReviewFindingSeverity node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>11</td>
+  <td>10</td>
   <td><code>ReviewFinding</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3799,7 +3795,7 @@ flowchart LR
   <td>ReviewFinding node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>12</td>
+  <td>11</td>
   <td><code>MergedReviewSummaryInput</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3807,7 +3803,7 @@ flowchart LR
   <td>MergedReviewSummaryInput node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>13</td>
+  <td>12</td>
   <td><code>mergedReviewSummaryModel</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3815,7 +3811,7 @@ flowchart LR
   <td>mergedReviewSummaryModel node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>14</td>
+  <td>13</td>
   <td><code>ReviewAutofixMessage</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3823,7 +3819,7 @@ flowchart LR
   <td>ReviewAutofixMessage node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>15</td>
+  <td>14</td>
   <td><code>ReviewAutofixOptions</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3831,7 +3827,7 @@ flowchart LR
   <td>ReviewAutofixOptions node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>16</td>
+  <td>15</td>
   <td><code>reviewAutofixRequest</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3839,7 +3835,7 @@ flowchart LR
   <td>reviewAutofixRequest node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>17</td>
+  <td>16</td>
   <td><code>ReviewAutofixSender</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3847,7 +3843,7 @@ flowchart LR
   <td>ReviewAutofixSender node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>18</td>
+  <td>17</td>
   <td><code>ReviewAutofixRow</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3855,7 +3851,7 @@ flowchart LR
   <td>ReviewAutofixRow node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>19</td>
+  <td>18</td>
   <td><code>DurableReviewStatusState</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3863,7 +3859,7 @@ flowchart LR
   <td>DurableReviewStatusState node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>20</td>
+  <td>19</td>
   <td><code>DurableReviewStatusSegment</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-async">Async</span></td>
   <td>External entry / no inbound edge</td>
@@ -3871,7 +3867,7 @@ flowchart LR
   <td>DurableReviewStatusSegment node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>21</td>
+  <td>20</td>
   <td><code>DurableReviewStatusStyle</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3879,7 +3875,7 @@ flowchart LR
   <td>DurableReviewStatusStyle node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>22</td>
+  <td>21</td>
   <td><code>ReviewAutofixMode</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -3887,7 +3883,7 @@ flowchart LR
   <td>ReviewAutofixMode node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>23</td>
+  <td>22</td>
   <td><code>reviewAutofixModeFromUserMessages()</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>requestReviewAutofix()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3895,7 +3891,7 @@ flowchart LR
   <td>reviewAutofixModeFromUserMessages() node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>24</td>
+  <td>23</td>
   <td><code>sendReviewAutofixRequest()</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>requestReviewAutofix()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small></td>
@@ -3903,7 +3899,7 @@ flowchart LR
   <td>sendReviewAutofixRequest() node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>25</td>
+  <td>24</td>
   <td><code>requestReviewAutofixForRows()</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>requestReviewAutofix()</code><br><small style="color:var(--muted)">pi/extensions/review-enforcement.ts</small><br><code>sendReviewAutofixRequest()</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
@@ -3911,7 +3907,7 @@ flowchart LR
   <td>requestReviewAutofixForRows() node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>26</td>
+  <td>25</td>
   <td><code>durableReviewStatusSegments()</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-async">Async</span></td>
   <td>External entry / no inbound edge</td>
@@ -3919,7 +3915,7 @@ flowchart LR
   <td>durableReviewStatusSegments() node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>27</td>
+  <td>26</td>
   <td><code>compactDurableReviewStatus()</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>durableReviewStatusSegments()</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
@@ -3927,7 +3923,7 @@ flowchart LR
   <td>compactDurableReviewStatus() node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>28</td>
+  <td>27</td>
   <td><code>stripExistingReviewSummary()</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>ReviewFinding</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
@@ -3935,7 +3931,7 @@ flowchart LR
   <td>stripExistingReviewSummary() node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>29</td>
+  <td>28</td>
   <td><code>countReviewSeverities()</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -3943,12 +3939,20 @@ flowchart LR
   <td>countReviewSeverities() node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 <tr>
-  <td>30</td>
+  <td>29</td>
   <td><code>actionableReviewCount()</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td><code>mergedReviewRecommendation()</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
   <td>actionableReviewCount() node in pi/extensions/review-job-helpers.ts.</td>
+</tr>
+<tr>
+  <td>30</td>
+  <td><code>laneReviewLabel()</code><br><small style="color:var(--muted)">pi/extensions/review-job-helpers.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>laneReviewLabel() node in pi/extensions/review-job-helpers.ts.</td>
 </tr>
 </table>
 
@@ -3957,20 +3961,372 @@ flowchart LR
     <h4>Key Files</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>pi/extensions/review-job-helpers.ts</code></td><td>47 nodes</td></tr>
+      <tr><td><code>pi/extensions/review-job-helpers.ts</code></td><td>42 nodes</td></tr>
 <tr><td><code>pi/extensions/review-enforcement.ts</code></td><td>2 nodes</td></tr>
 <tr><td><code>pi/extensions/review-jobs.ts</code></td><td>1 nodes</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x48, calls x22. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x43, calls x22. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
 
-<!-- ====== 13. PR Review Workflow 9 ====== -->
-<h2 id="pr-review-workflow-9">13. PR Review Workflow 9</h2>
+<!-- ====== 13. PR Review Workflow 5 ====== -->
+<h2 id="pr-review-workflow-5">13. PR Review Workflow 5</h2>
+<p>PR Review Workflow 5 groups implementation around web, webgl, utilsts, splash, mostly in src/lib/webgl-utils.ts, src/lib/splash-math.ts, src/lib/splash-cursor-logic.ts. This section covers 36 nodes and 73 internal edges; the diagram shows only representative relationships to stay readable.</p>
+
+<div class="mermaid">
+%%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
+flowchart LR
+    %% Section: PR Review Workflow 5 (36 nodes, 73 edges)
+    subgraph pr_review_workflow_5_src_lib_webgl_utils_ts_3c83b4c4["src/lib/webgl-utils.ts"]
+        lib_webgl_utils_material_54e3433d("Material<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_createfbo_3c680567("createFBO()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_createglprogram_40b6c0b9("createGLProgram()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_compileshader_592a0f3a("compileShader()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_getwebglcontext_e6d20804("getWebGLContext()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_initblit_c6b09ed3("initBlit()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_material_setkeywords_34832fdb("setKeywords()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_getsupportedformat_04b75031("getSupportedFormat()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_supportrendertextureformat_e65ff26b("supportRenderTextureFormat()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_addkeywords_62892430("addKeywords()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_program_constructor_f7aa8c48("constructor()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_getuniforms_706ef481("getUniforms()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_material_bind_f12851bd("bind()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_material_constructor_249d0433("constructor()<br/><small>src/lib/webgl-utils.ts</small>")
+        lib_webgl_utils_program_bind_9bb47379("bind()<br/><small>src/lib/webgl-utils.ts</small>")
+    end
+    subgraph pr_review_workflow_5_src_lib_splash_cursor_logic_b301b347["src/lib/splash-cursor-logic.ts"]
+        lib_splash_cursor_logic_0fff33f4("splash-cursor-logic.ts")
+        lib_splash_cursor_logic_createsplashsimulation_0d4f236d("createSplashSimulation()<br/><small>src/lib/splash-cursor-logic.ts</small>")
+    end
+    lib_splash_math_hashcode_424c82d6("hashCode()<br/><small>src/lib/splash-math.ts</small>")
+    lib_splash_cursor_logic_createsplashsimulation_0d4f236d -->|calls| lib_webgl_utils_compileshader_592a0f3a
+    lib_splash_cursor_logic_createsplashsimulation_0d4f236d -->|calls| lib_webgl_utils_getwebglcontext_e6d20804
+    lib_splash_cursor_logic_createsplashsimulation_0d4f236d -->|calls| lib_webgl_utils_initblit_c6b09ed3
+    lib_splash_math_hashcode_424c82d6 -->|calls| lib_webgl_utils_material_setkeywords_34832fdb
+    lib_webgl_utils_getwebglcontext_e6d20804 -->|calls| lib_webgl_utils_getsupportedformat_04b75031
+    lib_webgl_utils_getsupportedformat_04b75031 -->|calls| lib_webgl_utils_supportrendertextureformat_e65ff26b
+    lib_webgl_utils_compileshader_592a0f3a -->|calls| lib_webgl_utils_addkeywords_62892430
+    lib_webgl_utils_compileshader_592a0f3a -->|calls| lib_webgl_utils_material_setkeywords_34832fdb
+    lib_webgl_utils_createglprogram_40b6c0b9 -->|calls| lib_webgl_utils_material_setkeywords_34832fdb
+    lib_webgl_utils_createglprogram_40b6c0b9 -->|calls| lib_webgl_utils_program_constructor_f7aa8c48
+    lib_webgl_utils_getuniforms_706ef481 -->|calls| lib_webgl_utils_material_setkeywords_34832fdb
+    lib_webgl_utils_getuniforms_706ef481 -->|calls| lib_webgl_utils_program_constructor_f7aa8c48
+    lib_webgl_utils_material_54e3433d -->|method| lib_webgl_utils_material_bind_f12851bd
+    lib_webgl_utils_material_54e3433d -->|method| lib_webgl_utils_material_constructor_249d0433
+    lib_webgl_utils_material_54e3433d -->|method| lib_webgl_utils_material_setkeywords_34832fdb
+    lib_webgl_utils_material_54e3433d -->|method| lib_webgl_utils_program_bind_9bb47379
+    lib_webgl_utils_material_54e3433d -->|method| lib_webgl_utils_program_constructor_f7aa8c48
+    lib_splash_cursor_logic_0fff33f4 -->|imports| lib_webgl_utils_compileshader_592a0f3a
+    lib_splash_cursor_logic_0fff33f4 -->|imports| lib_webgl_utils_createfbo_3c680567
+    lib_splash_cursor_logic_0fff33f4 -->|imports| lib_webgl_utils_getwebglcontext_e6d20804
+    lib_splash_cursor_logic_0fff33f4 -->|imports| lib_webgl_utils_initblit_c6b09ed3
+    lib_splash_cursor_logic_0fff33f4 -->|imports| lib_webgl_utils_material_54e3433d
+    %% Omitted for readability: 18 nodes, 0 edges
+    class lib_webgl_utils_material_54e3433d klass;
+    class lib_webgl_utils_createfbo_3c680567 function;
+    class lib_webgl_utils_createglprogram_40b6c0b9 function;
+    class lib_webgl_utils_compileshader_592a0f3a function;
+    class lib_webgl_utils_getwebglcontext_e6d20804 function;
+    class lib_webgl_utils_initblit_c6b09ed3 function;
+    class lib_webgl_utils_material_setkeywords_34832fdb function;
+    class lib_webgl_utils_getsupportedformat_04b75031 function;
+    class lib_webgl_utils_supportrendertextureformat_e65ff26b function;
+    class lib_webgl_utils_addkeywords_62892430 function;
+    class lib_webgl_utils_program_constructor_f7aa8c48 function;
+    class lib_webgl_utils_getuniforms_706ef481 function;
+    class lib_webgl_utils_material_bind_f12851bd function;
+    class lib_webgl_utils_material_constructor_249d0433 function;
+    class lib_webgl_utils_program_bind_9bb47379 function;
+    class lib_splash_cursor_logic_0fff33f4 module;
+    class lib_splash_cursor_logic_createsplashsimulation_0d4f236d function;
+    class lib_splash_math_hashcode_424c82d6 function;
+    classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
+    classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
+    classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
+    classDef klass fill:#064e3b,stroke:#34d399,color:#d1fae5,stroke-width:1px;
+    classDef ui fill:#831843,stroke:#f472b6,color:#fce7f3,stroke-width:1px;
+    classDef module fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1px;
+    classDef test fill:#3f3f46,stroke:#a1a1aa,color:#f4f4f5,stroke-width:1px;
+    classDef concept fill:#292524,stroke:#a8a29e,color:#fafaf9,stroke-dasharray:4 3;
+    classDef function fill:#0f172a,stroke:#38bdf8,color:#e0f2fe,stroke-width:1px;
+</div>
+
+<h3>Call Details</h3>
+<table class="call-table">
+<tr>
+  <th style="width:5%">#</th>
+  <th style="width:28%">Node</th>
+  <th style="width:10%">Type</th>
+  <th style="width:17%">Caller</th>
+  <th style="width:20%">Callees</th>
+  <th style="width:20%">Description</th>
+</tr>
+<tr>
+  <td>1</td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td><span class="tag tag-class">Module</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>compileShader()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>correctDeltaX()</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small><br><code>correctDeltaY()</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small><br>+17 more</td>
+  <td>Module file in src/lib/splash-cursor-logic.ts.</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><code>SplashSimulation</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td><span class="tag tag-class">Class</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>SplashSimulation node in src/lib/splash-cursor-logic.ts.</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td><code>createSplashSimulation()</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>compileShader()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>getWebGLContext()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>initBlit()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>createSplashSimulation() node in src/lib/splash-cursor-logic.ts.</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td><code>splash-math.ts</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small></td>
+  <td><span class="tag tag-class">Module</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td><code>webgl-utils.ts</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>Module file in src/lib/splash-math.ts.</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td><code>hashCode()</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>setKeywords()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>webgl-utils.ts</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>Caches analysis results or computes cache keys.</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td><code>getResolution()</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>getResolution() node in src/lib/splash-math.ts.</td>
+</tr>
+<tr>
+  <td>7</td>
+  <td><code>scaleByPixelRatio()</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>scaleByPixelRatio() node in src/lib/splash-math.ts.</td>
+</tr>
+<tr>
+  <td>8</td>
+  <td><code>wrap()</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>wrap() node in src/lib/splash-math.ts.</td>
+</tr>
+<tr>
+  <td>9</td>
+  <td><code>HSVtoRGB()</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>HSVtoRGB() node in src/lib/splash-math.ts.</td>
+</tr>
+<tr>
+  <td>10</td>
+  <td><code>correctDeltaX()</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>correctDeltaX() node in src/lib/splash-math.ts.</td>
+</tr>
+<tr>
+  <td>11</td>
+  <td><code>correctDeltaY()</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>correctDeltaY() node in src/lib/splash-math.ts.</td>
+</tr>
+<tr>
+  <td>12</td>
+  <td><code>correctRadius()</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>correctRadius() node in src/lib/splash-math.ts.</td>
+</tr>
+<tr>
+  <td>13</td>
+  <td><code>splash-shaders.ts</code><br><small style="color:var(--muted)">src/lib/splash-shaders.ts</small></td>
+  <td><span class="tag tag-class">Module</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>Module file in src/lib/splash-shaders.ts.</td>
+</tr>
+<tr>
+  <td>14</td>
+  <td><code>webgl-utils.ts</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-class">Module</span></td>
+  <td><code>hashCode()</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small><br><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small><br><code>splash-math.ts</code><br><small style="color:var(--muted)">src/lib/splash-math.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>Module file in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>15</td>
+  <td><code>GLFormat</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-class">Class</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>GLFormat node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>16</td>
+  <td><code>FBO</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-class">Class</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>FBO node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>17</td>
+  <td><code>DoubleFBO</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-class">Class</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>DoubleFBO node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>18</td>
+  <td><code>getWebGLContext()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>createSplashSimulation()</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small><br><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td><code>getSupportedFormat()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>getWebGLContext() node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>19</td>
+  <td><code>getSupportedFormat()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>getWebGLContext()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><code>supportRenderTextureFormat()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>getSupportedFormat() node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>20</td>
+  <td><code>supportRenderTextureFormat()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>getSupportedFormat()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>supportRenderTextureFormat() node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>21</td>
+  <td><code>compileShader()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>createSplashSimulation()</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small><br><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td><code>addKeywords()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>setKeywords()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>compileShader() node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>22</td>
+  <td><code>addKeywords()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>compileShader()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>addKeywords() node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>23</td>
+  <td><code>createGLProgram()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>constructor()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>setKeywords()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>createGLProgram() node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>24</td>
+  <td><code>getUniforms()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>constructor()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>setKeywords()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>getUniforms() node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>25</td>
+  <td><code>Material</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-class">Class</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td><code>bind()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>bind()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>constructor()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br>+2 more</td>
+  <td>Material node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>26</td>
+  <td><code>.constructor()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>Material</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>.constructor() node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>27</td>
+  <td><code>.setKeywords()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>compileShader()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>createGLProgram()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>getUniforms()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br>+2 more</td>
+  <td>No direct outbound edge</td>
+  <td>.setKeywords() node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>28</td>
+  <td><code>.bind()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>Material</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>.bind() node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>29</td>
+  <td><code>Program</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-class">Class</span></td>
+  <td><code>splash-cursor-logic.ts</code><br><small style="color:var(--muted)">src/lib/splash-cursor-logic.ts</small></td>
+  <td><code>bind()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>constructor()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td>Program node in src/lib/webgl-utils.ts.</td>
+</tr>
+<tr>
+  <td>30</td>
+  <td><code>.constructor()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>createGLProgram()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>getUniforms()</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br><code>Material</code><br><small style="color:var(--muted)">src/lib/webgl-utils.ts</small><br>+1 more</td>
+  <td>No direct outbound edge</td>
+  <td>.constructor() node in src/lib/webgl-utils.ts.</td>
+</tr>
+</table>
+
+<div class="grid">
+  <div class="card">
+    <h4>Key Files</h4>
+    <table style="width:100%;font-size:0.85rem;">
+      <tr><th>File</th><th>Coverage</th></tr>
+      <tr><td><code>src/lib/webgl-utils.ts</code></td><td>23 nodes</td></tr>
+<tr><td><code>src/lib/splash-math.ts</code></td><td>9 nodes</td></tr>
+<tr><td><code>src/lib/splash-cursor-logic.ts</code></td><td>3 nodes</td></tr>
+<tr><td><code>src/lib/splash-shaders.ts</code></td><td>1 nodes</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h4>Design Notes</h4>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x27, imports x18, calls x17, method x7. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+  </div>
+</div>
+<hr>
+
+<!-- ====== 14. PR Review Workflow 9 ====== -->
+<h2 id="pr-review-workflow-9">14. PR Review Workflow 9</h2>
 <p>PR Review Workflow 9 groups implementation around review, preseed, agents, extensions, mostly in pi/extensions/review-jobs.ts, pi/extensions/review-job-helpers.ts. This section covers 34 nodes and 72 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
@@ -4321,37 +4677,36 @@ flowchart LR
 </div>
 <hr>
 
-<!-- ====== 14. Terminal Runtime ====== -->
-<h2 id="terminal-runtime">14. Terminal Runtime</h2>
-<p>Terminal Runtime groups implementation around web, stores, terminalts, clearfitaddons, mostly in src/stores/terminal.ts, src/stores/terminal-layout.ts. This section covers 34 nodes and 52 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<!-- ====== 15. Terminal Runtime ====== -->
+<h2 id="terminal-runtime">15. Terminal Runtime</h2>
+<p>Terminal Runtime groups implementation around terminalts, web, stores, textdecoder, mostly in src/stores/terminal.ts. This section covers 34 nodes and 58 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Terminal Runtime (34 nodes, 52 edges)
-    subgraph terminal_runtime_src_stores_terminal_ts_c14410a1["src/stores/terminal.ts"]
-        stores_terminal_makekey_deded669("makeKey()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_cancelpendingflush_bbbe991a("cancelPendingFlush()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_scheduledisconnect_b94964b3("scheduleDisconnect()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_disconnect_bd514849("disconnect()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_dispose_d4271e44("dispose()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_disposeall_8f76e331("disposeAll()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_getretrymessage_478dee88("getRetryMessage()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_isprogrammaticscrollsuppressed_441a088b("isProgrammaticScrollSuppressed()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_reconnect_3d3b3c7a("reconnect()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_resize_bd602f09("resize()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_setconnectionstate_43118d16("setConnectionState()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_setretrymessage_862114ef("setRetryMessage()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_setterminal_001d70ba("setTerminal()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_disconnectall_42076ad9("disconnectAll()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_reconnectdisconnectedterminals_789a708d("reconnectDisconnectedTerminals()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_cancelscheduleddisconnect_85dd3f85("cancelScheduledDisconnect()<br/><small>src/stores/terminal.ts</small>")
-        stores_terminal_e7c62596("terminal.ts")
-    end
-    stores_terminal_layout_clearfitaddons_748ce8c1("clearFitAddons()<br/><small>src/stores/terminal-layout.ts</small>")
-    stores_terminal_layout_clearfitaddons_748ce8c1 -->|calls| stores_terminal_disposeall_8f76e331
+    %% Section: Terminal Runtime (34 nodes, 58 edges)
+    stores_terminal_makekey_deded669("makeKey()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_connect_c083fd3f("connect()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_getconnectionstate_e367d412("getConnectionState()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_cancelpendingflush_bbbe991a("cancelPendingFlush()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_setconnectionstate_43118d16("setConnectionState()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_disconnect_bd514849("disconnect()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_dispose_d4271e44("dispose()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_getretrymessage_478dee88("getRetryMessage()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_isprogrammaticscrollsuppressed_441a088b("isProgrammaticScrollSuppressed()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_reconnect_3d3b3c7a("reconnect()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_resize_bd602f09("resize()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_setretrymessage_862114ef("setRetryMessage()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_setterminal_001d70ba("setTerminal()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_isconnected_a4085867("isConnected()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_reconnectdisconnectedterminals_789a708d("reconnectDisconnectedTerminals()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_disposeall_8f76e331("disposeAll()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_disconnectall_42076ad9("disconnectAll()<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_authurl_setauthurl_a6f2faec("[authUrl, setAuthUrl]<br/><small>src/stores/terminal.ts</small>")
+    stores_terminal_makekey_deded669 -->|calls| stores_terminal_connect_c083fd3f
     stores_terminal_makekey_deded669 -->|calls| stores_terminal_disconnect_bd514849
     stores_terminal_makekey_deded669 -->|calls| stores_terminal_dispose_d4271e44
+    stores_terminal_makekey_deded669 -->|calls| stores_terminal_getconnectionstate_e367d412
     stores_terminal_makekey_deded669 -->|calls| stores_terminal_getretrymessage_478dee88
     stores_terminal_makekey_deded669 -->|calls| stores_terminal_isprogrammaticscrollsuppressed_441a088b
     stores_terminal_makekey_deded669 -->|calls| stores_terminal_reconnect_3d3b3c7a
@@ -4360,34 +4715,37 @@ flowchart LR
     stores_terminal_makekey_deded669 -->|calls| stores_terminal_setretrymessage_862114ef
     stores_terminal_makekey_deded669 -->|calls| stores_terminal_setterminal_001d70ba
     stores_terminal_cancelpendingflush_bbbe991a -->|calls| stores_terminal_disconnect_bd514849
+    stores_terminal_getconnectionstate_e367d412 -->|calls| stores_terminal_disconnect_bd514849
+    stores_terminal_getconnectionstate_e367d412 -->|calls| stores_terminal_isconnected_a4085867
+    stores_terminal_getconnectionstate_e367d412 -->|calls| stores_terminal_reconnectdisconnectedterminals_789a708d
     stores_terminal_setconnectionstate_43118d16 -->|calls| stores_terminal_disconnect_bd514849
+    stores_terminal_connect_c083fd3f -->|calls| stores_terminal_disconnect_bd514849
+    stores_terminal_connect_c083fd3f -->|calls| stores_terminal_dispose_d4271e44
+    stores_terminal_connect_c083fd3f -->|calls| stores_terminal_reconnect_3d3b3c7a
     stores_terminal_disconnect_bd514849 -->|calls| stores_terminal_dispose_d4271e44
     stores_terminal_disconnect_bd514849 -->|calls| stores_terminal_disposeall_8f76e331
     stores_terminal_disconnect_bd514849 -->|calls| stores_terminal_reconnect_3d3b3c7a
     stores_terminal_dispose_d4271e44 -->|calls| stores_terminal_disconnectall_42076ad9
     stores_terminal_dispose_d4271e44 -->|calls| stores_terminal_disposeall_8f76e331
-    stores_terminal_reconnect_3d3b3c7a -->|calls| stores_terminal_reconnectdisconnectedterminals_789a708d
-    stores_terminal_scheduledisconnect_b94964b3 -->|calls| stores_terminal_cancelscheduleddisconnect_85dd3f85
-    stores_terminal_layout_clearfitaddons_748ce8c1 -->|imports| stores_terminal_e7c62596
-    %% Omitted for readability: 16 nodes, 0 edges
+    %% Omitted for readability: 16 nodes, 1 edges
     class stores_terminal_makekey_deded669 function;
+    class stores_terminal_connect_c083fd3f function;
+    class stores_terminal_getconnectionstate_e367d412 function;
     class stores_terminal_cancelpendingflush_bbbe991a function;
-    class stores_terminal_scheduledisconnect_b94964b3 function;
+    class stores_terminal_setconnectionstate_43118d16 function;
     class stores_terminal_disconnect_bd514849 function;
     class stores_terminal_dispose_d4271e44 function;
-    class stores_terminal_disposeall_8f76e331 function;
     class stores_terminal_getretrymessage_478dee88 function;
     class stores_terminal_isprogrammaticscrollsuppressed_441a088b async;
     class stores_terminal_reconnect_3d3b3c7a function;
     class stores_terminal_resize_bd602f09 function;
-    class stores_terminal_setconnectionstate_43118d16 function;
     class stores_terminal_setretrymessage_862114ef function;
     class stores_terminal_setterminal_001d70ba function;
-    class stores_terminal_disconnectall_42076ad9 function;
+    class stores_terminal_isconnected_a4085867 function;
     class stores_terminal_reconnectdisconnectedterminals_789a708d function;
-    class stores_terminal_cancelscheduleddisconnect_85dd3f85 function;
-    class stores_terminal_e7c62596 module;
-    class stores_terminal_layout_clearfitaddons_748ce8c1 function;
+    class stores_terminal_disposeall_8f76e331 function;
+    class stores_terminal_disconnectall_42076ad9 function;
+    class stores_terminal_authurl_setauthurl_a6f2faec function;
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
     classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
@@ -4411,22 +4769,14 @@ flowchart LR
 </tr>
 <tr>
   <td>1</td>
-  <td><code>clearFitAddons()</code><br><small style="color:var(--muted)">src/stores/terminal-layout.ts</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td><code>disposeAll()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>terminal.ts</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
-  <td>clearFitAddons() node in src/stores/terminal-layout.ts.</td>
-</tr>
-<tr>
-  <td>2</td>
   <td><code>terminal.ts</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-class">Module</span></td>
-  <td><code>clearFitAddons()</code><br><small style="color:var(--muted)">src/stores/terminal-layout.ts</small></td>
+  <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
   <td>Module file in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>3</td>
+  <td>2</td>
   <td><code>textDecoder</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4434,7 +4784,7 @@ flowchart LR
   <td>textDecoder node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>4</td>
+  <td>3</td>
   <td><code>registerProcessNameCallback()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4442,15 +4792,15 @@ flowchart LR
   <td>registerProcessNameCallback() node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>5</td>
+  <td>4</td>
   <td><code>makeKey()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
-  <td><code>disconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>dispose()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>getRetryMessage()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br>+6 more</td>
+  <td><code>connect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>disconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>dispose()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br>+8 more</td>
   <td>makeKey() node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>6</td>
+  <td>5</td>
   <td><code>[state, setState]</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4458,7 +4808,7 @@ flowchart LR
   <td>[state, setState] node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>7</td>
+  <td>6</td>
   <td><code>connections</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4466,7 +4816,7 @@ flowchart LR
   <td>connections node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>8</td>
+  <td>7</td>
   <td><code>terminals</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4474,7 +4824,7 @@ flowchart LR
   <td>terminals node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>9</td>
+  <td>8</td>
   <td><code>retryTimeouts</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4482,7 +4832,7 @@ flowchart LR
   <td>retryTimeouts node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>10</td>
+  <td>9</td>
   <td><code>abortControllers</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4490,7 +4840,7 @@ flowchart LR
   <td>abortControllers node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>11</td>
+  <td>10</td>
   <td><code>inputDisposables</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4498,7 +4848,7 @@ flowchart LR
   <td>inputDisposables node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>12</td>
+  <td>11</td>
   <td><code>writeBuffers</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4506,7 +4856,7 @@ flowchart LR
   <td>writeBuffers node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>13</td>
+  <td>12</td>
   <td><code>pendingFlushes</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4514,7 +4864,7 @@ flowchart LR
   <td>pendingFlushes node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>14</td>
+  <td>13</td>
   <td><code>scrollSuppressionCounts</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4522,7 +4872,7 @@ flowchart LR
   <td>scrollSuppressionCounts node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>15</td>
+  <td>14</td>
   <td><code>beginProgrammaticScroll()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4530,7 +4880,7 @@ flowchart LR
   <td>beginProgrammaticScroll() node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>16</td>
+  <td>15</td>
   <td><code>endProgrammaticScroll()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4538,7 +4888,7 @@ flowchart LR
   <td>endProgrammaticScroll() node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>17</td>
+  <td>16</td>
   <td><code>isProgrammaticScrollSuppressed()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-async">Async</span></td>
   <td><code>makeKey()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
@@ -4546,7 +4896,7 @@ flowchart LR
   <td>isProgrammaticScrollSuppressed() node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>18</td>
+  <td>17</td>
   <td><code>scheduleWrite()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
@@ -4554,12 +4904,20 @@ flowchart LR
   <td>scheduleWrite() node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>19</td>
+  <td>18</td>
   <td><code>cancelPendingFlush()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td>External entry / no inbound edge</td>
   <td><code>disconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td>cancelPendingFlush() node in src/stores/terminal.ts.</td>
+</tr>
+<tr>
+  <td>19</td>
+  <td><code>getConnectionState()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>makeKey()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
+  <td><code>disconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>isConnected()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>reconnectDisconnectedTerminals()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
+  <td>getConnectionState() node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
   <td>20</td>
@@ -4595,14 +4953,22 @@ flowchart LR
 </tr>
 <tr>
   <td>24</td>
+  <td><code>connect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>makeKey()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
+  <td><code>disconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>dispose()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>reconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
+  <td>connect() node in src/stores/terminal.ts.</td>
+</tr>
+<tr>
+  <td>25</td>
   <td><code>disconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
-  <td><code>cancelPendingFlush()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>makeKey()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>setConnectionState()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
+  <td><code>cancelPendingFlush()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>connect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>getConnectionState()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br>+2 more</td>
   <td><code>dispose()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>disposeAll()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>reconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td>disconnect() node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>25</td>
+  <td>26</td>
   <td><code>resize()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
   <td><code>makeKey()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
@@ -4610,45 +4976,37 @@ flowchart LR
   <td>resize() node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>26</td>
+  <td>27</td>
+  <td><code>isConnected()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>getConnectionState()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>isConnected() node in src/stores/terminal.ts.</td>
+</tr>
+<tr>
+  <td>28</td>
   <td><code>dispose()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
-  <td><code>disconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>makeKey()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
+  <td><code>connect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>disconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>makeKey()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><code>disconnectAll()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>disposeAll()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td>dispose() node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>27</td>
+  <td>29</td>
   <td><code>disposeAll()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
-  <td><code>clearFitAddons()</code><br><small style="color:var(--muted)">src/stores/terminal-layout.ts</small><br><code>disconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>dispose()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
+  <td><code>disconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>dispose()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td>No direct outbound edge</td>
   <td>disposeAll() node in src/stores/terminal.ts.</td>
 </tr>
 <tr>
-  <td>28</td>
+  <td>30</td>
   <td><code>reconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><span class="tag tag-func">Function</span></td>
-  <td><code>disconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>makeKey()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
+  <td><code>connect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>disconnect()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small><br><code>makeKey()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td><code>reconnectDisconnectedTerminals()</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
   <td>reconnect() node in src/stores/terminal.ts.</td>
 </tr>
-<tr>
-  <td>29</td>
-  <td><code>[authUrl, setAuthUrl]</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>[authUrl, setAuthUrl] node in src/stores/terminal.ts.</td>
-</tr>
-<tr>
-  <td>30</td>
-  <td><code>[normalUrl, setNormalUrl]</code><br><small style="color:var(--muted)">src/stores/terminal.ts</small></td>
-  <td><span class="tag tag-func">Function</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>[normalUrl, setNormalUrl] node in src/stores/terminal.ts.</td>
-</tr>
 </table>
 
 <div class="grid">
@@ -4656,352 +5014,24 @@ flowchart LR
     <h4>Key Files</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>src/stores/terminal.ts</code></td><td>33 nodes</td></tr>
-<tr><td><code>src/stores/terminal-layout.ts</code></td><td>1 nodes</td></tr>
+      <tr><td><code>src/stores/terminal.ts</code></td><td>34 nodes</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x32, calls x19, imports x1. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
-  </div>
-</div>
-<hr>
-
-<!-- ====== 15. Subscription Tiers 5 ====== -->
-<h2 id="subscription-tiers-5">15. Subscription Tiers 5</h2>
-<p>Subscription Tiers 5 groups implementation around sdd, spec, subscriptionmd, req, mostly in sdd/spec/subscription.md, sdd/spec/glossary.md, sdd/spec/security.md. This section covers 27 nodes and 31 internal edges; the diagram shows only representative relationships to stay readable.</p>
-
-<div class="mermaid">
-%%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
-flowchart LR
-    %% Section: Subscription Tiers 5 (27 nodes, 31 edges)
-    subgraph subscription_tiers_5_sdd_spec_subscription_md_e75cc7e7["sdd/spec/subscription.md"]
-        subscription_domain_spec_437ff1ed("Subscription Domain Specification<br/><small>sdd/spec/subscription.md</small>")
-        trial_compute_quota_71b908cc("Compute-Based Trial Quota<br/><small>sdd/spec/subscription.md</small>")
-        usage_dashboard_a181a2de("Usage Dashboard<br/><small>sdd/spec/subscription.md</small>")
-        stripe_checkout_802207ba("Stripe Checkout<br/><small>sdd/spec/subscription.md</small>")
-        req_sub_006_5611a98f("REQ-SUB-006 Real-time Usage Tracking vi...<br/><small>sdd/spec/subscription.md</small>")
-        req_sub_004_92d26822("REQ-SUB-004 Paid Tiers Integrate with S...<br/><small>sdd/spec/subscription.md</small>")
-        req_sub_005_7421c590("REQ-SUB-005 Trial Is Compute-based Not...<br/><small>sdd/spec/subscription.md</small>")
-        req_sub_007_872ffa82("REQ-SUB-007 Quota Enforcement at Sessio...<br/><small>sdd/spec/subscription.md</small>")
-        req_sub_008_70bb06d4("REQ-SUB-008 Mid-session Quota Enforceme...<br/><small>sdd/spec/subscription.md</small>")
-        req_sub_012_db996271("REQ-SUB-012 Billing Status Enforcement...<br/><small>sdd/spec/subscription.md</small>")
-        req_sub_018_5d18c0f8("REQ-SUB-018 Usage Dashboard Page<br/><small>sdd/spec/subscription.md</small>")
-        req_sub_002_2a9fdbe4("REQ-SUB-002 Tier Property Definitions<br/><small>sdd/spec/subscription.md</small>")
-        req_sub_003_ef2f66ca("REQ-SUB-003 Free Tier Requires No Payment<br/><small>sdd/spec/subscription.md</small>")
-        req_sub_009_a7dec481("REQ-SUB-009 Admin-configurable Tiers vi...<br/><small>sdd/spec/subscription.md</small>")
-    end
-    subgraph subscription_tiers_5_sdd_spec_glossary_md_eece4871["sdd/spec/glossary.md"]
-        effective_tier_3253d835("Effective Tier<br/><small>sdd/spec/glossary.md</small>")
-        timekeeper_do_c2dd992b("Timekeeper Durable Object<br/><small>sdd/spec/glossary.md</small>")
-        billing_status_f7b096aa("BillingStatus<br/><small>sdd/spec/glossary.md</small>")
-    end
-    req_sec_015_0abaa941("REQ-SEC-015 Blocked User Cannot Self-up...<br/><small>sdd/spec/security.md</small>")
-    effective_tier_3253d835 -->|references| req_sec_015_0abaa941
-    effective_tier_3253d835 -->|implements| req_sub_012_db996271
-    effective_tier_3253d835 -->|references| subscription_domain_spec_437ff1ed
-    billing_status_f7b096aa -->|references| subscription_domain_spec_437ff1ed
-    timekeeper_do_c2dd992b -->|implements| req_sub_006_5611a98f
-    timekeeper_do_c2dd992b -->|references| subscription_domain_spec_437ff1ed
-    subscription_domain_spec_437ff1ed -->|references| req_sub_002_2a9fdbe4
-    subscription_domain_spec_437ff1ed -->|references| req_sub_003_ef2f66ca
-    subscription_domain_spec_437ff1ed -->|references| req_sub_004_92d26822
-    subscription_domain_spec_437ff1ed -->|references| req_sub_005_7421c590
-    subscription_domain_spec_437ff1ed -->|references| req_sub_006_5611a98f
-    subscription_domain_spec_437ff1ed -->|references| req_sub_007_872ffa82
-    subscription_domain_spec_437ff1ed -->|references| req_sub_008_70bb06d4
-    subscription_domain_spec_437ff1ed -->|references| req_sub_009_a7dec481
-    subscription_domain_spec_437ff1ed -->|references| req_sub_012_db996271
-    subscription_domain_spec_437ff1ed -->|references| req_sub_018_5d18c0f8
-    subscription_domain_spec_437ff1ed -->|references| stripe_checkout_802207ba
-    stripe_checkout_802207ba -->|implements| req_sub_004_92d26822
-    trial_compute_quota_71b908cc -->|implements| req_sub_005_7421c590
-    usage_dashboard_a181a2de -->|implements| req_sub_018_5d18c0f8
-    req_sub_006_5611a98f -->|references| req_sub_007_872ffa82
-    req_sub_006_5611a98f -->|references| req_sub_008_70bb06d4
-    %% Omitted for readability: 9 nodes, 0 edges
-    class subscription_domain_spec_437ff1ed concept;
-    class trial_compute_quota_71b908cc test;
-    class usage_dashboard_a181a2de test;
-    class stripe_checkout_802207ba test;
-    class req_sub_006_5611a98f concept;
-    class req_sub_004_92d26822 concept;
-    class req_sub_005_7421c590 concept;
-    class req_sub_007_872ffa82 concept;
-    class req_sub_008_70bb06d4 concept;
-    class req_sub_012_db996271 concept;
-    class req_sub_018_5d18c0f8 concept;
-    class req_sub_002_2a9fdbe4 concept;
-    class req_sub_003_ef2f66ca concept;
-    class req_sub_009_a7dec481 concept;
-    class effective_tier_3253d835 test;
-    class timekeeper_do_c2dd992b test;
-    class billing_status_f7b096aa test;
-    class req_sec_015_0abaa941 concept;
-    classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
-    classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
-    classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
-    classDef klass fill:#064e3b,stroke:#34d399,color:#d1fae5,stroke-width:1px;
-    classDef ui fill:#831843,stroke:#f472b6,color:#fce7f3,stroke-width:1px;
-    classDef module fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1px;
-    classDef test fill:#3f3f46,stroke:#a1a1aa,color:#f4f4f5,stroke-width:1px;
-    classDef concept fill:#292524,stroke:#a8a29e,color:#fafaf9,stroke-dasharray:4 3;
-    classDef function fill:#0f172a,stroke:#38bdf8,color:#e0f2fe,stroke-width:1px;
-</div>
-
-<h3>Call Details</h3>
-<table class="call-table">
-<tr>
-  <th style="width:5%">#</th>
-  <th style="width:28%">Node</th>
-  <th style="width:10%">Type</th>
-  <th style="width:17%">Caller</th>
-  <th style="width:20%">Callees</th>
-  <th style="width:20%">Description</th>
-</tr>
-<tr>
-  <td>1</td>
-  <td><code>Effective Tier</code><br><small style="color:var(--muted)">sdd/spec/glossary.md</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Effective Tier node in sdd/spec/glossary.md.</td>
-</tr>
-<tr>
-  <td>2</td>
-  <td><code>BillingStatus</code><br><small style="color:var(--muted)">sdd/spec/glossary.md</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>BillingStatus node in sdd/spec/glossary.md.</td>
-</tr>
-<tr>
-  <td>3</td>
-  <td><code>Timekeeper Durable Object</code><br><small style="color:var(--muted)">sdd/spec/glossary.md</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Timekeeper Durable Object node in sdd/spec/glossary.md.</td>
-</tr>
-<tr>
-  <td>4</td>
-  <td><code>REQ-SEC-015 Blocked User Cannot Self-upgrade Subscription</code><br><small style="color:var(--muted)">sdd/spec/security.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SEC-015 Blocked User Cannot Self-upgrade Subscription.</td>
-</tr>
-<tr>
-  <td>5</td>
-  <td><code>Subscription Domain Specification</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing Subscription Domain Specification.</td>
-</tr>
-<tr>
-  <td>6</td>
-  <td><code>Stripe Checkout</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Stripe Checkout node in sdd/spec/subscription.md.</td>
-</tr>
-<tr>
-  <td>7</td>
-  <td><code>Compute-Based Trial Quota</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Compute-Based Trial Quota node in sdd/spec/subscription.md.</td>
-</tr>
-<tr>
-  <td>8</td>
-  <td><code>Usage Dashboard</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Test</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Usage Dashboard node in sdd/spec/subscription.md.</td>
-</tr>
-<tr>
-  <td>9</td>
-  <td><code>REQ-SUB-002 Tier Property Definitions</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-002 Tier Property Definitions.</td>
-</tr>
-<tr>
-  <td>10</td>
-  <td><code>REQ-SUB-003 Free Tier Requires No Payment</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-003 Free Tier Requires No Payment.</td>
-</tr>
-<tr>
-  <td>11</td>
-  <td><code>REQ-SUB-004 Paid Tiers Integrate with Stripe Checkout</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-004 Paid Tiers Integrate with Stripe Checkout.</td>
-</tr>
-<tr>
-  <td>12</td>
-  <td><code>REQ-SUB-005 Trial Is Compute-based Not Time-based</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-005 Trial Is Compute-based Not Time-based.</td>
-</tr>
-<tr>
-  <td>13</td>
-  <td><code>REQ-SUB-006 Real-time Usage Tracking via Timekeeper DO</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-006 Real-time Usage Tracking via Timekeeper DO.</td>
-</tr>
-<tr>
-  <td>14</td>
-  <td><code>REQ-SUB-007 Quota Enforcement at Session Start</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-007 Quota Enforcement at Session Start.</td>
-</tr>
-<tr>
-  <td>15</td>
-  <td><code>REQ-SUB-008 Mid-session Quota Enforcement Graceful Stop</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-008 Mid-session Quota Enforcement Graceful Stop.</td>
-</tr>
-<tr>
-  <td>16</td>
-  <td><code>REQ-SUB-009 Admin-configurable Tiers via Management Panel</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-009 Admin-configurable Tiers via Management Panel.</td>
-</tr>
-<tr>
-  <td>17</td>
-  <td><code>REQ-SUB-010 Tier Config Cached with 60-second TTL</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-010 Tier Config Cached with 60-second TTL.</td>
-</tr>
-<tr>
-  <td>18</td>
-  <td><code>REQ-SUB-011 Graceful Degradation Without Stripe</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-011 Graceful Degradation Without Stripe.</td>
-</tr>
-<tr>
-  <td>19</td>
-  <td><code>REQ-SUB-012 Billing Status Enforcement Effective Tier</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-012 Billing Status Enforcement Effective Tier.</td>
-</tr>
-<tr>
-  <td>20</td>
-  <td><code>REQ-SUB-013 Concurrent Session Limits</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-013 Concurrent Session Limits.</td>
-</tr>
-<tr>
-  <td>21</td>
-  <td><code>REQ-SUB-015 Stripe Webhook Signal-and-sync Pattern</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-015 Stripe Webhook Signal-and-sync Pattern.</td>
-</tr>
-<tr>
-  <td>22</td>
-  <td><code>REQ-SUB-016 Customer Portal and Plan Switching</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-016 Customer Portal and Plan Switching.</td>
-</tr>
-<tr>
-  <td>23</td>
-  <td><code>REQ-SUB-017 Enterprise Tier Contact Flow</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-017 Enterprise Tier Contact Flow.</td>
-</tr>
-<tr>
-  <td>24</td>
-  <td><code>REQ-SUB-018 Usage Dashboard Page</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-018 Usage Dashboard Page.</td>
-</tr>
-<tr>
-  <td>25</td>
-  <td><code>REQ-SUB-019 Session Limit Popup in Frontend</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-019 Session Limit Popup in Frontend.</td>
-</tr>
-<tr>
-  <td>26</td>
-  <td><code>REQ-SUB-020 Multi-currency Pricing</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-020 Multi-currency Pricing.</td>
-</tr>
-<tr>
-  <td>27</td>
-  <td><code>REQ-SUB-021 Billing Cycle Alignment</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-021 Billing Cycle Alignment.</td>
-</tr>
-</table>
-
-<div class="grid">
-  <div class="card">
-    <h4>Key Files</h4>
-    <table style="width:100%;font-size:0.85rem;">
-      <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>sdd/spec/subscription.md</code></td><td>23 nodes</td></tr>
-<tr><td><code>sdd/spec/glossary.md</code></td><td>3 nodes</td></tr>
-<tr><td><code>sdd/spec/security.md</code></td><td>1 nodes</td></tr>
-    </table>
-  </div>
-  <div class="card">
-    <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: references x26, implements x5. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x33, calls x25. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
 
 <!-- ====== 16. Other ====== -->
 <h2 id="other">16. Other</h2>
-<p>Other groups implementation around sdd, spec, req, preseed, mostly in pi/extensions/codeflare-pi.ts, sdd/spec/authentication.md, sdd/spec/storage.md. This section covers 549 nodes and 613 internal edges; the diagram shows only representative relationships to stay readable.</p>
+<p>Other groups implementation around sdd, spec, req, preseed, mostly in sdd/spec/subscription.md, pi/extensions/codeflare-pi.ts, sdd/spec/authentication.md. This section covers 573 nodes and 671 internal edges; the diagram shows only representative relationships to stay readable.</p>
 
 <div class="mermaid">
 %%{init: {"theme": "dark", "themeVariables": {"fontSize": "15.0px", "fontFamily": "Segoe UI, system-ui, sans-serif", "primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "primaryBorderColor": "#38bdf8", "secondaryColor": "#0f172a", "tertiaryColor": "#334155", "lineColor": "#64748b", "textColor": "#e2e8f0"}, "flowchart": {"htmlLabels": true, "curve": "basis", "nodeSpacing": 48, "rankSpacing": 64, "padding": 14, "diagramPadding": 10, "useMaxWidth": true}}}%%
 flowchart LR
-    %% Section: Other (549 nodes, 613 edges)
+    %% Section: Other (573 nodes, 671 edges)
     subgraph other_host_src_session_ts_92063c29["host/src/session.ts"]
         src_session_session_1fec08d3("Session<br/><small>host/src/session.ts</small>")
         src_session_stripterminalresponses_dbbf2012("stripTerminalResponses()<br/><small>host/src/session.ts</small>")
@@ -5024,12 +5054,10 @@ flowchart LR
         src_auth_check_safetokencompare_3ac6cc1d("safeTokenCompare()<br/><small>host/src/auth-check.ts</small>")
         src_auth_check_checkcontainerauth_45e7dd4b("checkContainerAuth()<br/><small>host/src/auth-check.ts</small>")
     end
-    subgraph other_pi_extensions_codeflare_pi_ts_ddfbf9ea["pi/extensions/codeflare-pi.ts"]
-        extensions_codeflare_pi_1750a659("codeflare-pi.ts")
-        extensions_codeflare_pi_shell_ced1348a("shell()<br/><small>pi/extensions/codeflare-pi.ts</small>")
-    end
     src_activity_tracker_8464288c("activity-tracker.ts")
     src_session_manager_ce91f12a("session-manager.ts")
+    extensions_codeflare_commands_f0856be1("codeflare-commands.ts")
+    extensions_codeflare_pi_1750a659("codeflare-pi.ts")
     src_auth_check_safetokencompare_3ac6cc1d -->|calls| src_auth_check_checkcontainerauth_45e7dd4b
     src_metrics_execfileasync_e365e7e0 -->|calls| src_metrics_getdiskmetrics_3b512281
     src_metrics_getdiskmetrics_3b512281 -->|calls| src_metrics_getsystemmetrics_691f731c
@@ -5040,7 +5068,7 @@ flowchart LR
     src_session_session_1fec08d3 -->|method| src_session_session_attach_e518c3f5
     src_session_session_1fec08d3 -->|method| src_session_session_write_9f1b9e84
     src_session_manager_ce91f12a -->|imports| src_session_session_1fec08d3
-    %% Omitted for readability: 531 nodes, 0 edges
+    %% Omitted for readability: 555 nodes, 0 edges
     class src_session_session_1fec08d3 klass;
     class src_session_stripterminalresponses_dbbf2012 function;
     class src_session_session_write_9f1b9e84 function;
@@ -5055,10 +5083,10 @@ flowchart LR
     class src_server_shutdown_0907c22d function;
     class src_auth_check_safetokencompare_3ac6cc1d function;
     class src_auth_check_checkcontainerauth_45e7dd4b function;
-    class extensions_codeflare_pi_1750a659 module;
-    class extensions_codeflare_pi_shell_ced1348a function;
     class src_activity_tracker_8464288c module;
     class src_session_manager_ce91f12a module;
+    class extensions_codeflare_commands_f0856be1 entry;
+    class extensions_codeflare_pi_1750a659 module;
     classDef entry fill:#422006,stroke:#fbbf24,color:#fde68a,stroke-width:1px;
     classDef api fill:#450a0a,stroke:#f87171,color:#fee2e2,stroke-width:1px;
     classDef async fill:#2e1065,stroke:#a78bfa,color:#ede9fe,stroke-width:1px;
@@ -5082,222 +5110,14 @@ flowchart LR
 </tr>
 <tr>
   <td>1</td>
-  <td><code>subscription.md</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing subscription.md.</td>
-</tr>
-<tr>
-  <td>2</td>
-  <td><code>Subscription Domain Specification</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing Subscription Domain Specification.</td>
-</tr>
-<tr>
-  <td>3</td>
-  <td><code>Key Concepts</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing Key Concepts.</td>
-</tr>
-<tr>
-  <td>4</td>
-  <td><code>Out of Scope</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing Out of Scope.</td>
-</tr>
-<tr>
-  <td>5</td>
-  <td><code>Domain Dependencies</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing Domain Dependencies.</td>
-</tr>
-<tr>
-  <td>6</td>
-  <td><code>REQ-SUB-001: Eight-Tier Subscription System</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-001: Eight-Tier Subscription System.</td>
-</tr>
-<tr>
-  <td>7</td>
-  <td><code>REQ-SUB-002: Tier Property Definitions</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-002: Tier Property Definitions.</td>
-</tr>
-<tr>
-  <td>8</td>
-  <td><code>REQ-SUB-003: Free Tier Requires No Payment</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-003: Free Tier Requires No Payment.</td>
-</tr>
-<tr>
-  <td>9</td>
-  <td><code>REQ-SUB-004: Paid Tiers Integrate with Stripe Checkout</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-004: Paid Tiers Integrate with Stripe Checkout.</td>
-</tr>
-<tr>
-  <td>10</td>
-  <td><code>REQ-SUB-005: Trial Is Compute-Based, Not Time-Based</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-005: Trial Is Compute-Based, Not Time-Based.</td>
-</tr>
-<tr>
-  <td>11</td>
-  <td><code>REQ-SUB-006: Real-Time Usage Tracking via Timekeeper DO</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-006: Real-Time Usage Tracking via Timekeeper DO.</td>
-</tr>
-<tr>
-  <td>12</td>
-  <td><code>REQ-SUB-007: Quota Enforcement at Session Start (402)</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-007: Quota Enforcement at Session Start (402).</td>
-</tr>
-<tr>
-  <td>13</td>
-  <td><code>REQ-SUB-008: Mid-Session Quota Enforcement (Graceful Stop)</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-008: Mid-Session Quota Enforcement (Graceful Stop).</td>
-</tr>
-<tr>
-  <td>14</td>
-  <td><code>REQ-SUB-009: Admin-Configurable Tiers via Management Panel</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-009: Admin-Configurable Tiers via Management Panel.</td>
-</tr>
-<tr>
-  <td>15</td>
-  <td><code>REQ-SUB-010: Tier Config Cached with 60-Second TTL</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-010: Tier Config Cached with 60-Second TTL.</td>
-</tr>
-<tr>
-  <td>16</td>
-  <td><code>REQ-SUB-011: Graceful Degradation Without Stripe</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-011: Graceful Degradation Without Stripe.</td>
-</tr>
-<tr>
-  <td>17</td>
-  <td><code>REQ-SUB-012: Billing Status Enforcement (Effective Tier)</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-012: Billing Status Enforcement (Effective Tier).</td>
-</tr>
-<tr>
-  <td>18</td>
-  <td><code>REQ-SUB-013: Concurrent Session Limits</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-013: Concurrent Session Limits.</td>
-</tr>
-<tr>
-  <td>19</td>
-  <td><code>REQ-SUB-014: Session Mode Gating by Tier</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-014: Session Mode Gating by Tier.</td>
-</tr>
-<tr>
-  <td>20</td>
-  <td><code>REQ-SUB-015: Stripe Webhook Signal-and-Sync Pattern</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-015: Stripe Webhook Signal-and-Sync Pattern.</td>
-</tr>
-<tr>
-  <td>21</td>
-  <td><code>REQ-SUB-016: Customer Portal and Plan Switching</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-016: Customer Portal and Plan Switching.</td>
-</tr>
-<tr>
-  <td>22</td>
-  <td><code>REQ-SUB-017: Enterprise tier contact flow</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-017: Enterprise tier contact flow.</td>
-</tr>
-<tr>
-  <td>23</td>
-  <td><code>REQ-SUB-018: Usage dashboard page</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-018: Usage dashboard page.</td>
-</tr>
-<tr>
-  <td>24</td>
-  <td><code>REQ-SUB-019: Session limit popup in frontend</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-019: Session limit popup in frontend.</td>
-</tr>
-<tr>
-  <td>25</td>
-  <td><code>REQ-SUB-020: Multi-Currency Pricing</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-020: Multi-Currency Pricing.</td>
-</tr>
-<tr>
-  <td>26</td>
-  <td><code>REQ-SUB-021: Billing Cycle Alignment</code><br><small style="color:var(--muted)">sdd/spec/subscription.md</small></td>
-  <td><span class="tag tag-func">Concept</span></td>
-  <td>External entry / no inbound edge</td>
-  <td>No direct outbound edge</td>
-  <td>Documentation node describing REQ-SUB-021: Billing Cycle Alignment.</td>
-</tr>
-<tr>
-  <td>27</td>
   <td><code>codeflare-pi.ts</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
   <td><span class="tag tag-class">Module</span></td>
   <td>External entry / no inbound edge</td>
-  <td><code>sdd-helpers.ts</code><br><small style="color:var(--muted)">pi/extensions/sdd-helpers.ts</small><br><code>sddCommandDecision</code><br><small style="color:var(--muted)">pi/extensions/sdd-helpers.ts</small><br><code>SddRepoState</code><br><small style="color:var(--muted)">pi/extensions/sdd-helpers.ts</small></td>
+  <td><code>cloneTargetPath()</code><br><small style="color:var(--muted)">pi/extensions/graphify-helpers.ts</small><br><code>effectiveCwdForCommand()</code><br><small style="color:var(--muted)">pi/extensions/graphify-helpers.ts</small><br><code>graphify-helpers.ts</code><br><small style="color:var(--muted)">pi/extensions/graphify-helpers.ts</small><br>+6 more</td>
   <td>Module file in pi/extensions/codeflare-pi.ts.</td>
 </tr>
 <tr>
-  <td>28</td>
+  <td>2</td>
   <td><code>ACTIVE_REPO_FILE</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -5305,7 +5125,7 @@ flowchart LR
   <td>ACTIVE_REPO_FILE node in pi/extensions/codeflare-pi.ts.</td>
 </tr>
 <tr>
-  <td>29</td>
+  <td>3</td>
   <td><code>CONTEXT_MODE_DISABLED_PACKAGE</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
@@ -5313,12 +5133,220 @@ flowchart LR
   <td>CONTEXT_MODE_DISABLED_PACKAGE node in pi/extensions/codeflare-pi.ts.</td>
 </tr>
 <tr>
-  <td>30</td>
+  <td>4</td>
   <td><code>PiSettings</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
   <td><span class="tag tag-class">Class</span></td>
   <td>External entry / no inbound edge</td>
   <td>No direct outbound edge</td>
   <td>PiSettings node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>5</td>
+  <td><code>ensureCacheDir()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>updateActiveRepoFromPath()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>Caches analysis results or computes cache keys.</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td><code>findGitRoot()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>updateActiveRepoFromPath()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>Turns a local path or remote repository into analysis context.</td>
+</tr>
+<tr>
+  <td>7</td>
+  <td><code>updateActiveRepoFromPath()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>ensureCacheDir()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small><br><code>findGitRoot()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><code>activeRepo()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>updateActiveRepoFromPath() node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>8</td>
+  <td><code>activeRepo()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>updateActiveRepoFromPath()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><code>fallbackGraphifyToolResult()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>activeRepo() node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>9</td>
+  <td><code>hasGraph()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>fallbackGraphifyToolResult()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>Builds dependency relationships and graph data.</td>
+</tr>
+<tr>
+  <td>10</td>
+  <td><code>reviewLaneActive()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>reviewLaneActive() node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>11</td>
+  <td><code>isGraphifyQuery()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Builds dependency relationships and graph data.</td>
+</tr>
+<tr>
+  <td>12</td>
+  <td><code>isGraphifyTool()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>fallbackGraphifyToolResult()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>Builds dependency relationships and graph data.</td>
+</tr>
+<tr>
+  <td>13</td>
+  <td><code>commandText()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-cmd">Entry</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>withStartArgs()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>commandText() node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>14</td>
+  <td><code>resultText()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>missingWorkspaceGraphError()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>resultText() node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>15</td>
+  <td><code>graphifyToolInput()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>fallbackGraphifyToolResult()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>Builds dependency relationships and graph data.</td>
+</tr>
+<tr>
+  <td>16</td>
+  <td><code>missingWorkspaceGraphError()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>resultText()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><code>fallbackGraphifyToolResult()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>Builds dependency relationships and graph data.</td>
+</tr>
+<tr>
+  <td>17</td>
+  <td><code>graphifyFallbackArgs()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>fallbackGraphifyToolResult()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>Builds dependency relationships and graph data.</td>
+</tr>
+<tr>
+  <td>18</td>
+  <td><code>fallbackGraphifyToolResult()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>activeRepo()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small><br><code>graphifyFallbackArgs()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small><br><code>graphifyToolInput()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small><br>+4 more</td>
+  <td>No direct outbound edge</td>
+  <td>Builds dependency relationships and graph data.</td>
+</tr>
+<tr>
+  <td>19</td>
+  <td><code>isGitClone()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Turns a local path or remote repository into analysis context.</td>
+</tr>
+<tr>
+  <td>20</td>
+  <td><code>isGitPush()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Turns a local path or remote repository into analysis context.</td>
+</tr>
+<tr>
+  <td>21</td>
+  <td><code>skillPrompt()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Builds structured prompts for model calls.</td>
+</tr>
+<tr>
+  <td>22</td>
+  <td><code>sendWorkflowMessage()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>sendWorkflowMessage() node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>23</td>
+  <td><code>maybeMergeGlobalGraph()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td>No direct outbound edge</td>
+  <td>Builds dependency relationships and graph data.</td>
+</tr>
+<tr>
+  <td>24</td>
+  <td><code>packageSource()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>isContextModePackage()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>packageSource() node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>25</td>
+  <td><code>packageIdentity()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>isContextModePackage()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>packageIdentity() node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>26</td>
+  <td><code>readPiSettings()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>setContextModeEnabled()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>readPiSettings() node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>27</td>
+  <td><code>writePiSettings()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>setContextModeEnabled()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>writePiSettings() node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>28</td>
+  <td><code>isContextModePackage()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>packageIdentity()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small><br><code>packageSource()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>isContextModePackage() node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>29</td>
+  <td><code>contextModeEnabled()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td>External entry / no inbound edge</td>
+  <td><code>contextModeStatusText()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>contextModeEnabled() node in pi/extensions/codeflare-pi.ts.</td>
+</tr>
+<tr>
+  <td>30</td>
+  <td><code>setContextModeEnabled()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td><span class="tag tag-func">Function</span></td>
+  <td><code>readPiSettings()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small><br><code>writePiSettings()</code><br><small style="color:var(--muted)">pi/extensions/codeflare-pi.ts</small></td>
+  <td>No direct outbound edge</td>
+  <td>setContextModeEnabled() node in pi/extensions/codeflare-pi.ts.</td>
 </tr>
 </table>
 
@@ -5327,19 +5355,19 @@ flowchart LR
     <h4>Key Files</h4>
     <table style="width:100%;font-size:0.85rem;">
       <tr><th>File</th><th>Coverage</th></tr>
-      <tr><td><code>pi/extensions/codeflare-pi.ts</code></td><td>46 nodes</td></tr>
+      <tr><td><code>sdd/spec/subscription.md</code></td><td>51 nodes</td></tr>
+<tr><td><code>pi/extensions/codeflare-pi.ts</code></td><td>46 nodes</td></tr>
 <tr><td><code>sdd/spec/authentication.md</code></td><td>41 nodes</td></tr>
 <tr><td><code>sdd/spec/storage.md</code></td><td>40 nodes</td></tr>
-<tr><td><code>sdd/spec/subscription.md</code></td><td>28 nodes</td></tr>
 <tr><td><code>sdd/spec/terminal.md</code></td><td>28 nodes</td></tr>
 <tr><td><code>host/src/server.ts</code></td><td>22 nodes</td></tr>
-<tr><td><code>e2e/stress/storage-operations.js</code></td><td>19 nodes</td></tr>
 <tr><td><code>sdd/spec/memory.md</code></td><td>18 nodes</td></tr>
+<tr><td><code>sdd/spec/mobile.md</code></td><td>18 nodes</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Design Notes</h4>
-    <p>This section comes from graphify community clustering. Relationship summary: contains x385, references x102, calls x52, imports x31. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
+    <p>This section comes from graphify community clustering. Relationship summary: contains x381, references x131, calls x67, imports x41. The diagram prioritizes high-confidence calls or usage relationships; the table keeps the broader node inventory.</p>
   </div>
 </div>
 <hr>
@@ -5459,17 +5487,17 @@ flowchart LR
   <div class="card">
     <h4>Graph</h4>
     <table style="width:100%;font-size:0.85rem;">
-      <tr><td>Nodes</td><td>7014</td></tr>
-      <tr><td>Edges</td><td>12082</td></tr>
+      <tr><td>Nodes</td><td>7015</td></tr>
+      <tr><td>Edges</td><td>12084</td></tr>
       <tr><td>Hyperedges</td><td>66</td></tr>
-      <tr><td>Communities</td><td>526</td></tr>
+      <tr><td>Communities</td><td>525</td></tr>
       <tr><td>Documented Sections</td><td>15</td></tr>
     </table>
   </div>
   <div class="card">
     <h4>Edge Confidence</h4>
     <table style="width:100%;font-size:0.85rem;">
-      <tr><td>EXTRACTED</td><td>11989</td></tr>
+      <tr><td>EXTRACTED</td><td>11991</td></tr>
       <tr><td>INFERRED</td><td>93</td></tr>
       <tr><td>AMBIGUOUS</td><td>0</td></tr>
     </table>
@@ -5478,7 +5506,7 @@ flowchart LR
 
 <div style="text-align:center; padding:40px 0; color: var(--muted); font-size:0.9rem;">
   <p>codeflare — Architecture Documentation</p>
-  <p>Generated: 2026-06-02 11:01 UTC · graphify callflow-html</p>
+  <p>Generated: 2026-06-02 11:10 UTC · graphify callflow-html</p>
 </div>
 
 </div><!-- .container -->
