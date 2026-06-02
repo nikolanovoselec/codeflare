@@ -1,0 +1,3897 @@
+{
+  "/home/user/workspace/codeflare/.oxlintrc.json": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "33dae8632448b3952630344848bbc7f0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/api/container-lifecycle.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "b1bf858e4645813675a7dad5700064fa",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/api/container.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "de440191ed7fe24e7ff33be497b38113",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/api/error-responses.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "a86088c63d37dd2f1dc8166ab233b59c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/api/health.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "a413ff20bdbe295327a36da1e83c5219",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/api/preferences.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "a717560c66657b875eed1176dae604a7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/api/presets.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "55e1f7287d99a0e6f93ba770e8ce755f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/api/rate-limiting.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "8869392972719b1926d1357771b3ca84",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/api/sessions.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "69f82c817f9ce6792bf568fb434109b2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/api/setup-status.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "58d12d77a9b9b7dd49edd688610e119b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/api/storage-operations.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "b52c8beccd92c27ee55dcaed8104f282",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/api/storage.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "58306899cf21cbac232719270765de60",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/api/user.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "e0693b0bf1d0c660d438211bce2f7cd9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/config.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "bb451f03d09e95d2f6d2ab35aef8095d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/global-setup.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "2d75451bd88d0c880200c18159f441d0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/helpers.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "c30a351449cab10307374257adecdeb1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/setup.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "fa7705a53902e346cea7c167c5a34eb7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/stress/api-throughput.js": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "0bdc633292cb3edd20f3781c74eedbae",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/stress/rate-limit-validation.js": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "7f877d6902841197d5e8c30c6d832dde",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/stress/session-lifecycle.js": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "19a95f6b4cac9369f5996c12db6ddca5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/stress/storage-operations.js": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "4ef98e3d67a0c7a7c10d8eb4a1818d1d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/ui/bookmarks.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "32911c7bea221f3c49d8027352f4266d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/ui/dashboard.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "f9ca30bfb3562b525a676937c8d85701",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/ui/error-states.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "9532ca4ee6429ec782a5f59495e398cd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/ui/header-navigation.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "4c23a123d5b4612590f92f21ea71b382",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/ui/mobile-specific.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "99a3e4572f671b0b48cd1aa2e60be00a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/ui/session-lifecycle.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "ceb8fbb0cb1ecab0c685220fdabde28e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/ui/settings-panel.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "9d88a8afcbbd6ffd8e4b6ed0b011b7a1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/ui/storage.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "1021d0d7a8df89d8ccbb4c76ead4d348",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/ui/terminal-tabs.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "c9fcce3a626ccd7dcfbae2458659f476",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/e2e/ui/tiling.test.ts": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "90b3e4918d074a4d24741bb89fb83c31",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/entrypoint.sh": {
+    "mtime": 1780424085.9062653,
+    "ast_hash": "d2bfec9868a2cceb4687e028712fb5cc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__audits__/dockerfile-agents.audit.js": {
+    "mtime": 1780404229.7020607,
+    "ast_hash": "8a8cc21aebd21b71a6b265cc1b1ac789",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__audits__/entrypoint-initial-sync.audit.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "da642d7fc70a437b5f27b5c536b9b4d0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__audits__/entrypoint-vault.audit.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "07698ebeed474fffcf7b9cede46c12d5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__audits__/memory-capture-prompt.audit.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "4cfdc2567c697c692e0db2d433264bc5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__audits__/server-prewarm-lifecycle.audit.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "7e64be07f05b3ecc024dd3ba166ee47a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__audits__/terminal-compound-key.audit.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "5d6c573e0e75f75a56d1b06ffeee67dd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/activity-tracker.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "4db6a681007b12036d2da28b6077d2c5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/block-attributed-commits.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "b5731b36fa8867575bf5fdeaa8451368",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/block-local-builds.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "005e75a691fa1a6ff67636e51455de32",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/context-mode-version-pin.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "c310a226ce12c257dec26c43cb6fd9f8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/dockerfile-base-image.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "95f7c67d012b1c7ee632541cfabbab9f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/dockerfile-graphify.test.js": {
+    "mtime": 1780404230.1220605,
+    "ast_hash": "6a82b2f5958474b2b2e5785b396d5122",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/enforce-review-spawn.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "f24f33480bae90abe6da6d2b4b1500d0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-bisync-behavior.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "b4095d3977273c044e6985480b46a433",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-context-mode.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "168e95cec56f4eac6c7020b90a014695",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-devshm-prereq.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "66e4aaf7f0656531a6a02472ecdc36fa",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "1a50d92af6341514390978aadf843552",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-graphify-bisync.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "809eba467beea6d56c4b7303c742e466",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-graphify-hooks.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "1a5ad7aa4e78c2fef31eb7a09ebfdb6c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-graphify-mcp.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "860b2aeb8d38eba5d837d5e6c7de37a6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-hooks-merge.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "574a169fd308856a8b2023ad648c45ea",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-matcher-null.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "c435ce1d0c956056f06cafcaf91bd411",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-mjs-executable.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "25e9dc790930d981f0ba4599765da47c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-pi-transcript-cleanup.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "9335012455f5a1ec099ad970920f5bfb",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-pi-warmup-guard.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "4225349110fd93303867fe4555756c39",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-shutdown.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "6f9e1ce5ce730626087612d16b6e4550",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-sse-c-config.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "9066e47420227bef664d0ee8ac5c2925",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-tab-autostart.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "ba6f4a75003701a1eecaf4212d6787a9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/entrypoint-transcript-cleanup.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "b0b3ef4f09042477989bff2baddb0e99",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/fuzz-host.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "c0d9dc108b18a33acbf8ee090d4de030",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/git-push-review-reminder.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "fe5a5506009e7031501f6d7740b8430c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/graph-first-nudge.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "b52b7a5b2b73c659a48b1c69afddcd81",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/graphify-active-repo.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "50fe617524af2d5d1920de7f6db9ae11",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/graphify-clone-prompt.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "7f5c27823770f3cacfed75346202ec02",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/graphify-mcp-lazy.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "baa477640251f78e08d244bf38aab9cb",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/graphify-session-start.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "cab8acf8bb8b6633430bef7d23b02b09",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/lane-classifier.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "5a9545692fb6732504bfb4f31a5996ce",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/memory-capture-block.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "4d97600441d45b1cda8529e8b63076bb",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/memory-capture-hook.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "afc4dd8799d8a67992c0ef2859c99879",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/memory-capture-pipeline.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "07149fbad9980cb675ffd0e0a4fa0a59",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/memory-context-inject.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "e6f00c4c36b3104ea0962aa11672bf43",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/memory-prompt-iso-ts-assertions.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "db596d74acb216f7bc86770960c8dbc1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/metrics.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "016c22c3bbcad5a499a0daf5e1cb2c84",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/preseed-config-treeview.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "62478dfb357b5a31c502aed522c27c4e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/preseed-graphify-discipline.test.js": {
+    "mtime": 1780404229.7060606,
+    "ast_hash": "bf69a22efdb64a830b0964823a735fbe",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/prewarm-readiness.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "204de7975d30fe7dd9f1d3bd98c10c3f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/safe-graphify-update.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "2f0aaf548f5a51a6f790c1118fed3027",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/sdd-init-phase-7a-verifier.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "48eef860914122b54b2a785cca2a3daa",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/sdd-init-phase-7b-verifier.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "dd0d5cb4b6da2894c1ffa9bb37444c53",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/server-auth-check.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "4be6075da50c9d7f1239b2e9bdf9ccbe",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/server-prewarm.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "8de63120790b338e5efeb127280ad3f7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/session-contains-user-input.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "17576aa8ee8dc1d4995ce3313c58139c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/session-manager.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "3bd8861635f7ac10eea09895b6142460",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/skill-graphify-content.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "706b08e4ef8be9643f5ac0400b880421",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/skill-sdd-clean-contract.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "b1cc605bc66e49bafeb4850eb50564c1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/skill-sdd-init-contract.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "9cb428ea0b7c46d1338a92b03aae5dcd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/vault-extract-merge.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "47dfc95c47717c33bb97c7d219a007b1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/workflow-deploy-max-instances.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "4bfa640858e2fb303000b5c5ae814f95",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/workflow-e2e.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "7d016af0624693b0cfe8161f6d845f2a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/workflow-files.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "f3be42c35ba8b8d8d58f15c9cd17c3e1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/workflow-stress-test.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "6589eb760e316b9bb2cf93e110181b08",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/__tests__/ws-input-classification.test.js": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "6faa2e987c03a8f70862acdaf1074eaf",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/knip.json": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "27567825d7117d85a1f8912e107854c4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/package.json": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "6e37a035f081f7b6f491105885c4a3cf",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/src/activity-tracker.ts": {
+    "mtime": 1780415670.4341786,
+    "ast_hash": "703715b970017b1e191d45e43718c8eb",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/src/auth-check.ts": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "470d9b3670d9d6ed5e1c1df000cdd8f6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/src/metrics.ts": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "da92667438115aaa54db441c48b12fa0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/src/prewarm-config.ts": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "a7aca55c09d899833aa98fa1cfd6caa4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/src/server.ts": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "5dd0971d38c933f6ae7c18ab606bc60e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/src/session-manager.ts": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "946768e8b3a3252ec2839b5f8fb9929b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/src/session.ts": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "3faab93fb342be26810124bcf33ebd94",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/src/types.ts": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "c94bf7b343cfa1d27eff74127625ff4d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/host/tsconfig.json": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "cc0ef09f8d3ece7dc921d1ae916fb648",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/knip.json": {
+    "mtime": 1780404229.7100606,
+    "ast_hash": "2dca779b04285a7b30249838bef5b389",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/package.json": {
+    "mtime": 1780418812.258211,
+    "ast_hash": "9718342cbfb646a458271b8cc778ac98",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/manifest.json": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "d3b6d6ab5a0aba7715fc1331ccffc73f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-hooks/.claude-plugin/plugin.json": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "35f9bf54f4cab37bc4e9b241033b3a9c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "bab38ac3651227e83513a5c922fc04c7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "b120dba0ed3d8657520b680524de7266",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "557576cb993c0cea4f178fe359f63baf",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "46b0878b93c4831b93e20adc8d474151",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "10e58b7fa44bcbda5324368168318007",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "507e93271ae6e3c3f11b04898172cf28",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-memory/.claude-plugin/plugin.json": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "86688e4557bdba518ec3b8b2e807cdb9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "9d27ac5f2dc1a384fa76eda20a4db2a9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "2d2b579dd4b24fa67040d763a69b923b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "0e5a679dca9f2d551d9c327811421d48",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "ee59fcf03dbffd4f42fa20c7fc1e141a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "01964c146f4af60159a2ba0d971fa801",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-vault/.claude-plugin/plugin.json": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "944c097f9b2b51326210b93ad4ede729",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "0380b3b531d0e0790a3cbb6ea97487aa",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "1625617f246fe66061ad2c0cc3d2b81e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "e9f59b72fb1cf050a17c482eaaeed7f9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "ba95b983a42755424fd5240eef93558a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "5d09e512a3236d7d1b297dca02d3ea4b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "1107b02bca2bbf2c683968b66ac34873",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/graphify/scripts/graphify-clone-prompt.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "0bf4c92046b87842f693c87cfa934bf8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "c1435fef8bab7afb1d0af7c787f5bda8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/graphify/scripts/graphify-session-start.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "d99c3e5cd19febb6921ff8c170d795e3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "6f92acbfe9d28b7954c12a66c80346ae",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/known_marketplaces.json": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "35af682910b51d148430f9278df7241e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/sdd-init/references/verify-enumeration-coverage.py": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "da228826f549cc7f254d66ae738f0d59",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/sdd-init/references/verify-source-anchors.py": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "5b3bec7dc6f66f5637445eb54ef4d5c9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/codeflare-commands.ts": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "9d0c5c58ef5cb5ddad19cdf2ad959f44",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/codeflare-pi.ts": {
+    "mtime": 1780404230.1220605,
+    "ast_hash": "fc6094818107f5f86218cf0f1d7629ad",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/commands-helpers.ts": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "a75bba08c65b81722021319954fea6d8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/graphify-helpers.ts": {
+    "mtime": 1780404230.1220605,
+    "ast_hash": "16179f43f31ae33a79f7d751c18b5a9c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/guard-helpers.ts": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "90c09cd52b84c9593e7c3e333d8d5fd2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/memory-vault-helpers.ts": {
+    "mtime": 1780425936.5262845,
+    "ast_hash": "ddd2986310f65d97db94f04fa9130a1c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/memory-vault.ts": {
+    "mtime": 1780425978.9822848,
+    "ast_hash": "060432f7733d921d0275ceabbd7d64b8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/review-command.ts": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "96b22f4ef6d43d70293ef2751cc2ad31",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/review-enforcement.ts": {
+    "mtime": 1780404229.7340605,
+    "ast_hash": "d869ccad6953aa7e939fdd08389d42c7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/review-helpers.ts": {
+    "mtime": 1780404229.7340605,
+    "ast_hash": "3d86addb4c739ab7f7e43f6cfec39e3b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/review-job-helpers.ts": {
+    "mtime": 1780404229.7340605,
+    "ast_hash": "3c1d9c1d224a35204427db4049ddb144",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/review-jobs.ts": {
+    "mtime": 1780404229.7340605,
+    "ast_hash": "c5a9f77d00ac5cd79fac0d2e787062eb",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/sdd-helpers.ts": {
+    "mtime": 1780404229.7340605,
+    "ast_hash": "4486d010697467a51e07960399d82adc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/extensions/startup-header.ts": {
+    "mtime": 1780404229.7340605,
+    "ast_hash": "57dd7cd85f3e6e00fb59863625687c88",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/manifest.json": {
+    "mtime": 1780404230.1220605,
+    "ast_hash": "efda7f7fad2009b1fbf46fc798543024",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/mcp.json": {
+    "mtime": 1780404229.7340605,
+    "ast_hash": "91cc9f0e98c7074ed591976ff9aa0fa6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/package.json": {
+    "mtime": 1780424085.9062653,
+    "ast_hash": "65bc979f1bc313e0c7e1bd45c5b9d991",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/scripts/build-graphify-architecture.sh": {
+    "mtime": 1780404230.1220605,
+    "ast_hash": "1fef53bf743c00ff6b5a5ddeb92a91ae",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/scripts/build-graphify-ast.sh": {
+    "mtime": 1780404230.1220605,
+    "ast_hash": "0445cdab2cddf1b248fc82a9ad9a29b0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/scripts/local-graphify-labels.sh": {
+    "mtime": 1780404230.1220605,
+    "ast_hash": "3320f301798fc1aaaedf18952efb5d67",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/scripts/safe-graphify-update.sh": {
+    "mtime": 1780404230.1220605,
+    "ast_hash": "f7dd303587cdfdf8c568b1ca9c82c7b9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/scripts/fix-broken-sourcemaps.js": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "c2186d400eabc32b0eda50183e09406f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/scripts/generate-agent-seed.mjs": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "2df7c5f1be08e8b8fb7da47386b60153",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/scripts/generate-tutorial-seed.mjs": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "92389ac1a56b103674012eee90fd619c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/scripts/migrate-tiers.ts": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "06abd6b47f14f71ba4cbd4778c8836ae",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/container-metrics.test.ts": {
+    "mtime": 1780432097.290348,
+    "ast_hash": "00262391565f19ac3b9eaaee7283467a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/container/container-env.test.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "25a585eb02d208ca95c0a498c156f360",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/container/index.test.ts": {
+    "mtime": 1780432115.8143482,
+    "ast_hash": "79413d9d517da2aca97788e3da24f165",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/contract/constants.test.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "1e8fbfabd76fbe60f2543f68389fa5dd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/contract/schemas.test.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "942c2235c319256b93e36177c4707305",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/fuzz/input-validation.fuzz.test.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "9be569f6876e54323249f3b897ba916c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/helpers/mock-factories.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "47c6d6a57c24e3abab3606fb48a27a6c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/helpers/mock-kv.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "bd20845e731274e4f75ca33afd94beb7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/helpers/test-app.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "db75b5d417780875a2d74ae10197338c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/index.test.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "7515f5e14dd54463fb99a619de0d81bc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/access-auth-config-ttl.test.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "9695a6f44009bb485f7e5d3277f56832",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/access-cookie-jwt.test.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "befb58fe5ca796121ec3b8984ff27e0f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/access-policy.test.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "3e8b2ef372687ce98bce5a3f3a1ebfe1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/access-tier.test.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "34a1d8613b928bcec972ae139fb45844",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/access.test.ts": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "0494ab0031dee892590cbccd06afc6d9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/agent-config.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "e94bdb0850b29efbbae570f974db776b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/agent-seed-ecc-rules.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "4248d204767a82bbd0d82b0ff36f241f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/agent-seed-manifest.test.ts": {
+    "mtime": 1780428194.8143077,
+    "ast_hash": "f300c8b3602cdd01db3e12c0bf01ff2f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/auth-config-fetch-dedup.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "7fe6e1c35ad7567c73d6a175e08eff52",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/auth-gaps.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "a40b911c2afb8502766589150b13573d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/billing-status.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "9b3c7026fb73f96b4dc5127c2823a5d7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/cache-reset.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "ddd037c33821d246efdb9c79ab84ff65",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/cf-api.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "ae0612c87c2a4731c64ec52b5053d29f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/circuit-breaker.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "1f4a341f359fc49b762fa716e462358c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/circuit-breakers-per-container.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "f10e7c71e8ec5e2164dd76a722b66eb5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/circuit-breakers.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "10da29e66378a8e74651f4def3cdc56a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/constants.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "4ab877f33cdafa399eb71c03dc0a0a40",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/container-helpers.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "e2f2243ee309e0400be8f529b1410646",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/container-id-isolation.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "9d25babbd9526fefde8c67b586e6c8bc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/cors-cache.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "ab451167e4c7ccfa1612b76b9e132321",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/cross-package-constants.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "9ee7a8bfc1981999e8713c100da86028",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/currency.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "00aa155bc36e7fd4302dbafdd0595798",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/email.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "582b6522294d115faeba8a5a4a65b169",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/error-types.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "618f729e7bacbfb8cccb25ac3a1bcb70",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/jit-provisioning.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "032d97955bb45374ff190142ce2d1081",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/jwt.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "dae0d3368296286f75cde4274cb52b4f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/kv-crypto.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "1ef32dd77c2ba10a21812325bd7f0922",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/kv-keys.test.ts": {
+    "mtime": 1780415670.4381785,
+    "ast_hash": "3aa6f27996ef6b14d2dfb0ac88105ec9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/logger.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "926418af629cdc911fe9efbd8adfe992",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/oauth-state.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "af21b19d2cecdf1f12c995ce824744fe",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/onboarding.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "67182d031b06d7d3c15eaf7cffe2ea66",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/pro-mode-gating.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "fd12fc4dc01e0f54568c5def7fef38a6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/r2-admin.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "3f8b197fa764dbb5cb827acc716f46ff",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/r2-client.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "582dc1827f5792897f41f3e2695a0acd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/r2-config.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "7a9d4d5998c054bb9c20d5f339096128",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/r2-seed-context-mode.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "803c5c701c5c799a5d81a79d6d8cfc86",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/r2-seed-mode-req-coverage.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "3b7d16bd782caa7f85f19c850710cdad",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/r2-seed-mode.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "d47459df28ba502db03709d53e07bf4a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/r2-seed.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "2ce917c49429086535a9967fc6a5de97",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/r2-sse.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "38f21386736b8bb6ee601094334b7bd7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/request-helpers.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "8beb36c50c30a6ce3e2333e268dca2dc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/safe-check-container-health.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "0001868534a8e09d5197a4977e60d12c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/schemas.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "9aef8eae1d3179851eea6520beff0ec0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/session-helpers.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "304eaacf7bb6151570cbc54647c15b00",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/session-jwt.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "c58fd0c5bb2875a9f78e89a1f2b28fe6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/session-mode.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "54326b4e0edc74542ddddcdc7c9c21a4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/sleep-timer-defaults.test.ts": {
+    "mtime": 1780404229.7700605,
+    "ast_hash": "27ef4d499a3ca6319f4bf92ad80101aa",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/stripe.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "55b48b8715cc41082b95ef368aa34cfa",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/subscription-req-sub-gaps.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "a3f6803da0717888aee38e531797ebf0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/subscription.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "7c52ffa1a51be0cd446ab5e6fb662264",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/sync-fanout.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "b846c6f1e9f4dc9f143d34d80a0b2ae7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/type-guards.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "de92ee6b3a755aaf0fd5af39b833a95e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/user-cleanup.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "c79f49e83d5a79b0a09917a82bca4a50",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/user-profile.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "f56da5ccbcbd0ff4f1950d3407767f46",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/user-record.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "bfa5dc823bc973bcf4cdc44c1ef323db",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/warn-if-no-encryption-key.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "463902022b6d34e892259a7c19544c01",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/lib/xml-utils.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "61d3a08047ed4589403af98200b4db82",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/middleware/auth-saas.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "975115b3333de1599f94f7d169a0d841",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/middleware/auth.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "0c811a12d75fadd0ffa9419c0121194b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/middleware/rate-limit-fallback.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "85e2f351d4ad55d98fdf664d08f05bb4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/middleware/rate-limit.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "86b652ba99e4e1375149f7fffce5ab45",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/redirect-with-headers.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "b55a9b913bc265d72e12e15e96869574",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/admin-tiers.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "c391fa7e8eb781677c57919314d4c947",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/auth-redirects.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "afae270650e55c668a311d35af4e153b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/auth-request-access.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "a2591a697d075d719ec86fa9b9dc0785",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/auth-subscribe.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "1b0b782387731073b9ed717edccd5129",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/auth.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "ceb7bf5ef8631a8df54afa03c85b6fe2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/billing.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "1d8c260f3101cf41c8be7b99f008409b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/contact-team.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "f44233a3c25b57d32f5089ee49c3920a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/container-lifecycle-helpers.test.ts": {
+    "mtime": 1780415670.4381785,
+    "ast_hash": "2c024229e21ce21bf1baa9144cedb882",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/container-lifecycle.test.ts": {
+    "mtime": 1780415670.4381785,
+    "ast_hash": "01e91ec7da3709f8405d0efa5269a6bc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/container-r2-start.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "bcebfbc9e5866fc6b9a43619064d2f15",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/container-restart-prefs.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "500f3f78bf5954d3822e4e030f8c877f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/container-shared.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "cbcc579fb016dc3ad9479d52e41828ea",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/container-status.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "62c7f43d1fde1759c48e34e4f20beec8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/container/lifecycle.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "3760483645338efb11bcebefb39d3492",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/deploy-keys.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "9cb4413904f841217d5c78f2388a4507",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/github-auth.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "c3a146747f7a3544cfebd663bb8a80e6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/llm-keys.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "22116dfa9b2602908985fb43b356fa03",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/preferences.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "142629e5e32898faaecd62560f65dd40",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/presets-req-term-010.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "593c4a1cef63091fa66c124350452893",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/presets.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "92551ec5c3c652453f76b7ef971c730d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/public-waitlist.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "4eccfea41dc4663684bacf86a8e944a3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/rate-limits.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "a204894ec5f0dd90167543c52212dadc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/session-agent-type.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "b5507d986a5bbd585e276795246023b9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/session-batch-status.test.ts": {
+    "mtime": 1780415670.4381785,
+    "ast_hash": "1c40b6c065045000e4d721c623c1fa11",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/session-creation.test.ts": {
+    "mtime": 1780404229.7740605,
+    "ast_hash": "ae5196cd1c246a6f3c9b7d91323386ac",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/session-lifecycle.test.ts": {
+    "mtime": 1780404229.7780607,
+    "ast_hash": "310508961765f9f902a4cc30378e460e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/session-sleep-timeout.test.ts": {
+    "mtime": 1780404229.7780607,
+    "ast_hash": "13ea1473ccbcaafa5e22716fcb07d879",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/session-stop-delete.test.ts": {
+    "mtime": 1780404229.7780607,
+    "ast_hash": "1f2a10d1c886eb3fbef002479131e68a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/session.test.ts": {
+    "mtime": 1780415670.4381785,
+    "ast_hash": "7e3b798ee26bdba2e57d8133f4ad6d52",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/setup-shared.test.ts": {
+    "mtime": 1780404229.7780607,
+    "ast_hash": "83b7f0332e3d38f0feaad873d3387322",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/setup.test.ts": {
+    "mtime": 1780404229.7780607,
+    "ast_hash": "f464a14059a31d5f418cf46d55ff55ef",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/setup/access.test.ts": {
+    "mtime": 1780404229.7780607,
+    "ast_hash": "4f1bc1f739d9001c026c24440ae3b869",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/setup/account.test.ts": {
+    "mtime": 1780404229.7780607,
+    "ast_hash": "241bc5a3ddc486aa67e0508f6184b732",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/setup/custom-domain.test.ts": {
+    "mtime": 1780404229.7780607,
+    "ast_hash": "fd9208ecc73bad4c66c282092934bff2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/setup/handlers.test.ts": {
+    "mtime": 1780404229.7780607,
+    "ast_hash": "445f520d1e5a6dc79f49b41b3593d912",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/setup/turnstile.test.ts": {
+    "mtime": 1780404229.7780607,
+    "ast_hash": "2741adc84314a7f555cacdd47fcbbd9e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/storage-browse.test.ts": {
+    "mtime": 1780404229.7780607,
+    "ast_hash": "4ef28bf4945f5ea0c53f0d49a59890be",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/storage-delete.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "cd65c6e87579d98e147a51e311b4d484",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/storage-download.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "a0bac3a20b086608de4255479bc1e96d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/storage-preview.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "7f757c5a09cdb5079e9ddd4a7c057ea2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/storage-seed.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "d216ae0e8dde0fdb5750f11b0c9d8c77",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/storage-stats.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "a021f9f168eba9b8257c6616b4fd9346",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/storage-upload.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "622382ff872ca683acc23b39c499c783",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/storage-validation.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "639e61019b5a36582357dbc1118a90f9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/stripe-webhook-signature.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "5312bcb223acaea2f34e409c807cad52",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/stripe-webhook-sync.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "bb33cec764e4cb514f52ded4a596d091",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/stripe-webhook.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "22a0732aa409e8feebc31e48cf88bc96",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/terminal-route-validate.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "2154d8ea43c695a22d482e3edb99f7d2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/terminal-ws.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "4425f61250571fcfb7d8eb7d9b39231d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/terminal.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "b5d5c658bb29314eff832f0223620b8d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/usage.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "bc54ecc7099f587975680958ab441cf8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/user-profile.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "781535876bf19f9ab763046fd52d957d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/users.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "58ba69ffcaebfa40b9f240f9937cf4d2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/vault-auth-chain.test.ts": {
+    "mtime": 1780432315.3303502,
+    "ast_hash": "9c9a02ee0567b9380a6d987b30036e20",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/routes/vault.test.ts": {
+    "mtime": 1780432308.2663503,
+    "ast_hash": "5281a2656d4f01f5ae07e2ab4aa8c317",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/security/access-security.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "4132a55a83885b18f8696ba98643a6fc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/security/kv-crypto-security.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "22314ad1f75d125f8aab1966f1eb4cae",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/security/rate-limit-security.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "9d3ebc009e89f0ece952441f0c94ca2d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/security/security-headers.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "a302d6b6110da22430147cbae659bdb5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/security/storage-security.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "9a12c29890e843e7ee1af5700aa11801",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/setup-007-custom-domain-ac.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "57fc9791938e1fb38b5fc17ff072109d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/setup-ac-coverage.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "c50e7dc56e2265d233cbfc671b1d8950",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/__tests__/timekeeper/index.test.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "2d49b94768d8dd33b12f59612a8e8df1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/container/container-env.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "6b4f68c97a6f8bb1d26da51253ce8bea",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/container/container-metrics.ts": {
+    "mtime": 1780415670.4381785,
+    "ast_hash": "2b18ca42b20f24ac209db6ccd9b90e5c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/container/index.ts": {
+    "mtime": 1780417899.5342016,
+    "ast_hash": "3bf13cba0a936fe106a9d352fce7530c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/index.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "c1a32576cfe142419cefdf72f287baf5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/access-policy.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "187002a30bec2394de57c9821720600f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/access-tier.ts": {
+    "mtime": 1780404229.7820606,
+    "ast_hash": "58b533779f7690ac261883c4416d6f6f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/access.ts": {
+    "mtime": 1780404229.7860606,
+    "ast_hash": "bd3ed2724b6cab8e8a47984ccc9dbecf",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/activity-policy.ts": {
+    "mtime": 1780415670.4461787,
+    "ast_hash": "a171886d08ae1f25d9769950402c6dee",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/agent-config.ts": {
+    "mtime": 1780404229.7860606,
+    "ast_hash": "20c4ad8408e0d598b591f9c38e837a9e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/agent-seed.generated.ts": {
+    "mtime": 1780430729.5063338,
+    "ast_hash": "2d8e0befcb9eaf3900a7725db2cdbdfd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/cache-reset.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "01ed3daf221979b6b8ce1444cd25b504",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/cf-api.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "c2171c7e6674b84aaf6ff531d01a911d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/circuit-breaker.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "ef4143251039c5020eeeff23b3b0f886",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/circuit-breakers.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "3c9b5d9a08a368b1a3125a04c54d4b7d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/constants.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "96c1bf3c94de0bb00e271fa72bfe747b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/container-config-schema.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "2b208f298ec822ac9a8e42ceaa0c713c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/container-helpers.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "499b1f3ac023ee9ef5f67e9e626edd1b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/cors-cache.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "15538635724d9eda922656dde6c27878",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/currency.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "5abfecf8133490c284437f7257882714",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/email.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "1bfafe02faa498af7d3608cb63c31b2a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/error-types.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "69b57b9f399f006bc6e449306fa2b1e5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/jwt.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "77fb0c83a7dfba7a7d0083bba37a1845",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/kv-crypto.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "ca6688fd687538d036cbbf59680c3e96",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/kv-keys.ts": {
+    "mtime": 1780415670.4461787,
+    "ast_hash": "82663b8b99e666135ed39d3495027659",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/logger.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "fef87190bb48fe95fb08e47b92a9751e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/oauth-state.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "837e2bc81d2afb9de1b3c92d722ca34f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/onboarding.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "d052277f98bfeadf9d39657d58fc6fa1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/r2-admin.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "c10e3b9e25d14698e33942c3d5abcf15",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/r2-client.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "3c0ac9c8df53623b955d2f15ede63364",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/r2-config.ts": {
+    "mtime": 1780404229.8260605,
+    "ast_hash": "a8757ad2f96dac1f52659e24832bd65d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/r2-seed.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "2df8d8f861cfa9f492ccb387125dad8b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/r2-sse.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "1356d47de28e7bae0a8923bc372289e0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/rate-limit-core.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "bb50879cae1c8fd9ee7f384d8565282f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/request-helpers.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "1f018abc388c973f29309782da638e08",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/schemas.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "4baf96ab9bfa3fe7c93b2250e97a6e39",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/session-helpers.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "f0f3460e62d5c739572c065bdecf3643",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/session-jwt.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "42b1102796c449c3fd2910b0c05ca31b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/session-mode.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "0d4a320e53886a8d37c1da503a911d0c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/stripe.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "78a40b001a672be5f05bf92fa6944808",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/subscription.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "b959e24d9255e6b8300a0bfcde43b070",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/sync-fanout.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "86198a0ef8258ae3a76d4d4d4d3b57ee",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/turnstile.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "b28b39807223ea0a6ec2f599088858d9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/tutorial-seed.generated.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "ff08098eaa6253e45290b39b1325305c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/type-guards.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "79706e8a92c1964b405299e0efd0badd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/user-cleanup.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "0e659604b850a0fd67b39f94542860c3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/user-record.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "5af609b1392e3292b09da4dbfc4b35e5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/lib/xml-utils.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "55e36279e1854f8a4b87176903d413cb",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/middleware/auth.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "e7c7cb461ac6cce6c684e7aed2be73d0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/middleware/rate-limit.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "a63b424f35dec10fa8ed79683e68b249",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/admin/tiers.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "564f5325a7553157a677775c4d078fa2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/auth-redirects.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "a5c3b57d8005dd45f9f8882f5e1ae3e1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/auth.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "c75bbb607953c9ddb30b0e83956ea042",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/billing.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "70e883e15d5392c266edcc2ca5a6bc53",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/container/index.ts": {
+    "mtime": 1780404229.8300605,
+    "ast_hash": "71a11d9791799ac3ecc322042cd3ec47",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/container/lifecycle.ts": {
+    "mtime": 1780415670.4461787,
+    "ast_hash": "bb47cf322aae43068e04440df97fb6b4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/container/shared.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "0d9c1217fd6ee3024e269391c9b05020",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/container/status.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "69348a7438ba42319e5183982473c00d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/deploy-keys.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "545713fcdc4974e963b29695f698fc81",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/github-auth.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "f8544c732499367a8dc1a9a3122abb60",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/llm-keys.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "695f5e28eacb7fd1b175f15bdb65e234",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/preferences.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "74d98fda824988aaddcc29af2cb619e6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/presets.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "c64b53d065ad5397caabae4af0075150",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/public/index.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "630d1411a7815db9b2cc1e098a21c8ad",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/session/crud.ts": {
+    "mtime": 1780415670.4461787,
+    "ast_hash": "c4b4cd6a5c0d142a641bcf18d916f461",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/session/index.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "b9d4dbc8348e01ffa4f83aacaa2414b9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/session/lifecycle.ts": {
+    "mtime": 1780415670.4461787,
+    "ast_hash": "716d7287bf886f7c0c4bc5f406027603",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/setup/access.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "978f5621e2eba6d69fbdbc9d7e143585",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/setup/account.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "a5c6c104fccc6571270705b3db1a8c63",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/setup/custom-domain.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "dcb014c33e8c17f35de94317e7f84235",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/setup/handlers.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "72338328dbbf0ee300b248182c1a7370",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/setup/index.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "d2d425fc65e52b406ad4605a2d34fc0e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/setup/shared.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "0f6109b2513fa67fd1b2651cfb487356",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/setup/turnstile.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "cf23b99fc3e50e8503ddf38fbf0edb41",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/storage/browse.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "728c86e3439a93da1d74432d3025a29f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/storage/delete.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "be162f77f7952a614cc9455a37935304",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/storage/download.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "310cce81a61d3920871bfc6f9e48fdc8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/storage/index.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "3cf09c115995d2171160ec6dd1cf53b5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/storage/preview.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "335e110b1f668f768a2586b37f710675",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/storage/seed.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "c26f693d9129f0aea0ed76ffb4ce2282",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/storage/stats.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "132123a21ae307d0b7df0c2bb5518600",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/storage/upload.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "083eef5ddcebdab8e536a273ea1909d6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/storage/validation.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "b51d75ef4fc00b60fe386be426a482d1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/stripe-webhook.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "e99174d71713fe4cc416adc85c26ca94",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/terminal.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "75203964d718fbe9c6195b55ffdd3fae",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/usage.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "95fa27e869cedb15038c5a2be780a663",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/user-profile.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "f0bb732b7f7cb837fa8ac2800bb4aeea",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/users.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "0f491c78f6488846b8d1a2560915c776",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/vault-html.ts": {
+    "mtime": 1780404229.8340607,
+    "ast_hash": "c03a431684919cebeaf4a2a835fe53c7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/vault-native-sw.ts": {
+    "mtime": 1780404229.8380606,
+    "ast_hash": "6fe2a5a9978518928113d2c2134be732",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/routes/vault.ts": {
+    "mtime": 1780404229.8380606,
+    "ast_hash": "adcc71c1082c42bb4390e7777e19b5f9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/timekeeper/index.ts": {
+    "mtime": 1780404229.8380606,
+    "ast_hash": "38bf63cf3fea653694e21f45530f1dfd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/src/types.ts": {
+    "mtime": 1780404229.8380606,
+    "ast_hash": "560e5b2e384f65c20f11316caa907cdd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/tsconfig.json": {
+    "mtime": 1780404229.8380606,
+    "ast_hash": "0c8fbc416c72bdfceb322ce00f3eae2b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/vitest.config.ts": {
+    "mtime": 1780404229.8380606,
+    "ast_hash": "1f6bb7874708f15ecc81dbd92f3d1fd5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/vitest.e2e.config.ts": {
+    "mtime": 1780404229.8380606,
+    "ast_hash": "b7b955a61ccbfc918f050ed949bce034",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/.oxlintrc.json": {
+    "mtime": 1780404229.8380606,
+    "ast_hash": "8cc13299fddf37309f4a8a5d65dee3d7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/knip.json": {
+    "mtime": 1780404229.8380606,
+    "ast_hash": "f7444bd8801f07bdbcbe82d535b72b80",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/package.json": {
+    "mtime": 1780418812.258211,
+    "ast_hash": "d21e109b0a362230fd78c6dd67558ea3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/App.tsx": {
+    "mtime": 1780404229.8460605,
+    "ast_hash": "6caae9d48dd2b083bfc249311fa87afd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/api/client.test.ts": {
+    "mtime": 1780404229.8460605,
+    "ast_hash": "df4cf06f6cce936ac4a3a6ae518d5475",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/api/contract.test.ts": {
+    "mtime": 1780404229.8460605,
+    "ast_hash": "11b76e6fe538d916a54891a51ecb68be",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/api/deploy-keys.test.ts": {
+    "mtime": 1780404229.8460605,
+    "ast_hash": "04b1a02dbea58d3f4f599983dc45b936",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/api/fetch-helper.test.ts": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "17c407fb986a864c4b608da6d88435bc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/api/storage.test.ts": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "8267423301cd3d05a97728a72805dd2e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/App.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "80c5308ec3dedca54ba9b081f99c60aa",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/Button.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "c96f308c8bdd7a1d3162e29a454f0930",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/ConfigureStep.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "b3be7cd183a5ab1fa1d0b3734cb48311",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/CreateSessionDialog.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "1e5180513ead80ed9d43ad9b2ebfdc59",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/Dashboard.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "1031595f928d559899f8627dcfc15140",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/DeployKeysSection.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "83f8311543d8ac427854c4a9367c9b12",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/FilePreview.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "c955b25806e472cbd8c6e59c22d42710",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "a87eebbc6750f4c87ff48b943021325d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/Header.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "7b7ec459116180b096bf6f110df661ad",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/Icon.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "ae3ec85b9dc2b26414d05246bda851c6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/InitProgress.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "ebcdff9b1c8ac04205a48c80bd9e036f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/Input.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "a4671eb8d7799fd7caada512be6233f2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/KittScanner.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "5eeb4010cfb30bad82c2d99076c275e0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/Layout.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "3f57770f3b578c9abc5e3aae2fb3f858",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/LoginPage.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "464014b379baf856f53926c362db6eb7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/OnboardingLanding.test.tsx": {
+    "mtime": 1780404229.8500607,
+    "ast_hash": "b0f223e90575612344b87ca833639662",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/OnboardingPage.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "5a10a1f4b5492571d0236f9220e2dfe2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/ScrambleText.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "4142503e72096269bedcb6d5219c5dd6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/SessionContextMenu.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "bc280f75ea94c1c47f5f12792504495e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/SessionDropdown.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "0fd3c487a5629d6966361a87df82c910",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/SessionStatCard.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "97749cd624e38c3be5169b7a9c8f5fee",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/SessionSwitcher.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "7e28b7670f8eeb065b2e95e3359ee4db",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/SettingsPanel.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "b01b2536e69e923d5cd352f782c1cfab",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/SetupWizard.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "e4a7865961fec3f76a8012befd72130d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/SplashCursor.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "6a90f5c35add6f3552048ace51fa78e5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/StatCards.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "8efa805d34888276542abe212d64af0d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/StorageBrowser.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "6fe6cd6ea0452b614c91d7a8ec24d2ec",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/StoragePanel.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "d6382b38070ec694d0aec368a8a3c114",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/SubscribePage.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "0cef40e04928a84bb5995951e6192925",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/Terminal.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "2b5fa32133a2fa1d6914d439df32f1f7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/TerminalArea.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "e01f0d551df266c72bc2286f82046d0b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/TerminalTabs.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "7dc9f9358cd3473979a764b8424e6707",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/TiledTerminalContainer.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "a9562d1fd816bab8fd3a2c4adc080eb1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/TilingButton.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "bcf0f68da6355c504dbe950ce2047ac7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/TilingOverlay.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "e36ac49b6edaec36d2b5c8fd3ad57dc1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/TipsRotator.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "9cd8463cfa8cdcee2f0757ee23185c6f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/components/admin/SubscriptionManagement.test.tsx": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "c0d4d03676b0115d27ea1711abedc8e5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/fuzz/frontend-fuzz.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "465c56d5fb16bc515540c0067b95a9cb",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/helpers/mock-factories.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "9293a3582567ea7f4c5d67dbd7c25eb1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/hooks/useStageTimings.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "6119538b7a84abd640c733a5ceaca571",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/hooks/useTerminal.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "fd04139278d85e7c8f22c40f6d140482",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/file-icons.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "30a2ce69d76c10feb7e9d4ab5b690f8d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/file-upload.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "8bd4e8a40c56f8730606de2d7d9818ae",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/format.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "ab83f8685817175d4597cb0227df25e9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/gravatar.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "e8754f43c4bebd81c1854742806353a2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/md5.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "d578a82924f9b6d0cc840df9c6d2ed45",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "c1883c0ef95baa80850698311ca3eb7e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/mobile.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "6948dc68e02d34a6631445b84c058574",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/schemas.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "6173a745627f5af4c2460fa859e70294",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/session-utils.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "37b6d7557f11b8a8e7a93043598202d4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/settings.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "af8a49de3190f5d1e5864c8232d0defc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/sleep-timer.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "2b2d13aa8f0e30c43958c2773085c17e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/special-folders.test.ts": {
+    "mtime": 1780404229.8540606,
+    "ast_hash": "482be525f3a329e7148b148bd6d05014",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/speech-input.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "222c8d448272bb9dae06e8dd653869b9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/stages.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "0a801c6cb54a4864c3c10cc2122fa7e6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/status-mapper.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "cb76132f90cfd6ad20f40cbab5d2cca6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/terminal-config.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "04cc87f2b1c35e0aeb4956698dfff1d2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/terminal-link-provider.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "ce22f9273ea835ef241a855a096420e2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/terminal-mobile-input.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "0d1a8465b6065d44d5d6d3cf0e0953d7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/terminal-process-name.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "d3c6830b4f314be98429d1fc7141c6d9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/timezone-sync.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "c7b6a001e5ca67004be2dcd71cb8a47d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/touch-gestures.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "09692843cae56aadf9cc9430fcf8c92a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/vault-cache.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "7c64b6ba47f15ebd2b415ad4e3f85190",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/vault-readiness.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "a3869ec0a9bdad57e64f021e33068468",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/lib/xterm-internals.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "a3b94d6d6072cc2252b2ea62f0b19e03",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/page-transparency.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "b79aab9e32e11c43e70b89d396dbbd45",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/setup-010-og-metadata.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "e9a74d8e7e1cd622f95ebffbe69a6dcc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/setup.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "d5fa24b7d850729d623ccf96478ee3d2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/smoke.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "0a658187eaaa1c49ddeddaea9b5c1fb7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/preferences.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "9f6e7d2ee1db73dc7019c83951365014",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/r2-readiness.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "b2f24a970327f7369269febd6a3917b6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/session-presets-ac-coverage.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "0a9f370e862349fe2744d31332fd6eba",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/session-presets.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "6251153dbc2bbeeecb093a26ee4a9ec0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/session-ready-detection.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "54880d59f4aa5ba8cb1266275f98d3a0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/session-tabs.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "29902612ee599801731f711a1fe273d2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/session-tiling.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "dc5aa9c51d2dab31a63e8a1171852433",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/session-usage.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "974daca3c8b59a20fd138eb4bf9d7c0d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/session.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "f20173b63690095989b8b61d774c3094",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/setup.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "6e3eef7857e0bee469f3b34e8fa29fe6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/storage.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "9dba16e82ce8124de201af72d58b59cf",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/terminal-layout.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "c014a80a331bcfae0959e0adbc2ca0ae",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/terminal-url-detection.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "4bbbe0a5016d79c832e31e018a299cc0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/terminal.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "03e9161cb3a02844c5ebf26d2b2df45a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/tiling.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "a97cf0ebb919a8fef3ec9c7298f74204",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/stores/update-terminal-label.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "65b59464090b33b564bfdd932d9f6d25",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/styles/kitt-scanner-css.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "0c80d203e96a15b1ee8f4d3a846cbd04",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/styles/stat-cards-css.test.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "5075476e1dc31348a4d6778304231061",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/__tests__/utils/mocks.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "35390493f90175078ca8127d13ee3486",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/api/client.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "477e417df9efa385a36705bd7bd5bc52",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/api/fetch-helper.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "4b6ae58a36df9409aabe38c44010f7fc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/api/storage.ts": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "b5ce034636747eda024542b07e9efbc4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/CreateSessionDialog.tsx": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "ad1a4dffd4afcd79b1d1fcd27c2199b9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/Dashboard.tsx": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "f1243a0f4eeca0a5c891b1fdab1ba9c3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/FilePreview.tsx": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "aa64a28d843bbbde4ff3ad78bf891d62",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/FloatingTerminalButtons.tsx": {
+    "mtime": 1780404229.8580606,
+    "ast_hash": "aa74fc7826dbf11d3c58a4f0355a6ae2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/Header.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "a23a727545cac6e264300a6c8743115d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/Icon.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "d85069bb6a66477782d2577c7279109a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/InitProgress.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "5cfcbe7e18827b5f9e530ae31446675b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/KittScanner.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "4380cff8cc39f4009e8384a99abc7b85",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/Layout.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "4a5b38447c56e8d684c048982a019181",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/LoginPage.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "23c73e7bb69c2d5e1ebb83a8f2cf18b0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/OnboardingLanding.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "3f74828fc3cf9ad22b9a4157c096a431",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/OnboardingPage.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "5c91ab0fd5305e0176a3ce70f307e15b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/ScrambleText.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "02c747f277b7561c8ab781517e53be5c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/SessionContextMenu.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "1793215d6ba89d90345a6dc7c874b914",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/SessionDropdown.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "1f21729219edf804b085b038a2c284c7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/SessionLimitPopup.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "71328ac236aa17baee584a4e6bad557e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/SessionStatCard.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "dbd109e211e4407fd60ebbeae04c426d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/SessionSwitcher.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "ad0283bcf7ce9b23039fc2acafd80ab5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/SettingsPanel.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "92973ece8cb3f5099e2f3b0130bb8f38",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/SplashCursor.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "7106a60fb330cb869e9ee07fb6a2fb2a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/StatCards.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "392e4111da74fcb47b0ead14ec88b4a4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/StorageBrowser.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "c8095609114d1d7aaf4bfbc3533e30fc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/StoragePanel.tsx": {
+    "mtime": 1780404229.8620605,
+    "ast_hash": "76c5a1771549e90b540826c6912af9d5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/SubscribePage.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "b280b2bc5bc470e0d00dfdf1f8942a1b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/Terminal.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "915229ea34e159eaa5591c51a4ea00b4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/TerminalArea.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "d07aa7eb1204fc57a899b3190b9caf6c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/TerminalTabs.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "fc6cda04450ad7ca636d999908260603",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/TiledTerminalContainer.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "67d88f06407f8b66d0a6acc30a4922c5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/TilingButton.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "62eb07f3cb553f8becc11bfe8df0c655",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/TilingOverlay.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "719cd91f49b81e161779ea98307500a7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/TipsRotator.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "ccbca5b7d9a6f6dd357d60c1a4d9b456",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/UsageInlineBadge.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "f237ecaea6a11efd87f0100265e73101",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/UsagePage.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "29b778929732c1d0bca40d09e7b5036b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/admin/SubscriptionManagement.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "de56d8aebdb9ae522c36c844ecec0b2a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/admin/UserManagement.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "c4f1237b1cfe757a81c4b5c1cd8f28e9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/settings/AppearanceSection.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "19c86ed37e09a0ac4b9f3f1e8589df9b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/settings/BrandIcons.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "9c67487984a01331678005e3c8debce0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/settings/DeployKeysSection.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "944743145fe8cfae7ba6335855d171d5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/settings/LlmKeysSection.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "928e6ecd7aac1ed9a20053d5eef59242",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/settings/ProviderRow.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "cbb0cc31bcbff3c063c7d7b0fb9c1d14",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/settings/SessionSection.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "5e610ecc05e0e55b0cdaecf3e41dada6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/setup/ConfigureStep.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "6324cf9b45faa8ed8cced4e05d94401b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/setup/ProgressStep.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "2899b4aadf33b7389bf6308b8a944533",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/setup/SetupWizard.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "e7eff772540354fe33aba205f35f0075",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/setup/WelcomeStep.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "2aa2a17e1cf26bfd995c58ed69c1ee9b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/storage/FileList.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "70bc1b278ccf9f442cbb54c9ec9d6dcb",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/storage/StorageBreadcrumbs.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "55664b971ec0a2edef999ed68a7a95b6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/storage/StorageToolbar.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "83a03d05af3c19618ca4605de28739d5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/storage/UploadQueue.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "b9cba9027f338fe600e89a21f5bcae2e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/ui/Button.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "94c61b51cdb3ea6e78c9901ae63623d4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/components/ui/Input.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "4c2d076b1b1270fbb0f9fb0bcd9f61d0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/hooks/useScrollCorrection.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "20583009f8c66fb9e5e83193c444ecc7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/hooks/useStageTimings.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "c51102d95f0705e9a5469f4d1cd79894",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/hooks/useTerminal.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "f97f67b10877a2f0c0632cd8f9714644",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/index.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "d33fdffbf96d07a55df5ba7e93faaa6f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/constants.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "a18ed77bdc0880e7c3c66d469669c937",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/file-icons.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "eb2c8e71d71bfbab2b3cf258516b4c11",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/file-upload.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "4f14e6ceb2952d42da10475712c1aaf3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/format.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "9afbd08f465cfd5c153ab97245ae2dec",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/gravatar.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "e2ba6ade6209003b92ff4d25c5162344",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/logger.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "1e8f77a268aa93d87486a119aabf8ce9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/marketing-content.tsx": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "5562c9bf1fa7a0701ee250190d87c155",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/md5.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "6a1bd357e7330cf90eacbeb38419b3a3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/mobile.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "46e1e67be183d036a510eaf04e7a79bb",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/quotes.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "b819b2c88f437881d0eb912cbe2bcdf7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/schemas.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "a233361be4c659eadaa2dba9625cdc1f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/session-utils.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "24462f6fbb6ffa5234dd77249feb4ba3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/settings.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "fbbfb590fed97b6f5a3c38f888414442",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/sleep-timer.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "45c0d6d0ecf28b48cd5db3bf2268af22",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/special-folders.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "e40993addaa9bae37197a9ce08d326b0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/speech-input.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "735314e3f62190052459c10a609afc6e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/splash-cursor-logic.ts": {
+    "mtime": 1780404229.8660605,
+    "ast_hash": "8303c07ac664f8e7dac97c814d76338c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/splash-math.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "da94f8552ef3c7a0363725d5d52dfb03",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/splash-shaders.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "4eac151eec0e23ff5de68a74148620c8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/stages.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "c73d1fa7b6e745467103382996b2e2e4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/status-mapper.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "fc7df77b6dd5599365a766f6fdc53d0a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/terminal-config.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "e75b4aa2e00a43d0f8a0745d874e4992",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/terminal-link-provider.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "a0f6149b3ffb15711e55b65eee77ebf2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/terminal-mobile-input.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "556347c57e266ff226f7a9d89ac1e879",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/terminal-scroll-intent.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "093ca69219f608cf3f1ddebbb4c7122b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/timezone-sync.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "32b51ceb6f8f16c7af5316a3c28a1124",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/touch-gestures.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "0d5a962da616121b3a77e8578c3396dc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/use-scramble-text.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "9f1cf1434ca483980dd0d3c360a3ef9d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/vault-cache.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "82671cc17bc74584e32ed4d7ac9f3e26",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/vault-readiness.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "60ed74fb93512d5651e5c188d0fee8c8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/webgl-utils.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "e2e479a667785f1403446e34c5ad6aa5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/ws-debug.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "a92f5311d9bb55cabc27b7f8eda10798",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/lib/xterm-internals.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "fb069a04bd3dcab22249d09fb47f6131",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/preferences.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "a8750583696d2dd415d466c13390df4b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/r2-readiness.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "a3237be4c1db27df49055ca49425a861",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/session-polling.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "139fc4a63f60893a53420b0d40e50add",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/session-presets.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "97ece97e1714a9e472bdc629a61a2d0f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/session-tabs.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "13476e4b8475af306f1b89d4645896ef",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/session-usage.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "aed681868100642632756ffdcd699ccb",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/session.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "5dee50526a66bb5ce38efa64eeabb896",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/setup.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "c3f9fdb8fa1a49574d8438e6442cb72c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/storage.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "c00f4a673fed7acce27e1cf070c6d851",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/terminal-layout.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "e849ac553e1a520df85b36f8ad3c025e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/terminal-url-detection.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "3bbb9fa1e4f82b4b4c3cddd8540fd3e3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/terminal.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "f1f94d0aa1b9820a05c3404bf1e234d3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/stores/tiling.ts": {
+    "mtime": 1780404229.8740606,
+    "ast_hash": "364671c6097f990a87196047ca9ce1df",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/types.ts": {
+    "mtime": 1780404229.8860607,
+    "ast_hash": "634a089782f04c607f1e578db7e06986",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/src/types/jsdom.d.ts": {
+    "mtime": 1780404229.8860607,
+    "ast_hash": "6f8935f80f17720d7d5a6139f7ef4b13",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/tsconfig.json": {
+    "mtime": 1780404229.8860607,
+    "ast_hash": "7409044dc15e327f914f0848c3894786",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/vite.config.ts": {
+    "mtime": 1780404229.8860607,
+    "ast_hash": "32a25c2b0b4773eb6d007f09b761da67",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/vitest.config.ts": {
+    "mtime": 1780404229.8860607,
+    "ast_hash": "dbaf65816221fb67a74be5b58a29f44b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/.github/dependabot.yml": {
+    "mtime": 1780418687.0902097,
+    "ast_hash": "3601f6c86ee0556384f07d993d3e3a99",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/.github/workflows/bump-shadow-pins.yml": {
+    "mtime": 1780418752.7142103,
+    "ast_hash": "3ffc73f565ae3ead8b03bfd55199825f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/.github/workflows/codeql.yml": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "56d0ad71626e0ee2383da1a08811fdcd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/.github/workflows/deploy-dockerhub.yml": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "f23135de174832b748623787e15da8ca",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/.github/workflows/deploy.yml": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "14ed9811690856db92b1d9d4941227a5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/.github/workflows/e2e.yml": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "8623ef596fc480bfa5b81e26465290dc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/.github/workflows/fuzz.yml": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "e54d9bc66d38d36c6791d30baeb09cce",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/.github/workflows/pentest.yml": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "1f9f34077b6c7d4996596de92deb9a3f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/.github/workflows/scorecard.yml": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "55abf21fd458a64284264afae68f39fd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/.github/workflows/stress-test.yml": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "90eea66b3e8795247d816a34b78c5a5b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/.github/workflows/test.yml": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "89363165d139d206c3127aa7c6c35acf",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/CONTRIBUTING.md": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "52e7246c96dfb236e96d999f32834337",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/README.md": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "6ba7dbf613f968a6b2907ff7bb53151e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/SECURITY.md": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "5ea3fb7cb3804b21f71091627b86ef42",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/README.md": {
+    "mtime": 1780404229.5620606,
+    "ast_hash": "7264e8fbbee613393325e397c893fd54",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/decisions/README.md": {
+    "mtime": 1780432353.6823506,
+    "ast_hash": "d22b6e19471370e16351a6eccfdc1f32",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/api-reference.md": {
+    "mtime": 1780404229.6300607,
+    "ast_hash": "070aca29598b7c0951716eb428cd598d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/architecture-internals.md": {
+    "mtime": 1780404229.6300607,
+    "ast_hash": "8e0ec2d9f30646f2844b89bcff010793",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/architecture.md": {
+    "mtime": 1780417899.5302017,
+    "ast_hash": "1e3eecdbef21827e034279e161e0197b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/authentication.md": {
+    "mtime": 1780404229.6300607,
+    "ast_hash": "fd19962be451075708704409e741666e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/billing.md": {
+    "mtime": 1780404229.6300607,
+    "ast_hash": "454bc75a4be38df9737ba9ea6266ce53",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/ci-cd.md": {
+    "mtime": 1780418992.450213,
+    "ast_hash": "88af597514bfd28bc54c25eacd8aa2ef",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/configuration.md": {
+    "mtime": 1780404230.0660605,
+    "ast_hash": "238dba6e0c1f2a8892b99636713583fd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/container.md": {
+    "mtime": 1780404230.0660605,
+    "ast_hash": "19289ead92a037bb42906786d3d649ae",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/deployment.md": {
+    "mtime": 1780404229.6300607,
+    "ast_hash": "17240722ad7b2361357e62e2e4e01f1d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/mobile.md": {
+    "mtime": 1780404229.6300607,
+    "ast_hash": "2c2b8c33998129d2fd4405b4caf1e03b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/pentest.md": {
+    "mtime": 1780404229.6300607,
+    "ast_hash": "c81123223f60877804eb0b6265bddad1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/preseed.md": {
+    "mtime": 1780430042.230327,
+    "ast_hash": "56634a7f80b25b051694625ec5376507",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/security.md": {
+    "mtime": 1780430496.3863316,
+    "ast_hash": "56ef7dd2d4f2f1144827313de298f2b9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/storage-and-sync.md": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "3dbbd5e7852d49302c338abf3f9b64be",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/stress-test.md": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "678d6ba571dd16f85801fffdaeb3c9f7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/troubleshooting.md": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "0b0fe4b04ccb2a06fe0637635b775436",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/user-provisioning.md": {
+    "mtime": 1780404229.6340606,
+    "ast_hash": "c53ade06622cc60b37640a9b58431cf8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/lanes/vault.md": {
+    "mtime": 1780432375.9823508,
+    "ast_hash": "2cc775c4abb0c2d499bb2c03e3290fe9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/agents/architect.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "b1b03360606bbe4686efe9c5ee600b0d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/agents/build-error-resolver.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "0f8619656d44149fb583ab82e5181bf7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/agents/code-reviewer.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "039fb9991001889ae39b29d1b4a2dcf1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/agents/deep-reviewer.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "442541b7e60bad5ad1808ed1684cb622",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/agents/doc-updater.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "031ab6defdca2ae9938587b26c55c063",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/agents/memory-capture.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "ca88171a43e0043af4d0c72edc96db32",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/agents/refactor-cleaner.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "2219f4d00690e1a27ef7eb764ae5cc9d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/agents/security-reviewer.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "6a4b3dd1b65404db493a43cbc37523d3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/agents/spec-reviewer.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "7475adf726e707e03a7120395d3f66f2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/agents/tdd-guide.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "65d4175bcd83f7a2881ef608cbaa1450",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/agents/vault-extract.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "80ec653ff5a043488eeac4b49d2d0260",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/commands/brainstorm.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "86988c5967793f3783c00a08c9918b49",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/commands/debug.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "4bbe3d1cd740236f777ec97a6d278242",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/commands/deploy.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "e7c42a23761457d1162e9a661ac108e8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/commands/review.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "d916063ab6bb3eac57e5ac89d018f16c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/commands/sdd.md": {
+    "mtime": 1780404229.7140605,
+    "ast_hash": "b7e51f97c435f3c18eaecd5539f46546",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "3ec777e199c3dea5962bb24ec208f6ed",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "0e4bf3d1964c88d98ab28b864deaccc4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/context-mode/README.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "281b5e16f413ca068fd03afdc7164fa9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/plugins/graphify/README.md": {
+    "mtime": 1780404230.1220605,
+    "ast_hash": "35a4c900204a02da0a119b7e1e17921a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/cloudflare-environment.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "ae3740b24e3f1969be3cf04a1db9fa69",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/common/coding-style.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "9f59a55841a117048d6e58e526b8fcbe",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/documentation-discipline.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "8ab276e66c8c38477534727d28149be9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/git-workflow.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "ea66e4aee19ec064dd7df72f56935abb",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/golang/coding-style.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "31a7d0a431a5f259dcad59a55eac0c98",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/golang/patterns.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "844596de4b9fd4f04997189e14bc7cee",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/golang/security.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "0d6f5463398764d909136fb53530799b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/golang/testing.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "157c7fb34946f2008052df9022daf231",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/graph-first.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "e0bd2c5cb7446188be4336fe8a7b2f0c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/karpathy.md": {
+    "mtime": 1780404229.7180605,
+    "ast_hash": "a277b6ac8951967b2f49d311339a4cc3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/memory.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "b606d028cd1010286bfbe869b75c476a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/no-local-builds.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "a97390e463de4ac91eaade20c21affab",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/python/coding-style.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "f18e7c8a897aa502fd02b71a60a5f586",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/python/patterns.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "713dfcc5f9e0c88b847e23122219c208",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/python/security.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "8d5bbbbfb5cebaa20cb7572b19693aaf",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/python/testing.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "9189f7c83c55ccf33d73ad77ff758fb2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/spec-discipline.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "6309387298543d9b99e2a369dbea0a92",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/swift/coding-style.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "473f73cc6a4d39b247d3a13af7249ee4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/swift/patterns.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "f1ef20481fcf6fa57e9e516702f074fb",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/swift/security.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "a55c07268df023d5b03e13b1b7231207",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/swift/testing.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "af9e5a60f82b2178a42ebcf7d11d6bed",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/tdd-discipline.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "b0f1551ab9e22f3873bb6f63b0ca1f7a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/typescript/coding-style.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "d9cc819ca87f857aa46169fe0b7aad6f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/typescript/patterns.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "9a6f66a2fe1a7926040787d8eb428871",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/typescript/security.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "a34ccd01ab5537286010838d2a5180c2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/typescript/testing.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "247d6239d3d01a3bf653807ba800e848",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/rules/vault-note-capture.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "5f4a040d8aeddc541b2e31909bda573a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/api-design/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "54fd6d70845eac98e59d5329f79cdcc3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/backend-patterns/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "572a687f0a387799365f945e90372cf9",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/ci-monitoring/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "bceeabb2919469fe21c32d998506dfcc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/cloudflare-stack/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "4b0acb62b2c155777f58ed84aee636f8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/consult-llm/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "8ebf1569055953fcd73462266757b553",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/content-hash-cache-pattern/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "3bf5bfb7e09e296f2b13102ace5811a8",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/database-migrations/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "e2559f9c11875df41a9b3a20d8350aac",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/deploy-credentials/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "b51b7c69b4377e5018246f2df325a36b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/deployment-patterns/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "7c1454cbd05dd5fb35f85da3f89f9f76",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/doc-enforce-lanes/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "1a49fd022349e5d25742b96d86377ab2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/doc-enforce-shape/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "ddc964c5c7741c540b485df201c97d2c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/doc-enforce-truth/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "3622ff9ab83dd84364023dc1c2d6fe59",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/doc-enforce/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "8f0cdea5784e972540dc9e7f4efcc775",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/frontend-patterns/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "67c39853fb1ded2b6aa6cda249f338b5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/git-review-pipeline/SKILL.md": {
+    "mtime": 1780404229.7220607,
+    "ast_hash": "00c3f79954f0b445178bed9243f2cdef",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/github-cloudflare-ship/SKILL.md": {
+    "mtime": 1780404229.7260606,
+    "ast_hash": "9a0d2ec821f486d3a1cdcc03320aa8f1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/github-cloudflare-ship/references/workflow-templates.md": {
+    "mtime": 1780404229.7260606,
+    "ast_hash": "fa4bdf4b144c14cf60c99b661e211163",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/github-cloudflare-ship/references/wrangler-templates.md": {
+    "mtime": 1780404229.7260606,
+    "ast_hash": "63a1ebe36899f97431707e2ee1ecf8c4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/graphify/SKILL.md": {
+    "mtime": 1780404230.1220605,
+    "ast_hash": "ae9723a6f2ea3a4a7b8d7c05f4ec4ea0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/iterative-retrieval/SKILL.md": {
+    "mtime": 1780404229.7260606,
+    "ast_hash": "ee185f5e9556e37d7fd82e1632680f50",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/pr-workflow/SKILL.md": {
+    "mtime": 1780404229.7260606,
+    "ast_hash": "7c3df98baccd36e7e60a993cef351e1a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/sdd-clean/SKILL.md": {
+    "mtime": 1780404229.7260606,
+    "ast_hash": "053983ca493759a5a56c47fea7b5c7ce",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/sdd-init/SKILL.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "ac92be9eb8df47a4d4167b4f9de4658f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/search-first/SKILL.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "aac7376b7751e9cd8adfbe9a090286ad",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/SKILL.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "e68cb853d105133844c6dc9a37214ab2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-api-reference.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "5d560be942d284cc19e7a3318f7c9506",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-architecture.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "58e7463dae5d2bd42a0dadd8cc9a3996",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-configuration.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "f74778aee8b30092d6def7d439f20bad",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-decisions-readme.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "f2ad0ac1e4d150806f5b04ea0254b84a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-deployment.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "831623007e28fa89c6b75b3fd10dc917",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/documentation-readme.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "d2f3216537fe740c1551534e12b9d7ce",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/req-shape-example.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "70f31aa6a3248d1246da64d70b92958d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/root-readme.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "37d0c91c82166044f67dd81612788b4e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/sdd-changes.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "d7318a742a4634e0710d878152b00b4e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/sdd-config.yml": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "f72b67d3ff84feb9c9e30335253dae55",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/sdd-constraints.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "214866b744d91e38ae791dd1cf99e6e6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/sdd-glossary.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "ed036ddaa999d4224f13cef327fb8bca",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-driven-development/references/templates/sdd-readme.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "1439c127b449dcce26e44b4ae61f033a",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-enforce-ac/SKILL.md": {
+    "mtime": 1780430728.8943338,
+    "ast_hash": "d0b225838f17e5addf922ddd772f1e1c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-enforce-truth/SKILL.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "0c0ad8a94fe326660c30f16902b30077",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/spec-enforce/SKILL.md": {
+    "mtime": 1780430728.8983338,
+    "ast_hash": "a422b637d7a318fdd99d85aff88766dd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/tdd-enforce/SKILL.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "c575042d2f57410541b634c5df19c536",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/vault-note-capture/SKILL.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "93ce2c7e56a8683bd2e1db6317afa283",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/claude/skills/vault-operations/SKILL.md": {
+    "mtime": 1780404229.7300606,
+    "ast_hash": "a3d42239c62b2ac7a356b1cfb7c0dfc0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/prompts/memory-agent-prompt.md": {
+    "mtime": 1780426368.918289,
+    "ast_hash": "a672dd5d438ab8f220fa8a1997eb2ef5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/prompts/vault-extract-prompt.md": {
+    "mtime": 1780426119.9302864,
+    "ast_hash": "7ddd5fd206947e696499705b41d59440",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/skills/git-review-pipeline/SKILL.md": {
+    "mtime": 1780404229.7420607,
+    "ast_hash": "d39929672cebcbd1455c9d6914d9f4a1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/skills/graphify/SKILL.md": {
+    "mtime": 1780426144.6462865,
+    "ast_hash": "a9e1f4c1d317ad3b02c77bbdaf5e794b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/skills/pr-workflow/SKILL.md": {
+    "mtime": 1780404229.7420607,
+    "ast_hash": "7de97406665500fd524511a17c2889b6",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/agents/pi/skills/review/SKILL.md": {
+    "mtime": 1780404230.1220605,
+    "ast_hash": "0407e085199cc4e56f266c1212ad9ea4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/silverbullet/CONFIG.md": {
+    "mtime": 1780404229.7420607,
+    "ast_hash": "c50fb97d95d43f005adae42b48cf62c7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/silverbullet/Index.md": {
+    "mtime": 1780419568.6142187,
+    "ast_hash": "a8930884f8fe32aed3bb17fdef0243ed",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/silverbullet/README.md": {
+    "mtime": 1780404229.7420607,
+    "ast_hash": "33ef8efc4edb4e22aa58d744524660bf",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/silverbullet/Raw/Graphs/Vault Graph.md": {
+    "mtime": 1780404229.7420607,
+    "ast_hash": "5a80671c76dd97596d5f9b2e27abda0d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/silverbullet/STYLES.md": {
+    "mtime": 1780404229.7420607,
+    "ast_hash": "ffbcf2c5c786c82115ae47db6207eb21",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/silverbullet/plugs/MANIFEST.md": {
+    "mtime": 1780404229.7420607,
+    "ast_hash": "af001b0c12b83798ed079541a1ced45b",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/silverbullet/plugs/pdf/PLUG.md": {
+    "mtime": 1780404229.7420607,
+    "ast_hash": "1335b92daeddb2674da3eaa3e1c7644c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/silverbullet/plugs/treeview/PLUG.md": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "a6aefa34deccb1a7201bb96a772385c3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/tutorials/Documentation/Readme.md": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "3a47a42e2ea8cb9abd447be0d08fea02",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/tutorials/Documentation/Toolchain.md": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "0f87d4555121c5466c8bfe5a475a33b0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/tutorials/Examples/Advanced.md": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "4616577df8d80089216dc8ebcf3f4749",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/tutorials/Examples/Intermediate.md": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "296a7d11e56737d7137f68c472ec38ea",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/tutorials/Examples/Intro.md": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "d1ea18560954d94662497e160c7f9fb0",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/tutorials/Examples/Simple.md": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "779cd7dbcd197708c0c6ef6da3f1e9e5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/preseed/tutorials/Getting Started.md": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "d33de87fed8c5ed4d61732ea6c8aa89e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/README.md": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "d6938598840150380f4903daac85875f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/.review-decisions.md": {
+    "mtime": 1780404229.7580607,
+    "ast_hash": "7f5f9e59dd14c502e02238f44af26408",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/.review-queue.md": {
+    "mtime": 1780432448.7463517,
+    "ast_hash": "4768cbb24079dbbcba091d47706d1bcc",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/agents.md": {
+    "mtime": 1780431898.474346,
+    "ast_hash": "cb13a29109d10042d8a537785fe81d16",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/authentication.md": {
+    "mtime": 1780404229.7620606,
+    "ast_hash": "6466e4a4e78ee2f11719bc52189ef9d1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/changes.md": {
+    "mtime": 1780432126.9903483,
+    "ast_hash": "f87b35d23da4a4d219cd8a8a5033d2f5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/config.yml": {
+    "mtime": 1780404229.7620606,
+    "ast_hash": "0c8fdd5dc32264907e09cd45a2643e24",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/constraints.md": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "ee738cd543bc664039aeae81794c8009",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/glossary.md": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "88cf0d770d55ae676841890547395663",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/memory.md": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "ed2e0e0c787e12d99f41f697e9b81936",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/mobile.md": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "58c15becde988f93209868bf71b601c3",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/operations.md": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "0097e5fd2eded48184fd1e0825e76701",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/pending.md": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "83bfcd59161fc89422463e6ea6daba99",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/security.md": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "4b1418511239ebd5a22dd4836be7c90f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/session-lifecycle.md": {
+    "mtime": 1780432067.6943476,
+    "ast_hash": "a75352fe2ad5f5e81916166932e563b5",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/setup.md": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "5babfadf2b03ee55476900f0072b9eb2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/storage.md": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "d0beee8e855ca9cf1d8787f09e47da2c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/subscription.md": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "04dc0bbc253ad83aa7ba477a02f3807f",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/terminal.md": {
+    "mtime": 1780404229.7660606,
+    "ast_hash": "d160e2f5f55047469567592af61c2c23",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/sdd/spec/vault.md": {
+    "mtime": 1780432273.7623498,
+    "ast_hash": "d27a35ee9b781e542f48acf9daeb70df",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/index.html": {
+    "mtime": 1780404229.8380606,
+    "ast_hash": "4aff768271b53a5158262e541532350c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/images/dashboard.png": {
+    "mtime": 1780404229.5660605,
+    "ast_hash": "e619c29164aa95ef80a3ccbe3387baa2",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/images/guided-setup.png": {
+    "mtime": 1780404229.5700605,
+    "ast_hash": "fb1c1d76acb99de95ac3e3b679534eb1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/images/hero-ide-fullscreen.png": {
+    "mtime": 1780404229.5820606,
+    "ast_hash": "241a49710ee3e733f8119e62f0e7c8de",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/images/login-hero.png": {
+    "mtime": 1780404229.5820606,
+    "ast_hash": "4d2c01ecc3a10a94b376a002a490350e",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/images/logo-icon.svg": {
+    "mtime": 1780404229.5820606,
+    "ast_hash": "3111798167f0b05e3ab6ede914b66e1c",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/images/mobile-foldable.jpg": {
+    "mtime": 1780404229.5940607,
+    "ast_hash": "e8c1a5e74eb378443a10a07579e7e7bd",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/images/mobile-phone.jpg": {
+    "mtime": 1780404229.6260605,
+    "ast_hash": "366a5f790bcb44c7b639128a9363ae52",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/documentation/images/onboarding.png": {
+    "mtime": 1780404229.6300607,
+    "ast_hash": "c7ca9091dee54469e77bdc00ae32a7e7",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/public/apple-touch-icon.png": {
+    "mtime": 1780404229.8420606,
+    "ast_hash": "2144420624ad6406e06774999889defa",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/public/favicon.svg": {
+    "mtime": 1780404229.8420606,
+    "ast_hash": "fa2f25db287f0a620131dd2d246dfc59",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/public/icon-192.png": {
+    "mtime": 1780404229.8420606,
+    "ast_hash": "4d45e9f8c3eb4784fe9da8715e9478ea",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/public/icon-512.png": {
+    "mtime": 1780404229.8420606,
+    "ast_hash": "6736bf24b9824215ebec172144943d31",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/public/icon.svg": {
+    "mtime": 1780404229.8420606,
+    "ast_hash": "333cd360915808b2fd52fd0a02587d9d",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/public/logo-original-transparent.png": {
+    "mtime": 1780404229.8460605,
+    "ast_hash": "e5421c24287755ce54f89eba43f811b1",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/public/og.png": {
+    "mtime": 1780404229.8460605,
+    "ast_hash": "1d7484fa9246e087d61fc120a3ec17c4",
+    "semantic_hash": ""
+  },
+  "/home/user/workspace/codeflare/web-ui/public/og.svg": {
+    "mtime": 1780404229.8460605,
+    "ast_hash": "0dbbb0a93644848bd7ed2512d82e1a48",
+    "semantic_hash": ""
+  }
+}
