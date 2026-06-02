@@ -1224,9 +1224,12 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('deterministicVaultGraph');
     const helpers = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault-helpers.ts');
     // Canonical graphify schema (file_type/source_file/relation/confidence), not the legacy type/path/mentions shape.
+    // (relation values are passed to addLink as arguments, so assert the literal strings, not `relation: "..."`.)
     expect(helpers?.content).toContain('file_type: "concept"');
-    expect(helpers?.content).toContain('relation: "references"');
-    expect(helpers?.content).toContain('relation: "contains"');
+    expect(helpers?.content).toContain('source_file: null');
+    expect(helpers?.content).toContain('"references"');
+    expect(helpers?.content).toContain('"contains"');
+    expect(helpers?.content).toContain('confidence_score: 1.0');
     expect(helpers?.content).not.toContain('type: "mentions"');
   });
 
