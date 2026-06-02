@@ -49,9 +49,10 @@ interface RestartPrefsInput {
   tabConfig?: TabConfig[];
   openaiApiKey?: string;
   geminiApiKey?: string;
-  githubToken?: string;
-  cloudflareApiToken?: string;
-  cloudflareAccountId?: string;
+  // null is an explicit clear that must propagate to revoke the value (REQ-AGENT-029 AC2).
+  githubToken?: string | null;
+  cloudflareApiToken?: string | null;
+  cloudflareAccountId?: string | null;
   encryptionKey?: string;
   sessionMode?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone. Updated on subsequent DO wakes
@@ -69,9 +70,10 @@ export interface SetBucketNameCreds {
   tabConfig?: TabConfig[];
   openaiApiKey?: string;
   geminiApiKey?: string;
-  githubToken?: string;
-  cloudflareApiToken?: string;
-  cloudflareAccountId?: string;
+  // null is an explicit clear that must propagate to revoke the value (REQ-AGENT-029 AC2).
+  githubToken?: string | null;
+  cloudflareApiToken?: string | null;
+  cloudflareAccountId?: string | null;
   encryptionKey?: string;
   sessionMode?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded from /start. */
