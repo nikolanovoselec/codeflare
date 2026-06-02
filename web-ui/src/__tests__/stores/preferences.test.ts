@@ -10,14 +10,9 @@ describe('Preferences Store', () => {
   const mockUpdatePreferences = vi.fn();
   const mockLogger = { warn: vi.fn() };
   const mockSetPreferences = vi.fn();
-  let storedPrefs = {};
 
   beforeEach(() => {
     vi.clearAllMocks();
-    storedPrefs = {};
-    mockSetPreferences.mockImplementation((prefs) => {
-      storedPrefs = prefs;
-    });
     registerPreferencesDeps({
       api: {
         getPreferences: mockGetPreferences,
@@ -25,7 +20,6 @@ describe('Preferences Store', () => {
       },
       logger: mockLogger,
       setPreferences: mockSetPreferences,
-      getPreferences: () => storedPrefs,
     });
   });
 

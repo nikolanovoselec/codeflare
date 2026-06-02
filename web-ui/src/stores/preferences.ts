@@ -21,7 +21,6 @@ interface PreferencesLogger {
 let api: PreferencesApi | null = null;
 let log: PreferencesLogger | null = null;
 let setPreferences: ((prefs: UserPreferences) => void) | null = null;
-let getPreferences: (() => UserPreferences) | null = null;
 
 /**
  * Register dependencies for the preferences store.
@@ -31,12 +30,10 @@ export function registerPreferencesDeps(deps: {
   api: PreferencesApi;
   logger: PreferencesLogger;
   setPreferences: (prefs: UserPreferences) => void;
-  getPreferences: () => UserPreferences;
 }): void {
   api = deps.api;
   log = deps.logger;
   setPreferences = deps.setPreferences;
-  getPreferences = deps.getPreferences;
 }
 
 export async function loadPreferences(): Promise<void> {
