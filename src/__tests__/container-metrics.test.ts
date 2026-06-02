@@ -577,6 +577,77 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     });
   });
 
+  // CF-042
+  // updateKvStatus's missing-identifier guard (container-metrics.ts: the
+  // `if (!sessionId || !bucketName)` early-return). When neither the sessionId
+  // nor the bucketName can be resolved from storage, the function must log and
+  // return WITHOUT touching KV - otherwise it would build a key from a null
+  // identifier and corrupt an unrelated record. Driven through onStop(), which
+  // is the production caller of updateKvStatus.
+  describe('updateKvStatus missing-identifier guard', () => {
+    it('does NOT write to KV when both sessionId and bucketName are missing', async () => {
+      testState.storedSessionId = undefined;
+      testState.storedBucketName = null;
+
+      // Rebuild the instance so the constructor loads the (absent) bucketName.
+      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+        {},
+        { KV: mockKV, LOG_LEVEL: 'silent' },
+      );
+      (instance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+
+      // Seed a session whose key would collide if a null identifier somehow
+      // produced a write - the assertion below proves it does not.
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+      mockKV.put.mockClear();
+
+      await instance.onStop();
+
+      // Guard fires before getSessionKey / KV.put - no session write at all.
+      const sessionPuts = mockKV.put.mock.calls.filter(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).startsWith('session:')
+      );
+      expect(sessionPuts).toHaveLength(0);
+    });
+
+    it('does NOT write to KV when only the bucketName is missing', async () => {
+      testState.storedSessionId = 'testsession123456';
+      testState.storedBucketName = null;
+
+      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+        {},
+        { KV: mockKV, LOG_LEVEL: 'silent' },
+      );
+      (instance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+      mockKV.put.mockClear();
+
+      await instance.onStop();
+
+      const sessionPuts = mockKV.put.mock.calls.filter(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).startsWith('session:')
+      );
+      expect(sessionPuts).toHaveLength(0);
+    });
+  });
+
   describe('updateKvStatus clears metrics on stop', () => {
     it('should delete metrics when status is set to stopped via onStop', async () => {
       // Seed a session with metrics

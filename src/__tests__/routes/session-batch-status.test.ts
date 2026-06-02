@@ -8,15 +8,20 @@
  *              AC6 (lastActiveAt and lastStartedAt in response),
  *              AC7 (frontend disposal on stopped transition - structural)
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Session } from '../../types';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Session, UsageRecord } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 import {
   buildSessionMetadata,
   expandSessionMetadata,
+  getTimekeeperKey,
+  getUtcDateString,
+  getUtcMonthString,
   type SessionListMetadata,
 } from '../../lib/kv-keys';
+import { isSaasModeActive } from '../../lib/onboarding';
+import { getEffectiveTierForUser, getDefaultTiers, resetTierConfigCache } from '../../lib/subscription';
 
 vi.mock('../../lib/onboarding', () => ({ isSaasModeActive: vi.fn(() => false) }));
 vi.mock('../../lib/agent-seed.generated', () => ({ PRESEED_CONTENT_HASH: 'abc1234567890def' }));
@@ -135,6 +140,35 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       const res = await app.request('/sessions/batch-status');
       const body = await res.json() as { statuses: Record<string, { status: string }> };
       expect(body.statuses['aabbccdd11223344'].status).toBe('stopped');
+    });
+
+    // CF-043
+    // A single batch-status call can contain BOTH metadata-bearing keys (fast
+    // path) and pre-migration keys without metadata (fallback KV.get). This
+    // pins that both branches execute in one request and each session lands in
+    // the response from its respective path. REQ-SESSION-010 AC1.
+    it('resolves a mix of fast-path (metadata) and fallback (no-metadata) keys in one call', async () => {
+      const fast = makeSession('aabbccdd11223344', 'running');
+      const slow = makeSession('eeff001122334455', 'stopped');
+      // fast key carries metadata -> fast path; slow key omits it -> fallback.
+      mockKV._set('session:test-bucket:aabbccdd11223344', fast, buildSessionMetadata(fast));
+      mockKV._set('session:test-bucket:eeff001122334455', slow);
+
+      const app = createApp();
+      const res = await app.request('/sessions/batch-status');
+      const body = await res.json() as { statuses: Record<string, { status: string }> };
+
+      expect(body.statuses['aabbccdd11223344'].status).toBe('running');
+      expect(body.statuses['eeff001122334455'].status).toBe('stopped');
+
+      // The fallback path issues a KV.get only for the no-metadata key; the
+      // fast-path key must NOT trigger an individual KV.get.
+      const getCalls = mockKV.get.mock.calls as [string, ...unknown[]][];
+      const sessionGetKeys = getCalls
+        .map(([key]) => key)
+        .filter((key): key is string => typeof key === 'string' && key.startsWith('session:test-bucket:'));
+      expect(sessionGetKeys).toContain('session:test-bucket:eeff001122334455');
+      expect(sessionGetKeys).not.toContain('session:test-bucket:aabbccdd11223344');
     });
 
     it('reports KV status verbatim on the fallback (pre-migration, no metadata) path too', async () => {
@@ -336,6 +370,80 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(res.status).toBe(200);
       const body = await res.json() as { preseedNeedsUpgrade?: boolean };
       expect(body.preseedNeedsUpgrade).toBeUndefined();
+    });
+  });
+
+  // CF-041 // CF-071
+  // REQ-SUB-013 AC4: in SaaS mode batch-status returns the effective-tier cap
+  // (entitlements.maxSessions), not the role-based getMaxSessions() cap, and
+  // exposes the SaaS usage object. The default mock pins isSaasModeActive to
+  // false, so this block flips it true to exercise the otherwise-dead SaaS
+  // branch.
+  describe('REQ-SUB-013 AC4: SaaS-mode usage + effective-tier maxSessions', () => {
+    beforeEach(() => {
+      vi.mocked(isSaasModeActive).mockReturnValue(true);
+      // The route's getTierConfig() reads from a module-level cache; clear it
+      // so the default tier config is resolved deterministically per test.
+      resetTierConfigCache();
+    });
+
+    afterEach(() => {
+      vi.mocked(isSaasModeActive).mockReturnValue(false);
+      resetTierConfigCache();
+    });
+
+    // 'unlimited' tier caps at 5 sessions; the non-admin role default is 3, so
+    // a passing assertion proves the effective-tier cap (not the role cap) is
+    // returned.
+    const saasUser = { email: 'saas@example.com', authenticated: true, subscriptionTier: 'unlimited' as const };
+
+    function createSaasApp() {
+      return createTestApp({
+        routes: [{ path: '/sessions', handler: lifecycleRoutes }],
+        mockKV,
+        user: saasUser,
+      });
+    }
+
+    it('returns maxSessions equal to the effective-tier cap, not the role-based cap', async () => {
+      const tiers = getDefaultTiers();
+      const entitlements = getEffectiveTierForUser(saasUser, tiers);
+      // Guard: this test is meaningful only if the effective cap differs from
+      // the non-admin role default (3). 'unlimited' resolves to 5.
+      expect(entitlements.maxSessions).toBe(5);
+
+      const app = createSaasApp();
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { maxSessions: number };
+      expect(body.maxSessions).toBe(entitlements.maxSessions);
+    });
+
+    it('returns the SaaS usage object seeded from the timekeeper record + tier config', async () => {
+      const now = new Date();
+      const record: UsageRecord = {
+        today: { date: getUtcDateString(now), seconds: 120 },
+        thisWeek: { weekStart: getUtcDateString(now), seconds: 600 },
+        thisMonth: { month: getUtcMonthString(now), seconds: 3600 },
+        thisYear: { year: String(now.getUTCFullYear()), seconds: 7200 },
+        allTime: { seconds: 9000 },
+        lastUpdatedAt: now.toISOString(),
+      };
+      mockKV._set(getTimekeeperKey('test-bucket'), record);
+
+      const entitlements = getEffectiveTierForUser(saasUser, getDefaultTiers());
+
+      const app = createSaasApp();
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+      const body = await res.json() as {
+        usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string };
+      };
+      expect(body.usage).toBeDefined();
+      expect(body.usage!.dailySeconds).toBe(120);
+      expect(body.usage!.monthlySeconds).toBe(3600);
+      expect(body.usage!.monthlyQuotaSeconds).toBe(entitlements.monthlyQuotaSeconds);
+      expect(body.usage!.tier).toBe(entitlements.effectiveTier);
     });
   });
 });

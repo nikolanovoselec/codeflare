@@ -133,7 +133,7 @@ app.get('/batch-status', async (c) => {
   }
 
   const user = c.get('user');
-  const maxSessions = getMaxSessions(user.role, c.env);
+  let maxSessions = getMaxSessions(user.role, c.env);
 
   // Include cached storage stats (already in KV from /api/storage/stats, 60s TTL)
   const storageStatsCached = await c.env.KV.get(`storage-stats:${bucketName}`, 'json') as { totalFiles: number; totalFolders: number; totalSizeBytes: number } | null;
@@ -148,6 +148,9 @@ app.get('/batch-status', async (c) => {
         getTierConfig(c.env.KV),
       ]);
       const entitlements = getEffectiveTierForUser(user, tiers);
+      // REQ-SUB-013 AC4: the returned cap is the effective-tier cap in SaaS
+      // mode (role-based cap stays the default outside SaaS mode).
+      maxSessions = entitlements.maxSessions;
       const now = new Date();
       const currentMonth = getUtcMonthString(now);
       const currentDate = getUtcDateString(now);
