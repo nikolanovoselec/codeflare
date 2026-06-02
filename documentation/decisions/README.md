@@ -136,6 +136,8 @@ Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccesse
 
 `collectMetrics` KV read-modify-write can revert session status. Mitigated: session status changes are only observed from the Dashboard, not during active terminal use. Sessions are never interrupted while in Terminal view.
 
+**Update (2026-06-02, [AD70](#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation)):** the specific Dashboard-side revert this note worried about was the read-side `reconcileStaleStatus` heuristic (a separate later addition), which inferred `stopped` from a stale `metrics.updatedAt` heartbeat and could falsely kick a still-live session. That heuristic was removed in [codeflare#153](https://github.com/nikolanovoselec/codeflare/issues/153); KV `status` is now authoritative and written on every container exit, so the Dashboard renders it verbatim with no reconciliation. The remaining `collectMetrics` RMW concern (overlapping writes to the same record) is unchanged and still last-writer-wins.
+
 **`collectMetrics` density** (formerly [AD17](#ad17-merged-into-ad6)): the function performs activity checking, health probing, and KV status updates in a single `alarm()` callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The `alarm()` context provides natural atomicity across these tightly coupled operations - same theme as the KV race trade-off above (accept the cheap option until evidence forces change).
 
 ---
@@ -1251,6 +1253,26 @@ Two facts from the SB 2.8.1 source reshape the fix. First, SB's real service wor
 - Risk: the real ~97KB worker interacts with the live vault auth chain, and a prior attempt (`silverbullet-index` branch) stalled on boot timeouts. Mitigated by integration-only rollout and keeping the shim available as a one-line revert until the native path is proven.
 
 **Related REQ:** [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption) (zero-UI vault encryption), [REQ-VAULT-013](../../sdd/spec/vault.md#req-vault-013-silverbullet-subpath-adapter) (SilverBullet subpath adapter), [REQ-VAULT-015](../../sdd/spec/vault.md#req-vault-015-vault-idb-lifecycle-and-listing-filters) (vault IDB lifecycle). Supersedes the shim rationale documented in [vault.md - Service Worker registration noop bypass](../lanes/vault.md#service-worker-registration-noop-bypass). Tracks [codeflare#445](https://github.com/nikolanovoselec/codeflare/issues/445).
+
+---
+
+### AD70: Container exit writes KV `stopped`; no read-side reconciliation
+
+**Category:** Architecture
+
+**Status:** Accepted (2026-06-02)
+
+**Context:** Two user-facing symptoms shared one defect. (1) A live session was falsely flipped to `stopped` and the user bounced to the dashboard; reopening showed "Starting session" then instantly green. (2) A container that exited unexpectedly (crash, deploy-roll, or platform idle-reap) dangled as `running` in KV forever and had to be deleted by hand. Production observability (96h) proved the chain: when a container exits via an unexpected path the SDK (`@cloudflare/containers` v0.3.5) calls `onError()`, **not** `onStop()`; `onError` only logged, `collectMetrics`'s `!running` branch only logged-and-returned, and `onStop` (which does write `stopped`) was never invoked. So KV dangled at `running` and the heartbeat `metrics.updatedAt` froze. A read-side heuristic, `reconcileStaleStatus` (added in [#459](https://github.com/nikolanovoselec/codeflare/pull/459)), then inferred `stopped` from the stale heartbeat age on the dashboard poll - which is exactly what produced the false kick on still-live sessions whose alarm loop had legitimately paused. The June 1→2 incident was a deploy (the user's agent merging a PR to main) that rolled the container → `Container error` with no KV write. Over 96h the SDK `onActivityExpired` fired 0 times (the `sleepAfter='24h'` pin holds), 69/72 clean stops were manual `destroy()`, and 7 `Container error` events each leaked a dangling session.
+
+**Decision:** Make KV `status` the single authoritative source of truth and delete the read-side guess. (a) `onError()` writes `stopped` via the shared `updateKvStatus()` helper, guarded on `!ctx.container.running` so a transient startup error cannot flip a still-starting container. (b) `collectMetrics()`'s `!running` branch writes `stopped` on the next 60s tick as the catch-all for any exit the hooks missed. (c) `reconcileStaleStatus` and its `STALE_RUNNING_MS` constant are removed; all five call sites (`routes/session/{crud,lifecycle}.ts`, `routes/container/lifecycle.ts`) return the raw KV status. `metrics.updatedAt` / `m.u` is **kept** but is display-only (metrics-staleness), never a liveness signal. Safety rests on `updateKvStatus` re-reading sessionId/bucketName from DO storage and the session from KV on every call, and `destroy()` clearing those identifiers first - so a post-destroy write no-ops instead of resurrecting a deleted record (the same invariant as [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity)). Whether a session should **survive** a deploy at all (container persistence across Worker versions) is explicitly out of scope.
+
+**Consequences:**
+- Dangling `running` is eliminated: a container that exits for any reason converges to `stopped` within ~60s without manual deletion.
+- The false kick is eliminated at the root: with no heartbeat-age heuristic, a live-but-idle session can never be inferred `stopped` from a paused alarm loop.
+- The dashboard becomes a pure mirror of KV `status`; the frontend `running→stopped` disposal path (REQ-SESSION-010 AC7) stays, but now fires on the authoritative KV status written on exit (AC8) rather than a read-side guess.
+- Trade-off: a brief, accurate `stopped` can appear during a failed start before `onStart()` re-asserts `running`. Acceptable - it reflects reality.
+
+**Related REQ:** [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) (session status observable from dashboard, AC8). Tracks [codeflare#153](https://github.com/nikolanovoselec/codeflare/issues/153). Refines [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity).
 
 ---
 
