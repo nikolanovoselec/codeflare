@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD71](#ad71-preseed-corpus-statically-imported-into-the-worker-bundle-bound-by-compressed-bundle-size-ci-guarded) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -80,6 +80,8 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) | Antigravity reads the Gemini CLI config tree; preseed lane restored | Architecture |
 | [AD68](#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) | Service-token admin bypass must be environment-gated and hostname-restricted | Security |
 | [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing) | SilverBullet vault runs its native service worker for persistent, encrypted client indexing (SB v2 has no server-side index) | Architecture |
+| [AD70](#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | Container exit writes KV `stopped`; no read-side reconciliation | Architecture |
+| [AD71](#ad71-preseed-corpus-statically-imported-into-the-worker-bundle-bound-by-compressed-bundle-size-ci-guarded) | Preseed corpus statically imported into the Worker bundle; bound by compressed bundle size, CI-guarded | Architecture |
 
 ---
 
@@ -1273,6 +1275,25 @@ Two facts from the SB 2.8.1 source reshape the fix. First, SB's real service wor
 - Trade-off: a brief, accurate `stopped` can appear during a failed start before `onStart()` re-asserts `running`. Acceptable - it reflects reality.
 
 **Related REQ:** [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) (persisted status authoritative on container exit) and [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard) (session status observable from dashboard). Tracks [codeflare#153](https://github.com/nikolanovoselec/codeflare/issues/153). Refines [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity).
+
+---
+
+### AD71: Preseed corpus statically imported into the Worker bundle; bound by compressed bundle size, CI-guarded
+
+**Category:** Architecture
+
+**Status:** Accepted (2026-06-03)
+
+**Context:** The agent preseed corpus (`src/lib/agent-seed.generated.ts`, ~3.9 MB on disk / ~1 MB gzipped) is statically imported at module top level: `src/lib/r2-seed.ts` does `import { AGENTS_SEEDED_CONFIGS } from './agent-seed.generated'`. A static top-level import lands the full corpus in the Worker bundle that is shipped on every deploy, so the corpus competes for the same byte budget as application code. Cloudflare Workers enforces the limit on the **gzipped** bundle, and the paid-plan ceiling is 10 MB gzipped, so the relevant bound is the ~1 MB gzipped contribution of this corpus against that 10 MB headroom, not the 3.9 MB on-disk figure.
+
+**Decision:** Accept the static import for now. The corpus is read once at seed time and the static import keeps the seed path synchronous and simple, which is worth the bundle cost while the gzipped corpus is ~1 MB against a 10 MB gzipped ceiling. The bound MUST be guarded by a CI check on the gzipped Worker bundle size so the corpus cannot silently grow the bundle toward the ceiling between deploys. The structural escape hatch, taken as the gzipped bundle approaches the ceiling, is to stop statically importing the corpus: either relocate it to R2 and fetch it at seed time, or convert the top-level import to a lazy `await import('./agent-seed.generated')` so it is only pulled when seeding actually runs. Either path removes the corpus from the always-shipped bundle.
+
+**Consequences:**
+- The corpus ships in every Worker bundle and is counted against the gzipped size limit; a CI bundle-size check is the guardrail that keeps this from regressing.
+- The seed path stays synchronous and simple while the corpus is small relative to the ceiling.
+- Trade-off: corpus growth is bounded by deploy mechanics rather than by application need; once the CI check trends toward the ceiling, the R2-relocation / lazy-`import()` escape hatch must be taken rather than raising the budget.
+
+**Related REQ/finding:** Recorded from finding CF-011 (preseed corpus bundle-size bound). Relates to [AD3](#ad3-per-user-r2-buckets) (per-user R2 buckets) as the R2-relocation target for the escape hatch.
 
 ---
 
