@@ -1623,7 +1623,7 @@ warm_pi_npm_dependencies() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@7.8.1',
+  'npm:@gotgenes/pi-subagents@14.0.0',
   'npm:@gaodes/pi-graphify@0.2.2',
 ];
 const disabledPackageIds = new Set(['npm:context-mode']);
