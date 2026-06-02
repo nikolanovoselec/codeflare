@@ -157,10 +157,6 @@ export const BILLING_STATUS = {
   CANCELED: 'canceled',
 } as const satisfies Record<string, BillingStatus>;
 
-export function isBillingStatus(value: unknown): value is BillingStatus {
-  return typeof value === 'string' && BillingStatusSchema.safeParse(value).success;
-}
-
 export const SubscriptionTierSchema = z.enum([
   'blocked', 'pending', 'free', 'trial', 'standard', 'advanced', 'max', 'unlimited',
 ]);
@@ -192,7 +188,7 @@ export interface SubscriptionTierConfig {
  * Usage record stored at timekeeper:{bucketName} in KV.
  * Written by Timekeeper DO alarm handler.
  */
-export const UsageRecordSchema = z.object({
+const UsageRecordSchema = z.object({
   today: z.object({ date: z.string(), seconds: z.number().min(0) }),
   thisWeek: z.object({ weekStart: z.string(), seconds: z.number().min(0) }),
   thisMonth: z.object({ month: z.string(), seconds: z.number().min(0) }),
@@ -253,13 +249,15 @@ export interface LlmKeys {
  * User-scoped deploy credentials stored in KV
  */
 export interface DeployKeys {
-  githubToken?: string;
-  cloudflareApiToken?: string;
   /**
-   * Cloudflare account ID. `null` is an explicit clear that must propagate to
-   * the container DO (REQ-AGENT-029 AC2) - a missing field is "no change", a
+   * GitHub token. `null` is an explicit clear that must propagate to the
+   * container DO (REQ-AGENT-029 AC2) - a missing field is "no change", a
    * `null` field revokes the previously-injected value. Distinguish the two.
    */
+  githubToken?: string | null;
+  /** Cloudflare API token. `null` clears (see githubToken). */
+  cloudflareApiToken?: string | null;
+  /** Cloudflare account ID. `null` clears (see githubToken). */
   cloudflareAccountId?: string | null;
 }
 

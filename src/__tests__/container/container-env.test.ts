@@ -84,6 +84,40 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     const vars = buildEnvVars(state, baseEnv);
     expect(vars.ENCRYPTION_KEY).toBeUndefined();
   });
+
+  // CF-063 / REQ-AGENT-029 AC2: deploy credentials (GitHub + Cloudflare) are
+  // forwarded from DO state to the container env vars when set, and OMITTED
+  // (not emitted empty) when cleared to null so a revoked credential is unset
+  // in the container rather than left stale.
+  // @test buildEnvVars emits GH_TOKEN when state._githubToken is set
+  // @test buildEnvVars emits CLOUDFLARE_API_TOKEN when state._cloudflareApiToken is set
+  // @test buildEnvVars emits CLOUDFLARE_ACCOUNT_ID when state._cloudflareAccountId is set
+  it('CF-063: emits GH_TOKEN / CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID when deploy creds are set', () => {
+    const state = baseState();
+    const s = state as unknown as {
+      _githubToken: string | null;
+      _cloudflareApiToken: string | null;
+      _cloudflareAccountId: string | null;
+    };
+    s._githubToken = 'ghp_token';
+    s._cloudflareApiToken = 'cf_api_token';
+    s._cloudflareAccountId = 'cf_account_id';
+    const vars = buildEnvVars(state, baseEnv);
+    expect(vars.GH_TOKEN).toBe('ghp_token');
+    expect(vars.CLOUDFLARE_API_TOKEN).toBe('cf_api_token');
+    expect(vars.CLOUDFLARE_ACCOUNT_ID).toBe('cf_account_id');
+  });
+
+  // @test buildEnvVars omits GH_TOKEN when state._githubToken is null
+  // @test buildEnvVars omits CLOUDFLARE_API_TOKEN when state._cloudflareApiToken is null
+  // @test buildEnvVars omits CLOUDFLARE_ACCOUNT_ID when state._cloudflareAccountId is null
+  it('CF-063: omits GH_TOKEN / CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID when deploy creds are null', () => {
+    const state = baseState();
+    const vars = buildEnvVars(state, baseEnv);
+    expect(vars.GH_TOKEN).toBeUndefined();
+    expect(vars.CLOUDFLARE_API_TOKEN).toBeUndefined();
+    expect(vars.CLOUDFLARE_ACCOUNT_ID).toBeUndefined();
+  });
 });
 
 // Regression test for the entry-point destructure: handleSetBucketName at

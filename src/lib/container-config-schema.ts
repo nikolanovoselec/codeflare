@@ -21,10 +21,11 @@ export const SetBucketNameBodySchema = z.object({
   fastStartEnabled: z.boolean(),
   openaiApiKey: z.string().optional(),
   geminiApiKey: z.string().optional(),
-  githubToken: z.string().optional(),
-  cloudflareApiToken: z.string().optional(),
-  // null is an explicit clear that must propagate to the container so a
-  // revoked account ID is unset rather than left stale (REQ-AGENT-029 AC2).
+  // null on any of the three deploy creds is an explicit clear that must
+  // propagate to the container so a revoked credential is unset rather than
+  // left stale (REQ-AGENT-029 AC2).
+  githubToken: z.string().nullable().optional(),
+  cloudflareApiToken: z.string().nullable().optional(),
   cloudflareAccountId: z.string().nullable().optional(),
   encryptionKey: z.string().optional(),
   sessionMode: z.string(),

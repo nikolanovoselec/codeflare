@@ -79,11 +79,12 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     fastStartEnabled: params.fastStartEnabled,
     ...(params.llmKeys?.openaiApiKey && { openaiApiKey: params.llmKeys.openaiApiKey }),
     ...(params.llmKeys?.geminiApiKey && { geminiApiKey: params.llmKeys.geminiApiKey }),
-    ...(params.deployKeys?.githubToken && { githubToken: params.deployKeys.githubToken }),
-    ...(params.deployKeys?.cloudflareApiToken && { cloudflareApiToken: params.deployKeys.cloudflareApiToken }),
-    // REQ-AGENT-029 AC2: a stored `null` is an explicit clear that must reach
-    // the container so a revoked account ID is unset, not silently left stale.
-    // `undefined` stays omitted (no change); a string sets the value.
+    // REQ-AGENT-029 AC2: a stored `null` on any of the three deploy creds is an
+    // explicit clear that must reach the container so a revoked credential is
+    // unset, not silently left stale. `undefined` stays omitted (no change); a
+    // string sets the value.
+    ...(params.deployKeys?.githubToken !== undefined && { githubToken: params.deployKeys.githubToken }),
+    ...(params.deployKeys?.cloudflareApiToken !== undefined && { cloudflareApiToken: params.deployKeys.cloudflareApiToken }),
     ...(params.deployKeys?.cloudflareAccountId !== undefined && { cloudflareAccountId: params.deployKeys.cloudflareAccountId }),
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     sessionMode: params.sessionMode,
