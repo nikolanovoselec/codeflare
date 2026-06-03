@@ -96,6 +96,10 @@ describe('CF-001: security headers on pre-Hono early-return responses', () => {
     expect(res.headers.get('Strict-Transport-Security')).toContain('max-age=');
     expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
     expect(res.headers.get('X-Frame-Options')).toBe('DENY');
+    // Proxied vault content must NOT carry the `default-src 'none'` CSP: it
+    // serves SilverBullet's inline scripts/styles/workers, which that policy
+    // blocks. Transport headers stay; the strict CSP is dropped on this path.
+    expect(res.headers.get('Content-Security-Policy')).toBeNull();
   });
 
   // CF-001: vault validation errorResponse carries the headers

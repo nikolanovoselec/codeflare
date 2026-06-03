@@ -63,11 +63,17 @@ const SECURITY_HEADERS: Record<string, string> = {
  * No-op for 101 (WebSocket upgrade) responses, which cannot carry these headers,
  * and for responses that already have them (avoids double-cloning the SPA path).
  */
-export function withSecurityHeaders(response: Response): Response {
+export function withSecurityHeaders(response: Response, opts?: { csp?: boolean }): Response {
   if (response.status === 101) return response;
   if (response.headers.has('X-Content-Type-Options')) return response;
   const secured = new Response(response.body, response);
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+    // The vault path proxies SilverBullet, which serves its own HTML with
+    // inline scripts/styles, web workers and eval; a `default-src 'none'`
+    // CSP blocks all of it. Callers serving proxied vault content pass
+    // `csp: false` to keep the transport/clickjacking headers while letting
+    // the proxied app run (same-origin, authenticated, user-owned content).
+    if (key === 'Content-Security-Policy' && opts?.csp === false) continue;
     secured.headers.set(key, value);
   }
   return secured;
@@ -330,7 +336,7 @@ export default {
         return withSecurityHeaders(vaultRouteResult.errorResponse);
       }
       if (vaultRouteResult.remainingPath !== '/status') {
-        return withSecurityHeaders(await handleVaultRequest(request, env, ctx, vaultRouteResult));
+        return withSecurityHeaders(await handleVaultRequest(request, env, ctx, vaultRouteResult), { csp: false });
       }
     }
 

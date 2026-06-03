@@ -400,6 +400,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - Headers are applied globally; every response path inherits them.
 - Preflight (OPTIONS) responses receive HSTS directly in the CORS middleware.
 - Coverage of non-standard response paths (redirect responses, helper-emitted responses) lives in [REQ-SEC-021](#req-sec-021-hsts-coverage-on-redirect-response-paths).
+- The vault proxy content path is exempt from AC2 only: proxied SilverBullet responses (same-origin, authenticated, user-owned content) carry the transport and clickjacking headers (AC1, AC3-AC7) but not the `default-src 'none'` CSP, which would block SilverBullet's inline scripts/styles, web workers and eval. Vault error/JSON responses still carry the full set including CSP.
 
 **Priority:** P0
 
