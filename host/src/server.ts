@@ -25,7 +25,7 @@ import { getSyncStatus, getSystemMetrics } from './metrics.js';
 import { checkContainerAuth } from './auth-check.js';
 import { Session } from './session.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
-import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry } from './types.js';
+import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry, ActivityTracker, SessionOptions } from './types.js';
 
 const WS_KEEPALIVE_PING_MS = 30000;
 
@@ -75,18 +75,21 @@ const MAX_CONTROL_MSG_LENGTH = 200;       // Max length for JSON control message
 const SILVERBULLET_HOST = process.env.SILVERBULLET_HOST ?? '127.0.0.1';
 const SILVERBULLET_PORT = parseInt(process.env.SILVERBULLET_PORT ?? '3030', 10);
 
-// Parse TAB_CONFIG for expected process names per terminal tab
-// TAB_CONFIG is set by the Container DO before container start
-const tabConfigMap: Record<string, string> = {};
-try {
-  const tabConfig: TabConfigEntry[] = JSON.parse(process.env.TAB_CONFIG ?? '[]');
-  for (const tab of tabConfig) {
-    if (tab.command) {
-      tabConfigMap[tab.id] = tab.command;
+// Parse TAB_CONFIG for expected process names per terminal tab.
+// TAB_CONFIG is set by the Container DO before container start.
+function buildTabConfigMap(): Record<string, string> {
+  const map: Record<string, string> = {};
+  try {
+    const tabConfig: TabConfigEntry[] = JSON.parse(process.env.TAB_CONFIG ?? '[]');
+    for (const tab of tabConfig) {
+      if (tab.command) {
+        map[tab.id] = tab.command;
+      }
     }
+  } catch {
+    // Ignore parse errors, fall back to ptyProcess.process
   }
-} catch {
-  // Ignore parse errors, fall back to ptyProcess.process
+  return map;
 }
 
 // Determine actual working directory - fall back if WORKSPACE doesn't exist
@@ -107,39 +110,76 @@ function getWorkingDirectory(): string {
 
 // Ring buffer for recent WebSocket events (for debugging disconnects)
 const WS_EVENT_BUFFER_SIZE = 100;
-const wsEventLog: WsEvent[] = [];
-const logWsEvent: WsEventLogger = (sessionId: string, type: string, details?: Record<string, unknown>): void => {
-  const event: WsEvent = {
-    ts: new Date().toISOString(),
-    session: sessionId.substring(0, 8),
-    type,
-    ...details,
+
+// Build a WsEventLogger that appends to the supplied ring buffer.
+function createWsEventLogger(wsEventLog: WsEvent[]): WsEventLogger {
+  return (sessionId: string, type: string, details?: Record<string, unknown>): void => {
+    const event: WsEvent = {
+      ts: new Date().toISOString(),
+      session: sessionId.substring(0, 8),
+      type,
+      ...details,
+    };
+    wsEventLog.push(event);
+    if (wsEventLog.length > WS_EVENT_BUFFER_SIZE) {
+      wsEventLog.shift();
+    }
   };
-  wsEventLog.push(event);
-  if (wsEventLog.length > WS_EVENT_BUFFER_SIZE) {
-    wsEventLog.shift();
-  }
-};
+}
 
-// Activity tracking for smart hibernation (WebSocket disconnect tracking)
-const activityTracker = createActivityTracker();
+/**
+ * The server's owned mutable state, hoisted out of module scope into a single
+ * explicit object (CF-014). Handlers below read and mutate these fields through
+ * the `state` reference instead of bare module-level globals.
+ *
+ * Note: the original CF-014 brief listed a `pendingAuthCheck` field, but the
+ * auth boundary is now the pure `checkContainerAuth()` function (no mutable
+ * state), so that field is intentionally absent.
+ */
+interface ServerState {
+  readonly sessionManager: SessionManager;
+  readonly wsEventLog: WsEvent[];
+  readonly tabConfigMap: Record<string, string>;
+  readonly activityTracker: ActivityTracker;
+  readonly prewarmSessionId: string;
+  readonly logWsEvent: WsEventLogger;
+  readonly sessionOptions: SessionOptions;
+}
 
-// Shared options for Session and SessionManager
-const sessionOptions = {
-  tabConfigMap,
-  terminalCommand: TERMINAL_COMMAND,
-  terminalArgs: TERMINAL_ARGS,
-  getWorkingDirectory,
-  log,
-  logWsEvent,
-  activityTracker,
-  ptyKeepaliveMs: PTY_KEEPALIVE_MS,
-  maxSessions: 20,
-  ptyCleanupIntervalMs: PTY_CLEANUP_INTERVAL_MS,
-};
+function createServerState(): ServerState {
+  const tabConfigMap = buildTabConfigMap();
+  const wsEventLog: WsEvent[] = [];
+  const logWsEvent = createWsEventLogger(wsEventLog);
+  // Activity tracking for smart hibernation (WebSocket disconnect tracking)
+  const activityTracker = createActivityTracker();
 
-// Initialize session manager
-const sessionManager = new SessionManager(sessionOptions);
+  // Shared options for Session and SessionManager
+  const sessionOptions: SessionOptions = {
+    tabConfigMap,
+    terminalCommand: TERMINAL_COMMAND,
+    terminalArgs: TERMINAL_ARGS,
+    getWorkingDirectory,
+    log,
+    logWsEvent,
+    activityTracker,
+    ptyKeepaliveMs: PTY_KEEPALIVE_MS,
+    maxSessions: 20,
+    ptyCleanupIntervalMs: PTY_CLEANUP_INTERVAL_MS,
+  };
+
+  return {
+    sessionManager: new SessionManager(sessionOptions),
+    wsEventLog,
+    tabConfigMap,
+    activityTracker,
+    prewarmSessionId: PREWARM_SESSION_ID,
+    logWsEvent,
+    sessionOptions,
+  };
+}
+
+const state = createServerState();
+const { sessionManager, logWsEvent } = state;
 
 // Create HTTP server
 const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
@@ -188,15 +228,15 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
   // WebSocket event log for debugging disconnects
   if (pathname === '/ws-events' && method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ events: wsEventLog }));
+    res.end(JSON.stringify({ events: state.wsEventLog }));
     return;
   }
 
   // Activity endpoint for smart hibernation (WS connection-based)
   if (pathname === '/activity' && method === 'GET') {
-    activityTracker.recordHeartbeat();
+    state.activityTracker.recordHeartbeat();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(activityTracker.getActivityInfo(sessionManager)));
+    res.end(JSON.stringify(state.activityTracker.getActivityInfo(sessionManager)));
     return;
   }
 
@@ -717,8 +757,8 @@ server.listen(PORT, '0.0.0.0', async () => {
   await waitForInitFlag();
 
   // Pre-warm tab 1 PTY so the first client connect is instant
-  const prewarmSession = new Session(PREWARM_SESSION_ID, 'Terminal', false, sessionOptions);
-  sessionManager.sessions.set(PREWARM_SESSION_ID, prewarmSession);
+  const prewarmSession = new Session(state.prewarmSessionId, 'Terminal', false, state.sessionOptions);
+  sessionManager.sessions.set(state.prewarmSessionId, prewarmSession);
   prewarmSession.start();
   // Open the /terminal WS gate AFTER prewarm.start() returns so any client
   // that gets through finds a Session with ptyProcess already spawned (no
@@ -772,9 +812,9 @@ server.listen(PORT, '0.0.0.0', async () => {
   }, PREWARM_TIMEOUT_MS);
 
   prewarmSession.orphanTimeout = setTimeout(() => {
-    if (sessionManager.sessions.has(PREWARM_SESSION_ID)) {
+    if (sessionManager.sessions.has(state.prewarmSessionId)) {
       log('warn', 'Pre-warm session expired without adoption, killing');
-      sessionManager.delete(PREWARM_SESSION_ID);
+      sessionManager.delete(state.prewarmSessionId);
       prewarmReady = true;
     }
   }, PREWARM_ORPHAN_MS);
