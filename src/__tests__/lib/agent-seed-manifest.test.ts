@@ -415,6 +415,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isPrBoundaryCommand('gh pr create --base main')).toBe(true);
     expect(isPrBoundaryCommand('gh pr merge 12')).toBe(true);
     expect(isPrBoundaryCommand('gh pr update-branch 12')).toBe(true);
+    expect(isPrBoundaryCommand('cd /repo/codeflare && gh pr create --base main')).toBe(true);
+    expect(isPrBoundaryCommand('rg -n "gh pr create --base main" preseed/agents/pi/extensions/review-enforcement.ts')).toBe(false);
+    expect(isPrBoundaryCommand("printf '%s' 'git push origin develop'")).toBe(false);
     expect(isPrBoundaryCommand('gh pr edit 12 --title metadata-only')).toBe(false);
     expect(isPrBoundaryCommand('gh pr view --json number')).toBe(false);
   });

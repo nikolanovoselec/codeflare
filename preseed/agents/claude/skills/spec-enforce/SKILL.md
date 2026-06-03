@@ -256,13 +256,13 @@ All three conditions must be true. Corrupted state (`transition: true` but no op
 
 ## Commit-prefix contract (load-bearing for anti-spiral)
 
-Anti-spiral parses commit subjects by **tag prefix**. Every agent-authored commit MUST start with one of the canonical prefixes.
+Anti-spiral parses commit subjects by **tag prefix**. Every agent-authored autonomous/review-loop commit MUST start with one of the canonical prefixes.
 
-**Counted as agent-authored** (contribute to round counter): `[autonomous]`, `[unleashed]`, `[spec-reviewer]`, `[doc-updater]`, `[code-reviewer]`.
+**Counted as agent-authored** (contribute to round counter): `[autonomous]`, `[unleashed]`, `[spec-reviewer]`, `[doc-updater]`, `[code-reviewer]`. Example: PR opens → review agents run → findings are generated → the agent fixes findings → the agent pushes; that fix commit is `[autonomous]`.
 
 **Excluded** (intentional bulk operations): `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`.
 
-Plain commits (no prefix) are user-authored and reset the round counter. The counted/excluded sets are **closed**; introducing a new tag without adding it is a HIGH finding.
+Plain commits are for user-directed ordinary work and reset the round counter. The counted/excluded sets are **closed**; introducing a new tag without adding it is a HIGH finding.
 
 ## The 5-round commit cycle limit
 

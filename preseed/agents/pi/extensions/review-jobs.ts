@@ -189,7 +189,8 @@ export function failedDurableReviewLanes(repo: string, head: string, lanes: stri
 }
 
 export function runningDurableReviewLanes(repo: string, head: string, lanes: string[]): string[] {
-  return lanes.filter((lane) => runningLanes.has(laneKey(repo, head, lane)));
+  const job = readDurableReviewJob(repo, head);
+  return lanes.filter((lane) => runningLanes.has(laneKey(repo, head, lane)) || job?.laneState?.[lane]?.status === "running");
 }
 
 function stripFrontmatter(text: string): string {

@@ -378,6 +378,10 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
       'graph-present directive must offer full semantic refresh'
     );
     assert.ok(
+      ctx.includes('actual uncached file/subagent counts') && ctx.includes('confirmation'),
+      'graph-present full semantic directive must require post-detection confirmation'
+    );
+    assert.ok(
       ctx.includes('Never run the AST update wrapper'),
       'graph-present directive must forbid automatic update before user choice'
     );
@@ -409,6 +413,10 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
     assert.ok(
       ctx.includes('Full repo semantic build'),
       'graph-absent directive must offer full semantic build'
+    );
+    assert.ok(
+      ctx.includes('actual uncached file/subagent counts') && ctx.includes('confirmation'),
+      'graph-absent full semantic directive must require post-detection confirmation'
     );
     assert.ok(
       ctx.includes('No graph action'),

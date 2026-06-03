@@ -50,16 +50,16 @@ graphify query "<question>" --graph /home/user/.graphify/global-graph.json # Vau
 Clone-time prompts must never authorize an automatic graph update. When a cloned repo has no graph, ask the user which graph action they want before running any build:
 
 - **Full repo AST-only build** — free/local code graph.
-- **Full repo semantic build** — Pi Agent subagents extract docs/papers/images, then Graphify merges local semantic fragments.
+- **Full repo semantic build** — intent to run Pi Agent semantic extraction after detection shows the actual uncached file/subagent counts.
 - **No graph action right now** — stop without creating `graphify-out`.
 
 When a cloned repo has a stale/unknown existing graph, ask before any update and offer only:
 
 - **Use the existing graph as-is** — no files are modified.
 - **Full repo AST-only update** — refresh code structure via the bounded wrapper.
-- **Full repo semantic refresh** — run the agent-driven semantic flow after corpus detection.
+- **Full repo semantic refresh** — intent to run the agent-driven semantic flow after detection shows the actual uncached file/subagent counts.
 
-If the user already chose a clone-time AST-only or Full semantic option, treat that as the graph refresh choice after detection and do not ask the same mode question again. Only re-prompt if the chosen option is unavailable (for example, Full semantic was chosen but detection finds zero docs/papers/images).
+If the user already chose clone-time AST-only, treat that as the graph refresh choice after detection and do not ask the same mode question again. If the user chose clone-time Full semantic, treat it as intent only: after detection, show the actual uncached file/subagent counts and get confirmation before dispatching semantic subagents. Only re-prompt for a different mode if the chosen option is unavailable (for example, Full semantic was chosen but detection finds zero docs/papers/images).
 
 ## Detect corpus
 
@@ -88,7 +88,7 @@ If the user asks to ignore a file class (for example images), exclude that class
 
 ## Mandatory graph refresh choice
 
-After detection, present these choices and wait for the user to choose one, unless the current clone-time triage already captured an explicit Full repo AST-only, Full repo semantic, or no-graph choice:
+After detection, present these choices and wait for the user to choose one, unless the current clone-time triage already captured an explicit Full repo AST-only or no-graph choice. If clone-time triage captured Full repo semantic, present only a post-detection cost/count confirmation before any semantic subagents run:
 
 1. **Architecture graph** — recommended for large/noisy repos and daily navigation. Builds a smaller runtime-source graph by excluding tests, fixtures, generated files, docs/spec bulk, and build artifacts. Free/local.
 2. **Full repo AST-only** — official Graphify AST/code graph for every detected code file. Free/local, but can be noisy on large repos.

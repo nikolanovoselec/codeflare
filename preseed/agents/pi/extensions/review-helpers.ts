@@ -1,12 +1,134 @@
 export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"];
 
+type ShellCommand = string[];
+
+function splitShellCommands(command: string): string[] {
+  const segments: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | "" = "";
+  let escaped = false;
+
+  for (const char of command) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaped = true;
+      current += char;
+      continue;
+    }
+    if ((char === "'" || char === '"') && !quote) {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === quote) {
+      quote = "";
+      current += char;
+      continue;
+    }
+    if (!quote && (char === ";" || char === "|" || char === "&" || char === "\n")) {
+      if (current.trim()) segments.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+
+  if (current.trim()) segments.push(current.trim());
+  return segments;
+}
+
+function shellWords(segment: string): string[] {
+  const words: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | "" = "";
+  let escaped = false;
+
+  for (const char of segment) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if ((char === "'" || char === '"') && !quote) {
+      quote = char;
+      continue;
+    }
+    if (char === quote) {
+      quote = "";
+      continue;
+    }
+    if (!quote && /\s/.test(char)) {
+      if (current) {
+        words.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (current) words.push(current);
+  return words;
+}
+
+function reviewBoundaryCommands(command: string): ShellCommand[] {
+  return splitShellCommands(command)
+    .map(shellWords)
+    .filter((words) => words.length > 0);
+}
+
+function gitArgs(words: ShellCommand): ShellCommand | undefined {
+  if (words[0] !== "git") return undefined;
+  let index = 1;
+  while (index < words.length) {
+    const word = words[index];
+    if (word === "-C") {
+      index += 2;
+      continue;
+    }
+    if (word.startsWith("-C") && word.length > 2) {
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  return words.slice(index);
+}
+
+function isBoundaryWords(words: ShellCommand): boolean {
+  const git = gitArgs(words);
+  if (git?.[0] === "push") return true;
+  if (words[0] !== "gh") return false;
+  if (words[1] === "repo" && words[2] === "sync") return true;
+  return words[1] === "pr" && ["create", "merge", "update-branch"].includes(words[2]);
+}
+
+function prCreateWords(command: string): ShellCommand | undefined {
+  return reviewBoundaryCommands(command).find((words) => words[0] === "gh" && words[1] === "pr" && words[2] === "create");
+}
+
 export function isGhPrCreateCommand(command: string): boolean {
-  return /(^|[;&|]\s*)gh\s+pr\s+create\b/.test(command);
+  return Boolean(prCreateWords(command));
 }
 
 export function ghPrCreateBase(command: string): string | undefined {
-  const match = command.match(/(?:^|\s)(?:--base|-B)(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9._\/-]+))/);
-  return match?.[1] || match?.[2] || match?.[3];
+  const words = prCreateWords(command);
+  if (!words) return undefined;
+  for (let index = 3; index < words.length; index += 1) {
+    const word = words[index];
+    if ((word === "--base" || word === "-B") && words[index + 1]) return words[index + 1];
+    if (word.startsWith("--base=")) return word.slice("--base=".length);
+    if (word.startsWith("-B=") && word.length > 3) return word.slice(3);
+  }
+  return undefined;
 }
 
 export function prCreateBoundaryBase(command: string, knownBase?: string): string | undefined {
@@ -17,9 +139,7 @@ export function prCreateBoundaryBase(command: string, knownBase?: string): strin
 }
 
 export function isPrBoundaryCommand(command: string): boolean {
-  return /(^|[;&|]\s*)git(?:\s+-C\s+\S+)?\s+push\b/.test(command)
-    || /(^|[;&|]\s*)gh\s+repo\s+sync\b/.test(command)
-    || /(^|[;&|]\s*)gh\s+pr\s+(create|merge|update-branch)\b/.test(command);
+  return reviewBoundaryCommands(command).some(isBoundaryWords);
 }
 
 export function isFailedToolExecution(event: any): boolean {

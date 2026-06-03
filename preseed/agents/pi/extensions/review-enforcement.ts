@@ -85,10 +85,13 @@ function activeRepoFallback(): string | undefined {
 }
 
 function commandText(event: any): string {
-  const input = event?.input || event?.params || event?.args || {};
-  if (typeof input.command === "string") return input.command;
-  if (typeof input.code === "string") return input.code;
-  if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => String(cmd?.command || "")).join("\n");
+  const inputs = [event?.input, event?.params, event?.args, event?.arguments, event?.toolCall?.arguments];
+  for (const input of inputs) {
+    if (!input || typeof input !== "object") continue;
+    if (typeof input.command === "string") return input.command;
+    if (typeof input.code === "string") return input.code;
+    if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => String(cmd?.command || "")).join("\n");
+  }
   return "";
 }
 
@@ -368,15 +371,19 @@ function updateReviewStatus(state: PendingReview, ctx: any): void {
   try {
     const completed = state.lanes.filter((lane) => state.completed.has(lane) || existsSync(reviewResultPath(state.repo, state.head, lane)));
     const running = runningDurableReviewLanes(state.repo, state.head, state.lanes).concat(Object.keys(state.spawnedIds));
+    const color = ctx.ui?.theme?.fg;
+    const style = typeof color === "function"
+      ? {
+          done: (label: string) => color.call(ctx.ui.theme, "success", label),
+          running: (label: string) => color.call(ctx.ui.theme, "warning", label),
+        }
+      : undefined;
     ctx.ui.setStatus("codeflare-review", compactDurableReviewStatus({
       head: state.head,
       lanes: state.lanes,
       completed,
       running,
-      style: {
-        done: (label: string) => ctx.ui.theme.fg("success", label),
-        running: (label: string) => ctx.ui.theme.fg("warning", label),
-      },
+      style,
     }));
   } catch {
     // Status display is best-effort; persisted review state is authoritative.
@@ -627,13 +634,14 @@ export default function (pi: ExtensionAPI) {
       if (id && commandText(event)) toolStartArgs.delete(id);
       return event;
     }
-    const current = event?.args || event?.input || event?.params || {};
+    const current = event?.args || event?.input || event?.params || event?.arguments || {};
     const merged = { ...cached, ...current };
     const enriched = {
       ...event,
       args: merged,
       input: { ...(event?.input || {}), ...merged },
       params: { ...(event?.params || {}), ...merged },
+      arguments: { ...(event?.arguments || {}), ...merged },
     };
     if (id && commandText(enriched)) toolStartArgs.delete(id);
     return enriched;
@@ -832,7 +840,7 @@ export default function (pi: ExtensionAPI) {
     if (!isActiveRun()) return;
     remember(ctx);
     const toolName = String(event?.toolName || "").toLowerCase();
-    const input = event?.input || event?.params || event?.args || {};
+    const input = event?.input || event?.params || event?.args || event?.arguments || {};
     const command = commandText(event);
     // commandText() pulls the command from bash (input.command) or, when context-mode is on,
     // the ctx_* tools (code/commands). Gate on the command itself, never the tool name.
@@ -881,7 +889,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_call", onAgentStart);
   pi.on("tool_execution_start", (event: any, ctx: any) => {
     const id = toolEventId(event);
-    if (id) toolStartArgs.set(id, event?.args || event?.input || event?.params || {});
+    if (id) toolStartArgs.set(id, event?.args || event?.input || event?.params || event?.arguments || {});
     return onAgentStart(event, ctx);
   });
 
@@ -892,7 +900,7 @@ export default function (pi: ExtensionAPI) {
     if (isFailedToolExecution(event)) return;
 
     if (toolName === "agent") {
-      const input = event?.input || event?.params || event?.args || {};
+      const input = event?.input || event?.params || event?.args || event?.arguments || {};
       const type = String(input.subagent_type || input.subagentType || "");
       const prompt = String(input.prompt || "");
       const state = hydratePending(ctx);

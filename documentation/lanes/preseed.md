@@ -20,6 +20,8 @@ it gets there" content. Memory-system specifics live in
 - [Graphify](#graphify-req-agent-023)
 - [/sdd init Modes](#sdd-init-modes)
 - [Troubleshooting](#troubleshooting)
+- [Specification Coverage](#specification-coverage)
+- [Related Documentation](#related-documentation)
 
 ## Session Modes
 
@@ -527,7 +529,7 @@ All tiers append tool guidance (pointing at `mcp__graphify__query_graph`, `mcp__
 
 ### Post-clone graph triage ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage))
 
-In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing. If no repo graph exists, the agent asks the user which graph action to take before doing any graph work: Full repo AST-only, Full repo semantic, or no graph action. If a graph exists, the extension compares `graphify-out/graph.json` `built_at_commit` with `git rev-parse HEAD`: fresh graphs produce an information message only; stale or unknown graphs ask the user before any update, offering existing-graph-as-is, Full repo AST-only update, or Full repo semantic refresh. The AST-only update uses the bounded upstream-update wrapper only after the user chooses it; Full semantic refresh is owned by the graphify skill after detection. Pi mirrors the same behavior through native lifecycle events and suppresses clone triage inside durable PR-boundary review lanes.
+In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing. If no repo graph exists, the agent asks the user which graph action to take before doing any graph work: Full repo AST-only, Full repo semantic, or no graph action. Claude's clone hook injects a directive that tells the agent to compare `graphify-out/graph.json` `built_at_commit` with `git rev-parse HEAD`; Pi performs that freshness comparison natively in its lifecycle extension. Fresh graphs produce an information message only. Stale or unknown graphs ask the user before any update, offering existing-graph-as-is, Full repo AST-only update, or Full repo semantic refresh. The AST-only update uses the bounded upstream-update wrapper only after the user chooses it. Full semantic build/refresh records clone-time intent only: after corpus detection, the graphify skill must show actual uncached file/subagent counts and get confirmation before dispatching semantic subagents. Pi mirrors the same behavior through native lifecycle events and suppresses clone triage inside durable PR-boundary review lanes.
 
 ### Pi active-repo query fallback ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
 

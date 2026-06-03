@@ -28,6 +28,6 @@ Full Status semantics + transition rules live in `spec-driven-development` skill
 
 ## Commit-prefix contract (load-bearing)
 
-Agent-authored commits MUST start with `[autonomous]`, `[unleashed]`, `[spec-reviewer]`, `[doc-updater]`, or `[code-reviewer]`. Excluded (bulk ops): `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`. Plain commits = user-authored, reset the round counter. Full 5-round-limit mechanics in `spec-enforce`.
+Agent-authored autonomous/review-loop commits MUST start with `[autonomous]`, `[unleashed]`, `[spec-reviewer]`, `[doc-updater]`, or `[code-reviewer]`. Example: PR opens → review agents run → findings are generated → the agent fixes findings → the agent pushes; that fix commit is `[autonomous]`. Excluded (bulk ops): `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`. User-directed commits made during ordinary requested work use normal plain commit messages and reset the round counter. Full 5-round-limit mechanics in `spec-enforce`.
 
 Skipping enforcement-skill invocation when the trigger fires is itself HIGH `enforcement-skill-not-invoked`.

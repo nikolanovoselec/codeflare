@@ -25,7 +25,7 @@ export function renderGraphifyCloneDirective(action: GraphifyCloneAction): strin
       "Do not update the graph automatically. If the graph is stale or freshness is unknown, ask the user which graph action to take before running any graph update:",
       "1. Use the existing graph as-is — no files are modified.",
       `2. Full repo AST-only update — run \`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh ${action.repo}\` only after the user explicitly chooses this option.`,
-      "3. Full repo semantic refresh — invoke the `/graphify` skill from the repo root and tell it the user chose Full repo semantic; semantic extraction must use Pi Agent subagents from this running session, never a headless backend/API-key extractor.",
+      "3. Full repo semantic refresh — invoke the `/graphify` skill from the repo root and tell it the user chose Full semantic intent at clone time; after detection, the skill must show the actual uncached file/subagent counts and get confirmation before dispatching semantic subagents. Semantic extraction must use Pi Agent subagents from this running session, never a headless backend/API-key extractor.",
       `If fresh, print an information message only, then use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` before broad text search. Codeflare Pi automatically retries those native tools against \`${action.repo}/graphify-out/graph.json\` if the first attempt looks at the workspace root; if that retry still fails, fall back to the CLI with \`--graph ${action.repo}/graphify-out/graph.json\`.`,
       "Never run the AST update wrapper or a semantic refresh until the user has chosen the corresponding update option.",
     ].join("\n");
@@ -34,7 +34,8 @@ export function renderGraphifyCloneDirective(action: GraphifyCloneAction): strin
     `Repository cloned at ${action.repo}; no graphify graph exists yet at ${action.repo}/graphify-out/graph.json.`,
     "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is /home/user/Vault/graphify-out/graph.json; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
     "Before doing anything else with this repo, ask the user which graph action to take. Offer exactly these choices: Full repo AST-only build, Full repo semantic build, or no graph action.",
-    "If the user chooses Full repo AST-only build or Full repo semantic build, invoke `/graphify` from the repo root and tell the skill which option the user already selected so it does not ask the same mode question again after detection.",
+    "If the user chooses Full repo AST-only build, invoke `/graphify` from the repo root and tell the skill the user already selected AST-only so it does not ask the same mode question again after detection.",
+    "If the user chooses Full repo semantic build, invoke `/graphify` from the repo root and tell the skill the user chose Full semantic intent at clone time; after detection, the skill must show the actual uncached file/subagent counts and get confirmation before dispatching semantic subagents.",
     "If the user chooses no graph action, proceed without a graph and do not modify `graphify-out`. Do not use headless backend/API-key extraction for this interactive workflow; semantic extraction must use Pi Agent subagents from this running session.",
   ].join("\n");
 }
