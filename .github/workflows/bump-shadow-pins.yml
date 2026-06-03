@@ -1,4 +1,4 @@
-name: bump-shadow-pins
+name: Bump Shadow Pins
 
 # Watches pinned versions that live outside any package.json
 # (so Dependabot can't see them) and opens a single PR per bump.
