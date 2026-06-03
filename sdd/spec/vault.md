@@ -252,7 +252,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-005: Worker proxy exposes the in-container vault editor
 
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
-<!-- @impl: src/routes/vault.ts::validateVaultRoute -->
+<!-- @impl: src/routes/vault-validation.ts::validateVaultRoute -->
 <!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
 <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute boundary cases describe → AC3/AC5) -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (vault WS rate-limit key contract describe → AC4) -->
@@ -323,8 +323,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-013: SilverBullet subpath adapter
 
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
-<!-- @impl: src/routes/vault.ts::rewriteVaultBaseHref -->
-<!-- @impl: src/routes/vault.ts::rewriteVaultHtmlResponse -->
+<!-- @impl: src/routes/vault-html.ts::rewriteVaultBaseHref -->
+<!-- @impl: src/routes/vault-html.ts::rewriteVaultHtmlResponse -->
 <!-- @test: src/__tests__/routes/vault.test.ts (rewriteVaultBaseHref / rewriteVaultHtmlResponse (REQ-VAULT-013 AC1-AC4) → AC1-AC4) -->
 
 **Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response so the editor's relative asset references resolve back through the subpath proxy. The companion native-service-worker contract (registration short-circuit, key delivery, precache) is [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker).
@@ -489,13 +489,13 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-008: Zero-UI vault encryption
 
-<!-- @impl: src/container/index.ts::ensureVaultKey -->
+<!-- @impl: src/container/container-config.ts::ensureVaultKey -->
 <!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
 <!-- @impl: src/routes/vault-native-sw.ts::graftVaultKeyRecovery -->
-<!-- @impl: src/routes/vault.ts::injectVaultBootstrapHopHtml -->
-<!-- @impl: src/routes/vault.ts::injectVaultIdbRecorder -->
-<!-- @impl: src/routes/vault.ts::VAULT_BOOTSTRAP_COOKIE -->
-<!-- @impl: src/routes/vault.ts::VAULT_SW_ACTIVATION_TIMEOUT_MS -->
+<!-- @impl: src/routes/vault-html.ts::injectVaultBootstrapHopHtml -->
+<!-- @impl: src/routes/vault-html.ts::injectVaultIdbRecorder -->
+<!-- @impl: src/routes/vault-html.ts::VAULT_BOOTSTRAP_COOKIE -->
+<!-- @impl: src/routes/vault-html.ts::VAULT_SW_ACTIVATION_TIMEOUT_MS -->
 <!-- @impl: src/routes/vault.ts::handleVaultRequest (.vault-key sub-path) -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
@@ -540,9 +540,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-015: Vault IDB lifecycle and listing filters
 
-<!-- @impl: src/routes/vault.ts::filterVaultFsListing -->
-<!-- @impl: src/routes/vault.ts::injectVaultIdbRecorder -->
-<!-- @impl: src/routes/vault.ts::VAULT_IDB_RECORDER_MARKER -->
+<!-- @impl: src/routes/vault-html.ts::filterVaultFsListing -->
+<!-- @impl: src/routes/vault-html.ts::injectVaultIdbRecorder -->
+<!-- @impl: src/routes/vault-html.ts::VAULT_IDB_RECORDER_MARKER -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
 <!-- @test: src/__tests__/routes/vault.test.ts (filterVaultFsListing + injectVaultIdbRecorder describes → AC1/AC3) -->

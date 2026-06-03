@@ -367,7 +367,7 @@ The Timekeeper DO receives pings every 60 seconds from each active container ses
 
 #### Container start quota check
 
-`validateSessionAndCheckLimits()` in `src/routes/container/lifecycle.ts` performs a KV read at session start. With `STRESS_TEST_MODE=active`, usage quota enforcement is bypassed (same as rate limits).
+`validateSessionAndCheckLimits()` in `src/routes/container/lifecycle-validation.ts` performs a KV read at session start. With `STRESS_TEST_MODE=active`, usage quota enforcement is bypassed (same as rate limits).
 
 ---
 
