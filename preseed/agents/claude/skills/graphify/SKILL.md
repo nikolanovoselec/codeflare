@@ -108,17 +108,17 @@ Reruns community detection on existing `graph.json`. No extraction, no tokens.
 
 5. **Context boundedness.** Graphify's own subagent-chunking model bounds the main session context, so extraction works without context-mode or `ctx_*` tools. No per-tier branching is needed in this skill.
 
-6. **AskUserQuestion on clone - YES/NO only, NOT mode.** A PostToolUse hook (`graphify-clone-prompt.sh`) injects a directive after `git clone` / `gh repo clone`. At clone time you ask **one** yes/no question: "Build a graphify knowledge graph for `<dir>`?". Recommend YES for repos with more than 50 files. **Do NOT ask about build mode (AST-only vs Full) at clone time** - that question is owned by note #8 below and fires from inside the skill *after* it loads, when the corpus has actually been detected and the cost surface (file counts, image counts, agent count) can be surfaced in the prompt. Asking the mode question both at clone time AND inside the skill is a duplicate-question bug; the user sees the same prompt twice. Respect a NO without arguing.
+6. **AskUserQuestion on clone - never auto-update.** A PostToolUse hook (`graphify-clone-prompt.sh`) injects a directive after `git clone` / `gh repo clone`. At clone time, if no graph exists, ask the user which graph action they want before running any build: **AST-only**, **Full semantic**, or **No graph action**. If an existing graph is stale/unknown, ask before running any update and offer **Use existing graph as-is**, **AST-only update**, or **Full semantic refresh**. If an existing graph is fresh, only print an informational note and use it. If the user already chose AST-only or Full semantic from the clone-time prompt, treat that as the build-mode choice for this skill after detection and do not ask the same mode question again. Respect a NO without arguing.
 
 7. **Discipline rule.** When `graphify-out/graph.json` exists, `~/.claude/rules/graph-first.md` applies: prefer focused MCP queries over Grep for architecture, dependency, and call-flow questions.
 
-8. **Mandatory build-mode choice before any extraction.** Before dispatching Part B subagents (Step B2 of the upstream protocol), ALWAYS present the user with an `AskUserQuestion` offering exactly two modes:
+8. **Mandatory build-mode choice before any extraction.** Before dispatching Part B subagents (Step B2 of the upstream protocol), ALWAYS present the user with an `AskUserQuestion` offering exactly two modes unless the user already chose AST-only or Full semantic in the current clone-time triage prompt:
    - **AST-only** - free, no token cost; code structure + call/import/contains edges only; no semantic concepts from docs / papers / images.
    - **Full (AST + semantic)** - AST plus N parallel Sonnet subagents extracting concepts from docs / papers / images. Include the actual subagent count (`ceil(uncached_doc_paper_files / 22) + uncached_image_count`) and a wall-time estimate (~45s per parallel batch).
 
    Choose by intent, not size. **AST-only** when testing the pipeline, exploring for a one-off question, or cost-capping. **Full** when this is a long-term project and the user wants semantic concepts from docs/images in MCP queries.
 
-   Skip the question only when (a) the corpus has zero docs / papers / images (code-only fast path makes the choice moot), or (b) `--no-semantic` was passed explicitly. If AST-only is chosen, skip Part B entirely and treat AST as the full extraction (same flow as the code-only fast path).
+   Skip the question only when (a) the corpus has zero docs / papers / images (code-only fast path makes the choice moot), (b) `--no-semantic` was passed explicitly, or (c) the user already chose AST-only or Full semantic in the current clone-time triage prompt. If AST-only is chosen, skip Part B entirely and treat AST as the full extraction (same flow as the code-only fast path).
 
    This choice is separate from the "split by subfolder" question the upstream protocol asks on > 200 files - ask both in sequence (subfolder first, then build mode against the chosen scope).
 

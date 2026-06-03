@@ -11,8 +11,8 @@ export function graphifyCloneAction(repo: string, hasGraph: boolean): GraphifyCl
     hasGraph,
     mode: hasGraph ? "existing-graph" : "missing-graph",
     choices: hasGraph
-      ? ["use existing graph", "AST-only update", "skip"]
-      : ["build graph", "skip"],
+      ? ["use existing graph as-is", "Full repo AST-only update", "Full repo semantic refresh"]
+      : ["Full repo AST-only build", "Full repo semantic build", "skip"],
   };
 }
 
@@ -22,18 +22,20 @@ export function renderGraphifyCloneDirective(action: GraphifyCloneAction): strin
       `Repository cloned at ${action.repo} and an existing graphify graph was found at ${action.repo}/graphify-out/graph.json.`,
       "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is /home/user/Vault/graphify-out/graph.json; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
       "Check freshness by comparing graph.json built_at_commit to git HEAD.",
-      "Do not ask the user to rebuild just because a graph exists. If stale or freshness is unknown, refresh the AST portion with upstream Graphify via the local safety wrapper:",
-      `\`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh ${action.repo}\``,
-      "Full semantic refresh is owned by the `/graphify` skill after it detects the corpus and asks the build-mode question; semantic extraction must use Pi Agent subagents from this running session, never a headless backend/API-key extractor.",
+      "Do not update the graph automatically. If the graph is stale or freshness is unknown, ask the user which graph action to take before running any graph update:",
+      "1. Use the existing graph as-is — no files are modified.",
+      `2. Full repo AST-only update — run \`bash /home/user/.pi/agent/scripts/safe-graphify-update.sh ${action.repo}\` only after the user explicitly chooses this option.`,
+      "3. Full repo semantic refresh — invoke the `/graphify` skill from the repo root and tell it the user chose Full repo semantic; semantic extraction must use Pi Agent subagents from this running session, never a headless backend/API-key extractor.",
       `If fresh, print an information message only, then use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` before broad text search. Codeflare Pi automatically retries those native tools against \`${action.repo}/graphify-out/graph.json\` if the first attempt looks at the workspace root; if that retry still fails, fall back to the CLI with \`--graph ${action.repo}/graphify-out/graph.json\`.`,
+      "Never run the AST update wrapper or a semantic refresh until the user has chosen the corresponding update option.",
     ].join("\n");
   }
   return [
     `Repository cloned at ${action.repo}; no graphify graph exists yet at ${action.repo}/graphify-out/graph.json.`,
     "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is /home/user/Vault/graphify-out/graph.json; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
-    `Before doing anything else with this repo, ask the user a single YES/NO question: "Build a graphify knowledge graph for ${action.repo}?"`,
-    "If yes, invoke `/graphify` from the repo root. Do NOT ask about AST-only vs Full at clone time; the graphify skill asks that after it runs upstream Graphify detection and can show corpus counts.",
-    "If no, proceed without a graph. Do not use headless backend/API-key extraction for this interactive workflow; semantic extraction must use Pi Agent subagents from this running session.",
+    "Before doing anything else with this repo, ask the user which graph action to take. Offer exactly these choices: Full repo AST-only build, Full repo semantic build, or no graph action.",
+    "If the user chooses Full repo AST-only build or Full repo semantic build, invoke `/graphify` from the repo root and tell the skill which option the user already selected so it does not ask the same mode question again after detection.",
+    "If the user chooses no graph action, proceed without a graph and do not modify `graphify-out`. Do not use headless backend/API-key extraction for this interactive workflow; semantic extraction must use Pi Agent subagents from this running session.",
   ].join("\n");
 }
 

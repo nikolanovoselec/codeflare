@@ -207,8 +207,8 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
     }, fakeHome);
     assert.ok(json, 'MCP + relative + graph present must still emit a directive');
     const ctx = json.hookSpecificOutput.additionalContext;
-    assert.ok(/do NOT prompt/i.test(ctx), 'graph-present branch must be taken when graph exists at $cwd/<target>/graphify-out/graph.json');
-    assert.ok(!ctx.includes('AskUserQuestion'), 'graph-present branch must NOT mention AskUserQuestion');
+    assert.ok(ctx.includes('AskUserQuestion'), 'graph-present branch must ask before updating when graph exists at $cwd/<target>/graphify-out/graph.json');
+    assert.ok(ctx.includes('Full repo AST-only update'), 'graph-present branch must offer an AST-only update option');
   });
 
   it('URL-derivation fallback: when stdout has no Cloning line, repo name is parsed from clone URL and resolved against cwd (catches grep-filtered or stderr-only clone output)', () => {
@@ -224,8 +224,8 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
     }, fakeHome);
     assert.ok(json, 'URL-derivation must still produce a directive');
     assert.ok(
-      /do NOT prompt/i.test(json.hookSpecificOutput.additionalContext),
-      'fallback must detect existing graph via $cwd/<url-basename>/graphify-out/graph.json'
+      json.hookSpecificOutput.additionalContext.includes('AskUserQuestion'),
+      'fallback must detect existing graph via $cwd/<url-basename>/graphify-out/graph.json and ask before updating'
     );
   });
 
@@ -244,7 +244,7 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
       tool_response: { content: [ { type: 'text', text: "Cloning into 'repo'..." } ] },
     }, fakeHome);
     assert.ok(json);
-    assert.ok(/do NOT prompt/i.test(json.hookSpecificOutput.additionalContext));
+    assert.ok(json.hookSpecificOutput.additionalContext.includes('AskUserQuestion'));
   });
 
   it('URL-derivation skips CLI flags: `git clone --depth 1 <url>` derives the repo name, not the flag value (regression: bare-token awk picked "1" as the target)', () => {
@@ -261,8 +261,8 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
     assert.ok(json, '`--depth 1` form must still produce a directive');
     const ctx = json.hookSpecificOutput.additionalContext;
     assert.ok(
-      /do NOT prompt/i.test(ctx),
-      'URL-derivation must skip the --depth flag value and find the existing graph at <cwd>/codeflare/graphify-out/graph.json'
+      ctx.includes('AskUserQuestion'),
+      'URL-derivation must skip the --depth flag value, find the existing graph, and ask before updating'
     );
     assert.ok(
       !/[/`]1[/`]/.test(ctx) && !ctx.includes('cwd/1'),
@@ -282,7 +282,7 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
       tool_response: { content: [ { type: 'text', text: '(no Cloning line)' } ] },
     }, fakeHome);
     assert.ok(json);
-    assert.ok(/do NOT prompt/i.test(json.hookSpecificOutput.additionalContext));
+    assert.ok(json.hookSpecificOutput.additionalContext.includes('AskUserQuestion'));
   });
 
   it('URL-derivation handles `--depth=1` long-opt with equals (no separate value token to skip)', () => {
@@ -297,7 +297,7 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
       tool_response: { content: [ { type: 'text', text: '(no Cloning line)' } ] },
     }, fakeHome);
     assert.ok(json);
-    assert.ok(/do NOT prompt/i.test(json.hookSpecificOutput.additionalContext));
+    assert.ok(json.hookSpecificOutput.additionalContext.includes('AskUserQuestion'));
   });
 
   it('URL-derivation strips trailing `;` / `&&` separator from derived token (regression: chained command poisoned the target)', () => {
@@ -312,7 +312,7 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
       tool_response: { content: [ { type: 'text', text: '(no Cloning line)' } ] },
     }, fakeHome);
     assert.ok(json);
-    assert.ok(/do NOT prompt/i.test(json.hookSpecificOutput.additionalContext));
+    assert.ok(json.hookSpecificOutput.additionalContext.includes('AskUserQuestion'));
   });
 
   it('jq-resilience: non-array `content` (string) does not crash; falls through to URL-derivation', () => {
@@ -328,7 +328,7 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
     }, fakeHome);
     assert.equal(status, 0, 'hook must never exit non-zero on pathological content shape');
     assert.ok(json, 'pathological content shape must still fall through to URL-derivation');
-    assert.ok(/do NOT prompt/i.test(json.hookSpecificOutput.additionalContext));
+    assert.ok(json.hookSpecificOutput.additionalContext.includes('AskUserQuestion'));
   });
 
   it('fail-safe: malformed input exits 0 with no output', () => {
@@ -351,7 +351,7 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
     assert.equal(stdout, '');
   });
 
-  it('graph-present branch: cloned dir already has graphify-out/graph.json -> directive says "do NOT prompt" and recommends graphify update', () => {
+  it('graph-present branch: cloned dir already has graphify-out/graph.json -> directive asks before updating', () => {
     // Stage a target dir with a pre-existing graph
     const targetDir = mkdtempSync(join(baseTmp, 'with-graph-'));
     mkdirSync(join(targetDir, 'graphify-out'), { recursive: true });
@@ -366,20 +366,28 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
     assert.ok(json, 'graph-present clone must still emit a directive');
     const ctx = json.hookSpecificOutput.additionalContext;
     assert.ok(
-      /do NOT prompt/i.test(ctx),
-      'graph-present directive must instruct the agent NOT to prompt'
+      ctx.includes('AskUserQuestion'),
+      'graph-present directive must ask before any graph update'
     );
     assert.ok(
-      ctx.includes('graphify update'),
-      'graph-present directive must recommend `graphify update` for cheap AST refresh'
+      ctx.includes('Full repo AST-only update'),
+      'graph-present directive must offer AST-only update'
     );
     assert.ok(
-      !ctx.includes('AskUserQuestion'),
-      'graph-present directive must NOT mention AskUserQuestion'
+      ctx.includes('Full repo semantic refresh'),
+      'graph-present directive must offer full semantic refresh'
+    );
+    assert.ok(
+      ctx.includes('Never run the AST update wrapper'),
+      'graph-present directive must forbid automatic update before user choice'
+    );
+    assert.ok(
+      !ctx.includes('No graph action'),
+      'graph-present directive must not duplicate use-existing with no-graph action'
     );
   });
 
-  it('graph-absent branch: no graphify-out/graph.json -> directive instructs AskUserQuestion + /graphify full build', () => {
+  it('graph-absent branch: no graphify-out/graph.json -> directive asks AST/full/nothing before /graphify', () => {
     const targetDir = mkdtempSync(join(baseTmp, 'no-graph-'));
     // No graphify-out/ created.
 
@@ -395,12 +403,16 @@ describe('graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)', (
       'graph-absent directive must instruct the agent to use AskUserQuestion'
     );
     assert.ok(
-      ctx.includes('/graphify'),
-      'graph-absent directive must reference the /graphify full-build command'
+      ctx.includes('Full repo AST-only build'),
+      'graph-absent directive must offer AST-only build'
     );
     assert.ok(
-      !ctx.includes('graphify update'),
-      'graph-absent directive must NOT recommend `graphify update` (no graph to refresh)'
+      ctx.includes('Full repo semantic build'),
+      'graph-absent directive must offer full semantic build'
+    );
+    assert.ok(
+      ctx.includes('No graph action'),
+      'graph-absent directive must offer no graph action'
     );
   });
 });

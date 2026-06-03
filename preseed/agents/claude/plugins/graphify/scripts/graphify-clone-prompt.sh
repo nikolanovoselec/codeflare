@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PostToolUse hook - after `git clone` or `gh repo clone`, inject a
 # directive telling the agent to ask the user via AskUserQuestion
-# whether to build a graphify knowledge graph for the cloned repo.
+# which graph action to take for the cloned repo (build, update, or skip).
 # Implements REQ-AGENT-023 AC4.
 #
 # Matcher coverage (registered in entrypoint.sh):
@@ -162,9 +162,9 @@ fi
 
 # Graph-presence branching. The cloned directory might already carry a
 # graphify-out/graph.json from a prior session (R2 bisync round-trip, or
-# upstream repo committed graphify-out/). In that case, skip the
-# AskUserQuestion triage and tell the agent to refresh with the cheap
-# AST-only `graphify update .` instead of a full /graphify rebuild.
+# upstream repo committed graphify-out/). In that case, the hook still must
+# not authorize an automatic refresh: the agent first checks freshness and
+# asks the user before running any graph update.
 #
 # Three candidate paths get inspected because the agent's cwd at hook
 # fire time is unpredictable when the user chains `cd <dir> && clone`
@@ -203,14 +203,14 @@ if [ "$EXISTING_GRAPH" = "yes" ]; then
   jq -n --arg dir "$TARGET_DIR" '{
     hookSpecificOutput: {
       hookEventName: "PostToolUse",
-      additionalContext: ("The user just cloned `" + $dir + "`, and a graphify knowledge graph already exists at " + $dir + "/graphify-out/graph.json. Do NOT prompt the user about building one - the SessionStart hook will surface it on the next session, and you can use the mcp__graphify__* tools against the existing graph right now. If the clone is recent enough that source files may have changed since the graph was built, run `bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .` from `" + $dir + "` to refresh the AST portion (free, no LLM cost; the wrapper caps memory so a runaway rebuild cannot OOM the session). Do not run a full `/graphify` rebuild unless the user explicitly asks for one.")
+      additionalContext: ("The user just cloned `" + $dir + "`, and a graphify knowledge graph already exists at " + $dir + "/graphify-out/graph.json. First compare graph.json built_at_commit with git HEAD. If the graph is fresh, print an information message and use the existing graph. If the graph is stale or freshness is unknown, ask the user via AskUserQuestion which graph action to take before running any update. Offer exactly these choices: (a) Use the existing graph as-is - no files modified. (b) Full repo AST-only update - run `bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh .` from `" + $dir + "` only after the user chooses it. (c) Full repo semantic refresh - invoke `/graphify` from `" + $dir + "` and tell the skill the user already chose Full; semantic extraction stays agent-driven, never headless/provider-backed. Never run the AST update wrapper or a semantic refresh until the user chooses the corresponding update option.")
     }
   }' 2>/dev/null || true
 else
   jq -n --arg dir "$TARGET_DIR" '{
     hookSpecificOutput: {
       hookEventName: "PostToolUse",
-      additionalContext: ("The user just cloned `" + $dir + "`. No graphify knowledge graph is present in the cloned tree. Before doing anything else with this repo, ask the user via AskUserQuestion a single YES/NO question: \"Build a graphify knowledge graph for `" + $dir + "`?\". Two options only: (a) Yes — invoke /graphify (Recommended for repos with more than 50 files; the graph gives you structural awareness and saves Grep tokens on every later architecture question). (b) No — proceed without it. DO NOT ask about build mode (AST-only vs Full) here — the graphify skill itself asks that question after it loads (see graphify SKILL.md note #8). Asking mode twice is a duplicate-question bug. If the user accepts, cd into `" + $dir + "` and invoke /graphify; the skill will surface the mode choice with the right corpus stats in context.")
+      additionalContext: ("The user just cloned `" + $dir + "`. No graphify knowledge graph is present in the cloned tree. Before doing anything else with this repo, ask the user via AskUserQuestion which graph action to take. Offer exactly these choices: (a) Full repo AST-only build - invoke `/graphify` from `" + $dir + "` and tell the skill the user already chose AST-only. (b) Full repo semantic build - invoke `/graphify` from `" + $dir + "` and tell the skill the user already chose Full. (c) No graph action - proceed without creating or modifying graphify-out. Do not use headless backend/API-key extraction for this interactive workflow; semantic extraction must use agent subagents from this running session.")
     }
   }' 2>/dev/null || true
 fi

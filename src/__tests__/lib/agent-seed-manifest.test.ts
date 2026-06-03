@@ -287,26 +287,30 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(cloneTargetPath('owner=$(gh api user --jq .login)\ngh repo clone "$owner/codeflare" "$repo"', '/home/user/workspace')).toBeUndefined();
 
     const missingGraphDirective = renderGraphifyCloneDirective(graphifyCloneAction('/repo', false));
-    expect(missingGraphDirective).toContain('ask the user a single YES/NO question');
-    expect(missingGraphDirective).toContain('Build a graphify knowledge graph for /repo?');
-    expect(missingGraphDirective).toContain('Do NOT ask about AST-only vs Full at clone time');
+    expect(missingGraphDirective).toContain('ask the user which graph action to take');
+    expect(missingGraphDirective).toContain('Full repo AST-only build');
+    expect(missingGraphDirective).toContain('Full repo semantic build');
+    expect(missingGraphDirective).toContain('no graph action');
     expect(missingGraphDirective).toContain('Pi Agent subagents from this running session');
     const existingGraphDirective = renderGraphifyCloneDirective(graphifyCloneAction('/repo', true));
-    expect(existingGraphDirective).toContain('refresh the AST portion with upstream Graphify via the local safety wrapper');
+    expect(existingGraphDirective).toContain('Do not update the graph automatically');
+    expect(existingGraphDirective).toContain('ask the user which graph action to take');
     expect(existingGraphDirective).toContain('safe-graphify-update.sh /repo');
-    expect(existingGraphDirective).toContain('Full semantic refresh is owned by the `/graphify` skill');
+    expect(existingGraphDirective).toContain('Full repo semantic refresh');
+    expect(existingGraphDirective).toContain('Never run the AST update wrapper or a semantic refresh until the user has chosen');
+    expect(existingGraphDirective).not.toContain('No graph action');
 
     expect(graphifyCloneAction('/repo', false)).toEqual({
       repo: '/repo',
       hasGraph: false,
       mode: 'missing-graph',
-      choices: ['build graph', 'skip'],
+      choices: ['Full repo AST-only build', 'Full repo semantic build', 'skip'],
     });
     expect(graphifyCloneAction('/repo', true)).toEqual({
       repo: '/repo',
       hasGraph: true,
       mode: 'existing-graph',
-      choices: ['use existing graph', 'AST-only update', 'skip'],
+      choices: ['use existing graph as-is', 'Full repo AST-only update', 'Full repo semantic refresh'],
     });
     expect(graphifyPromptMarker('/home/user/workspace/r', 'session-1')).toBe('/tmp/codeflare-graphify-prompted-session-1_home_user_workspace_r');
     expect(isFailedGraphifyToolExecution({ status: 'error' })).toBe(true);
@@ -327,7 +331,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         repo: '/home/user/workspace/r/.git-root',
         hasGraph: true,
         mode: 'existing-graph',
-        choices: ['use existing graph', 'AST-only update', 'skip'],
+        choices: ['use existing graph as-is', 'Full repo AST-only update', 'Full repo semantic refresh'],
       },
     });
     expect(graphifyClonePromptDecision({

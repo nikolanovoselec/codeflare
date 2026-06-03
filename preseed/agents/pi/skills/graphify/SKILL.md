@@ -47,9 +47,19 @@ graphify query "<question>" --graph /home/user/.graphify/global-graph.json # Vau
 
 ## Clone-time triage
 
-Clone-time prompt is YES/NO only: “Build a graphify knowledge graph for `<repo>`?”
+Clone-time prompts must never authorize an automatic graph update. When a cloned repo has no graph, ask the user which graph action they want before running any build:
 
-Do **not** ask AST-only vs Full at clone time. This skill owns the mode choice after Graphify detection has real corpus counts.
+- **Full repo AST-only build** — free/local code graph.
+- **Full repo semantic build** — Pi Agent subagents extract docs/papers/images, then Graphify merges local semantic fragments.
+- **No graph action right now** — stop without creating `graphify-out`.
+
+When a cloned repo has a stale/unknown existing graph, ask before any update and offer only:
+
+- **Use the existing graph as-is** — no files are modified.
+- **Full repo AST-only update** — refresh code structure via the bounded wrapper.
+- **Full repo semantic refresh** — run the agent-driven semantic flow after corpus detection.
+
+If the user already chose a clone-time AST-only or Full semantic option, treat that as the graph refresh choice after detection and do not ask the same mode question again. Only re-prompt if the chosen option is unavailable (for example, Full semantic was chosen but detection finds zero docs/papers/images).
 
 ## Detect corpus
 
@@ -78,7 +88,7 @@ If the user asks to ignore a file class (for example images), exclude that class
 
 ## Mandatory graph refresh choice
 
-After detection, present these choices and wait for the user to choose one:
+After detection, present these choices and wait for the user to choose one, unless the current clone-time triage already captured an explicit Full repo AST-only, Full repo semantic, or no-graph choice:
 
 1. **Architecture graph** — recommended for large/noisy repos and daily navigation. Builds a smaller runtime-source graph by excluding tests, fixtures, generated files, docs/spec bulk, and build artifacts. Free/local.
 2. **Full repo AST-only** — official Graphify AST/code graph for every detected code file. Free/local, but can be noisy on large repos.

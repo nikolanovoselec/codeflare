@@ -1529,7 +1529,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Before dispatching semantic-extraction subagents in a Claude `/graphify` build (Step B2 of the upstream protocol), the agent presents an `AskUserQuestion` with exactly two modes: AST-only (free, structural edges only) and Full (AST plus parallel semantic-extraction subagents processing docs/papers/images). In Pi, after detection, the graph refresh choice offers Architecture graph, Full repo AST-only, Full repo semantic, and an explicit no-graph option that stops without modifying `graphify-out`.
+1. Before dispatching semantic-extraction subagents in a Claude `/graphify` build (Step B2 of the upstream protocol), the agent presents an `AskUserQuestion` with exactly two modes: AST-only (free, structural edges only) and Full (AST plus parallel semantic-extraction subagents processing docs/papers/images), unless the current clone-time triage already captured one of those two choices. In Pi, after detection, the graph refresh choice offers Architecture graph, Full repo AST-only, Full repo semantic, and an explicit no-graph option that stops without modifying `graphify-out`, unless clone-time triage already captured Full repo AST-only, Full repo semantic, or no-graph for a missing-graph repo.
 2. The semantic mode question includes both the actual subagent count and a wall-time estimate.
 3. The semantic option is hidden when the corpus contains zero docs/papers/images; code-only repos still offer the Pi Architecture graph, Full repo AST-only, and no-graph options.
 4. In advanced session mode only, Claude Code Part B semantic subagents use the Claude graphify skill's configured reliable extraction model, while Pi Part B semantic subagents omit `model` overrides so they inherit the current main-session model.
@@ -1568,13 +1568,13 @@ None.
 
 1. In advanced session mode only, a PostToolUse hook on `Bash` and `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute` matchers detects real `git clone` and `gh repo clone` invocations (anchored token regex, not substring; rejects echoed false positives) and injects a directive. Pi implements the same behavior with native tool lifecycle events and Pi follow-up messages.
 2. Clone destination resolution prefers the tool result's `Cloning into '...'` line before falling back to command parsing, so shell variables such as `$repo` never surface as literal user-facing paths.
-3. The directive branches on whether `<cloned-dir>/graphify-out/graph.json` already exists: if absent, the directive asks a single YES/NO question about building a graph and defers AST-only vs Full mode selection to the graphify skill after detection; if present, the directive tells the agent to check freshness, use the existing graph when fresh, or refresh the AST portion with the bounded upstream-update wrapper when stale or unknown. Full semantic refresh is owned by the graphify skill after corpus detection.
+3. The directive branches on whether `<cloned-dir>/graphify-out/graph.json` already exists: if absent, the directive asks which graph action the user wants before any graph work, offering Full repo AST-only, Full repo semantic, or no graph action; if present, the directive tells the agent to check freshness, use the existing graph when fresh, or ask the user before stale/unknown graph updates, offering existing-graph-as-is, Full repo AST-only update, or Full repo semantic refresh. The bounded upstream-update wrapper runs only after the user chooses AST-only; Full semantic refresh is owned by the graphify skill after corpus detection.
 4. The hook is idempotent per cloned directory per session via a marker key that includes both the session identifier and cloned repository path. A fresh session re-triages the same clone and stale markers do not persist across container restarts.
 5. Pi clone triage suppresses follow-up prompts for failed clone commands, skipped/already-cloned targets, and durable PR-boundary review lanes.
 
 **Constraints:**
 
-- The hook never invokes graphify directly. It only injects a directive instructing the agent to ask a clone-time YES/NO graph-build question for missing graphs; build-mode choice is owned by the graphify skill after detection.
+- The hook never invokes graphify directly and never authorizes an automatic update. It only injects a directive instructing the agent to ask for the user's graph-action choice before building or refreshing; a same-turn explicit clone-time choice counts as the graphify skill's mode choice after detection.
 
 **Priority:** P1
 
