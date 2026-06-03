@@ -9,7 +9,7 @@ type SeedDocument = {
   modes: ('default' | 'advanced')[];
 };
 
-export const PRESEED_CONTENT_HASH = 'a764f48f1d39f51b';
+export const PRESEED_CONTENT_HASH = '1fe3e5f9bb3076db';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
@@ -287,7 +287,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".claude/plugins/context-mode/.claude-plugin/plugin.json",
     "contentType": "application/json; charset=utf-8",
-    "content": "{\n  \"name\": \"context-mode\",\n  \"description\": \"Deterministic context-window reduction via tool-call routing (Pro tier only)\",\n  \"version\": \"1.0.161\"\n}\n",
+    "content": "{\n  \"name\": \"context-mode\",\n  \"description\": \"Deterministic context-window reduction via tool-call routing (Pro tier only)\",\n  \"version\": \"1.0.162\"\n}\n",
     "modes": [
       "advanced"
     ]
