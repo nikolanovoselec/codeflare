@@ -5,7 +5,7 @@ import Icon from './Icon';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
 import { getDownloadUrl } from '../api/storage';
-import { getGravatarUrl } from '../lib/gravatar';
+import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import SessionStatCard from './SessionStatCard';
 import SessionContextMenu from './SessionContextMenu';
 import StatCards from './StatCards';
@@ -39,7 +39,13 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
   const [showUserMenu, setShowUserMenu] = createSignal(false);
-  const [gravatarFailed, setGravatarFailed] = createSignal(false);
+  const [gravatarOk, setGravatarOk] = createSignal(false);
+  // Probe Gravatar existence once via fetch (no <img onError> console noise).
+  createEffect(() => {
+    const email = props.userName;
+    if (!email) { setGravatarOk(false); return; }
+    gravatarExists(email, 48).then(setGravatarOk);
+  });
   const [userMenuPos, setUserMenuPos] = createSignal<{ top: number; right: number }>({ top: 0, right: 0 });
   let userBtnRef: HTMLButtonElement | undefined;
   const [newSessionBtnRef, setNewSessionBtnRef] = createSignal<HTMLButtonElement>();
@@ -153,8 +159,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   setShowUserMenu(!showUserMenu());
                 }}
               >
-                <Show when={props.userName && !gravatarFailed()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
-                  <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} onError={() => setGravatarFailed(true)} />
+                <Show when={props.userName && gravatarOk()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
+                  <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
                 </Show>
                 <Show when={props.userName}>
                   <span class="header-user-name">{props.userName}</span>

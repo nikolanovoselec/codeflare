@@ -25,7 +25,7 @@ import { getSleepTimerInfo } from '../lib/sleep-timer';
 import UsageInlineBadge from './UsageInlineBadge';
 
 import { terminalStore } from '../stores/terminal';
-import { getGravatarUrl } from '../lib/gravatar';
+import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import { isTouchDevice, getKeyboardHeight } from '../lib/mobile';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import '../styles/header.css';
@@ -56,7 +56,13 @@ interface HeaderProps {
  */
 const Header: Component<HeaderProps> = (props) => {
   const [showUserMenu, setShowUserMenu] = createSignal(false);
-  const [gravatarFailed, setGravatarFailed] = createSignal(false);
+  const [gravatarOk, setGravatarOk] = createSignal(false);
+  // Probe Gravatar existence once via fetch (no <img onError> console noise).
+  createEffect(() => {
+    const email = props.userName;
+    if (!email) { setGravatarOk(false); return; }
+    gravatarExists(email, 48).then(setGravatarOk);
+  });
   const [showBookmarksMenu, setShowBookmarksMenu] = createSignal(false);
   const [showCreateBookmark, setShowCreateBookmark] = createSignal(false);
   const [showTimerDropdown, setShowTimerDropdown] = createSignal(false);
@@ -266,13 +272,12 @@ const Header: Component<HeaderProps> = (props) => {
             title="User menu"
             onClick={() => setShowUserMenu(!showUserMenu())}
           >
-            <Show when={props.userName && !gravatarFailed()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
+            <Show when={props.userName && gravatarOk()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
               <img
                 src={getGravatarUrl(props.userName!, 48)}
                 alt="Avatar"
                 class="header-user-avatar-img"
                 width={24} height={24}
-                onError={() => setGravatarFailed(true)}
               />
             </Show>
             <Show when={props.userName}>
