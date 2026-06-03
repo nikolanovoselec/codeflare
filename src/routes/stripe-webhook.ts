@@ -365,7 +365,7 @@ export async function syncSubscriptionState(
   // fall back to the price slot via resolveTierFromPriceId. Without this
   // fallback a Standard<->Pro subscription change leaves subscribedMode stale,
   // so the mode-change reconcile in step 6 (skill recreation + sessionMode
-  // preference flip) never fires (REQ-SUB-015 AC8).
+  // preference flip) never fires (REQ-SUB-015 AC6).
   let resolvedMode = snapshot.mode;
   if (resolvedMode === null && snapshot.priceId !== null) {
     const resolved = resolveTierFromPriceId(snapshot.priceId, await getTierConfig(env.KV));

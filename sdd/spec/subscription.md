@@ -520,7 +520,7 @@ Tiers, billing, usage tracking, and quotas.
 
 ---
 
-<!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 / REQ-SUB-015 describe -> webhook treated as signal that triggers syncSubscriptionState refetch from Stripe -> AC1, AC2) -->
+<!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled) describe -> calls syncSubscriptionState which updates tier from Stripe API -> AC1, AC2) -->
 <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> skips write when KV lastSyncedAt is newer than current timestamp -> AC3 stale-webhook guard) -->
 <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> writes complete state to KV from Stripe snapshot -> AC4) -->
 <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> preserves tier when metadata is null (does not blank it) -> AC4) -->
