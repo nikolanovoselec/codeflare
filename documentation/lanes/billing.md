@@ -34,7 +34,7 @@ Codeflare uses a multi-tier subscription system that controls monthly compute ho
 | `max` | Max | 160h | 3 | Standard, Pro | 2 GB |
 | `unlimited` | Custom | Unlimited | 5 | Standard, Pro | Unlimited |
 
-Prices, trial hours, and other parameters are configurable per deployment via the admin Subscription Management panel. Prices come from Stripe via admin-configured `stripePriceId` per tier (CF-027).
+Prices, trial hours, and other parameters are configurable per deployment via the admin Subscription Management panel. Prices come from Stripe via admin-configured price slots per tier: `stripePriceId` (Standard mode) and `stripeAdvancedPriceId` (Pro mode) (CF-027). The mode-on-plan-change reconcile (below) reverse-looks-up these slots when the price carries no `mode` metadata.
 
 **Graceful degradation:** When `STRIPE_SECRET_KEY` is not set, all tiers work via direct `POST /api/auth/subscribe` without payment.
 
@@ -81,8 +81,8 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 1. Resolves email from customer ID (KV lookup with Stripe API fallback)
 2. Calls `fetchSubscription()` - fetches latest subscription state from Stripe
 3. Timestamp guard: skips write if KV's `lastSyncedAt` > now (prevents stale webhook overwriting newer state)
-4. Writes via `updateUserRecord()` (preserves existing KV fields)
-5. **Auto-reconcile on mode change:** `reconcileAgentConfigs()` runs on upgrade/downgrade and subscription termination. Seeds the correct preseed set. Implements [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015-stripe-webhook-signal-and-sync-pattern) AC6-AC7.
+4. Writes via `updateUserRecord()` (preserves existing KV fields). `subscribedMode` is resolved from `price.metadata.mode` when present; otherwise the price ID is matched against the tier config's `stripePriceId` / `stripeAdvancedPriceId` slots (`resolveTierFromPriceId`), so a Standard<->Pro plan change always flips the mode even when prices are wired via tier slots rather than per-price metadata.
+5. **Auto-reconcile on mode change:** `reconcileAgentConfigs()` runs on upgrade/downgrade and subscription termination, recreating the new mode's skills and removing the previous mode's, and flips the `sessionMode` preference. Lazy: a running session is unaffected until next start. Implements [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015-stripe-webhook-signal-and-sync-pattern) AC6-AC7.
 
 **Security:**
 - Webhook at `/public/stripe/webhook` bypasses CF Access (same as `/public/auth/providers`)
@@ -191,6 +191,7 @@ Notifications via Resend API (`src/lib/email.ts`, sender: `RESEND_EMAIL` secret)
 - [REQ-SUB-012](../../sdd/spec/subscription.md#req-sub-012-billing-status-enforcement-effective-tier) - Billing Status Enforcement (Effective Tier)
 - [REQ-SUB-013](../../sdd/spec/subscription.md#req-sub-013-concurrent-session-limits) - Concurrent Session Limits
 - [REQ-SUB-014](../../sdd/spec/subscription.md#req-sub-014-session-mode-gating-by-tier) - Session Mode Gating by Tier
+- [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015-stripe-webhook-signal-and-sync-pattern) - Stripe Webhook Signal-and-Sync Pattern
 - [REQ-SUB-017](../../sdd/spec/subscription.md#req-sub-017-enterprise-tier-contact-flow) - Enterprise tier contact flow
 - [REQ-SUB-019](../../sdd/spec/subscription.md#req-sub-019-session-limit-popup-in-frontend) - Session limit popup in frontend
 
