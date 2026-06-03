@@ -1,16 +1,16 @@
 # Graph Report - codeflare  (2026-06-03)
 
 ## Corpus Check
-- 754 files · ~1,703,810 words
+- 754 files · ~1,703,858 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 6916 nodes · 11958 edges · 515 communities (394 shown, 121 thin omitted)
+- 6916 nodes · 11958 edges · 516 communities (395 shown, 121 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 85 edges (avg confidence: 0.79)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `f42d45b1`
+- Built from commit: `8bf445dd`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -507,6 +507,7 @@
 - [[_COMMUNITY_Community 512|Community 512]]
 - [[_COMMUNITY_Community 513|Community 513]]
 - [[_COMMUNITY_Community 514|Community 514]]
+- [[_COMMUNITY_Community 515|Community 515]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `Env` - 113 edges
@@ -590,7 +591,7 @@
 - **Zero-UI Vault Encryption Flow** — req_vault_008, vault_encryption_key, vault_bootstrap_hop, native_service_worker, silverbullet_editor, vault_idb_cache_lifecycle [EXTRACTED 1.00]
 - **Public Landing Social-share Metadata** — req_setup_010, web_ui_index_document, social_share_preview_metadata, codeflare_brand_tagline [EXTRACTED 1.00]
 
-## Communities (515 total, 121 thin omitted)
+## Communities (516 total, 121 thin omitted)
 
 ### Community 0 - "Worker Error Types Library"
 Cohesion: 0.03
@@ -997,8 +998,8 @@ Cohesion: 0.15
 Nodes (4): __dirname, HOOK, runHook(), runHookWithInput()
 
 ### Community 101 - "Git Workflow Cluster"
-Cohesion: 0.15
-Nodes (13): doc-enforce Workflow, Documentation Lane Separation, Git Workflow Skill Routes, Parallel Review Agents, SDD Opt-In PR Boundary, Documentation Discipline Rule, Git Workflow Rule, ci-monitoring Skill (+5 more)
+Cohesion: 0.18
+Nodes (11): doc-enforce Workflow, Documentation Integrity Rule, Documentation Lane Separation, Immutability Rule, Parallel Review Agents, SDD Opt-In PR Boundary, Validate at Boundaries Rule, Common Coding Style Rule (+3 more)
 
 ### Community 102 - "Container Env Runtime"
 Cohesion: 0.06
@@ -1085,12 +1086,12 @@ Cohesion: 0.18
 Nodes (11): Asserted ISO Timestamp Contract, Memory Capture Agent, Transcript Prefilter and Chunking, Vault Extract Background Agent, Vault Extraction Contract, Vault Graph Chunk Schema, vault-monitor-hook Trigger, Vault Raw Session Note (+3 more)
 
 ### Community 123 - "CI Gated Cluster"
-Cohesion: 0.20
-Nodes (10): Bounded CI Polling, context-mode Entrypoint Wiring, context-mode Esbuild Require Patch, Context-Mode Shell Routing, context-mode Tier Gating, CI-Gated Deploy Workflow, Wrangler Environment Deploy, context-mode Plugin README (+2 more)
+Cohesion: 0.18
+Nodes (11): Bounded CI Polling, CI Monitoring Explicit-Only Contract, context-mode Entrypoint Wiring, context-mode Esbuild Require Patch, Context-Mode Shell Routing, context-mode Tier Gating, CI-Gated Deploy Workflow, Wrangler Environment Deploy (+3 more)
 
 ### Community 124 - "Cloudflare Stack Cluster"
-Cohesion: 0.17
-Nodes (12): CI Monitoring Explicit-Only Contract, CI Verification Instead of Local Execution, Cloudflare Stack Default, Go CI-Only Testing, HTTPS Git and Noreply Identity Contract, No-Browser CLI Contract, No Local Builds, Tests, or Lint Contract, One-CPU Container Constraint (+4 more)
+Cohesion: 0.33
+Nodes (6): CI Verification Instead of Local Execution, Go CI-Only Testing, No Local Builds, Tests, or Lint Contract, One-CPU Container Constraint, Go Testing Rule, No Local Builds Rule
 
 ### Community 125 - "Pi Codeflare Commands Extension"
 Cohesion: 0.26
@@ -1193,8 +1194,8 @@ Cohesion: 0.22
 Nodes (9): Agent-Dispatched Graphify Extraction, Cumulative Vault Graph, PDF Vault Extraction, Vault Changed-File High-Water Workflow, Vault Global Graph Merge, Vault Graph Visualization, Vault Extraction Agent Prompt, REQ-MEM-009 Cumulative Vault Graph (+1 more)
 
 ### Community 150 - "Common Coding Cluster"
-Cohesion: 0.22
-Nodes (9): Documentation Integrity Rule, Go Context and Timeouts, Go Secret Management, Immutability Rule, Secret Handling Contract, Security Checklist Rule, Validate at Boundaries Rule, Common Coding Style Rule (+1 more)
+Cohesion: 0.20
+Nodes (10): Cloudflare Stack Default, Go Context and Timeouts, Go Secret Management, HTTPS Git and Noreply Identity Contract, No-Browser CLI Contract, Secret Handling Contract, Security Checklist Rule, Cloudflare Environment Rule (+2 more)
 
 ### Community 151 - "Worker Input Validation Fuzz Check Test"
 Cohesion: 0.15
@@ -2075,6 +2076,10 @@ Nodes (4): Database Patterns, N+1 Query Prevention, Query Optimization, Transact
 ### Community 511 - "Community 511"
 Cohesion: 0.50
 Nodes (3): inMemoryFallback, logger, RateLimitResult
+
+### Community 515 - "Community 515"
+Cohesion: 0.33
+Nodes (6): Git Workflow Skill Routes, Git Workflow Rule, ci-monitoring Skill, deploy-credentials Skill, git-review-pipeline Skill, pr-workflow Skill
 
 ## Knowledge Gaps
 - **3119 isolated node(s):** `$schema`, `no-unused-vars`, `no-control-regex`, `errorRate`, `sessionListDuration` (+3114 more)

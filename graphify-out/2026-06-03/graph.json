@@ -3297,7 +3297,7 @@
       "label": "buildHarness()",
       "file_type": "code",
       "source_file": "host/__tests__/entrypoint-graphify-hooks.test.js",
-      "source_location": "L30",
+      "source_location": "L35",
       "id": "tests_entrypoint_graphify_hooks_test_buildharness",
       "community": 179,
       "norm_label": "buildharness()"
@@ -59024,7 +59024,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 124,
+      "community": 150,
       "norm_label": "cloudflare environment rule",
       "id": "file_cloudflare_environment_rule"
     },
@@ -59037,7 +59037,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 124,
+      "community": 150,
       "norm_label": "cloudflare stack default",
       "id": "concept_cloudflare_stack_default"
     },
@@ -59063,7 +59063,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 124,
+      "community": 150,
       "norm_label": "no-browser cli contract",
       "id": "concept_no_browser_cli_contract"
     },
@@ -59076,7 +59076,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 124,
+      "community": 150,
       "norm_label": "https git and noreply identity contract",
       "id": "concept_https_git_identity_contract"
     },
@@ -59102,7 +59102,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 124,
+      "community": 150,
       "norm_label": "cloudflare-stack skill",
       "id": "skill_cloudflare_stack"
     },
@@ -59115,7 +59115,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 150,
+      "community": 101,
       "norm_label": "common coding style rule",
       "id": "file_common_coding_style_rule"
     },
@@ -59128,7 +59128,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 150,
+      "community": 101,
       "norm_label": "immutability rule",
       "id": "concept_immutability_rule"
     },
@@ -59141,7 +59141,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 150,
+      "community": 101,
       "norm_label": "validate at boundaries rule",
       "id": "concept_validate_at_boundaries_rule"
     },
@@ -59154,7 +59154,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 150,
+      "community": 101,
       "norm_label": "documentation integrity rule",
       "id": "concept_documentation_integrity_rule"
     },
@@ -59232,7 +59232,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 101,
+      "community": 515,
       "norm_label": "git workflow rule",
       "id": "file_git_workflow_rule"
     },
@@ -59245,7 +59245,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 101,
+      "community": 515,
       "norm_label": "git workflow skill routes",
       "id": "concept_git_workflow_routes"
     },
@@ -59271,7 +59271,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 124,
+      "community": 123,
       "norm_label": "ci monitoring explicit-only contract",
       "id": "concept_ci_monitoring_explicit_only"
     },
@@ -59284,7 +59284,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 101,
+      "community": 515,
       "norm_label": "git-review-pipeline skill",
       "id": "skill_git_review_pipeline"
     },
@@ -59297,7 +59297,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 101,
+      "community": 515,
       "norm_label": "ci-monitoring skill",
       "id": "skill_ci_monitoring"
     },
@@ -59310,7 +59310,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 101,
+      "community": 515,
       "norm_label": "pr-workflow skill",
       "id": "skill_pr_workflow"
     },
@@ -59323,7 +59323,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 101,
+      "community": 515,
       "norm_label": "deploy-credentials skill",
       "id": "skill_deploy_credentials"
     },
@@ -107475,9 +107475,9 @@
       "source_file": "src/__tests__/security/early-return-security.test.ts",
       "source_location": "L57",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "security_early_return_security_test",
-      "target": "src_index_withsecurityheaders",
-      "confidence_score": 1.0
+      "target": "src_index_withsecurityheaders"
     },
     {
       "relation": "calls",
@@ -192242,5 +192242,5 @@
       "source_file": "web-ui/index.html"
     }
   ],
-  "built_at_commit": "f42d45b1b6632cdaf43e6cc110da8af2aaebb889"
+  "built_at_commit": "8bf445dde3bfdd0ef1ba446631eb43a43703cea8"
 }
