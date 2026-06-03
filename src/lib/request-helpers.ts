@@ -42,7 +42,7 @@ export function validateSessionId(sessionId: string): void {
  * Mask a sensitive string for safe display (e.g., API keys, tokens).
  * Shows only the last 4 characters: "sk-1234567890" → "****7890"
  */
-export function maskSecret(value: string | undefined): string | undefined {
+export function maskSecret(value: string | null | undefined): string | undefined {
   if (!value) return undefined;
   if (value.length <= 4) return '****';
   return '****' + value.slice(-4);
