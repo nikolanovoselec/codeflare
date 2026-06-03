@@ -9,7 +9,7 @@ type SeedDocument = {
   modes: ('default' | 'advanced')[];
 };
 
-export const PRESEED_CONTENT_HASH = 'a764f48f1d39f51b';
+export const PRESEED_CONTENT_HASH = 'fa098ed511f66c6f';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
@@ -303,7 +303,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".claude/plugins/graphify/.claude-plugin/plugin.json",
     "contentType": "application/json; charset=utf-8",
-    "content": "{\n  \"name\": \"graphify\",\n  \"description\": \"Knowledge-graph codebase context (graphifyy@0.8.28) - MCP server everywhere, discipline Pro-only\",\n  \"version\": \"0.8.28\"\n}\n",
+    "content": "{\n  \"name\": \"graphify\",\n  \"description\": \"Knowledge-graph codebase context (graphifyy@0.8.30) - MCP server everywhere, discipline Pro-only\",\n  \"version\": \"0.8.30\"\n}\n",
     "modes": [
       "default",
       "advanced"
