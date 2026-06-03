@@ -35,6 +35,10 @@ graphify-out/obsidian/
 # Per-machine markers - absolute path / root-level transient labels:
 .graphify_root
 /.graphify_labels.json
+# Dated snapshot output dirs the build writes - never commit; only the flat
+# graphify-out/ files (graph.json, GRAPH_REPORT.md, graph.html, callflow.html,
+# .graphify_labels.json) are durable:
+graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
 
 # Phase 7a source-anchor verifier output (regenerated every /sdd init run)
 .verify-anchors.json
