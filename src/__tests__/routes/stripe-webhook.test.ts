@@ -14,11 +14,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { resetTierConfigCache } from '../../lib/subscription';
+import { getPreferencesKey } from '../../lib/kv-keys';
+import { getBucketName } from '../../lib/access';
 
 // ---------------------------------------------------------------------------
 // Mock stripe lib
 // ---------------------------------------------------------------------------
-vi.mock('../../lib/stripe', () => ({
+vi.mock('../../lib/stripe', async (importOriginal) => ({
+  // Keep resolveTierFromPriceId real so the price-slot mode fallback is exercised.
+  ...(await importOriginal<typeof import('../../lib/stripe')>()),
   verifyWebhookSignature: vi.fn(async () => true),
   parseStripeEvent: vi.fn((body: string) => JSON.parse(body)),
   isStripeConfigured: vi.fn(() => true),
@@ -110,6 +115,7 @@ function mockSubscriptionSnapshot(overrides: Record<string, unknown> = {}) {
 // ---------------------------------------------------------------------------
 beforeEach(() => {
   vi.clearAllMocks();
+  resetTierConfigCache();
   mockKV = createMockKV();
 
   vi.mocked(verifyWebhookSignature).mockResolvedValue(true);
@@ -489,6 +495,64 @@ describe('auto-recreate on downgrade', () => {
       'advanced',
       { overwrite: true, cleanup: true, contextModeEnabled: false },
     );
+  });
+
+  // REQ-SUB-015 AC8: mode recovered from the price slot when metadata.mode is
+  // null - the real-world config (prices wired via tier-config slots, not
+  // per-price metadata). Without the slot fallback the flip never fires.
+  const SLOT_TIERS = [
+    { id: 'standard', stripePriceId: 'price_std_default', stripeAdvancedPriceId: 'price_std_advanced' },
+    { id: 'advanced', stripePriceId: 'price_adv_default', stripeAdvancedPriceId: 'price_adv_advanced' },
+  ];
+
+  it('downgrade Pro→Standard: recovers default mode from the price slot (null metadata) and reconciles', async () => {
+    mockKV._set('tiers:config', SLOT_TIERS);
+    seedCustomer('cus_slot_down', 'slotdown@example.com', {
+      subscriptionTier: 'advanced', accessTier: 'advanced', subscribedMode: 'advanced',
+    });
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_slot_down', tier: 'standard', mode: null, priceId: 'price_std_default',
+    }));
+
+    const res = await postWebhook(createApp(), buildEvent('customer.subscription.updated', {
+      id: 'sub_slot_down', customer: 'cus_slot_down',
+    }));
+    expect(res.status).toBe(200);
+
+    const user = await mockKV.get('user:slotdown@example.com', 'json') as Record<string, unknown>;
+    expect(user.subscribedMode).toBe('default');
+    // Standard skills recreated; advanced skills cleaned up (cleanup: true).
+    expect(mockReconcileAgentConfigs).toHaveBeenCalledWith(
+      expect.anything(), expect.any(String), 'https://r2.test', 'default',
+      { overwrite: true, cleanup: true, contextModeEnabled: false },
+    );
+    // UI flip: sessionMode preference set to default for the next session start.
+    const prefs = await mockKV.get(getPreferencesKey(getBucketName('slotdown@example.com')), 'json') as Record<string, unknown>;
+    expect(prefs.sessionMode).toBe('default');
+  });
+
+  it('upgrade Standard→Pro: recovers advanced mode from the price slot (null metadata) and reconciles', async () => {
+    mockKV._set('tiers:config', SLOT_TIERS);
+    seedCustomer('cus_slot_up', 'slotup@example.com', {
+      subscriptionTier: 'standard', accessTier: 'standard', subscribedMode: 'default',
+    });
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_slot_up', tier: 'advanced', mode: null, priceId: 'price_adv_advanced',
+    }));
+
+    const res = await postWebhook(createApp(), buildEvent('customer.subscription.updated', {
+      id: 'sub_slot_up', customer: 'cus_slot_up',
+    }));
+    expect(res.status).toBe(200);
+
+    const user = await mockKV.get('user:slotup@example.com', 'json') as Record<string, unknown>;
+    expect(user.subscribedMode).toBe('advanced');
+    expect(mockReconcileAgentConfigs).toHaveBeenCalledWith(
+      expect.anything(), expect.any(String), 'https://r2.test', 'advanced',
+      { overwrite: true, cleanup: true, contextModeEnabled: false },
+    );
+    const prefs = await mockKV.get(getPreferencesKey(getBucketName('slotup@example.com')), 'json') as Record<string, unknown>;
+    expect(prefs.sessionMode).toBe('advanced');
   });
 
   it('reconcileAgentConfigs failure on downgrade does not break the webhook', async () => {

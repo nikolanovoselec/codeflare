@@ -526,6 +526,8 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> preserves existing KV fields (addedBy, onboardingComplete, etc.) via updateUserRecord atomic merge -> AC5) -->
 <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (auto-recreate on downgrade describe -> mode-change triggers reconcileAgentConfigs with new mode -> AC6) -->
 <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (auto-reconcile on subscription.deleted describe -> calls reconcileAgentConfigs with default mode after KV reset to free -> AC7) -->
+<!-- @test: src/__tests__/routes/stripe-webhook.test.ts (auto-recreate on downgrade describe -> downgrade Pro->Standard recovers default mode from the price slot (null metadata) and reconciles -> AC8) -->
+<!-- @test: src/__tests__/routes/stripe-webhook.test.ts (auto-recreate on downgrade describe -> upgrade Standard->Pro recovers advanced mode from the price slot (null metadata) and reconciles -> AC8) -->
 ### REQ-SUB-015: Stripe Webhook Signal-and-Sync Pattern
 
 <!-- @impl: src/routes/stripe-webhook.ts -->
@@ -540,10 +542,11 @@ Tiers, billing, usage tracking, and quotas.
 1. Webhooks are treated as signals that trigger a fresh fetch from the payment provider, not as the authoritative data source themselves.
 2. The state-sync routine fetches the latest subscription (with price items expanded) directly from the payment provider.
 3. A last-synced timestamp guard prevents stale webhooks from overwriting newer state.
-4. Persisted updates are built from the fetched snapshot; tier and mode are updated only when price metadata is present, so absent metadata preserves the existing values.
+4. Persisted updates are built from the fetched snapshot; the persisted tier is updated only when price tier-metadata is present, so absent metadata preserves the existing tier. The subscribed mode is resolved per AC8.
 5. Writes use an atomic read-merge-write helper to prevent concurrent webhook writes from clobbering unrelated fields.
 6. On any mode change (upgrade or downgrade), the agent-config reconciler runs to seed the correct config set for the new mode.
 7. On subscription termination, after resetting the persisted tier to free, the agent-config reconciler runs with the default mode to restore Standard configs.
+8. The subscribed mode (Standard / Pro) is resolved from the Stripe price even when the price carries no `mode` metadata: the price ID is matched against the tier configuration's Standard and Pro price slots (`stripePriceId` / `stripeAdvancedPriceId`) to recover the mode. This guarantees a Standard<->Pro subscription change always updates the subscribed mode and therefore triggers the mode reconcile (AC6) - flipping the session-mode preference (the UI mode) and recreating the new mode's skill set while removing the previous mode's - even when admins configure prices via slots rather than per-price metadata. The change is lazy: a running session is unaffected until its next start.
 
 **Constraints:**
 

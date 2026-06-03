@@ -12,7 +12,10 @@ import { createMockKV } from '../helpers/mock-kv';
 // Mocks — fetchSubscription and resolveEmailFromCustomer are the two
 // external calls made by syncSubscriptionState.
 // ---------------------------------------------------------------------------
-vi.mock('../../lib/stripe', () => ({
+vi.mock('../../lib/stripe', async (importOriginal) => ({
+  // Keep resolveTierFromPriceId real so syncSubscriptionState's price-slot mode
+  // fallback (REQ-SUB-015 AC8) runs against the real resolver.
+  ...(await importOriginal<typeof import('../../lib/stripe')>()),
   fetchSubscription: vi.fn(),
   verifyWebhookSignature: vi.fn(async () => true),
   parseStripeEvent: vi.fn((body: string) => JSON.parse(body)),

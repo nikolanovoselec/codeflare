@@ -18,6 +18,7 @@ import {
   parseStripeEvent,
   isStripeConfigured,
   fetchSubscription,
+  resolveTierFromPriceId,
 } from '../lib/stripe';
 import { updateUserRecord, parseUserRecord } from '../lib/user-record';
 import { reconcileAgentConfigs } from '../lib/r2-seed';
@@ -357,8 +358,21 @@ export async function syncSubscriptionState(
     patch.subscriptionTier = snapshot.tier;
     patch.accessTier = snapshot.tier;
   }
-  if (snapshot.mode !== null) {
-    patch.subscribedMode = snapshot.mode;
+  // Derive the subscribed mode (Standard='default' / Pro='advanced') from the
+  // Stripe price. Prefer the price's `metadata.mode`; when absent - the common
+  // case, because admins configure prices via the tier-config
+  // stripePriceId/stripeAdvancedPriceId slots rather than per-price metadata -
+  // fall back to the price slot via resolveTierFromPriceId. Without this
+  // fallback a Standard<->Pro subscription change leaves subscribedMode stale,
+  // so the mode-change reconcile in step 6 (skill recreation + sessionMode
+  // preference flip) never fires (REQ-SUB-015 AC8).
+  let resolvedMode = snapshot.mode;
+  if (resolvedMode === null && snapshot.priceId !== null) {
+    const resolved = resolveTierFromPriceId(snapshot.priceId, await getTierConfig(env.KV));
+    if (resolved) resolvedMode = resolved.mode;
+  }
+  if (resolvedMode !== null) {
+    patch.subscribedMode = resolvedMode;
   }
   if (snapshot.priceId !== null) {
     patch.stripePriceId = snapshot.priceId;
