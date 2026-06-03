@@ -1644,7 +1644,7 @@ const required = [
 ];
 const disabledPackageIds = new Set(['npm:context-mode']);
 const disabledPackages = [
-  { source: 'npm:context-mode@1.0.161', extensions: [], skills: [] },
+  { source: 'npm:context-mode@1.0.162', extensions: [], skills: [] },
 ];
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
@@ -1779,14 +1779,14 @@ fi
 # A future contributor who adds a SessionStart-style ctx_* nudge for
 # commercial users would push us over the ELv2 line. Don't do that
 # without revisiting AD49 first.
-CONTEXT_MODE_VERSION="1.0.161"
+CONTEXT_MODE_VERSION="1.0.162"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # Surface the manifest version in the entrypoint log so a mismatch
     # against the build-time-installed binary (= /usr/local/bin/context-mode
     # --version output) is visible. Bumping plugin.json without a Docker
     # rebuild is a deploy ordering issue caught by this log line.
-    CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.161"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.161")
+    CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.162"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.162")
 fi
 # MCP server registration: always register the context-mode MCP server in
 # ~/.claude.json (mirrors how codeflare-memory's `memory` MCP server is wired).
@@ -1831,7 +1831,7 @@ echo "[entrypoint] context-mode MCP server registered in .claude.json (version $
 GRAPHIFY_MANIFEST="$USER_HOME/.claude/plugins/graphify/.claude-plugin/plugin.json"
 GRAPHIFY_VERSION="unknown"
 if [ -f "$GRAPHIFY_MANIFEST" ]; then
-    GRAPHIFY_VERSION=$(jq -r '.version // "unknown"' "$GRAPHIFY_MANIFEST" 2>/dev/null || echo "unknown")
+    GRAPHIFY_VERSION=$(jq -r '.version // "1.0.162"' "$GRAPHIFY_MANIFEST" 2>/dev/null || echo "unknown")
 fi
 # Use the uv-isolated venv's python, not system python3. `uv tool install`
 # (Dockerfile) installs graphifyy into /root/.local/share/uv/tools/graphifyy/
