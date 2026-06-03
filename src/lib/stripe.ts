@@ -24,7 +24,7 @@ import { firstZodError } from './request-helpers';
 const StripePriceResponseSchema = z.object({
   unit_amount: z.number().optional(),
   currency: z.string().optional(),
-  currency_options: z.record(z.object({ unit_amount: z.number() })).optional(),
+  currency_options: z.record(z.string(), z.object({ unit_amount: z.number() })).optional(),
 }).passthrough();
 
 /** Generic Stripe response carrying an optional error object (stripeRequest). */
@@ -50,7 +50,7 @@ const StripeSubscriptionSchema = z.object({
       id: z.string().optional(),
       price: z.object({
         id: z.string().optional(),
-        metadata: z.record(z.string()).optional(),
+        metadata: z.record(z.string(), z.string()).optional(),
       }).passthrough().optional(),
     }).passthrough()).optional(),
   }).passthrough().optional(),

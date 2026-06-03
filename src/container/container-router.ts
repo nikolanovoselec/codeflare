@@ -20,6 +20,7 @@ import {
   updateEnvVars,
   type ContainerHost,
 } from './container-config';
+export type { ContainerHost } from './container-config';
 
 const SESSION_ID_KEY = '_sessionId';
 
