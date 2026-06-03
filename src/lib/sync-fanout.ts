@@ -108,7 +108,7 @@ export async function fanOutBisyncTrigger(
         try {
           const containerId = getContainerId(bucketName, sessionId);
           const container = getContainer(env.CONTAINER, containerId);
-          // Path intentionally NOT in the DO's internalRoutes map (no
+          // Path intentionally NOT in the DO's typed INTERNAL_ROUTES table (no
           // leading underscore) so the DO's fetch() override forwards
           // through super.fetch() with auth injection. The host's
           // /internal/bisync-trigger handler sends SIGUSR1 to the

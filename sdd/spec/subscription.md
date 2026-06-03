@@ -459,7 +459,7 @@ Tiers, billing, usage tracking, and quotas.
 ### REQ-SUB-013: Concurrent Session Limits
 
 <!-- @impl: src/lib/subscription.ts::getMaxSessionsForTier -->
-<!-- @impl: src/routes/container/lifecycle.ts::validateSessionAndCheckLimits -->
+<!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
 <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits describe → per-tier maxSessions enforcement + STRESS_TEST_MODE bypass → AC1-AC4) -->
 
 **Intent:** Each tier must enforce a maximum number of simultaneously running sessions to control resource consumption.
