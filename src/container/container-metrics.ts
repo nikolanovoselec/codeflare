@@ -262,6 +262,15 @@ export async function collectMetrics(
         // Read-modify-write only touches .metrics, never .status.
         const key = getSessionKey(bucketName, sessionId);
         const session = await env.KV.get<Session>(key, 'json');
+        // DIAG (codeflare#480 metrics-not-landing): surface the resolved key +
+        // whether the KV read found the session + the health values. The metrics
+        // write is otherwise a silent no-op when env.KV.get returns null.
+        logger.info('collectMetrics: metrics-write decision', {
+          key,
+          found: !!session,
+          sessionStatus: session?.status ?? null,
+          health: { cpu: health.cpu, mem: health.mem, hdd: health.hdd },
+        });
         // Clobber-race guard: if the freshly-read session was just marked
         // 'stopped' (e.g. by POST /:id/stop or onStop), skip the metrics write
         // entirely so we don't resurrect a stopped session back to 'running'.
