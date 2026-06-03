@@ -33,6 +33,7 @@ deployed on Recreate or new bucket creation.
 |---------|---------|----------|-------------------------|
 | Memory plugin & rule | No | Yes | Yes |
 | Core environment rules (cloudflare-environment, no-local-builds, git-workflow) | Yes | Yes | Yes |
+| Pi startup header and local statusline | Yes | Yes | Yes |
 | Cloudflare-stack, github-cloudflare-ship (+ refs), ci-monitoring, pr-workflow, deploy-credentials skills | Yes | Yes | Yes |
 | `consult-llm` skill (CC only) | No | Yes | Yes |
 | CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn` | No | Yes | Yes |
@@ -250,8 +251,11 @@ All preseed content is deployed via the manifest pipeline:
   config, extension files (including `codeflare-commands.ts`, which
   provides the Pi `/debug`, `/deploy`, and `/brainstorm` commands since
   Claude slash commands do not deploy to Pi, plus durable review-job helpers
-  for PR-boundary enforcement, and `startup-header.ts`, which replaces Pi's
-  built-in startup header with a custom boxed session header), native skill overrides
+  for PR-boundary enforcement, `startup-header.ts`, which replaces Pi's
+  built-in startup header with a custom boxed session header, and
+  `local-statusline.ts`, which replaces Pi's footer in default and advanced
+  modes while preserving extension status rows such as PR-boundary review
+  progress), native skill overrides
   (graphify -
   [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7 - and `review`),
   capture-contract prompts (`memory-agent-prompt.md`,
@@ -676,6 +680,7 @@ The legacy v4 timestamp file `.git/sdd-last-ack-push` (if present from a prior i
 - [REQ-AGENT-047](../../sdd/spec/agents.md#req-agent-047-resume-mode-closure-and-review-pipeline-gate) - Resume Mode closure and review-pipeline gate
 - [REQ-AGENT-048](../../sdd/spec/agents.md#req-agent-048-audit-accumulator-surfaces) - Audit accumulator surfaces
 - [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill) - Pi-Native `/review` Workflow Skill
+- [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop) - Pi Durable Review Status, Result Formatting, and Fix Loop
 - [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement) - Pi PR-Boundary Review Window Advancement
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 

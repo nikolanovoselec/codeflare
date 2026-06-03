@@ -207,6 +207,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/commands-helpers.ts',
       '.pi/agent/extensions/graphify-helpers.ts',
       '.pi/agent/extensions/guard-helpers.ts',
+      '.pi/agent/extensions/local-statusline.ts',
       '.pi/agent/extensions/memory-vault-helpers.ts',
       '.pi/agent/extensions/memory-vault.ts',
       '.pi/agent/extensions/review-command.ts',
@@ -229,6 +230,10 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // must surface them.
     expect(skills.map((d) => d.key)).toContain('.pi/agent/skills/review/SKILL.md');
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/codeflare-commands.ts');
+    const statusline = extensions.find((d) => d.key === '.pi/agent/extensions/local-statusline.ts');
+    expect(statusline?.content).toContain('footerData.getExtensionStatuses()');
+    expect(statusline?.content).toContain('ctx.ui.setFooter');
+    expect(statusline?.content).toContain('`${model}:${effort}`');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(codeReviewer?.content).toContain('tools: read, grep, find, bash, write');
     // context-mode helper tools are kept (Pi-native names), inert when context-mode is off

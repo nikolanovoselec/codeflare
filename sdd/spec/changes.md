@@ -4,6 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-06-04
 
+- [REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions) / [REQ-AGENT-053](agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop) / [REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth): Pi review detection now resolves command-local `cd` prefixes separated by `&&`, semicolon, or newline; durable review retry suppression uses in-memory active lanes only, and the Pi local statusline is preseeded for both Standard and Pro while preserving review progress statuses.
 - [REQ-AGENT-025](agents.md#req-agent-025-post-clone-graph-triage) / [REQ-AGENT-043](agents.md#req-agent-043-graphify-build-mode-dispatch): post-clone graph triage no longer tells agents to refresh stale existing graphs automatically. Missing-graph prompts now offer Full repo AST-only, Full repo semantic, or no graph action. Existing stale/unknown graph prompts now ask before any update, offering existing-graph-as-is, Full repo AST-only update, or Full repo semantic refresh. A same-turn clone-time AST/Full choice counts as the graphify skill's mode choice after detection, so the user is not asked the same AST/Full question twice.
 
 ## 2026-06-02

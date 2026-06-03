@@ -10,6 +10,12 @@
       "advanced"
     ]
   },
+  "extensions/local-statusline.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/codeflare-commands.ts": {
     "modes": [
       "advanced"
