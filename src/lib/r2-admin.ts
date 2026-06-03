@@ -2,14 +2,30 @@
  * R2 bucket management via Cloudflare API
  */
 
+import { z } from 'zod';
 import { createLogger } from './logger';
 import { r2AdminCB } from './circuit-breakers';
 import { CF_API_BASE } from './constants';
 import { parseCfResponse } from './cf-api';
 import { getAndDecrypt, encryptAndStore } from './kv-crypto';
-import { toError } from './error-types';
+import { toError, AppError } from './error-types';
+import { firstZodError } from './request-helpers';
 
 const logger = createLogger('r2-admin');
+
+/**
+ * CF-022: Runtime schema for the scoped-token creation response. Aligns the
+ * remaining raw `as` cast in this module with the parseCfResponse-validated
+ * bucket path. Validates only the fields consumed; safeParse failure throws a
+ * typed AppError instead of trusting the cast.
+ */
+const CfTokenCreateResponseSchema = z.object({
+  success: z.boolean(),
+  result: z.object({
+    id: z.string(),
+    value: z.string(),
+  }).passthrough().optional(),
+}).passthrough();
 
 /**
  * Check if a bucket exists
@@ -164,12 +180,13 @@ export async function createScopedR2Token(
     }
 
     if (response.ok) {
-      const data = await response.json() as {
-        success: boolean;
-        result: { id: string; value: string };
-      };
+      const parsed = CfTokenCreateResponseSchema.safeParse(await response.json());
+      if (!parsed.success) {
+        throw new AppError('CF_TOKEN_VALIDATION_ERROR', 502, `Invalid scoped R2 token response: ${firstZodError(parsed.error)}`);
+      }
+      const data = parsed.data;
 
-      if (data.success) {
+      if (data.success && data.result) {
         // Derive S3-compatible secret from token value via SHA-256
         const encoder = new TextEncoder();
         const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(data.result.value));

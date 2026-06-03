@@ -286,6 +286,30 @@ describe('r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / RE
 
       expect(mockFetch).toHaveBeenCalledTimes(3);
     });
+
+    // CF-022: runtime validation of the scoped-token creation response
+    it('should return credentials for a well-formed 200 response (valid)', async () => {
+      mockFetch.mockResolvedValueOnce(mockTokenResponse('tok-valid', 'val-valid'));
+
+      const result = await createScopedR2Token('acc', 'tok', 'bucket');
+
+      expect(result.accessKeyId).toBe('tok-valid');
+      expect(result.tokenId).toBe('tok-valid');
+    });
+
+    it('should throw when a 200 response is missing the token value (malformed)', async () => {
+      // 200 OK with success:true but result.value omitted -> schema rejects.
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, result: { id: 'tok-no-value' } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      await expect(
+        createScopedR2Token('acc', 'tok', 'bucket')
+      ).rejects.toThrow(/Invalid scoped R2 token response/);
+    });
   });
 
   // =========================================================================

@@ -558,4 +558,96 @@ describe('JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS cachi
       }
     });
   });
+
+  describe('CF-022: runtime JWKS schema validation', () => {
+    it('returns email when JWKS response has the expected shape (valid)', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const token = await createTestJWT(
+        {
+          aud: [TEST_AUD],
+          email: TEST_EMAIL,
+          exp: now + 3600,
+          iat: now - 60,
+          iss: `https://${TEST_AUTH_DOMAIN}`,
+          sub: 'user-id-123',
+          type: 'app',
+          country: 'US',
+        },
+        testKeyPair.privateKey,
+        testKeyPair.kid
+      );
+
+      const result = await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD);
+      expect(result).toBe(TEST_EMAIL);
+    });
+
+    it('returns null when JWKS response is malformed (keys not an array)', async () => {
+      // Mock the certs endpoint to return a structurally invalid JWKS document.
+      // The Zod schema rejects it; verifyAccessJWT swallows the throw and returns null.
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes('/cdn-cgi/access/certs')) {
+          return new Response(JSON.stringify({ keys: 'not-an-array' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response('Not Found', { status: 404 });
+      }) as typeof globalThis.fetch;
+
+      const now = Math.floor(Date.now() / 1000);
+      const token = await createTestJWT(
+        {
+          aud: [TEST_AUD],
+          email: TEST_EMAIL,
+          exp: now + 3600,
+          iat: now - 60,
+          iss: `https://${TEST_AUTH_DOMAIN}`,
+          sub: 'user-id-123',
+          type: 'app',
+          country: 'US',
+        },
+        testKeyPair.privateKey,
+        testKeyPair.kid
+      );
+
+      const result = await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD);
+      expect(result).toBeNull();
+    });
+
+    it('returns null when a JWK entry is missing the modulus field', async () => {
+      // JWKS with a key entry that omits the required `n` (modulus) field.
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes('/cdn-cgi/access/certs')) {
+          return new Response(JSON.stringify({
+            keys: [{ kid: testKeyPair.kid, kty: 'RSA', e: 'AQAB', alg: 'RS256', use: 'sig' }],
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response('Not Found', { status: 404 });
+      }) as typeof globalThis.fetch;
+
+      const now = Math.floor(Date.now() / 1000);
+      const token = await createTestJWT(
+        {
+          aud: [TEST_AUD],
+          email: TEST_EMAIL,
+          exp: now + 3600,
+          iat: now - 60,
+          iss: `https://${TEST_AUTH_DOMAIN}`,
+          sub: 'user-id-123',
+          type: 'app',
+          country: 'US',
+        },
+        testKeyPair.privateKey,
+        testKeyPair.kid
+      );
+
+      const result = await verifyAccessJWT(token, TEST_AUTH_DOMAIN, TEST_AUD);
+      expect(result).toBeNull();
+    });
+  });
 });

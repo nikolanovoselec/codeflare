@@ -688,3 +688,68 @@ describe('getStripePrices with currency', () => {
     expect(price!.amount).toBe(2400);
   });
 });
+
+// ---------------------------------------------------------------------------
+// CF-022: runtime Stripe response schema validation
+// ---------------------------------------------------------------------------
+describe('CF-022: Stripe response validation', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('fetchSubscription returns a snapshot for a well-formed response (valid)', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({
+        id: 'sub_valid',
+        customer: 'cus_valid',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_end: 1700000000,
+        items: {
+          data: [{ id: 'si_valid', price: { id: 'price_valid', metadata: { tier: 'standard', mode: 'default' } } }],
+        },
+      }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    const snapshot = await fetchSubscription('sub_valid', 'sk_test_key');
+    expect(snapshot).not.toBeNull();
+    expect(snapshot!.subscriptionId).toBe('sub_valid');
+    expect(snapshot!.tier).toBe('standard');
+  });
+
+  it('fetchSubscription throws on a malformed response (missing required customer field)', async () => {
+    // 200 OK but the body lacks the required `customer` field - schema rejects it
+    // and parseStripeOrThrow throws a typed validation error instead of silently
+    // producing an undefined customerId.
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({
+        id: 'sub_bad',
+        status: 'active',
+        items: { data: [] },
+      }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    await expect(fetchSubscription('sub_bad', 'sk_test_key')).rejects.toThrow(/Invalid Stripe subscription response/);
+  });
+
+  it('createCheckoutSession throws when the session response lacks a url', async () => {
+    // 200 OK but missing `url` - StripeSessionSchema rejects it.
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: 'cs_no_url' }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    await expect(createCheckoutSession({
+      priceId: 'price_test_123',
+      customerEmail: 'user@example.com',
+      successUrl: 'https://example.com/success',
+      cancelUrl: 'https://example.com/cancel',
+      secretKey: 'sk_test_key',
+    })).rejects.toThrow(/Invalid Stripe checkout session response/);
+  });
+});
