@@ -13,7 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
@@ -67,11 +67,7 @@ function findGitRoot(startDir: string): string | undefined {
 }
 
 function cwdFromCommand(command: string): string | undefined {
-  const cdMatch = command.match(/(?:^|[;&|]\s*)cd\s+([^;&|]+)\s*&&/);
-  if (cdMatch) return cdMatch[1].trim().replace(/^(["'])(.*)\1$/, "$2");
-  const gitCMatch = command.match(/(?:^|[;&|]\s*)git\s+-C\s+("[^"]+"|'[^']+'|\S+)/);
-  if (gitCMatch) return gitCMatch[1].trim().replace(/^(["'])(.*)\1$/, "$2");
-  return undefined;
+  return cwdFromBoundaryCommand(command);
 }
 
 function activeRepoFallback(): string | undefined {
@@ -97,7 +93,7 @@ function commandText(event: any): string {
 
 
 function isGhPrMerge(command: string): boolean {
-  return /(^|[;&|]\s*)gh\s+pr\s+merge\b/.test(command);
+  return /(^|[;&|\n]\s*)gh\s+pr\s+merge\b/.test(command);
 }
 
 function isSddProject(repo: string): boolean {
@@ -282,11 +278,11 @@ function previousRemoteHead(repo: string, currentHead: string): string | undefin
 }
 
 function isLocalGitPushCommand(command: string): boolean {
-  return /(^|[;&|]\s*)git(?:\s+-C\s+\S+)?\s+push\b/.test(command);
+  return /(^|[;&|\n]\s*)git(?:\s+-C\s+\S+)?\s+push\b/.test(command);
 }
 
 function isGitPushCommand(command: string): boolean {
-  return isLocalGitPushCommand(command) || /(^|[;&|]\s*)gh\s+repo\s+sync\b/.test(command);
+  return isLocalGitPushCommand(command) || /(^|[;&|\n]\s*)gh\s+repo\s+sync\b/.test(command);
 }
 
 function prForBoundaryCommand(repo: string, command: string, pr: PrState | undefined): PrState | undefined {

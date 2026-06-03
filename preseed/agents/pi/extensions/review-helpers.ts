@@ -85,6 +85,17 @@ function reviewBoundaryCommands(command: string): ShellCommand[] {
     .filter((words) => words.length > 0);
 }
 
+function gitCwd(words: ShellCommand): string | undefined {
+  if (words[0] !== "git") return undefined;
+  for (let index = 1; index < words.length; index += 1) {
+    const word = words[index];
+    if (word === "-C") return words[index + 1];
+    if (word.startsWith("-C") && word.length > 2) return word.slice(2);
+    if (!word.startsWith("-")) return undefined;
+  }
+  return undefined;
+}
+
 function gitArgs(words: ShellCommand): ShellCommand | undefined {
   if (words[0] !== "git") return undefined;
   let index = 1;
@@ -113,6 +124,20 @@ function isBoundaryWords(words: ShellCommand): boolean {
 
 function prCreateWords(command: string): ShellCommand | undefined {
   return reviewBoundaryCommands(command).find((words) => words[0] === "gh" && words[1] === "pr" && words[2] === "create");
+}
+
+export function cwdFromBoundaryCommand(command: string): string | undefined {
+  let lastCd: string | undefined;
+  for (const words of reviewBoundaryCommands(command)) {
+    if (words[0] === "cd" && words[1]) {
+      lastCd = words[1];
+      continue;
+    }
+    const cwd = gitCwd(words);
+    if (cwd) return cwd;
+    if (isBoundaryWords(words)) return lastCd;
+  }
+  return undefined;
 }
 
 export function isGhPrCreateCommand(command: string): boolean {
