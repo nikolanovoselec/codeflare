@@ -497,7 +497,7 @@ describe('auto-recreate on downgrade', () => {
     );
   });
 
-  // REQ-SUB-015 AC8: mode recovered from the price slot when metadata.mode is
+  // REQ-SUB-015 AC6: mode recovered from the price slot when metadata.mode is
   // null - the real-world config (prices wired via tier-config slots, not
   // per-price metadata). Without the slot fallback the flip never fires.
   const SLOT_TIERS = [
