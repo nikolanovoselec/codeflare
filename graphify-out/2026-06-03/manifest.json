@@ -895,8 +895,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/auth-gaps.test.ts": {
-    "mtime": 1780404229.7700605,
-    "ast_hash": "a40b911c2afb8502766589150b13573d",
+    "mtime": 1780444212.710473,
+    "ast_hash": "f5f65a72a1ed5d5c3b6a1be860830332",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/lib/billing-status.test.ts": {
@@ -1490,8 +1490,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/index.ts": {
-    "mtime": 1780442036.9864504,
-    "ast_hash": "b27fe4e7cd5611fdb1f7b5c404802333",
+    "mtime": 1780444163.3024724,
+    "ast_hash": "177203aac98d0de434797ee194aac855",
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/lib/access-policy.ts": {
@@ -3915,8 +3915,8 @@
     "semantic_hash": ""
   },
   "/home/user/workspace/codeflare/src/__tests__/security/early-return-security.test.ts": {
-    "mtime": 1780442852.0184588,
-    "ast_hash": "a411712161754152c3c56d1bf4d78349",
+    "mtime": 1780444179.2904725,
+    "ast_hash": "45fd911ee3fdd872ccbe2608ce4595da",
     "semantic_hash": ""
   }
 }
