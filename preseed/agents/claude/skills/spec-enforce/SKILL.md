@@ -54,12 +54,12 @@ Audit location by trigger: `/sdd clean` writes to the per-category commit bodies
 | CQ-SOURCE — Source-anchor truth-check | During `/sdd init`: consume both the Phase 7a verifier JSON (`.verify-anchors.json`) AND the Phase 7b enumeration-coverage verifier JSON (`.phase-7b.json`). The Phase 7a output drives anchor-orphaned / value-drift findings; the Phase 7b output drives `phase-7b-evidence-missing` / `import-mode-narrowed-scope` findings (a Phase 7b `unaccounted > 0` reported in the `[sdd-init]` commit body is itself a CRITICAL spec-side finding). Outside `/sdd init`: invoke `spec-enforce-truth` UNCONDITIONALLY when any Implemented or Partial REQ in diff OR scope=all. Never gated by `enforce_tdd`. Agent self-attestation without verifier output = CRITICAL `phase-7a-self-attestation` / `phase-7b-self-attestation` (see `sdd-init/SKILL.md` steps 7 and 8). When reading the most recent `[sdd-init]` commit body to verify the bulk-op actually ran, both the Phase 7a line (`Phase 7a verifier: parsed=...`) AND the Phase 7b line (`Phase 7b enum verifier: enumerated=...`) MUST be present; either line missing = CRITICAL `phase-7a-evidence-missing` / `phase-7b-evidence-missing`. | `ran (N REQs, A anchors verified, V drift, O orphaned, U unanchored)` |
 | CQ-1, CQ-2, CQ-3 | Invoke `spec-enforce-truth`. | `ran (...)` or `inert` |
 | Backlog re-triage | Walk every open finding in the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy); re-classify under current rules; auto-fix what is now mechanisable. | `ran (B items, R re-triaged, F auto-fixed, S still-escalated)` |
-| Commit-prefix + 2-round limit | Check last 3 commits; halt if 2+ counted-tag commits in lane. | `ran (3 commits inspected, M findings)` |
+| Commit-prefix + 5-round limit | Check last 6 commits; halt if 5+ counted-tag commits in lane. | `ran (6 commits inspected, M findings)` |
 
 ## Orchestration logic
 
 1. **Parse diff.** Identify: changed REQs, changed files, changed AC bullets, REQ ID set in diff, Status field changes, `sdd/changes.md` deltas.
-2. **Always-runs rows** (the 10 inline rows in the manifest above — Forbidden content, Status field semantics, REQ rendering, REQ length, Changelog drift, the three Meta-content leakage rules, Backlog re-triage, Commit-prefix + 2-round limit): execute inline. Each row updates its manifest status to `ran (N REQs, M findings)` immediately on completion. The remaining 9 rows invoke `spec-enforce-ac` (6 rows: AC granularity, actor coherence, sub-bullets, cross-cutting, concern-boundary, mechanism leakage) or `spec-enforce-truth` (3 rows: CQ-TEST, CQ-SOURCE, CQ-1/2/3) per the conditional rules below.
+2. **Always-runs rows** (the 10 inline rows in the manifest above — Forbidden content, Status field semantics, REQ rendering, REQ length, Changelog drift, the three Meta-content leakage rules, Backlog re-triage, Commit-prefix + 5-round limit): execute inline. Each row updates its manifest status to `ran (N REQs, M findings)` immediately on completion. The remaining 9 rows invoke `spec-enforce-ac` (6 rows: AC granularity, actor coherence, sub-bullets, cross-cutting, concern-boundary, mechanism leakage) or `spec-enforce-truth` (3 rows: CQ-TEST, CQ-SOURCE, CQ-1/2/3) per the conditional rules below.
 3. **Conditional invocations**:
    - IF any AC bullet line changed in diff OR scope=all: invoke `spec-enforce-ac` skill with the diff + scope + mode.
    - IF any REQ with `Status: Implemented` or `Status: Partial` is in the diff, OR any path matched by `src_globs` (from the layout-resolved config; default defined in `spec-enforce-truth/SKILL.md` § Inputs) is in the diff, OR scope=all: invoke `spec-enforce-truth` skill with the diff + scope + mode. Source-touching diffs trigger invocation because source changes can orphan existing `@impl` anchors in unchanged REQs — CQ-SOURCE must re-validate. Partial REQs are included because they may carry source anchors that can drift, and CQ-SOURCE must run wherever an anchor exists (Truth guarantee is never gated). The skill itself decides per-pass which REQs each pass applies to (CQ-TEST only fires on Implemented when `enforce_tdd: true`; CQ-SOURCE fires on every REQ whose `@impl` anchors target the changed source OR every Implemented/Partial REQ on `scope=all`).
@@ -264,13 +264,13 @@ Anti-spiral parses commit subjects by **tag prefix**. Every agent-authored commi
 
 Plain commits (no prefix) are user-authored and reset the round counter. The counted/excluded sets are **closed**; introducing a new tag without adding it is a HIGH finding.
 
-## The 2-round commit cycle limit
+## The 5-round commit cycle limit
 
 Self-limit to prevent micro-fix spirals. Counter is scoped to spec-reviewer's lane (`sdd/**`).
 
-1. `git log -3 --name-only --format="--- %H %s"`.
+1. `git log -6 --name-only --format="--- %H %s"`.
 2. Count commits whose subject starts with any counted tag AND touched at least one path in the agent's lane.
-3. >=2 of last 3 qualify: hard stop. Write would-be findings to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) and exit.
+3. >=5 of last 6 qualify: hard stop. Write would-be findings to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) and exit.
 4. Counter resets when a non-agent commit lands in the lane.
 
 Cross-cutting commits count for whichever agents own touched lanes. Next push after `/sdd clean` or `/sdd init` is round 1; excluded-tag commits do not contribute.

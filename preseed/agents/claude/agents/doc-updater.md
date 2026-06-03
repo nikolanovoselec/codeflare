@@ -125,11 +125,11 @@ test -f documentation/README.md
 ### Step 0c: Round counter (anti-spiral)
 
 ```bash
-git log -3 --format="%H %s" 2>/dev/null
-git log -3 --name-only --format="--- %H %s" 2>/dev/null
+git log -6 --format="%H %s" 2>/dev/null
+git log -6 --name-only --format="--- %H %s" 2>/dev/null
 ```
 
-Count commits whose subject starts with `[doc-updater]`, `[autonomous]`, or `[unleashed]` **AND** that touched at least one path under `documentation/`. Commits that touched only `sdd/` or only source code do NOT count toward the doc-updater round counter. Excluded prefixes regardless of paths: `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`. If >=2 of the last 3 qualifying commits qualify: hard stop. Write findings to `documentation/.doc-coverage.md` under `## Round limit reached`. Exit code 0.
+Count commits whose subject starts with `[doc-updater]`, `[autonomous]`, or `[unleashed]` **AND** that touched at least one path under `documentation/`. Commits that touched only `sdd/` or only source code do NOT count toward the doc-updater round counter. Excluded prefixes regardless of paths: `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`. If >=5 of the last 6 qualifying commits qualify: hard stop. Write findings to `documentation/.doc-coverage.md` under `## Round limit reached`. Exit code 0.
 
 ### Step 0c.5: Bulk-op audit-line check (binding)
 

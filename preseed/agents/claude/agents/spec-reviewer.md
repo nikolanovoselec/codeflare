@@ -99,11 +99,11 @@ Sanity check: if `transition: true` is set but init-triage is missing or contain
 ### Step 0c: Check the round counter (anti-spiral)
 
 ```bash
-git log -3 --format="%H %s" 2>/dev/null
-git log -3 --name-only --format="--- %H %s" 2>/dev/null
+git log -6 --format="%H %s" 2>/dev/null
+git log -6 --name-only --format="--- %H %s" 2>/dev/null
 ```
 
-Count commits whose subject contains `[autonomous]`, `[unleashed]`, or `[spec-reviewer]` **AND** that touched at least one path under `sdd/`. Commits that touched only `documentation/` or only source code do NOT count toward the spec-reviewer round counter. Excluded prefixes regardless of paths: `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`. If >=2 of the last 3 commits qualify, hard stop:
+Count commits whose subject contains `[autonomous]`, `[unleashed]`, or `[spec-reviewer]` **AND** that touched at least one path under `sdd/`. Commits that touched only `documentation/` or only source code do NOT count toward the spec-reviewer round counter. Excluded prefixes regardless of paths: `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`. If >=5 of the last 6 commits qualify, hard stop:
 
 1. Write the would-be findings to `$TRIAGE_FILE` with header "Round limit reached"
 2. Exit with code 0
