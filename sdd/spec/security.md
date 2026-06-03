@@ -380,6 +380,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 <!-- @impl: src/index.ts -->
 <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → security-headers job verifies all headers) -->
+<!-- @test: src/__tests__/security/early-return-security.test.ts (CF-001 vault early-return describe → proxied vault content has null CSP, error responses carry full CSP → AC2 vault-proxy exemption) -->
 
 **Intent:** Every HTTP response must include standard security headers to prevent common web attacks (clickjacking, MIME sniffing, mixed content, leaked referrer, fingerprintable server software).
 

@@ -107,6 +107,8 @@ Applied to every response in `src/index.ts`:
 
 HSTS is also applied to all redirect responses via `redirectWithHeaders()` helper in `src/index.ts`, including root redirect and setup redirect, ensuring browsers upgrade to HTTPS even on redirect hops. Preflight (OPTIONS) responses receive HSTS directly in the CORS middleware.
 
+**Vault proxy exemption (CSP only):** Proxied SilverBullet responses under `/api/vault/:sid/*` carry every header above except `Content-Security-Policy`. SilverBullet serves its own HTML with inline scripts/styles, web workers, and `eval`, which a `default-src 'none'` CSP would block. The exemption covers proxied content only: vault validation/error responses and the `/api/vault/:sid/status` JSON endpoint still receive the full set including CSP. Implemented via `withSecurityHeaders(response, { csp: false })` in `src/index.ts`; see [REQ-SEC-008](../../sdd/spec/security.md#req-sec-008-security-headers-on-every-response).
+
 ## Session ID Validation
 
 `SESSION_ID_PATTERN` (`/^[a-z0-9]{8,24}$/`) is enforced on terminal WebSocket upgrade and container lifecycle endpoints (`terminal.ts`, `container/lifecycle.ts`). Invalid session IDs are rejected with 400 before any DO interaction, preventing malformed IDs from creating orphaned Durable Objects.
