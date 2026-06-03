@@ -30,6 +30,8 @@ graphify-out/obsidian/
 .graphify_uncached.txt
 .graphify_chunk_*.txt
 .graphify_old.json
+.graphify_community_label_worklist.json
+.graphify_community_label_batches/
 # Per-machine markers - absolute path / root-level transient labels:
 .graphify_root
 /.graphify_labels.json
