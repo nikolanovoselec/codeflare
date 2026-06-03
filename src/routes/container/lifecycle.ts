@@ -26,7 +26,7 @@ import { setupR2Credentials, ensureBucketAndSeed, configureContainerDO } from '.
 // import these from './lifecycle') keep resolving them after the CF-024b split
 // into lifecycle-validation.ts and lifecycle-init.ts.
 export { resolveEffectiveSleepAfter, validateSessionAndCheckLimits } from './lifecycle-validation';
-export { setupR2Credentials, ensureBucketAndSeed, configureContainerDO } from './lifecycle-init';
+export { ensureBucketAndSeed, configureContainerDO } from './lifecycle-init';
 
 // ---------------------------------------------------------------------------
 // Orchestration

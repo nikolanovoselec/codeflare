@@ -30,7 +30,7 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' } as const;
 // ---------------------------------------------------------------------------
 
 /** POST /_internal/setBucketName request body. */
-export interface SetBucketNameBody {
+interface SetBucketNameBody {
   bucketName: string;
   sessionId?: string;
   userEmail?: string;
@@ -57,18 +57,18 @@ export interface SetBucketNameBody {
 }
 
 /** Successful POST /_internal/setBucketName response (200). */
-export interface SetBucketNameResponse {
+interface SetBucketNameResponse {
   success: true;
   bucketName: string;
 }
 
 /** Successful PUT /_internal/setSessionId response (200). */
-export interface SetSessionIdResponse {
+interface SetSessionIdResponse {
   success: true;
 }
 
 /** GET /_internal/getBucketName response (200). */
-export interface GetBucketNameResponse {
+interface GetBucketNameResponse {
   bucketName: string | null;
 }
 

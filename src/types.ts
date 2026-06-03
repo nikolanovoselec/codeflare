@@ -93,39 +93,6 @@ export interface Env {
 }
 
 /**
- * Scoped Env aliases (CF-013). The Worker `Env` is a 30-field god-interface
- * passed wholesale across the codebase. These `Pick` aliases let lib helpers
- * and internal functions declare only the bindings they actually read, so a
- * reader (and the type-checker) can see a function's true env surface. They
- * are type-only - no runtime shape changes. Hono route handlers keep the full
- * `Env` via their Context Bindings generic; only extracted helpers narrow.
- */
-
-/** Platform bindings: static assets, session KV, and the Container DO. */
-export type EnvCore = Pick<Env, 'ASSETS' | 'KV' | 'CONTAINER'>;
-
-/** R2 connection + credential bindings (the R2_* fields). */
-export type EnvR2 = Pick<
-  Env,
-  'R2_BUCKET_NAME' | 'R2_ACCOUNT_ID' | 'R2_ENDPOINT' | 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY'
->;
-
-/** Stripe billing secrets (SaaS mode only). */
-export type EnvBilling = Pick<Env, 'STRIPE_SECRET_KEY' | 'STRIPE_WEBHOOK_SECRET'>;
-
-/** Service-token / GitHub-OAuth / CF-Access SaaS auth bindings. */
-export type EnvAuth = Pick<
-  Env,
-  | 'SERVICE_TOKEN_EMAIL'
-  | 'SERVICE_AUTH_SECRET'
-  | 'OAUTH_CLIENT_ID'
-  | 'OAUTH_CLIENT_SECRET'
-  | 'OAUTH_JWT_SECRET'
-  | 'SAAS_MODE'
-  | 'SAAS_EXTRA_IDPS'
->;
-
-/**
  * Possible user roles within the application
  */
 export type UserRole = 'admin' | 'user';
@@ -308,7 +275,7 @@ export interface R2ConnectionConfig {
  * Scoped R2 access credentials minted per user/bucket. Named to cut the
  * repeated inline `{ accessKeyId; secretAccessKey }` shape.
  */
-export interface ScopedR2Creds {
+interface ScopedR2Creds {
   accessKeyId: string;
   secretAccessKey: string;
 }
