@@ -36,15 +36,9 @@ import {
 import { checkRateLimit } from '../lib/rate-limit-core';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpers';
-import { authenticateRequest } from '../lib/access';
-import { isSaasModeActive } from '../lib/onboarding';
-import { isActiveUser } from '../lib/access-tier';
-import { getEffectiveTier } from '../lib/subscription';
 import { createLogger } from '../lib/logger';
-import { isAllowedOrigin } from '../lib/cors-cache';
-import { AuthError, ForbiddenError, NotFoundError, toError, toErrorMessage } from '../lib/error-types';
+import { NotFoundError, toError, toErrorMessage } from '../lib/error-types';
 import {
-  maybeSynthesizeCsrfHeader,
   maybeIssueCsrfCookie,
   isServiceWorkerRegistration,
   isServiceWorkerContextFetch,
@@ -52,10 +46,23 @@ import {
   injectVaultBootstrapHopHtml,
   hasVaultBootstrapCookie,
   filterVaultFsListing,
-  inferOriginValidated,
   rewriteVaultHtmlResponse,
 } from './vault-html';
 import { VAULT_NATIVE_SERVICE_WORKER_JS } from './vault-native-sw';
+import { getVaultEncryptionKey } from './vault-crypto';
+import { validateVaultRoute, VaultRouteResult } from './vault-validation';
+import {
+  checkVaultOrigin,
+  authenticateVaultRequest,
+  assertActiveTier,
+} from './vault-auth';
+import { assertSessionOwnership } from './vault-access';
+
+// Re-export the route-parsing boundary so existing importers - notably
+// src/index.ts and src/__tests__/routes/vault.test.ts - keep their
+// `from '../routes/vault'` paths working unchanged after the CF-024a split.
+export { validateVaultRoute };
+export type { VaultRouteResult };
 
 // Re-export the HTML/JS-rewriting + SW-shim surface (now living in
 // vault-html.ts after the CF-002 split) so existing importers - notably
@@ -87,216 +94,6 @@ export {
 } from './vault-native-sw';
 
 const logger = createLogger('vault');
-
-export interface VaultRouteResult {
-  isVaultRoute: boolean;
-  sessionId?: string;
-  remainingPath?: string;
-  isWebSocket?: boolean;
-  errorResponse?: Response;
-}
-
-/**
- * Typed view of the container Durable Object stub for the one RPC the
- * vault proxy needs: `ensureVaultKey()` (REQ-VAULT-008 AC1). The
- * `@cloudflare/containers` getContainer() return type does not expose
- * our DO's custom methods, so previously three call sites reached the
- * method through `(container as unknown as { ensureVaultKey... })`
- * double-casts (CF-002). Declaring the contract once here lets
- * `getVaultEncryptionKey` perform a single, named cast and hand the
- * rest of the module a typed accessor.
- */
-interface VaultKeyProvider {
-  ensureVaultKey(): Promise<string>;
-}
-
-function getVaultEncryptionKey(container: unknown): Promise<string> {
-  return (container as VaultKeyProvider).ensureVaultKey();
-}
-
-/**
- * Parse a `/api/vault/:sessionId/...` URL. Used both for HTTP requests
- * and WebSocket upgrades - SilverBullet uses WS for live-edit sync.
- *
- * Returns isVaultRoute=true for any path under `/api/vault/<id>/`. A
- * bare `/api/vault/<id>` (no trailing slash) is rejected: requests to a
- * directory without a trailing slash must redirect or the SilverBullet
- * client emits broken relative-URL fetches. The Hono status route
- * `/api/vault/:sid/status` does NOT count as a vault proxy path - the
- * caller (src/index.ts) checks for that pattern before calling us.
- */
-export function validateVaultRoute(request: Request): VaultRouteResult {
-  const url = new URL(request.url);
-  const match = url.pathname.match(/^\/api\/vault\/([^/]+)(\/.*)$/);
-
-  if (!match) {
-    return { isVaultRoute: false };
-  }
-
-  const sessionId = match[1];
-  const remainingPath = match[2];
-  const upgradeHeader = request.headers.get('Upgrade');
-  const isWebSocket = upgradeHeader?.toLowerCase() === 'websocket';
-
-  if (!SESSION_ID_PATTERN.test(sessionId)) {
-    return {
-      isVaultRoute: true,
-      errorResponse: new Response(
-        JSON.stringify({ error: 'Invalid session ID format', code: 'INVALID_SESSION' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } },
-      ),
-    };
-  }
-
-  return { isVaultRoute: true, sessionId, remainingPath, isWebSocket };
-}
-
-/**
- * Vault auth-chain guards (CF-002 extraction).
- *
- * `handleVaultRequest` previously inlined the whole
- * authenticate -> origin-allowlist -> tier -> session-ownership chain
- * as a sequence of early returns. The chain is now broken into named
- * guards, each returning EITHER its success value OR an `errorResponse`
- * the caller returns verbatim. Behaviour (status codes, error codes,
- * ordering, logging) is identical to the previous inline form; the only
- * change is locality, which is what made the chain integration-testable
- * (see src/__tests__/routes/vault-auth-chain.test.ts).
- *
- * The shared `jsonHeaders` (carrying the per-request X-Request-ID) is
- * threaded in so guard rejections keep the same response shape the
- * inline code produced.
- */
-
-/** Origin allowlist guard. Mirrors the inline CORS check. */
-async function checkVaultOrigin(
-  request: Request,
-  env: Env,
-  jsonHeaders: Record<string, string>,
-): Promise<{ originValidated: boolean } | { errorResponse: Response }> {
-  // CORS origin check on every request - vault is reachable from any
-  // tab the user opens, and we want to keep the same allowlist as the
-  // rest of the app rather than minting a new policy here.
-  const origin = request.headers.get('Origin');
-  if (origin) {
-    const originAllowed = await isAllowedOrigin(origin, env);
-    if (!originAllowed) {
-      logger.warn('Vault request rejected: origin not allowed', { origin });
-      return {
-        errorResponse: new Response(
-          JSON.stringify({ error: 'Origin not allowed', code: 'ORIGIN_NOT_ALLOWED' }),
-          { status: 403, headers: jsonHeaders },
-        ),
-      };
-    }
-    return { originValidated: true };
-  }
-  if (inferOriginValidated(request)) {
-    // REQ-VAULT-009 AC1: state-changing request with no Origin header
-    // is same-origin by Fetch-spec semantics; treat as validated so the
-    // downstream CSRF synthesiser attaches X-Requested-With and the
-    // authenticateRequest CSRF guard does not reject the SB attachment
-    // upload (PUT /api/vault/<sid>/Inbox/<file>).
-    return { originValidated: true };
-  }
-  return { originValidated: false };
-}
-
-/**
- * Authenticate guard. Runs the CSRF synthesiser then authenticateRequest
- * and maps AuthError/ForbiddenError to 401/403. Returns `requestForAuth`
- * (the body-owning request the container fetch must forward - see the
- * disturbed-stream note at the call site) alongside the resolved user.
- */
-async function authenticateVaultRequest(
-  request: Request,
-  originValidated: boolean,
-  env: Env,
-  jsonHeaders: Record<string, string>,
-): Promise<
-  | { user: Awaited<ReturnType<typeof authenticateRequest>>['user']; bucketName: string; requestForAuth: Request }
-  | { errorResponse: Response }
-> {
-  // SilverBullet's client.js writes pages via PUT/DELETE/PATCH without
-  // `X-Requested-With`. See `maybeSynthesizeCsrfHeader` for the full
-  // security analysis; safety is enforced inside the helper, not by
-  // statement ordering here.
-  const requestForAuth = maybeSynthesizeCsrfHeader(request, originValidated);
-  try {
-    const { user, bucketName } = await authenticateRequest(requestForAuth, env);
-    return { user, bucketName, requestForAuth };
-  } catch (err) {
-    if (err instanceof AuthError) {
-      return {
-        errorResponse: new Response(JSON.stringify({ error: err.message, code: 'AUTH_FAILED' }),
-          { status: 401, headers: jsonHeaders }),
-      };
-    }
-    if (err instanceof ForbiddenError) {
-      return {
-        errorResponse: new Response(JSON.stringify({ error: err.message, code: 'FORBIDDEN' }),
-          { status: 403, headers: jsonHeaders }),
-      };
-    }
-    throw err;
-  }
-}
-
-/**
- * Tier guard. In SaaS mode, reject inactive (pending/blocked) users
- * with the matching 403 code. Returns the rejection Response or null
- * when the user may proceed.
- */
-function assertActiveTier(
-  user: Awaited<ReturnType<typeof authenticateRequest>>['user'],
-  env: Env,
-  jsonHeaders: Record<string, string>,
-): Response | null {
-  const effectiveTier = getEffectiveTier(
-    user.subscriptionTier,
-    user.accessTier,
-    user.billingStatus,
-    user.billingPeriodEnd,
-  );
-  if (isSaasModeActive(env.SAAS_MODE) && !isActiveUser(effectiveTier)) {
-    const code = effectiveTier === 'blocked' ? 'BLOCKED' : 'PENDING';
-    return new Response(JSON.stringify({ error: 'Access denied', code }),
-      { status: 403, headers: jsonHeaders });
-  }
-  return null;
-}
-
-/**
- * Session-ownership guard. A KV miss under the authenticated bucket
- * means the user does not own the session (different bucket, or it
- * never existed) -> 404. A stopped session -> 503. Returns the live
- * session + its KV key on success.
- */
-async function assertSessionOwnership(
-  env: Env,
-  bucketName: string,
-  sessionId: string,
-  jsonHeaders: Record<string, string>,
-): Promise<{ session: Session; sessionKey: string } | { errorResponse: Response }> {
-  // Session ownership: KV get on the session key for this bucket.
-  // If KV does not have it under this bucket, the user does not own
-  // the session (different bucket, or session never existed).
-  const sessionKey = getSessionKey(bucketName, sessionId);
-  const session = await env.KV.get<Session>(sessionKey, 'json');
-  if (!session) {
-    return {
-      errorResponse: new Response(JSON.stringify({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }),
-        { status: 404, headers: jsonHeaders }),
-    };
-  }
-  if (session.status === 'stopped') {
-    return {
-      errorResponse: new Response(JSON.stringify({ error: 'Container stopped', code: 'CONTAINER_STOPPED' }),
-        { status: 503, headers: jsonHeaders }),
-    };
-  }
-  return { session, sessionKey };
-}
 
 /**
  * Forward a vault HTTP or WebSocket request to the in-container
