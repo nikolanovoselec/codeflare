@@ -1831,7 +1831,7 @@ echo "[entrypoint] context-mode MCP server registered in .claude.json (version $
 GRAPHIFY_MANIFEST="$USER_HOME/.claude/plugins/graphify/.claude-plugin/plugin.json"
 GRAPHIFY_VERSION="unknown"
 if [ -f "$GRAPHIFY_MANIFEST" ]; then
-    GRAPHIFY_VERSION=$(jq -r '.version // "1.0.162"' "$GRAPHIFY_MANIFEST" 2>/dev/null || echo "unknown")
+    GRAPHIFY_VERSION=$(jq -r '.version // "unknown"' "$GRAPHIFY_MANIFEST" 2>/dev/null || echo "unknown")
 fi
 # Use the uv-isolated venv's python, not system python3. `uv tool install`
 # (Dockerfile) installs graphifyy into /root/.local/share/uv/tools/graphifyy/

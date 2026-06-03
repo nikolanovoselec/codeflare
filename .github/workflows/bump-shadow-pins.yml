@@ -94,8 +94,8 @@ jobs:
             `CONTEXT_MODE_VERSION="${lat}"`
           );
           epContent = epContent.replace(
-            /\.version \/\/ "[^"]+"/g,
-            `.version // "${lat}"`
+            /\.version \/\/ "[^"]+"' "\$CONTEXT_MODE_MANIFEST"/g,
+            `.version // "${lat}"' "$CONTEXT_MODE_MANIFEST"`
           );
           epContent = epContent.replace(
             /\|\| echo "[0-9]+\.[0-9]+\.[0-9]+"/g,
@@ -722,10 +722,12 @@ jobs:
               .replaceAll(`npm:@gotgenes/pi-subagents@${e.SUB_CUR}`, `npm:@gotgenes/pi-subagents@${e.SUB_LAT}`)
               .replaceAll(`"@gaodes/pi-graphify": "${e.GRA_CUR}"`, `"@gaodes/pi-graphify": "${e.GRA_LAT}"`)
               .replaceAll(`npm:@gaodes/pi-graphify@${e.GRA_CUR}`, `npm:@gaodes/pi-graphify@${e.GRA_LAT}`)
-              .replaceAll(`"context-mode": "${e.CTX_CUR}"`, `"context-mode": "${e.CTX_LAT}"`);
+              .replaceAll(`"context-mode": "${e.CTX_CUR}"`, `"context-mode": "${e.CTX_LAT}"`)
+              .replaceAll(`npm:context-mode@${e.CTX_CUR}`, `npm:context-mode@${e.CTX_LAT}`);
           }
           const files = [
             'preseed/agents/pi/package.json',
+            'preseed/agents/pi/extensions/codeflare-pi.ts',
             'entrypoint.sh',
             'src/__tests__/lib/agent-seed-manifest.test.ts',
           ];
