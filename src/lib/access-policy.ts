@@ -23,7 +23,6 @@ const CfAccessAppsResponseSchema = z.object({
     aud: z.string(),
   }).passthrough()).optional(),
 }).passthrough();
-type CfAccessAppsResponse = z.infer<typeof CfAccessAppsResponseSchema>;
 
 /** Response shape from the CF Access policies list endpoint */
 const CfAccessPoliciesResponseSchema = z.object({
@@ -36,7 +35,6 @@ const CfAccessPoliciesResponseSchema = z.object({
     exclude: z.array(z.unknown()).optional(),
   }).passthrough()).optional(),
 }).passthrough();
-type CfAccessPoliciesResponse = z.infer<typeof CfAccessPoliciesResponseSchema>;
 
 /** Response shape from the CF Access groups list endpoint */
 const CfAccessGroupsResponseSchema = z.object({
@@ -46,7 +44,6 @@ const CfAccessGroupsResponseSchema = z.object({
     name: z.string(),
   }).passthrough()).optional(),
 }).passthrough();
-type CfAccessGroupsResponse = z.infer<typeof CfAccessGroupsResponseSchema>;
 
 /** Parse a CF Access API response with a Zod schema, throwing a typed AppError on failure. */
 function parseAccessResponse<T>(schema: z.ZodType<T>, value: unknown, context: string): T {

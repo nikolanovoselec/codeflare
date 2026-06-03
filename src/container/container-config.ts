@@ -17,8 +17,6 @@ import {
   type SetBucketNameCreds,
 } from './container-env';
 
-const logger = createLogger('container-config');
-
 /**
  * The subset of the Container DO surface that the config + router + lifecycle
  * helpers read and write. The class implements this implicitly (it has all
