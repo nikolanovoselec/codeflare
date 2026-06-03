@@ -8,7 +8,7 @@ import { AgentTypeSchema, SessionModeSchema, SleepAfterOptions, type Env, type U
 import { getPreferencesKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
-import { parseJsonBody, firstZodError } from '../lib/request-helpers';
+import { parseJsonBody } from '../lib/request-helpers';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { isSaasModeActive } from '../lib/onboarding';
 import { reconcileAgentConfigs } from '../lib/r2-seed';
@@ -83,40 +83,35 @@ app.get('/', async (c) => {
 app.patch('/', preferencesPatchRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
 
-  const raw = await parseJsonBody(c);
+  const body = await parseJsonBody(c, UpdatePreferencesBody);
 
-  const parsed = UpdatePreferencesBody.safeParse(raw);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
-
-  if (parsed.data.sessionMode && isSaasModeActive(c.env.SAAS_MODE)) {
+  if (body.sessionMode && isSaasModeActive(c.env.SAAS_MODE)) {
     const user = c.get('user');
     // Gate on the billing-derived effective tier's allowed modes, so a user
     // whose subscription lapsed (canceled/past_due/expired) loses advanced mode
     // even if a stale subscribedMode still reads 'advanced'.
     const tiers = await getTierConfig(c.env.KV);
     const entitlements = getEffectiveTierForUser(user, tiers);
-    if (parsed.data.sessionMode === 'advanced' && !entitlements.allowedModes.includes('advanced') && user.role !== 'admin') {
-      throw new ValidationError(`Session mode '${parsed.data.sessionMode}' not available for your subscription`);
+    if (body.sessionMode === 'advanced' && !entitlements.allowedModes.includes('advanced') && user.role !== 'admin') {
+      throw new ValidationError(`Session mode '${body.sessionMode}' not available for your subscription`);
     }
   }
 
   const key = getPreferencesKey(bucketName);
   const existing = await c.env.KV.get<UserPreferences>(key, 'json') || {};
-  const updated: UserPreferences = { ...existing, ...parsed.data } as UserPreferences;
+  const updated: UserPreferences = { ...existing, ...body } as UserPreferences;
 
   await c.env.KV.put(key, JSON.stringify(updated));
 
   // Auto-reconcile preseed when sessionMode changes so the next session
   // picks up the correct skills/agents/rules without manual Recreate click.
-  if (parsed.data.sessionMode && parsed.data.sessionMode !== existing.sessionMode) {
+  if (body.sessionMode && body.sessionMode !== existing.sessionMode) {
     try {
       const user = c.get('user');
       const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
-      const contextModeEnabled = effectiveTier === 'unlimited' && parsed.data.sessionMode === 'advanced';
+      const contextModeEnabled = effectiveTier === 'unlimited' && body.sessionMode === 'advanced';
       const { endpoint } = await getR2Config(c.env);
-      const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, parsed.data.sessionMode, {
+      const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, body.sessionMode, {
         overwrite: true,
         cleanup: true,
         contextModeEnabled,
@@ -124,7 +119,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       logger.info('Auto-reconciled agent configs on preferences change', {
         bucketName,
         previousMode: existing.sessionMode ?? 'default',
-        newMode: parsed.data.sessionMode,
+        newMode: body.sessionMode,
         contextModeEnabled,
         written: result.written.length,
         deleted: result.deleted.length,

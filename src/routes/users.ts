@@ -10,7 +10,7 @@ import { createLogger } from '../lib/logger';
 import { ValidationError, NotFoundError, toError } from '../lib/error-types';
 import { cleanupUserData } from '../lib/user-cleanup';
 import { isSaasModeActive } from '../lib/onboarding';
-import { parseJsonBody, firstZodError } from '../lib/request-helpers';
+import { parseJsonBody } from '../lib/request-helpers';
 import { sendTierChangeNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
 import { updateUserRecord } from '../lib/user-record';
@@ -107,8 +107,6 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   if (!rawEmail) throw new ValidationError('Email parameter is required');
   const email = rawEmail.trim().toLowerCase();
 
-  const raw = await parseJsonBody(c);
-
   // Accept tier + optional mode override
   const patchSchema = z.object({
     subscriptionTier: SubscriptionTierSchema.optional(),
@@ -118,10 +116,9 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     (d) => d.subscriptionTier !== undefined || d.accessTier !== undefined,
     { message: 'Either subscriptionTier or accessTier is required' }
   );
-  const parsed = patchSchema.safeParse(raw);
-  if (!parsed.success) throw new ValidationError(firstZodError(parsed.error));
+  const body = await parseJsonBody(c, patchSchema);
 
-  const newTier = parsed.data.subscriptionTier ?? parsed.data.accessTier!;
+  const newTier = body.subscriptionTier ?? body.accessTier!;
 
   // Validate existing record with schema before merging
   const existingRaw = await c.env.KV.get(`user:${email}`, 'json');
@@ -149,7 +146,7 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   const LEGACY_TIERS = new Set(['pending', 'standard', 'advanced', 'blocked']);
   const legacyAccessTier = LEGACY_TIERS.has(newTier) ? newTier : 'advanced';
   // Use explicit mode if provided by admin, otherwise default to 'default'
-  const subscribedMode = parsed.data.subscribedMode ?? 'default';
+  const subscribedMode = body.subscribedMode ?? 'default';
   await updateUserRecord(c.env.KV, email, { subscriptionTier: newTier, accessTier: legacyAccessTier, subscribedMode });
 
   // Auto-set sessionMode to 'advanced' for tiers that support it.

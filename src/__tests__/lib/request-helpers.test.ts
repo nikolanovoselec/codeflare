@@ -1,7 +1,52 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { firstZodError, validateSessionId, maskSecret } from '../../lib/request-helpers';
+import { firstZodError, validateSessionId, maskSecret, parseJsonBody } from '../../lib/request-helpers';
 import { ValidationError } from '../../lib/error-types';
+
+function createJsonContext(body: unknown, reject = false) {
+  return {
+    req: {
+      json: async () => {
+        if (reject) throw new SyntaxError('Unexpected token');
+        return body;
+      },
+    },
+  } as any;
+}
+
+describe('parseJsonBody', () => {
+  it('returns the raw body unchecked when no schema is given', async () => {
+    const c = createJsonContext({ anything: 1, extra: 'x' });
+    const result = await parseJsonBody(c);
+    expect(result).toEqual({ anything: 1, extra: 'x' });
+  });
+
+  it('throws ValidationError on malformed JSON when no schema is given', async () => {
+    const c = createJsonContext(undefined, true);
+    await expect(parseJsonBody(c)).rejects.toThrow(ValidationError);
+    await expect(parseJsonBody(c)).rejects.toThrow('Invalid JSON body');
+  });
+
+  it('returns the validated typed value when a schema is given and the body is valid', async () => {
+    const schema = z.object({ name: z.string(), age: z.number() });
+    const c = createJsonContext({ name: 'ada', age: 36 });
+    const result = await parseJsonBody(c, schema);
+    expect(result).toEqual({ name: 'ada', age: 36 });
+  });
+
+  it('throws the validation error when a schema is given and the body is invalid', async () => {
+    const schema = z.object({ name: z.string() });
+    const c = createJsonContext({ name: 42 });
+    await expect(parseJsonBody(c, schema)).rejects.toThrow(ValidationError);
+    await expect(parseJsonBody(c, schema)).rejects.toThrow('expected string, received number');
+  });
+
+  it('throws ValidationError on malformed JSON before schema validation runs', async () => {
+    const schema = z.object({ name: z.string() });
+    const c = createJsonContext(undefined, true);
+    await expect(parseJsonBody(c, schema)).rejects.toThrow('Invalid JSON body');
+  });
+});
 
 describe('firstZodError', () => {
   it('returns the first issue message', () => {

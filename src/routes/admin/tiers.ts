@@ -11,7 +11,7 @@ import { authMiddleware, requireAdmin, type AuthVariables } from '../../middlewa
 import { getTiersConfigKey } from '../../lib/kv-keys';
 import { getDefaultTiers, getTierConfig } from '../../lib/subscription';
 import { ValidationError } from '../../lib/error-types';
-import { parseJsonBody, firstZodError } from '../../lib/request-helpers';
+import { parseJsonBody } from '../../lib/request-helpers';
 
 const TierConfigSchema = z.object({
   id: z.string(),
@@ -42,21 +42,16 @@ app.get('/', requireAdmin, async (c) => {
 });
 
 app.put('/', requireAdmin, async (c) => {
-  const raw = await parseJsonBody(c);
-
-  const parsed = PutTiersBodySchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
+  const data = await parseJsonBody(c, PutTiersBodySchema);
 
   // Validate tier IDs match defaults (cannot add/remove/rename tiers)
   const defaultIds = getDefaultTiers().map((t) => t.id);
-  const inputIds = parsed.data.map((t) => t.id);
+  const inputIds = data.map((t) => t.id);
   if (JSON.stringify(defaultIds) !== JSON.stringify(inputIds)) {
     throw new ValidationError('Tier IDs must match defaults and be in the same order');
   }
 
-  await c.env.KV.put(getTiersConfigKey(), JSON.stringify(parsed.data));
+  await c.env.KV.put(getTiersConfigKey(), JSON.stringify(data));
   return c.json({ success: true });
 });
 

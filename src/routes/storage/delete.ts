@@ -4,12 +4,11 @@ import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { createR2Client, getR2Url, emptyR2Bucket } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
-import { ValidationError } from '../../lib/error-types';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { createLogger } from '../../lib/logger';
 import { escapeXml, decodeXmlEntities } from '../../lib/xml-utils';
 import { validateKey } from './validation';
-import { parseJsonBody, firstZodError } from '../../lib/request-helpers';
+import { parseJsonBody } from '../../lib/request-helpers';
 
 const logger = createLogger('storage-delete');
 
@@ -34,12 +33,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', storageDeleteRateLimiter);
 
 app.post('/', async (c) => {
-  const raw = await parseJsonBody(c);
-  const parsed = DeleteBodySchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
-  const { keys = [], prefixes = [] } = parsed.data;
+  const { keys = [], prefixes = [] } = await parseJsonBody(c, DeleteBodySchema);
 
   // Validate and decode all keys/prefixes
   const validatedKeys = keys.map(key => validateKey(key));

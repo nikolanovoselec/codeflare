@@ -12,7 +12,7 @@ import { getR2Config } from '../../lib/r2-config';
 import { ValidationError, ContainerError } from '../../lib/error-types';
 import { escapeXml } from '../../lib/xml-utils';
 import { validateKey, MAX_KEY_LENGTH } from './validation';
-import { parseJsonBody, firstZodError } from '../../lib/request-helpers';
+import { parseJsonBody } from '../../lib/request-helpers';
 import { getSseHeaders } from '../../lib/r2-sse';
 
 const storageUploadRateLimiter = createRateLimiter({
@@ -59,12 +59,7 @@ app.use('*', storageUploadRateLimiter);
  * Simple upload (≤ 5MB). Body: { key, content (base64) }
  */
 app.post('/', async (c) => {
-  const raw = await parseJsonBody(c);
-  const parsed = SimpleUploadSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
-  const body = parsed.data;
+  const body = await parseJsonBody(c, SimpleUploadSchema);
   const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
@@ -106,12 +101,7 @@ app.post('/', async (c) => {
  * Initiate multipart upload. Body: { key }
  */
 app.post('/initiate', async (c) => {
-  const raw = await parseJsonBody(c);
-  const parsed = InitiateUploadSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
-  const body = parsed.data;
+  const body = await parseJsonBody(c, InitiateUploadSchema);
   const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
@@ -136,12 +126,7 @@ app.post('/initiate', async (c) => {
  * Upload a single part. Body: { key, uploadId, partNumber, content (base64) }
  */
 app.post('/part', async (c) => {
-  const raw = await parseJsonBody(c);
-  const parsed = UploadPartSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
-  const body = parsed.data;
+  const body = await parseJsonBody(c, UploadPartSchema);
   const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
@@ -175,12 +160,7 @@ app.post('/part', async (c) => {
  * Complete multipart upload. Body: { key, uploadId, parts: [{partNumber, etag}] }
  */
 app.post('/complete', async (c) => {
-  const raw = await parseJsonBody(c);
-  const parsed = CompleteUploadBodySchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
-  const body = parsed.data;
+  const body = await parseJsonBody(c, CompleteUploadBodySchema);
   const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
@@ -218,12 +198,7 @@ app.post('/complete', async (c) => {
  * Abort multipart upload. Body: { key, uploadId }
  */
 app.post('/abort', async (c) => {
-  const raw = await parseJsonBody(c);
-  const parsed = AbortUploadSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
-  const body = parsed.data;
+  const body = await parseJsonBody(c, AbortUploadSchema);
   const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
