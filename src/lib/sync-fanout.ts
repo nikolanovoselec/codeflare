@@ -51,7 +51,7 @@ export interface SyncSessionResult {
  * bisync trigger. Per-session failures are isolated (REQ-STOR-015 AC3).
  */
 export async function fanOutBisyncTrigger(
-  env: Env,
+  env: Pick<Env, 'KV' | 'CONTAINER'>,
   bucketName: string
 ): Promise<SyncSessionResult[]> {
   const prefix = getSessionPrefix(bucketName);
