@@ -43,7 +43,7 @@
 #   1. Sentinel file: /tmp/review-bypass (one-shot, auto-deleted)
 #   2. Magic phrase: USER MESSAGE since the candidate push line contains
 #      "skip review" or "skip verification" (case-insensitive, word-bounded)
-#   3. 3-strike circuit breaker: after 3 blocks for the same un-acked
+#   3. 5-strike circuit breaker: after 5 blocks for the same un-acked
 #      PR HEAD SHA, give up and let the user proceed
 #
 # Scope: only fires on main session Stop event (not SubagentStop).
@@ -668,13 +668,13 @@ fi
 # transcript serialises each tool_use envelope on a single line, so the
 # triple-condition match is reliable.
 
-# 3-strike circuit breaker (keyed by CURRENT_PR_HEAD - unique per PR state)
+# 5-strike circuit breaker (keyed by CURRENT_PR_HEAD - unique per PR state)
 #
 # Counter format on disk: "<sha>:<count>" or "<sha>:GIVEUP".
-# After the third block for the same SHA, the counter is set to GIVEUP
+# After the fifth block for the same SHA, the counter is set to GIVEUP
 # rather than deleted -- this makes the give-up state sticky for that
-# specific SHA. Without GIVEUP, deleting the file on the third strike
-# would let the next Stop event start at 0 and block 3 more times,
+# specific SHA. Without GIVEUP, deleting the file on the fifth strike
+# would let the next Stop event start at 0 and block 5 more times,
 # repeating forever. The counter resets only when CURRENT_PR_HEAD
 # changes (next push lands).
 read_count() {
@@ -709,7 +709,7 @@ emit_block() {
   if [ "$current" = "GIVEUP" ]; then
     exit 0
   fi
-  if [ "$current" -ge 3 ] 2>/dev/null; then
+  if [ "$current" -ge 5 ] 2>/dev/null; then
     echo "$CURRENT_PR_HEAD:GIVEUP" > "$COUNT_FILE" 2>/dev/null || true
     exit 0
   fi
@@ -792,7 +792,7 @@ requires_lane() {
 # transcript tail. A genuine review completes within a turn or two (a few
 # hundred transcript lines); once an uncompleted spawn falls that far behind as
 # the session keeps appending, it is treated as orphaned and enforcement
-# re-fires (which then hits its own 3-strike breaker). The durable-review merge
+# re-fires (which then hits its own 5-strike breaker). The durable-review merge
 # gate (REQ-AGENT-040 AC7) is the backstop either way.
 IN_FLIGHT_STALE_LINES=1200
 lane_in_flight() {
