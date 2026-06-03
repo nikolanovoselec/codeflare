@@ -43,11 +43,31 @@ graphify cluster-only .
 ```
 Reruns community detection on existing `graph.json`. No extraction, no tokens.
 
+### Recipe 5: Name/relabel communities and show labels in the HTML viz (in-session, NO backend)
+**NEVER run `graphify label` and NEVER pass `--backend`.** That command calls an external LLM provider (openai/gemini/deepseek - none configured here, so it silently falls back to `Community N` placeholders) AND it re-clusters, which renumbers communities and wipes existing labels. Community naming is done by THIS session reading the member nodes. The only correct path:
+
+1. **Prepare** a worklist from the graph's existing community assignments (no recluster, no LLM):
+   ```
+   bash /home/user/.claude/plugins/graphify/scripts/local-graphify-labels.sh prepare .
+   ```
+   Writes `graphify-out/.graphify_community_label_worklist.json` and `graphify-out/.graphify_community_label_batches/batch_*.md` (40 communities/batch), each community listed with its top member node labels + source files.
+2. **Name** every community in `graphify-out/.graphify_labels.json` as `{"<id>":"<Name>"}`. Infer each name from that community's top nodes/sources. For a large graph, fan out one subagent per `batch_*.md` (Agent tool, `run_in_background: true`) and merge their `{id:name}` maps. Rules: unique, specific, 2-6 words, Title Case; NO placeholders (`Community 12`), NO numeric suffixes (`Auth 2`) - qualify by source/domain instead (`Vault Crypto`, `Vault Proxy Routing`). Every current community id must be present.
+3. **Apply** (validates uniqueness, regenerates `GRAPH_REPORT.md` + `graph.html` with `community_labels` + `callflow.html` from existing communities - no recluster, no backend):
+   ```
+   bash /home/user/.claude/plugins/graphify/scripts/local-graphify-labels.sh apply .
+   ```
+   The labeled `graph.html` is where names appear in the viz. If apply reports `duplicate_exact` / `numbered_duplicate` / `duplicate_base` / `placeholder`, fix those ids in `.graphify_labels.json` and re-run apply.
+4. **Merge into the global graph** (so cross-repo MCP queries see this repo's nodes/edges), then commit:
+   ```
+   flock -w 5 /tmp/graphify-global.lock graphify global add graphify-out/graph.json --as "$(basename "$PWD")"
+   ```
+   `global add` is hash-keyed on node/edge content, so it no-ops when only labels changed - that is expected, not a failure. Community **names** live in `graphify-out/.graphify_labels.json` and the regenerated `graph.html`, NOT in the global graph: `graph_stats` reporting `Communities: 0` for the global graph is its normal state and is not "fixed" by labeling. Commit only `graph.json`, `GRAPH_REPORT.md`, `graph.html`, `callflow.html`, and `.graphify_labels.json`.
+
 ## Codeflare-specific operational notes
 
 1. **MCP query tools are always available.** Even before any graph is built, you can call `mcp__graphify__query_graph`, `mcp__graphify__get_node`, `mcp__graphify__get_neighbors`, and `mcp__graphify__shortest_path`. They return useful errors when no graph is present. After a build, point them at `graphify-out/graph.json` in the current cwd.
 
-2. **Use the agent's own session model for LLM extraction.** Do NOT pass `--backend openai` or other external-API flags. Codeflare does not configure third-party LLM API keys; the subagent-chunking model below uses your in-session Claude tokens and is the canonical path.
+2. **Never use an external LLM backend; never run `graphify label`.** Do NOT pass `--backend` (openai/gemini/deepseek) to any command, and NEVER run `graphify label` - it requires a provider backend AND re-clusters, which renumbers communities and discards existing labels. Codeflare configures no third-party LLM API keys. Semantic extraction uses in-session Claude subagents (the chunking model below); community naming uses the in-session `local-graphify-labels.sh` flow (Recipe 5). Both are the canonical paths.
 
 3. **Persistence lives in git, not R2.** The graph travels with the repo. After your first `/graphify` build in a repo the user has push permission to:
    - Add to the repo's `.gitignore` (create if absent):
@@ -67,10 +87,12 @@ Reruns community detection on existing `graph.json`. No extraction, no tokens.
      .graphify_uncached.txt
      .graphify_chunk_*.txt
      .graphify_old.json
+     .graphify_community_label_worklist.json
+     .graphify_community_label_batches/
      .graphify_root
-     .graphify_labels.json
+     /.graphify_labels.json
      ```
-     All patterns are regenerable; only `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and optional `wiki/` are committed.
+     All patterns are regenerable; only `graph.json`, `GRAPH_REPORT.md`, `graph.html`, `callflow.html`, and `.graphify_labels.json` are committed (plus optional `wiki/`). The leading `/` on `/.graphify_labels.json` ignores only a stray root-level marker, never the committed `graphify-out/.graphify_labels.json`. The `local-graphify-labels.sh prepare` worklist + batches are working intermediates - never commit them.
    - Add to the repo's `.gitattributes` (create if absent):
      ```
      graphify-out/graph.json merge=graphify
