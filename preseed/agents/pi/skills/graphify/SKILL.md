@@ -30,24 +30,19 @@ There is normally no `/home/user/workspace/graphify-out/graph.json`.
 
 ## Query workflow
 
-For repo/code questions, use native Pi tools first:
+Use the native Pi tools for every graphify query - repo, Vault, and cross-repo/global alike:
 
 - Broad context: `graphify_query({ question, mode: "bfs" })`
 - Trace/path: `graphify_query({ question, mode: "dfs" })` or `graphify_path`
 - Node details: `graphify_explain({ concept })`
 
-If the native tool resolves the workspace root instead of the active repo, use CLI fallback:
+The native tool resolves the graph automatically: the active repo's graph when you are in a cloned repo, otherwise the merged global graph (`/home/user/.graphify/global-graph.json`, which holds the Vault plus every globally-added repo). You do not pass a graph path - this includes Vault/session/cross-repo memory questions, which resolve to the global graph.
+
+CLI fallback - only if a native tool returns an error, rerun it with an explicit `--graph`:
 
 ```bash
-graphify query "<question>" --graph <repo>/graphify-out/graph.json
-graphify path "A" "B" --graph <repo>/graphify-out/graph.json
-graphify explain "X" --graph <repo>/graphify-out/graph.json
-```
-
-For Vault/session/cross-repo memory, use the global graph explicitly:
-
-```bash
-graphify query "<question>" --graph /home/user/.graphify/global-graph.json
+graphify query "<question>" --graph <repo>/graphify-out/graph.json         # active repo
+graphify query "<question>" --graph /home/user/.graphify/global-graph.json # Vault / global
 ```
 
 ## Clone-time triage

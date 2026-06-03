@@ -252,24 +252,35 @@ function fallbackGraphifyToolResult(event: any, ctx: ExtensionContext): { conten
   const toolName = String(event?.toolName ?? "").toLowerCase();
   if (!isGraphifyTool(toolName) || !missingWorkspaceGraphError(event)) return undefined;
   const repo = activeRepo(ctx);
-  if (!repo || !hasGraph(repo)) return undefined;
+  // Active repo graph wins; otherwise fall back to the merged global graph
+  // (vault + every globally-added repo) so vault/global queries work when
+  // there is no cloned repo and the native tool resolved the nonexistent
+  // /home/user/workspace/graphify-out path.
+  const GLOBAL_GRAPH = "/home/user/.graphify/global-graph.json";
+  const useRepo = !!repo && hasGraph(repo);
+  const graphPath = useRepo
+    ? join(repo as string, "graphify-out", "graph.json")
+    : (existsSync(GLOBAL_GRAPH) ? GLOBAL_GRAPH : undefined);
+  if (!graphPath) return undefined;
 
-  const graphPath = join(repo, "graphify-out", "graph.json");
   const fallback = graphifyFallbackArgs(toolName, graphifyToolInput(event), graphPath);
   if (!fallback) return undefined;
 
   try {
     const output = execFileSync("graphify", fallback.args, {
-      cwd: repo,
+      cwd: useRepo ? (repo as string) : "/home/user",
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 60000,
       maxBuffer: 1024 * 1024,
     }).trim();
-    const identity = repoIdentity(repo);
+    const identity = useRepo ? repoIdentity(repo as string) : "merged global graph";
+    const note = useRepo
+      ? `[Codeflare Pi fallback: queried ${graphPath} for active repo ${identity} because the native tool resolved /home/user/workspace/graphify-out.]`
+      : `[Codeflare Pi: resolved the merged global graph ${graphPath} (vault + all repos).]`;
     return {
-      content: [{ type: "text", text: `${output}\n\n[Codeflare Pi fallback: queried ${graphPath} for active repo ${identity} because the native tool resolved /home/user/workspace/graphify-out.]` }],
-      details: { ...fallback.details, result: output, repo, graph: graphPath, activeRepo: identity },
+      content: [{ type: "text", text: `${output}\n\n${note}` }],
+      details: { ...fallback.details, result: output, graph: graphPath, activeRepo: identity },
       isError: false,
     };
   } catch {
