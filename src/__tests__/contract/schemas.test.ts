@@ -47,6 +47,14 @@ describe('backend/frontend schema parity (CF-010)', () => {
     expect(FrontendSubscriptionTierSchema.options).toEqual(BackendSubscriptionTierSchema.options);
   });
 
+  it('TabConfig is a single source of truth (worker re-exports the web-ui copy)', () => {
+    // CF-018: the worker schema module re-exports TabConfigSchema from the
+    // web-ui copy, so both names must resolve to the exact same object. If a
+    // local worker definition is ever re-introduced, this strict identity
+    // check fails loudly - duplication can no longer drift in silently.
+    expect(BackendTabConfigSchema).toBe(FrontendTabConfigSchema);
+  });
+
   it('TabConfig accepts/rejects identically across both copies', () => {
     const cases = [
       { id: '1', command: 'bash', label: 'Shell' },          // valid

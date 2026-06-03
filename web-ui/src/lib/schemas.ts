@@ -3,11 +3,14 @@ import { z } from 'zod';
 // Agent type enum
 export const AgentTypeSchema = z.enum(['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash']);
 
-// Tab config schema (mirrors backend src/lib/schemas.ts constraints).
-// Exported so the cross-tier parity test (src/__tests__/contract/schemas.test.ts)
-// can assert it stays in sync with the backend copy (CF-010).
+// Canonical TabConfigSchema definition (single source of truth, CF-018).
+// The worker copy (src/lib/schemas.ts) re-exports this exact object so both
+// build targets share one definition. This module stays pure Zod (no DOM/Solid
+// deps) precisely so the Workers runtime and test pool can import it. The
+// cross-tier parity guard (src/__tests__/contract/schemas.test.ts) verifies the
+// re-export resolves to an identical schema (CF-010).
 export const TabConfigSchema = z.object({
-  id: z.string().regex(/^[1-6]$/),
+  id: z.string().regex(/^[1-6]$/, 'Tab id must be "1" through "6"'),
   command: z.string().max(200),
   label: z.string().max(50),
 });
