@@ -6,7 +6,64 @@
  *
  * All functions are pure or async — no global state is mutated.
  */
+import { z } from 'zod';
 import type { Env, SubscriptionTierConfig } from '../types';
+import { AppError } from './error-types';
+import { firstZodError } from './request-helpers';
+
+// ---------------------------------------------------------------------------
+// CF-022: Runtime Zod schemas for Stripe API responses
+//
+// Each schema validates only the fields actually consumed. safeParse failures
+// throw a typed AppError instead of silently trusting an `as` cast. .passthrough()
+// preserves unknown fields (e.g. `error`) so existing error-handling paths that
+// read `data.error.message` keep working.
+// ---------------------------------------------------------------------------
+
+/** Stripe price response (getStripePrices). */
+const StripePriceResponseSchema = z.object({
+  unit_amount: z.number().optional(),
+  currency: z.string().optional(),
+  currency_options: z.record(z.string(), z.object({ unit_amount: z.number() })).optional(),
+}).passthrough();
+
+/** Generic Stripe response carrying an optional error object (stripeRequest). */
+const StripeResponseSchema = z.object({
+  error: z.object({ message: z.string().optional() }).passthrough().optional(),
+}).passthrough();
+
+/** Checkout / portal session result. */
+const StripeSessionSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+}).passthrough();
+
+/** Subscription response (fetchSubscription). */
+const StripeSubscriptionSchema = z.object({
+  id: z.string(),
+  customer: z.string(),
+  status: z.string(),
+  cancel_at_period_end: z.boolean().optional(),
+  current_period_end: z.number().nullable().optional(),
+  items: z.object({
+    data: z.array(z.object({
+      id: z.string().optional(),
+      price: z.object({
+        id: z.string().optional(),
+        metadata: z.record(z.string(), z.string()).optional(),
+      }).passthrough().optional(),
+    }).passthrough()).optional(),
+  }).passthrough().optional(),
+}).passthrough();
+
+/** Parse external Stripe JSON with a Zod schema, throwing a typed AppError on failure. */
+function parseStripeOrThrow<T>(schema: z.ZodType<T>, value: unknown, context: string): T {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    throw new AppError('STRIPE_VALIDATION_ERROR', 502, `${context}: ${firstZodError(result.error)}`);
+  }
+  return result.data;
+}
 
 // ---------------------------------------------------------------------------
 // Public helpers
@@ -92,11 +149,7 @@ export async function getStripePrices(
           },
         );
         if (response.ok) {
-          const data = await response.json() as {
-            unit_amount?: number;
-            currency?: string;
-            currency_options?: Record<string, { unit_amount: number }>;
-          };
+          const data = parseStripeOrThrow(StripePriceResponseSchema, await response.json(), 'Invalid Stripe price response');
           if (data.unit_amount != null && data.currency) {
             const cached: CachedPrice = {
               amount: data.unit_amount,
@@ -164,10 +217,10 @@ async function stripeRequest<T>(
     signal: AbortSignal.timeout(15_000),
   });
 
-  const data = await response.json() as Record<string, unknown>;
+  const data = parseStripeOrThrow(StripeResponseSchema, await response.json(), 'Invalid Stripe API response');
 
   if (!response.ok) {
-    const errMsg = (data.error as Record<string, unknown>)?.message ?? `Stripe API error ${response.status}`;
+    const errMsg = data.error?.message ?? `Stripe API error ${response.status}`;
     throw new Error(String(errMsg));
   }
 
@@ -235,12 +288,16 @@ export async function createCheckoutSession(opts: CheckoutSessionOptions): Promi
   const idempotencyBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(idempotencyInput));
   const idempotencyKey = Array.from(new Uint8Array(idempotencyBytes)).map(b => b.toString(16).padStart(2, '0')).join('');
 
-  const session = await stripeRequest<{ id: string; url: string }>(
-    '/v1/checkout/sessions',
-    params,
-    opts.secretKey,
-    'POST',
-    idempotencyKey,
+  const session = parseStripeOrThrow(
+    StripeSessionSchema,
+    await stripeRequest<unknown>(
+      '/v1/checkout/sessions',
+      params,
+      opts.secretKey,
+      'POST',
+      idempotencyKey,
+    ),
+    'Invalid Stripe checkout session response',
   );
 
   return { id: session.id, url: session.url };
@@ -317,10 +374,14 @@ export async function createPortalSession(opts: {
     return_url: opts.returnUrl,
   };
 
-  const session = await stripeRequest<{ id: string; url: string }>(
-    '/v1/billing_portal/sessions',
-    params,
-    opts.secretKey,
+  const session = parseStripeOrThrow(
+    StripeSessionSchema,
+    await stripeRequest<unknown>(
+      '/v1/billing_portal/sessions',
+      params,
+      opts.secretKey,
+    ),
+    'Invalid Stripe portal session response',
   );
 
   return { id: session.id, url: session.url };
@@ -352,10 +413,14 @@ export async function createSwitchPortalSession(opts: {
     'flow_data[after_completion][redirect][return_url]': opts.returnUrl,
   };
 
-  const session = await stripeRequest<{ id: string; url: string }>(
-    '/v1/billing_portal/sessions',
-    params,
-    opts.secretKey,
+  const session = parseStripeOrThrow(
+    StripeSessionSchema,
+    await stripeRequest<unknown>(
+      '/v1/billing_portal/sessions',
+      params,
+      opts.secretKey,
+    ),
+    'Invalid Stripe portal session response',
   );
 
   return { id: session.id, url: session.url };
@@ -410,16 +475,19 @@ export async function fetchSubscription(
 
   if (response.status === 404) return null;
 
-  const data = await response.json() as Record<string, unknown>;
+  // Read the body once; on error use the generic schema to extract error.message.
+  const json = await response.json();
 
   if (!response.ok) {
-    const errMsg = (data.error as Record<string, unknown>)?.message ?? `Stripe API error ${response.status}`;
+    const errData = parseStripeOrThrow(StripeResponseSchema, json, 'Invalid Stripe API response');
+    const errMsg = errData.error?.message ?? `Stripe API error ${response.status}`;
     throw new Error(String(errMsg));
   }
 
+  const data = parseStripeOrThrow(StripeSubscriptionSchema, json, 'Invalid Stripe subscription response');
+
   // Extract first subscription item and its price
-  const items = data.items as { data?: Array<{ id?: string; price?: { id?: string; metadata?: Record<string, string> } }> } | undefined;
-  const firstItem = items?.data?.[0];
+  const firstItem = data.items?.data?.[0];
   const firstPrice = firstItem?.price;
   const subscriptionItemId = firstItem?.id || null;
 
@@ -428,14 +496,14 @@ export async function fetchSubscription(
   const priceId = firstPrice?.id || null;
 
   const periodEnd = typeof data.current_period_end === 'number'
-    ? new Date((data.current_period_end as number) * 1000).toISOString()
+    ? new Date(data.current_period_end * 1000).toISOString()
     : null;
 
   return {
-    subscriptionId: data.id as string,
+    subscriptionId: data.id,
     subscriptionItemId,
-    customerId: data.customer as string,
-    status: data.status as string,
+    customerId: data.customer,
+    status: data.status,
     tier,
     mode,
     priceId,

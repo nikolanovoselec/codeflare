@@ -112,20 +112,33 @@ function getCookieValue(cookieHeader: string | null, key: string): string | null
  *    trusted only before setup is complete (auth_domain not yet configured).
  *
  */
-export async function getUserFromRequest(request: Request, env?: Env): Promise<AccessUser> {
-  // Extract CF Access JWT early - evaluated after service token and SaaS OIDC checks
+/** Extract the CF Access JWT from the assertion header or CF_Authorization cookie. */
+function extractAccessJwt(request: Request): string | null {
   const jwtAssertionHeader = request.headers.get('cf-access-jwt-assertion');
   const jwtCookie = getCookieValue(request.headers.get('Cookie'), 'CF_Authorization');
-  const jwtToken = jwtAssertionHeader || jwtCookie;
+  return jwtAssertionHeader || jwtCookie;
+}
 
-  // Load auth config from KV REGARDLESS of JWT presence (FIX-1).
-  // This determines whether we're in pre-setup or post-setup state.
-  // Invalidate stale cache after TTL (FIX-9).
-  // CF-149: when the cached config is the negative/null (pre-setup) state, use
-  // the shorter NULL TTL so the header-trust window shrinks from 5min to 30s.
-  // A populated config (cachedAuthDomain is a non-empty string) keeps the 5min
-  // TTL. cachedAuthDomain === undefined means "not yet fetched" and is handled
-  // by the cold-fetch branch below, not here.
+/** Auth config derived from the module-level cache after {@link loadAuthConfig}. */
+interface ResolvedAuthConfig {
+  accessAudList: string[];
+  authConfigured: boolean;
+  authDomain: string | null | undefined;
+}
+
+/**
+ * Load auth config from KV REGARDLESS of JWT presence (FIX-1) and return the
+ * derived audience list + configured flag. Mutates the module-level cache.
+ *
+ * This determines whether we're in pre-setup or post-setup state.
+ * Invalidate stale cache after TTL (FIX-9).
+ * CF-149: when the cached config is the negative/null (pre-setup) state, use
+ * the shorter NULL TTL so the header-trust window shrinks from 5min to 30s.
+ * A populated config (cachedAuthDomain is a non-empty string) keeps the 5min
+ * TTL. cachedAuthDomain === undefined means "not yet fetched" and is handled
+ * by the cold-fetch branch below, not here.
+ */
+async function loadAuthConfig(env?: Env): Promise<ResolvedAuthConfig> {
   const configIsPopulated = !!cachedAuthDomain;
   const effectiveTtlMs = configIsPopulated ? AUTH_CONFIG_CACHE_TTL_MS : AUTH_CONFIG_NULL_TTL_MS;
   if (authConfigCachedAt > 0 && Date.now() - authConfigCachedAt > effectiveTtlMs) {
@@ -170,91 +183,150 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     ? cachedAccessAudList
     : (cachedAccessAud ? [cachedAccessAud] : []);
   const authConfigured = !!(cachedAuthDomain && accessAudList.length > 0);
+  return { accessAudList, authConfigured, authDomain: cachedAuthDomain };
+}
 
-  // Direct service auth validation - checked FIRST because CF Access may
-  // inject a JWT for service tokens whose audience doesn't match our app's
-  // access_aud, AND CF Access strips CF-Access-Client-Secret from forwarded
-  // requests. Uses custom X-Service-Auth header to bypass both issues.
-  // Only active when SERVICE_AUTH_SECRET is set as a worker secret.
-  if (env?.SERVICE_AUTH_SECRET) {
-    const serviceAuth = request.headers.get('X-Service-Auth');
-    if (serviceAuth) {
-      // Constant-time comparison to prevent timing attacks
-      const expected = new TextEncoder().encode(env.SERVICE_AUTH_SECRET);
-      const actual = new TextEncoder().encode(serviceAuth);
-      if (expected.byteLength !== actual.byteLength) {
-        // Length mismatch - fall through to normal rejection
-        return { email: '', authenticated: false};
-      }
-      const match = await crypto.subtle.timingSafeEqual(expected, actual);
-      if (match) {
-        // Use SERVICE_TOKEN_EMAIL or fixed e2e identity.
-        // CF Access may strip CF-Access-Client-Id, so we don't rely on it here.
-        // Role is set to 'admin' - the caller proved they have the worker secret,
-        // so they're trusted without a KV allowlist lookup.
-        // SAST-false-positive: 'e2e-service@codeflare.local' is a test fixture,
-        // not a hardcoded secret. The .local TLD is RFC 6762 reserved and
-        // obviously non-production; the actual auth gate is the worker secret.
-        const serviceEmail = env.SERVICE_TOKEN_EMAIL || 'e2e-service@codeflare.local';
-        return { email: normalizeEmail(serviceEmail), authenticated: true, role: 'admin'};
-      }
-      // timingSafeEqual failed
-      return { email: '', authenticated: false};
-    } else {
-      // SERVICE_AUTH_SECRET is set but header not sent - note this but continue to other auth methods
-      // (caller might be using JWT auth instead)
-    }
-  } else {
+/**
+ * Direct service auth validation via the X-Service-Auth header.
+ *
+ * Checked FIRST because CF Access may inject a JWT for service tokens whose
+ * audience doesn't match our app's access_aud, AND CF Access strips
+ * CF-Access-Client-Secret from forwarded requests. Uses custom X-Service-Auth
+ * header to bypass both issues. Only active when SERVICE_AUTH_SECRET is set as
+ * a worker secret.
+ *
+ * Returns an {@link AccessUser} when the header is present (whether it matches
+ * or not - a present-but-wrong header is a hard rejection), or `null` to fall
+ * through to other auth methods when the secret is unset or the header is absent.
+ */
+async function validateServiceAuthHeader(request: Request, env?: Env): Promise<AccessUser | null> {
+  if (!env?.SERVICE_AUTH_SECRET) {
     // SERVICE_AUTH_SECRET not in env - note for diagnostics but continue to other auth methods
+    return null;
   }
-
-  // SaaS mode + GitHub OIDC: verify codeflare_session cookie (HMAC JWT)
-  // This replaces CF Access JWT verification when OAUTH_CLIENT_ID is configured.
-  if (env && isSaasModeActive(env.SAAS_MODE) && env.OAUTH_CLIENT_ID) {
-    if (!env.OAUTH_JWT_SECRET) {
-      throw new AuthError('SaaS mode active but OAUTH_JWT_SECRET not configured');
-    }
-    const sessionToken = getCookieValue(request.headers.get('Cookie'), 'codeflare_session');
-    if (!sessionToken) {
-      return { email: '', authenticated: false };
-    }
-    const payload = await verifySessionJWT(sessionToken, env.OAUTH_JWT_SECRET, SESSION_JWT_AUD);
-    if (!payload) {
-      return { email: '', authenticated: false };
-    }
-    return { email: normalizeEmail(payload.email), authenticated: true };
+  const serviceAuth = request.headers.get('X-Service-Auth');
+  if (!serviceAuth) {
+    // SERVICE_AUTH_SECRET is set but header not sent - note this but continue to other auth methods
+    // (caller might be using JWT auth instead)
+    return null;
   }
+  // Constant-time comparison to prevent timing attacks
+  const expected = new TextEncoder().encode(env.SERVICE_AUTH_SECRET);
+  const actual = new TextEncoder().encode(serviceAuth);
+  if (expected.byteLength !== actual.byteLength) {
+    // Length mismatch - fall through to normal rejection
+    return { email: '', authenticated: false};
+  }
+  const match = await crypto.subtle.timingSafeEqual(expected, actual);
+  if (match) {
+    // Use SERVICE_TOKEN_EMAIL or fixed e2e identity.
+    // CF Access may strip CF-Access-Client-Id, so we don't rely on it here.
+    // Role is set to 'admin' - the caller proved they have the worker secret,
+    // so they're trusted without a KV allowlist lookup.
+    // SAST-false-positive: 'e2e-service@codeflare.local' is a test fixture,
+    // not a hardcoded secret. The .local TLD is RFC 6762 reserved and
+    // obviously non-production; the actual auth gate is the worker secret.
+    const serviceEmail = env.SERVICE_TOKEN_EMAIL || 'e2e-service@codeflare.local';
+    return { email: normalizeEmail(serviceEmail), authenticated: true, role: 'admin'};
+  }
+  // timingSafeEqual failed
+  return { email: '', authenticated: false};
+}
 
-  // CF Access JWT verification (non-SaaS mode or SaaS without GitHub OIDC)
-  if (jwtToken && authConfigured && cachedAuthDomain) {
-    for (const expectedAud of accessAudList) {
-      const verifiedEmail = await verifyAccessJWT(jwtToken, cachedAuthDomain, expectedAud);
-      if (verifiedEmail) {
-        return { email: normalizeEmail(verifiedEmail), authenticated: true };
-      }
-    }
-
-    // JWT verification failed for all expected audiences
+/**
+ * SaaS mode + GitHub OIDC: verify codeflare_session cookie (HMAC JWT).
+ * This replaces CF Access JWT verification when OAUTH_CLIENT_ID is configured.
+ *
+ * Returns an {@link AccessUser} when SaaS OIDC is the active auth path (the
+ * caller must NOT fall through to CF Access in that case), or `null` when SaaS
+ * OIDC is not configured. Throws when SaaS mode is active but the JWT secret is
+ * missing.
+ */
+async function validateSaasOidc(request: Request, env?: Env): Promise<AccessUser | null> {
+  if (!(env && isSaasModeActive(env.SAAS_MODE) && env.OAUTH_CLIENT_ID)) {
+    return null;
+  }
+  if (!env.OAUTH_JWT_SECRET) {
+    throw new AuthError('SaaS mode active but OAUTH_JWT_SECRET not configured');
+  }
+  const sessionToken = getCookieValue(request.headers.get('Cookie'), 'codeflare_session');
+  if (!sessionToken) {
     return { email: '', authenticated: false };
   }
+  const payload = await verifySessionJWT(sessionToken, env.OAUTH_JWT_SECRET, SESSION_JWT_AUD);
+  if (!payload) {
+    return { email: '', authenticated: false };
+  }
+  return { email: normalizeEmail(payload.email), authenticated: true };
+}
+
+/**
+ * CF Access JWT verification (non-SaaS mode or SaaS without GitHub OIDC).
+ *
+ * Returns an {@link AccessUser} when a JWT is present and auth is configured
+ * (whether verification succeeds or fails - a present-but-invalid JWT is a hard
+ * rejection), or `null` to fall through when no JWT/config is available.
+ */
+async function verifyCfAccessJwt(
+  jwtToken: string | null,
+  config: ResolvedAuthConfig,
+): Promise<AccessUser | null> {
+  if (!(jwtToken && config.authConfigured && config.authDomain)) {
+    return null;
+  }
+  for (const expectedAud of config.accessAudList) {
+    const verifiedEmail = await verifyAccessJWT(jwtToken, config.authDomain, expectedAud);
+    if (verifiedEmail) {
+      return { email: normalizeEmail(verifiedEmail), authenticated: true };
+    }
+  }
+  // JWT verification failed for all expected audiences
+  return { email: '', authenticated: false };
+}
+
+/**
+ * Pre-setup fallback: trust email header (allows setup wizard to work).
+ *
+ * CF-005: Only activate when auth is genuinely not configured (no domain + aud
+ * in KV). Once auth HAS been configured and fetched, this path is permanently
+ * disabled for the isolate's lifetime. Prevents KV transient errors from
+ * degrading to header trust. Returns `null` when the fallback does not apply.
+ */
+function preSetupHeaderFallback(request: Request, config: ResolvedAuthConfig): AccessUser | null {
+  if (config.authConfigured || authConfigFetched) {
+    return null;
+  }
+  const email = request.headers.get('cf-access-authenticated-user-email');
+  if (email) {
+    logger.warn('Pre-setup auth fallback activated - trusting header', { email: normalizeEmail(email), path: request.url });
+    return { email: normalizeEmail(email), authenticated: true };
+  }
+  return null;
+}
+
+export async function getUserFromRequest(request: Request, env?: Env): Promise<AccessUser> {
+  // Extract CF Access JWT early - evaluated after service token and SaaS OIDC checks
+  const jwtToken = extractAccessJwt(request);
+
+  const config = await loadAuthConfig(env);
+
+  const serviceAuthResult = await validateServiceAuthHeader(request, env);
+  if (serviceAuthResult) return serviceAuthResult;
+
+  const saasResult = await validateSaasOidc(request, env);
+  if (saasResult) return saasResult;
+
+  const cfAccessResult = await verifyCfAccessJwt(jwtToken, config);
+  if (cfAccessResult) return cfAccessResult;
 
   // Post-setup (auth configured) but NO JWT: reject even if header is present (FIX-1).
   // This prevents header spoofing when Cloudflare Access is configured.
-  if (authConfigured && !jwtToken) {
+  if (config.authConfigured && !jwtToken) {
     return { email: '', authenticated: false };
   }
 
-  // Pre-setup fallback: trust email header (allows setup wizard to work).
-  // CF-005: Only activate when auth is genuinely not configured (no domain + aud in KV).
-  // Once auth HAS been configured and fetched, this path is permanently disabled for
-  // the isolate's lifetime. Prevents KV transient errors from degrading to header trust.
-  if (!authConfigured && !authConfigFetched) {
-    const email = request.headers.get('cf-access-authenticated-user-email');
-    if (email) {
-      logger.warn('Pre-setup auth fallback activated - trusting header', { email: normalizeEmail(email), path: request.url });
-      return { email: normalizeEmail(email), authenticated: true };
-    }
-  }
+  const preSetupResult = preSetupHeaderFallback(request, config);
+  if (preSetupResult) return preSetupResult;
 
   // Service token authentication (fallback - non-SaaS only)
   // When CF Access validates a service token, it passes through cf-access-client-id header.

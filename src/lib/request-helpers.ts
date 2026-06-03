@@ -11,13 +11,29 @@ import { SESSION_ID_PATTERN } from './constants';
  * Parse JSON body from a Hono request, throwing ValidationError on malformed input.
  * Replaces the try/catch c.req.json() boilerplate used across 14+ route handlers.
  * Also fixes 8 routes that were missing JSON error handling entirely (crash with 500).
+ *
+ * When a Zod schema is supplied, the parsed body is validated and the typed,
+ * validated value is returned. Validation failures throw a ValidationError carrying
+ * the first Zod issue message - identical to the safeParse + firstZodError pattern
+ * used at the callsites. When omitted, the body is returned as an unchecked cast (back-compat).
  */
-export async function parseJsonBody<T = unknown>(c: Context): Promise<T> {
+export async function parseJsonBody<T = unknown>(c: Context): Promise<T>;
+export async function parseJsonBody<S extends z.ZodType>(c: Context, schema: S): Promise<z.infer<S>>;
+export async function parseJsonBody<T = unknown>(c: Context, schema?: z.ZodType): Promise<T> {
+  let body: unknown;
   try {
-    return await c.req.json() as T;
+    body = await c.req.json();
   } catch {
     throw new ValidationError('Invalid JSON body');
   }
+  if (!schema) {
+    return body as T;
+  }
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    throw new ValidationError(firstZodError(parsed.error));
+  }
+  return parsed.data as T;
 }
 
 /**

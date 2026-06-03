@@ -1,27 +1,57 @@
+import { z } from 'zod';
 import type { AccessTier, SubscriptionTier, UserRole } from '../types';
 import { AccessTierSchema, SubscriptionTierSchema } from '../types';
 import { createLogger } from './logger';
 import { listAllKvKeys, emailFromKvKey, SETUP_KEYS } from './kv-keys';
 import { CF_API_BASE } from './constants';
 import { cfApiCB } from './circuit-breakers';
+import { AppError } from './error-types';
+import { firstZodError } from './request-helpers';
 
 const logger = createLogger('access-policy');
 
+// CF-022: Runtime Zod schemas for CF Access API responses. Each validates only
+// the fields consumed below; safeParse failure throws a typed AppError instead
+// of trusting an `as` cast.
+
 /** Response shape from the CF Access applications list endpoint */
-interface CfAccessAppsResponse {
-  success: boolean;
-  result?: Array<{ id: string; domain: string; aud: string }>;
-}
+const CfAccessAppsResponseSchema = z.object({
+  success: z.boolean(),
+  result: z.array(z.object({
+    id: z.string(),
+    domain: z.string(),
+    aud: z.string(),
+  }).passthrough()).optional(),
+}).passthrough();
 
 /** Response shape from the CF Access policies list endpoint */
-interface CfAccessPoliciesResponse {
-  success: boolean;
-  result?: Array<{ id: string; name: string; decision: string; include: unknown[]; exclude?: unknown[] }>;
-}
+const CfAccessPoliciesResponseSchema = z.object({
+  success: z.boolean(),
+  result: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    decision: z.string(),
+    include: z.array(z.unknown()),
+    exclude: z.array(z.unknown()).optional(),
+  }).passthrough()).optional(),
+}).passthrough();
 
-interface CfAccessGroupsResponse {
-  success: boolean;
-  result?: Array<{ id: string; name: string }>;
+/** Response shape from the CF Access groups list endpoint */
+const CfAccessGroupsResponseSchema = z.object({
+  success: z.boolean(),
+  result: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+  }).passthrough()).optional(),
+}).passthrough();
+
+/** Parse a CF Access API response with a Zod schema, throwing a typed AppError on failure. */
+function parseAccessResponse<T>(schema: z.ZodType<T>, value: unknown, context: string): T {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    throw new AppError('CF_ACCESS_VALIDATION_ERROR', 502, `${context}: ${firstZodError(result.error)}`);
+  }
+  return result.data;
 }
 
 interface UserEntry {
@@ -99,7 +129,7 @@ export async function syncAccessPolicy(
         signal: AbortSignal.timeout(10_000),
       })
     );
-    const groupsData = await groupsRes.json() as CfAccessGroupsResponse;
+    const groupsData = parseAccessResponse(CfAccessGroupsResponseSchema, await groupsRes.json(), 'Invalid CF Access groups response');
 
     // Resolve group names from API or KV cache
     const groupsById = new Map((groupsData.result || []).map((group) => [group.id, group.name]));
@@ -161,7 +191,7 @@ export async function syncAccessPolicy(
       signal: AbortSignal.timeout(10_000),
     })
   );
-  const appsData = await appsRes.json() as CfAccessAppsResponse;
+  const appsData = parseAccessResponse(CfAccessAppsResponseSchema, await appsRes.json(), 'Invalid CF Access apps response');
 
   if (!appsData.success) {
     logger.error('syncAccessPolicy: Failed to fetch Access apps', new Error('API request failed'), { response: appsData });
@@ -181,7 +211,7 @@ export async function syncAccessPolicy(
         { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }
       )
     );
-    const policiesData = await policiesRes.json() as CfAccessPoliciesResponse;
+    const policiesData = parseAccessResponse(CfAccessPoliciesResponseSchema, await policiesRes.json(), 'Invalid CF Access policies response');
 
     if (!policiesData.success || !policiesData.result?.length) return;
 

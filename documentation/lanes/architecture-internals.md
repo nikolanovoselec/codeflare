@@ -54,7 +54,23 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 **Container DO extraction:** `src/container/index.ts` split into focused modules:
 - `container-env.ts`: env var construction, bucket name application, credential injection, prefs-on-restart
 - `container-metrics.ts`: collectMetrics, idle detection, Timekeeper ping, KV status updates (immutable spread, not mutation)
-- `index.ts`: thin facade owning DO lifecycle (constructor, fetch, onStart, onStop, alarm). Sub-modules receive state via explicit interface parameters, not class inheritance.
+- `container-config.ts`: setBucketName, getBucketName, updateEnvVars, ensureVaultKey - container state/config mutations
+- `container-router.ts`: typed `/_internal/*` dispatch (the `INTERNAL_ROUTES` discriminated-union table + `dispatchInternalRoute`), replacing the prior stringly-typed `${method}:${pathname}` Map
+- `container-lifecycle.ts`: onStart/onStop/alarm lifecycle hooks extracted from the DO class
+- `index.ts`: thin facade owning the DO class shell (constructor, fetch) and delegating config, internal routing, lifecycle hooks, and metrics to the modules above. Sub-modules receive state via explicit interface parameters, not class inheritance.
+
+**Vault route extraction:** `src/routes/vault.ts` split into focused sibling modules (behavior-preserving; `vault.ts` re-exports the extracted members so existing importers resolve unchanged):
+- `vault-validation.ts`: `validateVaultRoute` route boundary parsing
+- `vault-auth.ts`: `checkVaultOrigin` (origin/CSRF defense, applied before auth), `authenticateVaultRequest`, `assertActiveTier`
+- `vault-access.ts`: `assertSessionOwnership` ownership gate
+- `vault-crypto.ts`: `getVaultEncryptionKey` key resolution
+- `vault-html.ts`: HTML rewriting and injection helpers (`rewriteVaultBaseHref`, `injectVaultBootstrapHopHtml`, `injectVaultIdbRecorder`, `filterVaultFsListing`)
+- `vault.ts`: `handleVaultRequest` orchestration wiring the chain origin -> authenticate -> tier -> ownership
+
+**Container lifecycle route extraction:** `src/routes/container/lifecycle.ts` split into focused modules (`lifecycle.ts` re-exports the helpers for existing importers):
+- `lifecycle-validation.ts`: `validateSessionAndCheckLimits`, `resolveEffectiveSleepAfter`
+- `lifecycle-init.ts`: `setupR2Credentials`, `ensureBucketAndSeed`, `configureContainerDO`
+- `lifecycle.ts`: `startOrRestartContainer` orchestration + the `/start` and `/destroy` route handlers
 
 **Session store extraction (CF-013):** `web-ui/src/stores/session.ts` split into focused modules:
 - `session-polling.ts`: refreshSessionStatuses, miss counters, start/stop polling. Uses dependency injection via `registerPollingDeps()`.

@@ -188,6 +188,35 @@ export function resetTierConfigCache(): void {
   tierConfigCachedAt = 0;
 }
 
+/** Fetch the stored tier config from KV (null when unset). */
+async function fetchStoredTiers(kv: KVNamespace): Promise<SubscriptionTierConfig[] | null> {
+  return kv.get<SubscriptionTierConfig[]>(getTiersConfigKey(), 'json');
+}
+
+/**
+ * Merge stored tiers with defaults to backfill new fields (e.g., maxStorageBytes).
+ * Returns the defaults unchanged when nothing is stored.
+ */
+function mergeStoredWithDefaults(
+  stored: SubscriptionTierConfig[] | null,
+  defaults: SubscriptionTierConfig[],
+): SubscriptionTierConfig[] {
+  if (!stored) return defaults;
+  return stored.map((t) => {
+    const def = defaults.find((d) => d.id === t.id);
+    return def ? { ...def, ...t } : t;
+  });
+}
+
+/** Migrate legacy "Team" displayName to "Custom" (renamed, no admin UI to change). */
+function migrateLegacyTierNames(tiers: SubscriptionTierConfig[]): void {
+  for (const t of tiers) {
+    if (t.id === 'unlimited' && t.displayName === 'Team') {
+      t.displayName = 'Custom';
+    }
+  }
+}
+
 /**
  * Read tier configuration from KV with 1-minute cache, falling back to defaults.
  */
@@ -195,21 +224,9 @@ export async function getTierConfig(kv: KVNamespace): Promise<SubscriptionTierCo
   if (cachedTierConfig && Date.now() - tierConfigCachedAt < TIER_CONFIG_CACHE_TTL_MS) {
     return cachedTierConfig;
   }
-  const stored = await kv.get<SubscriptionTierConfig[]>(getTiersConfigKey(), 'json');
-  const defaults = getDefaultTiers();
-  // Merge stored tiers with defaults to backfill new fields (e.g., maxStorageBytes)
-  const tiers = stored
-    ? stored.map((t) => {
-        const def = defaults.find((d) => d.id === t.id);
-        return def ? { ...def, ...t } : t;
-      })
-    : defaults;
-  // Migrate legacy "Team" displayName to "Custom" (renamed, no admin UI to change)
-  for (const t of tiers) {
-    if (t.id === 'unlimited' && t.displayName === 'Team') {
-      t.displayName = 'Custom';
-    }
-  }
+  const stored = await fetchStoredTiers(kv);
+  const tiers = mergeStoredWithDefaults(stored, getDefaultTiers());
+  migrateLegacyTierNames(tiers);
   cachedTierConfig = tiers;
   tierConfigCachedAt = Date.now();
   return cachedTierConfig;

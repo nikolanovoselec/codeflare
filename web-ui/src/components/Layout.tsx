@@ -68,6 +68,10 @@ const Layout: Component<LayoutProps> = (props) => {
     const sid = sessionStore.activeSessionId;
     if (!sid) return null;
     const s = sessionStore.sessions.find((x) => x.id === sid);
+    // Vault only exists in advanced session mode (matches the vault-button gate
+    // below). In standard mode SilverBullet does not run, so probing
+    // HEAD /api/vault/:sid/ would 502 on a loop - gate the probe on the mode.
+    if (sessionStore.preferences.sessionMode !== 'advanced') return null;
     return s && s.status === 'running' ? sid : null;
   });
   createEffect(() => {

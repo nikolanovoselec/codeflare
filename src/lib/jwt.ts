@@ -2,37 +2,55 @@
  * JWT verification module for Cloudflare Access tokens.
  * Uses Web Crypto API (available in Cloudflare Workers) for RS256 verification.
  */
+import { z } from 'zod';
+import { AppError } from './error-types';
+import { firstZodError } from './request-helpers';
 
-// Types
-interface JWTHeader {
-  alg: string;
-  kid: string;
-  typ: string;
-}
+// CF-022: Runtime Zod schemas validating only the fields actually consumed
+// from the JWKS endpoint and the (signature-verified) JWT header/payload.
+// Throws are swallowed by verifyAccessJWT's catch, so a malformed response or
+// token resolves to null exactly as before, but without unchecked `as` casts.
 
-interface JWTPayload {
-  aud: string[];
-  email: string;
-  exp: number;
-  iat: number;
-  nbf?: number;
-  iss: string;
-  sub: string;
-  type: string;
-  country: string;
-}
+/** JWT header - only alg and kid are consumed. */
+const JWTHeaderSchema = z.object({
+  alg: z.string(),
+  kid: z.string(),
+});
 
-interface JWKS {
-  keys: JWK[];
-}
+/** JWT payload - fields consumed for claim validation. */
+const JWTPayloadSchema = z.object({
+  aud: z.array(z.string()),
+  email: z.string().optional(),
+  exp: z.number(),
+  iat: z.number(),
+  nbf: z.number().optional(),
+  iss: z.string(),
+});
 
-interface JWK {
-  kid: string;
-  kty: string;
-  n: string;
-  e: string;
-  alg: string;
-  use: string;
+/** Single JWK - fields needed to import an RS256 public key. */
+const JWKSchema = z.object({
+  kid: z.string(),
+  kty: z.string(),
+  n: z.string(),
+  e: z.string(),
+  alg: z.string(),
+  use: z.string(),
+});
+
+/** JWKS document from the CF Access certs endpoint. */
+const JWKSSchema = z.object({
+  keys: z.array(JWKSchema),
+});
+
+type JWKS = z.infer<typeof JWKSSchema>;
+
+/** Parse external JSON with a Zod schema, throwing a typed AppError on failure. */
+function parseOrThrow<T>(schema: z.ZodType<T>, value: unknown, context: string): T {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    throw new AppError('JWT_VALIDATION_ERROR', 401, `${context}: ${firstZodError(result.error)}`);
+  }
+  return result.data;
 }
 
 // Module-level JWKS cache
@@ -102,7 +120,7 @@ async function getPublicKeys(authDomain: string): Promise<JWKS> {
         throw new Error(`Failed to fetch JWKS from ${url}: ${response.status}`);
       }
 
-      const jwks = (await response.json()) as JWKS;
+      const jwks = parseOrThrow(JWKSSchema, await response.json(), 'Invalid JWKS response');
 
       // Update cache
       cachedJWKS = jwks;
@@ -146,7 +164,7 @@ export async function verifyAccessJWT(
 
     // 2. Decode header, find matching key by kid
     const headerJson = new TextDecoder().decode(base64UrlDecode(headerB64));
-    const header = JSON.parse(headerJson) as JWTHeader;
+    const header = parseOrThrow(JWTHeaderSchema, JSON.parse(headerJson), 'Invalid JWT header');
 
     if (header.alg !== 'RS256') {
       return null;
@@ -201,7 +219,7 @@ export async function verifyAccessJWT(
 
     // 5. Decode and validate claims
     const payloadJson = new TextDecoder().decode(base64UrlDecode(payloadB64));
-    const payload = JSON.parse(payloadJson) as JWTPayload;
+    const payload = parseOrThrow(JWTPayloadSchema, JSON.parse(payloadJson), 'Invalid JWT payload');
 
     const now = Math.floor(Date.now() / 1000);
 

@@ -242,7 +242,7 @@ The vault's persistence guarantee depends on the final bisync running to complet
 Two paired fixes bundled with the vault PR:
 
 - `shutdown_handler` in entrypoint.sh wraps the final `bisync_with_r2` call in a background subshell with a watchdog that hard-kills at 120s (raised from 60s in [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync) because the 15-minute cadence from [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers) lets a single bisync accumulate up to 15 minutes of writes). Vault-monitor and SilverBullet supervisor PIDs are also terminated.
-- `Container.destroy()` in `src/container/index.ts` uses `timeoutMs = 135_000` (120s for bisync + 15s buffer). `onStop()` logs `shutdownElapsedMs` and a `logger.warn` fires at 110 s elapsed so any session approaching the budget surfaces in logs and the budget can be tuned again if needed.
+- `Container.destroy()` in `src/container/container-lifecycle.ts` uses `timeoutMs = 135_000` (120s for bisync + 15s buffer). `onStop()` logs `shutdownElapsedMs` and a `logger.warn` fires at 110 s elapsed so any session approaching the budget surfaces in logs and the budget can be tuned again if needed.
 
 If the bisync exceeds 120s, the log records `TIMED OUT after 120s` -- a recognisable string for operators triaging stale-session reports.
 

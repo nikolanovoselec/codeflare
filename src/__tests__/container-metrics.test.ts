@@ -60,17 +60,23 @@ vi.mock('@cloudflare/containers', () => {
             },
           }),
         },
-        storage: {
-          get: async <T>(key: string): Promise<T | undefined> => {
-            if (key === '_sessionId') return testState.storedSessionId as T;
-            if (key === 'bucketName') return testState.storedBucketName as T;
-            if (key === 'sleepAfter') return testState.storedSleepAfter as T;
-            if (key === 'userEmail') return testState.storedUserEmail as T;
-            return undefined;
-          },
-          put: vi.fn(),
-          delete: vi.fn(),
-        },
+        storage: (() => {
+          // Map-backed so put/get/delete actually round-trip (the
+          // collectMetrics not-running confirmation marker relies on it). The
+          // special-cased identifier keys still read from testState.
+          const store = new Map<string, unknown>();
+          return {
+            get: async <T>(key: string): Promise<T | undefined> => {
+              if (key === '_sessionId') return testState.storedSessionId as T;
+              if (key === 'bucketName') return testState.storedBucketName as T;
+              if (key === 'sleepAfter') return testState.storedSleepAfter as T;
+              if (key === 'userEmail') return testState.storedUserEmail as T;
+              return store.has(key) ? (store.get(key) as T) : undefined;
+            },
+            put: vi.fn(async (key: string, value: unknown) => { store.set(key, value); }),
+            delete: vi.fn(async (key: string) => { store.delete(key); }),
+          };
+        })(),
         blockConcurrencyWhile: async (fn: () => Promise<void>) => fn(),
       };
       this.env = {
@@ -231,7 +237,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
-    it('should not re-arm schedule if container is not running', async () => {
+    it('re-arms on the first not-running tick so the confirmation window can be observed', async () => {
       const session: Session = {
         id: 'testsession123456',
         name: 'Test',
@@ -251,17 +257,59 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       testState.containerRunning = false;
       await containerInstance.collectMetrics();
 
-      // Should NOT re-arm when container is not running.
-      // onStart() will restart the schedule loop on next container start.
-      expect(testState.scheduleCalls).toHaveLength(0);
+      // The first not-running tick re-arms (rather than letting the loop die)
+      // so a transient false reading can recover on a subsequent tick instead
+      // of freezing metrics until onStart (REQ-SESSION-018 AC2).
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
-    // REQ-SESSION-018: Persisted status is authoritative on container exit
-    it('writes status=stopped to KV when the container is not running (dangling-running guard)', async () => {
-      // The container exited unexpectedly (crash / deploy-roll / platform reap).
-      // The SDK calls onError, not onStop, so this early-return is the
-      // authoritative path that marks the session stopped - otherwise it
-      // dangles as 'running' in KV forever.
+    // REQ-SESSION-018 AC1: Persisted status is authoritative on container exit
+    it('writes status=stopped to KV only after the not-running confirmation window (catch-all)', async () => {
+      // The container exited unexpectedly (crash / deploy-roll / platform reap)
+      // and the SDK never surfaced onError. The catch-all marks the session
+      // stopped - but only after the not-running reading has persisted past the
+      // confirmation window, so a transient false reading cannot trip it.
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+
+      vi.useFakeTimers();
+      try {
+        testState.scheduleCalls = [];
+        testState.containerRunning = false;
+
+        // First not-running tick: opens the confirmation window, no stopped write.
+        await containerInstance.collectMetrics();
+        expect(
+          mockKV.put.mock.calls.find(
+            (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+          )
+        ).toBeUndefined();
+
+        // Still not running after the window elapses: now mark stopped.
+        vi.advanceTimersByTime(91_000);
+        await containerInstance.collectMetrics();
+
+        const putCall = mockKV.put.mock.calls.find(
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+        );
+        expect(putCall).toBeDefined();
+        const stored = JSON.parse(putCall![1] as string) as Session;
+        expect(stored.status).toBe('stopped');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    // REQ-SESSION-018 AC2: a transient not-running reading must not flip a live
+    // session to stopped (the dashboard-kick / metrics-freeze bug).
+    it('does not flip a live session to stopped on a single transient not-running tick', async () => {
       const session: Session = {
         id: 'testsession123456',
         name: 'Test',
@@ -273,18 +321,27 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       mockKV._set('session:test-bucket:testsession123456', session);
 
       testState.scheduleCalls = [];
+
+      // One transient not-running tick (e.g. a hibernated DO waking, or a
+      // deploy-roll) opens the window but does NOT write stopped...
       testState.containerRunning = false;
       await containerInstance.collectMetrics();
+      expect(
+        mockKV.put.mock.calls.find(
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+        )
+      ).toBeUndefined();
 
-      // Status persisted as stopped...
-      const putCall = mockKV.put.mock.calls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
-      );
-      expect(putCall).toBeDefined();
-      const stored = JSON.parse(putCall![1] as string) as Session;
-      expect(stored.status).toBe('stopped');
-      // ...and the dead loop is NOT re-armed.
-      expect(testState.scheduleCalls).toHaveLength(0);
+      // ...and the very next tick sees the container alive again: it resumes
+      // normal metric writes (status stays running, never flipped to stopped).
+      testState.containerRunning = true;
+      await containerInstance.collectMetrics();
+
+      const stoppedWrite = mockKV.put.mock.calls.find((call: unknown[]) => {
+        if (typeof call[0] !== 'string' || !(call[0] as string).includes('testsession123456')) return false;
+        try { return (JSON.parse(call[1] as string) as Session).status === 'stopped'; } catch { return false; }
+      });
+      expect(stoppedWrite).toBeUndefined();
     });
 
     it('should handle fetch failure gracefully without crashing', async () => {

@@ -7,6 +7,13 @@ import { getSseHeaders } from './r2-sse';
 
 const logger = createLogger('r2-seed');
 
+/**
+ * CF-013: the only env bindings the seed helpers touch are the R2 credentials
+ * (forwarded to createR2Client) and ENCRYPTION_KEY (forwarded to getSseHeaders
+ * for SSE-C). Narrow the param to make that surface explicit.
+ */
+type SeedEnv = Pick<Env, 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY' | 'ENCRYPTION_KEY'>;
+
 type SeedDocument = {
   key: string;
   contentType: string;
@@ -20,7 +27,7 @@ type SeedDocsResult = {
 };
 
 async function seedDocuments(
-  env: Env,
+  env: SeedEnv,
   bucketName: string,
   endpoint: string,
   documents: SeedDocument[],
@@ -95,7 +102,7 @@ async function seedDocuments(
 }
 
 export async function seedGettingStartedDocs(
-  env: Env,
+  env: SeedEnv,
   bucketName: string,
   endpoint: string,
   options: { overwrite?: boolean } = {}
@@ -211,7 +218,7 @@ export function getPreseedKeysNotInMode(
  * Only deletes keys from the known generated set - never lists or scans the bucket.
  */
 export async function deleteNonModeConfigs(
-  env: Env,
+  env: SeedEnv,
   bucketName: string,
   endpoint: string,
   mode: SessionMode,
@@ -255,7 +262,7 @@ export async function deleteNonModeConfigs(
  * - Recreate button: { overwrite: true, cleanup: true }
  */
 export async function reconcileAgentConfigs(
-  env: Env,
+  env: SeedEnv,
   bucketName: string,
   endpoint: string,
   mode: SessionMode,
@@ -293,7 +300,7 @@ export async function reconcileAgentConfigs(
 }
 
 export async function seedAgentConfigs(
-  env: Env,
+  env: SeedEnv,
   bucketName: string,
   endpoint: string,
   options: { overwrite?: boolean; mode?: SessionMode; contextModeEnabled?: boolean } = {}
@@ -329,7 +336,7 @@ export async function seedAgentConfigs(
  * deleteNonModeConfigs handles tier-downgrade.
  */
 export async function reseedContextModePlugin(
-  env: Env,
+  env: SeedEnv,
   bucketName: string,
   endpoint: string,
   contextModeEnabled: boolean,

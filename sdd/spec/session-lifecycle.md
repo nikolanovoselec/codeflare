@@ -240,7 +240,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-007: Running session count limited per tier
 
-<!-- @impl: src/routes/container/lifecycle.ts::validateSessionAndCheckLimits -->
+<!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
 <!-- @impl: src/lib/subscription.ts::getMaxSessionsForTier -->
 <!-- @impl: src/lib/constants.ts::getMaxSessions -->
 <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers describe → kv.list metadata count + tier comparison + non-SaaS fallback → AC1-AC5) -->
@@ -620,7 +620,8 @@ None.
 
 ---
 
-<!-- @test: src/__tests__/container-metrics.test.ts (collectMetrics describe -> writes status=stopped to KV when the container is not running (dangling-running guard) -> AC1) -->
+<!-- @test: src/__tests__/container-metrics.test.ts (collectMetrics describe -> writes status=stopped to KV only after the not-running confirmation window (catch-all) -> AC1) -->
+<!-- @test: src/__tests__/container-metrics.test.ts (collectMetrics describe -> does not flip a live session to stopped on a single transient not-running tick -> AC2) -->
 <!-- @test: src/__tests__/container/index.test.ts (onStop lifecycle describe -> onError updates KV with status stopped (unexpected exit dangling-running guard) -> AC1) -->
 <!-- @test: src/__tests__/container/index.test.ts (onStop lifecycle describe -> onStop updates KV with lastActiveAt and sets status to stopped -> AC1) -->
 ### REQ-SESSION-018: Persisted status is authoritative on container exit
@@ -635,10 +636,12 @@ None.
 **Acceptance Criteria:**
 
 1. Persisted status is authoritative: a container that exits for any reason - graceful stop, crash, or an unexpected exit surfaced by the SDK as an error - transitions the persisted status to stopped, so the dashboard reflects reality directly from the KV record with no read-side staleness reconciliation. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/index.ts::onError -->
+2. The `collectMetrics` catch-all does not flip a live session to stopped on a transient not-running reading. The SDK's `ctx.container.running` flag momentarily reads false when an alarm wakes a hibernated DO or during a deploy-roll, while the container is actually alive; the catch-all writes stopped only after the container has read not-running continuously for a confirmation window spanning more than one alarm tick, re-arming the alarm meanwhile so the streak can be observed. A single transient false reading therefore leaves the running session intact rather than both kicking the user to the dashboard and freezing metrics. `onError` remains the immediate authority for genuine crashes. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
 
 **Constraints:**
 
 - Newly started sessions have a 3-minute startup guard during which only the container-stopped close code can transition them to stopped (anti-flapping).
+- The `collectMetrics` not-running confirmation window is persisted in DO storage (not in-memory), because the hibernation/reset that produces the transient false reading would discard an in-memory streak counter.
 
 **Priority:** P1
 

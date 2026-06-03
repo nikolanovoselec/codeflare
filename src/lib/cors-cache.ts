@@ -49,7 +49,7 @@ export function resetCorsOriginsCache(): void {
  * Load allowed origin patterns from KV (setup:custom_domain + setup:allowed_origins).
  * Results are cached in memory per isolate.
  */
-async function getKvOrigins(env: Env): Promise<string[]> {
+async function getKvOrigins(env: Pick<Env, 'KV'>): Promise<string[]> {
   const cached = getCachedKvOrigins();
   if (cached !== null) {
     return cached;
@@ -123,7 +123,7 @@ function matchesPattern(hostname: string, pattern: string): boolean {
  * an admin who can write a malicious pattern can also disable the check
  * entirely. Per-request validation adds overhead for zero security benefit.
  */
-export async function isAllowedOrigin(origin: string, env: Env): Promise<boolean> {
+export async function isAllowedOrigin(origin: string, env: Pick<Env, 'ALLOWED_ORIGINS' | 'KV'>): Promise<boolean> {
   let hostname: string;
   try {
     hostname = new URL(origin).hostname;

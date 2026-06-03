@@ -13,7 +13,9 @@ import type { Env } from '../types';
  * 2. KV key "setup:account_id" (set by setup wizard)
  * 3. Cloudflare API via env.CLOUDFLARE_API_TOKEN (self-healing: writes to KV for next time)
  */
-export async function getR2Config(env: Env): Promise<{ accountId: string; endpoint: string }> {
+export async function getR2Config(
+  env: Pick<Env, 'R2_ACCOUNT_ID' | 'R2_ENDPOINT' | 'KV' | 'CLOUDFLARE_API_TOKEN'>
+): Promise<{ accountId: string; endpoint: string }> {
   // 1. Prefer env vars (set in wrangler.toml or .dev.vars)
   const envAccountId = env.R2_ACCOUNT_ID;
   if (envAccountId) {

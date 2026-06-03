@@ -262,14 +262,33 @@ export interface DeployKeys {
 }
 
 /**
+ * R2 connection config (account ID + S3 endpoint) resolved from the Worker env.
+ * Named to cut the repeated inline `{ accountId; endpoint }` shape across the
+ * container-config payload and the R2 helpers.
+ */
+export interface R2ConnectionConfig {
+  accountId: string;
+  endpoint: string;
+}
+
+/**
+ * Scoped R2 access credentials minted per user/bucket. Named to cut the
+ * repeated inline `{ accessKeyId; secretAccessKey }` shape.
+ */
+interface ScopedR2Creds {
+  accessKeyId: string;
+  secretAccessKey: string;
+}
+
+/**
  * Grouped parameters for container DO initialization (buildSetBucketNameBody + configureContainerDO).
  */
 export interface ContainerConfigPayload {
   bucketName: string;
   sessionId: string;
   userEmail: string;
-  scopedCreds: { accessKeyId: string; secretAccessKey: string };
-  r2Config: { accountId: string; endpoint: string };
+  scopedCreds: ScopedR2Creds;
+  r2Config: R2ConnectionConfig;
   tabConfig: TabConfig[];
   workspaceSyncEnabled: boolean;
   fastStartEnabled: boolean;

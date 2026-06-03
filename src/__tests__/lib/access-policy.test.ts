@@ -369,4 +369,67 @@ describe('access-policy.ts', () => {
       expect(userGroupIncludeBodies[0]).toEqual([{ email: { email: 'member@example.com' } }]);
     });
   });
+
+  describe('CF-022: CF Access response validation', () => {
+    it('syncs successfully for a well-formed apps response (valid, email-include fallback)', async () => {
+      // No group IDs configured -> email-include path. Apps response is well-formed.
+      mockKV._set('user:alice@example.com', {
+        addedBy: 'setup',
+        addedAt: '2024-01-01T00:00:00Z',
+        role: 'user',
+      });
+
+      const policyPutBodies: Array<Record<string, unknown>> = [];
+
+      globalThis.fetch = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+        if (urlStr.endsWith('/access/apps') && (!init?.method || init.method === 'GET')) {
+          return Promise.resolve(new Response(
+            JSON.stringify({ success: true, result: [{ id: 'app-1', domain: 'claude.example.com', aud: 'aud-1' }] }),
+            { status: 200 }
+          ));
+        }
+        if (urlStr.endsWith('/access/apps/app-1/policies') && (!init?.method || init.method === 'GET')) {
+          return Promise.resolve(new Response(
+            JSON.stringify({ success: true, result: [{ id: 'policy-1', name: 'Allow users', decision: 'allow', include: [], exclude: [] }] }),
+            { status: 200 }
+          ));
+        }
+        if (urlStr.endsWith('/access/apps/app-1/policies/policy-1') && init?.method === 'PUT') {
+          policyPutBodies.push(JSON.parse((init.body as string) || '{}') as Record<string, unknown>);
+          return Promise.resolve(new Response('', { status: 200 }));
+        }
+        return Promise.reject(new Error(`Unmocked request: ${init?.method || 'GET'} ${urlStr}`));
+      }) as typeof globalThis.fetch;
+
+      await syncAccessPolicy('token-123', 'acc-123', 'claude.example.com', mockKV as unknown as KVNamespace);
+
+      expect(policyPutBodies).toHaveLength(1);
+      expect(policyPutBodies[0].include).toEqual([{ email: { email: 'alice@example.com' } }]);
+    });
+
+    it('throws when the apps response is malformed (result entry missing domain)', async () => {
+      mockKV._set('user:alice@example.com', {
+        addedBy: 'setup',
+        addedAt: '2024-01-01T00:00:00Z',
+        role: 'user',
+      });
+
+      globalThis.fetch = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+        if (urlStr.endsWith('/access/apps') && (!init?.method || init.method === 'GET')) {
+          // `domain` omitted from the app entry -> schema rejects
+          return Promise.resolve(new Response(
+            JSON.stringify({ success: true, result: [{ id: 'app-1', aud: 'aud-1' }] }),
+            { status: 200 }
+          ));
+        }
+        return Promise.reject(new Error(`Unmocked request: ${init?.method || 'GET'} ${urlStr}`));
+      }) as typeof globalThis.fetch;
+
+      await expect(
+        syncAccessPolicy('token-123', 'acc-123', 'claude.example.com', mockKV as unknown as KVNamespace)
+      ).rejects.toThrow(/Invalid CF Access apps response/);
+    });
+  });
 });

@@ -8,7 +8,7 @@ import { isOnboardingLandingPageActive } from '../../lib/onboarding';
 import { getTierConfig, SUBSCRIBABLE_TIER_IDS } from '../../lib/subscription';
 import { escapeXml } from '../../lib/xml-utils';
 import { createLogger } from '../../lib/logger';
-import { parseJsonBody, firstZodError } from '../../lib/request-helpers';
+import { parseJsonBody } from '../../lib/request-helpers';
 import { verifyTurnstileToken } from '../../lib/turnstile';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 
@@ -80,11 +80,7 @@ app.get('/onboarding-config', async (c) => {
 });
 
 app.post('/waitlist', waitlistRateLimiter, async (c) => {
-  const body = await parseJsonBody(c);
-  const parsed = WaitlistRequestSchema.safeParse(body);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
+  const body = await parseJsonBody(c, WaitlistRequestSchema);
 
   const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
     || await c.env.KV.get(SETUP_KEYS.TURNSTILE_SECRET_KEY);
@@ -112,14 +108,14 @@ app.post('/waitlist', waitlistRateLimiter, async (c) => {
 
   const remoteIp = c.req.header('CF-Connecting-IP') || null;
   const verification = await verifyTurnstileToken(
-    parsed.data.turnstileToken,
+    body.turnstileToken,
     turnstileSecret,
     remoteIp
   );
 
   if (!verification.success) {
     logger.warn('Turnstile verification failed', {
-      email: parsed.data.email,
+      email: body.email,
       errorCodes: verification['error-codes'],
     });
     throw new ValidationError('CAPTCHA verification failed');
@@ -130,12 +126,12 @@ app.post('/waitlist', waitlistRateLimiter, async (c) => {
     resendApiKey,
     from: c.env.RESEND_EMAIL || 'Codeflare Waitlist <onboarding@resend.dev>',
     to: adminRecipients,
-    submittedEmail: parsed.data.email,
+    submittedEmail: body.email,
     submittedAtIso,
     remoteIp,
   });
 
-  logger.info('Waitlist submission accepted', { email: parsed.data.email });
+  logger.info('Waitlist submission accepted', { email: body.email });
   return c.json({ success: true });
 });
 

@@ -9,7 +9,7 @@ import { getLlmKeysKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
 import { getAndDecrypt, encryptAndStore, getOrImportKey } from '../lib/kv-crypto';
-import { maskSecret, parseJsonBody, firstZodError } from '../lib/request-helpers';
+import { maskSecret, parseJsonBody } from '../lib/request-helpers';
 
 const UpdateLlmKeysBody = z.object({
   openaiApiKey: z.string().min(1).max(256).nullable().optional(),
@@ -96,11 +96,7 @@ app.get('/', async (c) => {
  */
 app.put('/', async (c) => {
   const bucketName = c.get('bucketName');
-  const raw = await parseJsonBody(c);
-  const parsed = UpdateLlmKeysBody.safeParse(raw);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
+  const body = await parseJsonBody(c, UpdateLlmKeysBody);
 
   const kvKey = getLlmKeysKey(bucketName);
   const cryptoKey = await getOrImportKey(c.env);
@@ -108,18 +104,18 @@ app.put('/', async (c) => {
   const updated: LlmKeys = { ...existing };
 
   // null = delete, undefined = no change, string = validate + set
-  if (parsed.data.openaiApiKey === null) {
+  if (body.openaiApiKey === null) {
     delete updated.openaiApiKey;
-  } else if (typeof parsed.data.openaiApiKey === 'string') {
-    await validateOpenAIKey(parsed.data.openaiApiKey);
-    updated.openaiApiKey = parsed.data.openaiApiKey;
+  } else if (typeof body.openaiApiKey === 'string') {
+    await validateOpenAIKey(body.openaiApiKey);
+    updated.openaiApiKey = body.openaiApiKey;
   }
 
-  if (parsed.data.geminiApiKey === null) {
+  if (body.geminiApiKey === null) {
     delete updated.geminiApiKey;
-  } else if (typeof parsed.data.geminiApiKey === 'string') {
-    await validateGeminiKey(parsed.data.geminiApiKey);
-    updated.geminiApiKey = parsed.data.geminiApiKey;
+  } else if (typeof body.geminiApiKey === 'string') {
+    await validateGeminiKey(body.geminiApiKey);
+    updated.geminiApiKey = body.geminiApiKey;
   }
 
   // If both keys are cleared, remove the KV entry entirely

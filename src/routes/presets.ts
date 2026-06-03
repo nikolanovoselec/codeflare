@@ -9,7 +9,7 @@ import { getPresetsKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { MAX_PRESETS, MAX_TABS } from '../lib/constants';
 import { ValidationError, NotFoundError } from '../lib/error-types';
-import { parseJsonBody, firstZodError } from '../lib/request-helpers';
+import { parseJsonBody } from '../lib/request-helpers';
 import { TabConfigSchema } from '../lib/schemas';
 
 const CreatePresetBody = z.object({
@@ -38,11 +38,7 @@ app.get('/', async (c) => {
  */
 app.post('/', async (c) => {
   const bucketName = c.get('bucketName');
-  const raw = await parseJsonBody(c);
-  const parsed = CreatePresetBody.safeParse(raw);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
+  const body = await parseJsonBody(c, CreatePresetBody);
 
   const key = getPresetsKey(bucketName);
   const presets = await c.env.KV.get<Preset[]>(key, 'json') || [];
@@ -53,8 +49,8 @@ app.post('/', async (c) => {
 
   const preset: Preset = {
     id: crypto.randomUUID(),
-    name: parsed.data.name,
-    tabs: parsed.data.tabs,
+    name: body.name,
+    tabs: body.tabs,
     createdAt: new Date().toISOString(),
   };
 
@@ -71,11 +67,7 @@ app.post('/', async (c) => {
 app.patch('/:id', async (c) => {
   const bucketName = c.get('bucketName');
   const presetId = c.req.param('id');
-  const raw = await parseJsonBody(c);
-  const parsed = z.object({ label: z.string().trim().min(1, 'Label cannot be blank').max(50) }).strict().safeParse(raw);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
+  const body = await parseJsonBody(c, z.object({ label: z.string().trim().min(1, 'Label cannot be blank').max(50) }).strict());
 
   const key = getPresetsKey(bucketName);
   const presets = await c.env.KV.get<Preset[]>(key, 'json') || [];
@@ -85,7 +77,7 @@ app.patch('/:id', async (c) => {
     throw new NotFoundError('Preset', presetId);
   }
 
-  const updated = presets.map((p, i) => i === index ? { ...p, name: parsed.data.label } : p);
+  const updated = presets.map((p, i) => i === index ? { ...p, name: body.label } : p);
   await c.env.KV.put(key, JSON.stringify(updated));
 
   return c.json({ preset: updated[index] });

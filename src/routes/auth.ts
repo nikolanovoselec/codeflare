@@ -12,7 +12,7 @@ import { verifyTurnstileToken } from '../lib/turnstile';
 import { sendSubscriptionEmail, sendSubscriptionAdminNotification, sendAccessRequestNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
 import { updateUserRecord } from '../lib/user-record';
-import { parseJsonBody, firstZodError } from '../lib/request-helpers';
+import { parseJsonBody } from '../lib/request-helpers';
 import { getPreferencesKey, SETUP_KEYS } from '../lib/kv-keys';
 import { isStripeConfigured, getStripePrices } from '../lib/stripe';
 import { getCurrencyForCountry } from '../lib/currency';
@@ -182,12 +182,7 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
   }
 
   // Parse body
-  const raw = await parseJsonBody(c);
-
-  const parsed = RequestAccessSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new ValidationError(firstZodError(parsed.error));
-  }
+  const body = await parseJsonBody(c, RequestAccessSchema);
 
   // Verify Turnstile token (required for SaaS mode access request gating)
   const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
@@ -199,7 +194,7 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
 
   const remoteIp = c.req.header('CF-Connecting-IP') || null;
   const verification = await verifyTurnstileToken(
-    parsed.data.turnstileToken,
+    body.turnstileToken,
     turnstileSecret,
     remoteIp
   );
@@ -254,17 +249,14 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     throw new ForbiddenError('Account is blocked');
   }
 
-  const raw = await parseJsonBody(c);
+  const body = await parseJsonBody(c, SubscribeSchema);
 
-  const parsed = SubscribeSchema.safeParse(raw);
-  if (!parsed.success) throw new ValidationError(firstZodError(parsed.error));
-
-  if (!SUBSCRIBABLE_TIER_IDS.has(parsed.data.tier)) {
-    throw new ValidationError(`Invalid tier: ${parsed.data.tier}. Must be one of: free, standard, advanced, max, unlimited`);
+  if (!SUBSCRIBABLE_TIER_IDS.has(body.tier)) {
+    throw new ValidationError(`Invalid tier: ${body.tier}. Must be one of: free, standard, advanced, max, unlimited`);
   }
 
   // Gate paid tiers when Stripe is configured - they must go through checkout
-  if (isStripeConfigured(c.env) && parsed.data.tier !== 'free') {
+  if (isStripeConfigured(c.env) && body.tier !== 'free') {
     throw new ValidationError('Paid subscriptions require checkout.');
   }
 
@@ -307,9 +299,9 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   } catch { /* non-fatal */ }
 
   // Idempotency: same tier AND same mode → return success without re-processing
-  if (isAlreadySubscribed && existingRaw?.subscriptionTier === parsed.data.tier) {
-    if (parsed.data.mode === previousMode) {
-      return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete: existingRaw.onboardingComplete === true });
+  if (isAlreadySubscribed && existingRaw?.subscriptionTier === body.tier) {
+    if (body.mode === previousMode) {
+      return c.json({ success: true, tier: body.tier, trialQuotaHours: 0, onboardingComplete: existingRaw.onboardingComplete === true });
     }
   }
 
@@ -319,11 +311,11 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
       || await c.env.KV.get(SETUP_KEYS.TURNSTILE_SECRET_KEY);
     if (turnstileSecret) {
-      if (!parsed.data.turnstileToken) {
+      if (!body.turnstileToken) {
         throw new ForbiddenError('CAPTCHA token required');
       }
       const remoteIp = c.req.header('CF-Connecting-IP') || null;
-      const verification = await verifyTurnstileToken(parsed.data.turnstileToken, turnstileSecret, remoteIp);
+      const verification = await verifyTurnstileToken(body.turnstileToken, turnstileSecret, remoteIp);
       if (!verification.success) {
         throw new ForbiddenError('CAPTCHA verification failed');
       }
@@ -334,30 +326,30 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   // Mark trial as used on first subscription so plan switches don't grant new trials
   const trialUsed = existingRaw?.trialUsed === true || isAlreadySubscribed;
   await updateUserRecord(c.env.KV, user.email, {
-    subscriptionTier: parsed.data.tier,
-    accessTier: parsed.data.tier, // backward compat
-    subscribedMode: parsed.data.mode,
+    subscriptionTier: body.tier,
+    accessTier: body.tier, // backward compat
+    subscribedMode: body.mode,
     subscribedAt: now.toISOString(),
     trialUsed,
   });
 
   // Save session mode preference when subscribing/switching (non-fatal)
   try {
-    if (parsed.data.mode) {
+    if (body.mode) {
       const subBucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
       const prefsKey = getPreferencesKey(subBucketName);
       const existingPrefs = await c.env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
-      await c.env.KV.put(prefsKey, JSON.stringify({ ...existingPrefs, sessionMode: parsed.data.mode }));
+      await c.env.KV.put(prefsKey, JSON.stringify({ ...existingPrefs, sessionMode: body.mode }));
     }
   } catch { /* non-fatal */ }
 
   const onboardingComplete = existingRaw?.onboardingComplete === true;
-  logger.info('User subscribed', { email: user.email, tier: parsed.data.tier });
+  logger.info('User subscribed', { email: user.email, tier: body.tier });
 
   // Non-fatal: send subscription confirmation + admin notification emails
   try {
     const tiers = await getTierConfig(c.env.KV);
-    const tierConfig = tiers.find(t => t.id === parsed.data.tier);
+    const tierConfig = tiers.find(t => t.id === body.tier);
     const customDomain = await c.env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
     const instanceUrl = customDomain ? `https://${customDomain}` : undefined;
 
@@ -366,7 +358,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
 
     const country = c.req.header('CF-IPCountry') || 'US';
     const cur = getCurrencyForCountry(country);
-    const priceCents = parsed.data.mode === 'advanced'
+    const priceCents = body.mode === 'advanced'
       ? (tierConfig?.advancedPriceMonthly ?? tierConfig?.priceMonthly)
       : tierConfig?.priceMonthly;
     const priceStr = priceCents != null && priceCents > 0
@@ -380,12 +372,12 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     const emailPromise = Promise.all([
       sendSubscriptionEmail({
         userEmail: user.email,
-        tierName: tierConfig?.displayName ?? parsed.data.tier,
+        tierName: tierConfig?.displayName ?? body.tier,
         previousTierName: previousTierConfig?.displayName ?? previousTierId,
         monthlyHours: emailMonthlyHours,
         maxSessions: emailMaxSessions,
         trialHours: emailTrialHours,
-        sessionMode: parsed.data.mode,
+        sessionMode: body.mode,
         previousMode: isAlreadySubscribed ? previousMode : undefined,
         price: priceStr,
         subscribedAt: emailSubscribedAt,
@@ -396,9 +388,9 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
         const adminEmails = await getAdminEmails(c.env.KV);
         return sendSubscriptionAdminNotification({
           userEmail: user.email,
-          tierName: tierConfig?.displayName ?? parsed.data.tier,
+          tierName: tierConfig?.displayName ?? body.tier,
           previousTierName: previousTierConfig?.displayName ?? previousTierId,
-          sessionMode: parsed.data.mode,
+          sessionMode: body.mode,
           previousMode: isAlreadySubscribed ? previousMode : undefined,
           monthlyHours: emailMonthlyHours,
           maxSessions: emailMaxSessions,
@@ -419,7 +411,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     logger.error('Failed to send subscription emails', toError(err));
   }
 
-  return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete, trialUsed });
+  return c.json({ success: true, tier: body.tier, trialQuotaHours: 0, onboardingComplete, trialUsed });
 });
 
 // Rate limit for team contact: 1 per hour per user

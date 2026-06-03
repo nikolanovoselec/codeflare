@@ -26,27 +26,25 @@ interface CleanupResult {
   tokenDeleted: boolean;
 }
 
-/**
- * Remove all data associated with a user: sessions, containers, KV entries,
- * scoped R2 token, and R2 bucket.
- *
- * Does NOT handle auth checks, rate limiting, or Access policy sync —
- * callers are responsible for those concerns.
- */
-export async function cleanupUserData(email: string, env: Env): Promise<CleanupResult> {
-  // Normalize defensively — callers should already normalize, but KV keys must match
-  const normalizedEmail = email.trim().toLowerCase();
-  const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
-  const result: CleanupResult = {
-    deletedSessions: 0,
-    bucketDeleted: false,
-    tokenDeleted: false,
-  };
+/** Normalize defensively — callers should already normalize, but KV keys must match. */
+function normalizeCleanupEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
 
-  // --- Block A: Session + Container cleanup ---
+/** Resolve the user's R2 bucket name from their normalized email. */
+function resolveCleanupBucket(normalizedEmail: string, env: Env): string {
+  return getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+}
+
+/**
+ * Block A: destroy every session container and delete its KV entry.
+ * Returns the number of session entries deleted.
+ */
+async function deleteSessionsAndContainers(bucketName: string, env: Env): Promise<number> {
   const sessionPrefix = getSessionPrefix(bucketName);
   const sessionKeys = await listAllKvKeys(env.KV, sessionPrefix);
 
+  let deletedSessions = 0;
   for (const key of sessionKeys) {
     try {
       const sessionData = await env.KV.get<Session>(key.name, 'json');
@@ -59,9 +57,13 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
       logger.warn('Failed to destroy container during user deletion', { sessionKey: key.name, error: String(err) });
     }
     await env.KV.delete(key.name);
-    result.deletedSessions++;
+    deletedSessions++;
   }
+  return deletedSessions;
+}
 
+/** Blocks B + B2: delete the user record and all bucket-keyed KV entries. */
+async function deleteUserKvEntries(normalizedEmail: string, bucketName: string, env: Env): Promise<void> {
   // --- Block B: User KV deletion ---
   await env.KV.delete(`user:${normalizedEmail}`);
 
@@ -74,19 +76,24 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
     env.KV.delete(getDeployKeysKey(bucketName)),
     env.KV.delete(getTimekeeperKey(bucketName)),
   ]);
+}
 
-  // --- Read R2 token data ONCE before cleanup (used by Block C and D) ---
-  // Must use getAndDecrypt — r2token values are encrypted when ENCRYPTION_KEY is set.
-  // Raw KV.get('json') throws SyntaxError on the "v1:..." ciphertext prefix.
-  const accountId = await env.KV.get(SETUP_KEYS.ACCOUNT_ID);
-  const cryptoKey = await getOrImportKey(env);
-  const r2TokenData = await getAndDecrypt<{ tokenId?: string; accessKeyId?: string; secretAccessKey?: string }>(env.KV, `r2token:${normalizedEmail}`, cryptoKey);
-
-  // --- Block C: R2 scoped token cleanup ---
+/**
+ * Block C: revoke the scoped R2 token via CF API and delete its KV entry.
+ * Returns true when a scoped token was revoked.
+ */
+async function deleteR2Token(
+  normalizedEmail: string,
+  accountId: string | null,
+  r2TokenData: { tokenId?: string; accessKeyId?: string; secretAccessKey?: string } | null,
+  email: string,
+  env: Env,
+): Promise<boolean> {
+  let tokenDeleted = false;
   try {
     if (r2TokenData?.tokenId && accountId && env.CLOUDFLARE_API_TOKEN) {
       await deleteScopedR2Token(accountId, env.CLOUDFLARE_API_TOKEN, r2TokenData.tokenId);
-      result.tokenDeleted = true;
+      tokenDeleted = true;
     }
   } catch (err) {
     logger.warn('Failed to delete scoped R2 token during user deletion', { email, error: String(err) });
@@ -96,8 +103,20 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   } catch (err) {
     logger.warn('Failed to delete r2token KV entry', { email, error: String(err) });
   }
+  return tokenDeleted;
+}
 
-  // --- Block D: R2 bucket empty + delete ---
+/**
+ * Block D: empty the user's R2 bucket then delete it via CF API.
+ * Returns true when the bucket was deleted.
+ */
+async function deleteR2Bucket(
+  bucketName: string,
+  accountId: string | null,
+  email: string,
+  env: Env,
+): Promise<boolean> {
+  let bucketDeleted = false;
   try {
     if (accountId && env.CLOUDFLARE_API_TOKEN) {
       // Try to empty bucket via S3 API using worker-level R2 credentials
@@ -129,7 +148,7 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
         });
 
         if (res.ok) {
-          result.bucketDeleted = true;
+          bucketDeleted = true;
           logger.info('Deleted R2 bucket', { bucketName, attempt });
           break;
         }
@@ -152,6 +171,38 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   } catch (err) {
     logger.error('Failed to delete R2 bucket', toError(err));
   }
+  return bucketDeleted;
+}
 
-  return result;
+/**
+ * Remove all data associated with a user: sessions, containers, KV entries,
+ * scoped R2 token, and R2 bucket.
+ *
+ * Does NOT handle auth checks, rate limiting, or Access policy sync —
+ * callers are responsible for those concerns.
+ */
+export async function cleanupUserData(email: string, env: Env): Promise<CleanupResult> {
+  const normalizedEmail = normalizeCleanupEmail(email);
+  const bucketName = resolveCleanupBucket(normalizedEmail, env);
+
+  // --- Block A: Session + Container cleanup ---
+  const deletedSessions = await deleteSessionsAndContainers(bucketName, env);
+
+  // --- Blocks B + B2: User + bucket-keyed KV deletion ---
+  await deleteUserKvEntries(normalizedEmail, bucketName, env);
+
+  // --- Read R2 token data ONCE before cleanup (used by Block C and D) ---
+  // Must use getAndDecrypt — r2token values are encrypted when ENCRYPTION_KEY is set.
+  // Raw KV.get('json') throws SyntaxError on the "v1:..." ciphertext prefix.
+  const accountId = await env.KV.get(SETUP_KEYS.ACCOUNT_ID);
+  const cryptoKey = await getOrImportKey(env);
+  const r2TokenData = await getAndDecrypt<{ tokenId?: string; accessKeyId?: string; secretAccessKey?: string }>(env.KV, `r2token:${normalizedEmail}`, cryptoKey);
+
+  // --- Block C: R2 scoped token cleanup ---
+  const tokenDeleted = await deleteR2Token(normalizedEmail, accountId, r2TokenData, email, env);
+
+  // --- Block D: R2 bucket empty + delete ---
+  const bucketDeleted = await deleteR2Bucket(bucketName, accountId, email, env);
+
+  return { deletedSessions, bucketDeleted, tokenDeleted };
 }

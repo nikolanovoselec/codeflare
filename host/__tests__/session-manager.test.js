@@ -165,4 +165,115 @@ describe('SessionManager', () => {
       assert.equal(result, false, 'delete should return false for unknown ID');
     });
   });
+
+  // ── list ───────────────────────────────────────────────────────────
+
+  describe('list()', () => {
+    it('returns toJSON() of every session in the map', () => {
+      mgr.getOrCreate('a-1', 'Alpha');
+      mgr.getOrCreate('b-2', 'Beta');
+
+      const list = mgr.list();
+      assert.equal(list.length, 2, 'should list both sessions');
+      const ids = list.map((s) => s.id).sort();
+      assert.deepEqual(ids, ['a-1', 'b-2'], 'should contain both session ids');
+      // toJSON shape is preserved
+      const alpha = list.find((s) => s.id === 'a-1');
+      assert.equal(alpha.name, 'Alpha');
+      assert.equal(alpha.ptyAlive, true);
+    });
+
+    it('returns an empty array when there are no sessions', () => {
+      assert.deepEqual(mgr.list(), [], 'empty manager lists nothing');
+    });
+  });
+
+  // ── size ───────────────────────────────────────────────────────────
+
+  describe('size', () => {
+    it('reflects the number of entries in the session map', () => {
+      assert.equal(mgr.size, 0, 'starts at zero');
+      mgr.getOrCreate('a-1', 'T');
+      assert.equal(mgr.size, 1, 'grows on create');
+      mgr.getOrCreate('b-2', 'T');
+      assert.equal(mgr.size, 2, 'grows again');
+      mgr.delete('a-1');
+      assert.equal(mgr.size, 1, 'shrinks on delete');
+    });
+
+    it('counts prewarm sessions toward map size', () => {
+      mgr.sessions.set(PREWARM_SESSION_ID, new FakeSession(PREWARM_SESSION_ID, 'pw', false));
+      assert.equal(mgr.size, 1, 'prewarm session is part of the map');
+    });
+  });
+
+  // ── killAll ────────────────────────────────────────────────────────
+
+  describe('killAll()', () => {
+    it('kills every session and clears the map', () => {
+      const a = mgr.getOrCreate('a-1', 'T');
+      const b = mgr.getOrCreate('b-2', 'T');
+
+      mgr.killAll();
+
+      assert.equal(a._killed, true, 'session a should be killed');
+      assert.equal(b._killed, true, 'session b should be killed');
+      assert.equal(mgr.size, 0, 'map should be empty after killAll');
+    });
+
+    it('is safe to call on an empty manager', () => {
+      mgr.killAll();
+      assert.equal(mgr.size, 0, 'still empty, no throw');
+    });
+  });
+
+  // ── startCleanup / stopCleanup ─────────────────────────────────────
+
+  describe('startCleanup() / stopCleanup()', () => {
+    it('startCleanup sets a cleanup interval handle', () => {
+      assert.equal(mgr.cleanupInterval, null, 'no interval before start');
+      mgr.startCleanup();
+      assert.notEqual(mgr.cleanupInterval, null, 'interval handle set after start');
+      mgr.stopCleanup();
+    });
+
+    it('startCleanup is idempotent (does not replace an existing interval)', () => {
+      mgr.startCleanup();
+      const first = mgr.cleanupInterval;
+      mgr.startCleanup();
+      assert.equal(mgr.cleanupInterval, first, 'second start keeps the same handle');
+      mgr.stopCleanup();
+    });
+
+    it('stopCleanup clears the interval handle', () => {
+      mgr.startCleanup();
+      mgr.stopCleanup();
+      assert.equal(mgr.cleanupInterval, null, 'interval cleared after stop');
+    });
+
+    it('stopCleanup is safe to call when no interval is running', () => {
+      mgr.stopCleanup();
+      assert.equal(mgr.cleanupInterval, null, 'still null, no throw');
+    });
+
+    it('the cleanup interval removes dead sessions when it fires', () => {
+      const fakeTimers = mock.timers;
+      fakeTimers.enable({ apis: ['setInterval'] });
+      try {
+        const localMgr = new SessionManager({ maxSessions: 3, ptyCleanupIntervalMs: 1000 });
+        const dead = new FakeSession('dead', 'T', false);
+        dead.ptyProcess = null;
+        dead.clients = new Set();
+        localMgr.sessions.set('dead', dead);
+
+        localMgr.startCleanup();
+        fakeTimers.tick(1000);
+
+        assert.equal(localMgr.sessions.has('dead'), false, 'dead session removed when interval fires');
+        localMgr.stopCleanup();
+      } finally {
+        fakeTimers.reset();
+      }
+    });
+  });
 });

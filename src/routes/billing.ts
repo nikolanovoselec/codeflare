@@ -24,7 +24,7 @@ import {
   fetchSubscription,
 } from '../lib/stripe';
 import { getCurrencyForCountry } from '../lib/currency';
-import { parseJsonBody, firstZodError } from '../lib/request-helpers';
+import { parseJsonBody } from '../lib/request-helpers';
 
 const logger = createLogger('billing');
 
@@ -65,12 +65,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     }
   }
 
-  const raw = await parseJsonBody(c);
-
-  const parsed = CheckoutSchema.safeParse(raw);
-  if (!parsed.success) throw new ValidationError(firstZodError(parsed.error));
-
-  const { tier, mode } = parsed.data;
+  const { tier, mode } = await parseJsonBody(c, CheckoutSchema);
 
   // Free tier doesn't go through Stripe
   if (tier === 'free') {
@@ -242,12 +237,7 @@ app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
 
   const user = c.get('user');
 
-  const raw = await parseJsonBody(c);
-
-  const parsed = SwitchSchema.safeParse(raw);
-  if (!parsed.success) throw new ValidationError(firstZodError(parsed.error));
-
-  const { tier, mode } = parsed.data;
+  const { tier, mode } = await parseJsonBody(c, SwitchSchema);
 
   if (tier === 'free') {
     throw new ValidationError('Use the Customer Portal to cancel or downgrade to free.');
