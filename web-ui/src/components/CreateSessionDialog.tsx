@@ -41,11 +41,22 @@ export const AGENT_OPTIONS: AgentOption[] = [
   { type: 'bash', label: 'Bash', icon: mdiConsole, description: 'Plain terminal session' },
 ];
 
+// Enterprise mode restricts the agent set to the gateway-routed agents.
+// When enterpriseMode is unset/false, the full AGENT_OPTIONS list renders.
+const ENTERPRISE_AGENT_TYPES: AgentType[] = ['claude-code', 'copilot', 'pi', 'bash'];
+
 const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
   let dialogRef: HTMLDivElement | undefined;
   const [position, setPosition] = createSignal<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 300 });
 
   const lastAgentType = () => sessionStore.preferences.lastAgentType;
+
+  // Enterprise mode shows only the gateway-routed agent allowlist; otherwise the
+  // full set. Falsy enterpriseMode ⇒ unchanged (all AGENT_OPTIONS render).
+  const agentOptions = () =>
+    sessionStore.enterpriseMode
+      ? AGENT_OPTIONS.filter((a) => ENTERPRISE_AGENT_TYPES.includes(a.type))
+      : AGENT_OPTIONS;
 
   // Compute fixed position from anchor button rect — dialog opens BELOW the button.
   // If there isn't enough room below, flip it above the button instead.
@@ -140,7 +151,7 @@ const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
             <span>Agent Type</span>
           </div>
           <div class="csd-agents">
-            <For each={AGENT_OPTIONS}>
+            <For each={agentOptions()}>
               {(agent) => (
                 <button
                   type="button"

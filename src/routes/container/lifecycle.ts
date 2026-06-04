@@ -10,9 +10,8 @@ import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../.
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { AppError, ContainerError, toError, toErrorMessage } from '../../lib/error-types';
-import { getTierConfig, getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
+import { getTierConfig, getEffectiveTier } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
-import { signProxyToken } from '../../lib/session-jwt';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, putSessionWithMetadata } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
@@ -216,36 +215,11 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const tabConfig = sessionData.tabConfig
       || getDefaultTabConfig(sessionData.agentType || 'claude-code');
 
-    // Enterprise-mode LLM-proxy injection (REQ-ENTERPRISE-004/005). ONLY when
-    // ENTERPRISE_MODE=active: every agent's LLM traffic is routed through the
-    // Worker-side proxy at /api/llm/<sid>/<provider>, authenticated by a signed
-    // per-session token. The gateway URL/token never reach the container - the
-    // container only ever sees a same-origin Worker URL + the proxy token. When
-    // not enterprise, every field stays undefined so the downstream conditional
-    // spreads emit nothing and the container env is byte-identical to today.
-    let enterpriseProxy: {
-      anthropicBaseUrl?: string;
-      copilotProviderBaseUrl?: string;
-      piBaseUrl?: string;
-      aigProxyToken?: string;
-      enterpriseMode?: string;
-    } = {};
-    if (isEnterpriseMode(c.env)) {
-      const workerOrigin = new URL(c.req.url).origin;
-      // bucketName is the deterministic, opaque per-user id (derived from email
-      // but never the email itself) - safe to stamp as cf-aig-metadata.user.
-      const aigProxyToken = await signProxyToken(
-        { sid: sessionId, user: bucketName },
-        c.env.ENCRYPTION_KEY ?? '',
-      );
-      enterpriseProxy = {
-        anthropicBaseUrl: `${workerOrigin}/api/llm/${sessionId}/anthropic`,
-        copilotProviderBaseUrl: `${workerOrigin}/api/llm/${sessionId}/compat`,
-        piBaseUrl: `${workerOrigin}/api/llm/${sessionId}/compat`,
-        aigProxyToken,
-        enterpriseMode: 'active',
-      };
-    }
+    // Enterprise-mode LLM routing (REQ-ENTERPRISE-004/005) needs NO per-session
+    // injection here: the container DO wires outbound-HTTPS interception in
+    // onStart (container/index.ts), and buildEnvVars emits ENTERPRISE_MODE
+    // straight from the Worker deploy var. The gateway URL/token live only in
+    // the LlmInterceptor's env - they never reach the container.
 
     // Step 4: Configure the container DO
     const { needsBucketUpdate, setBucketBody } = await configureContainerDO({
@@ -268,8 +242,6 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       // on createSession) into the container so capture filenames reflect
       // the user's wall-clock instead of UTC.
       userTimezone: preferences.userTimezone,
-      // Enterprise-mode LLM-proxy fields (empty object when not enterprise).
-      ...enterpriseProxy,
       logger: reqLogger,
     });
 

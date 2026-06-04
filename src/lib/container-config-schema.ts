@@ -32,14 +32,6 @@ export const SetBucketNameBodySchema = z.object({
   sleepAfter: z.string(),
   /** REQ-MEM-001 AC4: forward the user's IANA timezone to the container. */
   userTimezone: z.string().optional(),
-  // Enterprise-mode LLM-proxy injection fields. Optional + omitted on
-  // non-enterprise deploys (the Worker-side builder only includes them when
-  // ENTERPRISE_MODE=active), so existing bodies parse unchanged.
-  anthropicBaseUrl: z.string().optional(),
-  copilotProviderBaseUrl: z.string().optional(),
-  piBaseUrl: z.string().optional(),
-  aigProxyToken: z.string().optional(),
-  enterpriseMode: z.string().optional(),
 }).passthrough();
 
 /**

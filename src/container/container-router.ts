@@ -55,14 +55,6 @@ interface SetBucketNameBody {
   // three-artifact contract (export TZ, /etc/timezone, /etc/localtime symlink).
   userTimezone?: string;
   sleepAfter?: string;
-  // Enterprise-mode LLM-proxy injection fields. Present only when the Worker is
-  // deployed with ENTERPRISE_MODE=active; applyBucketName / applyPrefsOnRestart
-  // forward them to state and buildEnvVars emits the matching env vars.
-  anthropicBaseUrl?: string;
-  copilotProviderBaseUrl?: string;
-  piBaseUrl?: string;
-  aigProxyToken?: string;
-  enterpriseMode?: string;
 }
 
 /** Successful POST /_internal/setBucketName response (200). */
@@ -149,7 +141,7 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, userTimezone, anthropicBaseUrl, copilotProviderBaseUrl, piBaseUrl, aigProxyToken, enterpriseMode, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, userTimezone, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
     // FIX-28: Idempotency - once bucket name is set, reject subsequent calls.
@@ -162,7 +154,6 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
         sessionId, userEmail, workspaceSyncEnabled, fastStartEnabled, tabConfig,
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
         encryptionKey, sessionMode, userTimezone,
-        anthropicBaseUrl, copilotProviderBaseUrl, piBaseUrl, aigProxyToken, enterpriseMode,
       });
 
       // Update idle timeout on restart. Storage key is 'sleepAfter' for
@@ -223,11 +214,6 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       encryptionKey,
       sessionMode,
       userTimezone,
-      anthropicBaseUrl,
-      copilotProviderBaseUrl,
-      piBaseUrl,
-      aigProxyToken,
-      enterpriseMode,
     });
 
     // Apply user-configurable idle timeout (validated values: 5m, 15m, 30m, 1h, 2h).

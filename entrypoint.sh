@@ -1768,6 +1768,136 @@ if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
     echo "[entrypoint] consult-llm MCP server configured for Claude Code"
 fi
 
+# ---------------------------------------------------------------------------
+# Enterprise Mode agent routing. (Implements REQ-ENTERPRISE-004 / 005)
+#
+# In Enterprise Mode the container's outbound HTTPS to the real LLM provider
+# hosts (api.anthropic.com / api.openai.com) is transparently routed to the
+# customer's AI Gateway by the Container DO via platform outbound-HTTPS
+# interception (see src/container/index.ts setupEnterpriseInterception +
+# src/llm-interceptor.ts). The gateway URL + token live ONLY in the
+# interceptor's Worker env; nothing secret is ever placed in the container, and
+# the interception is platform-internal so it never traverses Cloudflare Access.
+#
+# This block does the container-side half of that contract:
+#   1. Trust the Cloudflare containers CA so the intercepted (TLS-terminated)
+#      HTTPS connections validate. HTTPS interception presents a cert signed by
+#      that CA, mounted by the platform at runtime under /etc/cloudflare/certs/.
+#   2. Point each agent at the constant, NON-SECRET real provider base-URL with
+#      a NON-SECRET placeholder credential - just enough to put the CLI in API
+#      mode. The interceptor strips the placeholder and stamps gateway auth, so
+#      it never reaches the gateway.
+#
+# Gated strictly on ENTERPRISE_MODE=active (emitted by buildEnvVars only when
+# the Worker deploy var is set). When unset the entire block is skipped, so a
+# normal deployment is byte-identical to today: no CA install, no provider
+# exports, no Pi models.json, and the Claude OAuth login is untouched.
+if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
+    echo "[entrypoint] Enterprise Mode active: trusting containers CA + routing agents to the AI Gateway via outbound interception"
+
+    # --- TLS: trust the Cloudflare containers CA ---------------------------
+    # interceptOutboundHttps terminates the container's TLS with a cert signed
+    # by this CA. Without trusting it the agents' HTTPS clients reject the
+    # intercepted connection. Install into the system store (covers Claude's
+    # native binary + curl/openssl) AND export the Node + Python env hooks
+    # (Copilot / Pi / any node|python tooling use their own trust stores).
+    CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"
+    if [ -f "$CF_CA_SRC" ]; then
+        cp "$CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
+            && update-ca-certificates >/dev/null 2>&1 \
+            && echo "[entrypoint] Enterprise Mode: Cloudflare containers CA installed into system trust store" \
+            || echo "[entrypoint] WARNING: could not install Cloudflare containers CA; LLM interception TLS may fail"
+        export NODE_EXTRA_CA_CERTS="$CF_CA_SRC"
+        export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
+        export REQUESTS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
+    else
+        echo "[entrypoint] WARNING: $CF_CA_SRC not found; outbound HTTPS interception is unavailable (LLM calls will fail)"
+    fi
+
+    # Constant, NON-SECRET placeholder credential. Each agent CLI only enters
+    # API/gateway mode when *some* credential is present; the interceptor strips
+    # it before forwarding, so it is never a real secret and never reaches the
+    # gateway. The customer's real provider key lives on the AI Gateway.
+    ENTERPRISE_PLACEHOLDER_TOKEN="codeflare-enterprise"
+
+    # --- Claude Code -------------------------------------------------------
+    # Point Claude at its real default host (intercepted -> gateway/anthropic)
+    # and hand it the placeholder token so it uses API mode instead of an
+    # interactive OAuth login.
+    export ANTHROPIC_BASE_URL="https://api.anthropic.com"
+    export ANTHROPIC_AUTH_TOKEN="$ENTERPRISE_PLACEHOLDER_TOKEN"
+    # OAuth-vs-gateway precedence: Claude Code prefers a restored OAuth login at
+    # ~/.claude/.credentials.json over env auth. In Enterprise Mode that stored
+    # OAuth credential MUST NOT win - all traffic must go through the customer's
+    # gateway. The R2 restore (Step 1) may have synced a .credentials.json into
+    # place, so neutralise it: move it aside so the env gateway auth is the only
+    # auth Claude can resolve. Non-enterprise sessions never reach this branch,
+    # so their OAuth login is untouched.
+    CLAUDE_CREDS="$USER_CLAUDE_DIR/.credentials.json"
+    if [ -f "$CLAUDE_CREDS" ]; then
+        mv "$CLAUDE_CREDS" "$CLAUDE_CREDS.enterprise-disabled" 2>/dev/null \
+            && echo "[entrypoint] Enterprise Mode: stored Claude OAuth credential set aside so the gateway env auth wins" \
+            || echo "[entrypoint] WARNING: could not set aside $CLAUDE_CREDS; gateway auth may be overridden by stored OAuth"
+    fi
+
+    # --- GitHub Copilot ----------------------------------------------------
+    # BYOK against the real OpenAI host (intercepted -> gateway/compat) with the
+    # placeholder key. Model selection is admin/gateway-side; only honour an
+    # explicit COPILOT_MODEL if the admin supplied one.
+    export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
+    export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
+    echo "[entrypoint] Enterprise Mode: Copilot pointed at the AI Gateway (compat) via interception"
+    if [ -n "${COPILOT_MODEL:-}" ]; then
+        export COPILOT_MODEL
+        echo "[entrypoint] Enterprise Mode: Copilot model pinned to admin-provided COPILOT_MODEL"
+    fi
+
+    # --- Pi ----------------------------------------------------------------
+    # Pi reads custom provider config from ~/.pi/agent/models.json (see Pi docs
+    # models.md / providers.md). Register a provider pointing at the real OpenAI
+    # host (intercepted -> gateway/compat) with the placeholder key. The base
+    # URL + key are passed as jq --arg so they are real values, not literal
+    # "$VAR" strings. authHeader:true sends Authorization: Bearer <key>.
+    # Model is admin/gateway-side: register a model id only when PI_MODEL is set.
+    PI_GATEWAY_BASE_URL="https://api.openai.com/v1"
+    PI_MODELS_JSON="$USER_HOME/.pi/agent/models.json"
+    mkdir -p "$(dirname "$PI_MODELS_JSON")"
+    PI_MODEL_ENTRY="[]"
+    if [ -n "${PI_MODEL:-}" ]; then
+        PI_MODEL_ENTRY=$(jq -n --arg id "$PI_MODEL" \
+            '[{id:$id, reasoning:true, input:["text","image"]}]')
+        echo "[entrypoint] Enterprise Mode: Pi model registered from admin-provided PI_MODEL"
+    else
+        echo "[entrypoint] Enterprise Mode: Pi provider registered without a model id (model selection is admin/gateway-side)"
+    fi
+    PI_PROVIDER_CONFIG=$(jq -n \
+        --arg baseUrl "$PI_GATEWAY_BASE_URL" \
+        --arg apiKey "$ENTERPRISE_PLACEHOLDER_TOKEN" \
+        --argjson models "$PI_MODEL_ENTRY" '{
+        providers: {
+            "codeflare-gateway": {
+                baseUrl: $baseUrl,
+                api: "openai-completions",
+                apiKey: $apiKey,
+                authHeader: true,
+                models: $models
+            }
+        }
+    }')
+    if [ -f "$PI_MODELS_JSON" ]; then
+        TMP_JSON=$(mktemp)
+        if jq --argjson cfg "$PI_PROVIDER_CONFIG" '. * $cfg' "$PI_MODELS_JSON" > "$TMP_JSON" 2>/dev/null; then
+            mv "$TMP_JSON" "$PI_MODELS_JSON"
+        else
+            echo "[entrypoint] WARNING: Could not merge Pi gateway provider (malformed models.json?)"
+            rm -f "$TMP_JSON"
+        fi
+    else
+        echo "$PI_PROVIDER_CONFIG" | jq '.' > "$PI_MODELS_JSON"
+    fi
+    echo "[entrypoint] Enterprise Mode: Pi gateway provider written to models.json"
+fi
+
 # Configure context-mode MCP server. (Implements REQ-AGENT-005)
 # context-mode (https://github.com/mksglu/context-mode) ships in two layers:
 #   1. MCP server (ctx_* tools) - registered for ALL users on every session
@@ -1897,6 +2027,74 @@ else
     echo "$GRAPHIFY_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
 fi
 echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAPHIFY_VERSION)"
+
+# ---------------------------------------------------------------------------
+# Configure chrome-devtools-mcp -> Cloudflare Browser Run. (Implements
+# REQ-BROWSER-001 / REQ-BROWSER-003)
+#
+# A real-browser WebFetch fallback (bot protection, login walls, redirect
+# chains, JS-only pages). chrome-devtools-mcp connects to a *remote* CDP
+# endpoint via its --wsEndpoint flag; Cloudflare Browser Run exposes a CDP
+# /devtools WebSocket at:
+#   wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=600000
+# The Cloudflare API token is passed as an Authorization: Bearer header via
+# --wsHeaders (per Cloudflare's MCP-clients doc; --wsHeaders only works with
+# --wsEndpoint). The token must carry the "Browser Rendering - Edit" scope -
+# this is the user-pasted deploy-keys CF token (injected as CLOUDFLARE_API_TOKEN
+# + CLOUDFLARE_ACCOUNT_ID by the container env pipeline), not the CI token.
+#
+# Double gate, both must hold (otherwise NOT registered, so default/standard
+# sessions and deployments without a CF token are byte-identical to today):
+#   1. SESSION_MODE=advanced  - browser fallback is a Pro/advanced affordance,
+#      matching the existing advanced-only MCP gating.
+#   2. CLOUDFLARE_API_TOKEN non-empty - no token, no remote browser; the
+#      registration would no-op (and CLOUDFLARE_ACCOUNT_ID is needed for the
+#      endpoint URL), so we require both before wiring it up.
+if [ "${SESSION_MODE:-default}" = "advanced" ] \
+   && [ -n "${CLOUDFLARE_API_TOKEN:-}" ] \
+   && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+    CDP_WS_ENDPOINT="wss://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser?keep_alive=600000"
+    # --wsHeaders takes a JSON string; build it with jq so the bearer token is
+    # safely encoded, then pass it as a single --wsHeaders=<json> arg.
+    CDP_WS_HEADERS=$(jq -nc --arg auth "Bearer $CLOUDFLARE_API_TOKEN" '{Authorization:$auth}')
+
+    # Claude Code (~/.claude.json) - mirror the graphify MCP merge.
+    BROWSER_MCP_CLAUDE=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
+        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@latest",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
+    if [ -f "$USER_CLAUDE_JSON" ]; then
+        TMP_JSON=$(mktemp)
+        if jq --argjson mcp "$BROWSER_MCP_CLAUDE" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
+            mv "$TMP_JSON" "$USER_CLAUDE_JSON"
+        else
+            echo "[entrypoint] WARNING: Could not merge chrome-devtools MCP config (malformed .claude.json?)"
+            rm -f "$TMP_JSON"
+        fi
+    else
+        echo "$BROWSER_MCP_CLAUDE" | jq '.' > "$USER_CLAUDE_JSON"
+    fi
+    echo "[entrypoint] chrome-devtools MCP server registered in .claude.json (Cloudflare Browser Run)"
+
+    # GitHub Copilot (~/.copilot/mcp-config.json) - Copilot's custom-MCP
+    # surface. Server entries use the {type:"local",command,args,tools} shape;
+    # tools:["*"] allows all browser tools. Merge so we don't clobber any other
+    # configured server.
+    COPILOT_MCP_CONFIG="$USER_HOME/.copilot/mcp-config.json"
+    mkdir -p "$(dirname "$COPILOT_MCP_CONFIG")"
+    BROWSER_MCP_COPILOT=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
+        '{mcpServers:{"chrome-devtools":{type:"local",command:"npx",args:["-y","chrome-devtools-mcp@latest",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],tools:["*"]}}}')
+    if [ -f "$COPILOT_MCP_CONFIG" ]; then
+        TMP_JSON=$(mktemp)
+        if jq --argjson mcp "$BROWSER_MCP_COPILOT" '. * $mcp' "$COPILOT_MCP_CONFIG" > "$TMP_JSON" 2>/dev/null; then
+            mv "$TMP_JSON" "$COPILOT_MCP_CONFIG"
+        else
+            echo "[entrypoint] WARNING: Could not merge chrome-devtools MCP config (malformed mcp-config.json?)"
+            rm -f "$TMP_JSON"
+        fi
+    else
+        echo "$BROWSER_MCP_COPILOT" | jq '.' > "$COPILOT_MCP_CONFIG"
+    fi
+    echo "[entrypoint] chrome-devtools MCP server registered for Copilot (Cloudflare Browser Run)"
+fi
 
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
 PLUGIN_DIR="$USER_HOME/.claude/plugins"

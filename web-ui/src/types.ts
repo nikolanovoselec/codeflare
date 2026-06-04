@@ -132,6 +132,7 @@ export interface AuthStatus {
   currency?: string;
   billingStatus?: string | null;
   userCapacityReached?: boolean;
+  enterpriseMode?: boolean;
 }
 
 export interface AuthProvider {
@@ -155,6 +156,7 @@ export interface UserInfo {
   onboardingComplete?: boolean;
   hasSubscribed?: boolean;
   subscribedMode?: 'default' | 'advanced';
+  enterpriseMode?: boolean;
 }
 
 // Terminal connection state (no 'error' — infinite retries mean we never give up)

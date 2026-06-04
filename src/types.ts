@@ -96,11 +96,14 @@ export interface Env {
   // routed through the customer's AI Gateway. Off by default (undefined ⇒ all
   // existing code paths unchanged).
   ENTERPRISE_MODE?: string;
-  // AI Gateway base URL the Worker-side LLM proxy forwards to (enterprise only).
-  // Set via wrangler secret. Never exposed to the container.
+  // AI Gateway base URL the LlmInterceptor WorkerEntrypoint forwards to
+  // (enterprise only). Set via wrangler secret. Held in the Worker/interceptor
+  // env only — never injected into the container (the container reaches the
+  // gateway via platform outbound-HTTPS interception, not a URL).
   AIG_GATEWAY_URL?: string;
-  // AI Gateway authorization token stamped as cf-aig-authorization by the proxy
-  // (enterprise only). Set via wrangler secret. Never exposed to the container.
+  // AI Gateway authorization token stamped as cf-aig-authorization by the
+  // interceptor (enterprise only). Set via wrangler secret. Never exposed to
+  // the container.
   AIG_TOKEN?: string;
 
 }
@@ -312,16 +315,6 @@ export interface ContainerConfigPayload {
   deployKeys?: DeployKeys;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded to the container. */
   userTimezone?: string;
-  /**
-   * Enterprise-mode LLM-proxy injection fields. Populated by the lifecycle
-   * route only when isEnterpriseMode(env); undefined on every other deploy so
-   * the downstream conditional spreads emit nothing.
-   */
-  anthropicBaseUrl?: string;
-  copilotProviderBaseUrl?: string;
-  piBaseUrl?: string;
-  aigProxyToken?: string;
-  enterpriseMode?: string;
 }
 
 interface StorageObject {

@@ -46,6 +46,7 @@ export const AuthStatusResponseSchema = z.object({
   currency: z.string().optional(),
   billingStatus: z.string().nullable().optional(),
   userCapacityReached: z.boolean().optional(),
+  enterpriseMode: z.boolean().optional(),
 });
 
 export const AuthProvidersResponseSchema = z.object({
@@ -109,6 +110,7 @@ export const UserResponseSchema = z.object({
   onboardingComplete: z.boolean().optional(),
   hasSubscribed: z.boolean().optional(),
   subscribedMode: z.enum(['default', 'advanced']).optional(),
+  enterpriseMode: z.boolean().optional(),
 });
 
 export const SessionsResponseSchema = z.object({

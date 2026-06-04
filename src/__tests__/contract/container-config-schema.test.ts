@@ -1,18 +1,20 @@
 /**
- * REQ-ENTERPRISE-005: SetBucketNameBodySchema must accept the 5 optional
- * LLM-proxy fields (anthropicBaseUrl / copilotProviderBaseUrl / piBaseUrl /
- * aigProxyToken / enterpriseMode) when present, and continue to parse existing
- * bodies that omit them (non-enterprise deploys, flag-off regression).
+ * REQ-ENTERPRISE-005 (non-disruption gate): the setBucketName transport carries
+ * NO enterprise LLM fields. With the outbound-interception design, enterprise
+ * LLM routing is done entirely by the DO's interception + the entrypoint.sh CA
+ * trust — none of it flows through SetBucketNameBodySchema. This test pins that
+ * the container-config contract is byte-identical to the pre-enterprise shape,
+ * so a non-enterprise deploy is unaffected.
  *
- * AC1. A body carrying the 5 fields parses and the values survive.
- * AC2. A body WITHOUT the 5 fields still parses (existing contract unchanged).
- * AC3. The 5 fields are optional - omitting them does not introduce them as
- *      undefined keys that would break the truthy spread downstream.
+ * AC1. A standard body (as the Worker builds it) parses and the values survive.
+ * AC2. The schema declares no enterprise LLM fields (anthropicBaseUrl /
+ *      copilotProviderBaseUrl / piBaseUrl / aigProxyToken / enterpriseMode):
+ *      omitting them parses, and they are absent from the result.
  */
 import { describe, it, expect } from 'vitest';
 import { SetBucketNameBodySchema } from '../../lib/container-config-schema';
 
-/** A minimal-but-valid setBucketName body as the Worker builds today (no enterprise fields). */
+/** A minimal-but-valid setBucketName body as the Worker builds it. */
 function baseBody() {
   return {
     bucketName: 'codeflare-test',
@@ -30,43 +32,20 @@ function baseBody() {
   };
 }
 
-describe('REQ-ENTERPRISE-005: SetBucketNameBodySchema LLM-proxy fields', () => {
-  it('AC1: parses a body carrying all 5 LLM-proxy fields and preserves them', () => {
-    const parsed = SetBucketNameBodySchema.parse({
-      ...baseBody(),
-      anthropicBaseUrl: 'https://w/api/llm/sid/anthropic',
-      copilotProviderBaseUrl: 'https://w/api/llm/sid/compat',
-      piBaseUrl: 'https://w/api/llm/sid/compat',
-      aigProxyToken: 'signed.proxy.token',
-      enterpriseMode: 'active',
-    });
-    expect(parsed.anthropicBaseUrl).toBe('https://w/api/llm/sid/anthropic');
-    expect(parsed.copilotProviderBaseUrl).toBe('https://w/api/llm/sid/compat');
-    expect(parsed.piBaseUrl).toBe('https://w/api/llm/sid/compat');
-    expect(parsed.aigProxyToken).toBe('signed.proxy.token');
-    expect(parsed.enterpriseMode).toBe('active');
-  });
-
-  it('AC2: parses an existing body WITHOUT the LLM-proxy fields (flag-off regression)', () => {
+describe('REQ-ENTERPRISE-005: setBucketName transport carries no enterprise LLM fields', () => {
+  it('AC1: parses the standard body and preserves its values', () => {
     const parsed = SetBucketNameBodySchema.parse(baseBody());
     expect(parsed.bucketName).toBe('codeflare-test');
     expect(parsed.sessionMode).toBe('default');
     expect(parsed.sleepAfter).toBe('30m');
   });
 
-  it('AC3: the LLM-proxy fields are absent (not undefined keys) when omitted', () => {
+  it('AC2: no enterprise LLM fields are present in a parsed standard body', () => {
     const parsed = SetBucketNameBodySchema.parse(baseBody());
     expect('anthropicBaseUrl' in parsed).toBe(false);
+    expect('copilotProviderBaseUrl' in parsed).toBe(false);
+    expect('piBaseUrl' in parsed).toBe(false);
     expect('aigProxyToken' in parsed).toBe(false);
     expect('enterpriseMode' in parsed).toBe(false);
-  });
-
-  it('AC1: a partial set of fields (only enterpriseMode) still parses', () => {
-    const parsed = SetBucketNameBodySchema.parse({
-      ...baseBody(),
-      enterpriseMode: 'active',
-    });
-    expect(parsed.enterpriseMode).toBe('active');
-    expect('anthropicBaseUrl' in parsed).toBe(false);
   });
 });

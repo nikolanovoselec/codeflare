@@ -149,11 +149,11 @@ describe('getCloudflareTokenUrl', () => {
     }
   });
 
-  it('advanced has 22 scopes (superset of recommended)', () => {
+  it('advanced has 23 scopes (superset of recommended)', () => {
     const url = getCloudflareTokenUrl('advanced');
     const params = new URL(url).searchParams;
     const scopes = JSON.parse(params.get('permissionGroupKeys')!);
-    expect(scopes).toHaveLength(22);
+    expect(scopes).toHaveLength(23);
 
     const recUrl = getCloudflareTokenUrl('recommended');
     const recScopes = JSON.parse(new URL(recUrl).searchParams.get('permissionGroupKeys')!);
@@ -200,5 +200,19 @@ describe('getCloudflareTokenUrl', () => {
     expect(keys).toContain('challenge_widgets');
     expect(keys).toContain('workers_ci');
     expect(keys).toContain('r2_catalog');
+  });
+
+  // REQ-BROWSER-002: Browser Rendering edit scope enables Cloudflare Browser Run.
+  it('advanced includes browser_rendering edit (Browser Rendering)', () => {
+    const url = getCloudflareTokenUrl('advanced');
+    const scopes = JSON.parse(new URL(url).searchParams.get('permissionGroupKeys')!);
+    expect(scopes).toContainEqual({ key: 'browser_rendering', type: 'edit' });
+  });
+
+  it('recommended does NOT include browser_rendering', () => {
+    const url = getCloudflareTokenUrl('recommended');
+    const scopes = JSON.parse(new URL(url).searchParams.get('permissionGroupKeys')!);
+    const keys = scopes.map((s: { key: string }) => s.key);
+    expect(keys).not.toContain('browser_rendering');
   });
 });

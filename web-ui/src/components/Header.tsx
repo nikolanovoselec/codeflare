@@ -43,6 +43,7 @@ interface HeaderProps {
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
+  enterpriseMode?: boolean;
   // Note: logout goes through /auth/logout which routes to OIDC or CF Access as appropriate
 }
 
@@ -289,14 +290,16 @@ const Header: Component<HeaderProps> = (props) => {
               No onClick handlers = no touch event race conditions on mobile. */}
           <Show when={showUserMenu()}>
             <div class="header-user-dropdown" data-testid="header-user-dropdown">
-              <a
-                href="/app/subscribe"
-                class="header-user-dropdown-item"
-                data-testid="header-user-dropdown-profile"
-              >
-                <Icon path={mdiAccountOutline} size={16} />
-                <span>Subscription</span>
-              </a>
+              <Show when={!props.enterpriseMode}>
+                <a
+                  href="/app/subscribe"
+                  class="header-user-dropdown-item"
+                  data-testid="header-user-dropdown-profile"
+                >
+                  <Icon path={mdiAccountOutline} size={16} />
+                  <span>Subscription</span>
+                </a>
+              </Show>
               <a
                 href="/app/usage"
                 class="header-user-dropdown-item"

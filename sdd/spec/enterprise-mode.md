@@ -1,16 +1,16 @@
 # Enterprise Mode Domain Specification
 
-Deploy-time enterprise configuration: single-tenant unlimited access, subscription bypass, and a Worker-side LLM proxy to a customer-owned AI Gateway.
+Deploy-time enterprise configuration: single-tenant unlimited access, subscription bypass, and platform outbound-HTTPS interception that routes agent LLM traffic to a customer-owned AI Gateway with no credential ever placed in the container.
 
 ### Key Concepts
 
 | Concept | Definition |
 |---------|-----------|
 | Enterprise Mode | A deploy-time configuration, toggled by the `ENTERPRISE_MODE` Worker var, that turns a Codeflare deployment into a single-tenant enterprise instance: every user resolves to the `unlimited` tier in Pro (advanced) session mode and subscription/billing is disabled |
-| AI Gateway | The customer's Cloudflare AI Gateway endpoint that fronts the upstream LLM providers; its URL and token are held only in the Worker as secrets (`AIG_GATEWAY_URL`, `AIG_TOKEN`) |
-| LLM Proxy | A Worker route that forwards an agent's provider-shaped request to the customer's AI Gateway, keeping the gateway credentials out of the container |
-| Per-Session Proxy Token | A short-lived signed token, minted per session, that authenticates the agent-to-Worker hop on the LLM proxy route |
-| Provider Allowlist | The fixed set of upstream LLM providers the proxy will forward to; any other target is rejected to prevent SSRF |
+| AI Gateway | The customer's Cloudflare AI Gateway endpoint that fronts the upstream LLM providers; its URL and token are held only in the Worker/interceptor env as secrets (`AIG_GATEWAY_URL`, `AIG_TOKEN`) |
+| LLM Interceptor | A `WorkerEntrypoint` (`LlmInterceptor`) the container DO wires into container egress via `ctx.container.interceptOutboundHttps`; it receives the container's outbound HTTPS to the real provider hosts at the platform level (never the public internet, never Cloudflare Access), maps each onto the gateway provider path, and forwards with gateway auth + per-user attribution stamped on |
+| Outbound Interception | The Cloudflare Containers platform mechanism (`interceptOutboundHttps` + `ctx.exports`, gated by the `enable_ctx_exports` compat flag) that routes a container's matching egress hostnames through a `WorkerEntrypoint` with no credential, URL, or token in the container |
+| Per-User Attribution | The opaque per-user bucket id passed to the interceptor as a per-session DO prop and stamped as `cf-aig-metadata.user` (never an email) so usage is correlatable in the gateway |
 
 ### Out of Scope
 
@@ -25,16 +25,16 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 | Domain | Dependency |
 |--------|-----------|
 | Subscription | When the flag is set, tier resolution short-circuits to `unlimited` and the subscribe/billing surfaces are disabled (see [REQ-SUB-001](subscription.md#req-sub-001-eight-tier-subscription-system), [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)) |
-| Agents | Session-mode resolution forces Pro mode and the agent roster is narrowed (see [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)); per-session proxy injection rides the container env pipeline (see [REQ-AGENT-031](agents.md#req-agent-031-llm-api-key-propagation-to-container)) |
+| Agents | Session-mode resolution forces Pro mode and the agent roster is narrowed (see [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)); the container env pipeline emits only the `ENTERPRISE_MODE` flag (see [REQ-AGENT-031](agents.md#req-agent-031-llm-api-key-propagation-to-container)), and entrypoint.sh points each agent at the constant provider base-URLs |
 | Setup | `ENTERPRISE_MODE`, `AIG_GATEWAY_URL`, and `AIG_TOKEN` are configured at deploy time alongside the existing deployment-mode bindings (see [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes)) |
-| Security | The LLM proxy authenticates the agent hop with a signed per-session token and constrains forwarding to a provider allowlist |
+| Security | LLM traffic leaves the container only via platform interception to the interceptor `WorkerEntrypoint`; the gateway URL/token live solely in the interceptor env, never in the container, and the interception never traverses Cloudflare Access |
 
 ---
 
 <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (resolveEnterpriseMode describe -> ENTERPRISE_MODE flag forces unlimited tier + advanced session mode + subscription disabled -> AC1..AC4; flag-unset parity describe -> tier/mode/subscription resolution byte-identical to baseline across Default/Onboarding/SaaS -> AC5) -->
 ### REQ-ENTERPRISE-001: ENTERPRISE_MODE Forces Unlimited Tier and Pro Mode
 
-<!-- @impl: src/lib/enterprise-mode.ts::resolveEnterpriseMode -->
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 <!-- @impl: src/lib/subscription.ts -->
 <!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
 
@@ -68,7 +68,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (subscribe-surface gating describe -> billing UI hidden + /app/subscribe returns guarded response when enterprise + unchanged when flag unset -> AC1..AC4) -->
 ### REQ-ENTERPRISE-002: Subscription UI Hidden and Subscribe Route Guarded
 
-<!-- @impl: src/lib/enterprise-mode.ts::resolveEnterpriseMode -->
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 <!-- @impl: web-ui/src/components -->
 <!-- @impl: src/routes -->
 
@@ -101,7 +101,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (enterprise agent allowlist describe -> session creation accepts only claude-code/copilot/pi/bash when enterprise + rejects the other three + accepts all seven when flag unset -> AC1..AC4) -->
 ### REQ-ENTERPRISE-003: Agent Allowlist in Enterprise Mode
 
-<!-- @impl: src/lib/enterprise-mode.ts::resolveEnterpriseMode -->
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 <!-- @impl: src/routes/session/crud.ts -->
 <!-- @impl: src/types.ts::AgentTypeSchema -->
 
@@ -131,71 +131,73 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-<!-- @test: src/__tests__/routes/llm-proxy.test.ts (LLM proxy describe -> per-provider passthrough to AIG + streaming preserved + cf-aig-metadata stamped with opaque user id + signed per-session token required + provider allowlist rejects unknown target + flag-unset route absent -> AC1..AC7) -->
-### REQ-ENTERPRISE-004: Worker-Side LLM Proxy to Customer AI Gateway
+<!-- @test: src/__tests__/llm-interceptor.test.ts (LlmInterceptor describe -> host->gateway provider-path mapping (anthropic keeps /v1, compat drops /v1) + cf-aig-authorization + cf-aig-metadata stamped with opaque user + placeholder auth stripped + streaming preserved + unmapped host 400 + gateway-unset 503 -> AC1..AC7) -->
+### REQ-ENTERPRISE-004: Outbound-Interception LLM Routing to Customer AI Gateway
 
-<!-- @impl: src/routes/llm-proxy.ts -->
-<!-- @impl: src/lib/enterprise-mode.ts::resolveEnterpriseMode -->
+<!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+<!-- @impl: src/container/index.ts::setupEnterpriseInterception -->
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 
-**Intent:** Enterprise deployments route all agent LLM traffic through the customer's AI Gateway so the gateway credentials never reach the container and all usage is attributable.
+**Intent:** Enterprise deployments route all agent LLM traffic to the customer's AI Gateway via platform outbound-HTTPS interception, so the gateway credentials never reach the container, nothing is exposed over a public route, and all usage is attributable.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A Worker route forwards an agent's provider-shaped request to the customer's AI Gateway via a per-provider `fetch()` passthrough.
-2. The AI Gateway URL and token are read only from Worker secrets (`AIG_GATEWAY_URL`, `AIG_TOKEN`) and are never sent to or readable from the container.
+1. The container DO routes the container's outbound HTTPS to the real LLM provider hosts (`api.anthropic.com`, `api.openai.com`) through a `WorkerEntrypoint` (`LlmInterceptor`) via `ctx.container.interceptOutboundHttps` + `ctx.exports`; the interceptor forwards each request to the customer's AI Gateway provider path.
+2. The AI Gateway URL and token are read only from the interceptor's Worker env (`AIG_GATEWAY_URL`, `AIG_TOKEN`) and are never sent to or readable from the container; there is no public Worker route carrying LLM traffic, so the path never traverses Cloudflare Access.
 3. Streaming responses are preserved end-to-end (the upstream stream is piped through without buffering the full body).
-4. Each forwarded request stamps `cf-aig-metadata` with an opaque per-user identifier that does not expose the user's email or raw identity.
-5. The route requires a valid signed per-session token to authenticate the agent-to-Worker hop; requests without a valid token are rejected.
-6. The route forwards only to providers on a fixed allowlist; any non-allowlisted target is rejected to prevent SSRF.
-7. When `ENTERPRISE_MODE` is unset, the proxy route is not registered and agent LLM traffic follows the current direct-key path, byte-identical to current behavior.
+4. Each forwarded request stamps `cf-aig-authorization` with the gateway token and `cf-aig-metadata` with an opaque per-user identifier (the bucket id, passed as a per-session DO prop) that does not expose the user's email or raw identity.
+5. The container's placeholder credential (`Authorization` / `x-api-key`) is stripped before forwarding so it never reaches the gateway; gateway auth is stamped separately.
+6. The interceptor maps only the known provider hosts; an unmapped host fails closed (400) and an unconfigured gateway fails closed (503) — neither forwards anywhere.
+7. When `ENTERPRISE_MODE` is unset, the DO never wires interception, the interceptor is never instantiated, and agent LLM traffic follows the current direct-key path, byte-identical to current behavior.
 
 **Constraints:**
 
-- The signed per-session token is minted by the Worker and scoped to a single session; it is not a long-lived credential.
-- The opaque per-user id is derived deterministically from the user identity so requests from one user are correlatable in the gateway without revealing the identity.
-- The provider allowlist is a fixed set; adding a provider requires a code change, not a request parameter.
+- Interception uses the Cloudflare Containers platform mechanism (`interceptOutboundHttps` + `ctx.exports`, gated by the `enable_ctx_exports` compat flag); HTTPS interception requires the container to trust the CA at `/etc/cloudflare/certs/cloudflare-containers-ca.crt` ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)).
+- The opaque per-user id is the deterministic bucket id so requests from one user are correlatable in the gateway without revealing the identity.
+- The set of intercepted provider hosts is fixed in code; adding a provider requires a code change, not a request parameter.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var)
+**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var)
 
-**Verification:** [Automated test](../../src/__tests__/routes/llm-proxy.test.ts)
+**Verification:** [Automated test](../../src/__tests__/llm-interceptor.test.ts)
 
 **Status:** Planned
 
 ---
 
-<!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars enterprise proxy describe -> per-session proxy base-URL + token injected per agent (Claude ANTHROPIC_BASE_URL/_AUTH_TOKEN, Copilot BYOK, Pi base-URL) when enterprise + absent when flag unset -> AC1..AC5) -->
-### REQ-ENTERPRISE-005: Per-Session Proxy Credentials Injected per Agent
+<!-- @test: src/__tests__/container/container-env-llm.test.ts (enterprise env injection describe -> ENTERPRISE_MODE emitted from env when active + no gateway URL/token/base-URL ever injected + omitted when flag unset/non-active -> AC1..AC5) -->
+### REQ-ENTERPRISE-005: Container-Side Enterprise Routing (CA Trust + Constant Base-URLs)
 
 <!-- @impl: src/container/container-env.ts::buildEnvVars -->
-<!-- @impl: src/lib/enterprise-mode.ts::resolveEnterpriseMode -->
+<!-- @impl: entrypoint.sh -->
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 
-**Intent:** Agents in Enterprise Mode must be work-ready against the LLM proxy with zero manual login, so the proxy base URL and per-session token are injected into the container per agent.
+**Intent:** Agents in Enterprise Mode must be work-ready against the AI Gateway with zero manual login and zero injected credentials, so the container only learns it is in enterprise mode and configures itself to use the intercepted provider hosts.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, the container env pipeline injects the proxy base URL and the per-session signed token for the selected agent.
-2. Claude Code receives the proxy base URL and token via `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`.
-3. Copilot receives the proxy via its bring-your-own-key configuration channel.
-4. Pi receives the proxy base URL via its provider base-URL configuration channel.
-5. When `ENTERPRISE_MODE` is unset, none of these proxy variables are injected and the container env is byte-identical to current behavior.
+1. When `ENTERPRISE_MODE` is set, the container env pipeline emits exactly one enterprise env var, `ENTERPRISE_MODE=active`, derived directly from the Worker deploy var — no per-session base-URL or token is ever injected.
+2. When `ENTERPRISE_MODE=active`, entrypoint.sh installs the Cloudflare containers CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`) into the system trust store and exports the Node/Python CA env hooks so the agents' HTTPS clients trust the intercepted (TLS-terminated) connections.
+3. When `ENTERPRISE_MODE=active`, entrypoint.sh points each agent at the constant real provider base-URL with a non-secret placeholder credential: Claude via `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`, Copilot via `COPILOT_PROVIDER_BASE_URL`/`COPILOT_PROVIDER_API_KEY`, Pi via its `models.json` provider — so each CLI enters API mode without a login step.
+4. The container never receives the AI Gateway URL, the gateway token, or any per-session secret; routing to the gateway is done entirely by the DO's outbound interception ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)).
+5. When `ENTERPRISE_MODE` is unset, `ENTERPRISE_MODE` is not emitted, the entrypoint.sh block is skipped, and the container env is byte-identical to current behavior.
 
 **Constraints:**
 
-- The injected token is the same per-session signed token the proxy route validates ([REQ-ENTERPRISE-004](#req-enterprise-004-worker-side-llm-proxy-to-customer-ai-gateway) AC5), scoped to the session.
-- Injection rides the existing container env pipeline ([REQ-AGENT-031](agents.md#req-agent-031-llm-api-key-propagation-to-container)); no per-agent login step is added.
-- Only the allowlisted enterprise agents ([REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode)) have a defined injection channel; `bash` receives no LLM proxy variables.
+- The placeholder credential is a fixed non-secret constant; the interceptor strips it before forwarding ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC5), so it never reaches the gateway.
+- `ENTERPRISE_MODE` rides the existing container env pipeline ([REQ-AGENT-031](agents.md#req-agent-031-llm-api-key-propagation-to-container)); no per-agent login step is added.
+- Only the allowlisted enterprise agents ([REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode)) are configured; `bash` needs no LLM configuration.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](#req-enterprise-004-worker-side-llm-proxy-to-customer-ai-gateway), [REQ-AGENT-031](agents.md#req-agent-031-llm-api-key-propagation-to-container)
+**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-AGENT-031](agents.md#req-agent-031-llm-api-key-propagation-to-container)
 
-**Verification:** [Automated test](../../src/__tests__/container/container-env.test.ts)
+**Verification:** [Automated test](../../src/__tests__/container/container-env-llm.test.ts)
 
 **Status:** Planned
 
@@ -205,7 +207,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 ### REQ-ENTERPRISE-006: Deploy-Time AIG Secrets and ENTERPRISE_MODE Var
 
 <!-- @impl: wrangler.toml -->
-<!-- @impl: src/lib/enterprise-mode.ts::resolveEnterpriseMode -->
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 
 **Intent:** Enterprise configuration must be supplied at deploy time through Worker bindings, kept secret where appropriate, and default to off.
 
@@ -216,12 +218,12 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. `AIG_GATEWAY_URL` and `AIG_TOKEN` are configured as Worker secrets so they are not stored in plaintext config or exposed to the container.
 2. `ENTERPRISE_MODE` is configured as a Worker var (non-secret) read by the enterprise-mode resolver.
 3. Enterprise Mode is off by default: an absent or empty `ENTERPRISE_MODE` binding resolves to disabled.
-4. When `ENTERPRISE_MODE` is enabled, the deployment surfaces a clear error path if the `AIG_GATEWAY_URL` or `AIG_TOKEN` secrets are missing, rather than silently proxying to nowhere.
+4. When `ENTERPRISE_MODE` is enabled, the interceptor fails closed (503) if the `AIG_GATEWAY_URL` secret is missing, rather than silently routing to nowhere, and the DO logs a warning when it skips interception wiring.
 
 **Constraints:**
 
 - The flag is evaluated at deploy time from bindings, consistent with the deployment-mode determination in [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes).
-- Secrets are never written to the container env; only the per-session proxy base URL and token are ([REQ-ENTERPRISE-005](#req-enterprise-005-per-session-proxy-credentials-injected-per-agent)).
+- Secrets are never written to the container env; the only enterprise env var the container receives is the `ENTERPRISE_MODE` flag ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)).
 
 **Priority:** P1
 

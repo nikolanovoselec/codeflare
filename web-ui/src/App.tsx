@@ -3,7 +3,7 @@ import type { AccessTier, SubscriptionTier } from './types';
 import { Router, Route, Navigate, useNavigate } from '@solidjs/router';
 import Layout from './components/Layout';
 import SetupWizard from './components/setup/SetupWizard';
-import { getUser, getSetupStatus, getAuthProviders, getOnboardingConfig } from './api/client';
+import { getUser, getSetupStatus, getAuthProviders, getOnboardingConfig, getAuthStatus } from './api/client';
 import { ApiError } from './api/fetch-helper';
 import { sessionStore } from './stores/session';
 import { storageStore } from './stores/storage';
@@ -40,6 +40,7 @@ const AppContent: Component = () => {
   const [userAccessTier, setUserAccessTier] = createSignal<AccessTier | undefined>();
   const [userSubscriptionTier, setUserSubscriptionTier] = createSignal<SubscriptionTier | undefined>();
   const [onboardingActive, setOnboardingActive] = createSignal<boolean | undefined>();
+  const [enterpriseMode, setEnterpriseMode] = createSignal<boolean | undefined>();
   const [loading, setLoading] = createSignal(true);
   const [authError, setAuthError] = createSignal<string | null>(null);
 
@@ -51,14 +52,18 @@ const AppContent: Component = () => {
       setUserAccessTier(user.accessTier);
       setUserSubscriptionTier(user.subscriptionTier);
       setOnboardingActive(user.onboardingActive);
+      setEnterpriseMode(user.enterpriseMode);
+      sessionStore.setEnterpriseMode(user.enterpriseMode === true);
       if (user.workerName) storageStore.setWorkerName(user.workerName);
 
       // SaaS mode redirect priority:
       // 1. Pending tier → subscribe page (choose a plan)
       // 2. Not onboarded → onboarding page (first-time guided setup)
       // 3. Otherwise → dashboard
+      // Enterprise users are always unlimited (never pending) — skip the
+      // subscribe redirect so the billing flow stays hidden in enterprise mode.
       const effectiveTier = user.subscriptionTier ?? user.accessTier;
-      if (user.saasMode && effectiveTier === 'pending') {
+      if (!user.enterpriseMode && user.saasMode && effectiveTier === 'pending') {
         window.location.href = '/app/subscribe';
         return;
       }
@@ -117,7 +122,7 @@ const AppContent: Component = () => {
           </div>
         }
       >
-        <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} />
+        <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} />
       </Show>
     </Show>
   );
@@ -217,13 +222,47 @@ const RootPage: Component = () => {
   );
 };
 
+/**
+ * Subscribe-route guard. Enterprise users are always unlimited and the billing
+ * flow is hidden, so direct navigation to /app/subscribe redirects to /app.
+ * Non-enterprise (flag unset/false): renders SubscribePage unchanged.
+ */
+const SubscribeGuard: Component = () => {
+  const [decision, setDecision] = createSignal<'loading' | 'subscribe' | 'redirect'>('loading');
+
+  onMount(async () => {
+    try {
+      const status = await getAuthStatus();
+      if (status.enterpriseMode === true) {
+        setDecision('redirect');
+        window.location.href = '/app/';
+        return;
+      }
+    } catch {
+      // Status unavailable — fall through to the normal subscribe page.
+    }
+    setDecision('subscribe');
+  });
+
+  return (
+    <Show when={decision() === 'subscribe'} fallback={
+      <div class="app-loading">
+        <div class="app-loading-spinner" />
+        <span>Loading...</span>
+      </div>
+    }>
+      <SubscribePage />
+    </Show>
+  );
+};
+
 const App: Component = () => {
   return (
     <Router>
       <Route path="/setup" component={SetupWizard} />
       <Route path="/" component={RootPage} />
       <Route path="/login" component={LoginPage} />
-      <Route path="/app/subscribe" component={SubscribePage} />
+      <Route path="/app/subscribe" component={SubscribeGuard} />
       <Route path="/app/onboarding" component={OnboardingPage} />
       <Route path="/app/usage" component={UsagePage} />
       <Route path="/admin/users" component={() => (

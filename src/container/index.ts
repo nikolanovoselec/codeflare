@@ -27,8 +27,10 @@
 import { Container } from '@cloudflare/containers';
 import type { Env, TabConfig } from '../types';
 import { getR2Config } from '../lib/r2-config';
-import { toErrorMessage } from '../lib/error-types';
+import { toError, toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
+import { isEnterpriseMode } from '../lib/subscription';
+import { INTERCEPTED_LLM_HOSTS } from '../llm-interceptor';
 import {
   validateBucketNameInput,
   type ContainerEnvState,
@@ -152,18 +154,6 @@ export class container extends Container<Env> implements ContainerEnvState {
   _userEmail: string | null = null;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null = null;
-  /**
-   * Enterprise-mode LLM-proxy injection fields. In-memory only (NOT persisted
-   * to DO storage and NOT restored in the constructor) - the Worker re-sends
-   * them via setBucketName on every container start, exactly like the LLM API
-   * keys (_openaiApiKey / _geminiApiKey). Null on non-enterprise deploys, so
-   * buildEnvVars emits nothing and the container env is byte-identical to today.
-   */
-  _anthropicBaseUrl: string | null = null;
-  _copilotProviderBaseUrl: string | null = null;
-  _piBaseUrl: string | null = null;
-  _aigProxyToken: string | null = null;
-  _enterpriseMode: string | null = null;
   /**
    * Timestamp captured at the start of destroy(); read by onStop() to
    * log shutdown elapsed-ms. Helps telemetry decide whether the 135s
@@ -372,7 +362,44 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   /** Called when the container starts successfully. */
   override async onStart(): Promise<void> {
+    this.setupEnterpriseInterception();
     await lifecycleOnStart(this.lifecycleHost);
+  }
+
+  /**
+   * Enterprise-mode (REQ-ENTERPRISE-004): route the container's outbound HTTPS to
+   * the LLM provider hosts through the LlmInterceptor WorkerEntrypoint, which
+   * holds the AI Gateway secrets and stamps per-user attribution. No credential,
+   * gateway URL, or token is ever placed inside the container; the interception
+   * is platform-internal so it never traverses Cloudflare Access. The per-session
+   * `user` prop is the opaque bucket id (never an email). bucketName is set via
+   * setBucketName BEFORE the container is started, so it is populated by onStart.
+   *
+   * No-op unless ENTERPRISE_MODE=active and the gateway is configured, so a
+   * non-enterprise container's egress is byte-identical to today. interceptOutbound*
+   * + ctx.exports require the enable_ctx_exports compat flag (see wrangler.toml);
+   * the cast isolates the beta runtime surface from the generated types.
+   */
+  private setupEnterpriseInterception(): void {
+    if (!isEnterpriseMode(this.env)) return;
+    if (!this.env.AIG_GATEWAY_URL) {
+      this.logger.warn('Enterprise mode active but AIG_GATEWAY_URL unset; skipping LLM interception');
+      return;
+    }
+    const user = this._bucketName ?? 'unknown';
+    try {
+      const ictx = this.ctx as unknown as {
+        exports: { LlmInterceptor(opts: { props: { user: string } }): Fetcher };
+        container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
+      };
+      const interceptor = ictx.exports.LlmInterceptor({ props: { user } });
+      for (const host of INTERCEPTED_LLM_HOSTS) {
+        ictx.container?.interceptOutboundHttps(host, interceptor);
+      }
+      this.logger.info('Enterprise LLM interception wired', { hostCount: INTERCEPTED_LLM_HOSTS.length });
+    } catch (err) {
+      this.logger.error('Failed to wire enterprise LLM interception', toError(err));
+    }
   }
 
   async collectMetrics(): Promise<void> {
