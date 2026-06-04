@@ -4,6 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-06-04
 
+- [REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit): PR Checks may accept the known Cloudflare Workers-pool shutdown crash only after retry and only when the backend test log proves the expected complete suite passed with no failed-test tokens; incomplete backend runs and assertion failures still fail the workflow.
 - [REQ-AGENT-053](agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop): Pi durable review finalization now recovers from persisted exact-head result files during passive refresh, so missed lane-completion callbacks or reloads still finalize, acknowledge, and publish the merged review once every required result file exists.
 - [REQ-AGENT-056](agents.md#req-agent-056-pi-local-statusline-footer): Pi local statusline now repaints on a cache-TTL interval because custom footers can read `footerData.getExtensionStatuses()` but Pi does not expose a status-change subscription; review status rows therefore refresh as extension-owned statuses change.
 - [REQ-AGENT-056](agents.md#req-agent-056-pi-local-statusline-footer): Pi local statusline truncation now counts visible characters only, preserves ANSI color sequences in extension-owned review status rows, and resets styling before the ellipsis so colored lane labels do not shorten the visible footer or bleed color after truncation.
