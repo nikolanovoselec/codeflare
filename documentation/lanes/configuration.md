@@ -193,7 +193,7 @@ Users connect their Cloudflare account by creating an API token. Codeflare offer
 | **Workers Observability: Edit** | - | - | yes | Logs, traces, and monitoring |
 | **Workers R2 Data Catalog: Edit** | - | - | yes | R2 bucket metadata and catalog |
 | **Workers Agents Configuration: Edit** | - | - | yes | Cloudflare Agents configuration |
-| **Browser Rendering: Edit** | - | - | yes | Browser Run via chrome-devtools-mcp (REQ-BROWSER-002) |
+| **Browser Rendering: Edit** | - | - | yes | Browser Run WebFetch fallback: Claude Code via `chrome-devtools-mcp` MCP server; Pi via native `browser-run.ts` extension (REST Quick Actions). Advanced mode only; no-op when token absent. (REQ-BROWSER-002) |
 
 The connect flow pre-fills the Cloudflare dashboard token creation form with the correct permissions for the selected tier. Cloudflare API tokens do not expire by default but can be set to expire during creation. Scope tokens to specific accounts and zones, or use "All accounts" and "All zones" for convenience. Implements [REQ-AGENT-028](../../sdd/spec/agents.md#req-agent-028-deploy-credential-token-creation-ux) AC2.
 

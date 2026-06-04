@@ -227,7 +227,7 @@ All preseed content is deployed via the manifest pipeline:
   skills), vault-operations, vault-note-capture, spec-enforce,
   spec-enforce-ac, spec-enforce-truth, doc-enforce, doc-enforce-lanes,
   doc-enforce-shape, doc-enforce-truth, tdd-enforce,
-  git-review-pipeline, graphify
+  git-review-pipeline, graphify, browser-run (advanced only, Claude Code only)
 - `plugins/`: known_marketplaces.json (default+advanced),
   codeflare-memory plugin (advanced only: plugin.json,
   memory-capture.sh, memory-capture-block.sh, memory-agent-prompt.md,
@@ -254,7 +254,11 @@ All preseed content is deployed via the manifest pipeline:
   `codeflare-commands.ts` provides `/debug`, `/deploy`, and `/brainstorm`;
   durable review-job helpers enforce PR-boundary review; `startup-header.ts`
   replaces Pi's startup header; `local-statusline.ts` preserves extension
-  status rows in default and advanced modes.
+  status rows in default and advanced modes; `browser-run.ts` (advanced only)
+  registers native `browser_markdown`, `browser_content`, and `browser_scrape`
+  tools that call the Cloudflare Browser Run REST Quick Actions — Pi's
+  equivalent of Claude Code's `chrome-devtools-mcp` MCP server, self-gated on
+  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 
   Native skill overrides include graphify
   ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch)
