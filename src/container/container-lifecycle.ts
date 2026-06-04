@@ -16,6 +16,7 @@ import {
   collectMetrics as doCollectMetrics,
   updateKvStatus,
   openNotRunningConfirmation,
+  SHUTDOWN_REQUESTED_KEY,
   type MetricsState,
   type MetricsCallbacks,
 } from './container-metrics';
@@ -45,6 +46,10 @@ export interface LifecycleHost extends ContainerHost {
 /** Called when the container starts successfully. */
 export async function onStart(host: LifecycleHost): Promise<void> {
   host.containerStartedAt = Date.now();
+  // A fresh start means no deliberate stop is in flight: clear any stale
+  // shutdown marker a prior destroy() left in storage, so a later transient
+  // false-stopped on this run can self-heal (REQ-SESSION-018 AC4).
+  try { await host.ctx.storage.delete(SHUTDOWN_REQUESTED_KEY); } catch { /* best-effort */ }
   updateEnvVars(host);
   await updateKvStatus(host.ctx, host.env, host._bucketName, 'running', 'lastStartedAt');
   // Also set lastActiveAt to start time so the frontend timer icon
@@ -74,6 +79,14 @@ export async function collectMetrics(host: LifecycleHost): Promise<void> {
  */
 export async function destroy(host: LifecycleHost): Promise<void> {
   host.logger.info('Destroying container, clearing operational storage');
+  // Persist the deliberate-stop marker and drop the metrics alarm BEFORE
+  // clearing identifiers. If a DO eviction interrupts this teardown, the
+  // reconstructed instance (which resets in-memory fields to 0) still reads the
+  // persisted marker, so the surviving collectMetrics alarm cannot self-heal a
+  // session the user is deliberately stopping back to running (REQ-SESSION-018
+  // AC4). onStart() clears the marker on the next fresh start.
+  try { await host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, Date.now()); } catch { /* storage racing teardown */ }
+  try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
   try {
     await host.ctx.storage.delete(SESSION_ID_KEY);
     await host.ctx.storage.delete('bucketName');

@@ -196,12 +196,14 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(stored.metrics!.updatedAt).toBeDefined();
     });
 
-    // REQ-SESSION-018 AC4: a deliberate stop (graceful-shutdown marker set by
-    // destroy()/user Stop) must NOT be self-healed back to running.
-    it('skips the metrics write when stopped AND a graceful shutdown is in flight (clobber-race guard)', async () => {
+    // REQ-SESSION-018 AC4: a deliberate stop (persisted shutdown marker set by
+    // destroy()/user Stop) must NOT be self-healed back to running. The marker
+    // is persisted (DO storage), not an in-memory field, so it survives a DO
+    // eviction mid-shutdown that would reset an in-memory flag.
+    it('skips the metrics write when stopped AND the persisted shutdown marker is set (clobber-race guard)', async () => {
       // A POST /:id/stop has marked the session stopped and called destroy(),
-      // which set _shutdownStartedAt. collectMetrics must NOT re-put it (with
-      // status preserved OR re-asserted running), which would resurrect a
+      // which persisted the shutdown marker. collectMetrics must NOT re-put it
+      // (with status preserved OR re-asserted running), which would resurrect a
       // session the user is deliberately stopping.
       const session: Session = {
         id: 'testsession123456',
@@ -212,8 +214,12 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         lastAccessedAt: '2024-01-15T09:30:00.000Z',
       };
       mockKV._set('session:test-bucket:testsession123456', session);
-      // Graceful shutdown in flight: destroy() set this timestamp.
-      (containerInstance as unknown as { _shutdownStartedAt: number })._shutdownStartedAt = Date.now();
+      // Deliberate shutdown in flight: destroy() persisted this marker. Drive it
+      // through the same DO storage collectMetrics reads (Map-backed in the
+      // mock). The in-memory field is intentionally NOT set: the persisted
+      // marker alone must protect the deliberate stop across an eviction.
+      await (containerInstance as unknown as { ctx: { storage: { put: (k: string, v: unknown) => Promise<void> } } })
+        .ctx.storage.put('shutdownRequested', Date.now());
 
       await containerInstance.collectMetrics();
 
@@ -227,7 +233,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     // REQ-SESSION-018 AC4: a live container whose KV was wrongly flipped to
     // stopped (e.g. by onError on a transient error) self-heals back to running
     // rather than hanging falsely-stopped on the dashboard until a restart.
-    it('re-asserts running when the container is alive but KV reads stopped and no shutdown is in flight (self-heal)', async () => {
+    it('re-asserts running when the container is alive but KV reads stopped and no shutdown marker is set (self-heal)', async () => {
       const session: Session = {
         id: 'testsession123456',
         name: 'Test',
@@ -237,9 +243,9 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         lastAccessedAt: '2024-01-15T09:30:00.000Z',
       };
       mockKV._set('session:test-bucket:testsession123456', session);
-      // Container is demonstrably running, no deliberate shutdown in flight.
+      // Container is demonstrably running, no deliberate shutdown marker in
+      // storage (fresh Map per test): this is a false stopped.
       testState.containerRunning = true;
-      (containerInstance as unknown as { _shutdownStartedAt: number })._shutdownStartedAt = 0;
 
       await containerInstance.collectMetrics();
 

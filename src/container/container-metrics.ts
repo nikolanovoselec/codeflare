@@ -27,10 +27,6 @@ export interface MetricsState {
   _usageSeconds: number;
   containerStartedAt: number;
   lastSeenInputAt: number | null;
-  /** Wall-clock ms captured at the start of destroy() (0 when no graceful
-   *  shutdown is in flight). The self-heal reads it to tell a falsely-stopped
-   *  live session (heal it) from a deliberately-stopping one (leave it). */
-  _shutdownStartedAt: number;
 }
 
 /** Callbacks provided by the Container class for idle detection + scheduling. */
@@ -65,6 +61,15 @@ export interface MetricsCallbacks {
 // not-running in an unbroken streak. Persisted (not in-memory) so it survives
 // the DO hibernation/reset that itself triggers the transient false reading.
 const NOT_RUNNING_SINCE_KEY = 'metricsNotRunningSince';
+// DO-storage key marking that a deliberate stop (destroy(), user Stop/Delete)
+// is in flight. The self-heal reads it to tell a falsely-stopped live session
+// (heal it back to running) from a deliberately-stopping one (leave it
+// stopped). PERSISTED, not an in-memory field, for the same reason the
+// not-running window is: destroy() can be interrupted by a DO eviction whose
+// reconstructed instance would reset any in-memory flag to 0, and the surviving
+// metrics alarm would then resurrect a session the user just stopped. destroy()
+// sets this before it clears identifiers; onStart() clears it on a fresh start.
+export const SHUTDOWN_REQUESTED_KEY = 'shutdownRequested';
 // A container must read not-running continuously for at least this long before
 // collectMetrics writes 'stopped'. Spans more than one 60s alarm tick so a
 // single transient `ctx.container.running === false` (DO hibernation wake or
@@ -342,21 +347,27 @@ export async function collectMetrics(
             ? new Date(state.lastSeenInputAt).toISOString()
             : session.lastActiveAt;
 
-          if (session.status === 'stopped' && state._shutdownStartedAt > 0) {
-            // Deliberate stop in flight (destroy()/user Stop set the marker):
-            // leave the stopped status to settle, skip the write so we don't
-            // resurrect a session the user is deliberately stopping.
-            logger.info('collectMetrics: session stopped with shutdown in flight, leaving stopped', { key });
-          } else if (session.status === 'stopped') {
-            // Self-heal a FALSE stopped (REQ-SESSION-018 AC4): the container is
-            // alive but KV reads stopped and no shutdown is in flight, so the
-            // status was wrongly flipped (e.g. onError on a transient error, or
-            // the catch-all racing a recovery). Re-assert running so a live
-            // session is not left showing stopped on the dashboard until the
-            // next start. (idle-stop returns before this block; onStop
-            // deleteSchedules the loop — those deliberate paths never reach here.)
-            logger.warn('collectMetrics: container running but KV stopped, re-asserting running (self-heal)', { key });
-            await putSessionWithMetadata(env.KV, key, { ...session, status: 'running' as const, metrics, lastActiveAt });
+          if (session.status === 'stopped') {
+            // KV reads stopped while the container is demonstrably alive. Read
+            // the PERSISTED deliberate-stop marker (survives a DO eviction that
+            // would reset an in-memory flag) to disambiguate.
+            const shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
+            if (typeof shutdownRequested === 'number') {
+              // Deliberate stop in flight (destroy()/user Stop): leave the
+              // stopped status to settle, skip the write so we don't resurrect a
+              // session the user is deliberately stopping.
+              logger.info('collectMetrics: session stopped with shutdown in flight, leaving stopped', { key });
+            } else {
+              // Self-heal a FALSE stopped (REQ-SESSION-018 AC4): the container is
+              // alive, KV reads stopped, and no shutdown is in flight, so the
+              // status was wrongly flipped (e.g. onError on a transient error, or
+              // the catch-all racing a recovery). Re-assert running so a live
+              // session is not left showing stopped on the dashboard until the
+              // next start. (idle-stop returns before this block; onStop
+              // deleteSchedules the loop, so those deliberate paths never reach here.)
+              logger.warn('collectMetrics: container running but KV stopped, re-asserting running (self-heal)', { key });
+              await putSessionWithMetadata(env.KV, key, { ...session, status: 'running' as const, metrics, lastActiveAt });
+            }
           } else {
             await putSessionWithMetadata(env.KV, key, { ...session, metrics, lastActiveAt });
           }

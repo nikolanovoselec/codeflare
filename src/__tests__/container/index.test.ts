@@ -703,6 +703,27 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(mockStorage.delete).toHaveBeenCalledWith('bucketName');
     });
 
+    // REQ-SESSION-018 AC4: destroy() persists the deliberate-stop marker (and
+    // drops the metrics alarm) BEFORE clearing identifiers, so a DO eviction
+    // mid-shutdown cannot let a surviving collectMetrics alarm self-heal a
+    // deliberately-stopped session back to running. The marker must be PERSISTED
+    // (survives the eviction that resets in-memory fields), not an in-memory flag.
+    it('persists the shutdown marker and drops the metrics alarm before clearing identifiers', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const deleteSchedulesSpy = vi.spyOn(instance, 'deleteSchedules' as any);
+
+      await instance.destroy();
+
+      expect(mockStorage.put).toHaveBeenCalledWith('shutdownRequested', expect.any(Number));
+      expect(deleteSchedulesSpy).toHaveBeenCalledWith('collectMetrics');
+    });
+
     it('REQ-SEC-012 AC6: destroy() clears persisted containerAuthToken so next session under same DO ID starts fresh', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
@@ -969,6 +990,26 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(writtenSession.status).toBe('running');
     });
 
+    // REQ-SESSION-018 AC4: a fresh start clears any stale deliberate-stop marker
+    // a prior destroy() left in storage, so a later transient false-stopped on
+    // this run can self-heal instead of being mistaken for a deliberate stop.
+    it('onStart clears the persisted shutdown marker', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      await instance.onStart();
+
+      expect(mockStorage.delete).toHaveBeenCalledWith('shutdownRequested');
+    });
+
     it('onStart re-populates envVars from stored bucketName', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
@@ -1073,7 +1114,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       await instance.onError(new Error('Container error'));
 
       await new Promise(resolve => setTimeout(resolve, 50));
-      // No immediate stopped write to KV — the window owns that decision now.
+      // No immediate stopped write to KV: the window owns that decision now.
       expect(mockKvPut).not.toHaveBeenCalled();
       // Confirmation window opened in DO storage.
       expect(mockStorage.put).toHaveBeenCalledWith('metricsNotRunningSince', expect.any(Number));

@@ -329,14 +329,23 @@ export class container extends Container<Env> implements ContainerEnvState {
    *                        DO ("Durable Object reset because its code was
    *                        updated") and rolls the running container, or
    *                        Cloudflare reaping an idle container at the platform
-   *                        level. The SDK does NOT call onStop here, so onError
-   *                        MUST write 'stopped' or the session dangles 'running'
-   *                        forever (codeflare#153). Empirically this is the
-   *                        COMMON way idle containers die: over a 96h prod
-   *                        sample onActivityExpired fired 0x and the idle-stop
-   *                        3x, while onError fired on every unexpected exit
-   *                        (including a near-daily ~00:00 UTC platform reap and
-   *                        any deploy that lands while a session is live).
+   *                        level. The SDK does NOT call onStop here, so without
+   *                        an exit-writes-stopped path the session would dangle
+   *                        'running' forever (codeflare#153). onError does NOT
+   *                        write 'stopped' directly, though: it ALSO fires on
+   *                        TRANSIENT errors where the container is actually alive
+   *                        (a deploy-roll the container survives, a brief monitor
+   *                        blip), and an immediate write there flips a live
+   *                        session to stopped and then sticks (REQ-SESSION-018
+   *                        AC3). Instead onError opens the not-running
+   *                        confirmation window and re-arms collectMetrics, which
+   *                        confirms a genuine exit to 'stopped' within the window
+   *                        and clears it on recovery. Empirically onError is the
+   *                        COMMON way idle containers die: over a 96h prod sample
+   *                        onActivityExpired fired 0x and the idle-stop 3x, while
+   *                        onError fired on every unexpected exit (including a
+   *                        near-daily ~00:00 UTC platform reap and any deploy
+   *                        that lands while a session is live).
    *   onActivityExpired()  SDK sleepAfter timer (pinned to 24h, see the
    *                        `sleepAfter` field) -> default stop() -> onStop.
    *                        Effectively never fires; collectMetrics owns idle.
