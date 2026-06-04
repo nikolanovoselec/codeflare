@@ -1592,7 +1592,7 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-clone-prompt.sh -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
 <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts -->
-<!-- @test: host/__tests__/graphify-clone-prompt.test.js (clone-detect + graph-present/absent branch + idempotency marker → AC1/AC3-AC7) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi graphify clone triage helper -> AC2/AC4-AC6) -->
+<!-- @test: host/__tests__/graphify-clone-prompt.test.js (clone-detect + graph-present/absent branch + idempotency marker → AC1/AC3-AC7) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi graphify clone triage helper + durable review-lane suppression -> AC2/AC4-AC7) -->
 
 **Intent:** After the agent clones a repo, it must triage whether to build (or refresh) a knowledge graph for it before doing other work, so users on unfamiliar repos do not start cold.
 
