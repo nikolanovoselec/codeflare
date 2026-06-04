@@ -63,8 +63,27 @@ function contextPercent(ctx: ExtensionContext): string {
   return Number.isFinite(percent) ? `${Math.round(percent as number)}%` : "--%";
 }
 
+function visibleWidth(text: string): number {
+  return text.replace(/\x1b\[[0-9;]*m/g, "").length;
+}
+
 function truncateToWidth(text: string, width: number): string {
-  return text.length <= width ? text : text.slice(0, Math.max(0, width - 1)) + "…";
+  if (visibleWidth(text) <= width) return text;
+
+  let visible = 0;
+  let output = "";
+  for (let index = 0; index < text.length && visible < Math.max(0, width - 1);) {
+    const ansi = text.slice(index).match(/^\x1b\[[0-9;]*m/);
+    if (ansi) {
+      output += ansi[0];
+      index += ansi[0].length;
+      continue;
+    }
+    output += text[index];
+    visible += 1;
+    index += 1;
+  }
+  return `${output}\x1b[0m…`;
 }
 
 function renderLine(ctx: ExtensionContext, effort: string): string {

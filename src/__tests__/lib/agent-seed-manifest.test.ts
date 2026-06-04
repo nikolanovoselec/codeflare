@@ -285,6 +285,17 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(lines[0]).toContain('42%');
     expect(lines[0]).toContain('gpt-5.5:xhigh');
     expect(lines[1]).toBe('Review d43d825 --> code | spec | docs');
+
+    const ansiComponent = footerFactory?.(
+      { requestRender: () => undefined },
+      { fg: (_name: string, text: string) => text },
+      {
+        onBranchChange: () => () => undefined,
+        getExtensionStatuses: () => new Map([['codeflare-review', 'Review 36e882c --> \x1b[32mcode\x1b[0m | \x1b[33mspec\x1b[0m | docs']]),
+      },
+    );
+    const ansiLines = ansiComponent.render(40);
+    expect(ansiLines[1].replace(/\x1b\[[0-9;]*m/g, '')).toBe('Review 36e882c --> code | spec | docs');
   });
 
   it('REQ-AGENT-030 / REQ-AGENT-050 / REQ-AGENT-051: Pi command extensions dispatch through both ctx and pi user-message APIs', () => {
