@@ -94,8 +94,10 @@ jobs:
         run: |
           set -o pipefail
           for attempt in 1 2; do
+            set +e
             npm test 2>&1 | grep -v -F '[vpw:info] Starting runtime for' | tee /tmp/backend-tests.log
             status=${PIPESTATUS[0]}
+            set -e
             if [ "$status" -eq 0 ]; then
               exit 0
             fi
