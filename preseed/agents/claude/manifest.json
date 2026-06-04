@@ -1,4 +1,9 @@
 {
+  "skills/browser-run/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "agents/architect.md": {
     "modes": [
       "advanced"

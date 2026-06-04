@@ -4,6 +4,16 @@
       "advanced"
     ]
   },
+  "extensions/browser-run.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/browser-run/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/startup-header.ts": {
     "modes": [
       "default",

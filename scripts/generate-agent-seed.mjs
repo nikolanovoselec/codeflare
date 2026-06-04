@@ -188,6 +188,11 @@ function adaptAgentFrontmatter(content, agentId) {
           const allowed = [
             'read', 'grep', 'find', 'ls', 'bash', 'edit', 'write',
             'graphify_query', 'graphify_path', 'graphify_explain',
+            // Browser Run native tools (REQ-BROWSER-003), registered by the
+            // browser-run.ts extension in advanced mode when a Cloudflare token
+            // is present. Harmless when absent (the extension registers nothing,
+            // so Pi drops the names).
+            'browser_markdown', 'browser_content', 'browser_scrape',
             // context-mode helpers: declared in the shared agent frontmatter and remapped
             // to Pi-native names above. Harmless when context-mode is off (the tools do not
             // exist, so Pi drops them), usable when /ctx enables it. No Pi-specific agent edits.

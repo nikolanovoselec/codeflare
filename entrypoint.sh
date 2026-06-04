@@ -2029,13 +2029,22 @@ fi
 echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAPHIFY_VERSION)"
 
 # ---------------------------------------------------------------------------
-# Configure chrome-devtools-mcp -> Cloudflare Browser Run. (Implements
-# REQ-BROWSER-001 / REQ-BROWSER-003)
+# Configure Browser Run (Cloudflare Browser Rendering) as a real-browser
+# WebFetch fallback for bot-protection, login walls, redirect chains, and
+# JS-only pages. (Implements REQ-BROWSER-001 / REQ-BROWSER-003)
 #
-# A real-browser WebFetch fallback (bot protection, login walls, redirect
-# chains, JS-only pages). chrome-devtools-mcp connects to a *remote* CDP
-# endpoint via its --wsEndpoint flag; Cloudflare Browser Run exposes a CDP
-# /devtools WebSocket at:
+# Per-agent transport differs because the agents differ in MCP support:
+#   - Claude Code: chrome-devtools-mcp (Cloudflare's canonical MCP client path)
+#     pointed at the Browser Run CDP /devtools WebSocket, registered HERE in
+#     ~/.claude.json.
+#   - Pi: a NATIVE wrapper extension (preseed/agents/pi/extensions/browser-run.ts,
+#     seeded to ~/.pi/agent/extensions/) that calls the Browser Run REST Quick
+#     Actions. Pi does not consume MCP servers, so it gets native browser_*
+#     tools instead — no wiring needed here; the extension self-gates on the
+#     same CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID env vars.
+#   - GitHub Copilot: deferred (not wired yet).
+#
+# CDP endpoint (Claude):
 #   wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=600000
 # The Cloudflare API token is passed as an Authorization: Bearer header via
 # --wsHeaders (per Cloudflare's MCP-clients doc; --wsHeaders only works with
@@ -2075,46 +2084,8 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
         echo "$BROWSER_MCP_CLAUDE" | jq '.' > "$USER_CLAUDE_JSON"
     fi
     echo "[entrypoint] chrome-devtools MCP server registered in .claude.json (Cloudflare Browser Run)"
-
-    # GitHub Copilot (~/.copilot/mcp-config.json) - Copilot's custom-MCP
-    # surface. Server entries use the {type:"local",command,args,tools} shape;
-    # tools:["*"] allows all browser tools. Merge so we don't clobber any other
-    # configured server.
-    COPILOT_MCP_CONFIG="$USER_HOME/.copilot/mcp-config.json"
-    mkdir -p "$(dirname "$COPILOT_MCP_CONFIG")"
-    BROWSER_MCP_COPILOT=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{type:"local",command:"npx",args:["-y","chrome-devtools-mcp@1.1.1",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],tools:["*"]}}}')
-    if [ -f "$COPILOT_MCP_CONFIG" ]; then
-        TMP_JSON=$(mktemp)
-        if jq --argjson mcp "$BROWSER_MCP_COPILOT" '. * $mcp' "$COPILOT_MCP_CONFIG" > "$TMP_JSON" 2>/dev/null; then
-            mv "$TMP_JSON" "$COPILOT_MCP_CONFIG"
-        else
-            echo "[entrypoint] WARNING: Could not merge chrome-devtools MCP config (malformed mcp-config.json?)"
-            rm -f "$TMP_JSON"
-        fi
-    else
-        echo "$BROWSER_MCP_COPILOT" | jq '.' > "$COPILOT_MCP_CONFIG"
-    fi
-    echo "[entrypoint] chrome-devtools MCP server registered for Copilot (Cloudflare Browser Run)"
-
-    # Pi (~/.pi/agent/mcp.json) - Pi's static preseed (preseed/agents/pi/mcp.json)
-    # ships only the graphify server now; chrome-devtools is wired HERE, gated, so
-    # default-mode and token-less deploys never get a broken MCP server pointed at
-    # an empty CLOUDFLARE_API_TOKEN. Same command/args shape as Claude, merged so
-    # the preseeded graphify server is preserved.
-    PI_MCP_CONFIG="$USER_HOME/.pi/agent/mcp.json"
-    if [ -f "$PI_MCP_CONFIG" ]; then
-        BROWSER_MCP_PI=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-            '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.1.1",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
-        TMP_JSON=$(mktemp)
-        if jq --argjson mcp "$BROWSER_MCP_PI" '. * $mcp' "$PI_MCP_CONFIG" > "$TMP_JSON" 2>/dev/null; then
-            mv "$TMP_JSON" "$PI_MCP_CONFIG"
-            echo "[entrypoint] chrome-devtools MCP server registered for Pi (Cloudflare Browser Run)"
-        else
-            echo "[entrypoint] WARNING: Could not merge chrome-devtools MCP config (malformed Pi mcp.json?)"
-            rm -f "$TMP_JSON"
-        fi
-    fi
+    # Pi gets native browser_* tools via its preseeded extension (self-gated on
+    # the same env vars); nothing to wire here.
 fi
 
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
