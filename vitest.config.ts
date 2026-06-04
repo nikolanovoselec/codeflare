@@ -37,8 +37,8 @@ export default defineConfig({
     hookTimeout: 30000,
     include: ['src/**/*.test.ts'],
     exclude: ['web-ui/**', 'e2e/**'],
-    // Limit worker pool to prevent workerd shutdown crashes (each worker spins up a V8 isolate)
-    maxWorkers: 2,
+    // Serialize the Workers pool to prevent workerd shutdown crashes (each worker spins up a V8 isolate)
+    maxWorkers: 1,
 
     // v8 coverage configuration (FIX-54)
     coverage: {
