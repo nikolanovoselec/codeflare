@@ -92,9 +92,11 @@ jobs:
         # flake (cloudflare/workers-sdk), not a test failure. `isolate: false` does NOT
         # fix it (it crashes the pool during collection instead — verified in CI), so the
         # crash is tolerated here. NO_COLOR keeps the summary plain text so the guard can
-        # read it; the guard accepts a non-zero exit ONLY when tests actually ran, nothing
-        # failed, and the sole error is that teardown crash. No hardcoded counts — a real
-        # failure always prints "N failed" in the summary and fails the job.
+        # read it. The guard accepts a non-zero exit ONLY when all four hold: the pool-crash
+        # fingerprint is present, the summary reports exactly one error (just that crash),
+        # at least one test passed, and nothing failed. No hardcoded counts — a real failure
+        # prints "N failed", and any extra unhandled error makes the summary "Errors 2
+        # errors"; both still fail the job. Keep this guard in sync with deploy.yml.
         env:
           NO_COLOR: '1'
           FORCE_COLOR: '0'
@@ -104,7 +106,8 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -eq 0 ]; then exit 0; fi
-          if grep -Fq 'Worker cloudflare-pool emitted error.' /tmp/backend-tests.log \
+          if grep -Fq '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/backend-tests.log \
+            && grep -Eq 'Errors[[:space:]]+1 error' /tmp/backend-tests.log \
             && grep -Eq 'Tests[[:space:]]+[0-9]+ passed' /tmp/backend-tests.log \
             && ! grep -Eq '(Test Files|Tests)[[:space:]]+[0-9]+ failed' /tmp/backend-tests.log; then
             echo "Accepting backend tests: all tests passed; only the known workerd teardown crash remained"

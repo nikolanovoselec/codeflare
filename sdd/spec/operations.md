@@ -166,7 +166,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The PR-check workflow triggers on every pull request to the main branch and on manual dispatch.
 2. The workflow runs lint on the codebase.
 3. The workflow builds the frontend.
-4. The workflow runs both backend and frontend test suites; the backend step may accept a non-zero `npm test` exit only for the known Workers-pool shutdown crash after retry, and only when the log proves the expected complete backend suite passed with no failed-test tokens. <!-- @impl: .github/workflows/test.yml::Run backend tests -->
+4. The workflow runs both backend and frontend test suites; the backend step may accept a non-zero `npm test` exit only when the log shows the known Workers-pool teardown-crash fingerprint as the single reported error, at least one test passed, and no failed-test tokens are present — never when actual test failures occurred. <!-- @impl: .github/workflows/test.yml::Run backend tests -->
 5. The workflow runs both backend and frontend typechecks.
 6. The workflow runs a dead-code check on the codebase.
 7. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked.
