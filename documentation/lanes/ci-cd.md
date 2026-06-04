@@ -122,7 +122,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js).
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
-**CI retry:** The backend test step retries once only when the Workers pool reports the known `workerd` shutdown crash after Vitest has already reported all backend tests passed; ordinary assertion failures and incomplete runs fail immediately.
+**CI retry:** The backend test step retries once when the Workers pool reports the known `workerd` shutdown crash after Vitest has already reported all backend tests passed. If the retry reaches the same all-tests-passed shutdown crash, CI accepts the backend step; ordinary assertion failures and incomplete runs fail immediately.
 **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
 **Notable test files:** `kv-crypto.test.ts` (KV AES-256-GCM encryption + migration), `r2-sse.test.ts` (R2 SSE-C encryption).
 
