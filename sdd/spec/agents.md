@@ -1620,8 +1620,6 @@ None.
 
 **Status:** Implemented
 
-<!-- coverage-gap: Pi fresh/stale graph prompt routing is behavior-covered by the referenced tests; durable PR-boundary review-lane suppression still needs dedicated behavioral coverage. -->
-
 ---
 
 ### REQ-AGENT-026: Knowledge-Graph Persistence via Git
