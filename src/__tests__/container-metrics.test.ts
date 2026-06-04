@@ -26,6 +26,12 @@ const testState = vi.hoisted(() => ({
   stopCalls: 0,
   scheduleCalls: [] as Array<[number, string]>,
   kvRef: null as MockKV | null,
+  // REQ-SESSION-011: POST /internal/final-sync (drainFinalSync). finalSyncStatus
+  // controls the mocked response status; callOrder records final-sync vs stop so
+  // tests can assert the drain happens BEFORE the stop.
+  finalSyncCalls: 0,
+  finalSyncStatus: 200,
+  callOrder: [] as string[],
 }));
 
 // ---------------------------------------------------------------------------
@@ -47,6 +53,20 @@ vi.mock('@cloudflare/containers', () => {
           get running() { return testState.containerRunning; },
           getTcpPort: () => ({
             fetch: async (url: string) => {
+              if (url.includes('/internal/final-sync')) {
+                // drainFinalSync's call. Record it (and order vs stop) and honor
+                // the failure switch / configured status so best-effort behavior
+                // can be exercised independently of the /activity+/health probes.
+                testState.finalSyncCalls += 1;
+                testState.callOrder.push('finalsync');
+                if (testState.tcpFetchShouldFail) {
+                  throw new Error('Connection refused');
+                }
+                return new Response(JSON.stringify({ synced: testState.finalSyncStatus === 200 }), {
+                  status: testState.finalSyncStatus,
+                  headers: { 'Content-Type': 'application/json' },
+                });
+              }
               if (testState.tcpFetchShouldFail) {
                 throw new Error('Connection refused');
               }
@@ -92,6 +112,7 @@ vi.mock('@cloudflare/containers', () => {
     // Mock stop (called by collectMetrics on idle exceedance)
     async stop(_signal?: number | string) {
       testState.stopCalls += 1;
+      testState.callOrder.push('stop');
     }
 
     // Mock destroy
@@ -115,6 +136,7 @@ vi.mock('../lib/logger', () => ({
 
 // Import AFTER mocks are set up
 import { container } from '../container/index';
+import { drainFinalSync, FINAL_SYNC_BUDGET_MS } from '../container/container-metrics';
 
 describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)', () => {
   let mockKV: MockKV;
@@ -142,6 +164,9 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.storedSleepAfter = undefined;
     testState.storedUserEmail = undefined;
     testState.kvRef = mockKV;
+    testState.finalSyncCalls = 0;
+    testState.finalSyncStatus = 200;
+    testState.callOrder = [];
 
     // Create a container instance with mock env
     containerInstance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
@@ -780,6 +805,116 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(stored.metrics).toBeDefined();
       expect(stored.metrics?.cpu).toBe('25%');
       expect(stored.lastActiveAt).toBeDefined();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REQ-SESSION-011: final R2 sync is drained while the container is still alive,
+// BEFORE any stop, so the platform's ~3s SIGTERM kill-grace can no longer cut
+// off the bisync (the data-loss-on-stop/delete bug). drainFinalSync is the DO
+// helper; collectMetrics' idle-stop and quota-stop paths must call it first.
+// ---------------------------------------------------------------------------
+describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before stop)', () => {
+  let mockKV: MockKV;
+  let containerInstance: InstanceType<typeof container>;
+  // Narrow accessor for the mocked DO state drainFinalSync operates on.
+  type CtxHost = { ctx: Parameters<typeof drainFinalSync>[0] };
+
+  beforeEach(() => {
+    mockKV = createMockKV();
+    testState.containerRunning = true;
+    testState.storedSessionId = 'testsession123456';
+    testState.storedBucketName = 'test-bucket';
+    testState.tcpFetchShouldFail = false;
+    testState.finalSyncCalls = 0;
+    testState.finalSyncStatus = 200;
+    testState.callOrder = [];
+    testState.stopCalls = 0;
+    testState.scheduleCalls = [];
+    testState.storedSleepAfter = undefined;
+    testState.activityResult = {
+      hasActiveConnections: true,
+      connectedClients: 1,
+      lastInputAt: Date.now(),
+    };
+    testState.healthResult = { cpu: '45%', mem: '1024MB', hdd: '2.5GB', syncStatus: 'success' };
+
+    containerInstance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+      {},
+      { KV: mockKV, LOG_LEVEL: 'silent' },
+    );
+    (containerInstance as unknown as { env: { KV: MockKV } }).env.KV = mockKV;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('drainFinalSync', () => {
+    it('POSTs /internal/final-sync when the container is running', async () => {
+      const ctx = (containerInstance as unknown as CtxHost).ctx;
+      await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS);
+      expect(testState.finalSyncCalls).toBe(1);
+    });
+
+    it('is a no-op (no fetch) when the container is not running', async () => {
+      testState.containerRunning = false;
+      const ctx = (containerInstance as unknown as CtxHost).ctx;
+      await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS);
+      expect(testState.finalSyncCalls).toBe(0);
+    });
+
+    it('swallows a fetch error and resolves (best-effort, so caller still stops)', async () => {
+      testState.tcpFetchShouldFail = true;
+      const ctx = (containerInstance as unknown as CtxHost).ctx;
+      await expect(drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS)).resolves.toBeUndefined();
+      expect(testState.finalSyncCalls).toBe(1);
+    });
+
+    it('swallows a non-OK response and resolves (best-effort)', async () => {
+      testState.finalSyncStatus = 504;
+      const ctx = (containerInstance as unknown as CtxHost).ctx;
+      await expect(drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS)).resolves.toBeUndefined();
+      expect(testState.finalSyncCalls).toBe(1);
+    });
+
+    it('aborts and resolves when the sync exceeds the budget (timeout is best-effort)', async () => {
+      // Fetch that never resolves on its own: only the AbortController signal
+      // ends it. A tiny budget forces the timeout path.
+      const ctx = (containerInstance as unknown as CtxHost).ctx;
+      const slowPort = {
+        fetch: (_url: string, init?: { signal?: AbortSignal }) => new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        }),
+      };
+      (ctx as unknown as { container: { getTcpPort: (p: number) => typeof slowPort } }).container.getTcpPort = () => slowPort;
+      await expect(drainFinalSync(ctx, 20)).resolves.toBeUndefined();
+    });
+  });
+
+  describe('idle-stop drains before stop', () => {
+    it('calls final-sync, then stop, in that order', async () => {
+      testState.storedSleepAfter = '15m';
+      testState.activityResult = {
+        hasActiveConnections: true,
+        connectedClients: 1,
+        lastInputAt: Date.now() - (30 * 60 * 1000), // 30m idle > 15m
+      };
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.stopCalls).toBe(1);
+      expect(testState.finalSyncCalls).toBe(1);
+      expect(testState.callOrder).toEqual(['finalsync', 'stop']);
     });
   });
 });

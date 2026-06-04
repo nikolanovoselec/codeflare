@@ -16,7 +16,9 @@ import {
   collectMetrics as doCollectMetrics,
   updateKvStatus,
   openNotRunningConfirmation,
+  drainFinalSync,
   SHUTDOWN_REQUESTED_KEY,
+  FINAL_SYNC_BUDGET_MS,
   type MetricsState,
   type MetricsCallbacks,
 } from './container-metrics';
@@ -123,38 +125,43 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   }
 
   if (host.ctx.container?.running) {
-    // 135s = 120s budget for the entrypoint's final bisync (set in
-    // entrypoint.sh:shutdown_handler) plus a 15s buffer for clean
-    // process exit. Budget history: 25_000 (original) -> 75_000
-    // (vault rollout: vault edits in the last seconds were silently
-    // truncated when the SDK SIGKILLed mid-bisync) -> 135_000 (this
-    // change, alongside the 15-min cadence). Under the 15-min
-    // cadence (AD56) a single final bisync can accumulate more
-    // changes than under the old 60s cadence, so the watchdog at
-    // the entrypoint layer needed 120s; the DO budget tracks that
-    // plus the same 15s clean-exit buffer. See AD57.
+    // REQ-SESSION-011: drain a final R2 sync BEFORE signalling stop, while the
+    // container is still fully alive and this DO holds the teardown open. The
+    // old design relied on the entrypoint's SIGTERM trap to run the final
+    // bisync, but the platform kills the container ~3s after SIGTERM - far
+    // short of a bisync that can take up to ~2min under the 15-min cadence
+    // (AD56) - so the trap was cut off and the last edits never reached R2
+    // (data loss on stop/delete). Syncing here removes the kill-grace
+    // dependency. The teardown clock starts NOW so the 135s hard force-kill
+    // ceiling spans the whole drain-then-stop sequence: 120s sync budget + 15s
+    // for the actual stop. The trap remains a best-effort backstop. See AD57.
     host._shutdownStartedAt = Date.now();
-    const timeoutMs = 135_000;
+    const hardKillMs = 135_000;
     const warnThresholdMs = 110_000;
     const pollMs = 250;
     const start = host._shutdownStartedAt;
     let warned = false;
+
+    // Authoritative final sync (bounded). Best-effort: drainFinalSync swallows
+    // failure/timeout so we always fall through to stop.
+    await drainFinalSync(host.ctx, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start)));
+
     try {
       await host.stop('SIGTERM');
-      while (host.ctx.container?.running && Date.now() - start < timeoutMs) {
+      while (host.ctx.container?.running && Date.now() - start < hardKillMs) {
         await new Promise((resolve) => setTimeout(resolve, pollMs));
         if (!warned && Date.now() - start >= warnThresholdMs) {
           warned = true;
           host.logger.warn('Shutdown approaching budget ceiling', {
             elapsedMs: Date.now() - start,
-            budgetMs: timeoutMs,
+            budgetMs: hardKillMs,
             warnThresholdMs,
           });
         }
       }
       const elapsed = Date.now() - start;
       if (host.ctx.container?.running) {
-        host.logger.warn('Graceful shutdown timeout, escalating to SIGKILL', { timeoutMs, elapsed });
+        host.logger.warn('Graceful shutdown timeout, escalating to SIGKILL', { timeoutMs: hardKillMs, elapsed });
       } else {
         host.logger.info('Graceful shutdown complete', { elapsed });
       }

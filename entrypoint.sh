@@ -825,6 +825,9 @@ start_sync_daemon() {
         (cleanup_old_pi_transcripts) || true
 
         echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Running periodic bisync..." | tee -a /tmp/sync.log
+        # Mark syncing BEFORE the run so /internal/final-sync sees a fresh
+        # syncing->success transition for the bisync it triggered (REQ-SESSION-011 AC3).
+        update_sync_status "syncing" "null"
 
         # Use bisync for true bidirectional sync with newest-wins (quiet mode for periodic runs)
         if bisync_with_r2 ""; then
@@ -1190,13 +1193,17 @@ trap shutdown_handler SIGTERM SIGINT EXIT
 # ============================================================================
 update_sync_status() {
     # Args: status, error (raw string or "null")
+    # ts is the epoch-ms of this status change. The /internal/final-sync endpoint
+    # polls it to tell the bisync it just triggered apart from a prior one: it
+    # waits for a syncing->success transition whose ts is newer than its trigger
+    # (REQ-SESSION-011 AC3). Monotonic because every status write re-stamps it.
     local error_val="$2"
     if [ "$error_val" = "null" ]; then
         jq -n --arg status "$1" --arg userPath "$USER_HOME" \
-            '{status: $status, error: null, userPath: $userPath}' > /tmp/sync-status.json
+            '{status: $status, error: null, userPath: $userPath, ts: (now * 1000 | floor)}' > /tmp/sync-status.json
     else
         jq -n --arg status "$1" --arg error "$error_val" --arg userPath "$USER_HOME" \
-            '{status: $status, error: $error, userPath: $userPath}' > /tmp/sync-status.json
+            '{status: $status, error: $error, userPath: $userPath, ts: (now * 1000 | floor)}' > /tmp/sync-status.json
     fi
 }
 

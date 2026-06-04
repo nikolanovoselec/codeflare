@@ -81,6 +81,12 @@ export const SHUTDOWN_REQUESTED_KEY = 'shutdownRequested';
 // stopped (REQ-SESSION-018 AC3).
 const NOT_RUNNING_CONFIRM_MS = 90_000;
 
+// Budget the DO gives the in-container final sync (drainFinalSync) to complete
+// before a stop (REQ-SESSION-011 AC4). 120s pairs with the 135s teardown
+// hard-cap in destroy() (120s sync + 15s for the actual stop), and with the
+// 115s internal poll cap in the host server's /internal/final-sync endpoint.
+export const FINAL_SYNC_BUDGET_MS = 120_000;
+
 /**
  * Open the not-running confirmation window without writing 'stopped'.
  *
@@ -149,6 +155,49 @@ export async function updateKvStatus(
     logger.info('updateKvStatus: wrote to KV', { key, status, field });
   } catch (err) {
     logger.error('Failed to update KV status', toError(err));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// drainFinalSync
+// ---------------------------------------------------------------------------
+
+/**
+ * Drain a final R2 sync while the container is still fully alive, BEFORE any
+ * stop (REQ-SESSION-011). Calls the in-container POST /internal/final-sync,
+ * which triggers a fresh bisync and blocks until it reaches a terminal status;
+ * we await that up to budgetMs via an AbortController.
+ *
+ * Why this exists: the old design relied on the entrypoint's SIGTERM trap to
+ * run the final bisync, but the platform kills the container ~3s after SIGTERM -
+ * far short of a bisync that can take up to ~2min under the 15-min cadence - so
+ * the trap was cut off and the last edits never reached R2. Syncing here, while
+ * the container is alive and the DO holds the teardown open, removes the
+ * dependency on the kill grace entirely. Best-effort: any non-OK/timeout/error
+ * is logged and swallowed so the caller still proceeds to stop (the 135s
+ * teardown hard-cap is the backstop). Mirrors the /health probe's port (8080).
+ */
+export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number): Promise<void> {
+  if (!ctx.container?.running) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), budgetMs);
+  try {
+    const port = ctx.container.getTcpPort(8080);
+    const res = await port.fetch('http://localhost/internal/final-sync', {
+      method: 'POST',
+      signal: controller.signal,
+    });
+    if (res.ok) {
+      logger.info('drainFinalSync: final sync completed before stop');
+    } else {
+      logger.warn('drainFinalSync: final sync did not complete, proceeding to stop', { status: res.status });
+    }
+  } catch (err) {
+    logger.warn('drainFinalSync: final sync errored/timed out, proceeding to stop', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -293,6 +342,10 @@ export async function collectMetrics(
         });
         // Write KV status before stop — DO state can be lost during shutdown
         await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
+        // Drain a final R2 sync while the container is still alive, before the
+        // SIGTERM that the platform would otherwise cut off ~3s in
+        // (REQ-SESSION-011). Best-effort, bounded to the 120s sync budget.
+        await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS);
         await callbacks.stop('SIGTERM');
         return;
       }
@@ -404,6 +457,9 @@ export async function collectMetrics(
         const { quotaExceeded } = await pingRes.json() as { quotaExceeded: boolean };
         if (quotaExceeded) {
           logger.warn('Quota exceeded — stopping container', { bucketName: state._bucketName });
+          // Drain a final R2 sync while the container is still alive
+          // (REQ-SESSION-011), then stop. Best-effort, bounded.
+          await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS);
           await callbacks.stop('SIGTERM');
           return; // Don't re-arm after stop
         }

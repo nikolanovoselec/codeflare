@@ -184,13 +184,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> 120s watchdog -> AC4) -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> 135s destroy budget documented -> AC5) -->
 
-**Intent:** When a container is stopped or evicted, unsaved local changes must be pushed to R2 before the process exits.
+**Intent:** When a container is stopped or evicted, unsaved local changes must be pushed to R2 before the process exits. This REQ covers the entrypoint SIGTERM-trap final bisync, which is now a best-effort BACKSTOP: the authoritative final sync is the awaited live drain the Durable Object runs before signalling stop, specified in [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync) (the platform SIGKILLs the container ~3s after stop, so the trap alone cannot guarantee completion). The trap still runs, still gated on the bisync-initialized marker, and still watchdogged as below.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A termination handler runs a final bisync before the process exits.
+1. A termination handler runs a final bisync before the process exits (best-effort backstop; the primary guarantee is the live drain in [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync)).
 2. The final bisync runs only when the bisync-initialized marker is set.
 3. Files created during the session are available in R2 after shutdown completes successfully.
 4. The final bisync runs under a hard watchdog. If it has not completed before the watchdog expires the process is force-killed; the user accepts that the last writes may not have synced.

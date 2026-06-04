@@ -841,6 +841,57 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(mockStorage.delete).toHaveBeenCalledWith('bucketName');
     });
 
+    it('REQ-SESSION-011: drains a final R2 sync (POST /internal/final-sync) BEFORE signalling stop', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        return null;
+      });
+      mockContainerRuntime.running = true;
+
+      const order: string[] = [];
+      // Record the drain call and resolve it OK so drainFinalSync completes
+      // its happy path; the order array proves it lands before stop().
+      mockTcpPortFetch.mockImplementation(async (url: string) => {
+        if (typeof url === 'string' && url.includes('/internal/final-sync')) {
+          order.push('finalsync');
+        }
+        return new Response(JSON.stringify({ synced: true }), { status: 200 });
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockImplementation(async () => {
+        order.push('stop');
+        mockContainerRuntime.running = false;
+      });
+
+      await instance.destroy();
+
+      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
+      // The whole point of the fix: the live bisync is awaited while the
+      // container is still running, then we stop. Never the reverse.
+      expect(order).toEqual(['finalsync', 'stop']);
+    });
+
+    it('REQ-SESSION-011: still stops when the final-sync drain fails (best-effort, no throw)', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        return null;
+      });
+      mockContainerRuntime.running = true;
+
+      // Drain endpoint rejects: drainFinalSync must swallow it so teardown
+      // still proceeds to stop rather than wedging the destroy.
+      mockTcpPortFetch.mockRejectedValue(new Error('Connection refused'));
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockImplementation(async () => {
+        mockContainerRuntime.running = false;
+      });
+
+      await expect(instance.destroy()).resolves.toBeUndefined();
+      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
+    });
+
     it('graceful shutdown: falls back to SIGKILL when the container is still running after the 135 s timeout', async () => {
       vi.useFakeTimers();
       try {
