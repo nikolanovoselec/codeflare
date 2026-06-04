@@ -364,7 +364,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh -->
 <!-- @impl: preseed/agents/claude/manifest.json -->
-<!-- @impl: entrypoint.sh::SETTINGS_CONFIG (UserPromptSubmit memory-context-inject hook registration) -->
+<!-- @impl: entrypoint.sh::SETTINGS_CONFIG -->
 <!-- @test: host/__tests__/memory-context-inject.test.js (memory-context-inject.sh describe -> AC1 keyword match injection, AC2 budget cap, AC3 sentinel once-only, AC4 short prompt skip) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (codeflare-memory plugin files are advanced-only -> Constraints mode-gate) -->
 

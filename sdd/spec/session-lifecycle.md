@@ -241,7 +241,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 ### REQ-SESSION-007: Running session count limited per tier
 
 <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
-<!-- @impl: src/lib/subscription.ts::getMaxSessionsForTier -->
+<!-- @impl: src/lib/subscription.ts::getUserTier -->
 <!-- @impl: src/lib/constants.ts::getMaxSessions -->
 <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers describe → kv.list metadata count + tier comparison + non-SaaS fallback → AC1-AC5) -->
 

@@ -496,7 +496,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault-html.ts::injectVaultIdbRecorder -->
 <!-- @impl: src/routes/vault-html.ts::VAULT_BOOTSTRAP_COOKIE -->
 <!-- @impl: src/routes/vault-html.ts::VAULT_SW_ACTIVATION_TIMEOUT_MS -->
-<!-- @impl: src/routes/vault.ts::handleVaultRequest (.vault-key sub-path) -->
+<!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
 <!-- @test: src/__tests__/container/index.test.ts (ensureVaultKey persistence + idempotency describe → AC1/AC2) -->
