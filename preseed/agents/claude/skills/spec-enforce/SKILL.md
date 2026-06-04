@@ -1,12 +1,12 @@
 ---
 name: spec-enforce
-description: SDD spec enforcement orchestrator. Runs the 19-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
+description: SDD spec enforcement orchestrator. Runs the 20-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
 version: 2.0.0
 ---
 
 # Spec Enforcement (orchestrator)
 
-This skill is the spine for SDD spec enforcement. It runs the 19-row execution manifest against `sdd/` and orchestrates the conditional detail skills (`spec-enforce-ac`, `spec-enforce-truth`).
+This skill is the spine for SDD spec enforcement. It runs the 20-row execution manifest against `sdd/` and orchestrates the conditional detail skills (`spec-enforce-ac`, `spec-enforce-truth`).
 
 ## Inputs
 
@@ -41,6 +41,7 @@ Audit location by trigger: `/sdd clean` writes to the per-category commit bodies
 | REQ rendering template (binding) | Walk every Active REQ; verify render shape AND that cross-reference fields render IDs as markdown anchor links. | `ran (N REQs, M findings)` |
 | REQ length guidance | Walk every Active REQ; flag length tiers. | `ran (N REQs, M findings)` |
 | Acceptance criteria + AC granularity + REQ accretion guard | Invoke `spec-enforce-ac` when diff touches any AC bullet OR scope=all. | `ran (N REQs, K diff hunks, M findings)` or `inert (no AC diff)` |
+| Per-AC verbosity + Constraints conciseness | Invoke `spec-enforce-ac` when diff touches any AC bullet OR any `**Constraints:**` bullet OR scope=all. Catches rationale-essay ACs (>45 prose words) and Constraint-bibles (bullet >45 words / section >150 words) the line-count gauge misses. | `ran (N REQs, M findings)` or `inert` |
 | Actor coherence | Invoke `spec-enforce-ac` (same condition as above). | `ran (N REQs, M findings)` or `inert` |
 | Sub-bullets in ACs banned | Invoke `spec-enforce-ac`. | `ran (N REQs, M findings)` or `inert` |
 | Cross-cutting concerns get own REQ family | Invoke `spec-enforce-ac`. | `ran (N REQs, M findings)` or `inert` |
@@ -59,9 +60,9 @@ Audit location by trigger: `/sdd clean` writes to the per-category commit bodies
 ## Orchestration logic
 
 1. **Parse diff.** Identify: changed REQs, changed files, changed AC bullets, REQ ID set in diff, Status field changes, `sdd/changes.md` deltas.
-2. **Always-runs rows** (the 10 inline rows in the manifest above — Forbidden content, Status field semantics, REQ rendering, REQ length, Changelog drift, the three Meta-content leakage rules, Backlog re-triage, Commit-prefix + 5-round limit): execute inline. Each row updates its manifest status to `ran (N REQs, M findings)` immediately on completion. The remaining 9 rows invoke `spec-enforce-ac` (6 rows: AC granularity, actor coherence, sub-bullets, cross-cutting, concern-boundary, mechanism leakage) or `spec-enforce-truth` (3 rows: CQ-TEST, CQ-SOURCE, CQ-1/2/3) per the conditional rules below.
+2. **Always-runs rows** (the 10 inline rows in the manifest above — Forbidden content, Status field semantics, REQ rendering, REQ length, Changelog drift, the three Meta-content leakage rules, Backlog re-triage, Commit-prefix + 5-round limit): execute inline. Each row updates its manifest status to `ran (N REQs, M findings)` immediately on completion. The remaining 10 rows invoke `spec-enforce-ac` (7 rows: AC granularity, per-AC verbosity + Constraints conciseness, actor coherence, sub-bullets, cross-cutting, concern-boundary, mechanism leakage) or `spec-enforce-truth` (3 rows: CQ-TEST, CQ-SOURCE, CQ-1/2/3) per the conditional rules below.
 3. **Conditional invocations**:
-   - IF any AC bullet line changed in diff OR scope=all: invoke `spec-enforce-ac` skill with the diff + scope + mode.
+   - IF any AC bullet line changed in diff OR any `**Constraints:**` bullet changed in diff OR scope=all: invoke `spec-enforce-ac` skill with the diff + scope + mode. (Constraints bullets are included so the Constraints-conciseness rule fires on a diff that touches only Constraints; a touched REQ gets its ACs AND Constraints checked.)
    - IF any REQ with `Status: Implemented` or `Status: Partial` is in the diff, OR any path matched by `src_globs` (from the layout-resolved config; default defined in `spec-enforce-truth/SKILL.md` § Inputs) is in the diff, OR scope=all: invoke `spec-enforce-truth` skill with the diff + scope + mode. Source-touching diffs trigger invocation because source changes can orphan existing `@impl` anchors in unchanged REQs — CQ-SOURCE must re-validate. Partial REQs are included because they may carry source anchors that can drift, and CQ-SOURCE must run wherever an anchor exists (Truth guarantee is never gated). The skill itself decides per-pass which REQs each pass applies to (CQ-TEST only fires on Implemented when `enforce_tdd: true`; CQ-SOURCE fires on every REQ whose `@impl` anchors target the changed source OR every Implemented/Partial REQ on `scope=all`).
 4. **Aggregate** findings from sub-skill invocations into the unified manifest. Each sub-skill returns its own evidence rows.
 5. **Apply mode**:
@@ -136,6 +137,8 @@ Auto-fix in `auto`/`unleashed`: re-render the REQ from its parsed fields into th
 | >100 lines | HIGH |
 
 Oversized REQs are shrunk in place first (extract implementation prose to `documentation/`); when shrinking is exhausted, split. The split mechanics live in `spec-enforce-ac`.
+
+**This line-count table is the coarse gauge only.** A REQ can sit in the `<=25 lines` OK band while individual ACs and Constraints are prose-dense rationale-essays (the failure mode that line-counting misses). The *prose-density* rules (per-AC verbosity, per-Constraint-bullet conciseness, and the AC granularity triggers) live in `spec-enforce-ac` and fire at MEDIUM/HIGH independent of this table. Never read a green line-count as license to pass a REQ whose ACs or Constraints are bloated; run the `spec-enforce-ac` checks on every touched REQ.
 
 ## Status field semantics — transitions and auto-fix
 

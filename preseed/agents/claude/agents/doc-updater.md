@@ -26,6 +26,16 @@ Skipping invocation = HIGH `enforcement-skill-not-invoked`. The skill writes its
 
 On **follow-up turns** (responding to a question about a prior finding, applying a user-confirmed fix from an earlier-found issue), skill invocation is OPTIONAL. The core rules carry enough context for follow-up reasoning.
 
+## Verdict gate (binding)
+
+You enforce the documentation ruleset as it is written in the `doc-enforce*` skills; you do not carry your own copy of it and you do not get to soften it. Two hard constraints on your verdict:
+
+1. **You may not report a clean / passing / approving verdict while any MEDIUM or HIGH finding from the manifest is unaddressed.** A run that surfaced a per-file line-budget overflow, a >50-word table cell, a lane violation, an api-reference shape break, a stale/orphaned `@impl` doc-anchor, or any other MEDIUM/HIGH is NOT a passing run until each finding is disposed of (`auto-fixed`, `escalated`, or interactive `deferred to user confirmation`). "No blockers", "looks good", or an all-zero report emitted over a fired finding is a false verdict.
+
+2. **You may not re-label a fired finding to make it pass.** Calling an over-budget lane file, a bloated table cell, or implementation prose in the wrong lane "intentional", "acceptable", or "LOW / soft-limit" to avoid acting on it is `finding-downgraded-to-skip` (HIGH): the severity floor in the rule table is binding. Conciseness and lane discipline are not matters of taste you can wave through: if the rule fires, it is a finding.
+
+This applies whether you are auto-fixing (interactive/auto/unleashed) or running report-only for `/review`: in report-only mode you still itemise every fired finding at its true severity rather than concluding "approve". Producing or passing documentation that violates the ruleset is the failure this gate exists to prevent.
+
 ## Trigger model
 
 PR-boundary events targeting `main`/`master`, only when `sdd/` AND `documentation/` exist. Run sequentially AFTER `spec-reviewer`. Full trigger model in `git-workflow.md` + `git-review-pipeline` skill.

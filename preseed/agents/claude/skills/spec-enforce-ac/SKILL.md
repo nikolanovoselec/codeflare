@@ -1,6 +1,6 @@
 ---
 name: spec-enforce-ac
-description: SDD spec AC quality and splitting enforcement. Runs AC granularity triggers 1-10, run-on safety net, actor coherence, sub-bullets ban, splitting by actor/sub-feature/concern, accretion guard, chain enforcement, mechanism leakage. Invoked conditionally by spec-enforce when diff touches any AC bullet OR scope=all.
+description: SDD spec AC quality and splitting enforcement. Runs AC granularity triggers 1-10, run-on safety net, per-AC verbosity cap, Constraints conciseness, actor coherence, sub-bullets ban, splitting by actor/sub-feature/concern, accretion guard, chain enforcement, mechanism leakage. Invoked conditionally by spec-enforce when diff touches any AC bullet OR any Constraints bullet OR scope=all.
 version: 1.0.0
 ---
 
@@ -25,6 +25,7 @@ The AC granularity rules, splitting mechanics, and accretion guard are layout-in
 
 Returns findings array + auto-fix actions (per mode). Writes evidence-count rows back to the spine's manifest:
 - `Acceptance criteria + AC granularity + REQ accretion guard`: `ran (N REQs, K diff hunks, M findings)`
+- `Per-AC verbosity + Constraints conciseness`: `ran (N REQs, M findings)`
 - `Actor coherence`: `ran (N REQs, M findings)`
 - `Sub-bullets in ACs banned`: `ran (N REQs, M findings)`
 - `Cross-cutting concerns get own REQ family`: `ran (N REQs, M findings)`
@@ -79,6 +80,26 @@ Severity: MEDIUM `ac-multi-behaviour`. Auto-fix in `auto`/`unleashed`: split at 
 ### Run-on AC bullets (length safety net)
 
 Residual catch-net for single-behaviour ACs that slipped past triggers 1-10: >150 words OR >=3 semicolons outside comma-separated enumerations. MEDIUM `ac-run-on`. Auto-fix: split at conjunctions, preserving every clause. Granularity fires first.
+
+### Per-AC verbosity cap (rationale belongs in Intent / changes.md / ADRs)
+
+The granularity triggers permit a rationale tail (`so`/`because`) on a single-behaviour AC, and the run-on net only catches >150 words. Between them sits the common bloat the line-count gauge also misses: a 40-90 word AC that states one behaviour but pads it with embedded justification ("rather than X, which would...", "the SDK reads false because...", "so a Y can never be mistaken for Z"). That rationale is not contractual - it duplicates the Intent and the `sdd/changes.md` / ADR narrative, and an AC is a pass/fail assertion, not a place to explain WHY.
+
+Detection (per AC, counting prose words only - exclude trailing `<!-- @impl/@test -->` anchors and markdown link URLs): **prose word count > 45** = MEDIUM `ac-verbose`. The rationale-tail escape from the granularity rule does NOT exempt this: an escape-qualified rationale sentence that pushes the AC past 45 words still fires `ac-verbose`.
+
+Auto-fix in `auto`/`unleashed`: trim the AC to the bare testable assertion. The stripped rationale, if it is not already in the REQ's Intent, moves to the `sdd/changes.md` entry for the change (one sentence) or, for a design tradeoff, to the relevant ADR - never back into the AC. If the over-length came from two behaviours rather than rationale, defer to the granularity split instead. Reporting an `ac-verbose` AC as "fine / single-behaviour / acceptable" without trimming is `finding-downgraded-to-skip` (HIGH), per the no-silent-downgrade rule.
+
+### Constraints conciseness (one terse boundary per bullet)
+
+`**Constraints:**` bullets are boundaries (invariants, limits, and accepted-residual one-liners), NOT a place for why-narratives. The same rationale that is banned from ACs is banned here: "for the same reason X follows Y", "a DO eviction mid-shutdown would discard...", multi-sentence explanations of mechanism or history. The full rationale lives in `sdd/changes.md` and `documentation/decisions/README.md`; a Constraint may carry at most a one-clause pointer (`... (rationale in [ADxx](...))`).
+
+Detection (per Constraints bullet, prose words excluding cross-ref link URLs):
+- **bullet > 45 words** OR **>= 2 sentences** OR contains a rationale-narrative connective chaining a justification (`because`, `so that`, `for the same reason`, `rather than ... which would`, `the same ... follows`, `and for the same reason`) = MEDIUM `constraint-bloat` on that bullet.
+- **any single bullet > 80 words**, OR the whole `**Constraints:**` section prose > 150 words = HIGH `constraint-section-bloat` (the paragraph-bible failure mode).
+
+Auto-fix in `auto`/`unleashed`: reduce each bullet to its boundary statement; move the stripped rationale to the `sdd/changes.md` entry or the relevant ADR (with a one-clause pointer left in the bullet only if a reader needs the reference). Never delete a genuine boundary, only the narration around it. A Constraint that is purely narration with no boundary (pure "we tried X then Y" history) is deleted, not trimmed (that belongs in git history per `spec-driven-development` "What is NOT a requirement"). Reporting a fired `constraint-bloat`/`constraint-section-bloat` as LOW/intentional/acceptable is `finding-downgraded-to-skip` (HIGH).
+
+Writes evidence row to the spine manifest: `Per-AC verbosity + Constraints conciseness: ran (N REQs, M findings)`.
 
 ### Actor coherence (one actor per REQ)
 

@@ -8,7 +8,7 @@ version: 1.0.0
 
 The rescue command for projects whose spec has accumulated implementation leakage, fake deprecations, prose Status fields, oversized REQs, and bloated changelogs.
 
-**First action (binding):** invoke the `spec-enforce` skill (spine) with `scope=all` or `scope=diff` per the user's flag. The skill runs the 19-row execution manifest and conditionally invokes `spec-enforce-ac` (when ACs touched) and `spec-enforce-truth` (when Implemented or Partial REQs touched — Partial included so CQ-SOURCE can validate `@impl` anchors). This file describes what `/sdd clean` does on top of the skill's findings.
+**First action (binding):** invoke the `spec-enforce` skill (spine) with `scope=all` or `scope=diff` per the user's flag. The skill runs the 20-row execution manifest and conditionally invokes `spec-enforce-ac` (when ACs touched) and `spec-enforce-truth` (when Implemented or Partial REQs touched — Partial included so CQ-SOURCE can validate `@impl` anchors). This file describes what `/sdd clean` does on top of the skill's findings.
 
 ## What it does (per mode)
 
