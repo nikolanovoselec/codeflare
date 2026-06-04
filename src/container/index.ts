@@ -368,9 +368,10 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   /**
-   * Override destroy to do a graceful SIGTERM shutdown so the entrypoint trap
-   * runs final R2 bisync (REQ-SESSION-011) before SDK teardown SIGKILLs the
-   * container. See container-lifecycle.ts destroy() for the full rationale.
+   * Override destroy to drain a final R2 bisync while the container is still
+   * running, BEFORE signalling stop (REQ-SESSION-011); the entrypoint trap is
+   * only a best-effort backstop. See container-lifecycle.ts destroy() for the
+   * full rationale.
    */
   override async destroy(): Promise<void> {
     await lifecycleDestroy(this.lifecycleHost);

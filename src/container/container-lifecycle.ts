@@ -74,10 +74,12 @@ export async function collectMetrics(host: LifecycleHost): Promise<void> {
 }
 
 /**
- * Override destroy to do a graceful SIGTERM shutdown so the entrypoint trap
- * runs final R2 bisync (REQ-SESSION-011) before SDK teardown SIGKILLs the
- * container. Storage identifiers are cleared first so any onStop() racing
- * with the trap-driven exit cannot resurrect the KV entry (REQ-SESSION-009).
+ * Override destroy to drain a final R2 bisync while the container is still
+ * running, BEFORE signalling stop (REQ-SESSION-011) - the platform SIGKILLs the
+ * container ~3s after stop, far short of a bisync, so the entrypoint trap that
+ * used to run the final sync is now only a best-effort backstop. Storage
+ * identifiers are cleared first so any onStop() racing the exit cannot
+ * resurrect the KV entry (REQ-SESSION-009).
  */
 export async function destroy(host: LifecycleHost): Promise<void> {
   host.logger.info('Destroying container, clearing operational storage');

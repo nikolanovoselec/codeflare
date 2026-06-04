@@ -23,6 +23,7 @@ import { createActivityTracker } from './activity-tracker.js';
 import { getPrewarmConfig } from './prewarm-config.js';
 import { getSyncStatus, getSystemMetrics } from './metrics.js';
 import { checkContainerAuth } from './auth-check.js';
+import { evaluateFinalSync } from './final-sync.js';
 import { Session } from './session.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
 import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry, ActivityTracker, SessionOptions } from './types.js';
@@ -375,23 +376,22 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     }
     const INTERNAL_TIMEOUT_MS = 115_000; // just under the DO's 120s budget
     const POLL_MS = 500;
+    // Two-phase completion detection lives in the pure evaluateFinalSync state
+    // machine (final-sync.ts) so the syncing->success/failed discrimination is
+    // unit-testable without spawning the daemon; this loop owns only the I/O.
     let runStartedTs = -1;
     while (Date.now() - triggerTs < INTERNAL_TIMEOUT_MS) {
-      const s = readStatus();
-      const ts = typeof s.ts === 'number' ? s.ts : 0;
-      if (runStartedTs < 0) {
-        if (s.status === 'syncing' && ts >= triggerTs) runStartedTs = ts;
-      } else if (ts > runStartedTs) {
-        if (s.status === 'success') {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ synced: true }));
-          return;
-        }
-        if (s.status === 'failed') {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ synced: false, reason: 'bisync-failed' }));
-          return;
-        }
+      const ev = evaluateFinalSync(readStatus(), triggerTs, runStartedTs);
+      runStartedTs = ev.runStartedTs;
+      if (ev.result === 'success') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ synced: true }));
+        return;
+      }
+      if (ev.result === 'failed') {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ synced: false, reason: 'bisync-failed' }));
+        return;
       }
       await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     }

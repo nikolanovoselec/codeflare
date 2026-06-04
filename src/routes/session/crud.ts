@@ -207,9 +207,10 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   const containerId = getContainerId(bucketName, sessionId);
   const container = getContainer(c.env.CONTAINER, containerId);
 
-  // The DO's destroy() override performs a graceful SIGTERM shutdown so the
-  // entrypoint trap runs final R2 bisync (REQ-SESSION-011) before SDK
-  // teardown. Destroy FIRST so a failure leaves the KV entry intact for retry.
+  // The DO's destroy() override drains a final R2 bisync while the container is
+  // still alive, BEFORE signalling stop (REQ-SESSION-011); the entrypoint trap
+  // is only a best-effort backstop. Destroy FIRST so a failure leaves the KV
+  // entry intact for retry.
   try {
     await container.destroy();
     reqLogger.info('Destroyed container', { containerId });

@@ -388,11 +388,12 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 <!-- @impl: src/container/container-metrics.ts::drainFinalSync -->
 <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
 <!-- @impl: host/src/server.ts -->
+<!-- @impl: host/src/final-sync.ts -->
 <!-- @impl: entrypoint.sh::shutdown_handler -->
 <!-- @impl: Dockerfile -->
 <!-- @test: src/__tests__/container/index.test.ts (destroy describe -> drains final-sync before stop + best-effort on drain failure -> AC1/AC4/AC5) -->
 <!-- @test: src/__tests__/container-metrics.test.ts (final-sync drain describe -> drainFinalSync no-op/best-effort + idle-stop drains before stop -> AC1/AC6) -->
-<!-- @test: host/__tests__/final-sync-endpoint.test.js (final-sync endpoint describe -> endpoint shape + ts/syncing completion signal -> AC2/AC3) -->
+<!-- @test: host/__tests__/final-sync-endpoint.test.js (evaluateFinalSync completion detection describe -> in-flight ignored + syncing->success/failed -> AC2/AC3; structural describes -> endpoint wiring + entrypoint signal) -->
 
 **Intent:** When a container is stopped for any reason (user stop, user delete, idle timeout, quota eviction), its workspace is fully synced to R2 before the container process is terminated, so no data is lost. The platform's grace period between SIGTERM and SIGKILL is far shorter than a bidirectional sync can take, so the final sync is performed as an *awaited live bisync while the container is still running* - the Durable Object triggers it and blocks on its completion before stopping the container - rather than relying on the SIGTERM trap, which is retained only as a best-effort backstop.
 
@@ -401,8 +402,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Acceptance Criteria:**
 
 1. Before signalling the container to stop, every deliberate stop path runs a live bidirectional R2 sync to completion while the container is still fully running, rather than relying on a post-SIGTERM trap to sync within the platform's kill grace. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync -->
-2. The container exposes an awaitable final-sync endpoint that triggers a fresh bisync and responds only once that bisync has completed (success or failure) or an internal timeout elapses, distinguishing completion from failure and timeout. <!-- @impl: host/src/server.ts -->
-3. The sync-status record the endpoint polls carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, so the endpoint can tell the bisync it triggered apart from a prior one. <!-- @impl: entrypoint.sh -->
+2. The container exposes an awaitable final-sync endpoint that triggers a fresh bisync and responds only once that bisync has completed (success or failure) or an internal timeout elapses, distinguishing completion from failure and timeout. <!-- @impl: host/src/server.ts --> <!-- @impl: host/src/final-sync.ts -->
+3. The sync-status record the endpoint polls carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, and the endpoint accepts a terminal status only after observing its own run's `syncing` (a `syncing` stamped at or after the trigger), never a bare `success`, so a bisync already in flight when the trigger arrived can never be mistaken for the triggered run. <!-- @impl: host/src/final-sync.ts --> <!-- @impl: entrypoint.sh -->
 4. The Durable Object waits up to a bounded sync budget (120s) for the live sync to report completion; a failed or timed-out sync still proceeds to stop rather than blocking teardown. <!-- @impl: src/container/container-lifecycle.ts::destroy -->
 5. Total teardown is hard-capped: the container is force-terminated no later than 135s after teardown begins regardless of sync state, so a hung sync cannot wedge the session. <!-- @impl: src/container/container-lifecycle.ts::destroy -->
 6. User stop and user delete behave identically - both route through the same graceful-destroy path and therefore the same drain-then-stop sequence; idle-timeout and quota-eviction paths drain through the same endpoint before stopping. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
@@ -413,6 +414,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - The platform's post-SIGTERM kill grace is never relied upon for sync completion; the authoritative final sync runs while the container is fully alive and the DO holds the teardown request open awaiting it.
 - The drain is bounded, not unbounded: a failed or timed-out final sync proceeds to stop (with the 135s hard force-kill as the ceiling) rather than blocking teardown indefinitely - liveness is preserved over a guaranteed-complete sync in the pathological case.
 - The container image still declares a stop signal the entrypoint can trap, so the backstop trap remains reachable.
+- Completion detection is safe because the daemon stamps `syncing` immediately before it scans the filesystem and runs the bisync: a `syncing` at or after the trigger therefore guarantees the scan reads post-trigger filesystem state (the user's last edits are on disk before the drain begins). Gating acceptance on `syncing` rather than a bare `success` is load-bearing - an in-flight run's `success` can also land at or after the trigger, but its scan predated the trigger. The accepted residual is benign: if a triggered run writes `syncing` then `success` within a single poll interval, the endpoint may miss the `syncing` sample and time out, after which the bounded drain falls through to stop best-effort - the data still synced, so this is wasted budget, not loss.
 
 **Priority:** P0
 
