@@ -422,7 +422,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-006: Shutdown bisync completes vault writes before SIGKILL
 
 <!-- @impl: entrypoint.sh::shutdown_handler -->
-<!-- @impl: src/container/index.ts::destroy -->
+<!-- @impl: src/container/container-lifecycle.ts::destroy -->
 <!-- @test: src/__tests__/container/index.test.ts (135s SIGKILL fallback + shutdownElapsedMs telemetry describe → AC4/AC5) -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (120s watchdog + vault-monitor and SilverBullet PID kill in shutdown handler → AC1-AC3) -->
 

@@ -116,7 +116,7 @@ Isolation boundary: each user's files live in their own bucket. Simplifies delet
 **Category:** Architecture
 **Status:** Superseded by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) (cadence rationale) and [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (shutdown budget).
 
-**Decision:** Background daemon every 60s + final sync on shutdown. Superseded cadence rationale: see [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) (now 15min). Superseded shutdown budget rationale: see [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (now 120s watchdog within a 135s DO destroy budget).
+**Decision:** Background daemon every 60s + final sync on shutdown. Superseded cadence rationale: see [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) (now 15min). Superseded shutdown budget rationale: see [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (now an awaited live drain within a 120s budget before stop, 135s DO destroy hard cap; the SIGTERM trap is only a backstop -- see the Revision in AD57).
 
 Local disk for all file operations (fast I/O). Bisync daemon runs in background, syncing changes bidirectionally; manual triggers via SIGUSR1 (storage panel Sync-now button). SIGINT/SIGTERM trap runs final bisync before exit. Alternative (s3fs FUSE) was fragile and slow -- see Lessons Learned #1.
 
