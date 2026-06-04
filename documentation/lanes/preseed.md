@@ -270,8 +270,8 @@ All preseed content is deployed via the manifest pipeline:
   The generator maps each manifest key by directory prefix:
   `extensions/` -> `.pi/agent/extensions/`, `skills/` -> `.pi/agent/skills/`,
   `scripts/` -> `.pi/agent/scripts/`, and `prompts/` -> `.pi/agent/prompts/`.
-  Package files deploy under `.pi/agent/npm/`; `mcp.json` and `settings.json`
-  deploy directly under `.pi/agent/`.
+  Package files deploy under `.pi/agent/npm/`; `mcp.json` deploys directly
+  under `.pi/agent/`.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
