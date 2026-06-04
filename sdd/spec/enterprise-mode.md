@@ -32,6 +32,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 ---
 
 <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (resolveEnterpriseMode describe -> ENTERPRISE_MODE flag forces unlimited tier + advanced session mode + subscription disabled -> AC1..AC4; flag-unset parity describe -> tier/mode/subscription resolution byte-identical to baseline across Default/Onboarding/SaaS -> AC5) -->
+<!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (enterprise bypass describe -> unlimited session cap AC3 — enterprise resolves unlimited cap not stored free-tier cap) -->
 ### REQ-ENTERPRISE-001: ENTERPRISE_MODE Forces Unlimited Tier and Pro Mode
 
 <!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
@@ -40,13 +41,13 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Intent:** A deploy-time `ENTERPRISE_MODE` flag must turn a deployment into a single-tenant enterprise instance where every user gets full access without subscription friction.
 
-**Applies To:** Admin
+**Applies To:** User
 
 **Acceptance Criteria:**
 
 1. When `ENTERPRISE_MODE` is set, every user's effective tier resolves to `unlimited` regardless of the stored `subscriptionTier`.
 2. When `ENTERPRISE_MODE` is set, session-mode resolution returns Pro (`advanced`) for every user regardless of the stored preference.
-3. When `ENTERPRISE_MODE` is set, subscription enforcement (quota gating, billing-status checks, trial logic) is disabled so no user is ever blocked on a payment or quota condition.
+3. When `ENTERPRISE_MODE` is set, every user is treated as a custom `unlimited` user: the unlimited tier's session cap applies (not the stored tier's), the monthly compute quota (timekeeper) is never enforced, and billing-status checks and trial logic are disabled — no user is ever blocked on a payment, quota, or time-limit condition.
 4. The flag is read from a single resolver; all callers consult the resolver rather than reading the raw binding.
 5. When `ENTERPRISE_MODE` is unset, tier resolution, session-mode resolution, and subscription enforcement are byte-identical to current behavior across the Default, Onboarding, and SaaS deployment modes.
 
@@ -132,6 +133,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 ---
 
 <!-- @test: src/__tests__/llm-interceptor.test.ts (LlmInterceptor describe -> host->gateway provider-path mapping (anthropic keeps /v1, compat drops /v1) + cf-aig-authorization + cf-aig-metadata stamped with opaque user + placeholder auth stripped + streaming preserved + unmapped host 400 + gateway-unset 503 -> AC1..AC7) -->
+<!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (enterprise bypass describe -> monthly compute quota never enforced AC3 — enterprise users are never blocked by the monthly compute quota) -->
 ### REQ-ENTERPRISE-004: Outbound-Interception LLM Routing to Customer AI Gateway
 
 <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
