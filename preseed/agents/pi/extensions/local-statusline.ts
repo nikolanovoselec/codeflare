@@ -82,7 +82,7 @@ function repositoryLabel(ctx: ExtensionContext): string | undefined {
 function contextPercent(ctx: ExtensionContext): string {
   const usage = ctx.getContextUsage?.();
   const percent = usage?.percent ?? (
-    usage?.tokens !== null && usage?.contextWindow
+    typeof usage?.tokens === "number" && usage.contextWindow
       ? (usage.tokens / usage.contextWindow) * 100
       : undefined
   );
