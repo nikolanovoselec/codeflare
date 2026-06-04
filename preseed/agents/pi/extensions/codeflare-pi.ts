@@ -292,6 +292,10 @@ function isGitClone(command: string): boolean {
   return /(^|[;&|\n]\s*)git\s+clone\b/.test(command) || /(^|[;&|\n]\s*)gh\s+repo\s+clone\b/.test(command);
 }
 
+export function shouldHandleClonePrompt(command: string, targetWasAlreadyCloned: boolean, reviewLaneDepth: number): boolean {
+  return isGitClone(command) && !targetWasAlreadyCloned && reviewLaneDepth <= 0;
+}
+
 function isGitPush(command: string): boolean {
   return /(^|[;&|\n]\s*)git\s+push\b/.test(command);
 }
@@ -585,7 +589,7 @@ export default function (pi: ExtensionAPI) {
     const cwd = ctx.sessionManager.getCwd();
     const id = toolEventId(event);
     const targetWasAlreadyCloned = id ? cloneTargetHadGit.get(id) === true : false;
-    const shouldHandleClone = isGitClone(command) && !targetWasAlreadyCloned && !reviewLaneActive();
+    const shouldHandleClone = shouldHandleClonePrompt(command, targetWasAlreadyCloned, (globalThis as { __codeflareReviewLaneDepth?: number }).__codeflareReviewLaneDepth ?? 0);
     const decision = shouldHandleClone
       ? graphifyClonePromptDecision({
         command,
