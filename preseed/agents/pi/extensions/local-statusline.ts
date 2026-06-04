@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const ACTIVE_REPO_FILE = "/home/user/.cache/codeflare-hooks/graphify-active-cwd";
 const CACHE_TTL_MS = 1_000;
@@ -9,6 +8,33 @@ const CACHE_TTL_MS = 1_000;
 type Cache<T> = {
   value: T;
   checkedAt: number;
+};
+
+type ExtensionContext = {
+  cwd: string;
+  hasUI: boolean;
+  model?: { id?: string };
+  getContextUsage?: () => { percent?: number; tokens?: number | null; contextWindow?: number } | undefined;
+  sessionManager: { getCwd(): string };
+  ui: { setFooter(renderer: FooterRendererFactory): void };
+};
+
+type ExtensionAPI = {
+  getThinkingLevel(): string;
+  on(event: string, handler: (event: unknown, ctx: ExtensionContext) => void): void;
+};
+
+type FooterRendererFactory = (
+  tui: { requestRender(): void },
+  theme: { fg(style: string, text: string): string },
+  footerData: {
+    onBranchChange(handler: () => void): () => void;
+    getExtensionStatuses(): Map<string, string>;
+  },
+) => {
+  dispose(): void;
+  invalidate(): void;
+  render(width: number): string[];
 };
 
 function findGitRoot(startDir: string): string | undefined {
