@@ -219,7 +219,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (mcp-lazy resolution chain + active-repo hook structure + vault basename exclusion + fast-path skip → AC1-AC4) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-VAULT-004: titleFor heading extraction + wikilink concept nodes + PDF document nodes + flock global merge -> AC2/AC3 Pi vault graph content) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-VAULT-004: Pi memory-vault.ts publishes the vault + active-repo graphs to the unified graph via flock-guarded `graphify global add --as <tag>` -> AC2/AC3) -->
 
 **Intent:** A single `mcp__graphify__*` call returns nodes from the vault and from every per-repo graphify-out the session has touched, so cross-cutting questions ("did we ever discuss X with respect to Y") work without manually selecting a graph.
 
@@ -609,10 +609,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-016: Vault graph extraction emits the canonical shared schema
 
-<!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::deterministicVaultGraph -->
 <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (deterministicVaultGraph emits canonical file_type/source_file/relation nodes + heading sub-sections → AC1; vault-extract prompt publishes viz to Raw/Graphs → AC2) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi vault-extract prompt emits the canonical file_type/source_file chunk schema + invokes the Pi-local merge-vault-graph.py → AC1; vault-extract prompt publishes viz to Raw/Graphs → AC2) -->
 <!-- @cites: REQ-VAULT-003 (split-prose: the canonical-schema output contract foreshadowed in REQ-VAULT-003 AC4's extract-merge-advance step lands here) -->
 
 **Intent:** The graph produced by vault extraction is structurally interchangeable with the repo and global graphs, and the re-rendered visualization is published where the vault index page can link to it. This is the output-shape contract; detection and dispatch latency are [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s).
@@ -621,12 +620,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The extracted graph uses the canonical graphify node/edge schema shared with the repo and global graphs: document and code nodes carry `file_type` and a truthy `source_file` so the global merge preserves their identity rather than label-merging them; concept nodes carry `file_type: "concept"` with `source_file: null` so the global merge dedupes them by label; edges carry a canonical `relation` plus `confidence`/`confidence_score`. The Pi deterministic baseline additionally emits a sub-section node for each markdown heading (level 2 and deeper) linked to its document by a `contains` edge. The Pi extension baseline and its vault-extract subagent both emit this schema, matching the Claude runtime; the legacy `type`/`path`/`mentions` shape is never written.
+1. The extracted graph uses the canonical graphify node/edge schema shared with the repo and global graphs: document and code nodes carry `file_type` and a truthy `source_file` so the global merge preserves their identity rather than label-merging them; concept nodes carry `file_type: "concept"` with `source_file: null` so the global merge dedupes them by label; edges carry a canonical `relation` plus `confidence`/`confidence_score`. The vault-extract subagent additionally emits a sub-section node for each markdown heading (level 2 and deeper) linked to its document by a `contains` edge. Both runtimes' vault-extract subagents emit this schema identically - the Pi subagent runs the same canonical chunk -> `merge-vault-graph.py` pipeline as Claude, with no separate in-process baseline; the legacy `type`/`path`/`mentions` shape is never written.
 2. After merging, the extraction re-renders the vault viz HTML (`graphify cluster-only .` from the vault root) and copies `graph.html` to `Raw/Graphs/vault-graph.html` so the `Vault Graph.md` index-page link resolves through the SilverBullet `.fs/` route (`graphify-out/` is excluded from R2 bisync and the `.fs/` route). This publish step is non-fatal: a failure leaves a stale viz HTML but never blocks high-water-marker advancement, since the graph data is already persisted.
 
 **Constraints:**
 
-- The canonical-schema baseline (AC1) is verified by the `deterministicVaultGraph` unit test; the viz publish (AC2) is verified by manual check (the cluster-only render + copy is prompt-driven prose, like [REQ-VAULT-011](#req-vault-011-vault-extract-ingests-pdf-files)), with the Pi prompt's publish step additionally source-asserted in `agent-seed-manifest.test.ts`.
+- The canonical-schema output (AC1) is verified by the Pi vault-extract prompt source assertions in `agent-seed-manifest.test.ts` (chunk schema + `merge-vault-graph.py` invocation); the viz publish (AC2) is verified by manual check (the cluster-only render + copy is prompt-driven prose, like [REQ-VAULT-011](#req-vault-011-vault-extract-ingests-pdf-files)), with the Pi prompt's publish step additionally source-asserted in `agent-seed-manifest.test.ts`.
 
 **Priority:** P0
 

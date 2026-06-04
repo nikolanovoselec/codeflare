@@ -290,34 +290,46 @@ Schema (must match exactly):
 }
 ```
 
-### 6. Build the vault graph.json from the chunk
+### 6. Build the vault graph.json from the chunk, merging into the persistent vault-graph
+
+`graphify global add` needs a fully-built `graph.json` (with clustering
+metadata), not the raw chunk. REQ-MEM-009: we must also accumulate the
+cumulative vault subgraph across captures -- the previous design called
+`graphify global add --as user_vault` with only the latest chunk, and
+`--as <tag>` replaces the entire repo-tag contribution, so every capture
+wiped all prior vault knowledge (including the vault-extract agent's note
+nodes) from the global graph. The fix is the shared persistent
+`vault-graph.json` that grows monotonically: load it (or start fresh if
+missing), nx.compose the new chunk's nodes/edges into it via hash-keyed
+union, re-cluster, and write it back. The persistent graph is then what
+`graphify global add` consumes in step 7.
 
 ```bash
-( flock -w 5 /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python -c "
-import json
-from pathlib import Path
-from graphify.build import build_from_json
-from graphify.cluster import cluster
-from graphify.export import to_json
-
-chunk_path = Path('/home/user/Vault/graphify-out/.graphify_chunk_01.json')
-out_path = Path('/home/user/Vault/graphify-out/graph.json')
-
-extraction = json.loads(chunk_path.read_text(encoding='utf-8'))
-G = build_from_json(extraction)
-communities = cluster(G) if G.number_of_nodes() else {}
-to_json(G, communities, str(out_path))
-print(f'vault graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges')
-" ) || true
+( flock -w 5 /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python /home/user/.claude/plugins/codeflare-vault/scripts/merge-vault-graph.py ) || true
 ```
 
-The `( ... ) || true` wrapper matches the precedent in `graphify-active-repo.sh` -- if the 5s lock-acquire times out (because another writer holds the lock), the step exits cleanly and the markdown file remains on disk. The next 15-message batch retries the merge.
+The script (`merge-vault-graph.py`, REQ-MEM-009 AC1+AC2+AC4) does the load +
+compose + cluster + persist. It defaults to the standard vault layout (chunk
+at `/home/user/Vault/graphify-out/.graphify_chunk_01.json`, persistent graph
+at `vault-graph.json`, per-run output at `graph.json`) so the invocation
+above takes no arguments. The capture agent wrote the chunk to that exact
+path in step 5, so the defaults apply verbatim. The `( ... ) || true` wrapper
+matches the precedent in `graphify-active-repo.sh` -- a 5s lock-acquire
+timeout exits cleanly and the markdown file remains on disk; the next
+15-message batch retries the merge. The `flock` lock is shared with
+`graphify global add` in step 7 and the vault-extract agent, so concurrent
+writers never stomp the manifest.
 
-### 7. Merge into the unified global graph
+### 7. Merge the cumulative vault graph into the unified global graph
+
+REQ-MEM-009 AC3: feed the persistent `vault-graph.json` (cumulative) to
+`graphify global add`, NOT the per-capture chunk graph. The `--as user_vault`
+replace-semantics now publishes the cumulative vault state on every run
+instead of clobbering it.
 
 ```bash
 ( flock -w 5 /tmp/graphify-global.lock /usr/local/bin/graphify global add \
-    /home/user/Vault/graphify-out/graph.json --as user_vault ) || true
+    /home/user/Vault/graphify-out/vault-graph.json --as user_vault ) || true
 ```
 
 `graphify global add` is hash-keyed and idempotent. The internal
@@ -334,7 +346,32 @@ graph merge is NOT retried by the vault-extract pipeline. Re-running the
 capture by triggering another 15-message batch is the recovery path. Do
 not delete the markdown file.
 
-### 8. Cleanup
+### 8. Re-render the vault viz HTML
+
+The vault `Raw/Graphs/Vault Graph.md` index page links to `vault-graph.html`.
+Without this step, the HTML drifts behind the JSON on every capture and the
+linked viz shows stale content. Render from the per-run `graph.json` (which
+step 6 just wrote alongside `vault-graph.json`) via `cluster-only`, which
+re-emits `graph.html` and `GRAPH_REPORT.md` without re-extracting files. Copy
+the rendered HTML into `Raw/Graphs/` so the index-page link resolves through
+the SilverBullet `.fs/` route. `cluster-only` takes a PROJECT root and writes
+output to `<root>/graphify-out/`, so pass `.` (with cwd=`/home/user/Vault`);
+passing `graphify-out` would nest to `graphify-out/graphify-out/` and
+FileNotFoundError.
+
+```bash
+(
+    cd /home/user/Vault && \
+    /usr/local/bin/graphify cluster-only . 2>/dev/null && \
+    cp -f graphify-out/graph.html "Raw/Graphs/vault-graph.html"
+) || echo "[memory-capture] viz re-render skipped (cluster-only failed; HTML may be stale)"
+```
+
+Failure here is intentionally non-fatal: the graph data is already persisted
+by steps 6-7, the only loss is a stale viz HTML. The next successful capture
+or vault-extract run re-renders.
+
+### 9. Cleanup
 
 ```bash
 rm -rf {WORK_DIR}

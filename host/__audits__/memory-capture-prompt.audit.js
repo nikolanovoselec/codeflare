@@ -12,10 +12,10 @@
 // graphify-internal, separately covered by the graphify package's own
 // tests.
 //
-// AC6 (REQ-MEM-001): inline graph construction via graphify.build /
-// graphify.cluster / graphify.export.to_json. The prompt must explicitly
-// instruct the subagent to call these three Python entry points so the
-// per-extraction graph is materialised from the rendered markdown.
+// AC6 (REQ-MEM-001): the prompt folds the chunk into the cumulative
+// vault-graph.json via the shared merge-vault-graph.py (REQ-MEM-009),
+// flock-guarded, rather than building a throwaway per-chunk graph. This is
+// what keeps captures from clobbering prior vault knowledge in the global graph.
 //
 // AC7 (REQ-MEM-001): the merge step into the unified global graph must
 // run under flock -w 5 /tmp/graphify-global.lock so concurrent writers
@@ -44,36 +44,21 @@ const PROMPT_PATH = resolve(
 const prompt = readFileSync(PROMPT_PATH, 'utf8');
 
 describe('memory-agent-prompt.md contract (REQ-MEM-001)', () => {
-  // REQ-MEM-001 AC6: inline graph construction Python step
-  it('AC6: prompt declares the three graphify Python entry points (build, cluster, export.to_json)', () => {
-    // These three calls together build the per-extraction graph from the
-    // chunk JSON the subagent emits. Removing any of them silently leaves
-    // the vault graph empty for that capture, even though the markdown
-    // file lands on disk and looks like a successful capture.
+  // REQ-MEM-001 AC6: cumulative-merge step via the shared merge-vault-graph.py
+  it('AC6: prompt folds the chunk into the cumulative vault-graph.json via merge-vault-graph.py under flock', () => {
+    // The capture must accumulate into the persistent vault-graph.json
+    // (REQ-MEM-009), not build a throwaway per-chunk graph. Removing this step
+    // silently makes every capture clobber prior vault knowledge once global-add
+    // runs. Gut-check: delete the merge-vault-graph.py line and this fails.
     assert.ok(
-      /from\s+graphify\.build\s+import\s+build_from_json/.test(prompt),
-      'prompt must import build_from_json from graphify.build (AC6 - chunk-to-graph materialisation)',
+      /flock\s+-w\s+5\s+\/tmp\/graphify-global\.lock[\s\S]{0,200}merge-vault-graph\.py/.test(prompt),
+      'prompt must invoke merge-vault-graph.py under flock -w 5 /tmp/graphify-global.lock (AC6 - cumulative chunk merge)',
     );
+    // It must NOT reintroduce the throwaway inline build that global-adds a
+    // per-chunk graph (the old clobbering design).
     assert.ok(
-      /from\s+graphify\.cluster\s+import\s+cluster/.test(prompt),
-      'prompt must import cluster from graphify.cluster (AC6 - community detection)',
-    );
-    assert.ok(
-      /from\s+graphify\.export\s+import\s+to_json/.test(prompt),
-      'prompt must import to_json from graphify.export (AC6 - serialisation to graph.json)',
-    );
-    // All three calls must be invoked (not just imported)
-    assert.ok(
-      /build_from_json\(/.test(prompt),
-      'prompt must call build_from_json(extraction) (AC6)',
-    );
-    assert.ok(
-      /cluster\(G\)/.test(prompt),
-      'prompt must call cluster(G) (AC6)',
-    );
-    assert.ok(
-      /to_json\(G,\s*communities,\s*str\(out_path\)\)/.test(prompt),
-      'prompt must call to_json(G, communities, out_path) (AC6)',
+      !/from\s+graphify\.build\s+import\s+build_from_json/.test(prompt),
+      'prompt must not rebuild a throwaway per-chunk graph inline (that clobbers prior vault knowledge)',
     );
   });
 
@@ -98,8 +83,8 @@ describe('memory-agent-prompt.md contract (REQ-MEM-001)', () => {
     // label (or omitting --as) would treat each capture as a fresh
     // source and explode the concept-node count.
     assert.ok(
-      /graphify\s+global\s+add\s+[\s\S]{0,200}--as\s+user_vault/.test(prompt),
-      'prompt must run `graphify global add <path> --as user_vault` (AC7 - layer-keyed merge)',
+      /graphify\s+global\s+add\s+[\s\S]{0,200}vault-graph\.json[\s\S]{0,200}--as\s+user_vault/.test(prompt),
+      'prompt must run `graphify global add <vault-graph.json> --as user_vault` (AC7 - cumulative layer-keyed merge, not the per-chunk graph)',
     );
   });
 });

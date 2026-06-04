@@ -216,52 +216,121 @@ sub-step errors (missing tooling, lock timeout, malformed graph), log a
 line and stop - the markdown file stays on disk and a future capture
 re-merges. Do NOT delete the note on a graph failure.
 
-The vault graph lives at `/home/user/Vault/graphify-out/graph.json` in
-the `{ "nodes": [...], "links": [...] }` shape. Read it if it exists;
-start from `{ "nodes": [], "links": [] }` if it does not. Preserve every
-existing node and link - merge, never replace.
+You do every step here yourself; there is no `mcp__graphify__*` tool. The
+canonical flow - identical to the Claude runtime and to the vault-extract
+subagent - is: author a per-run CHUNK for the note you just wrote, let
+`merge-vault-graph.py` union that chunk into the cumulative
+`vault-graph.json` (the durable source of truth that grows across every
+capture), then publish the CUMULATIVE graph to the global graph. Never edit
+`graph.json` in place and never global-add the per-run artifact -
+`graphify global add --as user_vault` REPLACES the entire vault
+contribution, so publishing anything less than the cumulative graph drops
+every prior vault note.
 
-Use the **canonical graphify schema** - the same `file_type`/`source_file`/
-`relation`/`confidence` shape the repo, global, and vault-extract graphs
-use. Never write the legacy `type`/`path`/`mentions`/`related` fields:
-`graphify global add` label-merges any node lacking `source_file`, so a
-document without one loses its identity in the global graph. For the note
-you just wrote, add (deduping by `id`, so re-running is idempotent):
+#### 5a. Author a chunk JSON for the note you just wrote
+
+Read the markdown you wrote in step 4 back, and emit a chunk capturing it.
+Use the **canonical graphify chunk schema** (the same `file_type`/
+`source_file`/`relation`/`confidence` shape the repo, global, and
+vault-extract graphs use); never write the legacy `type`/`path`/`mentions`/
+`related` fields. Produce nodes for:
 
 - One **document node** for the file: `id` a stable slug of the relative
-  path (for example `vault_raw_sessions_<filename_stem>`), `label` the
-  `# Session ...` heading, `file_type: "document"`, `source_file` the
-  absolute file path, `source: "user_vault"`.
+  path (for example `vault_raw_sessions_<filename_stem>`, lowercased,
+  non-alphanumeric -> `_`), `label` the `# Session ...` heading,
+  `file_type: "document"`, `source_file` the absolute file path under
+  `/home/user/Vault/Raw/Sessions/`.
 - One **concept node** per `[[wikilink]]` you used: `label` the wikilink
-  target verbatim, `file_type: "concept"`, `source_file: null` (this is
-  what triggers graphify's external-label dedup across graphs). Before
-  adding one, reuse an existing node with the same `label`; otherwise mint
-  `id` = `concept:<label lowercased to [a-z0-9_]>`.
-- One **link** `{ "source": <docId>, "target": <conceptId>, "relation":
-  "references", "confidence": "EXTRACTED", "confidence_score": 1.0 }` for
-  each wikilink, and a `{ ..., "relation": "conceptually_related_to",
-  "confidence": "INFERRED", "confidence_score": 0.75 }` link between two
-  concept ids when they co-occur in a single bullet.
+  target verbatim, `file_type: "concept"`, `source_file: null` (the null
+  source_file is what triggers graphify's external-label dedup across
+  graphs). Mint `id` = `concept_<label lowercased to [a-z0-9_]>`.
 
-Write the merged object back to
-`/home/user/Vault/graphify-out/graph.json` with the Write tool. This
-layers semantic concepts on top of whatever the deterministic pass
-already captured; keep their nodes and links intact.
+Edges (graphify confidence rubric):
 
-Then merge into the unified global graph under the `user_vault` tag. This
-is the only graph that future agents read across sessions:
+- document `references` concept, `confidence: "EXTRACTED"`,
+  `confidence_score: 1.0`, for each wikilink.
+- concept `conceptually_related_to` concept, `confidence: "INFERRED"`,
+  `confidence_score: 0.75`, when two wikilinks co-occur in one bullet.
+
+Write the chunk via the Write tool at this exact absolute path:
+
+```
+/home/user/Vault/graphify-out/.graphify_chunk_01.json
+```
+
+Schema (must match exactly - the merge step parses it verbatim):
+
+```json
+{
+  "nodes": [
+    {"id": "...", "label": "...", "file_type": "document|concept",
+     "source_file": "<path or null>", "source_location": null,
+     "source_url": null, "captured_at": null, "author": null, "contributor": null}
+  ],
+  "edges": [
+    {"source": "...", "target": "...",
+     "relation": "references|conceptually_related_to",
+     "confidence": "EXTRACTED|INFERRED", "confidence_score": 1.0,
+     "source_file": "<path>", "source_location": null, "weight": 1.0}
+  ],
+  "hyperedges": [], "input_tokens": 0, "output_tokens": 0
+}
+```
+
+If the note had no wikilinks, still write the chunk with just the document
+node and an empty `edges` array - the merge stays idempotent.
+
+#### 5b. Merge the chunk into the cumulative vault-graph.json
+
+Run `merge-vault-graph.py` (REQ-MEM-009), preseeded into `.pi`. It loads the
+persistent `vault-graph.json` (or starts fresh if missing), `nx.compose`s
+your chunk onto it by hash-keyed union, re-clusters, and writes BOTH the
+cumulative `vault-graph.json` (source of truth for the next capture) and the
+per-run `graph.json` (the viz artifact for step 5d). It defaults to the
+standard vault layout, so the invocation takes no arguments:
 
 ```bash
 ( flock -w 5 /tmp/graphify-global.lock \
-    graphify global add /home/user/Vault/graphify-out/graph.json --as user_vault ) || true
+    /root/.local/share/uv/tools/graphifyy/bin/python \
+    /home/user/.pi/agent/scripts/merge-vault-graph.py ) || true
+```
+
+The `( ... ) || true` wrapper means a 5s lock-acquire timeout or a missing
+script exits cleanly and leaves the note untouched; the next capture
+re-merges. Do NOT edit `graph.json` or `vault-graph.json` by hand - the
+script owns the union so re-running is idempotent.
+
+#### 5c. Publish the cumulative graph to the unified global graph
+
+Feed the CUMULATIVE `vault-graph.json` (not the chunk, not `graph.json`) to
+`graphify global add`. This is the only graph future agents read across
+sessions, and `--as user_vault` replaces the whole vault contribution, so
+publishing the cumulative graph preserves every prior note:
+
+```bash
+( flock -w 5 /tmp/graphify-global.lock \
+    graphify global add /home/user/Vault/graphify-out/vault-graph.json --as user_vault ) || true
 ```
 
 `graphify global add` is hash-keyed and idempotent, and its internal
-external-label pass dedupes concept nodes by label, so re-merging the
-same content is safe. The `( ... ) || true` wrapper means a lock timeout
-or a missing CLI exits cleanly and leaves the note untouched. Optionally
-refresh the rendered graph with `( cd /home/user/Vault && graphify
-cluster-only . ) || true`; skip it silently on any error.
+external-label pass dedupes concept nodes (those with `source_file: null`)
+by label, so re-merging the same content is safe and a vault `[[Concept]]`
+unifies with the same-labelled node from any per-repo graph.
+
+#### 5d. Re-render the vault viz HTML (optional, non-fatal)
+
+Render from the per-run `graph.json` that step 5b just wrote and copy the
+HTML where the vault index page links it. Skip silently on any error - the
+graph data is already persisted by 5b-5c; the only loss is a stale viz:
+
+```bash
+(
+    cd /home/user/Vault && \
+    graphify cluster-only . 2>/dev/null && \
+    mkdir -p Raw/Graphs && \
+    cp -f graphify-out/graph.html "Raw/Graphs/vault-graph.html"
+) || true
+```
 
 ### 6. Cleanup
 

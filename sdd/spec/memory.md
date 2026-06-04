@@ -38,8 +38,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md -->
 <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - user-message counting describe -> counts only real user prompts excluding tool_results and command wrappers -> AC2) -->
 <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh describe -> AC3 strips tool I/O and chunks remainder -> AC3) -->
-<!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> inline graph construction Python step -> AC6) -->
-<!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> flock + graphify global add merge step -> AC6) -->
+<!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> folds the chunk into the cumulative vault-graph.json via merge-vault-graph.py under flock -> AC6) -->
+<!-- @test: host/__audits__/memory-capture-prompt.audit.js (memory-agent-prompt.md contract describe -> graphify global add vault-graph.json --as user_vault merge step -> AC6) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests -> REQ-MEM-001 captureTimestamp AC4, compactMessages AC3, flock global merge AC6; parseSessionMessages helper unit tests + memory-vault.ts content asserts getSessionFile / parseSessionMessagesHelper / readSessionMessages + skip-empty guard -> AC7) -->
 
 **Intent:** Important conversation context (decisions, debugging insights, observations) must be extracted from the transcript and persisted to the vault without manual intervention. This REQ covers the hook trigger, message-counting filter, and the capture pipeline. Hook plumbing (tilde expansion, vars file shape, first-message graphify hint, timezone resolution) is split into [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing).
@@ -53,7 +53,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 3. When triggered, a background sonnet subagent runs the three-stage capture pipeline (prefilter transcript noise, accumulate per-chunk observations, synthesise the final note) and writes the capture file into the vault's session-captures folder.
 4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4.
 5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections.
-6. Graph nodes and edges are extracted from the rendered capture and merged into the unified global graph; the merge is serialised and atomic, so the new content is queryable on the same turn it is written.
+6. Graph nodes and edges are extracted from the rendered capture into a chunk, folded into the cumulative `vault-graph.json` via the shared `merge-vault-graph.py` (per [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)), and that cumulative graph is merged into the unified global graph under `user_vault`; the merge is serialised and atomic, so the new content is queryable on the same turn it is written.
 7. The capture sources the conversation from the durable on-disk session transcript that each runtime already persists for session resume, never from a volatile in-memory buffer. A capture triggered immediately after a reload or resume therefore sees the full conversation; if the resolved transcript is empty the capture is skipped rather than writing a placeholder "no substantive content" note. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::captureVars --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::readSessionMessages -->
 
 **Constraints:**
@@ -299,18 +299,23 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md -->
+<!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py -->
+<!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md -->
+<!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md -->
 <!-- @test: host/__tests__/vault-extract-merge.test.js (merge-vault-graph.py AST checks → to_json(vault_graph_path) + nx.compose + try/except guard → AC1+AC2+AC4) -->
 <!-- @test: host/__tests__/vault-extract-merge.test.js (vault-extract-prompt.md structural checks → graphify global add --as user_vault + flock /tmp/graphify-global.lock → AC3+AC5) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi vault-extract + memory prompts invoke the Pi-local merge-vault-graph.py and global-add vault-graph.json; Pi merge-vault-graph.py preseeded → AC1+AC3) -->
 
-**Intent:** Each vault-monitor extraction must add new nodes to the unified global graph's vault contribution without destroying nodes from prior extractions.
+**Intent:** Every vault writer - the vault-extract and memory-capture pipelines, on both the Claude and Pi runtimes - must add new nodes to the unified global graph's vault contribution without destroying nodes from prior passes. All four converge on a single cumulative `vault-graph.json` maintained by the shared `merge-vault-graph.py`; `--as user_vault` replace-semantics means anything less than the cumulative graph fed to `graphify global add` wipes prior vault knowledge.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The vault-extract agent maintains a persistent incremental vault graph that survives across extraction passes.
-2. Each extraction merges the new chunk's nodes/edges into the persistent graph using a hash-keyed union (existing IDs dedupe, new IDs append).
-3. The global graph's vault contribution always reflects the cumulative vault content, not only the most recent extraction.
+1. Every vault writer maintains a single persistent incremental vault graph (`vault-graph.json`) that survives across passes; both the vault-extract and memory-capture pipelines on both runtimes author a chunk and fold it in via the shared `merge-vault-graph.py` rather than editing `graph.json` in place.
+2. Each pass merges the new chunk's nodes/edges into the persistent graph using a hash-keyed union (existing IDs dedupe, new IDs append).
+3. The global graph's vault contribution always reflects the cumulative vault content (the persistent `vault-graph.json` is fed to `graphify global add --as user_vault`, never the per-run chunk or `graph.json`), not only the most recent pass.
 4. If the persistent vault graph is missing or unreadable, the pass starts a fresh one rather than crashing and writes it at the end of the run.
 5. Vault graph merges are serialised with capture-pipeline writes and active-repo hooks; a short timeout prevents indefinite blocking if the lock holder crashes (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7).
 

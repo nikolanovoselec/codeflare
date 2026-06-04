@@ -131,6 +131,8 @@ function inferContentType(filePath) {
       return 'image/svg+xml';
     case '.sh':
       return 'application/x-shellscript; charset=utf-8';
+    case '.py':
+      return 'text/x-python; charset=utf-8';
     case '.ts':
       return 'text/typescript; charset=utf-8';
     default:

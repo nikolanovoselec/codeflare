@@ -137,3 +137,17 @@ test('REQ-MEM-009 AC5: prompt wraps the merge invocation under flock /tmp/graphi
     'prompt step 4 must invoke merge-vault-graph.py under flock',
   );
 });
+
+test('REQ-MEM-009: the Pi-local merge-vault-graph.py is byte-identical to the Claude copy (path-agnostic, no drift)', () => {
+  // Pi reaches nothing in .claude: it ships its own copy under preseed/agents/pi/scripts/,
+  // registered in the Pi manifest and deployed to /home/user/.pi/agent/scripts/. The script
+  // is path-agnostic (DEFAULT_* constants + positional overrides), so the copy must stay
+  // byte-identical to the Claude one or the two runtimes silently diverge.
+  const PI_SCRIPT = path.join(__dirname, '..', '..', 'preseed', 'agents', 'pi', 'scripts', 'merge-vault-graph.py');
+  assert.ok(fs.existsSync(PI_SCRIPT), 'Pi merge-vault-graph.py must be preseeded under preseed/agents/pi/scripts/');
+  assert.equal(
+    fs.readFileSync(PI_SCRIPT, 'utf8'),
+    fs.readFileSync(SCRIPT, 'utf8'),
+    'Pi and Claude merge-vault-graph.py must stay byte-identical',
+  );
+});

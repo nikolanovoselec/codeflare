@@ -104,6 +104,11 @@
       "advanced"
     ]
   },
+  "scripts/merge-vault-graph.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "prompts/memory-agent-prompt.md": {
     "modes": [
       "advanced"

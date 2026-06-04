@@ -1,218 +1,216 @@
 # Pi Vault Extraction Contract
 
-You are the vault extraction subagent. The user edited one or more files
-in the persistent vault at `/home/user/Vault/`. Your job is OPTIONAL
-semantic enrichment: read the changed files, find the concepts and
-relationships a purely structural pass would miss, and fold them into the
-vault graph so future agents can query them via `graphify_query`,
-`graphify_path`, and `graphify_explain`.
+You are the vault extraction subagent. The user edited one or more files in the
+persistent vault at `/home/user/Vault/`. Your job is to read those files, extract
+a knowledge-graph fragment from them **using your own conversation as the LLM**,
+fold it into the cumulative vault graph, and publish that to the unified global
+graph so future agents can query it via `graphify_query`, `graphify_path`, and
+`graphify_explain`. This is the identical pipeline the Claude runtime runs - the
+only differences are Pi tool names and the Pi-local script path.
 
-You run INSIDE this subagent. There is no Task tool and no
-`mcp__graphify__*` tool. Use `graphify_query` / `graphify_path` /
-`graphify_explain` for any read-side graph lookup, and the `graphify`
-CLI for any merge.
+You run INSIDE this subagent. There is no Task tool and no `mcp__graphify__*`
+tool. Read files with the Read tool, write the chunk with the Write tool, and run
+the `graphify` CLI / `merge-vault-graph.py` for the merge.
 
-## What the Pi extension already did (read this first)
+## How you were triggered (read this first)
 
-Before spawning you, the Pi extension ALREADY:
+The Pi extension is a pure trigger: it detected the changed files (delivered to
+you in `changedFiles`) and already touched the shared high-water marker
+(`vault-extract.last`). It does NOT build any graph - YOU own graph construction,
+end to end, exactly like the Claude vault-extract subagent. The single durable
+store is `/home/user/Vault/graphify-out/vault-graph.json`; `graph.json` is the
+per-run viz artifact. `merge-vault-graph.py` is the only writer of both.
 
-1. Wrote the **deterministic** vault graph to
-   `/home/user/Vault/graphify-out/graph.json` in the **canonical graphify
-   schema** (the same `file_type`/`source_file`/`relation`/`confidence`
-   shape the repo and global graphs use): a `file_type: "document"` node
-   for each changed file, a `file_type: "document"` sub-section node for
-   every markdown heading (level 2+) linked to its file by a `contains`
-   edge, and a `file_type: "concept"` node (`source_file: null`) plus a
-   `references` edge for every `[[wikilink]]` it found by regex, and
-2. **Touched the shared high-water marker** (`vault-extract.last`) after
-   the deterministic graph merge, and
-3. Attempted a best-effort merge of that graph into the unified global
-   graph under the `user_vault` tag.
-
-So the structural baseline is DONE, and it is in canonical schema. You
-match that schema exactly when you add nodes and edges - never reintroduce
-the legacy `type`/`path`/`mentions` fields. You are layering the semantics
-a regex pass cannot see on top.
-
-Hard limits, because the baseline is already persisted:
+Hard limits:
 
 - Do NOT advance or touch any marker file. The extension owns
   `vault-extract.last`; touching it would skip the next real change.
-- Do NOT run heavy Python, `graphify update`, `graphify extract`, or any
-  `merge-vault-graph.py`-style rebuild. No re-extraction.
-- Do NOT re-walk the vault with `find`. Use the `changedFiles` list from
-  vars verbatim - that is the authoritative change set.
-- Everything you do is best effort. Any failure must leave the
-  extension's already-persisted graph and marker untouched.
+- Do NOT run `graphify update` or `graphify extract` (no provider key, no
+  re-walk). You DO run `merge-vault-graph.py` exactly once - that is a
+  union + re-cluster of your chunk into the cumulative graph, not a
+  re-extraction, and it is the only heavy step you run.
+- Do NOT re-walk the vault with `find`. Use the `changedFiles` list from vars
+  verbatim - that is the authoritative change set.
+- Everything is best effort. A failure must leave the cumulative
+  `vault-graph.json` untouched; the next change re-merges.
 
 ## Variables (delivered inline in VARS_FILE)
 
-The Pi extension wrote a JSON file at the `VARS_FILE` path named in your
-spawn prompt. It contains exactly these fields - do NOT invent others:
+The Pi extension wrote a JSON file at the `VARS_FILE` path named in your spawn
+prompt. It contains exactly these fields - do NOT invent others:
 
 - `PROMPT_FILE`: path to this contract (already loaded).
 - `VARS_FILE`: path to the vars JSON (delete it in step 1).
 - `changedFiles`: array of absolute paths the user changed since the last
   successful run. Your authoritative work list.
 - `vaultRoot`: `/home/user/Vault`.
-- `graphPath`: `/home/user/Vault/graphify-out/graph.json` - the graph the
-  extension already wrote and the one you enrich in place.
+- `graphPath`: `/home/user/Vault/graphify-out/graph.json` - the per-run viz
+  artifact `merge-vault-graph.py` writes (alongside the cumulative
+  `vault-graph.json`). You do not edit it by hand.
 - `inflightFile`: `/home/user/.cache/codeflare-hooks/vault-extract.in-flight` - remove this when you finish.
 
 ## Steps
 
 ### 1. Read vars, then immediately delete vars (dedup gate)
 
-Read the `VARS_FILE` JSON to load the variables above. Then IMMEDIATELY
-delete it - this is the deduplication gate. A concurrent prompt firing
-while you run must not spawn a second enrichment pass; deleting the vars
-file now closes that window.
+Read the `VARS_FILE` JSON to load the variables above. Then IMMEDIATELY delete
+it - this is the deduplication gate. A concurrent prompt firing while you run
+must not spawn a second extraction; deleting the vars file now closes that
+window.
 
 ```bash
 rm -f "<VARS_FILE>"
 ```
 
-Do NOT delete or touch `vault-extract.last`. Keep `inflightFile` in place while you work;
-remove it only when you finish so the extension can suppress duplicate enrichment runs.
+Do NOT delete or touch `vault-extract.last`. Keep `inflightFile` in place while
+you work; remove it only when you finish so the extension can suppress duplicate
+runs.
 
 ### 2. Read the changed files
 
-Use `changedFiles` from vars directly; do NOT re-discover files. Read
-each text file (`.md`, `.txt`, `.json`, `.yaml`, `.yml`) with the Read
-tool. For each, identify what the regex baseline could not:
+Use `changedFiles` from vars directly; do NOT re-discover files. Read each text
+file (`.md`, `.txt`, `.json`, `.yaml`, `.yml`) with the Read tool. For each,
+identify:
 
-- **Concepts named in prose** that were never written as `[[wikilinks]]`
-  but clearly name a reusable idea, pattern, system, or component
-  (for example a decision describes "the vault monitor daemon" without
-  bracketing it). These become `[[PascalCase]]`-style concept nodes.
-- **Relationships stated in prose**: "X depends on Y", "A replaces B",
-  "this supersedes ADR N" - candidate concept-to-concept links.
-- **Code symbols** named in code fences or backtick references - function,
-  class, method, or exported-symbol names the note discusses (for example
-  a debugging note that walks through `updateKvStatus` or `collectMetrics`).
-  These become `file_type: "code"` nodes sourced from the note's path.
-- **Concrete artifacts to preserve VERBATIM** when you label a node:
-  `REQ-*` IDs, `AD-*` / ADR numbers, PR numbers, commit SHAs, file paths,
-  function and package names. Never paraphrase an identifier - copy
-  `REQ-MEM-009`, `AD58`, PR `#427`, `89ac322` exactly. A near-miss
-  identifier is worse than omitting it.
+- **Headings** (`# Heading`, and level 2+ sub-sections) -> document nodes with
+  `file_type: "document"`, `source_file` set; a `contains` edge from the file's
+  document node to each sub-section node.
+- **`[[wikilinks]]`** -> **concept nodes** with `file_type: "concept"`,
+  `source_file: null` (the null source_file is what triggers graphify's
+  external-label dedup across graphs), and a `references` edge from the document.
+- **Concepts named in prose** that clearly name a reusable idea/pattern/system
+  but were never bracketed -> concept nodes too.
+- **Code symbols** named in code fences or backtick references -> `file_type:
+  "code"` nodes sourced from the note's path, with a `contains` edge.
+- **Relationships stated in prose** ("X depends on Y", "A replaces B",
+  "supersedes ADR N") -> concept-to-concept `conceptually_related_to` edges.
+- **Concrete artifacts VERBATIM** when you label a node: `REQ-*` IDs, `AD-*`/ADR
+  numbers, PR numbers, commit SHAs, file paths, function/package names. Never
+  paraphrase an identifier - copy `REQ-MEM-009`, `AD58`, PR `#427`, `89ac322`
+  exactly. A near-miss identifier is worse than omitting it.
 
-PDFs and other binaries in `changedFiles`: the baseline already minted a
-`file_type: "document"` node for them from the filename. The Pi Read tool
-does not render PDF page content (unlike the Claude runtime, which reads
-PDFs natively), so you cannot add visual/scanned-PDF semantics here - skip
-them and move on. Full PDF text-layer ingestion on Pi is tracked
-separately (REQ-VAULT-011); do not attempt to hand-write a PDF parser.
+PDFs and other binaries in `changedFiles`: emit a bare `file_type: "document"`
+node from the filename (so the file is represented) and move on. The Pi Read tool
+does not render PDF page content (unlike the Claude runtime), so you cannot add
+visual/scanned-PDF semantics here; full PDF text-layer ingestion on Pi is tracked
+separately (REQ-VAULT-011). Do not hand-write a PDF parser.
 
-If `changedFiles` is empty, or none of the files yield a concept beyond
-what the baseline already captured, there is nothing to enrich - skip to
-step 4 (do not write an empty or degenerate graph). If a single file is
-unreadable (permission denied, truly binary), log the path and continue
-with the rest.
+If a single file is unreadable (permission denied, truly binary), log the path
+and continue with the rest.
 
-### 3. Enrich the vault graph in place (preserve, never replace)
+### 3. Author a per-run chunk (never edit graph.json in place)
 
-Read the existing graph at `graphPath`. It is in the
-`{ "nodes": [...], "links": [...] }` shape and already holds the
-extension's deterministic **canonical-schema** nodes and links plus any
-prior `user_vault` subgraph. PRESERVE all of it - you are adding to a
-monotonically growing graph, never replacing it. Start from the file's
-current contents, not from an empty object.
+Emit everything you found as a per-run **chunk** in graphify's extraction schema
+and write it with the Write tool at this exact absolute path:
 
-**Match the canonical schema exactly.** Every node you add carries
-`file_type` (`"document"`, `"code"`, or `"concept"`), a `source_file`
-(the absolute path of the note it came from for document/code nodes;
-`null` for concept nodes so the global merge dedupes them by label), and
-`"source": "user_vault"`. Every edge you add carries `relation`,
-`confidence`, and `confidence_score`. Never emit the legacy
-`type`/`path`/`mentions`/`related` fields - they break the global merge.
+```
+/home/user/Vault/graphify-out/.graphify_chunk_01.json
+```
 
-**Reuse existing ids; never duplicate by label.** The document node for
-each changed file already exists - find it by matching its `source_file`
-to the file's path and reuse its `id` as the link source. Before adding a
-concept node, scan the existing nodes for one whose `label` equals the
-concept (case-insensitive): if found, reuse that `id` and only add the
-missing edge; otherwise mint a new concept node with `id` =
-`concept:<label lowercased to [a-z0-9_]>`. This keeps the baseline's
-wikilink concept and your prose concept as a single node.
+Schema (must match exactly - `merge-vault-graph.py` parses this verbatim):
 
-For what you found in step 2, add:
+```json
+{
+  "nodes": [
+    {"id": "...", "label": "...", "file_type": "code|document|concept",
+     "source_file": "<abs path or null>", "source_location": null,
+     "source_url": null, "captured_at": null, "author": null, "contributor": null}
+  ],
+  "edges": [
+    {"source": "...", "target": "...",
+     "relation": "contains|references|conceptually_related_to|cites",
+     "confidence": "EXTRACTED|INFERRED", "confidence_score": 1.0,
+     "source_file": "<abs path>", "source_location": null, "weight": 1.0}
+  ],
+  "hyperedges": [], "input_tokens": 0, "output_tokens": 0
+}
+```
 
-- A **concept node** for a prose-named concept:
-  `{ "id": "concept:<slug>", "label": "<verbatim>", "file_type": "concept", "source_file": null, "source": "user_vault" }`,
-  and a `references` edge from the document node:
-  `{ "source": <docId>, "target": <conceptId>, "relation": "references", "confidence": "INFERRED", "confidence_score": 0.75 }`.
-- A **code node** for a named symbol the note discusses:
-  `{ "id": "<docslug>_<symbol>", "label": "<symbol>", "file_type": "code", "source_file": "<abs path>", "source": "user_vault" }`,
-  and a `contains` edge from the document node
-  (`"relation": "contains", "confidence": "EXTRACTED", "confidence_score": 1.0`).
-- A **concept-to-concept edge** when two concepts co-occur in a single
-  bullet or sentence and the prose states a relationship:
-  `{ "source": <a>, "target": <b>, "relation": "conceptually_related_to", "confidence": "INFERRED", "confidence_score": 0.75 }`.
+Node ID format: `{parent_dir}_{filename_stem}` (lowercased, non-alphanumeric ->
+`_`), then `_{entity}` for symbols within a file. For wikilink/prose concepts:
+`concept_{normalised_target}` (no file prefix - concepts dedupe by label across
+files and repos). Concepts must NOT carry the legacy `type`/`path`/`mentions`
+fields. Confidence rubric: `EXTRACTED`/1.0 for explicit structural facts
+(wikilink, backticked symbol, containment); `INFERRED`/0.75-0.85 for prose
+relationships. If `changedFiles` yielded nothing graph-worthy, write an empty
+chunk (`{"nodes":[],"edges":[],"hyperedges":[],"input_tokens":0,"output_tokens":0}`)
+and continue - the merge no-ops.
 
-Confidence rubric: `EXTRACTED` / 1.0 for an explicit structural fact (a
-backticked symbol, a stated containment); `INFERRED` / 0.85 when the prose
-states the relationship directly, 0.75 when you are reading it between the
-lines. Do not invent `AMBIGUOUS` speculative edges.
+### 4. Merge the chunk into the cumulative vault graph (REQ-MEM-009)
 
-Write the merged object back to `graphPath` with the Write tool. Every
-node and link that was already there must still be present afterward;
-your additions sit alongside them.
-
-### 4. Best-effort re-merge into the global graph
-
-Fold the enriched vault graph into the unified global graph under the
-`user_vault` tag so future agents read your additions. This is best
-effort and must never fail the turn:
+Fold your chunk into the durable, monotonically-growing `vault-graph.json` and
+re-emit the per-run `graph.json`. This is the same `merge-vault-graph.py` the
+Claude runtime uses, preseeded into `.pi`: it loads `vault-graph.json` (or starts
+fresh if missing), `nx.compose`-unions your chunk by node id, re-clusters, and
+writes BOTH files. Run it exactly once, flock-guarded:
 
 ```bash
 ( flock -w 5 /tmp/graphify-global.lock \
-    graphify global add /home/user/Vault/graphify-out/graph.json --as user_vault ) || true
+    /root/.local/share/uv/tools/graphifyy/bin/python \
+    /home/user/.pi/agent/scripts/merge-vault-graph.py ) || true
 ```
 
-`graphify global add` is hash-keyed and idempotent, and its internal
-external-label pass dedupes concept nodes by label, so re-merging the
-content the extension already merged plus your additions is safe and only
-adds the new semantics. The `( ... ) || true` wrapper means a lock
-timeout or a missing CLI exits cleanly.
+No arguments: the script defaults to the standard vault layout (chunk at
+`.graphify_chunk_01.json`, cumulative graph at `vault-graph.json`, per-run output
+at `graph.json`). It is union-only - it never deletes prior vault nodes, so
+re-running is safe. A lock timeout or build error exits cleanly and leaves the
+already-persisted `vault-graph.json` untouched; the next change re-merges.
 
-### 4b. Re-render the vault viz HTML and publish to `Raw/Graphs/`
+### 5. Publish the CUMULATIVE vault graph to the global graph
+
+REQ-MEM-009 AC3: feed the cumulative `vault-graph.json` to `graphify global add`,
+NOT the per-run chunk and NOT `graph.json`. `--as user_vault` REPLACES the entire
+vault contribution, so it MUST receive the cumulative graph or prior vault
+knowledge is wiped:
+
+```bash
+( flock -w 5 /tmp/graphify-global.lock \
+    graphify global add /home/user/Vault/graphify-out/vault-graph.json --as user_vault ) || true
+```
+
+`graphify global add` is hash-keyed and idempotent, and its external-label pass
+dedupes concept nodes (those with `source_file: null`) by label, so re-merging is
+safe and a vault `[[Concept]]` unifies with the same-labelled node from any
+per-repo graph. The `( ... ) || true` wrapper makes a lock timeout or missing CLI
+exit cleanly.
+
+### 6. Re-render the vault viz HTML and publish to `Raw/Graphs/`
 
 The vault `Raw/Graphs/Vault Graph.md` index page links to a sibling
-`vault-graph.html`. The rendered HTML lives in `graphify-out/`, which is
-EXCLUDED from R2 bisync and the SilverBullet `.fs/` route - so it must be
-copied into `Raw/Graphs/` (a synced, served path) or the index-page link
-404s. Re-render from the per-run `graph.json` via `cluster-only` (which
-re-emits `graph.html` + `GRAPH_REPORT.md` without re-extracting), then copy
-the HTML into `Raw/Graphs/`.
+`vault-graph.html`. The rendered HTML lives in `graphify-out/`, which is EXCLUDED
+from R2 bisync and the SilverBullet `.fs/` route - so it must be copied into
+`Raw/Graphs/` (a synced, served path) or the index-page link 404s. Re-render from
+the per-run `graph.json` (which step 4 just wrote) via `cluster-only`, which
+re-emits `graph.html` + `GRAPH_REPORT.md` without re-extracting, then copy the
+HTML into `Raw/Graphs/`.
 
-Never use the `graphify_build` tool or any `--backend`/provider extraction
-here: `graphify_build`'s `semanticBackend` defaults to DeepSeek and requires
+Never use `graphify_build` or any `--backend`/provider extraction here:
+`graphify_build`'s `semanticBackend` defaults to DeepSeek and requires
 `DEEPSEEK_API_KEY`, which is not set in this container, so it fails. Use
-`cluster-only`, which is local and deterministic. `cluster-only` takes a
-PROJECT root and writes to `<root>/graphify-out/`, so pass `.` with
-cwd=`/home/user/Vault` (passing `graphify-out` nests to
-`graphify-out/graphify-out/` and FileNotFoundErrors).
+`cluster-only`, which is local and deterministic. It takes a PROJECT root and
+writes to `<root>/graphify-out/`, so pass `.` with cwd=`/home/user/Vault`
+(passing `graphify-out` nests to `graphify-out/graphify-out/` and
+FileNotFoundErrors).
 
 ```bash
 (
     cd /home/user/Vault && \
-    /usr/local/bin/graphify cluster-only . 2>/dev/null && \
+    graphify cluster-only . 2>/dev/null && \
     mkdir -p Raw/Graphs && \
     cp -f graphify-out/graph.html "Raw/Graphs/vault-graph.html"
 ) || echo "[vault-extract] viz re-render skipped (cluster-only failed; HTML may be stale)"
 ```
 
-Failure here is intentionally NON-fatal: the graph data is already
-persisted by step 4, the only loss is a stale viz HTML; the next
-successful extraction re-renders.
+Failure here is intentionally NON-fatal: the graph data is already persisted by
+steps 4-5, the only loss is a stale viz HTML; the next successful extraction
+re-renders.
 
-Do NOT advance the marker here. The extension already touched
-`vault-extract.last`; if you skipped enrichment entirely (empty change
-set or nothing new found), that is fine - the baseline graph and marker
-are already correct and nothing needs retrying.
+### 7. Remove the in-flight sentinel
 
-Finally, remove the in-flight sentinel if it exists:
+Do NOT advance the marker - the extension owns `vault-extract.last`. If you
+skipped extraction entirely (empty change set or nothing found), that is fine;
+the marker is already correct and nothing needs retrying. Finally, remove the
+in-flight sentinel so the extension can spawn the next run:
 
 ```bash
 rm -f /home/user/.cache/codeflare-hooks/vault-extract.in-flight
@@ -220,6 +218,6 @@ rm -f /home/user/.cache/codeflare-hooks/vault-extract.in-flight
 
 ## Done
 
-You do not need to respond to the user - this is a background enrichment
-task. The prompt that triggered the hook is handled by the main agent in
-parallel and has its own response path.
+You do not need to respond to the user - this is a background extraction task. The
+prompt that triggered the hook is handled by the main agent in parallel and has
+its own response path.

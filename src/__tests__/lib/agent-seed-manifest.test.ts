@@ -3,7 +3,7 @@ import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-see
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
-import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, deterministicVaultGraph, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, stableId, titleFor, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
@@ -1311,13 +1311,6 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(isResumedSession(true, 5)).toBe(false);
   });
 
-  it('REQ-VAULT-003: stableId produces deterministic SHA-256 vault IDs', () => {
-    const a = stableId('test/path.md');
-    expect(a).toBe(stableId('test/path.md'));
-    expect(a).not.toBe(stableId('other/path.md'));
-    expect(a).toMatch(/^vault:[0-9a-f]{24}$/);
-  });
-
   it('REQ-VAULT-003: memory-vault.ts has Claude-compatible in-flight sentinel to prevent double extraction', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
     expect(mv?.content).toContain('VAULT_INFLIGHT');
@@ -1325,24 +1318,16 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('VAULT_EXTRACT_INFLIGHT_TTL_MS');
   });
 
-  it('REQ-VAULT-004: titleFor extracts first heading or falls back to filename', () => {
-    expect(titleFor('/vault/Notes/test.md', '# My Title\nsome content')).toBe('My Title');
-    expect(titleFor('/vault/Notes/test.md', 'no heading here')).toBe('test.md');
-    expect(titleFor('/vault/Docs/report.pdf', '')).toBe('report.pdf');
-  });
-
-  it('REQ-VAULT-016: memory-vault.ts builds the baseline via the canonical-schema helper', () => {
+  it('REQ-VAULT-004: memory-vault.ts publishes the cumulative vault graph to the global graph via flock-guarded graphify global add', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
-    expect(mv?.content).toContain('deterministicVaultGraph');
-    const helpers = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault-helpers.ts');
-    // Canonical graphify schema (file_type/source_file/relation/confidence), not the legacy type/path/mentions shape.
-    // (relation values are passed to addLink as arguments, so assert the literal strings, not `relation: "..."`.)
-    expect(helpers?.content).toContain('file_type: "concept"');
-    expect(helpers?.content).toContain('source_file: null');
-    expect(helpers?.content).toContain('"references"');
-    expect(helpers?.content).toContain('"contains"');
-    expect(helpers?.content).toContain('confidence_score: 1.0');
-    expect(helpers?.content).not.toContain('type: "mentions"');
+    // Serialised under the shared global-graph lock, tagged user_vault.
+    expect(mv?.content).toContain('/tmp/graphify-global.lock');
+    expect(mv?.content).toContain('user_vault');
+    // The extension re-publishes the cumulative vault-graph.json (written by
+    // merge-vault-graph.py), never a competing per-run graph.json.
+    expect(mv?.content).toContain('vault-graph.json');
+    // It is a pure trigger now: no in-process deterministic graph builder.
+    expect(mv?.content).not.toContain('deterministicVaultGraph');
   });
 
   it('REQ-VAULT-003 AC7: Pi vault-extract prompt publishes the viz to Raw/Graphs', () => {
@@ -1351,40 +1336,23 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(prompt?.content).toContain('Raw/Graphs/vault-graph.html');
   });
 
-  it('REQ-VAULT-003 AC8: deterministicVaultGraph emits canonical document/concept/heading nodes and edges', () => {
-    const { nodes, links } = deterministicVaultGraph(
-      [{ rel: 'Notes/a.md', path: '/home/user/Vault/Notes/a.md', content: '# Title\n## Section\nSee [[Foo]].', isText: true }],
-      { nodes: [], links: [] },
-    );
-    const doc = nodes.find((n) => n.label === 'Title');
-    expect(doc.file_type).toBe('document');
-    expect(doc.source_file).toBe('/home/user/Vault/Notes/a.md');
-    const concept = nodes.find((n) => n.label === 'Foo');
-    expect(concept.file_type).toBe('concept');
-    expect(concept.source_file).toBeNull();
-    const section = nodes.find((n) => n.label === 'Section');
-    expect(section.file_type).toBe('document');
-    expect(links.some((l) => l.relation === 'references' && l.target === concept.id)).toBe(true);
-    expect(links.some((l) => l.relation === 'contains' && l.target === section.id)).toBe(true);
-    expect(links.every((l) => l.confidence === 'EXTRACTED' && l.confidence_score === 1)).toBe(true);
+  it('REQ-VAULT-016 / REQ-MEM-009: Pi vault-extract + memory prompts build the cumulative vault graph via the Pi-local merge-vault-graph.py', () => {
+    const vault = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/prompts/vault-extract-prompt.md');
+    const memory = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/prompts/memory-agent-prompt.md');
+    for (const prompt of [vault, memory]) {
+      // Self-contained in .pi: Pi must never reach into the Claude plugin tree.
+      expect(prompt?.content).toContain('/home/user/.pi/agent/scripts/merge-vault-graph.py');
+      expect(prompt?.content).not.toContain('.claude/plugins/codeflare-vault/scripts/merge-vault-graph.py');
+      // Publish the CUMULATIVE vault-graph.json, never the per-run chunk/graph.json (REQ-MEM-009 AC3).
+      expect(prompt?.content).toMatch(/graphify global add[\s\S]{0,160}vault-graph\.json[\s\S]{0,160}--as user_vault/);
+    }
   });
 
-  it('REQ-VAULT-003 AC8: deterministicVaultGraph maps non-text files to document nodes with a source_file', () => {
-    const { nodes } = deterministicVaultGraph(
-      [{ rel: 'Raw/Pasted/x.pdf', path: '/home/user/Vault/Raw/Pasted/x.pdf', content: '', isText: false }],
-      { nodes: [], links: [] },
-    );
-    expect(nodes[0].file_type).toBe('document');
-    expect(nodes[0].source_file).toBe('/home/user/Vault/Raw/Pasted/x.pdf');
-  });
-
-  it('REQ-VAULT-003 AC8: re-extraction drops a changed doc\'s stale links but keeps the monotonic node set', () => {
-    const first = deterministicVaultGraph([{ rel: 'a.md', path: '/v/a.md', content: '[[Foo]]', isText: true }], { nodes: [], links: [] });
-    const second = deterministicVaultGraph([{ rel: 'a.md', path: '/v/a.md', content: '[[Bar]]', isText: true }], first);
-    expect(second.links.some((l) => l.target === stableId('concept:Bar'))).toBe(true);
-    expect(second.links.some((l) => l.target === stableId('concept:Foo'))).toBe(false);
-    // The Foo concept node persists (graph grows monotonically) even though its link was re-derived away.
-    expect(second.nodes.some((n) => n.id === stableId('concept:Foo'))).toBe(true);
+  it('REQ-VAULT-007: Pi is self-contained - merge-vault-graph.py is preseeded into .pi/agent/scripts', () => {
+    const piScript = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/scripts/merge-vault-graph.py');
+    expect(piScript, 'merge-vault-graph.py must be preseeded for Pi').toBeTruthy();
+    expect(piScript?.content).toContain('REQ-MEM-009');
+    expect(piScript?.content).toContain('nx.compose');
   });
 
   it('REQ-AGENT-023 AC4: codeflare-pi.ts tolerates missing graph and reports present graph', () => {
