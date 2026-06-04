@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, deterministicVaultGraph, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, stableId, titleFor, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
@@ -277,25 +277,26 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       { fg: (_name: string, text: string) => text },
       {
         onBranchChange: () => () => undefined,
-        getExtensionStatuses: () => new Map([['codeflare-review', 'Review d43d825 --> code | spec | docs']]),
+        getExtensionStatuses: () => new Map([['codeflare-review', 'Review code | spec | docs']]),
       },
     );
     const lines = component.render(120);
 
     expect(lines[0]).toContain('42%');
     expect(lines[0]).toContain('gpt-5.5:xhigh');
-    expect(lines[1]).toBe('Review d43d825 --> code | spec | docs');
+    expect(lines[1]).toBe('Review code | spec | docs');
 
     const ansiComponent = footerFactory?.(
       { requestRender: () => undefined },
       { fg: (_name: string, text: string) => text },
       {
         onBranchChange: () => () => undefined,
-        getExtensionStatuses: () => new Map([['codeflare-review', 'Review 36e882c --> \x1b[32mcode\x1b[0m | \x1b[33mspec\x1b[0m | docs']]),
+        getExtensionStatuses: () => new Map([['codeflare-review', 'Review \x1b[32mcode\x1b[0m | \x1b[33mspec\x1b[0m | docs']]),
       },
     );
-    const ansiLines = ansiComponent.render(40);
-    expect(ansiLines[1].replace(/\x1b\[[0-9;]*m/g, '')).toBe('Review 36e882c --> code | spec | docs');
+    const ansiLines = ansiComponent.render(20);
+    expect(ansiLines[1].replace(/\x1b\[[0-9;]*m/g, '')).toBe('Review code | spec…');
+    expect(ansiLines[1]).toContain('\x1b[32mcode\x1b[0m');
   });
 
   it('REQ-AGENT-030 / REQ-AGENT-050 / REQ-AGENT-051: Pi command extensions dispatch through both ctx and pi user-message APIs', () => {
@@ -809,6 +810,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       completed: [],
       running: ['doc-updater'],
     })).toEqual([{ lane: 'doc-updater', label: 'docs', state: 'running' }]);
+    expect(compactDurableReviewStatus({
+      head: 'a505655780ea430ef4a82fe5d8b04e58835c3ed5',
+      lanes: ['code-reviewer', 'spec-reviewer', 'doc-updater'],
+      completed: ['code-reviewer'],
+      running: ['spec-reviewer'],
+    })).toBe('Review code | spec | docs');
+  });
   });
 
   it('REQ-AGENT-040: durable Pi review job paths are under .git and result paths stay on the existing review surface', () => {

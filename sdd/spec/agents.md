@@ -1185,7 +1185,7 @@ None.
 
 <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts -->
 <!-- @impl: preseed/agents/pi/manifest.json -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-056 local statusline fake-footer render -> AC1/AC2/AC3/AC4) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-056 local statusline fake-footer render -> AC1/AC2/AC3/AC4/AC5) -->
 
 **Intent:** Pi users need a compact footer in every session mode that shows session context without hiding extension-owned status rows such as PR-boundary review progress.
 
@@ -1196,7 +1196,8 @@ None.
 1. The Pi local statusline extension is preseeded in both Standard and Pro modes. <!-- @impl: preseed/agents/pi/manifest.json::local-statusline.ts -->
 2. The footer's first line renders current context usage, active model ID with thinking effort as `model:effort`, and the active repository label when one can be resolved. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::contextPercent --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel -->
 3. Extension-owned statuses are preserved on an additional footer line only while statuses exist; idle sessions do not render an empty second line. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::installFooter -->
-4. The statusline refreshes on session start, resource discovery, turn boundaries, model changes, and thinking-effort changes. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshFooter -->
+4. Footer lines are truncated by visible width, preserving ANSI color sequences and appending a reset before the ellipsis so colored review statuses do not consume visible width or bleed styling past truncation. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::truncateToWidth -->
+5. The statusline refreshes on session start, resource discovery, turn boundaries, model changes, and thinking-effort changes. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshFooter -->
 
 **Constraints:**
 

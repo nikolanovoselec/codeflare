@@ -287,14 +287,17 @@ All preseed content is deployed via the manifest pipeline:
   lane-result and summary announcements are suppressed for the same
   repo/head/lane result.
 
-  After all lanes finish, Pi publishes one merged chat summary with
-  `## Review Summary`, `## Findings`, and `## Finding Details` sections. That
-  chat summary aggregates severity counts across code/spec/docs, lists all
-  findings sorted by criticality, and avoids per-lane result-file links; the
-  per-lane `.md` files remain the durable evidence store. If legitimate
-  MEDIUM/HIGH/CRITICAL findings remain, Pi then requests a fix-and-push pass,
-  unless the latest explicit user directive opts out of auto-fixing for the
-  round (in which case Pi presents the findings and waits). Implements
+  After the exact-head durable review job completes and every required lane has
+  a result file, Pi publishes one merged chat summary with `## Review Summary`,
+  `## Findings`, and `## Finding Details` sections. That chat summary aggregates
+  severity counts across code/spec/docs, lists all findings sorted by
+  criticality, and avoids per-lane result-file links; the per-lane `.md` files
+  remain the durable evidence store. Partial lane results, including any
+  missing, failed, timed-out, or still-running lane, cannot trigger autofix. If
+  legitimate MEDIUM/HIGH/CRITICAL findings remain after the complete exact-head
+  summary, Pi then requests a fix-and-push pass, unless the latest explicit user
+  directive opts out of auto-fixing for the round (in which case Pi presents the
+  findings and waits). Implements
   [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop).
 
   Timed-out or failed durable lanes are recorded as failed and do not produce
