@@ -758,12 +758,15 @@ export default function (pi: ExtensionAPI) {
 
   function requestReviewAutofix(state: PendingReview, ctx: any): void {
     const marker = join(reviewJobDir(state.repo, state.head), "autofix.requested");
+    const resultLanes = completedDurableReviewLanes(state.repo, state.head, state.lanes);
+    const reviewComplete = durableReviewAckReady({ lanes: state.lanes, resultLanes });
     try {
       requestReviewAutofixForRows({
         sender: pi,
         repo: state.repo,
         head: state.head,
         rows: reviewSummaryRows(state),
+        reviewComplete,
         suppress: reviewAutofixModeFromUserMessages(sessionUserMessages(ctx)) === "manual",
         claim: () => {
           mkdirSync(dirname(marker), { recursive: true });

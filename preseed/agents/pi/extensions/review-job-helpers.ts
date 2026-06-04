@@ -161,7 +161,9 @@ export function reviewAutofixRequest(repo: string, head: string): ReviewAutofixR
       customType: "codeflare-review-autofix-request",
       content: [
         `Fix legitimate PR-boundary review findings for ${basename(repo)} at ${head}.`,
-        "Use the merged review summary immediately above as the actionable finding list.",
+        "Use the merged review summary immediately above as the actionable finding list; do not fix from partial lane results.",
+        "Before editing, committing, or pushing, verify the review job for this exact head is complete and every required lane has a result file.",
+        "If any required review lane is still running, pending, missing, or unknown, do not edit, commit, or push; wait for the final merged review summary.",
         "If the user has explicitly said not to automatically fix/implement this round, or to wait for GO/approval, do not edit, commit, or push; present the findings and wait for their command.",
         "Otherwise, fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
         "Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.",
@@ -184,9 +186,11 @@ export function requestReviewAutofixForRows(input: {
   repo: string;
   head: string;
   rows: ReviewAutofixRow[];
+  reviewComplete: boolean;
   suppress?: boolean;
   claim: () => boolean;
 }): boolean {
+  if (!input.reviewComplete) return false;
   if (input.suppress) return false;
   if (!input.rows.some((row) => actionableReviewCount(row.counts) > 0)) return false;
   if (!input.claim()) return false;

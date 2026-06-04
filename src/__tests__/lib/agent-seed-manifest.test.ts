@@ -705,7 +705,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
           customType: 'codeflare-review-autofix-request',
           content: [
             'Fix legitimate PR-boundary review findings for codeflare at abc123.',
-            'Use the merged review summary immediately above as the actionable finding list.',
+            'Use the merged review summary immediately above as the actionable finding list; do not fix from partial lane results.',
+            'Before editing, committing, or pushing, verify the review job for this exact head is complete and every required lane has a result file.',
+            'If any required review lane is still running, pending, missing, or unknown, do not edit, commit, or push; wait for the final merged review summary.',
             'If the user has explicitly said not to automatically fix/implement this round, or to wait for GO/approval, do not edit, commit, or push; present the findings and wait for their command.',
             'Otherwise, fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.',
             'Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.',
@@ -724,6 +726,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       repo: '/repo/codeflare',
       head: 'abc123',
       rows: [{ counts: { critical: 0, high: 0, medium: 1, low: 0 } }],
+      reviewComplete: true,
       claim: () => true,
     })).toBe(true);
     expect(sent).toHaveLength(1);
@@ -734,6 +737,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       repo: '/repo/codeflare',
       head: 'abc123',
       rows: [{ counts: { critical: 0, high: 0, medium: 0, low: 1 } }],
+      reviewComplete: true,
       claim: () => true,
     })).toBe(false);
     expect(requestReviewAutofixForRows({
@@ -741,6 +745,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       repo: '/repo/codeflare',
       head: 'abc123',
       rows: [{ counts: { critical: 0, high: 1, medium: 0, low: 0 } }],
+      reviewComplete: true,
       claim: () => false,
     })).toBe(false);
     expect(requestReviewAutofixForRows({
@@ -748,7 +753,16 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       repo: '/repo/codeflare',
       head: 'abc123',
       rows: [{ counts: { critical: 0, high: 1, medium: 0, low: 0 } }],
+      reviewComplete: true,
       suppress: true,
+      claim: () => true,
+    })).toBe(false);
+    expect(requestReviewAutofixForRows({
+      sender,
+      repo: '/repo/codeflare',
+      head: 'abc123',
+      rows: [{ counts: { critical: 0, high: 1, medium: 0, low: 0 } }],
+      reviewComplete: false,
       claim: () => true,
     })).toBe(false);
     expect(sent).toHaveLength(0);

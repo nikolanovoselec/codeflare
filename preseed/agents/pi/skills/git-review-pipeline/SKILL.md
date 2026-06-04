@@ -53,6 +53,12 @@ This order is reference material only. It is not permission to launch agents pro
 3. Do not start CI monitoring unless the user explicitly asks or a merge/deploy gate requires a fresh CI result.
 4. Do not start review agents unless the user explicitly asks or a hook explicitly instructs it.
 
+## Fixing review findings
+
+Never edit, commit, or push review-finding fixes from partial lane results. Wait until the PR-boundary review job for the exact head is complete and every required lane has a result file. If any required lane is running, pending, missing, stale, or unknown, do not fix yet; report that review is still in progress and wait for the final merged summary.
+
+A hidden autofix/follow-up request is valid only when it explicitly says to use the final merged review summary and the persisted review job is complete for the same head. If the visible statusline or durable job disagrees, trust the durable job files and do not edit until completion is clear.
+
 ## Branch-protection note
 
 The intended workflow is:
