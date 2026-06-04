@@ -9,7 +9,7 @@ Applies when `sdd/` exists. Inert otherwise.
 
 **Route:**
 - `spec-driven-development` skill - workflow for `/sdd` sub-commands. Carries REQ format, the 8-field structure, autonomy modes, templates, "What is NOT a requirement", files-alongside catalog.
-- `spec-enforce` skill (spine) - 19-row execution manifest on PR-boundary + `/sdd clean`. Carries severity/mode table, REQ rendering template, status-drift rules, changelog discipline. Conditionally invokes `spec-enforce-ac` (when ACs touched) and `spec-enforce-truth` (when Implemented or Partial REQs touched or scope=all — Partial included for CQ-SOURCE anchor validation).
+- `spec-enforce` skill (spine) - 20-row execution manifest on PR-boundary + `/sdd clean`. Carries severity/mode table, REQ rendering template, status-drift rules, changelog discipline. Conditionally invokes `spec-enforce-ac` (when ACs touched) and `spec-enforce-truth` (when Implemented or Partial REQs touched or scope=all — Partial included for CQ-SOURCE anchor validation).
 
 ## Status vocabulary (mid-task keepsake)
 
