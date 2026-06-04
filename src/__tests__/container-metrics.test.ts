@@ -196,10 +196,13 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(stored.metrics!.updatedAt).toBeDefined();
     });
 
-    it('skips the metrics write when the freshly-read session is already stopped (clobber-race guard)', async () => {
-      // A concurrent POST /:id/stop (or onStop) has marked the session stopped.
-      // collectMetrics must NOT re-put it with status preserved, which would
-      // resurrect the metrics on a stopped session.
+    // REQ-SESSION-018 AC4: a deliberate stop (graceful-shutdown marker set by
+    // destroy()/user Stop) must NOT be self-healed back to running.
+    it('skips the metrics write when stopped AND a graceful shutdown is in flight (clobber-race guard)', async () => {
+      // A POST /:id/stop has marked the session stopped and called destroy(),
+      // which set _shutdownStartedAt. collectMetrics must NOT re-put it (with
+      // status preserved OR re-asserted running), which would resurrect a
+      // session the user is deliberately stopping.
       const session: Session = {
         id: 'testsession123456',
         name: 'Test',
@@ -209,14 +212,46 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
         lastAccessedAt: '2024-01-15T09:30:00.000Z',
       };
       mockKV._set('session:test-bucket:testsession123456', session);
+      // Graceful shutdown in flight: destroy() set this timestamp.
+      (containerInstance as unknown as { _shutdownStartedAt: number })._shutdownStartedAt = Date.now();
 
       await containerInstance.collectMetrics();
 
-      // No put to the session key (metrics write skipped).
+      // No put to the session key (metrics write skipped; stopped left to settle).
       const sessionPut = mockKV.put.mock.calls.find(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
       );
       expect(sessionPut).toBeUndefined();
+    });
+
+    // REQ-SESSION-018 AC4: a live container whose KV was wrongly flipped to
+    // stopped (e.g. by onError on a transient error) self-heals back to running
+    // rather than hanging falsely-stopped on the dashboard until a restart.
+    it('re-asserts running when the container is alive but KV reads stopped and no shutdown is in flight (self-heal)', async () => {
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'stopped',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+      // Container is demonstrably running, no deliberate shutdown in flight.
+      testState.containerRunning = true;
+      (containerInstance as unknown as { _shutdownStartedAt: number })._shutdownStartedAt = 0;
+
+      await containerInstance.collectMetrics();
+
+      const putCall = mockKV.put.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+      );
+      expect(putCall).toBeDefined();
+      const stored = JSON.parse(putCall![1] as string) as Session;
+      expect(stored.status).toBe('running');
+      // Self-heal also restores the metrics payload in the same write.
+      expect(stored.metrics).toBeDefined();
+      expect(stored.metrics!.cpu).toBe('45%');
     });
 
     it('should re-arm schedule if container is still running', async () => {

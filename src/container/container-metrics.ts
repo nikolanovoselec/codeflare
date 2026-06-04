@@ -27,6 +27,10 @@ export interface MetricsState {
   _usageSeconds: number;
   containerStartedAt: number;
   lastSeenInputAt: number | null;
+  /** Wall-clock ms captured at the start of destroy() (0 when no graceful
+   *  shutdown is in flight). The self-heal reads it to tell a falsely-stopped
+   *  live session (heal it) from a deliberately-stopping one (leave it). */
+  _shutdownStartedAt: number;
 }
 
 /** Callbacks provided by the Container class for idle detection + scheduling. */
@@ -65,9 +69,28 @@ const NOT_RUNNING_SINCE_KEY = 'metricsNotRunningSince';
 // collectMetrics writes 'stopped'. Spans more than one 60s alarm tick so a
 // single transient `ctx.container.running === false` (DO hibernation wake or
 // deploy-roll, while the container is actually alive) cannot flip a live
-// session to stopped. onError remains the immediate authority for genuine
-// crashes; this catch-all only covers exits the SDK never surfaces as onError.
+// session to stopped. This catch-all covers exits the SDK never surfaces as
+// onError; onError itself now feeds the SAME window rather than writing stopped
+// directly (openNotRunningConfirmation), so a transient error that fires onError
+// while the container is actually alive can no longer flip a live session to
+// stopped (REQ-SESSION-018 AC3).
 const NOT_RUNNING_CONFIRM_MS = 90_000;
+
+/**
+ * Open the not-running confirmation window without writing 'stopped'.
+ *
+ * Called by onError (container-lifecycle.ts) on a not-running reading so the
+ * stopped decision is deferred to collectMetrics' confirmation window instead
+ * of being written immediately on a single, possibly-transient reading. Sets
+ * the marker only if not already open, so an in-progress streak is not reset.
+ * The caller re-arms a collectMetrics tick so the window gets evaluated.
+ */
+export async function openNotRunningConfirmation(ctx: DurableObjectState): Promise<void> {
+  const since = await ctx.storage.get<number>(NOT_RUNNING_SINCE_KEY);
+  if (typeof since !== 'number') {
+    await ctx.storage.put(NOT_RUNNING_SINCE_KEY, Date.now());
+  }
+}
 
 export const SLEEP_AFTER_FALLBACK_MS = 7_200_000; // 2h
 export function parseSleepAfterMs(s: string): number {
@@ -302,31 +325,41 @@ export async function collectMetrics(
         logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
         return; // Don't re-arm schedule — zombie DO, let it die
       } else if (ctx.container?.running) {
-        // Only write metrics while container is running — prevents overwriting
-        // a "stopped" status that onStop() may have written concurrently.
-        // Read-modify-write only touches .metrics, never .status.
+        // Only reached while the container is demonstrably running (running
+        // branch, after a successful /health fetch). The normal write touches
+        // .metrics and mirrors lastActiveAt; .status is normally left alone.
         const key = getSessionKey(bucketName, sessionId);
         const session = await env.KV.get<Session>(key, 'json');
-        // Clobber-race guard: if the freshly-read session was just marked
-        // 'stopped' (e.g. by POST /:id/stop or onStop), skip the metrics write
-        // entirely so we don't resurrect a stopped session back to 'running'.
-        if (session && session.status === 'stopped') {
-          logger.info('collectMetrics: session marked stopped, skipping metrics write', { key });
-        } else if (session) {
-          const updated = {
-            ...session,
-            metrics: {
-              cpu: health.cpu,
-              mem: health.mem,
-              hdd: health.hdd,
-              syncStatus: health.syncStatus,
-              updatedAt: new Date().toISOString(),
-            },
-            lastActiveAt: state.lastSeenInputAt
-              ? new Date(state.lastSeenInputAt).toISOString()
-              : session.lastActiveAt,
+        if (session) {
+          const metrics = {
+            cpu: health.cpu,
+            mem: health.mem,
+            hdd: health.hdd,
+            syncStatus: health.syncStatus,
+            updatedAt: new Date().toISOString(),
           };
-          await putSessionWithMetadata(env.KV, key, updated);
+          const lastActiveAt = state.lastSeenInputAt
+            ? new Date(state.lastSeenInputAt).toISOString()
+            : session.lastActiveAt;
+
+          if (session.status === 'stopped' && state._shutdownStartedAt > 0) {
+            // Deliberate stop in flight (destroy()/user Stop set the marker):
+            // leave the stopped status to settle, skip the write so we don't
+            // resurrect a session the user is deliberately stopping.
+            logger.info('collectMetrics: session stopped with shutdown in flight, leaving stopped', { key });
+          } else if (session.status === 'stopped') {
+            // Self-heal a FALSE stopped (REQ-SESSION-018 AC4): the container is
+            // alive but KV reads stopped and no shutdown is in flight, so the
+            // status was wrongly flipped (e.g. onError on a transient error, or
+            // the catch-all racing a recovery). Re-assert running so a live
+            // session is not left showing stopped on the dashboard until the
+            // next start. (idle-stop returns before this block; onStop
+            // deleteSchedules the loop — those deliberate paths never reach here.)
+            logger.warn('collectMetrics: container running but KV stopped, re-asserting running (self-heal)', { key });
+            await putSessionWithMetadata(env.KV, key, { ...session, status: 'running' as const, metrics, lastActiveAt });
+          } else {
+            await putSessionWithMetadata(env.KV, key, { ...session, metrics, lastActiveAt });
+          }
         }
       }
     }

@@ -1039,12 +1039,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(writtenSession.status).toBe('stopped');
     });
 
-    // REQ-SESSION-018: Persisted status is authoritative on container exit
-    it('onError updates KV with status stopped (unexpected exit dangling-running guard)', async () => {
-      // The SDK calls onError (not onStop) when a container exits unexpectedly
-      // (crash / deploy-roll / platform reap). When the container is no longer
-      // running, onError must persist 'stopped' so the session does not dangle
-      // as 'running' in KV forever.
+    // REQ-SESSION-018 AC3: onError defers the stopped decision to the
+    // collectMetrics confirmation window instead of writing stopped on a single
+    // not-running reading. The SDK calls onError for transient errors too
+    // (deploy-roll, monitor blip) where the container is actually alive; an
+    // immediate stopped write there sticks (the metrics loop refuses to correct
+    // it) and the session hangs falsely-stopped. So onError opens the window and
+    // re-arms a collectMetrics tick rather than writing stopped itself.
+    it('onError opens the not-running confirmation window and re-arms instead of writing stopped', async () => {
       const mockKvPut = vi.fn().mockResolvedValue(undefined);
       const mockKvGet = vi.fn().mockResolvedValue({
         id: 'sess123',
@@ -1059,22 +1061,24 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
         return null;
       });
 
-      // Unexpected exit: the runtime has already torn the container down.
+      // Container reads not-running when the error fires.
       mockContainerRuntime.running = false;
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => {
         expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
       });
+      const scheduleSpy = vi.spyOn(instance, 'schedule' as any);
 
       await instance.onError(new Error('Container error'));
 
-      await vi.waitFor(() => {
-        expect(mockKvPut).toHaveBeenCalled();
-      });
-      const putArgs = mockKvPut.mock.calls[0];
-      const writtenSession = JSON.parse(putArgs[1]);
-      expect(writtenSession.status).toBe('stopped');
+      await new Promise(resolve => setTimeout(resolve, 50));
+      // No immediate stopped write to KV — the window owns that decision now.
+      expect(mockKvPut).not.toHaveBeenCalled();
+      // Confirmation window opened in DO storage.
+      expect(mockStorage.put).toHaveBeenCalledWith('metricsNotRunningSince', expect.any(Number));
+      // A collectMetrics tick is re-armed so the window gets evaluated.
+      expect(scheduleSpy).toHaveBeenCalledWith(60, 'collectMetrics');
     });
 
     it('onError does NOT write stopped while the container is still running (startup error guard)', async () => {
@@ -1110,13 +1114,13 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
     });
 
     // CF-044
-    // Remaining onError branch: container NOT running (so the !running guard is
-    // satisfied and updateKvStatus IS reached) but the identifiers were already
-    // cleared by a prior destroy(). updateKvStatus re-reads sessionId/bucketName
-    // from storage on every call; with both absent it must no-op rather than
-    // resurrect the KV record. This is the post-destroy resurrection guard
-    // documented in onError's comment (destroy() clears identifiers first).
-    // REQ-SESSION-009: a post-destroy write must not resurrect the session.
+    // Remaining onError branch: container NOT running but the identifiers were
+    // already cleared by a prior destroy(). Post-REQ-SESSION-018-AC3, onError no
+    // longer writes stopped itself - it opens the confirmation window and re-arms
+    // collectMetrics, which re-reads sessionId/bucketName and (with both absent)
+    // bails as a zombie DO without a KV write. Either way, onError must not
+    // resurrect the destroyed KV record.
+    // REQ-SESSION-009: a post-destroy path must not resurrect the session.
     it('onError after destroy does NOT write to KV when identifiers are cleared (resurrection guard)', async () => {
       const mockKvPut = vi.fn().mockResolvedValue(undefined);
       const mockKvGet = vi.fn().mockResolvedValue({

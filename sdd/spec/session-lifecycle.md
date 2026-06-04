@@ -627,21 +627,27 @@ None.
 ### REQ-SESSION-018: Persisted status is authoritative on container exit
 
 <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+<!-- @impl: src/container/container-metrics.ts::openNotRunningConfirmation -->
+<!-- @impl: src/container/container-lifecycle.ts::onError -->
 <!-- @impl: src/container/index.ts::onError -->
 
-**Intent:** Session status in KV is the single source of truth. A container that exits for any reason writes `stopped` to its KV record, so the dashboard ([REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)) reflects reality directly from the record without any read-side staleness guess.
+**Intent:** Session status in KV is the single source of truth. A container that exits for any reason writes `stopped` to its KV record, so the dashboard ([REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)) reflects reality directly from the record without any read-side staleness guess. Conversely, a container that is demonstrably alive is never left showing stopped: the not-running signal is treated as authoritative only after it is confirmed, and a status that was wrongly flipped to stopped is self-healed back to running.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Persisted status is authoritative: a container that exits for any reason - graceful stop, crash, or an unexpected exit surfaced by the SDK as an error - transitions the persisted status to stopped, so the dashboard reflects reality directly from the KV record with no read-side staleness reconciliation. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/index.ts::onError -->
-2. The `collectMetrics` catch-all does not flip a live session to stopped on a transient not-running reading. The SDK's `ctx.container.running` flag momentarily reads false when an alarm wakes a hibernated DO or during a deploy-roll, while the container is actually alive; the catch-all writes stopped only after the container has read not-running continuously for a confirmation window spanning more than one alarm tick, re-arming the alarm meanwhile so the streak can be observed. A single transient false reading therefore leaves the running session intact rather than both kicking the user to the dashboard and freezing metrics. `onError` remains the immediate authority for genuine crashes. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+2. The `collectMetrics` catch-all does not flip a live session to stopped on a transient not-running reading. The SDK's `ctx.container.running` flag momentarily reads false when an alarm wakes a hibernated DO or during a deploy-roll, while the container is actually alive; the catch-all writes stopped only after the container has read not-running continuously for a confirmation window spanning more than one alarm tick, re-arming the alarm meanwhile so the streak can be observed. A single transient false reading therefore leaves the running session intact rather than both kicking the user to the dashboard and freezing metrics. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+3. `onError` does not write stopped on a single not-running reading. The SDK calls `onError` both for genuine crashes and for transient errors (deploy-roll, a brief monitor blip) where the container is actually alive; an immediate stopped write on the transient case sticks, because once KV says stopped the metrics loop refuses to overwrite it and the session hangs falsely-stopped until a real restart. Instead, on a not-running reading `onError` opens the same not-running confirmation window the catch-all uses and re-arms a `collectMetrics` tick, delegating the stopped decision to that window: a container that stays down is confirmed stopped within the window, and one that recovers clears the window with no false stopped. <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @impl: src/container/container-metrics.ts::openNotRunningConfirmation -->
+4. `collectMetrics` self-heals a false stopped. When the container is demonstrably running (the running branch reached after a successful in-container `/health` probe) but the KV record reads stopped, the loop re-asserts running rather than leaving a live session showing stopped, bounding any false-stopped to a single alarm tick instead of persisting until the next start. It does not resurrect a deliberate stop: when a graceful shutdown is in flight (the shutdown marker set by `destroy()` / user Stop) the stopped status is left to settle, and the deliberate idle-stop and `onStop` paths never reach this branch. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
 
 **Constraints:**
 
 - Newly started sessions have a 3-minute startup guard during which only the container-stopped close code can transition them to stopped (anti-flapping).
 - The `collectMetrics` not-running confirmation window is persisted in DO storage (not in-memory), because the hibernation/reset that produces the transient false reading would discard an in-memory streak counter.
+- Deferring the stopped decision to the confirmation window costs `onError` its former immediacy: a genuine crash now transitions to stopped after the confirmation window (one to a few alarm ticks) rather than on the error itself. This latency is accepted as the price of never flipping a live session to stopped; a dashboard that briefly shows a crashed session as running self-corrects within the window, whereas a live session shown as stopped strands the user.
+- The self-heal distinguishes a false stopped from a deliberate stop solely by liveness plus the graceful-shutdown marker: a deliberately stopped container is no longer running (so the running branch is never reached) or is mid-graceful-shutdown (marker set), while a falsely stopped container is still serving with no shutdown in flight.
 
 **Priority:** P1
 
