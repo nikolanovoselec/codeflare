@@ -106,9 +106,13 @@ export default function (pi: ExtensionAPI) {
         cached = undefined;
         tui.requestRender();
       });
+      const interval = setInterval(() => tui.requestRender(), CACHE_TTL_MS);
 
       return {
-        dispose: unsubscribe,
+        dispose() {
+          clearInterval(interval);
+          unsubscribe();
+        },
         invalidate() {
           cached = undefined;
         },

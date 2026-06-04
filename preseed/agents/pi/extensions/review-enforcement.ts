@@ -789,10 +789,47 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.notify(`PR-boundary ${lane} completed for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Findings saved: ${path}`, "info");
   }
 
+  function finalizeCompletedReview(state: PendingReview, ctx: any): void {
+    writeAck(state.repo, state.head);
+    resetBlockCount(state.repo);
+    clearBreaker(state.repo);
+    clearPending(state.repo);
+    publishReviewSummary(state, ctx);
+    requestReviewAutofix(state, ctx);
+    clearReviewStatus(ctx);
+    pending = undefined;
+  }
+
+  function refreshReviewStatusFromDurable(ctx: any): void {
+    const state = hydratePending(ctx);
+    if (!state) {
+      clearReviewStatus(ctx);
+      publishSummaryForCurrentPr(ctx);
+      return;
+    }
+    const headStatus = reviewHeadStatus(state);
+    if (headStatus === "stale") {
+      discardStale(state, ctx);
+      return;
+    }
+    if (headStatus === "advanced" || headStatus === "unknown") {
+      updateReviewStatus(state, ctx);
+      return;
+    }
+    if (durableReviewAckReady({ lanes: state.lanes, resultLanes: completedDurableReviewLanes(state.repo, state.head, state.lanes) })) {
+      finalizeCompletedReview(state, ctx);
+      return;
+    }
+    updateReviewStatus(state, ctx);
+  }
+
   async function markCompleted(type: string, ctx: any, _completionId?: string, _prompt?: string, result?: unknown): Promise<void> {
     const state = hydratePending(ctx);
     if (!state || !state.lanes.includes(type)) return;
-    if (state.completed.has(type)) return;
+    if (state.completed.has(type)) {
+      refreshReviewStatusFromDurable(ctx);
+      return;
+    }
     // Only a definitively-moved PR ("stale") discards the window; "unknown" (gh
     // failed) falls through so the completion is still recorded and acked rather
     // than the whole review window being lost on a transient query failure. If
@@ -824,14 +861,7 @@ export default function (pi: ExtensionAPI) {
     }
     savePending(state);
     if (durableReviewAckReady({ lanes: state.lanes, resultLanes: completedDurableReviewLanes(state.repo, state.head, state.lanes) })) {
-      writeAck(state.repo, state.head);
-      resetBlockCount(state.repo);
-      clearBreaker(state.repo);
-      clearPending(state.repo);
-      publishReviewSummary(state, ctx);
-      requestReviewAutofix(state, ctx);
-      clearReviewStatus(ctx);
-      pending = undefined;
+      finalizeCompletedReview(state, ctx);
     }
   }
 
@@ -876,14 +906,19 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event: any, ctx: any) => {
     remember(ctx);
     const state = hydratePending(ctx);
-    if (state) {
-      const status = reviewHeadStatus(state);
-      if (status === "stale") discardStale(state, ctx);
-      else if (status === "advanced") void rollForwardAdvancedReview(state, ctx, "session_start detected advanced PR head");
-      else updateReviewStatus(state, ctx);
-    }
-    publishSummaryForCurrentPr(ctx);
+    if (state && reviewHeadStatus(state) === "advanced") void rollForwardAdvancedReview(state, ctx, "session_start detected advanced PR head");
+    else refreshReviewStatusFromDurable(ctx);
   });
+
+  const onUiRefresh = (_event: any, ctx: any): void => {
+    if (!isActiveRun()) return;
+    remember(ctx);
+    refreshReviewStatusFromDurable(ctx);
+  };
+
+  pi.on("resources_discover", onUiRefresh);
+  pi.on("turn_start", onUiRefresh);
+  pi.on("turn_end", onUiRefresh);
 
   pi.on("tool_call", onAgentStart);
   pi.on("tool_execution_start", (event: any, ctx: any) => {
@@ -1021,6 +1056,7 @@ export default function (pi: ExtensionAPI) {
       // existing PR, but review enforcement should start only from explicit PR
       // creation/push/sync commands or from already-persisted pending review
       // state. Keep summary publication passive and do not create catch-up work.
+      clearReviewStatus(ctx);
       publishSummaryForCurrentPr(ctx);
       return;
     }
@@ -1069,7 +1105,10 @@ export default function (pi: ExtensionAPI) {
 
     const running = runningDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes)
       .filter((lane) => !currentState.completed.has(lane));
-    if (running.length > 0) return;
+    if (running.length > 0) {
+      updateReviewStatus(currentState, ctx);
+      return;
+    }
 
     const failed = failedDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes)
       .filter((lane) => !currentState.completed.has(lane));

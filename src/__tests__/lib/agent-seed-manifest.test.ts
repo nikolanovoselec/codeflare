@@ -256,6 +256,17 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   it('REQ-AGENT-056: Pi local statusline renders model effort and preserves extension statuses', () => {
     const handlers = new Map<string, Function>();
     let footerFactory: Function | undefined;
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    const intervals: Function[] = [];
+    const clearedIntervals: unknown[] = [];
+    globalThis.setInterval = ((handler: Function) => {
+      intervals.push(handler);
+      return intervals.length;
+    }) as never;
+    globalThis.clearInterval = ((handle: unknown) => {
+      clearedIntervals.push(handle);
+    }) as never;
     const pi = {
       getThinkingLevel: () => 'xhigh',
       on: (event: string, handler: Function) => handlers.set(event, handler),
@@ -269,34 +280,45 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       ui: { setFooter: (factory: Function) => { footerFactory = factory; } },
     };
 
-    localStatuslineExtension(pi as never);
-    handlers.get('session_start')?.({}, ctx);
+    try {
+      localStatuslineExtension(pi as never);
+      handlers.get('session_start')?.({}, ctx);
 
-    const component = footerFactory?.(
-      { requestRender: () => undefined },
-      { fg: (_name: string, text: string) => text },
-      {
-        onBranchChange: () => () => undefined,
-        getExtensionStatuses: () => new Map([['codeflare-review', 'Review code | spec | docs']]),
-      },
-    );
-    const lines = component.render(120);
+      let renders = 0;
+      const component = footerFactory?.(
+        { requestRender: () => { renders += 1; } },
+        { fg: (_name: string, text: string) => text },
+        {
+          onBranchChange: () => () => undefined,
+          getExtensionStatuses: () => new Map([['codeflare-review', 'Review code | spec | docs']]),
+        },
+      );
+      const lines = component.render(120);
 
-    expect(lines[0]).toContain('42%');
-    expect(lines[0]).toContain('gpt-5.5:xhigh');
-    expect(lines[1]).toBe('Review code | spec | docs');
+      expect(lines[0]).toContain('42%');
+      expect(lines[0]).toContain('gpt-5.5:xhigh');
+      expect(lines[1]).toBe('Review code | spec | docs');
+      expect(intervals).toHaveLength(1);
+      intervals[0]();
+      expect(renders).toBe(1);
+      component.dispose();
+      expect(clearedIntervals).toEqual([1]);
 
-    const ansiComponent = footerFactory?.(
-      { requestRender: () => undefined },
-      { fg: (_name: string, text: string) => text },
-      {
-        onBranchChange: () => () => undefined,
-        getExtensionStatuses: () => new Map([['codeflare-review', 'Review \x1b[32mcode\x1b[0m | \x1b[33mspec\x1b[0m | docs']]),
-      },
-    );
-    const ansiLines = ansiComponent.render(20);
-    expect(ansiLines[1].replace(/\x1b\[[0-9;]*m/g, '')).toBe('Review code | spec…');
-    expect(ansiLines[1]).toContain('\x1b[32mcode\x1b[0m');
+      const ansiComponent = footerFactory?.(
+        { requestRender: () => undefined },
+        { fg: (_name: string, text: string) => text },
+        {
+          onBranchChange: () => () => undefined,
+          getExtensionStatuses: () => new Map([['codeflare-review', 'Review \x1b[32mcode\x1b[0m | \x1b[33mspec\x1b[0m | docs']]),
+        },
+      );
+      const ansiLines = ansiComponent.render(20);
+      expect(ansiLines[1].replace(/\x1b\[[0-9;]*m/g, '')).toBe('Review code | spec…');
+      expect(ansiLines[1]).toContain('\x1b[32mcode\x1b[0m');
+    } finally {
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+    }
   });
 
   it('REQ-AGENT-030 / REQ-AGENT-050 / REQ-AGENT-051: Pi command extensions dispatch through both ctx and pi user-message APIs', () => {

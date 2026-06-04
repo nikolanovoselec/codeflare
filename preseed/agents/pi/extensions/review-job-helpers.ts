@@ -232,7 +232,7 @@ export function compactDurableReviewStatus(input: {
     return input.style?.pending?.(segment.label) ?? segment.label;
   };
   const parts = durableReviewStatusSegments(input).map(styledLabel);
-  return `Review ${input.head.slice(0, 7)} --> ${parts.join(" | ")}`;
+  return `Review ${parts.join(" | ")}`;
 }
 
 export function stripExistingReviewSummary(text: string): string {

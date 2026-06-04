@@ -247,26 +247,31 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, safe-graphify-update.sh)
-- Pi-native runtime assets: package config, package lock, MCP
-  config, extension files (including `codeflare-commands.ts`, which
-  provides the Pi `/debug`, `/deploy`, and `/brainstorm` commands since
-  Claude slash commands do not deploy to Pi, plus durable review-job helpers
-  for PR-boundary enforcement, `startup-header.ts`, which replaces Pi's
-  built-in startup header with a custom boxed session header, and
-  `local-statusline.ts`, which replaces Pi's footer in default and advanced
-  modes while preserving extension status rows such as PR-boundary review
-  progress), native skill overrides
-  (graphify -
-  [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) AC7 - and `review`),
-  capture-contract prompts (`memory-agent-prompt.md`,
-  `vault-extract-prompt.md`), and the Pi graphify scripts
-  (`build-graphify-architecture.sh` for scoped module-level architecture graphs, `build-graphify-ast.sh` for first full AST builds using Graphify's own modules, `safe-graphify-update.sh` as a thin bounded wrapper around upstream `graphify update`, and `local-graphify-labels.sh` for main-session community labels). The
-  generator maps each manifest key to its deployed location by directory
-  prefix: `extensions/` -> `.pi/agent/extensions/`, `skills/` ->
-  `.pi/agent/skills/`, `scripts/` -> `.pi/agent/scripts/`, `prompts/`
-  -> `.pi/agent/prompts/`, with `package.json` / `package-lock.json`
-  -> `.pi/agent/npm/` and `mcp.json` / `settings.json` rooted directly
-  under `.pi/agent/`.
+- Pi-native runtime assets include package config, package lock, and MCP
+  config.
+
+  Extension files deploy Pi-specific runtime behavior:
+  `codeflare-commands.ts` provides `/debug`, `/deploy`, and `/brainstorm`;
+  durable review-job helpers enforce PR-boundary review; `startup-header.ts`
+  replaces Pi's startup header; `local-statusline.ts` preserves extension
+  status rows in default and advanced modes.
+
+  Native skill overrides include graphify
+  ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch)
+  AC7) and `review`.
+
+  Capture-contract prompts include `memory-agent-prompt.md` and
+  `vault-extract-prompt.md`.
+
+  Pi graphify scripts include `build-graphify-architecture.sh`,
+  `build-graphify-ast.sh`, `safe-graphify-update.sh`, and
+  `local-graphify-labels.sh`.
+
+  The generator maps each manifest key by directory prefix:
+  `extensions/` -> `.pi/agent/extensions/`, `skills/` -> `.pi/agent/skills/`,
+  `scripts/` -> `.pi/agent/scripts/`, and `prompts/` -> `.pi/agent/prompts/`.
+  Package files deploy under `.pi/agent/npm/`; `mcp.json` and `settings.json`
+  deploy directly under `.pi/agent/`.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
