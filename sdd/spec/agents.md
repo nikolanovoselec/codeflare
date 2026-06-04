@@ -1620,8 +1620,6 @@ None.
 
 **Status:** Implemented
 
-<!-- coverage-gap: Claude post-clone hook path is implemented and covered. Pi native codeflare-pi.ts implements clone triage through lifecycle events, but Pi-specific fresh/stale graph prompt routing and durable review-lane suppression need dedicated behavioral coverage. -->
-
 ---
 
 ### REQ-AGENT-026: Knowledge-Graph Persistence via Git
