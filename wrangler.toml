@@ -6,7 +6,12 @@ name = "codeflare"
 workers_dev = false
 main = "src/index.ts"
 compatibility_date = "2026-02-05"
-compatibility_flags = ["nodejs_compat"]
+# enable_ctx_exports gates ctx.exports + the container outbound-HTTPS
+# interception used for enterprise LLM routing (REQ-ENTERPRISE-004; see
+# src/container/index.ts setupEnterpriseInterception + src/llm-interceptor.ts).
+# Inert for non-enterprise deploys (the DO only calls those APIs when
+# ENTERPRISE_MODE=active). Beta platform surface — accepted by the operator.
+compatibility_flags = ["nodejs_compat", "enable_ctx_exports"]
 
 # Enable container logs in Cloudflare dashboard
 [observability]
@@ -27,6 +32,13 @@ MAX_SESSIONS_ADMIN = "10"
 # Extra IdP UUIDs for custom OIDC providers on login page (comma-separated)
 # Set via GitHub Actions variable; only relevant when SAAS_MODE = "active"
 # SAAS_EXTRA_IDPS = ""
+# Enterprise mode: deployed inside a customer's Cloudflare account; all users
+# become unlimited + advanced, agent set restricted, and LLM traffic is routed
+# to the customer's AI Gateway via platform outbound-HTTPS interception (the
+# LlmInterceptor WorkerEntrypoint). isEnterpriseMode() checks === "active".
+# Set to "active" via GitHub Actions variable to enable (paired with the
+# AIG_GATEWAY_URL / AIG_TOKEN secrets). Left off by default — like SAAS_MODE.
+# ENTERPRISE_MODE = "active"
 
 # KV namespace for session metadata
 # The id "placeholder" is for local dev/tests (vitest-pool-workers creates in-memory KV).

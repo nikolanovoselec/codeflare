@@ -215,6 +215,12 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const tabConfig = sessionData.tabConfig
       || getDefaultTabConfig(sessionData.agentType || 'claude-code');
 
+    // Enterprise-mode LLM routing (REQ-ENTERPRISE-004/005) needs NO per-session
+    // injection here: the container DO wires outbound-HTTPS interception in
+    // onStart (container/index.ts), and buildEnvVars emits ENTERPRISE_MODE
+    // straight from the Worker deploy var. The gateway URL/token live only in
+    // the LlmInterceptor's env - they never reach the container.
+
     // Step 4: Configure the container DO
     const { needsBucketUpdate, setBucketBody } = await configureContainerDO({
       container,

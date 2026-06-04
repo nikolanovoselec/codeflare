@@ -90,6 +90,22 @@ export interface Env {
   // Timekeeper Durable Object for per-user usage tracking
   TIMEKEEPER?: DurableObjectNamespace;
 
+  // Enterprise mode: when 'active', codeflare is deployed inside a customer's
+  // own Cloudflare account. All users resolve to unlimited tier + advanced mode,
+  // the agent set is restricted to the enterprise allowlist, and LLM traffic is
+  // routed through the customer's AI Gateway. Off by default (undefined ⇒ all
+  // existing code paths unchanged).
+  ENTERPRISE_MODE?: string;
+  // AI Gateway base URL the LlmInterceptor WorkerEntrypoint forwards to
+  // (enterprise only). Set via wrangler secret. Held in the Worker/interceptor
+  // env only — never injected into the container (the container reaches the
+  // gateway via platform outbound-HTTPS interception, not a URL).
+  AIG_GATEWAY_URL?: string;
+  // AI Gateway authorization token stamped as cf-aig-authorization by the
+  // interceptor (enterprise only). Set via wrangler secret. Never exposed to
+  // the container.
+  AIG_TOKEN?: string;
+
 }
 
 /**

@@ -32,9 +32,19 @@
  *   KV (1-minute cache) or falls back to {@link getDefaultTiers}. Pass the
  *   result to `getUserTier` or `getAllowedSessionModes`.
  */
-import type { SubscriptionTier, SubscriptionTierConfig, SessionMode } from '../types';
+import type { Env, SubscriptionTier, SubscriptionTierConfig, SessionMode } from '../types';
 import { BILLING_STATUS } from '../types';
 import { getTiersConfigKey } from './kv-keys';
+
+/**
+ * Enterprise mode is a deploy-time flag: when `ENTERPRISE_MODE === 'active'`,
+ * codeflare is deployed inside a customer's own Cloudflare account and all users
+ * resolve to unlimited tier + advanced mode. Off by default — `undefined` (or
+ * any value other than 'active') keeps every existing code path unchanged.
+ */
+export function isEnterpriseMode(env: Pick<Env, 'ENTERPRISE_MODE'> | undefined): boolean {
+  return env?.ENTERPRISE_MODE === 'active';
+}
 
 const ACTIVE_TIERS: ReadonlySet<string> = new Set([
   'free', 'trial', 'standard', 'advanced', 'max', 'unlimited',
@@ -286,7 +296,13 @@ export function getEffectiveTier(
   accessTier: string | undefined,
   billingStatus: string | null | undefined,
   billingPeriodEnd?: string | null,
+  env?: Pick<Env, 'ENTERPRISE_MODE'>,
 ): string {
+  // Enterprise deploys: every user is unlimited. Resolve before any
+  // billing/downgrade logic so no Stripe state can demote an enterprise user.
+  // No-op when the flag is unset (default), keeping the path below unchanged.
+  if (isEnterpriseMode(env)) return 'unlimited';
+
   const raw = subscriptionTier ?? accessTier ?? 'pending';
   if (!PAID_TIERS.has(raw)) return raw;
 

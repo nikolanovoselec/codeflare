@@ -23,6 +23,7 @@ interface LayoutProps {
   userAccessTier?: import('../types').AccessTier;
   userSubscriptionTier?: import('../types').SubscriptionTier;
   onboardingActive?: boolean;
+  enterpriseMode?: boolean;
 }
 
 /**
@@ -400,6 +401,7 @@ const Layout: Component<LayoutProps> = (props) => {
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
           onCreateSession={handleCreateSession}
+          enterpriseMode={props.enterpriseMode}
         />
       </Show>
 

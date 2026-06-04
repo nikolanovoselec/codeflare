@@ -591,4 +591,33 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       openSpy.mockRestore();
     });
   });
+
+  // REQ-ENTERPRISE-002: the Subscription menu item is hidden in enterprise mode.
+  describe('Enterprise mode subscription gating', () => {
+    it('shows the Subscription menu item when enterpriseMode is undefined (default)', () => {
+      render(() => <Header {...defaultSessionProps} />);
+
+      fireEvent.click(screen.getByTestId('header-user-menu'));
+
+      expect(screen.getByTestId('header-user-dropdown-profile')).toBeInTheDocument();
+    });
+
+    it('shows the Subscription menu item when enterpriseMode is false', () => {
+      render(() => <Header {...defaultSessionProps} enterpriseMode={false} />);
+
+      fireEvent.click(screen.getByTestId('header-user-menu'));
+
+      expect(screen.getByTestId('header-user-dropdown-profile')).toBeInTheDocument();
+    });
+
+    it('hides the Subscription menu item when enterpriseMode is true', () => {
+      render(() => <Header {...defaultSessionProps} enterpriseMode={true} />);
+
+      fireEvent.click(screen.getByTestId('header-user-menu'));
+
+      expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
+      // Other dropdown items remain present — only Subscription is gated.
+      expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
+    });
+  });
 });

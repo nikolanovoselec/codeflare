@@ -5,12 +5,16 @@ import CreateSessionDialog from '../../components/CreateSessionDialog';
 
 const sessionStoreState = vi.hoisted(() => ({
   preferences: { lastAgentType: undefined as string | undefined },
+  enterpriseMode: false as boolean,
 }));
 
 vi.mock('../../stores/session', () => ({
   sessionStore: {
     get preferences() {
       return sessionStoreState.preferences;
+    },
+    get enterpriseMode() {
+      return sessionStoreState.enterpriseMode;
     },
   },
 }));
@@ -24,6 +28,7 @@ vi.mock('../../components/Icon', () => ({
 describe('CreateSessionDialog', () => {
   beforeEach(() => {
     sessionStoreState.preferences = { lastAgentType: undefined };
+    sessionStoreState.enterpriseMode = false;
   });
 
   afterEach(() => {
@@ -482,6 +487,41 @@ describe('CreateSessionDialog', () => {
       expect(screen.getByText("GitHub's AI coding agent")).toBeInTheDocument();
       expect(screen.getByText('Multi-model agent')).toBeInTheDocument();
       expect(screen.getByText('Plain terminal session')).toBeInTheDocument();
+    });
+  });
+
+  // REQ-ENTERPRISE-003: enterprise mode restricts the agent set to the
+  // gateway-routed allowlist {claude-code, copilot, pi, bash}.
+  describe('Enterprise mode agent allowlist', () => {
+    it('renders all 7 agents when enterpriseMode is false (default, unchanged)', () => {
+      sessionStoreState.enterpriseMode = false;
+      render(() => (
+        <CreateSessionDialog isOpen={true} onClose={() => {}} onSelect={() => {}} />
+      ));
+
+      const buttons = screen.getByTestId('create-session-dialog').querySelectorAll('.csd-agent-btn');
+      expect(buttons).toHaveLength(7);
+    });
+
+    it('renders only the 4 allowlisted agents when enterpriseMode is true', () => {
+      sessionStoreState.enterpriseMode = true;
+      render(() => (
+        <CreateSessionDialog isOpen={true} onClose={() => {}} onSelect={() => {}} />
+      ));
+
+      const buttons = screen.getByTestId('create-session-dialog').querySelectorAll('.csd-agent-btn');
+      expect(buttons).toHaveLength(4);
+
+      // Allowlisted agents present.
+      expect(screen.getByTestId('csd-agent-claude-code')).toBeInTheDocument();
+      expect(screen.getByTestId('csd-agent-copilot')).toBeInTheDocument();
+      expect(screen.getByTestId('csd-agent-pi')).toBeInTheDocument();
+      expect(screen.getByTestId('csd-agent-bash')).toBeInTheDocument();
+
+      // Non-allowlisted agents hidden.
+      expect(screen.queryByTestId('csd-agent-antigravity')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('csd-agent-codex')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('csd-agent-opencode')).not.toBeInTheDocument();
     });
   });
 });

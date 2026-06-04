@@ -194,7 +194,7 @@ app.use('*', async (c, next) => {
   }
 });
 
-// Body size limit on API routes (64 KiB) - storage routes define their own limits
+// Body size limit on API routes (64 KiB) - storage routes define their own limits.
 app.use('/api/*', async (c, next) => {
   if (c.req.path.startsWith('/api/storage/')) {
     return next();
@@ -415,3 +415,9 @@ export default {
 // Export container class for Durable Objects
 export { container } from './container';
 export { Timekeeper as timekeeper } from './timekeeper/index';
+
+// Enterprise-mode LLM interceptor (REQ-ENTERPRISE-004). A WorkerEntrypoint the
+// container DO wires into container egress via ctx.exports.LlmInterceptor +
+// ctx.container.interceptOutboundHttps. Exported here (the Worker entry module)
+// so ctx.exports resolves it. Inert unless ENTERPRISE_MODE=active.
+export { LlmInterceptor } from './llm-interceptor';

@@ -36,6 +36,8 @@ Codeflare is an ephemeral cloud IDE that runs AI coding agents in isolated conta
 | [Storage](spec/storage.md) | R2 persistence, rclone bisync, quotas | P0 | Active |
 | [Subscription](spec/subscription.md) | Tiers, billing, usage tracking, quotas | P1 | Active |
 | [Agents](spec/agents.md) | Multi-agent support, preseed, session modes | P1 | Active |
+| [Enterprise Mode](spec/enterprise-mode.md) | Deploy-time enterprise instance, subscription bypass, Worker-side LLM proxy | P1 | Active |
+| [Browser Run](spec/browser-run.md) | Real-browser WebFetch fallback via Cloudflare Browser Run | P2 | Active |
 | [Setup](spec/setup.md) | Onboarding wizard, deployment modes, DNS | P1 | Active |
 | [Security](spec/security.md) | Auth enforcement, encryption, rate limiting, headers | P0 | Active |
 | [Operations](spec/operations.md) | CI/CD, testing, deployment, cost | P1 | Active |

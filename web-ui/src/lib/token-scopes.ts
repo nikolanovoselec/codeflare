@@ -59,7 +59,7 @@ export const CLOUDFLARE_TIERS: Record<ScopeTier, TierConfig> = {
   },
   advanced: {
     label: 'Advanced',
-    description: 'Everything including Pages, AI, Containers, Queues, and more.',
+    description: 'Everything including Pages, AI, Browser Rendering, Containers, Queues, and more.',
   },
 };
 
@@ -90,6 +90,7 @@ const CF_ADVANCED: CfScope[] = [
   { key: 'queues', type: 'edit' },
   { key: 'ai', type: 'edit' },
   { key: 'ai', type: 'read' },
+  { key: 'browser_rendering', type: 'edit' },
   { key: 'vectorize', type: 'edit' },
   { key: 'challenge_widgets', type: 'edit' },
   { key: 'workers_ci', type: 'edit' },

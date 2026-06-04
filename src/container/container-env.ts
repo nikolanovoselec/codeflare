@@ -9,6 +9,7 @@ import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
+import { isEnterpriseMode } from '../lib/subscription';
 
 const logger = createLogger('container-env');
 
@@ -212,6 +213,16 @@ export function buildEnvVars(
     // emit when set so the entrypoint's existing fallback chain ($TZ ->
     // /etc/timezone -> UTC) handles the unset case.
     ...(state._userTimezone && { USER_TIMEZONE: state._userTimezone }),
+    // Enterprise-mode flag (REQ-ENTERPRISE-005). The ONLY enterprise env the
+    // container needs: it gates the entrypoint.sh block that installs the
+    // Cloudflare containers CA and points each agent at the constant provider
+    // base-URLs. Read straight from the Worker deploy var (no per-session
+    // injection) - the actual LLM routing is done by the DO's outbound
+    // interception (see container/index.ts setupEnterpriseInterception), which
+    // keeps every credential, gateway URL, and token OUT of the container.
+    // Emitted only when ENTERPRISE_MODE=active, so a non-enterprise container's
+    // env is byte-identical to today.
+    ...(isEnterpriseMode(env) && { ENTERPRISE_MODE: 'active' }),
   };
 }
 

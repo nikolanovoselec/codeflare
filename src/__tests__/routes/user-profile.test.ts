@@ -138,6 +138,7 @@ describe('User Profile Routes', () => {
         onboardingComplete: true,
         hasSubscribed: true,
         subscribedMode: 'advanced',
+        enterpriseMode: false,
       });
     });
 
