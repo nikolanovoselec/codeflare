@@ -2,7 +2,6 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
 
 const ACTIVE_REPO_FILE = "/home/user/.cache/codeflare-hooks/graphify-active-cwd";
 const CACHE_TTL_MS = 1_000;
@@ -62,6 +61,10 @@ function contextPercent(ctx: ExtensionContext): string {
       : undefined
   );
   return Number.isFinite(percent) ? `${Math.round(percent as number)}%` : "--%";
+}
+
+function truncateToWidth(text: string, width: number): string {
+  return text.length <= width ? text : text.slice(0, Math.max(0, width - 1)) + "…";
 }
 
 function renderLine(ctx: ExtensionContext, effort: string): string {

@@ -6,6 +6,7 @@ import { actionableReviewCount, allDurableReviewLanesComplete, countReviewSeveri
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, deterministicVaultGraph, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, stableId, titleFor, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
+import localStatuslineExtension from '../../../preseed/agents/pi/extensions/local-statusline';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -230,10 +231,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // must surface them.
     expect(skills.map((d) => d.key)).toContain('.pi/agent/skills/review/SKILL.md');
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/codeflare-commands.ts');
-    const statusline = extensions.find((d) => d.key === '.pi/agent/extensions/local-statusline.ts');
-    expect(statusline?.content).toContain('footerData.getExtensionStatuses()');
-    expect(statusline?.content).toContain('ctx.ui.setFooter');
-    expect(statusline?.content).toContain('`${model}:${effort}`');
+    expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/local-statusline.ts');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(codeReviewer?.content).toContain('tools: read, grep, find, bash, write');
     // context-mode helper tools are kept (Pi-native names), inert when context-mode is off
@@ -253,6 +251,40 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(codeflarePi?.content).toContain('pi.registerCommand("ctx"');
     expect(codeflarePi?.content).toContain('context-mode is disabled');
 
+  });
+
+  it('REQ-AGENT-056: Pi local statusline renders model effort and preserves extension statuses', () => {
+    const handlers = new Map<string, Function>();
+    let footerFactory: Function | undefined;
+    const pi = {
+      getThinkingLevel: () => 'xhigh',
+      on: (event: string, handler: Function) => handlers.set(event, handler),
+    };
+    const ctx = {
+      hasUI: true,
+      model: { id: 'gpt-5.5' },
+      cwd: '/tmp',
+      sessionManager: { getCwd: () => '/tmp' },
+      getContextUsage: () => ({ percent: 42 }),
+      ui: { setFooter: (factory: Function) => { footerFactory = factory; } },
+    };
+
+    localStatuslineExtension(pi as never);
+    handlers.get('session_start')?.({}, ctx);
+
+    const component = footerFactory?.(
+      { requestRender: () => undefined },
+      { fg: (_name: string, text: string) => text },
+      {
+        onBranchChange: () => () => undefined,
+        getExtensionStatuses: () => new Map([['codeflare-review', 'Review d43d825 --> code | spec | docs']]),
+      },
+    );
+    const lines = component.render(120);
+
+    expect(lines[0]).toContain('42%');
+    expect(lines[0]).toContain('gpt-5.5:xhigh');
+    expect(lines[1]).toBe('Review d43d825 --> code | spec | docs');
   });
 
   it('REQ-AGENT-030 / REQ-AGENT-050 / REQ-AGENT-051: Pi command extensions dispatch through both ctx and pi user-message APIs', () => {
