@@ -89,8 +89,22 @@ jobs:
       - name: Run backend tests
         # @cloudflare/vitest-pool-workers hard-codes a `[vpw:info] Starting runtime for ...`
         # log on every test file (LogLevel.VERBOSE, no config to silence). Filter the spam
-        # so the CI test output stays readable. set -o pipefail keeps the exit code from npm.
-        run: set -o pipefail && npm test 2>&1 | grep -v -F '[vpw:info] Starting runtime for'
+        # so the CI test output stays readable. Retry only the known Workers-pool crash
+        # where workerd exits after Vitest reports all tests passed.
+        run: |
+          set -o pipefail
+          for attempt in 1 2; do
+            npm test 2>&1 | grep -v -F '[vpw:info] Starting runtime for' | tee /tmp/backend-tests.log
+            status=${PIPESTATUS[0]}
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 1 ] && grep -Fq '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/backend-tests.log && grep -Eq 'Tests[[:space:]]+.*2358 passed' /tmp/backend-tests.log; then
+              echo "Retrying backend tests after known workerd shutdown crash"
+              continue
+            fi
+            exit "$status"
+          done
 
       - name: Install host dependencies
         if: steps.cache-host.outputs.cache-hit != 'true'
