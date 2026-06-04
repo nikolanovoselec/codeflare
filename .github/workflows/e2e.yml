@@ -34,7 +34,7 @@ jobs:
           echo "worker_name=${{ vars.CLOUDFLARE_WORKER_NAME }}" >> "$GITHUB_OUTPUT"
           echo "Target: ${{ inputs.environment || 'integration' }}"
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -137,7 +137,7 @@ jobs:
       E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
       E2E_SUITE: api
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -178,7 +178,7 @@ jobs:
       E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
       E2E_SUITE: ui-desktop
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -245,7 +245,7 @@ jobs:
       E2E_SUITE: ui-mobile
       E2E_MOBILE: '1'
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
