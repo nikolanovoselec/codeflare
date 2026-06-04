@@ -401,20 +401,20 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Before signalling the container to stop, every deliberate stop path runs a live bidirectional R2 sync to completion while the container is still fully running, rather than relying on a post-SIGTERM trap to sync within the platform's kill grace. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync -->
+1. Before signalling the container to stop, every deliberate stop path runs a live bidirectional R2 sync to completion while the container is still fully running. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync -->
 2. The container exposes an awaitable final-sync endpoint that triggers a fresh bisync and responds only once that bisync has completed (success or failure) or an internal timeout elapses, distinguishing completion from failure and timeout. <!-- @impl: host/src/server.ts --> <!-- @impl: host/src/final-sync.ts -->
-3. The sync-status record the endpoint polls carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, and the endpoint accepts a terminal status only after observing its own run's `syncing` (a `syncing` stamped strictly after the trigger), never a bare `success`, so a bisync already in flight when the trigger arrived can never be mistaken for the triggered run. <!-- @impl: host/src/final-sync.ts --> <!-- @impl: entrypoint.sh -->
+3. The sync-status record carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, and the endpoint accepts a terminal status only after observing its own run's `syncing` (stamped strictly after the trigger), never a bare `success`. <!-- @impl: host/src/final-sync.ts --> <!-- @impl: entrypoint.sh -->
 4. The Durable Object waits up to a bounded sync budget (120s) for the live sync to report completion; a failed or timed-out sync still proceeds to stop rather than blocking teardown. <!-- @impl: src/container/container-lifecycle.ts::destroy -->
 5. Total teardown is hard-capped: the container is force-terminated no later than 135s after teardown begins regardless of sync state, so a hung sync cannot wedge the session. <!-- @impl: src/container/container-lifecycle.ts::destroy -->
-6. User stop and user delete behave identically - both route through the same graceful-destroy path and therefore the same drain-then-stop sequence; idle-timeout and quota-eviction paths drain through the same endpoint before stopping. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
-7. The SIGTERM trap is retained as a best-effort backstop final sync (daemon teardown via durable PID record, final bisync, deletion safeguards) for paths that bypass the orchestrated drain, but it is no longer the primary guarantee (see [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync) for the trap's own constraints: watchdog, bisync-initialized gate). <!-- @impl: entrypoint.sh::shutdown_handler -->
+6. User stop and user delete behave identically: both route through the same graceful-destroy path, and idle-timeout and quota-eviction paths drain through the same endpoint before stopping. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+7. The SIGTERM trap is retained as a best-effort backstop final sync for paths that bypass the orchestrated drain, but is no longer the primary guarantee (see [REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync) for the trap's own constraints). <!-- @impl: entrypoint.sh::shutdown_handler -->
 
 **Constraints:**
 
-- The platform's post-SIGTERM kill grace is never relied upon for sync completion; the authoritative final sync runs while the container is fully alive and the DO holds the teardown request open awaiting it.
-- The drain is bounded, not unbounded: a failed or timed-out final sync proceeds to stop (with the 135s hard force-kill as the ceiling) rather than blocking teardown indefinitely - liveness is preserved over a guaranteed-complete sync in the pathological case.
-- The container image still declares a stop signal the entrypoint can trap, so the backstop trap remains reachable.
-- Completion detection is safe because the daemon stamps `syncing` immediately before it scans the filesystem and runs the bisync: a `syncing` stamped strictly after the trigger therefore guarantees the scan reads post-trigger filesystem state (the user's last edits are on disk before the drain begins). The comparison is strict (`>`, not `>=`) so an in-flight run that stamped `syncing` in the same millisecond as the trigger, or whose pre-trigger stamp lands at the trigger under an intra-host clock step-back (NTP / VM pause-resume), cannot be mistaken for our run. Gating acceptance on `syncing` rather than a bare `success` is load-bearing - an in-flight run's `success` can also land after the trigger, but its scan predated the trigger. The accepted residual is benign: if a triggered run writes `syncing` then `success` within a single poll interval (or, with the strict bound, stamps `syncing` in the same millisecond as the trigger), the endpoint times out, after which the bounded drain falls through to stop best-effort - the data still synced, so this is wasted budget, not loss.
+- The platform's post-SIGTERM kill grace is never relied on for sync completion; the authoritative sync runs while the container is alive and the DO holds teardown open awaiting it.
+- A failed or timed-out drain proceeds to stop (135s hard force-kill ceiling) rather than blocking teardown indefinitely; liveness is preserved over a guaranteed-complete sync in the pathological case.
+- Completion detection accepts a terminal status only after observing the triggered run's `syncing` stamped strictly after the trigger, so an in-flight or same-millisecond stamp is never mistaken for it; the rare missed-sample case degrades to a benign timeout, not data loss. Rationale in [AD57](../../documentation/decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync).
+- The container image still declares a trappable stop signal so the backstop trap stays reachable.
 
 **Priority:** P0
 
@@ -543,14 +543,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. The terminal server's tab-1 PTY pre-warm is gated on an init-complete signal written by the entrypoint after initial sync, file modifications, and tab autostart configuration complete; this preserves the readiness contract while letting the serving port bind before Cloudflare's container port-wait timeout.
-2. The host terminal server rejects terminal WebSocket upgrades with a retriable close code (the WebSocket "try again later" class) and a human-readable container-warming reason until both the init-complete signal is observed AND the pre-warm session is registered; this is the host-side guard against reconnects landing before shell autostart is in place.
+1. The serving port binds within Cloudflare's container port-wait window even while initialization (R2 sync, MCP config merges) is still in progress. <!-- @impl: entrypoint.sh -->
+2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @impl: entrypoint.sh -->
+3. Tab-1 PTY pre-warm is gated on the init-complete signal, so it never starts before initial state restore is in place. <!-- @impl: host/src/server.ts -->
+4. The host terminal server rejects terminal WebSocket upgrades with a retriable ("try again later") close code and a human-readable container-warming reason until both the init-complete signal is observed and the pre-warm session is registered. <!-- @impl: host/src/server.ts -->
 
 **Constraints:**
 
-- The terminal server must bind its serving port within Cloudflare's container port-wait window; slow initialization (R2 sync, MCP config merges) must not block the port bind.
 - The container must not signal readiness (PTY pre-warm complete) until the initial sync either succeeds or times out.
-- Any best-effort setup step executed before the init-complete flag is written (e.g. agent npm dependency warm-up, fast-start update suppression) must be guarded so that its failure does not abort the entrypoint under `set -euo pipefail`; a degraded warm-up is always preferable to PID 1 dying before the flag is written.
+- Best-effort setup steps that run before the init-complete flag (agent npm warm-up, fast-start suppression) must be guarded so their failure cannot abort the entrypoint under `set -euo pipefail`; a degraded warm-up is preferable to PID 1 dying before the flag is written.
 
 **Priority:** P0
 
@@ -581,7 +582,7 @@ None.
 2. The session persistently stores the user's timezone preference.
 3. Subsequent container starts inject the user's timezone preference into the container environment; if unset, the entrypoint falls back to the container default and finally to UTC.
 4. A timezone change takes effect on the next session start (no live re-injection into a running container).
-5. On Dashboard mount, the frontend reads the browser's IANA timezone and updates the stored preference when the resolved zone differs. The sync is best-effort: failures never block the mount path so a transient API error cannot strand the Dashboard.
+5. On Dashboard mount, the frontend reads the browser's IANA timezone and updates the stored preference (best-effort) when the resolved zone differs; a failed update never blocks the mount.
 
 **Constraints:**
 
@@ -611,7 +612,7 @@ None.
 
 1. `GET /api/container/health` reports whether the user's container is running and healthy, returning its metrics on success and an error with 500 when the health check fails. <!-- @impl: src/routes/container/status.ts -->
 2. `GET /api/container/startup-status` returns the current initialization stage without blocking, carrying a stage label, a 0-to-100 progress value, and a human-readable message. <!-- @impl: src/routes/container/status.ts -->
-3. The reported stage reflects real container state: stopped when the container state cannot be determined, starting while the container exists but its services are not yet responding, syncing while the initial R2 sync runs, verifying after sync while terminal sessions are not yet responding, mounting while the terminal pre-warms, and ready when all services are up. <!-- @impl: src/routes/container/status.ts -->
+3. The reported stage reflects real container state: `stopped` when state is indeterminate, `starting` before services respond, `syncing` during the initial R2 sync, `verifying` after sync while terminals are not yet up, `mounting` during terminal pre-warm, and `ready` when all services are up. <!-- @impl: src/routes/container/status.ts -->
 4. A failed initial R2 sync surfaces as an error stage carrying the sync error, while a skipped sync (no R2 credentials) still reaches the ready stage with the skip reason reported. <!-- @impl: src/routes/container/status.ts -->
 5. An unexpected failure while computing startup status is caught and returned as an error stage rather than propagating an unhandled 500. <!-- @impl: src/routes/container/status.ts -->
 
