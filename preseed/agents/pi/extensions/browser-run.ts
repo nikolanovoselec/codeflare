@@ -41,10 +41,30 @@ const WaitUntil = Type.Optional(
 );
 
 function truncate(text: string): string {
+  // Fast path: UTF-16 length <= cap implies code-point count <= cap, so the
+  // string is safely under budget and needs no slicing.
   if (text.length <= MAX_OUTPUT_CHARS) return text;
-  return `${text.slice(0, MAX_OUTPUT_CHARS)}\n\n[... truncated ${
-    text.length - MAX_OUTPUT_CHARS
+  // Slice on code points (not UTF-16 units) so we never cut a surrogate pair in
+  // half on emoji/CJK-heavy pages.
+  const chars = Array.from(text);
+  if (chars.length <= MAX_OUTPUT_CHARS) return text;
+  return `${chars.slice(0, MAX_OUTPUT_CHARS).join("")}\n\n[... truncated ${
+    chars.length - MAX_OUTPUT_CHARS
   } chars; narrow the request or use browser_scrape with a CSS selector ...]`;
+}
+
+// A successful-but-empty render is usually a JS-heavy page that had not painted
+// by capture time. Return an actionable hint instead of an empty string.
+function emptyRenderResult(url: string): AgentToolResult {
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Browser Run returned an empty page for ${url}. The page likely renders content after load — retry with wait_until: "networkidle0".`,
+      },
+    ],
+    details: { url, empty: true },
+  };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -118,7 +138,9 @@ export default function (pi: ExtensionAPI) {
     ): Promise<AgentToolResult> {
       const r = await quickAction("markdown", { url: params.url, ...gotoOptions(params.wait_until) }, signal);
       if (!r.ok) return errorResult(r.error);
-      return { content: [{ type: "text", text: truncate(String(r.result ?? "")) }], details: { url: params.url } };
+      const text = String(r.result ?? "");
+      if (text.trim() === "") return emptyRenderResult(params.url);
+      return { content: [{ type: "text", text: truncate(text) }], details: { url: params.url } };
     },
   });
 
@@ -143,7 +165,9 @@ export default function (pi: ExtensionAPI) {
     ): Promise<AgentToolResult> {
       const r = await quickAction("content", { url: params.url, ...gotoOptions(params.wait_until) }, signal);
       if (!r.ok) return errorResult(r.error);
-      return { content: [{ type: "text", text: truncate(String(r.result ?? "")) }], details: { url: params.url } };
+      const text = String(r.result ?? "");
+      if (text.trim() === "") return emptyRenderResult(params.url);
+      return { content: [{ type: "text", text: truncate(text) }], details: { url: params.url } };
     },
   });
 

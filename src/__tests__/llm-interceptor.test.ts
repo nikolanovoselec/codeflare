@@ -189,7 +189,7 @@ describe('REQ-ENTERPRISE-004: transport hardening', () => {
   });
 
   it('LOW-1: does not transparently follow upstream redirects (redirect: manual)', async () => {
-    let capturedRedirect: RequestRedirect | undefined;
+    let capturedRedirect: string | undefined;
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
       capturedRedirect = (input as Request).redirect;
       return new Response('ok', { status: 200 });
