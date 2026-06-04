@@ -13,7 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
@@ -81,14 +81,7 @@ function activeRepoFallback(): string | undefined {
 }
 
 function commandText(event: any): string {
-  const inputs = [event?.input, event?.params, event?.args, event?.arguments, event?.toolCall?.arguments];
-  for (const input of inputs) {
-    if (!input || typeof input !== "object") continue;
-    if (typeof input.command === "string") return input.command;
-    if (typeof input.code === "string") return input.code;
-    if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => String(cmd?.command || "")).join("\n");
-  }
-  return "";
+  return commandTextFromEvent(event);
 }
 
 

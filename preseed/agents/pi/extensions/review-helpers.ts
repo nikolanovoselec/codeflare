@@ -7,8 +7,11 @@ function splitShellCommands(command: string): string[] {
   let current = "";
   let quote: "'" | '"' | "" = "";
   let escaped = false;
+  let parenDepth = 0;
 
-  for (const char of command) {
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    const next = command[index + 1];
     if (escaped) {
       current += char;
       escaped = false;
@@ -29,9 +32,20 @@ function splitShellCommands(command: string): string[] {
       current += char;
       continue;
     }
-    if (!quote && (char === ";" || char === "|" || char === "&" || char === "\n")) {
+    if (!quote && char === "(" && command[index - 1] === "$") {
+      parenDepth += 1;
+      current += char;
+      continue;
+    }
+    if (!quote && char === ")" && parenDepth > 0) {
+      parenDepth -= 1;
+      current += char;
+      continue;
+    }
+    if (!quote && parenDepth === 0 && (char === ";" || char === "\n" || char === "|" || char === "&")) {
       if (current.trim()) segments.push(current.trim());
       current = "";
+      if ((char === "|" && next === "|") || (char === "&" && next === "&")) index += 1;
       continue;
     }
     current += char;
@@ -165,6 +179,19 @@ export function prCreateBoundaryBase(command: string, knownBase?: string): strin
 
 export function isPrBoundaryCommand(command: string): boolean {
   return reviewBoundaryCommands(command).some(isBoundaryWords);
+}
+
+export function commandTextFromEvent(event: any): string {
+  const inputs = [event?.input, event?.params, event?.args, event?.arguments, event?.toolCall?.arguments, event?.toolCall?.input, event?.toolCall?.params];
+  const commands: string[] = [];
+  for (const input of inputs) {
+    if (!input || typeof input !== "object") continue;
+    if (typeof input.command === "string") commands.push(input.command);
+    if (typeof input.code === "string") commands.push(input.code);
+    if (typeof input.script === "string") commands.push(input.script);
+    if (Array.isArray(input.commands)) commands.push(...input.commands.map((cmd: any) => String(cmd?.command || cmd?.code || cmd || "")));
+  }
+  return commands.find(isPrBoundaryCommand) || commands.find((command) => command.trim()) || "";
 }
 
 export function isFailedToolExecution(event: any): boolean {
