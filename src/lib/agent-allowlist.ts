@@ -10,8 +10,9 @@
 import { AgentTypeSchema, type AgentType, type Env } from '../types';
 import { isEnterpriseMode } from './subscription';
 
-/** Agents permitted in enterprise mode. */
-export const ENTERPRISE_AGENTS = ['claude-code', 'copilot', 'pi', 'bash'] as const satisfies readonly AgentType[];
+/** Agents permitted in enterprise mode. Internal to this module (consumed by
+ * {@link allowedAgents}); not exported — the frontend keeps its own copy. */
+const ENTERPRISE_AGENTS = ['claude-code', 'copilot', 'pi', 'bash'] as const satisfies readonly AgentType[];
 
 /**
  * Resolve the set of agent types selectable under the current deploy mode.
