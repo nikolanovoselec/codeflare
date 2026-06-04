@@ -47,7 +47,7 @@ prompt. It contains exactly these fields - do NOT invent others:
 - `graphPath`: `/home/user/Vault/graphify-out/graph.json` - the per-run viz
   artifact `merge-vault-graph.py` writes (alongside the cumulative
   `vault-graph.json`). You do not edit it by hand.
-- `inflightFile`: `/home/user/.cache/codeflare-hooks/vault-extract.in-flight` - remove this when you finish.
+- `inflightFile`: `/home/user/.cache/codeflare-hooks/vault-extract.pi.in-flight` - remove this when you finish. Always use the exact `inflightFile` value from the vars JSON; do not hard-code the name.
 
 ## Steps
 
@@ -210,10 +210,11 @@ re-renders.
 Do NOT advance the marker - the extension owns `vault-extract.last`. If you
 skipped extraction entirely (empty change set or nothing found), that is fine;
 the marker is already correct and nothing needs retrying. Finally, remove the
-in-flight sentinel so the extension can spawn the next run:
+in-flight sentinel (the `inflightFile` path from the vars JSON) so the extension
+can spawn the next run:
 
 ```bash
-rm -f /home/user/.cache/codeflare-hooks/vault-extract.in-flight
+rm -f "<inflightFile>"
 ```
 
 ## Done

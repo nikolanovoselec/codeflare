@@ -20,8 +20,17 @@ const VAULT_PROMPT_FILE = join(PROMPTS_DIR, "vault-extract-prompt.md");
 // Share Claude's high-water marker name and mtime semantics: the marker's mtime,
 // not file contents, is the source of truth for vault-change detection.
 const VAULT_MARKER_FILE = join(CACHE_DIR, "vault-extract.last");
-const VAULT_VARS_FILE = join(CACHE_DIR, "vault-extract.vars");
-const VAULT_INFLIGHT = join(CACHE_DIR, "vault-extract.in-flight");
+// Pi-namespaced sentinels. The Claude vault-monitor daemon (entrypoint.sh,
+// runs whenever SESSION_MODE=advanced, NOT runtime-gated) writes the
+// shared-namespace ~/.cache/codeflare-hooks/vault-extract.vars on any vault
+// change. Under Claude its UserPromptSubmit hook consumes that file; under Pi
+// nothing does, so if Pi read the same path the daemon's orphaned vars would
+// wedge vaultVarsPending() forever. Pi therefore owns its own vars/in-flight
+// files and only SHARES vault-extract.last (above) — advancing that marker
+// each turn makes the daemon's own `find -newer` come up empty, so it stays
+// quiet instead of fighting Pi for the sentinel.
+const VAULT_VARS_FILE = join(CACHE_DIR, "vault-extract.pi.vars");
+const VAULT_INFLIGHT = join(CACHE_DIR, "vault-extract.pi.in-flight");
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
 const VAULT_EXTRACT_INFLIGHT_TTL_MS = 5 * 60 * 1000;
 const VAULT_PRESEED_ROOT_FILES = new Set(["Index.md", "README.md", "CONFIG.md", "STYLES.md"]);
@@ -165,6 +174,13 @@ function vaultVarsPending(): boolean {
   if (!existsSync(VAULT_VARS_FILE)) return false;
   try {
     if (existsSync(VAULT_MARKER_FILE) && statSync(VAULT_VARS_FILE).mtimeMs <= statSync(VAULT_MARKER_FILE).mtimeMs) {
+      unlinkSync(VAULT_VARS_FILE);
+      return false;
+    }
+    // Self-heal a crashed extraction: the subagent deletes vars in step 1, so a
+    // vars file older than the in-flight TTL has no live consumer. Treat it as
+    // orphaned and clear it rather than letting it wedge the gate indefinitely.
+    if (Date.now() - statSync(VAULT_VARS_FILE).mtimeMs > VAULT_EXTRACT_INFLIGHT_TTL_MS) {
       unlinkSync(VAULT_VARS_FILE);
       return false;
     }

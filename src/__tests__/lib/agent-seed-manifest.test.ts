@@ -1311,11 +1311,23 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(isResumedSession(true, 5)).toBe(false);
   });
 
-  it('REQ-VAULT-003: memory-vault.ts has Claude-compatible in-flight sentinel to prevent double extraction', () => {
+  it('REQ-VAULT-003: Pi vars/in-flight sentinels are namespaced so the Claude vault-monitor daemon cannot wedge Pi', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
+    // The entrypoint vault-monitor daemon (Claude's producer) writes the
+    // shared-namespace ~/.cache/codeflare-hooks/vault-extract.vars on any vault
+    // change; under Pi nothing consumes it. Pi MUST read its OWN sentinels so
+    // the daemon's orphaned file never makes vaultVarsPending() block forever.
+    expect(mv?.content).toContain('vault-extract.pi.vars');
+    expect(mv?.content).toContain('vault-extract.pi.in-flight');
     expect(mv?.content).toContain('VAULT_INFLIGHT');
-    expect(mv?.content).toContain('vault-extract.in-flight');
     expect(mv?.content).toContain('VAULT_EXTRACT_INFLIGHT_TTL_MS');
+    // Regression guard: Pi must NOT read the daemon's shared-namespace files.
+    expect(mv?.content).not.toContain('"vault-extract.vars"');
+    expect(mv?.content).not.toContain('"vault-extract.in-flight"');
+    // The high-water marker stays SHARED (advancing it keeps the daemon quiet).
+    expect(mv?.content).toContain('vault-extract.last');
+    // Self-heal: a stale vars file past the in-flight TTL must clear, not wedge.
+    expect(mv?.content).toContain('Date.now() - statSync(VAULT_VARS_FILE).mtimeMs > VAULT_EXTRACT_INFLIGHT_TTL_MS');
   });
 
   it('REQ-VAULT-004: memory-vault.ts publishes the cumulative vault graph to the global graph via flock-guarded graphify global add', () => {
