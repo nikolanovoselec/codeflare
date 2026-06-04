@@ -27,7 +27,6 @@ A real-browser WebFetch fallback for MCP-capable agents, backed by Cloudflare Br
 
 ---
 
-<!-- @test: src/__tests__/lib/browser-run.test.ts (chrome-devtools-mcp registration describe -> registered in advanced mode only + omitted in default mode + pointed at Browser Run CDP /devtools endpoint -> AC1..AC4) -->
 ### REQ-BROWSER-001: chrome-devtools-mcp as a WebFetch Fallback
 
 <!-- @impl: preseed/agents/claude/manifest.json -->
@@ -53,7 +52,7 @@ A real-browser WebFetch fallback for MCP-capable agents, backed by Cloudflare Br
 
 **Dependencies:** [REQ-AGENT-005](agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)
 
-**Verification:** [Automated test](../../src/__tests__/lib/browser-run.test.ts)
+**Verification:** Manual check — `src/__tests__/lib/browser-run.test.ts` not yet written
 
 **Status:** Planned
 
@@ -89,7 +88,6 @@ A real-browser WebFetch fallback for MCP-capable agents, backed by Cloudflare Br
 
 ---
 
-<!-- @test: src/__tests__/lib/browser-run.test.ts (MCP-capable agent wiring describe -> Claude + Copilot native MCP registration + Pi via mcp.json bridge + non-MCP agents omitted -> AC1..AC4) -->
 ### REQ-BROWSER-003: chrome-devtools-mcp Wired for MCP-Capable Agents
 
 <!-- @impl: preseed/agents/claude/manifest.json -->
@@ -116,6 +114,6 @@ A real-browser WebFetch fallback for MCP-capable agents, backed by Cloudflare Br
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-chrome-devtools-mcp-as-a-webfetch-fallback), [REQ-AGENT-007](agents.md#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** [Automated test](../../src/__tests__/lib/browser-run.test.ts)
+**Verification:** Manual check — `src/__tests__/lib/browser-run.test.ts` not yet written
 
 **Status:** Planned
