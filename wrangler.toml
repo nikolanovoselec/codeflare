@@ -6,12 +6,13 @@ name = "codeflare"
 workers_dev = false
 main = "src/index.ts"
 compatibility_date = "2026-02-05"
-# enable_ctx_exports gates ctx.exports + the container outbound-HTTPS
-# interception used for enterprise LLM routing (REQ-ENTERPRISE-004; see
-# src/container/index.ts setupEnterpriseInterception + src/llm-interceptor.ts).
-# Inert for non-enterprise deploys (the DO only calls those APIs when
-# ENTERPRISE_MODE=active). Beta platform surface — accepted by the operator.
-compatibility_flags = ["nodejs_compat", "enable_ctx_exports"]
+# ctx.exports + container outbound-HTTPS interception (interceptOutboundHttps),
+# used for enterprise LLM routing (REQ-ENTERPRISE-004; see container/index.ts
+# setupEnterpriseInterception + src/llm-interceptor.ts), are ON by default at
+# this compatibility_date — the enable_ctx_exports flag became the default on
+# 2025-11-17, and specifying a now-default flag is a hard workerd config error
+# (it crashes the vitest-pool-workers runtime). So no extra flag is needed.
+compatibility_flags = ["nodejs_compat"]
 
 # Enable container logs in Cloudflare dashboard
 [observability]
