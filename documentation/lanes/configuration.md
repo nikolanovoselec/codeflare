@@ -41,6 +41,7 @@ Environment variables, secrets, CORS configuration, and API token permissions.
 | `SAAS_MODE` | `"active"` enables custom login page, auto-provisioning, admin approval | inactive | yes | GitHub Actions variable -> `--var` at deploy | [REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001-two-authentication-modes) |
 | `SAAS_EXTRA_IDPS` | Comma-separated IdP UUIDs for custom OIDC providers on login page | - | yes | GitHub Actions variable -> `--var` at deploy | [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh) |
 | `ENCRYPTION_KEY` | AES-256-GCM encryption key for `llm-keys:*`, `deploy-keys:*`, and `r2token:*` KV entries, also used as R2 SSE-C key | - | yes | Wrangler secret (optional) | [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key) |
+| `ENTERPRISE_MODE` | `"active"` forces all users to unlimited tier + Pro mode, hides billing UI, restricts agent roster to `{claude-code, copilot, pi, bash}`, and enables outbound-HTTPS interception to the AI Gateway. Unset = standard tier/billing behaviour unchanged. | inactive | no | GitHub Actions variable -> `--var` at deploy | [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) |
 
 ### Container Environment
 
@@ -92,6 +93,15 @@ These env vars tune the graphify knowledge-graph build/update tooling. All are o
 Repository: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, optional `RESEND_API_KEY`
 
 Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, Turnstile keys stored in KV. **Worker-level R2 credentials are derived from the API token** (used for bucket admin operations like create/empty/delete). Per-user scoped R2 tokens are separate - created on first login, independent of the master token but revoked when the API token changes. If the token is rotated, setup must be re-run.
+
+### Enterprise Mode Secrets (optional)
+
+| Secret | Purpose | Set via |
+|--------|---------|---------|
+| `AIG_GATEWAY_URL` | Customer AI Gateway base URL (e.g. `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/`). When absent, enterprise LLM routing is disabled even if `ENTERPRISE_MODE=active`. | GitHub Actions secret -> `wrangler secret put AIG_GATEWAY_URL` (deploy.yml) |
+| `AIG_TOKEN` | Bearer token for the AI Gateway. Read exclusively by the `LlmInterceptor` WorkerEntrypoint; never injected into the container. | GitHub Actions secret -> `wrangler secret put AIG_TOKEN` (deploy.yml) |
+
+Both secrets are optional and silently skipped when absent; a deployment without them behaves identically to a non-enterprise deployment regardless of the `ENTERPRISE_MODE` variable. See [Architecture - Enterprise LLM Routing](architecture.md#enterprise-llm-routing-enterprise-mode) and [Deployment - Enterprise Secrets](deployment.md#enterprise-mode-secrets).
 
 ## CORS
 
@@ -183,6 +193,7 @@ Users connect their Cloudflare account by creating an API token. Codeflare offer
 | **Workers Observability: Edit** | - | - | yes | Logs, traces, and monitoring |
 | **Workers R2 Data Catalog: Edit** | - | - | yes | R2 bucket metadata and catalog |
 | **Workers Agents Configuration: Edit** | - | - | yes | Cloudflare Agents configuration |
+| **Browser Rendering: Edit** | - | - | yes | Browser Run via chrome-devtools-mcp (REQ-BROWSER-002) |
 
 The connect flow pre-fills the Cloudflare dashboard token creation form with the correct permissions for the selected tier. Cloudflare API tokens do not expire by default but can be set to expire during creation. Scope tokens to specific accounts and zones, or use "All accounts" and "All zones" for convenience. Implements [REQ-AGENT-028](../../sdd/spec/agents.md#req-agent-028-deploy-credential-token-creation-ux) AC2.
 
@@ -236,6 +247,10 @@ You can adjust scopes anytime from your [GitHub token settings](https://github.c
 
 ## Specification Coverage
 
+- [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) - ENTERPRISE_MODE forces unlimited tier and Pro mode
+- [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) - Agent allowlist in Enterprise Mode
+- [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing to customer AI Gateway (AIG_GATEWAY_URL, AIG_TOKEN)
+- [REQ-BROWSER-002](../../sdd/spec/browser-run.md#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template) - Browser Rendering scope in the Cloudflare token template
 - [REQ-OPS-012](../../sdd/spec/operations.md#req-ops-012-per-environment-container-concurrency-limit) - Per-environment container concurrency limit
 - [REQ-SETUP-004](../../sdd/spec/setup.md#req-setup-004-setup-is-idempotent) - Setup is idempotent
 - [REQ-SETUP-006](../../sdd/spec/setup.md#req-setup-006-setup-streams-progress-via-ndjson) - Setup streams progress via NDJSON

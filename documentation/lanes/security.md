@@ -14,6 +14,7 @@ For authentication modes and user identity flow, see [Authentication](authentica
 
 - [Authentication Gate](#authentication-gate)
 - [API Token Containment](#api-token-containment)
+- [Enterprise Mode: Credential Containment and CA Trust](#enterprise-mode-credential-containment-and-ca-trust)
 - [Container Auth Token (REQ-SEC-012)](#container-auth-token-req-sec-012)
 - [Dual R2 Credential Architecture](#dual-r2-credential-architecture)
 - [Graceful Shutdown](#graceful-shutdown)
@@ -36,6 +37,16 @@ In SaaS mode the Cloudflare service token (`CF-Access-Client-Id`/`CF-Access-Clie
 ## API Token Containment
 
 The `CLOUDFLARE_API_TOKEN` never enters the container. It stays in the Worker/DO environment (GitHub Secrets -> Worker secrets). Containers only receive R2 credentials (scoped key pair), never the master API token.
+
+## Enterprise Mode: Credential Containment and CA Trust
+
+In Enterprise Mode, two additional invariants apply on top of the standard API token containment policy:
+
+**No credentials in the container.** The AI Gateway URL (`AIG_GATEWAY_URL`) and gateway token (`AIG_TOKEN`) are Worker secrets that live exclusively in the `LlmInterceptor` WorkerEntrypoint. They are never emitted as container env vars, never logged, and never forwarded inside the container boundary. The container only receives `ENTERPRISE_MODE=active` (a non-secret deploy var) and a constant non-secret placeholder credential (`codeflare-enterprise`) that puts each agent CLI into API mode. The interceptor strips the placeholder before forwarding to the gateway, so the placeholder never reaches the AI provider or the gateway. This satisfies [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC3.
+
+**CA trust for TLS interception.** Platform outbound-HTTPS interception TLS-terminates the container's connections to LLM provider hosts and re-presents them with a certificate signed by the Cloudflare containers CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`). `entrypoint.sh` installs this CA into the system trust store (`update-ca-certificates`) and exports `NODE_EXTRA_CA_CERTS` and `REQUESTS_CA_BUNDLE` so Node- and Python-based runtimes also trust the intercepted connections. Without this step the agents' TLS clients reject the platform-presented certificate and LLM calls fail. The CA is mounted by the platform at runtime — it is not embedded in the image — so a missing CA file (`$CF_CA_SRC not found`) is logged as a WARNING and LLM calls fail at the TLS layer rather than silently succeeding with an unverified cert.
+
+**Cloudflare Access isolation.** Interception is platform-internal: the gateway traffic flows through the Worker environment and never traverses a public Cloudflare Access route. No Access policy can be applied to (or block) LLM traffic in flight.
 
 **Per-user scoped R2 tokens:** Each container receives a scoped R2 API token restricted to its owner's bucket. Tokens are created on first login via `getOrCreateScopedR2Token()` in `r2-admin.ts` (called from `lifecycle-init.ts`), which calls `POST /accounts/{accountId}/tokens` with a bucket-specific Object Read + Write policy. Tokens are cached in KV as `r2token:{email}` (encrypted via AES-256-GCM when `ENCRYPTION_KEY` is set) and revoked on user deletion via `deleteScopedR2Token()`. This requires the `API Tokens: Edit` permission on the deploy token.
 
@@ -338,6 +349,8 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 - [REQ-SEC-016](../../sdd/spec/security.md#req-sec-016-concurrent-cache-deduplication-for-auth-config) - Concurrent cache deduplication for auth config
 - [REQ-SEC-018](../../sdd/spec/security.md#req-sec-018-credential-encryption-operational-policy) - Credential encryption operational policy
 - [REQ-SEC-021](../../sdd/spec/security.md#req-sec-021-hsts-coverage-on-redirect-response-paths) - HSTS coverage on redirect response paths
+- [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing; gateway credentials never enter the container (AC3)
+- [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) - Container-side CA trust and constant base-URLs
 
 ---
 

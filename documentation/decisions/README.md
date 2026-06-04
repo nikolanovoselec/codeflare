@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD71](#ad71-preseed-corpus-statically-imported-into-the-worker-bundle-bound-by-compressed-bundle-size-ci-guarded) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -82,6 +82,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing) | SilverBullet vault runs its native service worker for persistent, encrypted client indexing (SB v2 has no server-side index) | Architecture |
 | [AD70](#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | Container exit writes KV `stopped`; no read-side reconciliation | Architecture |
 | [AD71](#ad71-preseed-corpus-statically-imported-into-the-worker-bundle-bound-by-compressed-bundle-size-ci-guarded) | Preseed corpus statically imported into the Worker bundle; bound by compressed bundle size, CI-guarded | Architecture |
+| [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) | Outbound-HTTPS interception over a Worker-side LLM proxy for enterprise gateway routing | Architecture, Security |
 
 ---
 
@@ -1298,6 +1299,34 @@ Two facts from the SB 2.8.1 source reshape the fix. First, SB's real service wor
 - Trade-off: corpus growth is bounded by deploy mechanics rather than by application need; once the CI check trends toward the ceiling, the R2-relocation / lazy-`import()` escape hatch must be taken rather than raising the budget.
 
 **Related REQ/finding:** Recorded from finding CF-011 (preseed corpus bundle-size bound). Relates to [AD3](#ad3-per-user-r2-buckets) (per-user R2 buckets) as the R2-relocation target for the escape hatch.
+
+---
+
+### AD72: Outbound-HTTPS interception over a Worker-side LLM proxy for enterprise gateway routing
+
+**Category:** Architecture, Security
+
+**Status:** Accepted (2026-06-05)
+
+**Context:** Enterprise Mode must route all agent LLM traffic (Claude, Copilot, Pi) through the customer's AI Gateway without exposing gateway credentials to the container or creating a new public HTTP route. Three approaches were evaluated:
+
+1. **Worker-side `/llm-proxy` route:** A public Worker route that the container calls instead of the real provider. The container env would need the Worker's own URL (a non-secret), but the route is publicly reachable over Cloudflare Access, adding an Access-policy attack surface and a round-trip through the internet. The route also requires rewriting every agent's base-URL to point at the Worker, and every agent would need a container-env credential to authenticate against that route.
+
+2. **Credential injection into the container:** Pass `AIG_GATEWAY_URL` and `AIG_TOKEN` directly to the container via env vars and let each agent use them directly. This keeps the gateway URL and token accessible from within the container, contradicting the operator's expectation that gateway credentials stay out of user-reachable surfaces (terminal, any future agent file-read path).
+
+3. **Platform outbound-HTTPS interception (`ctx.container.interceptOutboundHttps` + `ctx.exports`):** The Container DO wires a `WorkerEntrypoint` (`LlmInterceptor`) into the platform's outbound-HTTPS interception mechanism. The platform TLS-terminates the container's connections to the real provider hosts and delivers them to the interceptor. The interceptor forwards to the AI Gateway with the real credentials. The gateway URL and token live only in the Worker environment; the container never sees them. The container communicates with the real provider host as if it were not intercepted — no base-URL rewrite, no new auth surface.
+
+**Decision:** Use platform outbound-HTTPS interception (option 3). The `LlmInterceptor` WorkerEntrypoint is exported from `src/index.ts` and wired via `ctx.container.interceptOutboundHttps` in `src/container/index.ts::setupEnterpriseInterception`. `ctx.exports` is default-on at compat date `2026-02-05`; no `enable_ctx_exports` flag is needed (the earlier draft constraint referencing that flag was removed before implementation).
+
+**Consequences:**
+
+- Gateway credentials (`AIG_GATEWAY_URL`, `AIG_TOKEN`) never enter the container. The container only receives `ENTERPRISE_MODE=active` (a non-secret deploy var) and a constant non-secret placeholder credential for CLI initialization.
+- The container must trust the Cloudflare containers CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`) so TLS-intercepted connections validate. `entrypoint.sh` installs it on every Enterprise Mode boot.
+- No new public Worker route is created; gateway traffic is platform-internal and cannot be targeted by external requests or CF Access policies.
+- When `ENTERPRISE_MODE` is unset, `interceptOutboundHttps` is never called, and the codebase is byte-identical to a non-enterprise deployment (no interception overhead, no CA install).
+- Trade-off accepted: the platform interception mechanism is Cloudflare-specific. If the project were ever migrated off Cloudflare Containers, enterprise gateway routing would need a different mechanism (likely option 1 or 2).
+
+**Related:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [Architecture - Enterprise LLM Routing](../lanes/architecture.md#enterprise-llm-routing), [Security - Enterprise Mode](../lanes/security.md#enterprise-mode-credential-containment-and-ca-trust).
 
 ---
 
