@@ -489,6 +489,57 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toEqual([]);
     });
 
+    it('REQ-SESSION-011 AC6: quota-stop drains the final sync BEFORE stop (same order as idle-stop)', async () => {
+      // The quota-eviction path must drain through /internal/final-sync before
+      // signalling stop, identically to idle-stop. Mirror the quotaExceeded=true
+      // setup and assert the order via callOrder rather than just that stop ran.
+      testState.storedBucketName = 'test-bucket';
+      testState.storedSessionId = 'testsession123456';
+      testState.storedUserEmail = 'quota@example.com';
+
+      const timekeeperStub = {
+        fetch: vi.fn(async () =>
+          new Response(JSON.stringify({ quotaExceeded: true, totalMonthlySeconds: 9999 }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        ),
+      };
+      const TIMEKEEPER = {
+        idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
+        get: vi.fn(() => timekeeperStub),
+      };
+
+      const instance = new (container as unknown as new (ctx: unknown, env: unknown) => InstanceType<typeof container>)(
+        {},
+        { KV: mockKV, LOG_LEVEL: 'silent', SAAS_MODE: 'active', TIMEKEEPER },
+      );
+      const instanceEnv = (instance as unknown as { env: Record<string, unknown> }).env;
+      instanceEnv.KV = mockKV;
+      instanceEnv.SAAS_MODE = 'active';
+      instanceEnv.TIMEKEEPER = TIMEKEEPER;
+
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      await vi.waitFor(
+        () => expect((instance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
+        { timeout: 1000 },
+      );
+
+      testState.callOrder = [];
+      await instance.collectMetrics();
+
+      expect(timekeeperStub.fetch).toHaveBeenCalledTimes(1);
+      expect(testState.callOrder).toEqual(['finalsync', 'stop']);
+    });
+
     it('REQ-SUB-008 AC1: does NOT stop when Timekeeper /ping returns quotaExceeded=false', async () => {
       testState.storedBucketName = 'test-bucket';
       testState.storedSessionId = 'testsession123456';

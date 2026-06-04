@@ -33,9 +33,9 @@ describe('REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behav
     assert.equal(ev.runStartedTs, -1, 'a syncing stamped before the trigger must NOT arm our run');
   });
 
-  it('SAFETY: ignores a bare success (no qualifying syncing observed) even when its ts >= trigger', () => {
+  it('SAFETY: ignores a bare success (no qualifying syncing observed) even when its ts > trigger', () => {
     // This is the load-bearing property: an in-flight run that finishes AFTER
-    // the trigger writes success with ts >= trigger, but its filesystem scan
+    // the trigger writes success with ts > trigger, but its filesystem scan
     // predated the trigger. Accepting it could miss the user's last edits, so
     // it must be ignored until we have seen OUR run's syncing.
     const ev = evaluateFinalSync({ status: 'success', ts: TRIGGER + 5000 }, TRIGGER, -1);
@@ -43,10 +43,20 @@ describe('REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behav
     assert.equal(ev.runStartedTs, -1);
   });
 
-  it('arms runStartedTs when our run starts (syncing ts >= trigger)', () => {
-    const ev = evaluateFinalSync({ status: 'syncing', ts: TRIGGER + 10 }, TRIGGER, -1);
+  it('SAFETY: a syncing stamped in the SAME ms as the trigger does NOT arm (strict >, not >=)', () => {
+    // An in-flight run that stamped syncing in the same epoch-ms as the trigger
+    // (or whose pre-trigger stamp lands at == trigger under a clock step-back)
+    // must not be latched onto - its scan predates the trigger. Pins the strict
+    // comparison: flipping > back to >= turns this green->red.
+    const ev = evaluateFinalSync({ status: 'syncing', ts: TRIGGER }, TRIGGER, -1);
     assert.equal(ev.result, 'pending');
-    assert.equal(ev.runStartedTs, TRIGGER + 10, 'our syncing must arm runStartedTs to its ts');
+    assert.equal(ev.runStartedTs, -1, 'equal-ts syncing must not arm our run');
+  });
+
+  it('arms runStartedTs when our run starts (syncing ts strictly > trigger)', () => {
+    const ev = evaluateFinalSync({ status: 'syncing', ts: TRIGGER + 1 }, TRIGGER, -1);
+    assert.equal(ev.result, 'pending');
+    assert.equal(ev.runStartedTs, TRIGGER + 1, 'our syncing must arm runStartedTs to its ts');
   });
 
   it('resolves success on our run reaching success with a newer ts', () => {

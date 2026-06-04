@@ -178,7 +178,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ### REQ-STOR-005: Graceful Shutdown Performs Final Sync
 
 <!-- @impl: entrypoint.sh::shutdown_handler -->
-<!-- @impl: src/container/index.ts::destroy -->
+<!-- @impl: src/container/container-lifecycle.ts::destroy -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> SIGTERM trap -> AC1) -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> bisync-initialized gate -> AC2) -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> 120s watchdog -> AC4) -->
