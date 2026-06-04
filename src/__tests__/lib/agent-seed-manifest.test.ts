@@ -817,7 +817,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       running: ['spec-reviewer'],
     })).toBe('Review code | spec | docs');
   });
-  });
 
   it('REQ-AGENT-040: durable Pi review job paths are under .git and result paths stay on the existing review surface', () => {
     expect(durableReviewJobDir('/repo', 'abc123')).toBe('/repo/.git/codeflare-review-jobs/abc123');

@@ -281,11 +281,12 @@ All preseed content is deployed via the manifest pipeline:
   `.git/sdd-review-results/<head>/`. Each result file uses a common
   `## Findings` section followed by a severity-count Review Summary table.
   While internal durable lanes run, Pi displays a compact footer status
-  (`Review <head> --> code | spec | docs`, rendering only required lanes and
-  turning a lane label green when that lane finishes). Operators can diagnose
-  background review progress without visible generic Agent tasks. Duplicate
-  lane-result and summary announcements are suppressed for the same
-  repo/head/lane result.
+  (`Review code | spec | docs`, rendering only required lanes and turning a lane
+  label green when that lane finishes). Colored review status rows truncate by
+  visible width, preserve ANSI color sequences, and reset styling before the
+  ellipsis. Operators can diagnose background review progress without visible
+  generic Agent tasks. Duplicate lane-result and summary announcements are
+  suppressed for the same repo/head/lane result.
 
   After the exact-head durable review job completes and every required lane has
   a result file, Pi publishes one merged chat summary with `## Review Summary`,
