@@ -62,6 +62,14 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     // pipeline's TZ resolution produces wall-clock filenames matching
     // the user's location instead of UTC.
     ...(params.userTimezone && { userTimezone: params.userTimezone }),
+    // Enterprise-mode LLM-proxy fields. The lifecycle route populates these
+    // ONLY when isEnterpriseMode(env); otherwise they are unset and each
+    // truthy spread omits them, so the body is byte-identical to today.
+    ...(params.anthropicBaseUrl && { anthropicBaseUrl: params.anthropicBaseUrl }),
+    ...(params.copilotProviderBaseUrl && { copilotProviderBaseUrl: params.copilotProviderBaseUrl }),
+    ...(params.piBaseUrl && { piBaseUrl: params.piBaseUrl }),
+    ...(params.aigProxyToken && { aigProxyToken: params.aigProxyToken }),
+    ...(params.enterpriseMode && { enterpriseMode: params.enterpriseMode }),
   });
   return JSON.stringify(body);
 }

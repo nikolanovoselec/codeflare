@@ -13,7 +13,8 @@ import { createRateLimiter } from '../middleware/rate-limit';
 import { isSaasModeActive } from '../lib/onboarding';
 import { reconcileAgentConfigs } from '../lib/r2-seed';
 import { getR2Config } from '../lib/r2-config';
-import { getEffectiveTier, getTierConfig, getEffectiveTierForUser } from '../lib/subscription';
+import { getEffectiveTier, getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../lib/subscription';
+import { allowedAgents } from '../lib/agent-allowlist';
 import { createLogger } from '../lib/logger';
 
 const logger = createLogger('preferences');
@@ -85,7 +86,15 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
 
   const body = await parseJsonBody(c, UpdatePreferencesBody);
 
-  if (body.sessionMode && isSaasModeActive(c.env.SAAS_MODE)) {
+  // Enterprise deploys restrict the selectable agent set (REQ-ENTERPRISE-003).
+  // Outside enterprise mode allowedAgents() returns all 7, so this never rejects.
+  if (body.lastAgentType && !allowedAgents(c.env).includes(body.lastAgentType)) {
+    throw new ValidationError(`Agent type '${body.lastAgentType}' is not available in this deployment`);
+  }
+
+  // Enterprise deploys grant advanced mode to every user, so the SaaS
+  // advanced-mode availability gate is bypassed. No-op when the flag is unset.
+  if (body.sessionMode && isSaasModeActive(c.env.SAAS_MODE) && !isEnterpriseMode(c.env)) {
     const user = c.get('user');
     // Gate on the billing-derived effective tier's allowed modes, so a user
     // whose subscription lapsed (canceled/past_due/expired) loses advanced mode

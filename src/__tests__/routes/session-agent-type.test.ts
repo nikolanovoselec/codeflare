@@ -43,6 +43,9 @@ vi.mock('../../lib/subscription', () => ({
   getTierConfig: vi.fn(async () => ({})),
   getUserTier: vi.fn(() => 'free'),
   getEffectiveTier: vi.fn(() => 'free'),
+  // crud.ts now resolves the agent allowlist via agent-allowlist.ts, which calls
+  // isEnterpriseMode from this module. Default to off so all 7 agents stay valid.
+  isEnterpriseMode: vi.fn(() => false),
 }));
 
 vi.mock('../../lib/onboarding', () => ({

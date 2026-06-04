@@ -178,3 +178,114 @@ export function shouldRefreshJWT(payload: SessionJWTPayload): boolean {
   const now = Math.floor(Date.now() / 1000);
   return payload.exp > now && (payload.exp - now) < REFRESH_THRESHOLD_SECONDS;
 }
+
+// ---------------------------------------------------------------------------
+// LLM proxy token (enterprise mode)
+// ---------------------------------------------------------------------------
+
+/**
+ * Audience claim for the per-session LLM-proxy token. Distinct from
+ * SESSION_JWT_AUD so a browser session cookie can never be replayed against the
+ * proxy and vice-versa - the audience check rejects a token minted for the
+ * wrong surface even though both are HMAC-signed with ENCRYPTION_KEY.
+ */
+export const LLM_PROXY_AUD = 'codeflare-llm-proxy';
+
+/** Default proxy-token lifetime - 24h, matching the container's pinned sleepAfter ceiling. */
+const PROXY_TOKEN_DEFAULT_TTL_SECONDS = 24 * 3600;
+
+interface ProxyTokenPayload {
+  sid: string;
+  user: string;
+  aud: string;
+  iat: number;
+  exp: number;
+}
+
+/**
+ * Sign a per-session LLM-proxy token (HMAC-SHA256), reusing the same JWT shape
+ * and base64url machinery as session JWTs. The container holds this token and
+ * presents it as `Authorization: Bearer <token>` to the Worker LLM proxy; the
+ * proxy verifies it statelessly and reads `user` for cf-aig-metadata. `user`
+ * MUST be an opaque id (never an email).
+ */
+export async function signProxyToken(
+  payload: { sid: string; user: string },
+  secret: string,
+  ttlSeconds: number = PROXY_TOKEN_DEFAULT_TTL_SECONDS,
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const fullPayload: ProxyTokenPayload = {
+    sid: payload.sid,
+    user: payload.user,
+    aud: LLM_PROXY_AUD,
+    iat: now,
+    exp: now + ttlSeconds,
+  };
+
+  const payloadB64 = base64UrlEncode(new TextEncoder().encode(JSON.stringify(fullPayload)));
+  const signingInput = `${HEADER_B64}.${payloadB64}`;
+  const key = await getHmacKey(secret);
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(signingInput),
+  );
+
+  return `${signingInput}.${base64UrlEncode(new Uint8Array(signature))}`;
+}
+
+/**
+ * Verify and decode an LLM-proxy token. Returns `{ sid, user }` on success, or
+ * null when the signature is invalid, the token is expired/malformed, or the
+ * `aud` is not LLM_PROXY_AUD. The aud check is enforced unconditionally so a
+ * session cookie (aud=codeflare-session) can never authenticate against the
+ * proxy.
+ */
+export async function verifyProxyToken(
+  token: string,
+  secret: string,
+): Promise<{ sid: string; user: string } | null> {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+
+  const [headerB64, payloadB64, signatureB64] = parts;
+  const signingInput = `${headerB64}.${payloadB64}`;
+
+  let key: CryptoKey;
+  try {
+    key = await getHmacKey(secret);
+  } catch {
+    return null;
+  }
+
+  let signatureBytes: Uint8Array;
+  try {
+    signatureBytes = base64UrlDecode(signatureB64);
+  } catch {
+    return null;
+  }
+
+  const valid = await crypto.subtle.verify(
+    'HMAC',
+    key,
+    signatureBytes,
+    new TextEncoder().encode(signingInput),
+  );
+  if (!valid) return null;
+
+  let payload: ProxyTokenPayload;
+  try {
+    const decoded = new TextDecoder().decode(base64UrlDecode(payloadB64));
+    payload = JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.exp <= now) return null;
+  if (payload.aud !== LLM_PROXY_AUD) return null;
+  if (typeof payload.sid !== 'string' || typeof payload.user !== 'string') return null;
+
+  return { sid: payload.sid, user: payload.user };
+}

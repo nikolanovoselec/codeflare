@@ -8,7 +8,7 @@
  */
 import type { Env, Session } from '../../types';
 import { NotFoundError, QuotaExceededError } from '../../lib/error-types';
-import { getTierConfig, getUserTier, getEffectiveTier } from '../../lib/subscription';
+import { getTierConfig, getUserTier, getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { getSessionKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, type SessionListMetadata } from '../../lib/kv-keys';
 
@@ -27,7 +27,12 @@ import { getSessionKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUt
 export function resolveEffectiveSleepAfter(
   effectiveTier: string,
   storedSleepAfter: string | undefined,
+  env?: Pick<Env, 'ENTERPRISE_MODE'>,
 ): string {
+  // Enterprise deploys: honor the stored preference (or 30m default), never the
+  // free-tier 15m lock. No-op when the flag is unset, leaving the path below
+  // unchanged.
+  if (isEnterpriseMode(env)) return storedSleepAfter || '30m';
   if (effectiveTier === 'free') return '15m';
   return storedSleepAfter || '30m';
 }

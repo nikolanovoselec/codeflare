@@ -10,7 +10,7 @@ import { Context, Next } from 'hono';
 import { authenticateRequest } from '../lib/access';
 import { ForbiddenError } from '../lib/error-types';
 import { isSaasModeActive } from '../lib/onboarding';
-import { isActiveTier, getEffectiveTier } from '../lib/subscription';
+import { isActiveTier, getEffectiveTier, isEnterpriseMode } from '../lib/subscription';
 import type { Env, AccessUser } from '../types';
 
 /**
@@ -54,8 +54,10 @@ export async function requireActiveUser(c: Context<{ Bindings: Env; Variables: A
   c.set('user', user);
   c.set('bucketName', bucketName);
 
-  if (isSaasModeActive(c.env.SAAS_MODE)) {
-    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+  // Enterprise deploys: every user is treated as active (unlimited tier), so the
+  // pending/blocked 403 gate is skipped entirely. No-op when the flag is unset.
+  if (isSaasModeActive(c.env.SAAS_MODE) && !isEnterpriseMode(c.env)) {
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
     // isActiveTier: blocked/pending → false (403), active tiers → true (pass)
     // Note: canLogin in tier config controls authentication (pending=true → can see subscribe page).
     // requireActiveUser controls IDE access — pending users are blocked from API routes.

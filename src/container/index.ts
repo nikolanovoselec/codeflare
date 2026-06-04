@@ -153,6 +153,18 @@ export class container extends Container<Env> implements ContainerEnvState {
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null = null;
   /**
+   * Enterprise-mode LLM-proxy injection fields. In-memory only (NOT persisted
+   * to DO storage and NOT restored in the constructor) - the Worker re-sends
+   * them via setBucketName on every container start, exactly like the LLM API
+   * keys (_openaiApiKey / _geminiApiKey). Null on non-enterprise deploys, so
+   * buildEnvVars emits nothing and the container env is byte-identical to today.
+   */
+  _anthropicBaseUrl: string | null = null;
+  _copilotProviderBaseUrl: string | null = null;
+  _piBaseUrl: string | null = null;
+  _aigProxyToken: string | null = null;
+  _enterpriseMode: string | null = null;
+  /**
    * Timestamp captured at the start of destroy(); read by onStop() to
    * log shutdown elapsed-ms. Helps telemetry decide whether the 135s
    * SIGTERM budget is right or needs another bump. A warn fires inside

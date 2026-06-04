@@ -7,6 +7,7 @@ import containerRoutes from './routes/container/index';
 import sessionRoutes from './routes/session/index';
 import terminalRoutes, { validateWebSocketRoute, handleWebSocketUpgrade } from './routes/terminal';
 import vaultRoutes, { validateVaultRoute, handleVaultRequest } from './routes/vault';
+import llmRoutes from './routes/llm';
 import usersRoutes from './routes/users';
 import setupRoutes from './routes/setup/index';
 import storageRoutes from './routes/storage';
@@ -194,9 +195,12 @@ app.use('*', async (c, next) => {
   }
 });
 
-// Body size limit on API routes (64 KiB) - storage routes define their own limits
+// Body size limit on API routes (64 KiB) - storage routes define their own limits.
+// /api/llm/* (enterprise LLM proxy) is exempt: it streams LLM request bodies
+// straight to the AI Gateway and must not be capped or buffered. The path only
+// receives traffic when ENTERPRISE_MODE=active, so this is inert otherwise.
 app.use('/api/*', async (c, next) => {
-  if (c.req.path.startsWith('/api/storage/')) {
+  if (c.req.path.startsWith('/api/storage/') || c.req.path.startsWith('/api/llm/')) {
     return next();
   }
   return bodyLimit({ maxSize: 64 * 1024 })(c, next);
@@ -263,6 +267,9 @@ app.route('/api/deploy-keys', deployKeysRoutes);
 app.route('/api/usage', usageRoutes);
 app.route('/api/admin/tiers', adminTiersRoutes);
 app.route('/api/billing', billingRoutes);
+// Enterprise-mode LLM proxy (REQ-ENTERPRISE-004). Token-authed (no
+// authMiddleware); dormant on non-enterprise deploys.
+app.route('/api/llm', llmRoutes);
 
 // 404 fallback - only for API routes
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

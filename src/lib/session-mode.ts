@@ -1,5 +1,5 @@
-import type { UserPreferences, SessionMode, SubscriptionTierConfig } from '../types';
-import { getAllowedSessionModes } from './subscription';
+import type { Env, UserPreferences, SessionMode, SubscriptionTierConfig } from '../types';
+import { getAllowedSessionModes, isEnterpriseMode } from './subscription';
 
 export function resolveSessionMode(prefs: UserPreferences | null): SessionMode {
   return prefs?.sessionMode ?? 'default';
@@ -14,7 +14,11 @@ export function clampSessionModeToTier(
   sessionMode: SessionMode,
   effectiveTier: string,
   tiers: SubscriptionTierConfig[],
+  env?: Pick<Env, 'ENTERPRISE_MODE'>,
 ): SessionMode {
+  // Enterprise deploys: advanced mode is always permitted, never clamped.
+  // No-op when the flag is unset, leaving the tier-based clamp below unchanged.
+  if (isEnterpriseMode(env)) return 'advanced';
   if (sessionMode !== 'advanced') return sessionMode;
   if (!getAllowedSessionModes(effectiveTier, tiers).includes('advanced')) {
     return 'default';

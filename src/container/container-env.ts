@@ -38,6 +38,18 @@ export interface ContainerEnvState {
   _userEmail: string | null;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null;
+  /**
+   * Enterprise-mode LLM-proxy injection fields. Populated only when the Worker
+   * is deployed with ENTERPRISE_MODE=active; null/empty otherwise so the
+   * conditional spreads in buildEnvVars emit nothing (non-enterprise deploys are
+   * byte-identical to today). In-memory only, re-sent on each container start
+   * (same pattern as the LLM API keys).
+   */
+  _anthropicBaseUrl: string | null;
+  _copilotProviderBaseUrl: string | null;
+  _piBaseUrl: string | null;
+  _aigProxyToken: string | null;
+  _enterpriseMode: string | null;
 }
 
 /** Fields sent in the setBucketName body that may need updating on restart. */
@@ -58,6 +70,12 @@ interface RestartPrefsInput {
   /** REQ-MEM-001 AC4: user's IANA timezone. Updated on subsequent DO wakes
    * when preferences.userTimezone changes between sessions. */
   userTimezone?: string;
+  /** Enterprise-mode LLM-proxy fields. Re-sent each start (mirror LLM keys). */
+  anthropicBaseUrl?: string;
+  copilotProviderBaseUrl?: string;
+  piBaseUrl?: string;
+  aigProxyToken?: string;
+  enterpriseMode?: string;
 }
 
 export interface SetBucketNameCreds {
@@ -78,6 +96,16 @@ export interface SetBucketNameCreds {
   sessionMode?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded from /start. */
   userTimezone?: string;
+  /**
+   * Enterprise-mode LLM-proxy injection fields, forwarded from /start only when
+   * ENTERPRISE_MODE=active. Omitted entirely otherwise (the Worker-side builder
+   * uses a truthy spread), so non-enterprise containers never see them.
+   */
+  anthropicBaseUrl?: string;
+  copilotProviderBaseUrl?: string;
+  piBaseUrl?: string;
+  aigProxyToken?: string;
+  enterpriseMode?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +240,16 @@ export function buildEnvVars(
     // emit when set so the entrypoint's existing fallback chain ($TZ ->
     // /etc/timezone -> UTC) handles the unset case.
     ...(state._userTimezone && { USER_TIMEZONE: state._userTimezone }),
+    // Enterprise-mode LLM-proxy env vars. Emitted ONLY when the Worker
+    // populated them (ENTERPRISE_MODE=active); each spread is keyed on a
+    // truthy value so a non-enterprise container's env is byte-identical to
+    // today. ANTHROPIC_AUTH_TOKEN carries the per-session proxy token so
+    // Claude/Copilot/Pi reach the Worker proxy with no manual login.
+    ...(state._anthropicBaseUrl && { ANTHROPIC_BASE_URL: state._anthropicBaseUrl }),
+    ...(state._aigProxyToken && { ANTHROPIC_AUTH_TOKEN: state._aigProxyToken }),
+    ...(state._copilotProviderBaseUrl && { COPILOT_PROVIDER_BASE_URL: state._copilotProviderBaseUrl }),
+    ...(state._piBaseUrl && { PI_BASE_URL: state._piBaseUrl }),
+    ...(state._enterpriseMode && { ENTERPRISE_MODE: state._enterpriseMode }),
   };
 }
 
@@ -250,6 +288,15 @@ export async function applyBucketName(
   // Store LLM API keys in instance memory only (not persisted to DO storage; injected per container start)
   if (r2Creds?.openaiApiKey) state._openaiApiKey = r2Creds.openaiApiKey;
   if (r2Creds?.geminiApiKey) state._geminiApiKey = r2Creds.geminiApiKey;
+
+  // Store enterprise-mode LLM-proxy fields in instance memory only (not
+  // persisted; re-sent per container start, same as the LLM keys). Absent
+  // when the Worker is non-enterprise, so non-enterprise state stays null.
+  if (r2Creds?.anthropicBaseUrl) state._anthropicBaseUrl = r2Creds.anthropicBaseUrl;
+  if (r2Creds?.copilotProviderBaseUrl) state._copilotProviderBaseUrl = r2Creds.copilotProviderBaseUrl;
+  if (r2Creds?.piBaseUrl) state._piBaseUrl = r2Creds.piBaseUrl;
+  if (r2Creds?.aigProxyToken) state._aigProxyToken = r2Creds.aigProxyToken;
+  if (r2Creds?.enterpriseMode) state._enterpriseMode = r2Creds.enterpriseMode;
 
   // Store deploy credentials in instance memory only (not persisted to DO storage; injected per container start)
   if (r2Creds?.githubToken) state._githubToken = r2Creds.githubToken;
@@ -392,6 +439,32 @@ export async function applyPrefsOnRestart(
   }
   if (input.sessionMode) {
     state._sessionMode = input.sessionMode;
+    changed = true;
+  }
+
+  // Enterprise-mode LLM-proxy fields, read fresh each start (the proxy token
+  // is re-minted per start so it may differ from the cached one). The Worker
+  // omits these entirely on non-enterprise deploys, so the `!== undefined`
+  // guard leaves state untouched there. `|| null` collapses an empty string
+  // to null (defence-in-depth; the truthy upstream spread never sends empty).
+  if (input.anthropicBaseUrl !== undefined) {
+    state._anthropicBaseUrl = input.anthropicBaseUrl || null;
+    changed = true;
+  }
+  if (input.copilotProviderBaseUrl !== undefined) {
+    state._copilotProviderBaseUrl = input.copilotProviderBaseUrl || null;
+    changed = true;
+  }
+  if (input.piBaseUrl !== undefined) {
+    state._piBaseUrl = input.piBaseUrl || null;
+    changed = true;
+  }
+  if (input.aigProxyToken !== undefined) {
+    state._aigProxyToken = input.aigProxyToken || null;
+    changed = true;
+  }
+  if (input.enterpriseMode !== undefined) {
+    state._enterpriseMode = input.enterpriseMode || null;
     changed = true;
   }
 

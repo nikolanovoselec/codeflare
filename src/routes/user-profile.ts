@@ -4,6 +4,7 @@ import type { Env } from '../types';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { isOnboardingLandingPageActive, isSaasModeActive } from '../lib/onboarding';
+import { isEnterpriseMode } from '../lib/subscription';
 import { getOrCreateScopedR2Token } from '../lib/r2-admin';
 import { getOrImportKey } from '../lib/kv-crypto';
 import { SETUP_KEYS } from '../lib/kv-keys';
@@ -55,6 +56,7 @@ app.get('/', async (c) => {
     onboardingComplete,
     hasSubscribed,
     subscribedMode,
+    enterpriseMode: isEnterpriseMode(c.env),
   });
 });
 
