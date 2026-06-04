@@ -100,7 +100,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     // whose subscription lapsed (canceled/past_due/expired) loses advanced mode
     // even if a stale subscribedMode still reads 'advanced'.
     const tiers = await getTierConfig(c.env.KV);
-    const entitlements = getEffectiveTierForUser(user, tiers);
+    const entitlements = getEffectiveTierForUser(user, tiers, c.env);
     if (body.sessionMode === 'advanced' && !entitlements.allowedModes.includes('advanced') && user.role !== 'admin') {
       throw new ValidationError(`Session mode '${body.sessionMode}' not available for your subscription`);
     }
@@ -117,7 +117,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   if (body.sessionMode && body.sessionMode !== existing.sessionMode) {
     try {
       const user = c.get('user');
-      const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+      const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
       const contextModeEnabled = effectiveTier === 'unlimited' && body.sessionMode === 'advanced';
       const { endpoint } = await getR2Config(c.env);
       const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, body.sessionMode, {

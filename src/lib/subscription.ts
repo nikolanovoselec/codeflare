@@ -355,12 +355,14 @@ export function getEffectiveTierForUser(
     billingPeriodEnd?: string | null;
   },
   tiers: SubscriptionTierConfig[],
+  env?: Pick<Env, 'ENTERPRISE_MODE'>,
 ): EffectiveEntitlements {
   const effectiveTier = getEffectiveTier(
     user.subscriptionTier,
     user.accessTier,
     user.billingStatus,
     user.billingPeriodEnd,
+    env,
   );
   const config = getUserTier(effectiveTier, tiers);
   return {

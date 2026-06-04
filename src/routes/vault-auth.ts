@@ -116,6 +116,7 @@ export function assertActiveTier(
     user.accessTier,
     user.billingStatus,
     user.billingPeriodEnd,
+    env,
   );
   if (isSaasModeActive(env.SAAS_MODE) && !isActiveUser(effectiveTier)) {
     const code = effectiveTier === 'blocked' ? 'BLOCKED' : 'PENDING';

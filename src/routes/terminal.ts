@@ -172,7 +172,7 @@ export async function handleWebSocketUpgrade(
 
     // SaaS mode: enforce access tier on WebSocket connections (mirrors requireActiveUser)
     // CF-006: Use getEffectiveTier with all args instead of raw field read
-    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, env);
     if (isSaasModeActive(env.SAAS_MODE) && !isActiveUser(effectiveTier)) {
       const code = effectiveTier === 'blocked' ? 'BLOCKED' : 'PENDING';
       return new Response(JSON.stringify({ error: 'Access denied', code }), { status: 403, headers: jsonHeaders });

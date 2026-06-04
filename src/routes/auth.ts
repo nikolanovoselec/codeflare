@@ -96,7 +96,7 @@ app.get('/status', requireIdentity, async (c) => {
   // Billing-aware tier resolution: downgrade paid tiers to free when billing is canceled/past_due
   const billingStatus = (userData?.billingStatus as string) ?? null;
   const billingPeriodEnd = (userData?.billingPeriodEnd as string) ?? null;
-  const subscriptionTier = getEffectiveTier(user.subscriptionTier, accessTier, billingStatus, billingPeriodEnd);
+  const subscriptionTier = getEffectiveTier(user.subscriptionTier, accessTier, billingStatus, billingPeriodEnd, c.env);
 
   let requestedAt: string | null = null;
   if (subscriptionTier === 'pending') {

@@ -70,7 +70,7 @@ export async function validateSessionAndCheckLimits(params: {
     if (isSaas) {
       try {
         const tiers = await getTierConfig(env.KV);
-        resolvedTier = getUserTier(getEffectiveTier(subscriptionTier, accessTier, billingStatus, billingPeriodEnd), tiers);
+        resolvedTier = getUserTier(getEffectiveTier(subscriptionTier, accessTier, billingStatus, billingPeriodEnd, env), tiers);
       } catch { /* fall back to role-based */ }
     }
 
@@ -101,8 +101,11 @@ export async function validateSessionAndCheckLimits(params: {
       );
     }
 
-    // Usage quota check (SaaS mode only)
-    if (isSaas && resolvedTier && resolvedTier.monthlySeconds !== null) {
+    // Usage quota check (SaaS mode only). Enterprise users are unlimited with no
+    // time limit, so the monthly compute quota is never enforced for them — this
+    // guard backstops the unlimited-tier resolution above against a misconfigured
+    // tier table. No-op when ENTERPRISE_MODE is unset.
+    if (isSaas && resolvedTier && resolvedTier.monthlySeconds !== null && !isEnterpriseMode(env)) {
       try {
         const usageRecord = await env.KV.get(getTimekeeperKey(bucketName), 'json') as { thisMonth?: { month: string; seconds: number } } | null;
         const now = new Date();

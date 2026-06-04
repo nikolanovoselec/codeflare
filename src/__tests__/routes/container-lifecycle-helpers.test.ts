@@ -101,6 +101,8 @@ import {
   configureContainerDO,
   startOrRestartContainer,
 } from '../../routes/container/lifecycle';
+// Real impls (the kv-keys mock above spreads importActual; these are not overridden).
+import { getTimekeeperKey, getUtcMonthString } from '../../lib/kv-keys';
 
 describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -194,6 +196,50 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
           maxSessions: 3,
         })
       ).rejects.toThrow('Session limit reached');
+    });
+
+    // REQ-ENTERPRISE-001: every enterprise user is a custom (unlimited) user. The
+    // stored billing tier must never restrict them — they get the unlimited tier's
+    // limits, and no monthly compute quota is ever enforced ("no time limit").
+    it('REQ-ENTERPRISE-001 AC3: enterprise resolves the unlimited session cap, not the stored free-tier cap', async () => {
+      // 4 sessions running: over the free cap (maxSessions=1) but under unlimited (5).
+      const sessionKeys = [];
+      for (let i = 1; i <= 4; i++) {
+        const id = `running${String(i).padStart(10, '0')}`;
+        const key = `session:bucket:${id}`;
+        mockKV._set(key, { id, name: `R${i}`, status: 'running', createdAt: '2024-01-01T00:00:00Z' });
+        sessionKeys.push({ name: key });
+      }
+      const newKey = 'session:bucket:newsession1234';
+      mockKV._set(newKey, { id: 'newsession1234', name: 'New', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' });
+      sessionKeys.push({ name: newKey });
+      mockListAllKvKeys.mockResolvedValue(sessionKeys);
+
+      const result = await validateSessionAndCheckLimits({
+        env: { KV: mockKV as unknown as KVNamespace, SAAS_MODE: 'active', ENTERPRISE_MODE: 'active' } as Env,
+        bucketName: 'bucket',
+        sessionId: 'newsession1234',
+        maxSessions: 1,
+        subscriptionTier: 'free',
+      });
+
+      expect(result.id).toBe('newsession1234');
+    });
+
+    it('REQ-ENTERPRISE-004 AC3: enterprise users are never blocked by the monthly compute quota', async () => {
+      mockKV._set('session:bucket:s1', { id: 's1', name: 'S', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' });
+      // Usage record far over the free-tier monthly quota (14400s) for the current month.
+      mockKV._set(getTimekeeperKey('bucket'), { thisMonth: { month: getUtcMonthString(new Date()), seconds: 999_999_999 } });
+
+      const result = await validateSessionAndCheckLimits({
+        env: { KV: mockKV as unknown as KVNamespace, SAAS_MODE: 'active', ENTERPRISE_MODE: 'active' } as Env,
+        bucketName: 'bucket',
+        sessionId: 's1',
+        maxSessions: 5,
+        subscriptionTier: 'free',
+      });
+
+      expect(result.id).toBe('s1');
     });
   });
 

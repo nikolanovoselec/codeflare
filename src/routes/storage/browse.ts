@@ -94,7 +94,7 @@ app.get('/', async (c) => {
           const preferences = await c.env.KV.get<UserPreferences>(prefsKey, 'json');
           const mode = resolveSessionMode(preferences ?? null);
           const user = c.get('user');
-          const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+          const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
           const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';
           const agentResult = await seedAgentConfigs(c.env, bucketName, endpoint, { overwrite: false, mode, contextModeEnabled });
           logger.info('Seeded initial agent configs after auto-create', {

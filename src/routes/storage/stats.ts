@@ -52,7 +52,7 @@ app.get('/', async (c) => {
   if (isSaasModeActive(c.env.SAAS_MODE)) {
     const user = c.get('user');
     const tiers = await getTierConfig(c.env.KV);
-    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
     const tier = getUserTier(effectiveTier, tiers);
     maxStorageBytes = tier.maxStorageBytes ?? null;
   }

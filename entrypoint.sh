@@ -2058,9 +2058,11 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     # safely encoded, then pass it as a single --wsHeaders=<json> arg.
     CDP_WS_HEADERS=$(jq -nc --arg auth "Bearer $CLOUDFLARE_API_TOKEN" '{Authorization:$auth}')
 
-    # Claude Code (~/.claude.json) - mirror the graphify MCP merge.
+    # Claude Code (~/.claude.json) - mirror the graphify MCP merge. Pin the MCP
+    # server version (not @latest) so a session is reproducible and a bad upstream
+    # release cannot silently change behaviour mid-deploy.
     BROWSER_MCP_CLAUDE=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@latest",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
+        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.1.1",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
     if [ -f "$USER_CLAUDE_JSON" ]; then
         TMP_JSON=$(mktemp)
         if jq --argjson mcp "$BROWSER_MCP_CLAUDE" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
@@ -2081,7 +2083,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     COPILOT_MCP_CONFIG="$USER_HOME/.copilot/mcp-config.json"
     mkdir -p "$(dirname "$COPILOT_MCP_CONFIG")"
     BROWSER_MCP_COPILOT=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{type:"local",command:"npx",args:["-y","chrome-devtools-mcp@latest",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],tools:["*"]}}}')
+        '{mcpServers:{"chrome-devtools":{type:"local",command:"npx",args:["-y","chrome-devtools-mcp@1.1.1",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],tools:["*"]}}}')
     if [ -f "$COPILOT_MCP_CONFIG" ]; then
         TMP_JSON=$(mktemp)
         if jq --argjson mcp "$BROWSER_MCP_COPILOT" '. * $mcp' "$COPILOT_MCP_CONFIG" > "$TMP_JSON" 2>/dev/null; then
@@ -2094,6 +2096,25 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
         echo "$BROWSER_MCP_COPILOT" | jq '.' > "$COPILOT_MCP_CONFIG"
     fi
     echo "[entrypoint] chrome-devtools MCP server registered for Copilot (Cloudflare Browser Run)"
+
+    # Pi (~/.pi/agent/mcp.json) - Pi's static preseed (preseed/agents/pi/mcp.json)
+    # ships only the graphify server now; chrome-devtools is wired HERE, gated, so
+    # default-mode and token-less deploys never get a broken MCP server pointed at
+    # an empty CLOUDFLARE_API_TOKEN. Same command/args shape as Claude, merged so
+    # the preseeded graphify server is preserved.
+    PI_MCP_CONFIG="$USER_HOME/.pi/agent/mcp.json"
+    if [ -f "$PI_MCP_CONFIG" ]; then
+        BROWSER_MCP_PI=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
+            '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.1.1",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
+        TMP_JSON=$(mktemp)
+        if jq --argjson mcp "$BROWSER_MCP_PI" '. * $mcp' "$PI_MCP_CONFIG" > "$TMP_JSON" 2>/dev/null; then
+            mv "$TMP_JSON" "$PI_MCP_CONFIG"
+            echo "[entrypoint] chrome-devtools MCP server registered for Pi (Cloudflare Browser Run)"
+        else
+            echo "[entrypoint] WARNING: Could not merge chrome-devtools MCP config (malformed Pi mcp.json?)"
+            rm -f "$TMP_JSON"
+        fi
+    fi
 fi
 
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)

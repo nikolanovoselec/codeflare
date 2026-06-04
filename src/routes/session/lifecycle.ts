@@ -147,7 +147,7 @@ app.get('/batch-status', async (c) => {
         c.env.KV.get<UsageRecord>(getTimekeeperKey(bucketName), 'json'),
         getTierConfig(c.env.KV),
       ]);
-      const entitlements = getEffectiveTierForUser(user, tiers);
+      const entitlements = getEffectiveTierForUser(user, tiers, c.env);
       // REQ-SUB-013 AC4: the returned cap is the effective-tier cap in SaaS
       // mode (role-based cap stays the default outside SaaS mode).
       maxSessions = entitlements.maxSessions;

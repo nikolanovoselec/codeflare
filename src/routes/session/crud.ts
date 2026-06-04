@@ -13,7 +13,7 @@ import { MAX_SESSION_NAME_LENGTH, MAX_TABS } from '../../lib/constants';
 import { getContainerId } from '../../lib/container-helpers';
 import { createLogger } from '../../lib/logger';
 import { ValidationError } from '../../lib/error-types';
-import { getTierConfig, getUserTier, getEffectiveTier } from '../../lib/subscription';
+import { getTierConfig, getUserTier, getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { allowedAgents } from '../../lib/agent-allowlist';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { parseJsonBody, validateSessionId } from '../../lib/request-helpers';
@@ -110,11 +110,13 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
     throw new ValidationError(`Agent type '${body.agentType}' is not available in this deployment`);
   }
 
-  // Storage quota check — block session start if over quota
-  if (isSaasModeActive(c.env.SAAS_MODE)) {
+  // Storage quota check — block session start if over quota. Enterprise users
+  // are unlimited (custom tier, no storage cap), so the gate is skipped entirely.
+  // No-op when ENTERPRISE_MODE is unset.
+  if (isSaasModeActive(c.env.SAAS_MODE) && !isEnterpriseMode(c.env)) {
     const user = c.get('user');
     const tiers = await getTierConfig(c.env.KV);
-    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
     const tier = getUserTier(effectiveTier, tiers);
     if (tier.maxStorageBytes !== null && tier.maxStorageBytes !== undefined) {
       const statsCached = await c.env.KV.get(`storage-stats:${bucketName}`, 'json') as { totalSizeBytes: number } | null;

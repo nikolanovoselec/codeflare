@@ -215,6 +215,18 @@ Set `SAAS_MODE` to `active` for the full SaaS experience: custom GitHub login pa
 | `STRIPE_WEBHOOK_SECRET` | secret | **required** when `STRIPE_SECRET_KEY` is set | Stripe webhook signing secret (`whsec_...`). Created when you add a webhook endpoint in the Stripe Dashboard at `dashboard.stripe.com/webhooks` pointing to `https://{your-domain}/public/stripe/webhook`. Events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. Stripe Price metadata (`tier`, `mode`) must be set on all prices |
 | `SAAS_EXTRA_IDPS` | var | optional | Comma-separated Cloudflare Access Identity Provider UUIDs to show on the login page alongside GitHub (e.g., custom OIDC/SAML providers). Only applies when using CF Access authentication (not GitHub OIDC). When unset, only GitHub is shown |
 
+#### Enterprise mode
+
+Enterprise mode deploys Codeflare inside **your own Cloudflare account** as a single-tenant instance. Every user automatically becomes a **Custom (unlimited) user with no time limit** in Pro mode, the subscription/billing UI is hidden, the agent roster is limited to **Claude Code, GitHub Copilot, Pi, and Bash**, and all agent LLM traffic is routed through **your** [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) — with **no API keys, gateway URL, or tokens ever placed inside the container** (traffic is intercepted at the platform level, so it never touches the public internet or Cloudflare Access). Run it behind Cloudflare Access. When `ENTERPRISE_MODE` is unset, behavior is identical to the other modes.
+
+| Variable | Where | When needed | What it does |
+|---|---|---|---|
+| `ENTERPRISE_MODE` | var | set to `active` to enable | Turns the deployment into a single-tenant enterprise instance: all users become Custom (unlimited) tier in Pro mode with no time limit, subscription/billing UI is hidden, the agent set is restricted, and LLM traffic is routed to your AI Gateway. When unset or `inactive`, none of this applies |
+| `AIG_GATEWAY_URL` | secret | **required** when `ENTERPRISE_MODE=active` | Your Cloudflare AI Gateway base URL, e.g. `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_name}`. Held only in the Worker — never sent to the container. Codeflare appends the provider path (`/anthropic`, `/compat`) automatically. Find it in the dashboard under **AI** → **AI Gateway** → your gateway → **API** |
+| `AIG_TOKEN` | secret | **required** when your gateway has Authenticated Gateway turned on | Your AI Gateway authentication token, sent upstream as `cf-aig-authorization`. Held only in the Worker. Create it in the AI Gateway **Settings** ("Authenticated Gateway"). Omit only if your gateway allows unauthenticated access |
+
+You manage the actual provider API keys, model routing, budgets, rate limits, guardrails, and logging in the **AI Gateway dashboard** — none of that lives in Codeflare. Each request is stamped with an opaque per-user id (`cf-aig-metadata`, never an email) so per-user usage is attributable in your gateway analytics.
+
 #### E2E testing
 
 E2E tests authenticate via the `X-Service-Auth` header. Set **one** of the two secrets below depending on your auth mode. The deploy workflow injects it as `SERVICE_AUTH_SECRET` on the Worker. When neither is set, the service auth path is disabled and no one can authenticate via `X-Service-Auth` (safe by design).
@@ -238,6 +250,7 @@ E2E tests authenticate via the `X-Service-Auth` header. Set **one** of the two s
 | **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
 | **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, E2E: `OAUTH_E2E_TEST_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` + `MAX_INSTANCES` | Turnstile keys (no CF Access - GitHub OAuth handles auth) |
 | **SaaS + CF Access** | `SAAS_MODE=active`, optionally `RESEND_API_KEY` + `STRIPE_*` + `MAX_INSTANCES` | CF Access, Turnstile keys |
+| **Enterprise** | `ENTERPRISE_MODE=active`, `AIG_GATEWAY_URL` + `AIG_TOKEN` secrets | CF Access (run behind Access); AI Gateway config in the Cloudflare dashboard |
 
 ---
 

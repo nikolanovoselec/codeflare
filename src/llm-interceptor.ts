@@ -50,6 +50,24 @@ const STRIPPED_HEADERS: readonly string[] = [
   'cf-aig-metadata',
 ];
 
+/**
+ * Response headers stripped before the upstream response reaches the container.
+ * Hop-by-hop headers (RFC 7230 §6.1) are connection-scoped and must not be
+ * forwarded; transfer-encoding is re-derived by the runtime for the streamed
+ * body; set-cookie must never cross the gateway boundary into the agent's client.
+ */
+const RESPONSE_STRIPPED_HEADERS: readonly string[] = [
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  'set-cookie',
+];
+
 /** Per-session props attached when the DO instantiates this entrypoint. */
 interface InterceptorProps {
   user: string;
@@ -57,8 +75,8 @@ interface InterceptorProps {
 
 export class LlmInterceptor extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
-    const gatewayBase = this.env.AIG_GATEWAY_URL;
-    if (!gatewayBase) {
+    const rawGatewayBase = this.env.AIG_GATEWAY_URL;
+    if (!rawGatewayBase) {
       // Enterprise deploy with interception wired but no gateway configured:
       // fail closed rather than letting the request fall through anywhere.
       return new Response(JSON.stringify({ error: 'LLM gateway not configured', code: 'GATEWAY_UNAVAILABLE' }), {
@@ -66,6 +84,9 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+    // Drop any trailing slash so the provider-path join below can never produce a
+    // double slash (e.g. {gateway}//anthropic) against a sloppily-set secret.
+    const gatewayBase = rawGatewayBase.replace(/\/+$/, '');
 
     const url = new URL(request.url);
     const provider = HOST_PROVIDER[url.hostname];
@@ -83,7 +104,17 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     //              -> {gateway}/compat/chat/completions      (leading /v1 dropped;
     //              the AI Gateway OpenAI-compatible endpoint is /compat/*)
     let path = url.pathname;
-    if (provider === 'compat' && path.startsWith('/v1/')) {
+    if (provider === 'compat') {
+      // The AI Gateway OpenAI-compatible endpoint is /compat/*; the agent's
+      // OpenAI-style client always calls /v1/<route>. Anything else is a
+      // misconfiguration — fail closed rather than forward a path the gateway
+      // would not recognize.
+      if (!path.startsWith('/v1/')) {
+        return new Response(JSON.stringify({ error: 'Unsupported compat path', code: 'BAD_PATH' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       path = path.slice('/v1'.length);
     }
     const upstreamUrl = `${gatewayBase}/${provider}${path}${url.search}`;
@@ -96,7 +127,13 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // Per-user attribution. The user is the opaque per-user bucket id passed as
     // a DO prop at interception-setup time — never an email.
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
-    headers.set('cf-aig-metadata', JSON.stringify({ user: props?.user ?? 'unknown' }));
+    const user = props?.user;
+    if (!user) {
+      // Attribution degrades to 'unknown'; log it so a gap in the gateway's
+      // per-user analytics is diagnosable rather than silently missing.
+      console.warn('LlmInterceptor: per-session user prop absent; cf-aig-metadata user=unknown');
+    }
+    headers.set('cf-aig-metadata', JSON.stringify({ user: user ?? 'unknown' }));
 
     // Stream the body straight through (no .text()/.json() buffering) so SSE
     // token streams and streaming uploads pass with constant memory. GET/HEAD
@@ -108,14 +145,26 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         method: request.method,
         headers,
         body: hasBody ? request.body : undefined,
+        // Do not transparently follow gateway/provider redirects — a 3xx would
+        // otherwise be chased to an arbitrary Location host. Surface it to the
+        // agent's client instead.
+        redirect: 'manual',
       }),
     );
+
+    // Strip hop-by-hop and cookie headers from the upstream response before it
+    // reaches the container. Hop-by-hop headers (RFC 7230 §6.1) are connection-
+    // scoped and must not be forwarded; transfer-encoding is re-derived by the
+    // runtime for the streamed body; set-cookie has no business crossing into the
+    // agent's HTTP client.
+    const responseHeaders = new Headers(upstream.headers);
+    for (const h of RESPONSE_STRIPPED_HEADERS) responseHeaders.delete(h);
 
     // Returning upstream.body (the ReadableStream) WITHOUT reading it preserves
     // text/event-stream + chunked transfer — tokens reach the agent as they arrive.
     return new Response(upstream.body, {
       status: upstream.status,
-      headers: upstream.headers,
+      headers: responseHeaders,
     });
   }
 }

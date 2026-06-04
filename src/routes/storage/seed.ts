@@ -81,7 +81,7 @@ app.post('/agent-configs', async (c) => {
     const mode = resolveSessionMode(preferences ?? null);
 
     const user = c.get('user');
-    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
     const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';
 
     const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, mode, {

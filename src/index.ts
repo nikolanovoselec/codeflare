@@ -368,8 +368,10 @@ export default {
       if (saasActive) {
         try {
           const { user } = await authenticateRequest(request, env);
-          // HIGH-1: Use billing-aware tier resolution, not raw tier field
-          const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+          // HIGH-1: Use billing-aware tier resolution, not raw tier field.
+          // Enterprise resolves to unlimited (active), so enterprise users land on
+          // /app/ and are never redirected to the hidden subscribe page.
+          const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, env);
           if (isActiveUser(effectiveTier)) {
             return redirectWithHeaders('/app/');
           }

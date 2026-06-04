@@ -9,7 +9,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 | Enterprise Mode | A deploy-time configuration, toggled by the `ENTERPRISE_MODE` Worker var, that turns a Codeflare deployment into a single-tenant enterprise instance: every user resolves to the `unlimited` tier in Pro (advanced) session mode and subscription/billing is disabled |
 | AI Gateway | The customer's Cloudflare AI Gateway endpoint that fronts the upstream LLM providers; its URL and token are held only in the Worker/interceptor env as secrets (`AIG_GATEWAY_URL`, `AIG_TOKEN`) |
 | LLM Interceptor | A `WorkerEntrypoint` (`LlmInterceptor`) the container DO wires into container egress via `ctx.container.interceptOutboundHttps`; it receives the container's outbound HTTPS to the real provider hosts at the platform level (never the public internet, never Cloudflare Access), maps each onto the gateway provider path, and forwards with gateway auth + per-user attribution stamped on |
-| Outbound Interception | The Cloudflare Containers platform mechanism (`interceptOutboundHttps` + `ctx.exports`, gated by the `enable_ctx_exports` compat flag) that routes a container's matching egress hostnames through a `WorkerEntrypoint` with no credential, URL, or token in the container |
+| Outbound Interception | The Cloudflare Containers platform mechanism (`interceptOutboundHttps` + `ctx.exports`, on by default at this project's compat date — the `enable_ctx_exports` flag became the default on 2025-11-17, so no flag is set) that routes a container's matching egress hostnames through a `WorkerEntrypoint` with no credential, URL, or token in the container |
 | Per-User Attribution | The opaque per-user bucket id passed to the interceptor as a per-session DO prop and stamped as `cf-aig-metadata.user` (never an email) so usage is correlatable in the gateway |
 
 ### Out of Scope
@@ -154,7 +154,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Constraints:**
 
-- Interception uses the Cloudflare Containers platform mechanism (`interceptOutboundHttps` + `ctx.exports`, gated by the `enable_ctx_exports` compat flag); HTTPS interception requires the container to trust the CA at `/etc/cloudflare/certs/cloudflare-containers-ca.crt` ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)).
+- Interception uses the Cloudflare Containers platform mechanism (`interceptOutboundHttps` + `ctx.exports`, on by default at this project's compat date — the `enable_ctx_exports` flag became the default on 2025-11-17, so no flag is set); HTTPS interception requires the container to trust the CA at `/etc/cloudflare/certs/cloudflare-containers-ca.crt` ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)).
 - The opaque per-user id is the deterministic bucket id so requests from one user are correlatable in the gateway without revealing the identity.
 - The set of intercepted provider hosts is fixed in code; adding a provider requires a code change, not a request parameter.
 

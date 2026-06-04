@@ -17,7 +17,7 @@ app.get('/', async (c) => {
 
   const tiers = await getTierConfig(c.env.KV);
   // CF-004: Use billing-aware tier resolution so canceled users see free-tier quotas
-  const tierValue = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+  const tierValue = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
   const tier = getUserTier(tierValue, tiers);
 
   // Try real-time data from Timekeeper DO (includes pending unflushed seconds)

@@ -3,13 +3,6 @@
     "graphify": {
       "command": "/root/.local/share/uv/tools/graphifyy/bin/python",
       "args": ["-m", "graphify.serve"]
-    },
-    "chrome-devtools": {
-      "command": "sh",
-      "args": [
-        "-c",
-        "exec npx -y chrome-devtools-mcp@latest --wsEndpoint=\"wss://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser?keep_alive=600000\" --wsHeaders=\"{\\\"Authorization\\\":\\\"Bearer ${CLOUDFLARE_API_TOKEN}\\\"}\""
-      ]
     }
   }
 }

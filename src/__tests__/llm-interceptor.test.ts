@@ -157,3 +157,46 @@ describe('REQ-ENTERPRISE-004: fail-closed guards', () => {
     expect(parsed.user).toBe('unknown');
   });
 });
+
+describe('REQ-ENTERPRISE-004: transport hardening', () => {
+  it('MED-3: a compat path without a /v1 prefix fails closed (400) and never fetches', async () => {
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.openai.com/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    expect(res.status).toBe(400);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('MED-3: a trailing slash on AIG_GATEWAY_URL does not produce a double slash', async () => {
+    await makeInterceptor({ AIG_GATEWAY_URL: `${GATEWAY}/` } as Partial<Env>).fetch(
+      new Request('https://api.anthropic.com/v1/messages', { method: 'POST', body: '{}' }),
+    );
+    expect(lastFetch?.url).toBe(`${GATEWAY}/anthropic/v1/messages`);
+  });
+
+  it('MED-1: strips set-cookie from the upstream response, keeps content-type', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'set-cookie': 'sid=abc; HttpOnly' },
+      }),
+    );
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.anthropic.com/v1/messages', { method: 'POST', body: '{}' }),
+    );
+    expect(res.headers.get('set-cookie')).toBeNull();
+    expect(res.headers.get('content-type')).toBe('application/json');
+  });
+
+  it('LOW-1: does not transparently follow upstream redirects (redirect: manual)', async () => {
+    let capturedRedirect: RequestRedirect | undefined;
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      capturedRedirect = (input as Request).redirect;
+      return new Response('ok', { status: 200 });
+    });
+    await makeInterceptor().fetch(
+      new Request('https://api.anthropic.com/v1/messages', { method: 'POST', body: '{}' }),
+    );
+    expect(capturedRedirect).toBe('manual');
+  });
+});

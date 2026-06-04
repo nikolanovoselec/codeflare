@@ -13,7 +13,7 @@ import { z } from 'zod';
 import type { Env, UsageRecord } from '../types';
 import { BILLING_STATUS } from '../types';
 import { getTimekeeperKey, getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../lib/kv-keys';
-import { getUserTier, getTierConfig, getEffectiveTier } from '../lib/subscription';
+import { getUserTier, getTierConfig, getEffectiveTier, isEnterpriseMode } from '../lib/subscription';
 import { createLogger } from '../lib/logger';
 import { toError } from '../lib/error-types';
 import { endTrialNow } from '../lib/stripe';
@@ -215,7 +215,7 @@ export class Timekeeper {
       const userData = userRaw ? JSON.parse(userRaw) : {};
       const effectiveTierValue = getEffectiveTier(
         userData.subscriptionTier, userData.accessTier, userData.billingStatus,
-        userData.billingPeriodEnd,
+        userData.billingPeriodEnd, this.env,
       );
       const tier = getUserTier(effectiveTierValue, tiers);
 
@@ -251,7 +251,10 @@ export class Timekeeper {
             logger.error('Failed to end Stripe trial', toError(err));
           }
         }
-      } else if (tier.monthlySeconds !== null && totalMonthlySeconds >= tier.monthlySeconds) {
+      } else if (tier.monthlySeconds !== null && totalMonthlySeconds >= tier.monthlySeconds && !isEnterpriseMode(this.env)) {
+        // Enterprise users are unlimited with no time limit — the monthly compute
+        // quota is never enforced for them (backstops the unlimited-tier resolution
+        // above). No-op when ENTERPRISE_MODE is unset.
         quotaExceeded = true;
       }
     } catch {
