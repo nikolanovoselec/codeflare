@@ -106,6 +106,13 @@ export interface Env {
   // Never exposed to the container.
   AIG_TOKEN?: string;
 
+  // Enterprise-only: the gateway model id every agent sends — e.g.
+  // `dynamic/<route>` (a gateway dynamic route) or `openai/gpt-4.1`,
+  // `anthropic/claude-…`, `aws-bedrock/…`. A single operator deploy var;
+  // buildEnvVars fans it out to the container as COPILOT_MODEL + PI_MODEL,
+  // enterprise-only (AD74). Unset ⇒ each agent uses its own default model id.
+  AIG_LANGUAGE_MODEL?: string;
+
 }
 
 /**

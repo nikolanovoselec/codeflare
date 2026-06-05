@@ -223,6 +223,12 @@ export function buildEnvVars(
     // Emitted only when ENTERPRISE_MODE=active, so a non-enterprise container's
     // env is byte-identical to today.
     ...(isEnterpriseMode(env) && { ENTERPRISE_MODE: 'active' }),
+    // Enterprise-only model id (AD74): the single operator var AIG_LANGUAGE_MODEL
+    // — the gateway model/route every agent should send (e.g. `dynamic/<route>`)
+    // — fanned out to the container vars entrypoint.sh reads (COPILOT_MODEL,
+    // PI_MODEL). Emitted only when enterprise AND AIG_LANGUAGE_MODEL is set, so a
+    // non-enterprise container's env is unchanged.
+    ...(isEnterpriseMode(env) && env.AIG_LANGUAGE_MODEL && { COPILOT_MODEL: env.AIG_LANGUAGE_MODEL, PI_MODEL: env.AIG_LANGUAGE_MODEL }),
   };
 }
 
