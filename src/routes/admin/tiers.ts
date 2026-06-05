@@ -9,8 +9,8 @@ import type { Env } from '../../types';
 import { SessionModeSchema } from '../../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import { getTiersConfigKey } from '../../lib/kv-keys';
-import { getDefaultTiers, getTierConfig } from '../../lib/subscription';
-import { ValidationError } from '../../lib/error-types';
+import { getDefaultTiers, getTierConfig, isEnterpriseMode } from '../../lib/subscription';
+import { ValidationError, ForbiddenError } from '../../lib/error-types';
 import { parseJsonBody } from '../../lib/request-helpers';
 
 const TierConfigSchema = z.object({
@@ -35,6 +35,15 @@ const PutTiersBodySchema = z.array(TierConfigSchema).length(8);
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authMiddleware);
+
+// REQ-ENTERPRISE-009: tier/subscription config is meaningless in enterprise mode (all
+// users are unlimited). Fail closed on read and write. No-op when ENTERPRISE_MODE is unset.
+app.use('*', async (c, next) => {
+  if (isEnterpriseMode(c.env)) {
+    throw new ForbiddenError('Tier configuration is not available in enterprise mode');
+  }
+  return next();
+});
 
 app.get('/', requireAdmin, async (c) => {
   const config = await getTierConfig(c.env.KV);

@@ -10,10 +10,10 @@ import type { Env } from '../types';
 import { BILLING_STATUS } from '../types';
 import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
-import { ValidationError, toError } from '../lib/error-types';
+import { ValidationError, ForbiddenError, toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord, updateUserRecord } from '../lib/user-record';
-import { getTierConfig, countPaidSlots } from '../lib/subscription';
+import { getTierConfig, countPaidSlots, isEnterpriseMode } from '../lib/subscription';
 import { getBaseUrl, getNextUtcMonthStart, SETUP_KEYS } from '../lib/kv-keys';
 import { getAllUsers } from '../lib/access-policy';
 import {
@@ -44,6 +44,10 @@ const CheckoutSchema = z.object({
 
 // POST /billing/checkout
 app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
+  // REQ-ENTERPRISE-009: no self-serve billing in enterprise mode (no-op when flag unset).
+  if (isEnterpriseMode(c.env)) {
+    throw new ForbiddenError('Billing is not available in enterprise mode');
+  }
   // CF-006: Explicit null check instead of non-null assertion
   const secretKey = c.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
@@ -126,6 +130,18 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
 
 // GET /billing/status — returns live billing state from Stripe (source of truth)
 app.get('/status', requireIdentity, async (c) => {
+  // REQ-ENTERPRISE-009: enterprise has no billing — return an empty/disabled state
+  // (200, not 403) so any client still polling the endpoint does not error.
+  if (isEnterpriseMode(c.env)) {
+    return c.json({
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      stripePriceId: null,
+      billingPeriodEnd: null,
+      checkoutSessionId: null,
+      billingStatus: null,
+    });
+  }
   const user = c.get('user');
   const raw = await c.env.KV.get(`user:${user.email}`, 'json');
   const userData = parseUserRecord(raw);
@@ -188,6 +204,10 @@ const portalRateLimiter = createRateLimiter({
 
 // POST /billing/portal — create a Stripe Customer Portal session
 app.post('/portal', requireIdentity, portalRateLimiter, async (c) => {
+  // REQ-ENTERPRISE-009: no customer portal in enterprise mode (no-op when flag unset).
+  if (isEnterpriseMode(c.env)) {
+    throw new ForbiddenError('Billing portal is not available in enterprise mode');
+  }
   // CF-006: Explicit null check instead of non-null assertion
   const secretKey = c.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
@@ -230,6 +250,10 @@ const SwitchSchema = z.object({
 
 // POST /billing/switch — deep-link portal to plan change confirmation
 app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
+  // REQ-ENTERPRISE-009: no plan switching in enterprise mode (no-op when flag unset).
+  if (isEnterpriseMode(c.env)) {
+    throw new ForbiddenError('Plan switching is not available in enterprise mode');
+  }
   const secretKey = c.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
     throw new ValidationError('Stripe is not configured.');

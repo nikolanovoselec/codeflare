@@ -84,7 +84,16 @@ app.get('/', async (c) => {
 app.patch('/', preferencesPatchRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
 
-  const body = await parseJsonBody(c, UpdatePreferencesBody);
+  let body = await parseJsonBody(c, UpdatePreferencesBody);
+
+  // REQ-ENTERPRISE-009 AC6: enterprise forces Pro mode at session time
+  // (clampSessionModeToTier returns 'advanced'), so a stored sessionMode would be a
+  // value the backend always overrides. Drop it from the patch so we never persist a
+  // misleading preference. No-op when ENTERPRISE_MODE is unset (SaaS unchanged).
+  if (isEnterpriseMode(c.env) && body.sessionMode !== undefined) {
+    const { sessionMode: _dropped, ...rest } = body;
+    body = rest;
+  }
 
   // Enterprise deploys restrict the selectable agent set (REQ-ENTERPRISE-003).
   // Outside enterprise mode allowedAgents() returns all 7, so this never rejects.
