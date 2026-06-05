@@ -1,9 +1,12 @@
 # Codeflare - Browser-based cloud IDE on Cloudflare
 name = "codeflare"
-# Locked down to the custom domain only (codeflare.ch). The workers.dev
-# fallback URL is disabled because it created OAuth host-mismatch risk
-# and enlarged the auth surface unnecessarily.
-workers_dev = false
+# workers.dev is enabled on every deployment: the setup wizard bootstraps on the
+# <worker>.<account>.workers.dev URL before any custom domain exists, so a fresh
+# deploy (a new account / enterprise tenant) is unreachable without it — setup is
+# impossible. The wizard then adds a custom domain (codeflare.ch, etc.) which
+# fronts traffic afterward; in CF Access mode, gate the workers.dev URL behind
+# Access in the Cloudflare dashboard.
+workers_dev = true
 main = "src/index.ts"
 compatibility_date = "2026-02-05"
 # ctx.exports + container outbound-HTTPS interception (interceptOutboundHttps),
