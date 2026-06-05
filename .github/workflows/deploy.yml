@@ -20,6 +20,7 @@ on:
         options:
           - production
           - integration
+          - enterprise
         default: integration
 
 concurrency:
@@ -186,6 +187,19 @@ jobs:
           sed -n '1,8p' wrangler.toml
           echo "--- Verifying DO binding intact ---"
           grep 'name = "CONTAINER"' wrangler.toml || { echo "FATAL: DO binding name corrupted!"; exit 1; }
+
+      # wrangler.toml sets workers_dev = false — prod/integration are locked to
+      # the codeflare.ch custom domain (see the comment atop wrangler.toml). The
+      # enterprise worker runs on a separate account with no custom domain, so
+      # re-enable its automatic <worker>.<account>.workers.dev URL. Scoped to the
+      # enterprise dispatch only; every other target keeps workers_dev = false
+      # and deploys byte-identically to today.
+      - name: Enable workers.dev URL for the enterprise worker
+        if: ${{ inputs.environment == 'enterprise' }}
+        run: |
+          sed -i 's/^workers_dev = false/workers_dev = true/' wrangler.toml
+          echo "workers.dev URL enabled for ${WORKER_NAME}"
+          grep '^workers_dev' wrangler.toml
 
       - name: Apply container resource tier
         env:
