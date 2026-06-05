@@ -174,7 +174,7 @@ describe('REQ-ENTERPRISE-004: streaming passthrough (no buffering)', () => {
   });
 });
 
-describe('REQ-ENTERPRISE-004: gateway route-pinning (model rewrite)', () => {
+describe('REQ-ENTERPRISE-007: gateway route-pinning (model rewrite)', () => {
   it('rewrites the request model to AIG_LANGUAGE_MODEL on a chat/completions request', async () => {
     await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise' } as Partial<Env>).fetch(
       new Request('https://api.openai.com/v1/chat/completions', {
