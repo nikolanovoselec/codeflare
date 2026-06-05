@@ -5,15 +5,25 @@
  * `ctx.exports.LlmInterceptor({ props: { user } })` and wired into the
  * container's egress with `ctx.container.interceptOutboundHttps(host, worker)`
  * (see src/container/index.ts onStart). The container's HTTPS calls to the real
- * provider hosts (api.anthropic.com / api.openai.com) are routed HERE at the
- * platform level — they never leave for the public internet, so this path is
- * never exposed to Cloudflare Access and NO credential, gateway URL, or token is
- * ever placed inside the container.
+ * provider host (api.openai.com) are routed HERE at the platform level — they
+ * never leave for the public internet, so this path is never exposed to
+ * Cloudflare Access and NO credential, gateway URL, or token is ever placed
+ * inside the container.
  *
  * This entrypoint holds the AI Gateway secrets (AIG_GATEWAY_URL + AIG_TOKEN,
  * from the Worker env) and forwards each request to the customer's AI Gateway
- * with the gateway authorization + per-user attribution stamped on. The user id
- * comes from the per-session DO props — the opaque bucket id, never an email.
+ * **REST API** (`api.cloudflare.com/client/v4/accounts/{acct}/ai/v1/*`) with the
+ * gateway authorization + per-user attribution stamped on. The user id comes
+ * from the per-session DO props — the opaque bucket id, never an email.
+ *
+ * The enterprise agent set (REQ-ENTERPRISE-003) is OpenAI-wire-format only
+ * (Copilot, Pi): they call api.openai.com and their requests map onto the
+ * gateway's OpenAI-compatible REST endpoint with NO body rewrite. Backend model
+ * selection — native provider, Amazon Bedrock, Workers AI, or a dynamic route —
+ * is gateway-side, chosen by the agent's configured model id (e.g.
+ * `dynamic/<route>`). Auth is the standard `Authorization: Bearer <AIG_TOKEN>`
+ * header (the AI Gateway REST API; the legacy `gateway.ai.cloudflare.com`
+ * `/compat` + `/anthropic` paths it replaces are deprecated — see AD74).
  *
  * Dormant on non-enterprise deploys: the DO only wires interception when
  * ENTERPRISE_MODE=active, so this class is never instantiated otherwise.
@@ -22,31 +32,25 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from './types';
 
 /**
- * Map an intercepted provider host to its AI Gateway provider segment. The DO
- * only ever intercepts these exact hosts (see setupEnterpriseInterception), so
- * an unmapped host reaching fetch() is a misconfiguration and fails closed.
+ * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
+ * is intercepted: the enterprise agent set (REQ-ENTERPRISE-003) is OpenAI-wire-
+ * format only (Copilot, Pi), so Anthropic-native traffic (Claude Code) never
+ * occurs. An unmapped host reaching fetch() is a misconfiguration and fails closed.
  */
-const HOST_PROVIDER: Readonly<Record<string, 'anthropic' | 'compat'>> = {
-  'api.anthropic.com': 'anthropic',
-  'api.openai.com': 'compat',
-};
-
-/** Hosts the DO must intercept for enterprise LLM routing (mirrors HOST_PROVIDER). */
-export const INTERCEPTED_LLM_HOSTS: readonly string[] = Object.keys(HOST_PROVIDER);
+export const INTERCEPTED_LLM_HOSTS: readonly string[] = ['api.openai.com'];
 
 /**
  * Request headers stripped before forwarding upstream. The agent sends a
- * NON-SECRET placeholder Authorization (the ANTHROPIC_AUTH_TOKEN / provider key
- * entrypoint.sh sets to put each CLI in API mode); it must never reach the
- * gateway — gateway auth is stamped separately as cf-aig-authorization.
- * Hop-by-hop / CF-managed headers are dropped so the upstream fetch builds clean.
+ * NON-SECRET placeholder Authorization (the provider key entrypoint.sh sets to
+ * put each CLI in API mode); it must never reach the gateway — gateway auth is
+ * stamped separately as the standard Authorization header below. Hop-by-hop /
+ * CF-managed headers are dropped so the upstream fetch builds clean.
  */
 const STRIPPED_HEADERS: readonly string[] = [
   'authorization',
   'x-api-key',
   'host',
   'content-length',
-  'cf-aig-authorization',
   'cf-aig-metadata',
 ];
 
@@ -73,10 +77,25 @@ interface InterceptorProps {
   user: string;
 }
 
+/**
+ * Parse the account id + gateway id out of AIG_GATEWAY_URL, whose form is
+ * `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}[/...]`. The
+ * REST API needs the account id in the URL path and the gateway id in the
+ * cf-aig-gateway-id header; both are derived from this one already-configured
+ * value, so the migration needs no new secret. Returns null when absent or
+ * unparseable so the caller can fail closed.
+ */
+export function parseGateway(raw: string | undefined): { accountId: string; gatewayId: string } | null {
+  if (!raw) return null;
+  const m = raw.match(/\/v1\/([^/?#]+)\/([^/?#]+)/);
+  if (!m) return null;
+  return { accountId: m[1], gatewayId: m[2] };
+}
+
 export class LlmInterceptor extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
-    const rawGatewayBase = this.env.AIG_GATEWAY_URL;
-    if (!rawGatewayBase) {
+    const gw = parseGateway(this.env.AIG_GATEWAY_URL);
+    if (!gw) {
       // Enterprise deploy with interception wired but no gateway configured:
       // fail closed rather than letting the request fall through anywhere.
       return new Response(JSON.stringify({ error: 'LLM gateway not configured', code: 'GATEWAY_UNAVAILABLE' }), {
@@ -84,46 +103,34 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    // Drop any trailing slash so the provider-path join below can never produce a
-    // double slash (e.g. {gateway}//anthropic) against a sloppily-set secret.
-    const gatewayBase = rawGatewayBase.replace(/\/+$/, '');
 
     const url = new URL(request.url);
-    const provider = HOST_PROVIDER[url.hostname];
-    if (!provider) {
+    if (!INTERCEPTED_LLM_HOSTS.includes(url.hostname)) {
       return new Response(JSON.stringify({ error: 'Unsupported provider host', code: 'BAD_PROVIDER' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    // Map the provider's native path onto the gateway provider path:
-    //   anthropic: https://api.anthropic.com/v1/messages
-    //              -> {gateway}/anthropic/v1/messages       (path kept verbatim)
-    //   compat:    https://api.openai.com/v1/chat/completions
-    //              -> {gateway}/compat/chat/completions      (leading /v1 dropped;
-    //              the AI Gateway OpenAI-compatible endpoint is /compat/*)
-    let path = url.pathname;
-    if (provider === 'compat') {
-      // The AI Gateway OpenAI-compatible endpoint is /compat/*; the agent's
-      // OpenAI-style client always calls /v1/<route>. Anything else is a
-      // misconfiguration — fail closed rather than forward a path the gateway
-      // would not recognize.
-      if (!path.startsWith('/v1/')) {
-        return new Response(JSON.stringify({ error: 'Unsupported compat path', code: 'BAD_PATH' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      path = path.slice('/v1'.length);
-    }
-    const upstreamUrl = `${gatewayBase}/${provider}${path}${url.search}`;
+    // Map the OpenAI-style request onto the AI Gateway REST API. The agent calls
+    // api.openai.com/v1/chat/completions (OpenAI SDK shape); the REST API serves
+    // the OpenAI-compatible endpoint at /ai/v1/chat/completions under the account.
+    //   api.openai.com/v1/chat/completions
+    //   -> api.cloudflare.com/client/v4/accounts/{acct}/ai/v1/chat/completions
+    // The path is forwarded verbatim under /ai, so /v1/responses etc. map too.
+    const upstreamUrl = `https://api.cloudflare.com/client/v4/accounts/${gw.accountId}/ai${url.pathname}${url.search}`;
 
     const headers = new Headers(request.headers);
     for (const h of STRIPPED_HEADERS) headers.delete(h);
+    // Gateway authentication: the REST API uses the standard Authorization
+    // header carrying the authenticated-gateway "Run" token (AIG_TOKEN). This
+    // replaces the legacy cf-aig-authorization header (AD74).
     if (this.env.AIG_TOKEN) {
-      headers.set('cf-aig-authorization', `Bearer ${this.env.AIG_TOKEN}`);
+      headers.set('authorization', `Bearer ${this.env.AIG_TOKEN}`);
     }
+    // Route through the customer's named gateway: required for Workers AI models,
+    // honoured for all providers and dynamic routes.
+    headers.set('cf-aig-gateway-id', gw.gatewayId);
     // Per-user attribution. The user is the opaque per-user bucket id passed as
     // a DO prop at interception-setup time — never an email.
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
@@ -153,15 +160,12 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     );
 
     // Strip hop-by-hop and cookie headers from the upstream response before it
-    // reaches the container. Hop-by-hop headers (RFC 7230 §6.1) are connection-
-    // scoped and must not be forwarded; transfer-encoding is re-derived by the
-    // runtime for the streamed body; set-cookie has no business crossing into the
-    // agent's HTTP client.
+    // reaches the container. Returning upstream.body (the ReadableStream) WITHOUT
+    // reading it preserves text/event-stream + chunked transfer — tokens reach
+    // the agent as they arrive.
     const responseHeaders = new Headers(upstream.headers);
     for (const h of RESPONSE_STRIPPED_HEADERS) responseHeaders.delete(h);
 
-    // Returning upstream.body (the ReadableStream) WITHOUT reading it preserves
-    // text/event-stream + chunked transfer — tokens reach the agent as they arrive.
     return new Response(upstream.body, {
       status: upstream.status,
       headers: responseHeaders,

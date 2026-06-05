@@ -11,8 +11,12 @@ import { AgentTypeSchema, type AgentType, type Env } from '../types';
 import { isEnterpriseMode } from './subscription';
 
 /** Agents permitted in enterprise mode. Internal to this module (consumed by
- * {@link allowedAgents}); not exported — the frontend keeps its own copy. */
-const ENTERPRISE_AGENTS = ['claude-code', 'copilot', 'pi', 'bash'] as const satisfies readonly AgentType[];
+ * {@link allowedAgents}); not exported — the frontend keeps its own copy.
+ * OpenAI-wire-format agents only: their traffic routes through the AI Gateway
+ * REST API (REQ-ENTERPRISE-004). Claude Code is excluded — it speaks the
+ * Anthropic-native wire format, which the gateway REST transport does not carry
+ * (AD74). `bash` needs no LLM. */
+const ENTERPRISE_AGENTS = ['copilot', 'pi', 'bash'] as const satisfies readonly AgentType[];
 
 /**
  * Resolve the set of agent types selectable under the current deploy mode.

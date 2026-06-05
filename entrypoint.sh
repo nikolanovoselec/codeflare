@@ -1772,9 +1772,9 @@ fi
 # Enterprise Mode agent routing. (Implements REQ-ENTERPRISE-004 / 005)
 #
 # In Enterprise Mode the container's outbound HTTPS to the real LLM provider
-# hosts (api.anthropic.com / api.openai.com) is transparently routed to the
-# customer's AI Gateway by the Container DO via platform outbound-HTTPS
-# interception (see src/container/index.ts setupEnterpriseInterception +
+# host (api.openai.com) is transparently routed to the customer's AI Gateway
+# REST API by the Container DO via platform outbound-HTTPS interception (see
+# src/container/index.ts setupEnterpriseInterception +
 # src/llm-interceptor.ts). The gateway URL + token live ONLY in the
 # interceptor's Worker env; nothing secret is ever placed in the container, and
 # the interception is platform-internal so it never traverses Cloudflare Access.
@@ -1798,9 +1798,9 @@ if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
     # --- TLS: trust the Cloudflare containers CA ---------------------------
     # interceptOutboundHttps terminates the container's TLS with a cert signed
     # by this CA. Without trusting it the agents' HTTPS clients reject the
-    # intercepted connection. Install into the system store (covers Claude's
-    # native binary + curl/openssl) AND export the Node + Python env hooks
-    # (Copilot / Pi / any node|python tooling use their own trust stores).
+    # intercepted connection. Install into the system store (covers
+    # curl/openssl) AND export the Node + Python env hooks (Copilot / Pi / any
+    # node|python tooling use their own trust stores).
     CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"
     if [ -f "$CF_CA_SRC" ]; then
         cp "$CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
@@ -1820,28 +1820,14 @@ if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
     # gateway. The customer's real provider key lives on the AI Gateway.
     ENTERPRISE_PLACEHOLDER_TOKEN="codeflare-enterprise"
 
-    # --- Claude Code -------------------------------------------------------
-    # Point Claude at its real default host (intercepted -> gateway/anthropic)
-    # and hand it the placeholder token so it uses API mode instead of an
-    # interactive OAuth login.
-    export ANTHROPIC_BASE_URL="https://api.anthropic.com"
-    export ANTHROPIC_AUTH_TOKEN="$ENTERPRISE_PLACEHOLDER_TOKEN"
-    # OAuth-vs-gateway precedence: Claude Code prefers a restored OAuth login at
-    # ~/.claude/.credentials.json over env auth. In Enterprise Mode that stored
-    # OAuth credential MUST NOT win - all traffic must go through the customer's
-    # gateway. The R2 restore (Step 1) may have synced a .credentials.json into
-    # place, so neutralise it: move it aside so the env gateway auth is the only
-    # auth Claude can resolve. Non-enterprise sessions never reach this branch,
-    # so their OAuth login is untouched.
-    CLAUDE_CREDS="$USER_CLAUDE_DIR/.credentials.json"
-    if [ -f "$CLAUDE_CREDS" ]; then
-        mv "$CLAUDE_CREDS" "$CLAUDE_CREDS.enterprise-disabled" 2>/dev/null \
-            && echo "[entrypoint] Enterprise Mode: stored Claude OAuth credential set aside so the gateway env auth wins" \
-            || echo "[entrypoint] WARNING: could not set aside $CLAUDE_CREDS; gateway auth may be overridden by stored OAuth"
-    fi
+    # NOTE: Claude Code is intentionally NOT configured here. It speaks the
+    # Anthropic-native wire format, which the AI Gateway REST transport does not
+    # carry, so it is excluded from the enterprise agent set (REQ-ENTERPRISE-003,
+    # AD74). Only the OpenAI-wire-format agents (Copilot, Pi) are routed; bash
+    # needs no LLM.
 
     # --- GitHub Copilot ----------------------------------------------------
-    # BYOK against the real OpenAI host (intercepted -> gateway/compat) with the
+    # BYOK against the real OpenAI host (intercepted -> gateway REST API) with the
     # placeholder key. Model selection is admin/gateway-side; only honour an
     # explicit COPILOT_MODEL if the admin supplied one.
     export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
@@ -1855,7 +1841,7 @@ if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
     # --- Pi ----------------------------------------------------------------
     # Pi reads custom provider config from ~/.pi/agent/models.json (see Pi docs
     # models.md / providers.md). Register a provider pointing at the real OpenAI
-    # host (intercepted -> gateway/compat) with the placeholder key. The base
+    # host (intercepted -> gateway REST API) with the placeholder key. The base
     # URL + key are passed as jq --arg so they are real values, not literal
     # "$VAR" strings. authHeader:true sends Authorization: Bearer <key>.
     # Model is admin/gateway-side: register a model id only when PI_MODEL is set.

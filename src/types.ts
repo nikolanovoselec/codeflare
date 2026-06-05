@@ -101,9 +101,9 @@ export interface Env {
   // env only — never injected into the container (the container reaches the
   // gateway via platform outbound-HTTPS interception, not a URL).
   AIG_GATEWAY_URL?: string;
-  // AI Gateway authorization token stamped as cf-aig-authorization by the
-  // interceptor (enterprise only). Set via wrangler secret. Never exposed to
-  // the container.
+  // AI Gateway token the interceptor sends as a standard `Authorization: Bearer`
+  // header on the REST API (enterprise only; AD74). Set via wrangler secret.
+  // Never exposed to the container.
   AIG_TOKEN?: string;
 
 }

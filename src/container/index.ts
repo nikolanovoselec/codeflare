@@ -390,9 +390,9 @@ export class container extends Container<Env> implements ContainerEnvState {
     }
     if (!this.env.AIG_TOKEN) {
       // Wire interception anyway, but warn loudly: without the gateway token the
-      // interceptor cannot stamp cf-aig-authorization, so the customer's AI
-      // Gateway will reject every request unless it is configured for unauthenticated
-      // access. This is almost always a deploy-secret omission.
+      // interceptor cannot send the `Authorization: Bearer` header, so the
+      // customer's AI Gateway will reject every request unless it is configured
+      // for unauthenticated access. This is almost always a deploy-secret omission.
       this.logger.warn('Enterprise mode active and gateway configured but AIG_TOKEN unset; gateway requests will be unauthenticated');
     }
     const user = this._bucketName ?? 'unknown';

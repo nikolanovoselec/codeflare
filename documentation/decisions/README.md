@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -84,6 +84,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD71](#ad71-preseed-corpus-statically-imported-into-the-worker-bundle-bound-by-compressed-bundle-size-ci-guarded) | Preseed corpus statically imported into the Worker bundle; bound by compressed bundle size, CI-guarded | Architecture |
 | [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) | Outbound-HTTPS interception over a Worker-side LLM proxy for enterprise gateway routing | Architecture, Security |
 | [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) | workers.dev enabled on every deployment for setup-wizard bootstrap | Security |
+| [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) | Enterprise LLM transport on the AI Gateway REST API (amends [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing)) | Architecture, Security |
 
 ---
 
@@ -1307,7 +1308,7 @@ Two facts from the SB 2.8.1 source reshape the fix. First, SB's real service wor
 
 **Category:** Architecture, Security
 
-**Status:** Accepted (2026-06-05)
+**Status:** Accepted (2026-06-05). Interception mechanism stands; its upstream transport (gateway endpoint, auth header, agent set) is amended by [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api).
 
 **Context:** Enterprise Mode must route all agent LLM traffic (Claude, Copilot, Pi) through the customer's AI Gateway without exposing gateway credentials to the container or creating a new public HTTP route. Three approaches were evaluated:
 
@@ -1348,6 +1349,28 @@ Two facts from the SB 2.8.1 source reshape the fix. First, SB's real service wor
 - The pre-setup window (before auth is configured) is the same bounded bootstrap window analyzed in [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation): seconds-to-minutes, operator/self-hosted audience, idempotent setup.
 
 **Related:** [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation), [AD11](#ad11-suffix-pattern-cors-with-credentials), [AD68](#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted), [Architecture](../lanes/architecture.md), [Configuration](../lanes/configuration.md).
+
+### AD74: Enterprise LLM transport on the AI Gateway REST API
+
+**Category:** Architecture, Security
+
+**Status:** Accepted (2026-06-05)
+
+**Context:** [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) established platform outbound-HTTPS interception as the enterprise LLM transport, forwarding intercepted provider traffic to the customer's AI Gateway. The original implementation targeted the gateway's legacy endpoints on `gateway.ai.cloudflare.com` — the OpenAI-compatible `/compat/chat/completions` path and the provider-native `/anthropic/v1/messages` path, authenticated with the `cf-aig-authorization` header. Cloudflare has since **deprecated** those paths (they "continue to work for existing integrations") and recommends the REST API at `api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/*` (standard `Authorization` header) for new integrations. Building enterprise on a deprecated surface was latent migration debt; a live smoke test against the `codeflare-enterprise` gateway confirmed the REST API supports everything the transport needs — dynamic routing via `model: "dynamic/<route>"`, SSE streaming, `cf-aig-metadata` attribution, BYOK + Workers AI. A second finding shaped the design: the REST API requires author-prefixed model ids (`anthropic/claude-…`) on its Anthropic-compatible `/ai/v1/messages` endpoint, while Claude Code emits a bare `claude-…` model — which would force the interceptor to buffer-and-rewrite each request body, breaking the zero-copy passthrough. Every other enterprise agent (Copilot, Pi) speaks the OpenAI chat-completions format and can reach any backend — native Anthropic/OpenAI, Amazon Bedrock, or Workers AI — through the one OpenAI-compatible REST endpoint by model id, with no rewrite.
+
+**Decision:** Migrate the `LlmInterceptor` transport off the deprecated `/compat` + `/anthropic` paths onto the REST API at `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/*`, authenticated with the standard `Authorization: Bearer <AIG_TOKEN>` header and routed with `cf-aig-gateway-id`. The account id and gateway id are parsed from the existing `AIG_GATEWAY_URL` secret (no new binding). **Drop Claude Code from the enterprise agent set** ([REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode)): with only OpenAI-wire-format agents remaining, the interceptor forwards the request body unchanged (no model rewrite) and intercepts only `api.openai.com`. The interception mechanism from [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) is unchanged — only the upstream target, auth header, and agent set change.
+
+**Consequences:**
+
+- The transport is on Cloudflare's recommended, non-deprecated surface; no migration debt.
+- The interceptor stays a zero-copy streaming passthrough (no request-body buffering/rewrite) because the agent set is OpenAI-format-only.
+- Backend selection — native provider, Amazon Bedrock, Workers AI, or a dynamic route with rate-limit/budget/fallback — is entirely gateway-side via the agent's configured model id (`COPILOT_MODEL` / `PI_MODEL`, e.g. `dynamic/<route>`). codeflare holds no provider keys; BYOK lives in the gateway.
+- `api.anthropic.com` is no longer intercepted and Claude Code is not selectable in enterprise mode; Anthropic models remain available via Copilot/Pi by model id.
+- `AIG_TOKEN` and `AIG_GATEWAY_URL` are reused unchanged: the token moves from the `cf-aig-authorization` header to `Authorization`; the URL is now also parsed for account + gateway. No new secret or deploy var.
+- Flag-unset parity preserved: when `ENTERPRISE_MODE` is unset the interceptor is never instantiated and non-enterprise behavior is byte-identical.
+- Operator dependency: third-party models require BYOK provider keys (or Unified Billing) configured on the gateway; a dynamic route is the recommended way to consume BYOK keys with availability/rate-limit/budget control.
+
+**Related:** [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) (interception mechanism, unchanged), [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode), [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var).
 
 ---
 

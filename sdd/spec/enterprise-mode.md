@@ -99,9 +99,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-<!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (enterprise agent allowlist describe -> session creation accepts only claude-code/copilot/pi/bash when enterprise + rejects the other three + accepts all seven when flag unset -> AC1..AC4) -->
+<!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (enterprise agent allowlist describe -> session creation accepts only copilot/pi/bash when enterprise + rejects the other four (claude-code/codex/antigravity/opencode) + accepts all seven when flag unset -> AC1..AC4) -->
 ### REQ-ENTERPRISE-003: Agent Allowlist in Enterprise Mode
 
+<!-- @impl: src/lib/agent-allowlist.ts::allowedAgents -->
 <!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 <!-- @impl: src/routes/session/crud.ts -->
 <!-- @impl: src/types.ts::AgentTypeSchema -->
@@ -112,7 +113,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, the selectable agent set is exactly `{claude-code, copilot, pi, bash}`.
+1. When `ENTERPRISE_MODE` is set, the selectable agent set is exactly `{copilot, pi, bash}`.
 2. When `ENTERPRISE_MODE` is set, session creation rejects any agent type outside the enterprise allowlist.
 3. When `ENTERPRISE_MODE` is set, the session-creation UI offers only the allowlisted agents.
 4. When `ENTERPRISE_MODE` is unset, all seven agent types from [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) remain selectable, byte-identical to current behavior.
@@ -121,6 +122,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 - The allowlist is applied on top of the existing agent-type validation; it narrows the set rather than replacing the schema.
 - The enterprise allowlist is a fixed set, not admin-configurable, in this domain.
+- The set is OpenAI-wire-format agents only (plus `bash`): their traffic routes through the AI Gateway REST API ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). Claude Code is excluded because it speaks the Anthropic-native wire format, which the gateway REST transport does not carry ([AD74](../../documentation/decisions/README.md)).
 
 **Priority:** P1
 
@@ -132,7 +134,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-<!-- @test: src/__tests__/llm-interceptor.test.ts (LlmInterceptor describe -> host->gateway provider-path mapping (anthropic keeps /v1, compat drops /v1) + cf-aig-authorization + cf-aig-metadata stamped with opaque user + placeholder auth stripped + streaming preserved + unmapped host 400 + gateway-unset 503 -> AC1..AC7) -->
+<!-- @test: src/__tests__/llm-interceptor.test.ts (LlmInterceptor describe -> api.openai.com mapped onto the AI Gateway REST API (api.cloudflare.com/.../ai/v1/*) with account+gateway parsed from AIG_GATEWAY_URL + Authorization Bearer AIG_TOKEN + cf-aig-gateway-id + cf-aig-metadata stamped with opaque user + placeholder auth replaced + streaming preserved + unmapped host (incl. api.anthropic.com) 400 + gateway-unset/unparseable 503 -> AC1..AC7) -->
 <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (enterprise bypass describe -> monthly compute quota never enforced AC3 — enterprise users are never blocked by the monthly compute quota) -->
 ### REQ-ENTERPRISE-004: Outbound-Interception LLM Routing to Customer AI Gateway
 
@@ -146,12 +148,12 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. The container DO routes the container's outbound HTTPS to the real LLM provider hosts (`api.anthropic.com`, `api.openai.com`) through a `WorkerEntrypoint` (`LlmInterceptor`) via `ctx.container.interceptOutboundHttps` + `ctx.exports`; the interceptor forwards each request to the customer's AI Gateway provider path.
-2. The AI Gateway URL and token are read only from the interceptor's Worker env (`AIG_GATEWAY_URL`, `AIG_TOKEN`) and are never sent to or readable from the container; there is no public Worker route carrying LLM traffic, so the path never traverses Cloudflare Access.
+1. The container DO routes the container's outbound HTTPS to the real LLM provider host (`api.openai.com`) through a `WorkerEntrypoint` (`LlmInterceptor`) via `ctx.container.interceptOutboundHttps` + `ctx.exports`; the interceptor forwards each request to the customer's AI Gateway **REST API** (`https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/*`), mapping the OpenAI path verbatim under `/ai`.
+2. The AI Gateway URL and token are read only from the interceptor's Worker env (`AIG_GATEWAY_URL`, `AIG_TOKEN`) and are never sent to or readable from the container; there is no public Worker route carrying LLM traffic, so the path never traverses Cloudflare Access. The account id (URL path) and gateway id (`cf-aig-gateway-id` header) are parsed from `AIG_GATEWAY_URL`.
 3. Streaming responses are preserved end-to-end (the upstream stream is piped through without buffering the full body).
-4. Each forwarded request stamps `cf-aig-authorization` with the gateway token and `cf-aig-metadata` with an opaque per-user identifier (the bucket id, passed as a per-session DO prop) that does not expose the user's email or raw identity.
+4. Each forwarded request stamps the standard `Authorization: Bearer <AIG_TOKEN>` header (the REST API gateway auth), `cf-aig-gateway-id` with the gateway id, and `cf-aig-metadata` with an opaque per-user identifier (the bucket id, passed as a per-session DO prop) that does not expose the user's email or raw identity.
 5. The container's placeholder credential (`Authorization` / `x-api-key`) is stripped before forwarding so it never reaches the gateway; gateway auth is stamped separately.
-6. The interceptor maps only the known provider hosts; an unmapped host fails closed (400) and an unconfigured gateway fails closed (503) — neither forwards anywhere.
+6. The interceptor maps only the known provider host (`api.openai.com`); an unmapped host (including `api.anthropic.com`, which is not an enterprise agent host) fails closed (400) and an unconfigured/unparseable gateway fails closed (503) — neither forwards anywhere.
 7. When `ENTERPRISE_MODE` is unset, the DO never wires interception, the interceptor is never instantiated, and agent LLM traffic follows the current direct-key path, byte-identical to current behavior.
 
 **Constraints:**
@@ -159,6 +161,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - Interception uses the Cloudflare Containers platform mechanism (`interceptOutboundHttps` + `ctx.exports`, on by default at this project's compat date — the `enable_ctx_exports` flag became the default on 2025-11-17, so no flag is set); HTTPS interception requires the container to trust the CA at `/etc/cloudflare/certs/cloudflare-containers-ca.crt` ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)).
 - The opaque per-user id is the deterministic bucket id so requests from one user are correlatable in the gateway without revealing the identity.
 - The set of intercepted provider hosts is fixed in code; adding a provider requires a code change, not a request parameter.
+- The transport target is the AI Gateway REST API (`api.cloudflare.com`), not the deprecated `gateway.ai.cloudflare.com` `/compat` + provider-native paths ([AD74](../../documentation/decisions/README.md)). Because the enterprise agents are OpenAI-wire-format only ([REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode)), the interceptor forwards the request body unchanged — no model rewrite. Backend selection (native provider, Amazon Bedrock, Workers AI, or a dynamic route) is gateway-side via the agent's configured model id.
 
 **Priority:** P1
 
@@ -185,7 +188,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. When `ENTERPRISE_MODE` is set, the container env pipeline emits exactly one enterprise env var, `ENTERPRISE_MODE=active`, derived directly from the Worker deploy var — no per-session base-URL or token is ever injected.
 2. When `ENTERPRISE_MODE=active`, entrypoint.sh installs the Cloudflare containers CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`) into the system trust store and exports the Node/Python CA env hooks so the agents' HTTPS clients trust the intercepted (TLS-terminated) connections.
-3. When `ENTERPRISE_MODE=active`, entrypoint.sh points each agent at the constant real provider base-URL with a non-secret placeholder credential: Claude via `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`, Copilot via `COPILOT_PROVIDER_BASE_URL`/`COPILOT_PROVIDER_API_KEY`, Pi via its `models.json` provider — so each CLI enters API mode without a login step.
+3. When `ENTERPRISE_MODE=active`, entrypoint.sh points each enterprise agent at the constant real provider base-URL (`api.openai.com`) with a non-secret placeholder credential: Copilot via `COPILOT_PROVIDER_BASE_URL`/`COPILOT_PROVIDER_API_KEY`, Pi via its `models.json` provider — so each CLI enters API mode without a login step. Claude Code is not configured (excluded from the enterprise agent set — [REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode)).
 4. The container never receives the AI Gateway URL, the gateway token, or any per-session secret; routing to the gateway is done entirely by the DO's outbound interception ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)).
 5. When `ENTERPRISE_MODE` is unset, `ENTERPRISE_MODE` is not emitted, the entrypoint.sh block is skipped, and the container env is byte-identical to current behavior.
 
@@ -220,12 +223,13 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. `AIG_GATEWAY_URL` and `AIG_TOKEN` are configured as Worker secrets so they are not stored in plaintext config or exposed to the container.
 2. `ENTERPRISE_MODE` is configured as a Worker var (non-secret) read by the enterprise-mode resolver.
 3. Enterprise Mode is off by default: an absent or empty `ENTERPRISE_MODE` binding resolves to disabled.
-4. When `ENTERPRISE_MODE` is enabled, the interceptor fails closed (503) if the `AIG_GATEWAY_URL` secret is missing, rather than silently routing to nowhere, and the DO logs a warning when it skips interception wiring.
+4. When `ENTERPRISE_MODE` is enabled, the interceptor fails closed (503) if the `AIG_GATEWAY_URL` secret is missing or unparseable (no `/v1/{account_id}/{gateway_id}` segments), rather than silently routing to nowhere, and the DO logs a warning when it skips interception wiring.
 
 **Constraints:**
 
 - The flag is evaluated at deploy time from bindings, consistent with the deployment-mode determination in [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes).
 - Secrets are never written to the container env; the only enterprise env var the container receives is the `ENTERPRISE_MODE` flag ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)).
+- `AIG_GATEWAY_URL` is the single source for the gateway coordinates: the interceptor parses the account id and gateway id from it for the REST API call ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC2), so no separate account-id binding is required.
 
 **Priority:** P1
 

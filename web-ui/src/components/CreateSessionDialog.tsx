@@ -41,9 +41,11 @@ export const AGENT_OPTIONS: AgentOption[] = [
   { type: 'bash', label: 'Bash', icon: mdiConsole, description: 'Plain terminal session' },
 ];
 
-// Enterprise mode restricts the agent set to the gateway-routed agents.
-// When enterpriseMode is unset/false, the full AGENT_OPTIONS list renders.
-const ENTERPRISE_AGENT_TYPES: AgentType[] = ['claude-code', 'copilot', 'pi', 'bash'];
+// Enterprise mode restricts the agent set to the gateway-routed agents (the
+// OpenAI-wire-format harnesses + bash). Mirrors ENTERPRISE_AGENTS in
+// src/lib/agent-allowlist.ts. When enterpriseMode is unset/false, the full
+// AGENT_OPTIONS list renders.
+const ENTERPRISE_AGENT_TYPES: AgentType[] = ['copilot', 'pi', 'bash'];
 
 const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
   let dialogRef: HTMLDivElement | undefined;

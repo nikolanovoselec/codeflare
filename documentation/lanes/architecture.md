@@ -71,7 +71,7 @@ For Container DO internals including the `collectMetrics()` loop, `destroy()` ov
 
 **File:** `src/llm-interceptor.ts`
 
-A `WorkerEntrypoint` that transparently proxies agent LLM traffic to the customer's AI Gateway when `ENTERPRISE_MODE=active`. Instantiated per container session by the Container DO via `ctx.container.interceptOutboundHttps` + `ctx.exports`. The interceptor receives every outbound HTTPS connection the container opens to the real LLM provider hosts (`api.anthropic.com`, `api.openai.com`), strips the placeholder credential injected by `entrypoint.sh`, and forwards the request to the customer's AI Gateway with the real gateway token (`AIG_TOKEN`) and the rewritten host path.
+A `WorkerEntrypoint` that transparently proxies agent LLM traffic to the customer's AI Gateway when `ENTERPRISE_MODE=active`. Instantiated per container session by the Container DO via `ctx.container.interceptOutboundHttps` + `ctx.exports`. The interceptor receives every outbound HTTPS connection the container opens to the LLM provider host (`api.openai.com`), maps it onto the AI Gateway **REST API** (`https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/<path>`), strips the placeholder credential injected by `entrypoint.sh`, and forwards with the real gateway token as a standard `Authorization: Bearer <AIG_TOKEN>` header plus a `cf-aig-gateway-id` header. The account id and gateway id are parsed from `AIG_GATEWAY_URL`. Only OpenAI-wire-format agents (Copilot, Pi) run in enterprise mode, so the request body is forwarded unchanged — no model rewrite. See [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for the REST transport (it amends [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing), whose interception mechanism is unchanged).
 
 `ctx.exports` is default-on at the project's compat date (`2026-02-05`). No `enable_ctx_exports` compat flag is needed.
 
@@ -331,27 +331,27 @@ flowchart TD
 
 ### Enterprise LLM Routing
 
-Applies only when `ENTERPRISE_MODE=active`. The Container DO wires outbound-HTTPS interception before starting the container; from that point every HTTPS connection the container makes to the real LLM provider hosts is transparently TLS-terminated by the `LlmInterceptor` WorkerEntrypoint and re-issued to the customer's AI Gateway. The container never sees the gateway credentials.
+Applies only when `ENTERPRISE_MODE=active`. The Container DO wires outbound-HTTPS interception before starting the container; from that point every HTTPS connection the container makes to the LLM provider host (`api.openai.com`) is transparently TLS-terminated by the `LlmInterceptor` WorkerEntrypoint and re-issued to the customer's AI Gateway REST API. The container never sees the gateway credentials.
 
 ```mermaid
 sequenceDiagram
     participant C as Container (agent CLI)
     participant I as LlmInterceptor (WorkerEntrypoint)
-    participant G as Customer AI Gateway
-    participant P as LLM Provider (Anthropic / OpenAI)
+    participant G as AI Gateway REST API
+    participant P as Backend (OpenAI / Bedrock / Workers AI / dynamic route)
 
-    Note over C: entrypoint.sh:<br/>- Trusts CF containers CA<br/>- Sets placeholder credential<br/>- Points agent at real provider URL
-    C->>I: HTTPS to api.anthropic.com<br/>(TLS intercepted by platform;<br/>placeholder Bearer stripped)
-    I->>G: Forward with AIG_TOKEN<br/>to gateway provider path
-    G->>P: Authenticated request
+    Note over C: entrypoint.sh:<br/>- Trusts CF containers CA<br/>- Sets placeholder credential<br/>- Points agent at api.openai.com
+    C->>I: HTTPS to api.openai.com<br/>(TLS intercepted by platform;<br/>placeholder Bearer stripped)
+    I->>G: POST api.cloudflare.com/.../ai/v1/<path><br/>Authorization: Bearer AIG_TOKEN<br/>cf-aig-gateway-id: <gateway>
+    G->>P: Routed by model id (gateway-side)
     P-->>G: Response
     G-->>I: Response
     I-->>C: Response (transparent)
 ```
 
-**CA trust:** The platform TLS-terminates each intercepted connection and presents a certificate signed by the Cloudflare containers CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`). `entrypoint.sh` installs this CA into the system trust store and sets `NODE_EXTRA_CA_CERTS` / `REQUESTS_CA_BUNDLE` so all agent runtimes (Claude binary, Node, Python) trust the intercepted connections without errors.
+**CA trust:** The platform TLS-terminates each intercepted connection and presents a certificate signed by the Cloudflare containers CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`). `entrypoint.sh` installs this CA into the system trust store and sets `NODE_EXTRA_CA_CERTS` / `REQUESTS_CA_BUNDLE` so all agent runtimes (Node, Python) trust the intercepted connections without errors.
 
-**Credential flow:** `AIG_GATEWAY_URL` and `AIG_TOKEN` are Worker secrets. They reach `LlmInterceptor` through the Worker environment only — never through the container env. The placeholder credential (`codeflare-enterprise`) written by `entrypoint.sh` is what puts each agent CLI into API mode; the interceptor strips it before forwarding. See [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) for the transport choice rationale.
+**Credential flow:** `AIG_GATEWAY_URL` and `AIG_TOKEN` are Worker secrets. They reach `LlmInterceptor` through the Worker environment only — never through the container env. The account id and gateway id are parsed from `AIG_GATEWAY_URL`; the token is sent as a standard `Authorization: Bearer` header on the REST API. The placeholder credential (`codeflare-enterprise`) written by `entrypoint.sh` is what puts each agent CLI into API mode; the interceptor strips it before forwarding. **Backend selection** — native provider, Amazon Bedrock, Workers AI, or a dynamic route — is entirely gateway-side via each agent's configured model id; codeflare holds no provider keys (BYOK lives in the gateway). See [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) for the interception mechanism and [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for the REST API transport.
 
 ---
 

@@ -1,14 +1,15 @@
 /**
  * REQ-ENTERPRISE-003: Agent allowlist at session creation.
  *
- * Enterprise deploys restrict the selectable agent set to
- * {claude-code, copilot, pi, bash}. A POST /api/sessions with an agentType
- * outside that set is rejected 400 only when ENTERPRISE_MODE=active. When the
- * flag is unset, all seven agents are accepted exactly as today (the allowlist
- * is a runtime filter, not an enum change — the zod enum still validates all 7).
+ * Enterprise deploys restrict the selectable agent set to {copilot, pi, bash}
+ * (OpenAI-wire-format agents only; Claude Code is excluded — AD74). A POST
+ * /api/sessions with an agentType outside that set is rejected 400 only when
+ * ENTERPRISE_MODE=active. When the flag is unset, all seven agents are accepted
+ * exactly as today (the allowlist is a runtime filter, not an enum change — the
+ * zod enum still validates all 7).
  *
- * AC1. Enterprise: a non-allowlisted agentType (codex/antigravity/opencode) is rejected 400.
- * AC2. Enterprise: each allowlisted agent (claude-code/copilot/pi/bash) is accepted 201.
+ * AC1. Enterprise: a non-allowlisted agentType (claude-code/codex/antigravity/opencode) is rejected 400.
+ * AC2. Enterprise: each allowlisted agent (copilot/pi/bash) is accepted 201.
  * AC3. flag-off regression: all seven agents are accepted 201.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -62,7 +63,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
   }
 
   // ── AC1: enterprise rejects non-allowlisted agents ──
-  it.each(['codex', 'antigravity', 'opencode'])(
+  it.each(['claude-code', 'codex', 'antigravity', 'opencode'])(
     "AC1: agentType '%s' is rejected 400 when ENTERPRISE_MODE=active",
     async (agentType) => {
       const app = createApp({ ENTERPRISE_MODE: 'active' });
@@ -78,7 +79,7 @@ describe('REQ-ENTERPRISE-003: Agent allowlist at session creation', () => {
   );
 
   // ── AC2: enterprise accepts allowlisted agents ──
-  it.each(['claude-code', 'copilot', 'pi', 'bash'])(
+  it.each(['copilot', 'pi', 'bash'])(
     "AC2: allowlisted agentType '%s' is accepted 201 when ENTERPRISE_MODE=active",
     async (agentType) => {
       const app = createApp({ ENTERPRISE_MODE: 'active' });
