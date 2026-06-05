@@ -481,3 +481,17 @@ CVE-2026-8643
 # exposure profile as the Archive::Tar perl entries above (CVE-2026-42496 /
 # CVE-2026-42497 / CVE-2026-9538). No fixed version available in Debian bookworm.
 CVE-2026-48962
+
+# cpython 3.11 (libpython3.11-minimal, libpython3.11-stdlib, python3.11,
+# python3.11-minimal, python3.11-venv; 3.11.2-6+deb12u7, Debian bookworm): two
+# new stdlib advisories. python3 is added for ECC observe hooks only (stdlib,
+# run locally on tool-use events) — no network services and no untrusted input
+# reach the stdlib parsers. Same package and exposure profile as the existing
+# cpython 3.11 entries above (CVE-2026-7210, CVE-2026-6100, CVE-2025-69534, etc.).
+# No fixed version available in Debian bookworm.
+#
+# CVE-2026-3644: incomplete control character validation in the stdlib.
+# CVE-2026-4224: stack overflow parsing XML with a deeply nested DTD (XML DoS;
+#                same no-untrusted-XML rationale as CVE-2026-7210 above).
+CVE-2026-3644
+CVE-2026-4224
