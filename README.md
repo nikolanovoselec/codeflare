@@ -227,6 +227,8 @@ Enterprise mode deploys Codeflare inside **your own Cloudflare account** as a si
 
 You manage the actual provider API keys, model routing, budgets, rate limits, guardrails, and logging in the **AI Gateway dashboard** — none of that lives in Codeflare. Each request is stamped with an opaque per-user id (`cf-aig-metadata`, never an email) so per-user usage is attributable in your gateway analytics.
 
+**Deploying an enterprise instance.** Keep the enterprise settings in a dedicated `enterprise` GitHub Environment (`Settings` → `Environments` → `New environment`): the `ENTERPRISE_MODE` variable, the `AIG_GATEWAY_URL` + `AIG_TOKEN` secrets, a `CLOUDFLARE_WORKER_NAME` (e.g. `codeflare-enterprise`), and — when the target is a **separate** Cloudflare account — that account's own `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` environment secrets (env secrets override the repo-level ones). Deploy from `Actions` → `Deploy` → `Run workflow`, Branch `main`, target `enterprise`. The `enterprise` target auto-enables its `*.workers.dev` URL, so no custom domain is needed to get started — the setup wizard configures the rest on first run. To stand up another tenant, point the same four account/gateway values at that tenant (one environment per tenant).
+
 #### E2E testing
 
 E2E tests authenticate via the `X-Service-Auth` header. Set **one** of the two secrets below depending on your auth mode. The deploy workflow injects it as `SERVICE_AUTH_SECRET` on the Worker. When neither is set, the service auth path is disabled and no one can authenticate via `X-Service-Auth` (safe by design).
