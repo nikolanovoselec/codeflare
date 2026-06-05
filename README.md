@@ -41,7 +41,7 @@ Cloudflare Containers run as root, and both Claude Code and Antigravity launch w
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
   - [Required (every deployment)](#required-every-deployment)
-  - [Default mode — what you get with zero extra config](#default-mode--what-you-get-with-zero-extra-config)
+  - [Default mode: what you get with zero extra config](#default-mode-what-you-get-with-zero-extra-config)
   - [Choosing a mode](#choosing-a-mode)
   - [Settings reference](#settings-reference)
   - [What to set per mode](#what-to-set-per-mode)
@@ -197,7 +197,7 @@ The deploy workflow reads each value and applies it automatically — as a Worke
 | `CLOUDFLARE_API_TOKEN` | Secret | Deploys the Worker and manages KV, R2, Containers, and Access (see [scopes](#api-token-scopes)) |
 | `CLOUDFLARE_ACCOUNT_ID` | Secret | Identifies the Cloudflare account to deploy into |
 
-### Default mode — what you get with zero extra config
+### Default mode: what you get with zero extra config
 
 With **only** the two required secrets, your instance runs in Default mode:
 
