@@ -140,6 +140,19 @@ describe('REQ-ENTERPRISE-004: placeholder-auth stripping', () => {
     expect(lastFetch?.headers.get('x-api-key')).toBeNull();
     expect(lastFetch?.headers.get('x-custom')).toBe('keepme');
   });
+
+  it('AC4: a client-supplied cf-aig-gateway-id is overwritten with the interceptor-derived gateway id', async () => {
+    await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'cf-aig-gateway-id': 'attacker-gateway' },
+        body: '{}',
+      }),
+    );
+    // cf-aig-* control headers are interceptor-owned: the client value is replaced
+    // by the gateway id parsed from AIG_GATEWAY_URL, never honoured.
+    expect(lastFetch?.headers.get('cf-aig-gateway-id')).toBe('gw');
+  });
 });
 
 describe('REQ-ENTERPRISE-004: streaming passthrough (no buffering)', () => {

@@ -51,7 +51,11 @@ const STRIPPED_HEADERS: readonly string[] = [
   'x-api-key',
   'host',
   'content-length',
+  // cf-aig-* control headers are interceptor-owned: strip any client-supplied
+  // value so they are set only from the Worker env / DO props below, never the
+  // container. (cf-aig-gateway-id and cf-aig-metadata are re-set after stripping.)
   'cf-aig-metadata',
+  'cf-aig-gateway-id',
 ];
 
 /**
@@ -85,7 +89,7 @@ interface InterceptorProps {
  * value, so the migration needs no new secret. Returns null when absent or
  * unparseable so the caller can fail closed.
  */
-export function parseGateway(raw: string | undefined): { accountId: string; gatewayId: string } | null {
+function parseGateway(raw: string | undefined): { accountId: string; gatewayId: string } | null {
   if (!raw) return null;
   const m = raw.match(/\/v1\/([^/?#]+)\/([^/?#]+)/);
   if (!m) return null;
