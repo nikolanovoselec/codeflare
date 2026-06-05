@@ -230,7 +230,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Constraints:**
 
 - The flag is evaluated at deploy time from bindings, consistent with the deployment-mode determination in [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes).
-- Secrets are never written to the container env; the only enterprise env var the container receives is the `ENTERPRISE_MODE` flag ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)).
+- Secrets are never written to the container env; the enterprise env vars the container receives are the `ENTERPRISE_MODE` flag and, when `AIG_LANGUAGE_MODEL` is set, the non-secret model-id vars `COPILOT_MODEL` / `PI_MODEL` — all derived from Worker deploy vars, never from session state ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1).
 - `AIG_GATEWAY_URL` is the single source for the gateway coordinates: the interceptor parses the account id and gateway id from it for the REST API call ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC2), so no separate account-id binding is required.
 
 **Priority:** P1
