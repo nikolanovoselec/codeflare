@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -83,6 +83,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD70](#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | Container exit writes KV `stopped`; no read-side reconciliation | Architecture |
 | [AD71](#ad71-preseed-corpus-statically-imported-into-the-worker-bundle-bound-by-compressed-bundle-size-ci-guarded) | Preseed corpus statically imported into the Worker bundle; bound by compressed bundle size, CI-guarded | Architecture |
 | [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) | Outbound-HTTPS interception over a Worker-side LLM proxy for enterprise gateway routing | Architecture, Security |
+| [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) | workers.dev enabled on every deployment for setup-wizard bootstrap | Security |
 
 ---
 
@@ -1327,6 +1328,26 @@ Two facts from the SB 2.8.1 source reshape the fix. First, SB's real service wor
 - Trade-off accepted: the platform interception mechanism is Cloudflare-specific. If the project were ever migrated off Cloudflare Containers, enterprise gateway routing would need a different mechanism (likely option 1 or 2).
 
 **Related:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [Architecture - Enterprise LLM Routing](../lanes/architecture.md#enterprise-llm-routing), [Security - Enterprise Mode](../lanes/security.md#enterprise-mode-credential-containment-and-ca-trust).
+
+### AD73: workers.dev enabled on every deployment for setup-wizard bootstrap
+
+**Category:** Security
+
+**Status:** Accepted (2026-06-05)
+
+**Context:** The setup wizard bootstraps on the `<worker>.<account>.workers.dev` URL — on a fresh deploy that is the only reachable host, because the custom domain does not exist until the wizard provisions it. An earlier config set `workers_dev = false` to lock the deployment to the custom domain only (citing OAuth host-mismatch risk and a larger auth surface). That is a chicken-and-egg break: a first-time deploy into a fresh account — most importantly an Enterprise tenant in a separate Cloudflare account — has no custom domain and therefore no URL at all, so the wizard can never run. Disabling workers.dev makes initial setup impossible.
+
+**Decision:** Set `workers_dev = true` in `wrangler.toml` for every deployment and every environment (production, integration, enterprise, and any future target). The workers.dev URL is the mandatory bootstrap host the wizard runs on; after it provisions a custom domain, normal traffic flows through that domain while the workers.dev URL remains the always-available bootstrap/fallback host. The earlier enterprise-only deploy-time `sed` that flipped the flag was removed in favor of this single source of truth.
+
+**Consequences:**
+
+- Initial setup works on any fresh deploy, including a brand-new Cloudflare account, with no manual custom-domain step first.
+- Every deployment also exposes a public `*.workers.dev` URL alongside its custom domain. This does not bypass authentication: every protected route is gated regardless of host — Cloudflare Access in default/enterprise mode, GitHub-OIDC session cookies in SaaS mode (see [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation), [AD68](#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted)).
+- **Operator responsibility:** turning on Cloudflare Access for the `*.workers.dev` hostname is the operator's job, not the deployment's. The deploy enables the URL but cannot attach an Access policy to it; in CF Access mode the operator must enable Cloudflare Access on the workers.dev hostname in the Cloudflare dashboard so the bootstrap URL is not left open after setup. (The wizard configures Access for the custom domain; the workers.dev host is the operator's to protect.)
+- The `.workers.dev` CORS allowance is an already-accepted, bounded trade-off ([AD11](#ad11-suffix-pattern-cors-with-credentials)): dot-prefixed matching prevents `evilworkers.dev`, and custom domains supersede the wildcard after setup.
+- The pre-setup window (before auth is configured) is the same bounded bootstrap window analyzed in [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation): seconds-to-minutes, operator/self-hosted audience, idempotent setup.
+
+**Related:** [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation), [AD11](#ad11-suffix-pattern-cors-with-credentials), [AD68](#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted), [Architecture](../lanes/architecture.md), [Configuration](../lanes/configuration.md).
 
 ---
 
