@@ -4,6 +4,7 @@ import { verifySessionJWT, SESSION_JWT_AUD } from './session-jwt';
 import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';
 import { isSaasModeActive } from './onboarding';
+import { isEnterpriseMode } from './subscription';
 import { sendWelcomeEmail } from './email';
 import { parseUserRecord } from './user-record';
 import { SETUP_KEYS } from './kv-keys';
@@ -468,6 +469,119 @@ export async function resolveOrProvisionUser(
 }
 
 /**
+ * Check whether the Access-authenticated user is a member of the required
+ * Cloudflare Access group, by calling the Access get-identity endpoint with the
+ * user's CF_Authorization token. Fails CLOSED (returns false) on any missing
+ * input or error — an enterprise group gate must never admit on uncertainty.
+ *
+ * get-identity lives on the team auth domain
+ * (`https://<team>.cloudflareaccess.com/cdn-cgi/access/get-identity`) and returns
+ * the full identity including the user's group membership. The exact shape of the
+ * groups field can vary by IdP, so membership is matched defensively against a
+ * group's name, id, or email (and against a plain string element).
+ */
+async function isUserInAccessGroup(
+  accessToken: string | null,
+  authDomain: string | null | undefined,
+  requiredGroup: string,
+): Promise<boolean> {
+  if (!accessToken || !authDomain) {
+    logger.warn('Enterprise group gate: missing token or auth domain — denying', {
+      hasToken: !!accessToken,
+      hasDomain: !!authDomain,
+    });
+    return false;
+  }
+  try {
+    const response = await fetch(`https://${authDomain}/cdn-cgi/access/get-identity`, {
+      method: 'GET',
+      headers: { Cookie: `CF_Authorization=${accessToken}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) {
+      logger.warn('Enterprise group gate: get-identity returned non-OK — denying', { status: response.status });
+      return false;
+    }
+    const identity = (await response.json()) as { groups?: unknown };
+    const groups = Array.isArray(identity?.groups) ? identity.groups : [];
+    return groups.some((g) => {
+      if (typeof g === 'string') return g === requiredGroup;
+      if (g && typeof g === 'object') {
+        const rec = g as { id?: unknown; name?: unknown; email?: unknown };
+        return rec.id === requiredGroup || rec.name === requiredGroup || rec.email === requiredGroup;
+      }
+      return false;
+    });
+  } catch (err) {
+    logger.warn('Enterprise group gate: get-identity call failed — denying', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
+/**
+ * Resolve an existing user from KV, or JIT-provision a new ENTERPRISE user.
+ *
+ * Enterprise deployments delegate identity to the customer's Cloudflare Access:
+ * any Access-authenticated user entitled to the deployment is provisioned
+ * automatically on first access as a custom `unlimited` user. Entitlement is the
+ * presence of a valid Access JWT (verified upstream by {@link getUserFromRequest});
+ * when `ENTERPRISE_ACCESS_GROUP` is configured at setup, membership in that group
+ * is additionally verified via {@link isUserInAccessGroup} and non-members are
+ * rejected with the standard `ForbiddenError` (the same response a non-allowlisted
+ * user gets in non-SaaS mode).
+ *
+ * Existing records (a setup admin or a prior JIT user) are returned unchanged —
+ * JIT never overwrites a role or downgrades an admin. No welcome email is sent
+ * (the customer's own directory owns onboarding). REQ-ENTERPRISE-010.
+ */
+export async function resolveOrProvisionEnterpriseUser(
+  kv: KVNamespace,
+  email: string,
+  accessToken: string | null,
+  authDomain: string | null | undefined
+): Promise<{ role: UserRole; accessTier: AccessTier; subscriptionTier?: SubscriptionTier; subscribedMode?: 'default' | 'advanced'; billingStatus?: BillingStatus; billingPeriodEnd?: string }> {
+  const normalizedEmail = normalizeEmail(email);
+  const kvEntry = await resolveUserFromKV(kv, normalizedEmail);
+
+  if (kvEntry) {
+    // Existing record (setup admin or prior enterprise-jit user) — return as-is,
+    // never overwrite the role or downgrade an admin.
+    return {
+      role: kvEntry.role,
+      accessTier: kvEntry.accessTier ?? 'advanced',
+      subscriptionTier: kvEntry.subscriptionTier,
+      subscribedMode: kvEntry.subscribedMode,
+      billingStatus: kvEntry.billingStatus,
+      billingPeriodEnd: kvEntry.billingPeriodEnd,
+    };
+  }
+
+  // Unknown user. Optional group gate against a customer-managed Access group.
+  const requiredGroup = await kv.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP);
+  if (requiredGroup) {
+    const inGroup = await isUserInAccessGroup(accessToken, authDomain, requiredGroup);
+    if (!inGroup) {
+      throw new ForbiddenError('User not in allowlist');
+    }
+  }
+
+  // Provision a custom unlimited user. Concurrent first-logins write identical
+  // records (benign). accessTier 'advanced' is the highest real access tier
+  // ('unlimited' is a subscription tier, not an access tier). No welcome email.
+  await kv.put(`user:${normalizedEmail}`, JSON.stringify({
+    addedBy: 'enterprise-jit',
+    addedAt: new Date().toISOString(),
+    role: 'user',
+    accessTier: 'advanced',
+    subscriptionTier: 'unlimited',
+  }));
+
+  return { role: 'user', accessTier: 'advanced', subscriptionTier: 'unlimited', subscribedMode: 'advanced' };
+}
+
+/**
  * Authenticate a request and resolve user identity + bucket name.
  * Shared between authMiddleware (Hono routes) and handleWebSocketUpgrade (raw handler).
  *
@@ -521,6 +635,18 @@ export async function authenticateRequest(
   if (rawUser.role) {
     const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
     return { user: { ...rawUser, email: normalizedEmail }, bucketName };
+  }
+
+  // Enterprise mode: JIT-provision the Access-authenticated user (optionally gated
+  // by ENTERPRISE_ACCESS_GROUP). Gated entirely on ENTERPRISE_MODE=active, so the
+  // SaaS and non-SaaS branches below are byte-identical when the flag is unset.
+  // REQ-ENTERPRISE-010.
+  if (isEnterpriseMode(env)) {
+    const accessToken = extractAccessJwt(request);
+    const { authDomain } = await loadAuthConfig(env);
+    const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = await resolveOrProvisionEnterpriseUser(env.KV, normalizedEmail, accessToken, authDomain);
+    const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+    return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd }, bucketName };
   }
 
   // SaaS mode: use resolveOrProvisionUser for JIT provisioning + accessTier

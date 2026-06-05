@@ -141,4 +141,37 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
     });
   });
 
+  describe('REQ-ENTERPRISE-010: setup exposes the enterprise access group', () => {
+    it('GET /status returns enterpriseMode:true when ENTERPRISE_MODE=active', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/status');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { enterpriseMode?: boolean };
+      expect(body.enterpriseMode).toBe(true);
+    });
+
+    it('GET /status returns enterpriseMode:false when the flag is unset (regression)', async () => {
+      const app = createApp();
+      const res = await app.request('/setup/status');
+      const body = await res.json() as { enterpriseMode?: boolean };
+      expect(body.enterpriseMode).toBe(false);
+    });
+
+    it('GET /prefill round-trips the stored ENTERPRISE_ACCESS_GROUP', async () => {
+      mockKV._store.set('setup:enterprise_access_group', 'Codeflare-Users');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { enterpriseAccessGroup?: string };
+      expect(body.enterpriseAccessGroup).toBe('Codeflare-Users');
+    });
+
+    it('GET /prefill returns an empty group string when none is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as { enterpriseAccessGroup?: string };
+      expect(body.enterpriseAccessGroup).toBe('');
+    });
+  });
+
 });

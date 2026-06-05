@@ -35,6 +35,9 @@ const ConfigureBodySchema = z.object({
     z.string().min(1).regex(/^\.[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$/,
       'Origin patterns must start with . and contain valid domain segments (e.g., .workers.dev)')
   ).optional(),
+  // Enterprise-only: names a customer-managed Cloudflare Access group that gates
+  // JIT provisioning (REQ-ENTERPRISE-010). Absent for non-enterprise setups.
+  enterpriseAccessGroup: z.string().max(256).optional(),
 }).refine(
   (data) => data.adminUsers.every((admin) => data.allowedUsers.includes(admin)),
   { message: 'All adminUsers must also be in allowedUsers', path: ['adminUsers'] }
@@ -80,7 +83,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   // During reconfiguration, prevent admin from removing themselves
@@ -254,6 +257,18 @@ app.post('/configure', async (c) => {
 
       // Store custom domain in KV (case-insensitive per RFC 4343)
       await c.env.KV.put(SETUP_KEYS.CUSTOM_DOMAIN, customDomain.toLowerCase());
+
+      // Enterprise: persist (or clear) the optional Access group that gates JIT
+      // provisioning. Only acts when the field is present in the body — absent for
+      // non-enterprise setups, so no other deployment mode is affected.
+      if (enterpriseAccessGroup !== undefined) {
+        const trimmedGroup = enterpriseAccessGroup.trim();
+        if (trimmedGroup) {
+          await c.env.KV.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, trimmedGroup);
+        } else {
+          await c.env.KV.delete(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP);
+        }
+      }
 
       // Build combined allowed origins list
       const combinedOrigins = new Set<string>(allowedOrigins || []);

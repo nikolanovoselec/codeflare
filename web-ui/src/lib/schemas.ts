@@ -182,6 +182,7 @@ export const SetupStatusResponseSchema = z.object({
   tokenDetected: z.boolean().optional(),
   customDomain: z.string().optional(),
   saasMode: z.boolean().optional(),
+  enterpriseMode: z.boolean().optional(),
 });
 
 export const DetectTokenResponseSchema = z.object({
@@ -195,6 +196,7 @@ export const SetupPrefillResponseSchema = z.object({
   customDomain: z.string().optional(),
   adminUsers: z.array(z.string()).default([]),
   allowedUsers: z.array(z.string()).default([]),
+  enterpriseAccessGroup: z.string().optional(),
 });
 
 // User management schemas - moved from client.ts (strict versions)

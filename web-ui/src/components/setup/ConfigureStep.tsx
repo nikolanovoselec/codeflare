@@ -122,6 +122,21 @@ const ConfigureStep: Component = () => {
         </div>
       </Show>
 
+      {/* Enterprise Access Group (Optional) — only shown in enterprise deployments */}
+      <Show when={setupStore.enterpriseMode}>
+        <div class="setup-field">
+          <label class="setup-field-label">Cloudflare Access Group (optional)</label>
+          <p class="setup-field-description">
+            Restrict Codeflare to members of a Cloudflare Access group. Leave blank to admit anyone your Access policy lets through — new users are provisioned automatically on first sign-in.
+          </p>
+          <Input
+            value={setupStore.enterpriseAccessGroup}
+            onInput={(value) => setupStore.setEnterpriseAccessGroup(value)}
+            placeholder="e.g. Codeflare-Users"
+          />
+        </div>
+      </Show>
+
       {/* Navigation */}
       <div class="setup-actions">
         <Button onClick={() => setupStore.prevStep()} variant="ghost">
