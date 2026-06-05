@@ -322,7 +322,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-<!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (enterprise route hardening describe -> user-mgmt routes 403 AC1 + billing checkout/portal/switch 403 & status empty AC2 + auth subscribe/request-access 403 no email AC3 + stripe webhook no-op no KV mutation AC4 + admin tier/sub config 403 AC5 + PATCH preferences ignores sessionMode AC6 + every route byte-identical when flag unset AC7) -->
+<!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (enterprise route hardening describe -> user-mgmt routes 403 AC1 + billing checkout/portal/switch 403 & status empty AC2 + auth subscribe/request-access 403 no email AC3 + stripe webhook no-op no KV mutation AC4 + admin tier/sub config 403 AC5 + PATCH preferences not fail-closed, accepts sessionMode AC6 (entitlement-gate detail in preferences-enterprise.test.ts) + every route byte-identical when flag unset AC7) -->
 ### REQ-ENTERPRISE-009: Enterprise Backend Route Hardening
 
 <!-- @impl: src/routes/users.ts -->
@@ -343,7 +343,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 3. When `ENTERPRISE_MODE` is set, the self-serve routes `POST /api/auth/subscribe` and `POST /api/auth/request-access` return 403 and send no email.
 4. When `ENTERPRISE_MODE` is set, the Stripe webhook route acknowledges the event without mutating any user's tier or billing state, so a late or stray Stripe event cannot downgrade an enterprise user.
 5. When `ENTERPRISE_MODE` is set, the admin tier/subscription configuration routes return 403 (there is a single effective tier, `unlimited`, for all users).
-6. When `ENTERPRISE_MODE` is set, `PATCH /api/preferences` ignores any `sessionMode` field rather than persisting a value the backend will override; the effective mode stays Pro.
+6. When `ENTERPRISE_MODE` is set, `PATCH /api/preferences` is **not** fail-closed (unlike the routes above): the SaaS advanced-mode entitlement gate is bypassed so any user may select Pro, and the effective session mode is forced to Pro by `clampSessionModeToTier` regardless of the stored value (already guarded — see [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2 / [REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode)).
 7. When `ENTERPRISE_MODE` is unset, every route above behaves byte-identically to current behavior.
 
 **Constraints:**

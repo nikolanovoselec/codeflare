@@ -121,8 +121,10 @@ describe('REQ-ENTERPRISE-008 AC4: quota banners are suppressed in enterprise mod
 describe('REQ-ENTERPRISE-008: Layout threads enterpriseMode to children that own suppressed surfaces', () => {
   it('passes enterpriseMode to TerminalArea (→ Dashboard dropdown) and SettingsPanel (admin buttons)', () => {
     render(() => <Layout enterpriseMode />);
-    expect((window as Record<string, unknown>).__terminalAreaProps).toMatchObject({ enterpriseMode: true });
-    expect((window as Record<string, unknown>).__settingsPanelProps).toMatchObject({ enterpriseMode: true });
+    const ta = (window as Record<string, unknown>).__terminalAreaProps as { enterpriseMode?: boolean };
+    const sp = (window as Record<string, unknown>).__settingsPanelProps as { enterpriseMode?: boolean };
+    expect(ta.enterpriseMode).toBe(true);
+    expect(sp.enterpriseMode).toBe(true);
   });
 
   it('passes enterpriseMode falsy to children when the flag is unset (AC6)', () => {

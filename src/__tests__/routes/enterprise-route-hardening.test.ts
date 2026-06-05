@@ -286,21 +286,24 @@ describe('REQ-ENTERPRISE-009 AC5: admin tier config routes 403 in enterprise mod
 });
 
 // ---------------------------------------------------------------------------
-// AC6 — preferences ignores sessionMode in enterprise mode
+// AC6 — preferences stays available in enterprise mode (NOT fail-closed like the
+// other routes); the SaaS advanced-mode entitlement gate is bypassed so any user
+// may select Pro. The effective mode is forced to Pro by clampSessionModeToTier
+// regardless of the stored value (REQ-ENTERPRISE-001). Detailed entitlement-gate
+// coverage lives in preferences-enterprise.test.ts.
 // ---------------------------------------------------------------------------
-describe('REQ-ENTERPRISE-009 AC6: PATCH /api/preferences ignores sessionMode in enterprise mode', () => {
-  it('drops sessionMode from the patch but persists other fields', async () => {
+describe('REQ-ENTERPRISE-009 AC6: PATCH /api/preferences is not fail-closed in enterprise mode', () => {
+  it('accepts a sessionMode change from a non-Pro user without a 403/400', async () => {
+    mockAuthUser = { email: 'user@example.com', authenticated: true, role: 'user', accessTier: 'pending', subscriptionTier: 'pending' } as AccessUser;
     const { app } = createApp(ENTERPRISE);
     const res = await app.request('/api/preferences', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionMode: 'default', lastPresetId: 'preset-1' }),
+      body: JSON.stringify({ sessionMode: 'advanced', lastPresetId: 'preset-1' }),
     });
     expect(res.status).toBe(200);
-
-    const get = await app.request('/api/preferences');
-    const prefs = await get.json() as Record<string, unknown>;
-    expect(prefs.sessionMode).toBeUndefined();
-    expect(prefs.lastPresetId).toBe('preset-1');
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.sessionMode).toBe('advanced');
+    expect(body.lastPresetId).toBe('preset-1');
   });
 });
 
