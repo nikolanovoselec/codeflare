@@ -21,6 +21,7 @@ on:
         options:
           - production
           - integration
+          - enterprise
         default: integration
 
 concurrency:
@@ -307,6 +308,7 @@ jobs:
           ${{ vars.STRESS_TEST_MODE && format('--var STRESS_TEST_MODE:{0}', vars.STRESS_TEST_MODE) || '' }}
           ${{ vars.SAAS_MODE && format('--var SAAS_MODE:{0}', vars.SAAS_MODE) || '' }}
           ${{ vars.SAAS_EXTRA_IDPS && format('--var SAAS_EXTRA_IDPS:{0}', vars.SAAS_EXTRA_IDPS) || '' }}
+          ${{ vars.ENTERPRISE_MODE && format('--var ENTERPRISE_MODE:{0}', vars.ENTERPRISE_MODE) || '' }}
           ${{ vars.SAAS_MODE == 'active' && secrets.OAUTH_CLIENT_ID && format('--var OAUTH_CLIENT_ID:{0}', secrets.OAUTH_CLIENT_ID) || '' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -399,5 +401,29 @@ jobs:
           echo "Encryption key set (AES-256-GCM for KV, SSE-C for R2)"
         env:
           ENC_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Set AI Gateway URL as worker secret (enterprise mode, optional)
+        run: |
+          if [ -z "${AIG_GATEWAY_URL}" ]; then
+            echo "No AIG_GATEWAY_URL - enterprise LLM routing disabled"
+            exit 0
+          fi
+          printf '%s' "${AIG_GATEWAY_URL}" | npx wrangler secret put AIG_GATEWAY_URL --name "${WORKER_NAME}" 2>/dev/null
+        env:
+          AIG_GATEWAY_URL: ${{ secrets.AIG_GATEWAY_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Set AI Gateway token as worker secret (enterprise mode, optional)
+        run: |
+          if [ -z "${AIG_TOKEN}" ]; then
+            echo "No AIG_TOKEN - enterprise LLM routing disabled"
+            exit 0
+          fi
+          printf '%s' "${AIG_TOKEN}" | npx wrangler secret put AIG_TOKEN --name "${WORKER_NAME}" 2>/dev/null
+        env:
+          AIG_TOKEN: ${{ secrets.AIG_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
