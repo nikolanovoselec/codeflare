@@ -212,7 +212,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 ---
 
 <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (deploy-time plumbing describe -> AIG_GATEWAY_URL + AIG_TOKEN read as secrets + ENTERPRISE_MODE read as var + off by default when binding absent -> AC1..AC4) -->
-<!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-ENTERPRISE-006 describe -> CF Access app host-scoped on enterprise + path-scoped on non-enterprise -> AC5) -->
+<!-- @test: src/__tests__/routes/setup/access.test.ts (handleCreateAccessApp describe -> enterprise mode creates a host-scoped app (bare host domain + whole-host destination) AC5 + default/SaaS app stays path-scoped (/app/* primary + path destinations) regression) -->
 ### REQ-ENTERPRISE-006: Deploy-Time AIG Secrets and ENTERPRISE_MODE Var
 
 <!-- @impl: wrangler.toml -->
