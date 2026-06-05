@@ -77,8 +77,11 @@ describe('REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)', () => {
 
   it('omits COPILOT_MODEL / PI_MODEL when enterprise but AIG_LANGUAGE_MODEL is unset', () => {
     const vars = buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env);
-    expect(vars.COPILOT_MODEL).toBeUndefined();
-    expect(vars.PI_MODEL).toBeUndefined();
+    // Assert key-absence, not just undefined-value: a present `COPILOT_MODEL:
+    // undefined` key (what dropping the `env.AIG_LANGUAGE_MODEL &&` guard would
+    // emit) must also fail this test.
+    expect('COPILOT_MODEL' in vars).toBe(false);
+    expect('PI_MODEL' in vars).toBe(false);
   });
 });
 
