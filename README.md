@@ -41,10 +41,8 @@ Cloudflare Containers run as root, and both Claude Code and Antigravity launch w
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
   - [Required (every deployment)](#required-every-deployment)
-  - [Default mode: what you get with zero extra config](#default-mode-what-you-get-with-zero-extra-config)
-  - [Choosing a mode](#choosing-a-mode)
-  - [Settings reference](#settings-reference)
-  - [What to set per mode](#what-to-set-per-mode)
+  - [Default mode](#default-mode-what-you-get-with-zero-extra-config)
+  - [Advanced configuration](#advanced-configuration-optional)
 - [Security](#security)
 - [Testing](#testing)
 - [CI/CD](#cicd)
@@ -180,15 +178,7 @@ Create a custom token at [dash.cloudflare.com/profile/api-tokens](https://dash.c
 
 ## Configuration
 
-> **TL;DR — the only mandatory configuration is the two secrets from [step 2](#2-add-the-two-required-secrets).** Set them, deploy, run the wizard, and you have a working instance in **Default mode**. Everything below is optional: it switches deployment modes or tunes limits.
-
-Settings live in your fork under **Settings → Secrets and variables → Actions**:
-
-- **Variable** → the *Variables* tab (non-sensitive config).
-- **Secret** → the *Secrets* tab (sensitive values).
-- **Env secret** → **Settings → Environments →** select an environment → *Environment secrets* (per-environment; overrides repo-level).
-
-The deploy workflow reads each value and applies it automatically — as a Worker variable, a Worker secret, or build config. You never run `wrangler` by hand. (Two low-level Worker variables, `ALLOWED_ORIGINS` and `LOG_LEVEL`, are set directly in `wrangler.toml` rather than through GitHub.)
+> **The only mandatory configuration is the two secrets from [step 2](#2-add-the-two-required-secrets).** Set them, deploy, run the wizard, and you have a working instance in **Default mode**. Everything else lives in the [Advanced configuration](#advanced-configuration-optional) dropdowns and is optional.
 
 ### Required (every deployment)
 
@@ -196,6 +186,8 @@ The deploy workflow reads each value and applies it automatically — as a Worke
 |---|---|---|
 | `CLOUDFLARE_API_TOKEN` | Secret | Deploys the Worker and manages KV, R2, Containers, and Access (see [scopes](#api-token-scopes)) |
 | `CLOUDFLARE_ACCOUNT_ID` | Secret | Identifies the Cloudflare account to deploy into |
+
+Both go in **Settings → Secrets and variables → Actions → Secrets**.
 
 ### Default mode: what you get with zero extra config
 
@@ -208,11 +200,16 @@ With **only** the two required secrets, your instance runs in Default mode:
 - Limits: **3 sessions/user**, **10/admin**; up to **10 concurrent containers**; **1 vCPU / 3 GiB / 6 GB** each.
 - Root (`/`) redirects to the app — no public landing page.
 
-To change any of this, opt into a mode below.
+Most self-hosters never need anything below this line.
 
-### Choosing a mode
+### Advanced configuration (optional)
 
-Modes are additive flags; pick the one that matches your deployment. When a mode flag is unset, that mode's behavior is fully off.
+Default mode needs none of this. Each dropdown below switches on an optional deployment mode or tunes the defaults. Settings live in your fork under **Settings → Secrets and variables → Actions** — the **Variables** tab for non-sensitive values, the **Secrets** tab for sensitive ones, and **Settings → Environments → Environment secrets** for per-environment overrides. The deploy workflow applies each one automatically; you never run `wrangler` by hand. (`ALLOWED_ORIGINS` and `LOG_LEVEL` are the exception — edit them directly in `wrangler.toml`.)
+
+<details>
+<summary><strong>Deployment modes at a glance</strong></summary>
+
+Modes are additive flags; pick the one that matches your deployment. A flag left unset means that mode is fully off.
 
 | Mode | Turn on with | What it adds | Authentication |
 |---|---|---|---|
@@ -221,11 +218,22 @@ Modes are additive flags; pick the one that matches your deployment. When a mode
 | **SaaS** | `SAAS_MODE=active` | Custom login page, JIT user provisioning, 8-tier subscriptions, Stripe billing, usage tracking, `/admin/users` | GitHub OAuth *or* Cloudflare Access |
 | **Enterprise** | `ENTERPRISE_MODE=active` | Single-tenant in **your** Cloudflare account; all users unlimited + Pro; LLM traffic routed through **your** AI Gateway | Cloudflare Access |
 
-### Settings reference
+**What to set per mode**
 
-Each table marks whether a setting is required. **Type** is where it goes in GitHub (Variable / Secret / Env secret).
+| Mode | What to set | Auto-configured by the wizard |
+|---|---|---|
+| **Default** | Nothing beyond the two required secrets | CF Access app, groups, policies |
+| **Onboarding** | `ONBOARDING_LANDING_PAGE=active`; optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
+| **SaaS + GitHub OAuth** | `SAAS_MODE=active`; `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`; optionally `STRIPE_*`, `RESEND_API_KEY`, `MAX_INSTANCES` | Turnstile keys (GitHub OAuth handles auth) |
+| **SaaS + CF Access** | `SAAS_MODE=active`; optionally `STRIPE_*`, `RESEND_API_KEY`, `MAX_INSTANCES` | CF Access, Turnstile keys |
+| **Enterprise** | `ENTERPRISE_MODE=active`; `AIG_GATEWAY_URL` + `AIG_TOKEN`; optionally `AIG_LANGUAGE_MODEL` | CF Access; AI Gateway config in the Cloudflare dashboard |
 
-#### Core (optional, all modes)
+</details>
+
+<details>
+<summary><strong>Core settings and limits (all modes)</strong></summary>
+
+All optional. **Type** is where the value goes in GitHub.
 
 | Setting | Type | Default | Effect |
 |---|---|---|---|
@@ -239,7 +247,10 @@ Each table marks whether a setting is required. **Type** is where it goes in Git
 | `CLAUDE_CODE_CACHE_BUSTER` | Variable | *unset* | `active` forces a rebuild of the agent Docker layer, bypassing the cache. Useful after agent updates |
 | `STRESS_TEST_MODE` | Variable | *unset* | `active` bypasses **all** rate limits. Integration/stress testing only — **never in production** |
 
-#### Onboarding mode
+</details>
+
+<details>
+<summary><strong>Onboarding mode — public waitlist</strong></summary>
 
 Set `ONBOARDING_LANDING_PAGE=active`. Turnstile CAPTCHA keys are auto-created by the wizard — no manual setup.
 
@@ -249,9 +260,12 @@ Set `ONBOARDING_LANDING_PAGE=active`. Turnstile CAPTCHA keys are auto-created by
 | `RESEND_API_KEY` | Secret | recommended | [Resend](https://resend.com) API key ([resend.com/api-keys](https://resend.com/api-keys)) for waitlist welcome emails. When unset, signups still work; no email is sent |
 | `RESEND_EMAIL` | Secret | optional | Sender identity (e.g. `Codeflare <hello@yourdomain.com>`). Must be a verified Resend sender. Defaults to `Codeflare <onboarding@resend.dev>` |
 
-#### SaaS mode
+</details>
 
-Set `SAAS_MODE=active`. Pair with `MAX_INSTANCES` for your target concurrency. Turnstile keys are auto-created by the wizard. With GitHub OAuth configured, Cloudflare Access is bypassed (free for unlimited users); see [GitHub OAuth setup](#github-oauth-setup) below.
+<details>
+<summary><strong>SaaS mode — subscriptions, billing and login</strong></summary>
+
+Set `SAAS_MODE=active`. Pair with `MAX_INSTANCES` for your target concurrency. Turnstile keys are auto-created by the wizard. With GitHub OAuth configured, Cloudflare Access is bypassed (free for unlimited users).
 
 | Setting | Type | Required? | Effect |
 |---|---|---|---|
@@ -264,7 +278,18 @@ Set `SAAS_MODE=active`. Pair with `MAX_INSTANCES` for your target concurrency. T
 | `SAAS_EXTRA_IDPS` | Variable | optional | Comma-separated CF Access IdP UUIDs to show alongside GitHub (CF Access auth only) |
 | `RESEND_API_KEY` | Secret | recommended | Also sends subscription, plan-change, and tier-change emails. Renewal/payment emails come from Stripe |
 
-#### Enterprise mode
+**GitHub OAuth setup.** When `OAUTH_CLIENT_ID` is set, the Worker handles auth via GitHub OAuth and Cloudflare Access is bypassed.
+
+1. **Create a GitHub OAuth App** at [github.com/settings/developers](https://github.com/settings/developers) → OAuth Apps → New OAuth App. Homepage URL `https://{your-domain}`, callback URL `https://{your-domain}/auth/github/callback`. Copy the **Client ID**; generate and copy the **Client Secret**.
+2. **Generate a JWT signing secret:** `openssl rand -base64 32`
+3. **Add as environment secrets** (**Settings → Environments →** your environment **→ Environment secrets**): `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `OAUTH_JWT_SECRET`.
+
+Create one OAuth App per environment (integration vs production) with the matching callback URL, then deploy.
+
+</details>
+
+<details>
+<summary><strong>Enterprise mode — single-tenant on your own AI Gateway</strong></summary>
 
 Enterprise mode deploys Codeflare inside **your own Cloudflare account** as a single-tenant instance. Every user becomes a Custom (unlimited) user in Pro mode with no time limit, the billing UI is hidden, and the agent roster is limited to **GitHub Copilot, Pi, and Bash**. All agent LLM traffic is routed through **your** [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) over its REST API — intercepted at the platform level, so no API key, gateway URL, or token is ever placed inside the container and the traffic never touches the public internet. Run it behind Cloudflare Access. When `ENTERPRISE_MODE` is unset, behavior is identical to the other modes.
 
@@ -273,19 +298,27 @@ Enterprise mode deploys Codeflare inside **your own Cloudflare account** as a si
 | `ENTERPRISE_MODE` | Variable | to enable | `active` makes every user Custom/unlimited in Pro mode, hides billing, restricts the agent set, and routes LLM traffic to your AI Gateway |
 | `AIG_GATEWAY_URL` | Secret | when `ENTERPRISE_MODE=active` | Your AI Gateway base URL, e.g. `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_name}`. The Worker parses the account and gateway ids from it to call the AI Gateway REST API. Held only in the Worker. Find it under **AI → AI Gateway →** your gateway **→ API** |
 | `AIG_TOKEN` | Secret | when your gateway is authenticated | AI Gateway token, sent as a standard `Authorization: Bearer` header on the REST API. Held only in the Worker. Create it under the gateway's **Settings → Authenticated Gateway**. Omit only if your gateway allows unauthenticated access |
+| `AIG_LANGUAGE_MODEL` | Variable | optional | The gateway model id every agent sends — your dynamic route (`dynamic/<route>`) or a direct id (`openai/gpt-4.1`, `anthropic/claude-…`, `aws-bedrock/…`). One value, applied to both Copilot and Pi. Unset → each agent uses its built-in default model id |
 
-You manage provider API keys, model routing, budgets, rate limits, guardrails, and logging in the **AI Gateway dashboard** — none of it lives in Codeflare. Each request is stamped with an opaque per-user id (`cf-aig-metadata`, never an email) so usage is attributable in your gateway analytics. Anthropic, OpenAI, Bedrock, Workers AI, and dynamic routes are all selectable per agent by model id.
+**Configuring your Cloudflare AI Gateway.** The gateway is yours to set up in the Cloudflare dashboard; Codeflare only needs `AIG_GATEWAY_URL` + `AIG_TOKEN` (and optionally the model ids).
 
-<details>
-<summary><strong>Deploying an enterprise instance</strong></summary>
+1. **Create a gateway** — dashboard → **AI → AI Gateway → Create Gateway**. Name it (e.g. `codeflare-enterprise`).
+2. **Set `AIG_GATEWAY_URL`** — from the gateway's **API** tab copy the base URL `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_name}` and store it as the `AIG_GATEWAY_URL` secret.
+3. **Set `AIG_TOKEN`** — under the gateway's **Settings**, enable **Authenticated Gateway**, create a token, and store it as the `AIG_TOKEN` secret.
+4. **Give the gateway model access** — either **bring your own keys** (add your OpenAI / Anthropic / Amazon Bedrock / … provider keys under the gateway's provider keys; BYOK keys are consumed through a dynamic route) **or** enable **Unified Billing** to pay providers through Cloudflare.
+5. **Create a dynamic route (recommended)** — add a **Dynamic Route** (e.g. `codeflare-enterprise`) with a primary model and, optionally, a fallback model plus rate-limit and budget nodes. The route name becomes a model id: `dynamic/codeflare-enterprise`.
+6. **Point the agents at it** — set the GitHub **variable** `AIG_LANGUAGE_MODEL` to the model id agents should send: your dynamic route (`dynamic/codeflare-enterprise`) or a direct id (`openai/gpt-4.1`, `anthropic/claude-…`, `aws-bedrock/…`). One value covers both Copilot and Pi. Without it, each agent falls back to its built-in default model id.
+7. **Redeploy.** Every request is attributed per-user via `cf-aig-metadata` (an opaque id, never an email) in your gateway analytics.
+8. **Cap per-user spend (optional).** Because every request carries that per-user id, you can set dollar budgets per user under the gateway's **[Spend Limits](https://developers.cloudflare.com/ai-gateway/features/spend-limits/)** — e.g. `$200`/user/day — scoped on the `user` metadata dimension, with a daily/weekly/monthly window (fixed or rolling). When a user hits their budget the gateway blocks further requests by default, or you can fall back to a cheaper model via the dynamic route. Works with both BYOK and Unified Billing. No redeploy needed — Codeflare already stamps the id.
 
-Keep enterprise settings in a dedicated `enterprise` GitHub Environment (**Settings → Environments → New environment**): the `ENTERPRISE_MODE` variable, the `AIG_GATEWAY_URL` + `AIG_TOKEN` secrets, a `CLOUDFLARE_WORKER_NAME` (e.g. `codeflare-enterprise`), and — when the target is a **separate** Cloudflare account — that account's own `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` env secrets (env secrets override repo-level ones).
+> **Gotchas.** A bare `provider/model` id on the REST API uses **Unified Billing** — without Cloudflare credits it returns `402`. To consume **BYOK** keys, route through a **dynamic route**. And when a primary model errors the route falls back to the next node, so pick a non-reasoning fallback (or set a sensible `max_tokens`) — some reasoning models return empty content at low token limits.
 
-Deploy from **Actions → Deploy → Run workflow**, Branch `main`, target `enterprise`. Like every Codeflare deployment, the enterprise worker comes up on its own `<worker>.<account>.workers.dev` URL, and the wizard runs there to configure the custom domain, allowed users, and auth on first run — no custom domain needed up front. For another tenant, create another environment pointed at that tenant's account.
+**Deploying an enterprise instance.** Keep enterprise settings in a dedicated `enterprise` GitHub Environment (**Settings → Environments → New environment**): the `ENTERPRISE_MODE` / `AIG_LANGUAGE_MODEL` variables, the `AIG_GATEWAY_URL` + `AIG_TOKEN` secrets, a `CLOUDFLARE_WORKER_NAME` (e.g. `codeflare-enterprise`), and — when the target is a **separate** Cloudflare account — that account's own `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` env secrets (env secrets override repo-level ones). Deploy from **Actions → Deploy → Run workflow**, Branch `main`, target `enterprise`. The worker comes up on its own `<worker>.<account>.workers.dev` URL and the wizard runs there on first boot — no custom domain needed up front. For another tenant, create another environment pointed at that tenant's account.
 
 </details>
 
-#### E2E testing
+<details>
+<summary><strong>E2E testing credentials</strong></summary>
 
 E2E tests authenticate via the `X-Service-Auth` header; the deploy workflow injects it as the Worker's `SERVICE_AUTH_SECRET`. Set **one** secret depending on your auth mode. When none is set, service auth is disabled (safe by default).
 
@@ -297,30 +330,6 @@ E2E tests authenticate via the `X-Service-Auth` header; the deploy workflow inje
 | `E2E_BASE_URL` | Variable | to run E2E | Full URL of the deployed worker under test (custom domain or `<worker>.<account>.workers.dev`). Required by `e2e.yml` / `stress-test.yml` — the run fails fast when it is unset |
 
 > Turnstile keys (`TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY`) are **auto-created** by the setup wizard when `ONBOARDING_LANDING_PAGE` or `SAAS_MODE` is active. You never set them manually.
-
-### What to set per mode
-
-| Mode | What to set | Auto-configured by the wizard |
-|---|---|---|
-| **Default** | Nothing beyond the two required secrets | CF Access app, groups, policies |
-| **Onboarding** | `ONBOARDING_LANDING_PAGE=active`; optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
-| **SaaS + GitHub OAuth** | `SAAS_MODE=active`; `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`; optionally `STRIPE_*`, `RESEND_API_KEY`, `MAX_INSTANCES` | Turnstile keys (GitHub OAuth handles auth) |
-| **SaaS + CF Access** | `SAAS_MODE=active`; optionally `STRIPE_*`, `RESEND_API_KEY`, `MAX_INSTANCES` | CF Access, Turnstile keys |
-| **Enterprise** | `ENTERPRISE_MODE=active`; `AIG_GATEWAY_URL` + `AIG_TOKEN` | CF Access; AI Gateway config lives in the Cloudflare dashboard |
-
-<details>
-<summary><strong id="github-oauth-setup">GitHub OAuth setup (SaaS mode)</strong></summary>
-
-When `OAUTH_CLIENT_ID` is set in SaaS mode, the Worker handles authentication via GitHub OAuth and Cloudflare Access is bypassed — free for unlimited users.
-
-1. **Create a GitHub OAuth App** at [github.com/settings/developers](https://github.com/settings/developers) → OAuth Apps → New OAuth App:
-   - **Homepage URL:** `https://{your-domain}`
-   - **Authorization callback URL:** `https://{your-domain}/auth/github/callback`
-   - Copy the **Client ID**; generate and copy the **Client Secret**.
-2. **Generate a JWT signing secret:** `openssl rand -base64 32`
-3. **Add as environment secrets** (**Settings → Environments →** your environment **→ Environment secrets**): `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `OAUTH_JWT_SECRET`.
-
-Create one OAuth App per environment (integration vs production) with the matching callback URL, then deploy.
 
 </details>
 
