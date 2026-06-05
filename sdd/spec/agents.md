@@ -839,6 +839,7 @@ None.
 
 **Status:** Implemented
 
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe -> Pi seed manifest includes .pi/agent/skills/review/SKILL.md (+ review-command/review-helpers extensions) as first-class residents -> AC6 manifest presence) -->
 <!-- coverage-gap: AC6 (manifest-presence of skills/review/SKILL.md) and command-dispatch API compatibility are covered by agent-seed-manifest.test.ts. AC1-AC5 (flag parsing and the runtime workflow phases) are skill-content behavior injected at command time, with no dedicated automated test. -->
 
 ---

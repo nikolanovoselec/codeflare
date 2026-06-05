@@ -73,3 +73,9 @@ req_length:
   warn: 25
   medium: 50
   high: 100
+
+# Changelog entry style — verbose accepted as project convention (2026-06-05,
+# PR #493 JUDGMENT disposition). Multi-sentence, root-cause changes.md entries are
+# the established norm for complex behavioral fixes; spec-enforce should not flag
+# entries for exceeding the 2-sentence guideline.
+changelog_entry_style: verbose
