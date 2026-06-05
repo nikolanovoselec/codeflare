@@ -18,12 +18,16 @@
  *
  * The enterprise agent set (REQ-ENTERPRISE-003) is OpenAI-wire-format only
  * (Copilot, Pi): they call api.openai.com and their requests map onto the
- * gateway's OpenAI-compatible REST endpoint with NO body rewrite. Backend model
- * selection — native provider, Amazon Bedrock, Workers AI, or a dynamic route —
- * is gateway-side, chosen by the agent's configured model id (e.g.
- * `dynamic/<route>`). Auth is the standard `Authorization: Bearer <AIG_TOKEN>`
- * header (the AI Gateway REST API; the legacy `gateway.ai.cloudflare.com`
- * `/compat` + `/anthropic` paths it replaces are deprecated — see AD74).
+ * gateway's OpenAI-compatible REST endpoint. Backend model selection — native
+ * provider, Amazon Bedrock, Workers AI, or a dynamic route — is gateway-side.
+ * When AIG_LANGUAGE_MODEL is configured the Worker rewrites the request `model`
+ * to that route id (see fetch()): the agent only needs a clean, slash-free model
+ * id to reach this host, and the gateway route name never enters the container.
+ * This sidesteps Pi parsing a `dynamic/<route>` model id as `provider/id` and
+ * misrouting to a built-in provider (the request would never reach this host).
+ * Auth is the standard `Authorization: Bearer <AIG_TOKEN>` header (the AI Gateway
+ * REST API; the legacy `gateway.ai.cloudflare.com` `/compat` + `/anthropic` paths
+ * it replaces are deprecated — see AD74).
  *
  * Dormant on non-enterprise deploys: the DO only wires interception when
  * ENTERPRISE_MODE=active, so this class is never instantiated otherwise.
@@ -146,16 +150,44 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     }
     headers.set('cf-aig-metadata', JSON.stringify({ user: user ?? 'unknown' }));
 
-    // Stream the body straight through (no .text()/.json() buffering) so SSE
-    // token streams and streaming uploads pass with constant memory. GET/HEAD
-    // carry no body; pass undefined so the runtime does not reject a body on a
-    // bodyless method.
+    // Request body. The RESPONSE is always streamed back unbuffered (below) so
+    // SSE token streams pass with constant memory. The REQUEST body is normally
+    // passed straight through too — GET/HEAD carry none, so pass undefined.
+    //
+    // Enterprise route-pinning (the one rewrite): when AIG_LANGUAGE_MODEL is set,
+    // the Worker authoritatively replaces the request `model` with that gateway
+    // route id. The gateway selects a dynamic route by `model: dynamic/<route>`,
+    // but Pi parses a slash-bearing model id as `provider/id` and misroutes to a
+    // built-in provider — so a `dynamic/...` id configured in the container never
+    // reaches this host. Letting the agent carry only a clean, slash-free id
+    // (which routes correctly to api.openai.com) and stamping the real route HERE
+    // removes that whole class of misconfiguration and keeps the route name out
+    // of the container. Buffering a chat request body (the prompt) is cheap; only
+    // model-routable endpoints are rewritten, everything else passes verbatim.
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+    const isModelRoutable = url.pathname.includes('/chat/completions') || url.pathname.endsWith('/responses');
+    let outboundBody: BodyInit | null | undefined = hasBody ? request.body : undefined;
+    if (hasBody && this.env.AIG_LANGUAGE_MODEL && isModelRoutable) {
+      // Consume the body ONCE as text, then try to parse: a throw must not leave
+      // a half-read (locked) stream we can no longer forward.
+      const raw = await request.text();
+      try {
+        const payload = JSON.parse(raw) as Record<string, unknown>;
+        if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'model' in payload) {
+          payload.model = this.env.AIG_LANGUAGE_MODEL;
+          outboundBody = JSON.stringify(payload);
+        } else {
+          outboundBody = raw; // valid JSON without a model field: forward verbatim
+        }
+      } catch {
+        outboundBody = raw; // not JSON: forward the original bytes unchanged
+      }
+    }
     const upstream = await fetch(
       new Request(upstreamUrl, {
         method: request.method,
         headers,
-        body: hasBody ? request.body : undefined,
+        body: outboundBody,
         // Do not transparently follow gateway/provider redirects — a 3xx would
         // otherwise be chased to an arbitrary Location host. Surface it to the
         // agent's client instead.

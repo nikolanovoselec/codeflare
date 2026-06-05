@@ -223,12 +223,12 @@ export function buildEnvVars(
     // Emitted only when ENTERPRISE_MODE=active, so a non-enterprise container's
     // env is byte-identical to today.
     ...(isEnterpriseMode(env) && { ENTERPRISE_MODE: 'active' }),
-    // Enterprise-only model id (AD74): the single operator var AIG_LANGUAGE_MODEL
-    // — the gateway model/route every agent should send (e.g. `dynamic/<route>`)
-    // — fanned out to the container vars entrypoint.sh reads (COPILOT_MODEL,
-    // PI_MODEL). Emitted only when enterprise AND AIG_LANGUAGE_MODEL is set, so a
-    // non-enterprise container's env is unchanged.
-    ...(isEnterpriseMode(env) && env.AIG_LANGUAGE_MODEL && { COPILOT_MODEL: env.AIG_LANGUAGE_MODEL, PI_MODEL: env.AIG_LANGUAGE_MODEL }),
+    // NB: the gateway route id (AIG_LANGUAGE_MODEL) is deliberately NOT fanned
+    // into the container. Agents are configured with a fixed, slash-free handle
+    // (`codeflare`) in entrypoint.sh; the Worker-side LlmInterceptor rewrites the
+    // wire `model` to AIG_LANGUAGE_MODEL on egress. This keeps the route name —
+    // like every other gateway concern — out of the container, and lets the
+    // operator change the route by editing one Worker var with no agent reconfig.
   };
 }
 

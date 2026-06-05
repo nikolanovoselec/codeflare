@@ -43,13 +43,14 @@ function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string 
 }
 
 /** A captured record of the last upstream fetch the interceptor made. */
-let lastFetch: { url: string; method: string; headers: Headers } | null;
+let lastFetch: { url: string; method: string; headers: Headers; body: string } | null;
 
 beforeEach(() => {
   lastFetch = null;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
     const req = input as Request;
-    lastFetch = { url: req.url, method: req.method, headers: req.headers };
+    const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await req.text();
+    lastFetch = { url: req.url, method: req.method, headers: req.headers, body };
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode('data: {"delta":"hi"}\n\n'));
@@ -170,6 +171,70 @@ describe('REQ-ENTERPRISE-004: streaming passthrough (no buffering)', () => {
     );
     const res = await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }));
     expect(res.status).toBe(429);
+  });
+});
+
+describe('REQ-ENTERPRISE-004: gateway route-pinning (model rewrite)', () => {
+  it('rewrites the request model to AIG_LANGUAGE_MODEL on a chat/completions request', async () => {
+    await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise' } as Partial<Env>).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'codeflare', messages: [{ role: 'user', content: 'hi' }] }),
+      }),
+    );
+    const sent = JSON.parse(lastFetch?.body as string);
+    expect(sent.model).toBe('dynamic/codeflare-enterprise');
+    // The rest of the payload is preserved verbatim.
+    expect(sent.messages).toEqual([{ role: 'user', content: 'hi' }]);
+  });
+
+  it('rewrites the model on a /responses request too', async () => {
+    await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/r' } as Partial<Env>).fetch(
+      new Request('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'codeflare', input: 'x' }),
+      }),
+    );
+    expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/r');
+  });
+
+  it('does NOT rewrite when AIG_LANGUAGE_MODEL is unset (forwards the agent model verbatim)', async () => {
+    await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'codeflare' }),
+      }),
+    );
+    expect(JSON.parse(lastFetch?.body as string).model).toBe('codeflare');
+  });
+
+  it('does NOT rewrite a non-model-routable path (e.g. /v1/embeddings) even when set', async () => {
+    await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise' } as Partial<Env>).fetch(
+      new Request('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'text-embedding-3-small', input: 'x' }),
+      }),
+    );
+    expect(JSON.parse(lastFetch?.body as string).model).toBe('text-embedding-3-small');
+  });
+
+  it('forwards a non-JSON body unchanged (no crash) on a routable path when set', async () => {
+    await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise' } as Partial<Env>).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: 'not-json' }),
+    );
+    expect(lastFetch?.body).toBe('not-json');
+  });
+
+  it('forwards JSON without a model field unchanged (no model injected)', async () => {
+    await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise' } as Partial<Env>).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        body: JSON.stringify({ messages: [] }),
+      }),
+    );
+    const sent = JSON.parse(lastFetch?.body as string);
+    expect(sent.model).toBeUndefined();
+    expect(sent.messages).toEqual([]);
   });
 });
 

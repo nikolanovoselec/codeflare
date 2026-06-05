@@ -1820,6 +1820,15 @@ if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
     # gateway. The customer's real provider key lives on the AI Gateway.
     ENTERPRISE_PLACEHOLDER_TOKEN="codeflare-enterprise"
 
+    # Fixed, slash-free model handle every enterprise agent is configured with.
+    # The REAL gateway route is stamped by the Worker interceptor on egress
+    # (it rewrites the wire `model` to AIG_LANGUAGE_MODEL), so this is only an
+    # internal handle and the route name never enters the container. It MUST stay
+    # slash-free: Pi parses `a/b` in a model id as `provider/model`, so a
+    # `dynamic/<route>` id would be bound to a non-existent/built-in provider and
+    # never reach api.openai.com (the only intercepted host).
+    ENTERPRISE_MODEL_HANDLE="codeflare"
+
     # NOTE: Claude Code is intentionally NOT configured here. It speaks the
     # Anthropic-native wire format, which the AI Gateway REST transport does not
     # carry, so it is excluded from the enterprise agent set (REQ-ENTERPRISE-003,
@@ -1827,46 +1836,58 @@ if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
     # needs no LLM.
 
     # --- GitHub Copilot ----------------------------------------------------
-    # BYOK against the real OpenAI host (intercepted -> gateway REST API) with the
-    # placeholder key. Model selection is admin/gateway-side; only honour an
-    # explicit COPILOT_MODEL if the admin supplied one.
+    # BYOK against the real OpenAI host (intercepted -> gateway REST API). BYOK is
+    # a 3-var contract: base URL + key + MODEL are ALL required, or the CLI never
+    # enters BYOK mode and falls back to GitHub-hosted models. The model is the
+    # fixed slash-free handle; the Worker interceptor rewrites it to the real
+    # gateway route on egress. COPILOT_PROVIDER_TYPE defaults to "openai" (correct
+    # for the gateway compat path), so it is left unset.
+    #
+    # GH_TOKEN is intentionally LEFT in place (Option B): it powers Copilot's
+    # GitHub-hosted features (/delegate, GitHub MCP, Code Search) and git push.
+    # Per GitHub's docs a COMPLETE BYOK config is used for model requests
+    # regardless of GitHub auth status, so LLM traffic still flows to the gateway.
+    # Deterministic fallback if a deploy ever shows Copilot using GitHub-hosted
+    # models anyway: `export COPILOT_OFFLINE=true` (gateway-only; that also
+    # disables the GitHub-hosted features above).
     export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
     export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
-    echo "[entrypoint] Enterprise Mode: Copilot pointed at the AI Gateway (compat) via interception"
-    if [ -n "${COPILOT_MODEL:-}" ]; then
-        export COPILOT_MODEL
-        echo "[entrypoint] Enterprise Mode: Copilot model pinned to admin-provided COPILOT_MODEL"
-    fi
+    export COPILOT_MODEL="$ENTERPRISE_MODEL_HANDLE"
+    echo "[entrypoint] Enterprise Mode: Copilot BYOK active (base_url + key + model=$ENTERPRISE_MODEL_HANDLE) via interception"
 
     # --- Pi ----------------------------------------------------------------
-    # Pi reads custom provider config from ~/.pi/agent/models.json (see Pi docs
-    # models.md / providers.md). Register a provider pointing at the real OpenAI
-    # host (intercepted -> gateway REST API) with the placeholder key. The base
-    # URL + key are passed as jq --arg so they are real values, not literal
-    # "$VAR" strings. authHeader:true sends Authorization: Bearer <key>.
-    # Model is admin/gateway-side: register a model id only when PI_MODEL is set.
+    # Pi reads custom provider config from ~/.pi/agent/models.json. Register a
+    # provider pointing at the real OpenAI host (intercepted -> gateway REST API)
+    # with the placeholder key and ONE fixed slash-free model handle, then PIN it
+    # as the default in ~/.pi/agent/settings.json.
+    #
+    # Why the pin is essential: without a default, Pi keeps all its built-in
+    # providers and binds the request to one of them — amazon-bedrock, which it
+    # treats as authenticated because the container exports AWS_ACCESS_KEY_ID /
+    # AWS_SECRET_ACCESS_KEY (actually R2 S3 keys for rclone). Pi then signs a
+    # SigV4 call to AWS Bedrock (-> UnrecognizedClientException) that NEVER reaches
+    # api.openai.com, so the interceptor and gateway see nothing. Pinning
+    # defaultProvider+defaultModel makes Pi gateway-bound on launch, zero-touch.
+    # The handle is slash-free (Pi parses a slash as provider/model); the real
+    # gateway route is stamped by the Worker interceptor (AIG_LANGUAGE_MODEL).
     PI_GATEWAY_BASE_URL="https://api.openai.com/v1"
     PI_MODELS_JSON="$USER_HOME/.pi/agent/models.json"
+    PI_SETTINGS_JSON="$USER_HOME/.pi/agent/settings.json"
     mkdir -p "$(dirname "$PI_MODELS_JSON")"
-    PI_MODEL_ENTRY="[]"
-    if [ -n "${PI_MODEL:-}" ]; then
-        PI_MODEL_ENTRY=$(jq -n --arg id "$PI_MODEL" \
-            '[{id:$id, reasoning:true, input:["text","image"]}]')
-        echo "[entrypoint] Enterprise Mode: Pi model registered from admin-provided PI_MODEL"
-    else
-        echo "[entrypoint] Enterprise Mode: Pi provider registered without a model id (model selection is admin/gateway-side)"
-    fi
+
+    # models.json: codeflare-gateway provider with one fixed model. Always register
+    # the model — a provider with zero models is invisible in Pi's picker/login.
     PI_PROVIDER_CONFIG=$(jq -n \
         --arg baseUrl "$PI_GATEWAY_BASE_URL" \
         --arg apiKey "$ENTERPRISE_PLACEHOLDER_TOKEN" \
-        --argjson models "$PI_MODEL_ENTRY" '{
+        --arg model "$ENTERPRISE_MODEL_HANDLE" '{
         providers: {
             "codeflare-gateway": {
                 baseUrl: $baseUrl,
                 api: "openai-completions",
                 apiKey: $apiKey,
                 authHeader: true,
-                models: $models
+                models: [{ id: $model, reasoning: true, input: ["text", "image"] }]
             }
         }
     }')
@@ -1881,7 +1902,25 @@ if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
     else
         echo "$PI_PROVIDER_CONFIG" | jq '.' > "$PI_MODELS_JSON"
     fi
-    echo "[entrypoint] Enterprise Mode: Pi gateway provider written to models.json"
+
+    # settings.json: pin codeflare-gateway as default provider + model. Deep-merge
+    # so any existing keys (e.g. packages) are preserved.
+    PI_SETTINGS_CFG=$(jq -n \
+        --arg provider "codeflare-gateway" \
+        --arg model "$ENTERPRISE_MODEL_HANDLE" \
+        '{defaultProvider: $provider, defaultModel: $model}')
+    if [ -f "$PI_SETTINGS_JSON" ]; then
+        TMP_SET=$(mktemp)
+        if jq --argjson cfg "$PI_SETTINGS_CFG" '. * $cfg' "$PI_SETTINGS_JSON" > "$TMP_SET" 2>/dev/null; then
+            mv "$TMP_SET" "$PI_SETTINGS_JSON"
+        else
+            echo "[entrypoint] WARNING: Could not merge Pi enterprise defaults (malformed settings.json?)"
+            rm -f "$TMP_SET"
+        fi
+    else
+        echo "$PI_SETTINGS_CFG" | jq '.' > "$PI_SETTINGS_JSON"
+    fi
+    echo "[entrypoint] Enterprise Mode: Pi pinned to codeflare-gateway/$ENTERPRISE_MODEL_HANDLE (default provider + model)"
 fi
 
 # Configure context-mode MCP server. (Implements REQ-AGENT-005)
