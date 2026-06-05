@@ -20,7 +20,7 @@ Enterprise Mode requires two GitHub Actions secrets in addition to the standard 
 | GitHub Actions Secret | Wrangler secret name | Purpose |
 |-----------------------|---------------------|---------|
 | `AIG_GATEWAY_URL` | `AIG_GATEWAY_URL` | AI Gateway base URL. Pushed to the Worker as a secret by the deploy workflow. |
-| `AIG_TOKEN` | `AIG_TOKEN` | AI Gateway bearer token. Pushed to the Worker as a secret by the deploy workflow. |
+| `AIG_TOKEN` | `AIG_TOKEN` | Cloudflare API token with the **Workers AI** permission — sent as `Authorization: Bearer` to the AI Gateway REST API. **Not** a gateway authentication token ("AI Gateway: Run") — see [Configuration - Enterprise Mode Secrets](configuration.md#enterprise-mode-secrets-optional) for the full warning. Pushed to the Worker as a secret by the deploy workflow. |
 
 To enable Enterprise Mode:
 
