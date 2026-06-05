@@ -30,6 +30,7 @@ interface TerminalAreaProps {
   viewState: 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
   userName?: string;
   onSettingsClick?: () => void;
+  enterpriseMode?: boolean;
 }
 
 const TerminalArea: Component<TerminalAreaProps> = (props) => {
@@ -208,6 +209,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
           viewState={props.viewState === 'terminal' ? 'dashboard' : props.viewState as 'dashboard' | 'expanding' | 'collapsing'}
           userName={props.userName}
           onSettingsClick={props.onSettingsClick}
+          enterpriseMode={props.enterpriseMode}
         />
       </Show>
     </main>

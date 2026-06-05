@@ -281,7 +281,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-<!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (enterprise frontend suppression describe -> Administration hides Manage Subscriptions + Manage Users AC1 + username dropdown (Header & Dashboard) hides Usage + Subscription AC2 + session-mode selector not rendered AC3 + quota banners + upgrade CTAs not rendered AC4 + first-time user routed to /app/ not /app/subscribe or onboarding AC5 + every surface byte-identical when flag unset AC6) -->
+<!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (real-component renders -> SettingsPanel Administration hides Manage Subscriptions + Manage Users AC1 + Header username dropdown hides Usage + Subscription AC2 + SettingsPanel/SessionSection mode selector not rendered AC3 + every surface byte-identical when flag unset AC6) -->
+<!-- @test: web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx (Layout -> quota banners + upgrade CTAs not rendered AC4 + enterpriseMode threaded to TerminalArea→Dashboard dropdown AC2 + SettingsPanel admin AC1 + byte-identical when flag unset AC6) -->
+<!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (App -> first-time enterprise user routed to /app/ not onboarding/subscribe AC5 + non-enterprise SaaS user still redirected when flag unset AC6) -->
 ### REQ-ENTERPRISE-008: Enterprise Frontend Surface Suppression
 
 <!-- @impl: web-ui/src/components/SettingsPanel.tsx -->

@@ -32,6 +32,7 @@ interface DashboardProps {
   viewState: 'dashboard' | 'expanding' | 'collapsing';
   userName?: string;
   onSettingsClick?: () => void;
+  enterpriseMode?: boolean;
 }
 
 const Dashboard: Component<DashboardProps> = (props) => {
@@ -181,23 +182,25 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     onClick={(e) => e.stopPropagation()}
                     style={window.innerWidth > 640 ? { top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px` } : undefined}
                   >
-                    <a
-                      href="/app/subscribe"
-                      class="header-user-dropdown-item"
-                      data-testid="header-user-dropdown-profile"
-                    >
-                      <Icon path={mdiAccountOutline} size={16} />
-                      <span>Subscription</span>
-                    </a>
-                    <a
-                      href="/app/usage"
-                      class="header-user-dropdown-item"
-                      data-testid="header-user-dropdown-usage"
-                    >
-                      <Icon path={mdiChartBar} size={16} />
-                      <span>Usage</span>
-                      <UsageInlineBadge />
-                    </a>
+                    <Show when={!props.enterpriseMode}>
+                      <a
+                        href="/app/subscribe"
+                        class="header-user-dropdown-item"
+                        data-testid="header-user-dropdown-profile"
+                      >
+                        <Icon path={mdiAccountOutline} size={16} />
+                        <span>Subscription</span>
+                      </a>
+                      <a
+                        href="/app/usage"
+                        class="header-user-dropdown-item"
+                        data-testid="header-user-dropdown-usage"
+                      >
+                        <Icon path={mdiChartBar} size={16} />
+                        <span>Usage</span>
+                        <UsageInlineBadge />
+                      </a>
+                    </Show>
                     <a
                       href="/app/onboarding"
                       class="header-user-dropdown-item"
