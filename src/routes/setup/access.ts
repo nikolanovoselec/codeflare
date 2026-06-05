@@ -51,6 +51,10 @@ function getManagedDestinations(customDomain: string, enterprise = false): Array
   // safe. Default/SaaS keep the path scoping so `/`, `/public/*` (Stripe
   // webhook), and `/auth/*` stay reachable without Access.
   if (enterprise) {
+    // Enterprise supersedes SaaS: if both flags are ever set, the whole-host
+    // scope wins (SaaS still governs *who* may authenticate via its IdP list,
+    // but the Access session covers the full host). Enterprise is single-tenant,
+    // so this co-activation is not expected — the precedence is made explicit.
     return [{ type: 'public', uri: customDomain }];
   }
   return PROTECTED_DESTINATION_SUFFIXES.map((suffix) => ({

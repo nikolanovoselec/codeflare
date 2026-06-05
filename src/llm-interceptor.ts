@@ -131,8 +131,10 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     const headers = new Headers(request.headers);
     for (const h of STRIPPED_HEADERS) headers.delete(h);
     // Gateway authentication: the REST API uses the standard Authorization
-    // header carrying the authenticated-gateway "Run" token (AIG_TOKEN). This
-    // replaces the legacy cf-aig-authorization header (AD74).
+    // header carrying AIG_TOKEN — a Cloudflare API token with the Workers AI
+    // permission (the /ai/v1/* surface is the Workers AI namespace; a token
+    // scoped only to "AI Gateway: Run" is rejected). This replaces the legacy
+    // cf-aig-authorization header (AD74).
     if (this.env.AIG_TOKEN) {
       headers.set('authorization', `Bearer ${this.env.AIG_TOKEN}`);
     }
@@ -165,12 +167,22 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // of the container. Buffering a chat request body (the prompt) is cheap; only
     // model-routable endpoints are rewritten, everything else passes verbatim.
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
-    const isModelRoutable = url.pathname.includes('/chat/completions') || url.pathname.endsWith('/responses');
+    const isModelRoutable = url.pathname.endsWith('/chat/completions') || url.pathname.endsWith('/responses');
     let outboundBody: BodyInit | null | undefined = hasBody ? request.body : undefined;
     if (hasBody && this.env.AIG_LANGUAGE_MODEL && isModelRoutable) {
-      // Consume the body ONCE as text, then try to parse: a throw must not leave
-      // a half-read (locked) stream we can no longer forward.
-      const raw = await request.text();
+      // Consume the body ONCE as text. Reading the inbound stream can itself
+      // fail (a broken agent->Worker connection); surface that as a clean 400
+      // rather than letting the rejection escape as an opaque 500. A JSON parse
+      // failure, by contrast, is non-fatal: forward the original bytes unchanged.
+      let raw: string;
+      try {
+        raw = await request.text();
+      } catch {
+        return new Response(JSON.stringify({ error: 'Request body unreadable', code: 'BAD_REQUEST_BODY' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       try {
         const payload = JSON.parse(raw) as Record<string, unknown>;
         if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'model' in payload) {
