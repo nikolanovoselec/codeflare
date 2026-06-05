@@ -318,7 +318,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Verification:** [Automated test](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -358,7 +358,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Verification:** [Automated test](../../src/__tests__/routes/enterprise-route-hardening.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -399,4 +399,4 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Verification:** [Automated test](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts)
 
-**Status:** Planned
+**Status:** Implemented

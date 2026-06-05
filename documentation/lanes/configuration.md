@@ -106,6 +106,14 @@ Both secrets are optional and silently skipped when absent; a deployment without
 
 > **AIG_TOKEN credential type — important.** The `/ai/v1/*` endpoint is in the **Workers AI** namespace; it takes a standard Cloudflare API token in `Authorization`, not a gateway authentication token. **Two types are rejected with `error 10000`:** (a) an AI Gateway *authentication* token minted in the gateway's own settings (works only on the deprecated `gateway.ai.cloudflare.com` path), and (b) a CF API token scoped to **"AI Gateway: Run"** (wrong permission for this endpoint — confirmed 2026-06-05). The `cfut_` prefix is shared across all CF API token types and does **not** indicate scope — verify the permission label, not the prefix. **Do not use the gateway's "Authenticated Gateway" → "Create authentication token" button**: despite Cloudflare's docs pointing at it, that button mints an "AI Gateway: Run" token which this endpoint rejects. Create the token **manually** with the **Workers AI** permission. See [AD74](decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for full rationale.
 
+### Enterprise Mode Setup-Stored Configuration (optional)
+
+| KV key | Purpose | Set via |
+|--------|---------|---------|
+| `setup:enterprise_access_group` | Optional name/id of a Cloudflare Access group that gates Codeflare access in enterprise mode. When set, an unknown Access-authenticated user is JIT-provisioned (`unlimited`) **only if** the Cloudflare Access get-identity response shows them in this group; non-members get 403 (fail-closed). When unset, any user the Access policy admits is provisioned on their valid Access JWT alone. | Setup wizard → KV (re-run setup to change; no redeploy) |
+
+Unlike `ENTERPRISE_MODE` and the AIG secrets (deploy-time), the access group is operator-managed at runtime so admins can tighten or relax the gate without redeploying. See [User Provisioning — Enterprise Mode Provisioning](user-provisioning.md#enterprise-mode-provisioning) and [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning).
+
 ## CORS
 
 Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGINS` env var is static fallback.
@@ -255,6 +263,7 @@ You can adjust scopes anytime from your [GitHub token settings](https://github.c
 - [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing to customer AI Gateway (AIG_GATEWAY_URL, AIG_TOKEN)
 - [REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) - Deploy-time AIG secrets and ENTERPRISE_MODE var (AIG_GATEWAY_URL, AIG_TOKEN, AIG_LANGUAGE_MODEL)
 - [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning) - Gateway route-pinning (AIG_LANGUAGE_MODEL)
+- [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT user provisioning (setup:enterprise_access_group)
 - [REQ-BROWSER-002](../../sdd/spec/browser-run.md#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template) - Browser Rendering scope in the Cloudflare token template
 - [REQ-OPS-012](../../sdd/spec/operations.md#req-ops-012-per-environment-container-concurrency-limit) - Per-environment container concurrency limit
 - [REQ-SETUP-004](../../sdd/spec/setup.md#req-setup-004-setup-is-idempotent) - Setup is idempotent
