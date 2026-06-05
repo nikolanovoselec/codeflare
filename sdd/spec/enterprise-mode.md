@@ -11,6 +11,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 | LLM Interceptor | A `WorkerEntrypoint` (`LlmInterceptor`) the container DO wires into container egress via `ctx.container.interceptOutboundHttps`; it receives the container's outbound HTTPS to the real provider hosts at the platform level (never the public internet, never Cloudflare Access), maps each onto the gateway provider path, and forwards with gateway auth + per-user attribution stamped on |
 | Outbound Interception | The Cloudflare Containers platform mechanism (`interceptOutboundHttps` + `ctx.exports`, on by default at this project's compat date — the `enable_ctx_exports` flag became the default on 2025-11-17, so no flag is set) that routes a container's matching egress hostnames through a `WorkerEntrypoint` with no credential, URL, or token in the container |
 | Per-User Attribution | The opaque per-user bucket id passed to the interceptor as a per-session DO prop and stamped as `cf-aig-metadata.user` (never an email) so usage is correlatable in the gateway |
+| JIT Provisioning | Auto-creation of an `unlimited` Codeflare user on first authenticated access in Enterprise Mode, keyed by the Cloudflare-Access-verified `email`; gated optionally by `ENTERPRISE_ACCESS_GROUP` membership (see [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)) |
+| Access get-identity | The Cloudflare Access endpoint `${iss}/cdn-cgi/access/get-identity`, called with the request's `CF_Authorization` token, returning the full identity (including IdP group membership) used to enforce `ENTERPRISE_ACCESS_GROUP` — the application JWT carries no group claim by default |
+| `ENTERPRISE_ACCESS_GROUP` | Optional value set during the setup wizard and stored in KV (`SETUP_KEYS.ENTERPRISE_ACCESS_GROUP`), editable by re-running setup; names the **customer-managed** Cloudflare Access group that gates Codeflare entry. Codeflare references it (via `get-identity`) but never creates or populates it — unlike the non-enterprise admin/user groups it manages itself. When set, JIT provisioning verifies membership and denies non-members; when unset, any user who clears Cloudflare Access is provisioned an account (the gate then lives entirely in the customer's Access application policy) |
 
 ### Out of Scope
 
@@ -273,5 +276,125 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var)
 
 **Verification:** [Automated test](../../src/__tests__/llm-interceptor.test.ts)
+
+**Status:** Planned
+
+---
+
+<!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (enterprise frontend suppression describe -> Administration hides Manage Subscriptions + Manage Users AC1 + username dropdown (Header & Dashboard) hides Usage + Subscription AC2 + session-mode selector not rendered AC3 + quota banners + upgrade CTAs not rendered AC4 + first-time user routed to /app/ not /app/subscribe or onboarding AC5 + every surface byte-identical when flag unset AC6) -->
+### REQ-ENTERPRISE-008: Enterprise Frontend Surface Suppression
+
+<!-- @impl: web-ui/src/components/SettingsPanel.tsx -->
+<!-- @impl: web-ui/src/components/Header.tsx -->
+<!-- @impl: web-ui/src/components/Dashboard.tsx -->
+<!-- @impl: web-ui/src/components/Layout.tsx -->
+<!-- @impl: web-ui/src/components/settings/SessionSection.tsx -->
+<!-- @impl: web-ui/src/App.tsx -->
+
+**Intent:** In Enterprise Mode the deployment is single-tenant with no self-serve billing and no in-product user administration, so every SaaS- and admin-oriented frontend surface that would be meaningless or misleading must not render.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When `ENTERPRISE_MODE` is set, the Settings → Administration section renders neither the "Manage Subscriptions" nor the "Manage Users" entry.
+2. When `ENTERPRISE_MODE` is set, the username dropdown — in both the Header menu and the Dashboard menu — renders neither the "Usage" nor the "Subscription" entry.
+3. When `ENTERPRISE_MODE` is set, the Standard/Pro session-mode selector is not rendered; every user is implicitly Pro (advanced) per [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2.
+4. When `ENTERPRISE_MODE` is set, the monthly-quota warning banners and their "Upgrade" calls-to-action are not rendered.
+5. When `ENTERPRISE_MODE` is set, a first-time (auto-provisioned) user is routed to the application home, never to `/app/subscribe` or the self-serve onboarding/waitlist flow.
+6. When `ENTERPRISE_MODE` is unset, every surface above renders byte-identically to current behavior.
+
+**Constraints:**
+
+- The frontend decides what to suppress from the deploy-time `enterpriseMode` signal already exposed by `GET /api/user`, never from the user's tier or role.
+- Suppression is render-gating only: it removes no component code path for non-enterprise deployments and deletes no stored user state.
+- This REQ concretizes the surface list implied by [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded) AC1 (which owns the `/app/subscribe` route guard) and adds the admin-button, mode-selector, and first-login-routing surfaces. Visibility only; the matching routes are made unreachable server-side in [REQ-ENTERPRISE-009](#req-enterprise-009-enterprise-backend-route-hardening).
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)
+
+**Verification:** [Automated test](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx)
+
+**Status:** Planned
+
+---
+
+<!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (enterprise route hardening describe -> user-mgmt routes 403 AC1 + billing checkout/portal/switch 403 & status empty AC2 + auth subscribe/request-access 403 no email AC3 + stripe webhook no-op no KV mutation AC4 + admin tier/sub config 403 AC5 + PATCH preferences ignores sessionMode AC6 + every route byte-identical when flag unset AC7) -->
+### REQ-ENTERPRISE-009: Enterprise Backend Route Hardening
+
+<!-- @impl: src/routes/users.ts -->
+<!-- @impl: src/routes/billing.ts -->
+<!-- @impl: src/routes/stripe-webhook.ts -->
+<!-- @impl: src/routes/auth.ts -->
+<!-- @impl: src/routes/preferences.ts -->
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
+
+**Intent:** Hiding a SaaS or admin surface in the frontend is not sufficient; in Enterprise Mode the corresponding routes must fail closed so the disabled capabilities cannot be reached by direct API call, URL manipulation, or a stray external event.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When `ENTERPRISE_MODE` is set, the user-management routes (`GET`/`PUT`/`DELETE`/`PATCH` under `/api/users`) return 403 and perform no mutation; user administration is delegated entirely to Cloudflare Access.
+2. When `ENTERPRISE_MODE` is set, the billing action routes (`POST /api/billing/checkout`, `/api/billing/portal`, `/api/billing/switch`) return 403, and `GET /api/billing/status` returns an empty/disabled billing state without contacting Stripe.
+3. When `ENTERPRISE_MODE` is set, the self-serve routes `POST /api/auth/subscribe` and `POST /api/auth/request-access` return 403 and send no email.
+4. When `ENTERPRISE_MODE` is set, the Stripe webhook route acknowledges the event without mutating any user's tier or billing state, so a late or stray Stripe event cannot downgrade an enterprise user.
+5. When `ENTERPRISE_MODE` is set, the admin tier/subscription configuration routes return 403 (there is a single effective tier, `unlimited`, for all users).
+6. When `ENTERPRISE_MODE` is set, `PATCH /api/preferences` ignores any `sessionMode` field rather than persisting a value the backend will override; the effective mode stays Pro.
+7. When `ENTERPRISE_MODE` is unset, every route above behaves byte-identically to current behavior.
+
+**Constraints:**
+
+- All guards consult the single `isEnterpriseMode(env)` resolver ([REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC4); no route reads the raw binding.
+- Action endpoints fail closed with 403; the read-only billing-status endpoint returns an empty state (200) so non-enterprise clients that still poll it do not error.
+- These guards are defense-in-depth behind the frontend suppression in [REQ-ENTERPRISE-008](#req-enterprise-008-enterprise-frontend-surface-suppression); neither layer alone is sufficient.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-008](#req-enterprise-008-enterprise-frontend-surface-suppression)
+
+**Verification:** [Automated test](../../src/__tests__/routes/enterprise-route-hardening.test.ts)
+
+**Status:** Planned
+
+---
+
+<!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (enterprise JIT describe -> valid Access JWT for unknown email auto-creates unlimited enterprise-jit user keyed by verified email AC1 + ENTERPRISE_ACCESS_GROUP set gates on get-identity group membership (403 when not a member) AC2 + group unset provisions on valid JWT alone AC3 + idempotent concurrent first-login + existing admin/user record returned unchanged AC4 + no welcome/subscription email + bucket/token still lazy AC5 + non-enterprise unknown user still 403 AC6) -->
+### REQ-ENTERPRISE-010: Access-Gated JIT User Provisioning
+
+<!-- @impl: src/lib/access.ts::authenticateRequest -->
+<!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
+<!-- @impl: src/lib/jwt.ts -->
+<!-- @impl: src/routes/setup/index.ts -->
+<!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS -->
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
+
+**Intent:** In Enterprise Mode users are managed by the customer's Cloudflare Access, not inside Codeflare, so any Access-authenticated user entitled to the deployment must be provisioned automatically on first access — a fresh user lands work-ready with no in-product allowlisting or approval step.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When `ENTERPRISE_MODE` is set and an authenticated request presents a valid (RS256-verified, audience-checked) Cloudflare Access JWT for an `email` with no existing user record, Codeflare auto-creates a record `{ addedBy: 'enterprise-jit', role: 'user', accessTier: 'advanced', subscriptionTier: 'unlimited' }` keyed by the JWT's IdP-verified `email`, and the request proceeds as that user. (`accessTier` tops out at `advanced`; `unlimited` is the *subscription* tier — `getEffectiveTier` already resolves enterprise users to `unlimited` per REQ-ENTERPRISE-001.)
+2. When the optional `ENTERPRISE_ACCESS_GROUP` (set at setup, stored in KV) is configured, provisioning first resolves the user's group membership via the Access `get-identity` endpoint (derived from the JWT `iss`, authenticated with the request's `CF_Authorization` token) and, when the user is not a member, denies the request with Codeflare's standard not-authorized response (the existing `ForbiddenError` 403 path — the same one a non-allowlisted user hits in Cloudflare-Access mode) and creates no record.
+3. When `ENTERPRISE_ACCESS_GROUP` is unset, a valid Access JWT alone is sufficient to provision; the group gate is delegated to the customer's Access application policy.
+4. Provisioning is idempotent: concurrent first-logins converge on a single record, and an existing record — whether a setup admin or a prior JIT user — is returned unchanged (JIT never overwrites a role or downgrades an admin).
+5. Enterprise JIT sends no welcome or subscription email; the per-user R2 bucket and scoped token continue to be created lazily on first session start, unchanged.
+6. When `ENTERPRISE_MODE` is unset, an Access-authenticated user with no record still receives 403 with no auto-provisioning, and the authentication path is byte-identical to current behavior.
+
+**Constraints:**
+
+- Codeflare trusts a valid Access JWT as proof that the customer's Access policy authorized the user; it does not re-implement IdP authentication. The only authorization Codeflare adds is the optional `ENTERPRISE_ACCESS_GROUP` membership check via `get-identity`.
+- `ENTERPRISE_ACCESS_GROUP` is configured during the setup wizard and stored in KV (`SETUP_KEYS.ENTERPRISE_ACCESS_GROUP`), alongside the existing setup Access config (`ACCESS_AUD`, the admin/user group ids), so an admin changes it by re-running setup with no redeploy. It names a customer-managed Access group that Codeflare references but never creates or populates; absent ⇒ JWT-trust mode (the gate is delegated to the customer's Access application policy).
+- The account key is the IdP-verified `email`; the JWT `sub` is stored for reference. An email change at the IdP yields a new account (consistent with the existing SaaS JIT behavior).
+- The group check runs once at provisioning; the resulting record is the cache, so steady-state requests incur no `get-identity` call.
+- This REQ uses only the deployment's existing Cloudflare Access auth mode; it adds no new identity-provider integration (consistent with this domain's Out of Scope).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes)
+
+**Verification:** [Automated test](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts)
 
 **Status:** Planned
