@@ -18,6 +18,7 @@ import { handleCreateAccessApp } from './access';
 import { handleConfigureTurnstile } from './turnstile';
 import handlers from './handlers';
 import { isOnboardingLandingPageActive, isSaasModeActive } from '../../lib/onboarding';
+import { isEnterpriseMode } from '../../lib/subscription';
 
 const ConfigureBodySchema = z.object({
   customDomain: z
@@ -237,7 +238,7 @@ app.post('/configure', async (c) => {
         await runStep('create_access_app', async () => { /* skipped: GitHub OIDC handles auth */ });
       } else {
         await runStep('create_access_app', () =>
-          handleCreateAccessApp(token, accountId, customDomain, allowedUsers, adminUsers, steps, c.env.KV, workerName, isSaasModeActive(c.env.SAAS_MODE))
+          handleCreateAccessApp(token, accountId, customDomain, allowedUsers, adminUsers, steps, c.env.KV, workerName, isSaasModeActive(c.env.SAAS_MODE), isEnterpriseMode(c.env))
         );
       }
 

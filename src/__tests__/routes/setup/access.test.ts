@@ -103,6 +103,54 @@ describe('Setup Access', () => {
       expect(steps[0].status).toBe('success');
       expect(mockKV.put).toHaveBeenCalledWith('setup:access_aud', 'aud-tag-1');
       expect(mockKV.put).toHaveBeenCalledWith('setup:access_app_id', 'app-1');
+
+      // Default/SaaS mode stays path-scoped: primary domain is /app/* and the
+      // destinations enumerate the protected paths (so /, /public/*, /auth/*
+      // remain public). This locks the non-enterprise behavior unchanged.
+      const defaultAppBody = JSON.parse((mockFetch.mock.calls[5][1] as RequestInit).body as string);
+      expect(defaultAppBody.domain).toBe('app.example.com/app/*');
+      expect(defaultAppBody.destinations).toContainEqual({ type: 'public', uri: 'app.example.com/api/*' });
+    });
+
+    it('enterprise mode creates a host-scoped app (bare host domain + whole-host destination)', async () => {
+      const steps: SetupStep[] = [];
+
+      // Same fetch chain as fresh setup (saasMode=false => user group created):
+      // 0 listIdP, 1 listGroups, 2 admin group, 3 user group, 4 listApps,
+      // 5 upsertApp (POST), 6 listPolicies, 7 createPolicy, 8 org
+      mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-enterprise-admins' }))
+        .mockResolvedValueOnce(cfSuccess({ id: 'grp-user', name: 'codeflare-enterprise-users' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(cfSuccess({ id: 'app-ent', aud: 'aud-ent' }))
+        .mockResolvedValueOnce(cfSuccess([]))
+        .mockResolvedValueOnce(new Response('', { status: 200 }))
+        .mockResolvedValueOnce(cfSuccess({ auth_domain: 'test.cloudflareaccess.com' }));
+
+      await handleCreateAccessApp(
+        'test-token',
+        'account-123',
+        'enterprise.example.com',
+        ['admin@example.com', 'user@example.com'],
+        ['admin@example.com'],
+        steps,
+        mockKV as unknown as KVNamespace,
+        'codeflare-enterprise',
+        false, // saasMode
+        true   // enterprise
+      );
+
+      expect(steps[0].status).toBe('success');
+
+      // The upsertAccessApp POST is the 6th fetch (index 5). Enterprise must
+      // protect the WHOLE host (bare domain, single whole-host destination) so
+      // the CF Access session cookie is host-wide and covers /api/* — a
+      // path-scoped /app app would 401 /api/* and the SPA would redirect-loop.
+      const appBody = JSON.parse((mockFetch.mock.calls[5][1] as RequestInit).body as string);
+      expect(appBody.domain).toBe('enterprise.example.com');
+      expect(appBody.destinations).toEqual([{ type: 'public', uri: 'enterprise.example.com' }]);
     });
 
     it('throws SetupError when group creation fails', async () => {
