@@ -610,14 +610,17 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       expect(screen.getByTestId('header-user-dropdown-profile')).toBeInTheDocument();
     });
 
-    it('hides the Subscription menu item when enterpriseMode is true', () => {
+    it('hides the Subscription and Usage menu items when enterpriseMode is true', () => {
       render(() => <Header {...defaultSessionProps} enterpriseMode={true} />);
 
       fireEvent.click(screen.getByTestId('header-user-menu'));
 
+      // REQ-ENTERPRISE-008 AC2: both Subscription and Usage are gated in enterprise mode.
       expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
-      // Other dropdown items remain present — only Subscription is gated.
-      expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
+      expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
+      // Non-SaaS items remain present.
+      expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
+      expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
     });
   });
 });
