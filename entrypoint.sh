@@ -1810,6 +1810,36 @@ if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
         export NODE_EXTRA_CA_CERTS="$CF_CA_SRC"
         export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
         export REQUESTS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
+
+        # Persist the CA-trust env into .bashrc so the AGENTS inherit it.
+        # The exports above live only in THIS (entrypoint) process. Pi/Copilot
+        # run in PTYs the terminal server spawns after init, and those shells
+        # source .bashrc — they do NOT inherit entrypoint's env. Without this
+        # the agents launch with NODE_EXTRA_CA_CERTS unset, Node falls back to
+        # its bundled CA list (which lacks the ephemeral containers CA), and the
+        # intercepted TLS handshake to api.openai.com fails as an opaque
+        # "Connection error" before the request ever reaches the interceptor
+        # (curl works only because it reads the system store).
+        # PREPENDED (not appended): the terminal-autostart block already in
+        # .bashrc launches the agent inline and blocks, so anything after it is
+        # never sourced before the agent starts — the exports must come first.
+        BASHRC_FILE="$USER_HOME/.bashrc"
+        if ! grep -q "# enterprise-ca-trust" "$BASHRC_FILE" 2>/dev/null; then
+            touch "$BASHRC_FILE"
+            CA_TRUST_TMP=$(mktemp)
+            cat > "$CA_TRUST_TMP" << CA_TRUST_EOF
+# enterprise-ca-trust
+# Trust the Cloudflare containers CA in agent runtimes (Node/Python) so outbound
+# LLM-interception TLS validates. Set before terminal-autostart launches an agent.
+export NODE_EXTRA_CA_CERTS="$CF_CA_SRC"
+export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
+export REQUESTS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
+
+CA_TRUST_EOF
+            cat "$BASHRC_FILE" >> "$CA_TRUST_TMP"
+            mv "$CA_TRUST_TMP" "$BASHRC_FILE"
+            echo "[entrypoint] Enterprise Mode: CA-trust env prepended to .bashrc (agent PTYs inherit NODE_EXTRA_CA_CERTS)"
+        fi
     else
         echo "[entrypoint] WARNING: $CF_CA_SRC not found; outbound HTTPS interception is unavailable (LLM calls will fail)"
     fi
