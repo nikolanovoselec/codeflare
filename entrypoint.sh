@@ -1828,7 +1828,7 @@ if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
     echo "[ENTERPRISE-DIAG] curl probe https://api.openai.com/v1/models -> HTTP=${_DIAG_HTTP} err=$(tr '\n' ' ' <"$_DIAG_ERR" | head -c 400)"
     rm -f "$_DIAG_ERR"
     if command -v node >/dev/null 2>&1; then
-        _NODE_DIAG=$(node -e 'fetch("https://api.openai.com/v1/models").then(r=>console.log("HTTP="+r.status)).catch(e=>console.log("FETCH-FAILED:"+((e&&e.cause&&e.cause.message)||(e&&e.message)||e)))' 2>&1 | head -c 400)
+        _NODE_DIAG=$(node -e 'fetch("https://api.openai.com/v1/models",{signal:AbortSignal.timeout(12000)}).then(r=>console.log("HTTP="+r.status)).catch(e=>console.log("FETCH-FAILED:"+((e&&e.cause&&e.cause.message)||(e&&e.message)||e)))' 2>&1 | head -c 400)
         echo "[ENTERPRISE-DIAG] node fetch probe -> ${_NODE_DIAG}"
     fi
 
