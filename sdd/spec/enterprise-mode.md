@@ -65,7 +65,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Verification:** [Automated test](../../src/__tests__/lib/enterprise-mode.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -133,7 +133,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Verification:** [Automated test](../../src/__tests__/routes/session-agent-allowlist.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -172,7 +172,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Verification:** [Automated test](../../src/__tests__/llm-interceptor.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -277,7 +277,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Verification:** [Automated test](../../src/__tests__/llm-interceptor.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -431,4 +431,4 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Verification:** [Automated test](../../src/__tests__/container/index.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
