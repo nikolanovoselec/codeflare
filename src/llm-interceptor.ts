@@ -102,8 +102,10 @@ function parseGateway(raw: string | undefined): { accountId: string; gatewayId: 
 
 export class LlmInterceptor extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
+    console.log('[ENTERPRISE-DIAG] LlmInterceptor.fetch invoked', { method: request.method, url: request.url });
     const gw = parseGateway(this.env.AIG_GATEWAY_URL);
     if (!gw) {
+      console.error('[ENTERPRISE-DIAG] LlmInterceptor 503: AIG_GATEWAY_URL missing/unparseable', { hasGatewayUrl: !!this.env.AIG_GATEWAY_URL });
       // Enterprise deploy with interception wired but no gateway configured:
       // fail closed rather than letting the request fall through anywhere.
       return new Response(JSON.stringify({ error: 'LLM gateway not configured', code: 'GATEWAY_UNAVAILABLE' }), {
@@ -195,17 +197,28 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         outboundBody = raw; // not JSON: forward the original bytes unchanged
       }
     }
-    const upstream = await fetch(
-      new Request(upstreamUrl, {
-        method: request.method,
-        headers,
-        body: outboundBody,
-        // Do not transparently follow gateway/provider redirects — a 3xx would
-        // otherwise be chased to an arbitrary Location host. Surface it to the
-        // agent's client instead.
-        redirect: 'manual',
-      }),
-    );
+    console.log('[ENTERPRISE-DIAG] LlmInterceptor forwarding to gateway', { upstreamUrl, method: request.method, hasToken: !!this.env.AIG_TOKEN, gatewayId: gw.gatewayId, modelRewrite: !!(this.env.AIG_LANGUAGE_MODEL && isModelRoutable) });
+    let upstream: Response;
+    try {
+      upstream = await fetch(
+        new Request(upstreamUrl, {
+          method: request.method,
+          headers,
+          body: outboundBody,
+          // Do not transparently follow gateway/provider redirects — a 3xx would
+          // otherwise be chased to an arbitrary Location host. Surface it to the
+          // agent's client instead.
+          redirect: 'manual',
+        }),
+      );
+    } catch (err) {
+      console.error('[ENTERPRISE-DIAG] LlmInterceptor upstream fetch FAILED', { upstreamUrl, error: err instanceof Error ? err.message : String(err) });
+      return new Response(JSON.stringify({ error: 'gateway fetch failed', code: 'GATEWAY_FETCH_FAILED' }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    console.log('[ENTERPRISE-DIAG] LlmInterceptor upstream responded', { status: upstream.status, upstreamUrl });
 
     // Strip hop-by-hop and cookie headers from the upstream response before it
     // reaches the container. Returning upstream.body (the ReadableStream) WITHOUT

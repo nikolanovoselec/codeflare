@@ -1814,6 +1814,24 @@ if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
         echo "[entrypoint] WARNING: $CF_CA_SRC not found; outbound HTTPS interception is unavailable (LLM calls will fail)"
     fi
 
+    # --- Enterprise interception self-test (diagnostic, [ENTERPRISE-DIAG]) -----
+    # Surface the CA-trust state and probe the intercepted provider host from
+    # inside the container so the logs show DEFINITIVELY whether outbound LLM TLS
+    # works end-to-end. curl uses the system trust store (update-ca-certificates);
+    # node uses NODE_EXTRA_CA_CERTS — the path Pi/Copilot actually take. If curl
+    # works but node fails, the issue is node trust, not the system bundle.
+    echo "[ENTERPRISE-DIAG] NODE_EXTRA_CA_CERTS=${NODE_EXTRA_CA_CERTS:-<unset>}"
+    echo "[ENTERPRISE-DIAG] containers CA file present: $([ -f "$CF_CA_SRC" ] && echo yes || echo NO)"
+    echo "[ENTERPRISE-DIAG] system bundle cert count: $(grep -c 'BEGIN CERTIFICATE' /etc/ssl/certs/ca-certificates.crt 2>/dev/null || echo '?')"
+    _DIAG_ERR=$(mktemp)
+    _DIAG_HTTP=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://api.openai.com/v1/models 2>"$_DIAG_ERR" || echo "curl-failed")
+    echo "[ENTERPRISE-DIAG] curl probe https://api.openai.com/v1/models -> HTTP=${_DIAG_HTTP} err=$(tr '\n' ' ' <"$_DIAG_ERR" | head -c 400)"
+    rm -f "$_DIAG_ERR"
+    if command -v node >/dev/null 2>&1; then
+        _NODE_DIAG=$(node -e 'fetch("https://api.openai.com/v1/models").then(r=>console.log("HTTP="+r.status)).catch(e=>console.log("FETCH-FAILED:"+((e&&e.cause&&e.cause.message)||(e&&e.message)||e)))' 2>&1 | head -c 400)
+        echo "[ENTERPRISE-DIAG] node fetch probe -> ${_NODE_DIAG}"
+    fi
+
     # Constant, NON-SECRET placeholder credential. Each agent CLI only enters
     # API/gateway mode when *some* credential is present; the interceptor strips
     # it before forwarding, so it is never a real secret and never reaches the

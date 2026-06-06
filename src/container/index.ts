@@ -385,6 +385,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   override async startAndWaitForPorts(
     ...args: Parameters<Container<Env>['startAndWaitForPorts']>
   ): Promise<void> {
+    console.log('[ENTERPRISE-DIAG] startAndWaitForPorts override invoked', { enterprise: isEnterpriseMode(this.env) });
     this.setupEnterpriseInterception();
     await super.startAndWaitForPorts(...args);
   }
@@ -408,8 +409,16 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   private setupEnterpriseInterception(): void {
     if (!isEnterpriseMode(this.env)) return;
+    console.log('[ENTERPRISE-DIAG] setupEnterpriseInterception entered', {
+      hasGatewayUrl: !!this.env.AIG_GATEWAY_URL,
+      hasToken: !!this.env.AIG_TOKEN,
+      languageModel: this.env.AIG_LANGUAGE_MODEL ?? null,
+      bucket: this._bucketName ?? null,
+      hosts: INTERCEPTED_LLM_HOSTS,
+    });
     if (!this.env.AIG_GATEWAY_URL) {
       this.logger.warn('Enterprise mode active but AIG_GATEWAY_URL unset; skipping LLM interception');
+      console.warn('[ENTERPRISE-DIAG] AIG_GATEWAY_URL unset; NOT wiring interception');
       return;
     }
     if (!this.env.AIG_TOKEN) {
@@ -426,12 +435,16 @@ export class container extends Container<Env> implements ContainerEnvState {
         container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
       };
       const interceptor = ictx.exports.LlmInterceptor({ props: { user } });
+      console.log('[ENTERPRISE-DIAG] LlmInterceptor instantiated', { hasContainer: !!ictx.container, user });
       for (const host of INTERCEPTED_LLM_HOSTS) {
         ictx.container?.interceptOutboundHttps(host, interceptor);
+        console.log('[ENTERPRISE-DIAG] interceptOutboundHttps wired', { host });
       }
       this.logger.info('Enterprise LLM interception wired', { hostCount: INTERCEPTED_LLM_HOSTS.length });
+      console.log('[ENTERPRISE-DIAG] interception wiring complete', { hostCount: INTERCEPTED_LLM_HOSTS.length });
     } catch (err) {
       this.logger.error('Failed to wire enterprise LLM interception', toError(err));
+      console.error('[ENTERPRISE-DIAG] interception wiring threw', { error: err instanceof Error ? err.message : String(err) });
     }
   }
 
