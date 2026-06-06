@@ -362,8 +362,31 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   /** Called when the container starts successfully. */
   override async onStart(): Promise<void> {
-    this.setupEnterpriseInterception();
     await lifecycleOnStart(this.lifecycleHost);
+  }
+
+  /**
+   * Wire enterprise LLM interception BEFORE the container boots.
+   *
+   * REQ-ENTERPRISE-004: `interceptOutboundHttps` must be registered before the
+   * SDK calls `container.start()`, so the platform mounts the ephemeral
+   * Cloudflare containers CA at `/etc/cloudflare/certs/` in time for
+   * entrypoint.sh to install it into the trust store. Wiring it in `onStart()`
+   * — which fires AFTER the container has booted and the entrypoint has already
+   * run its CA-trust block — was too late: the entrypoint found no cert, skipped
+   * trust, and every agent's intercepted-TLS handshake to api.openai.com then
+   * failed with "Connection error" (the interceptor was never even reached).
+   * The SDK applies its own pre-start interception at this same point; all start
+   * paths (explicit start + containerFetch auto-start) funnel through here.
+   *
+   * No-op unless enterprise mode + gateway configured, so a non-enterprise
+   * container's start path is byte-identical to today.
+   */
+  override async startAndWaitForPorts(
+    ...args: Parameters<Container<Env>['startAndWaitForPorts']>
+  ): Promise<void> {
+    this.setupEnterpriseInterception();
+    await super.startAndWaitForPorts(...args);
   }
 
   /**
@@ -373,7 +396,8 @@ export class container extends Container<Env> implements ContainerEnvState {
    * gateway URL, or token is ever placed inside the container; the interception
    * is platform-internal so it never traverses Cloudflare Access. The per-session
    * `user` prop is the opaque bucket id (never an email). bucketName is set via
-   * setBucketName BEFORE the container is started, so it is populated by onStart.
+   * setBucketName BEFORE the container is started, so it is already populated
+   * when startAndWaitForPorts wires interception.
    *
    * No-op unless ENTERPRISE_MODE=active and the gateway is configured, so a
    * non-enterprise container's egress is byte-identical to today. interceptOutbound*

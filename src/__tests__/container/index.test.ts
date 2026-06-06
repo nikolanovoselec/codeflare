@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// Shared, hoisted call-order log so the mocked base Container can record when
+// super.startAndWaitForPorts() runs relative to interceptOutboundHttps() — used
+// by the REQ-ENTERPRISE-004 pre-start interception-ordering test below.
+const { callOrder } = vi.hoisted(() => ({ callOrder: [] as string[] }));
+
 /**
  * Container DO class tests.
  *
@@ -67,6 +72,9 @@ vi.mock('@cloudflare/containers', () => ({
     onStop(): void {}
     onError(_error: unknown): void {}
     onActivityExpired(): void {}
+    async startAndWaitForPorts(..._args: any[]): Promise<void> {
+      callOrder.push('super.startAndWaitForPorts');
+    }
   },
 }));
 
@@ -1004,6 +1012,57 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       // No need to send SIGTERM if the container is already gone
       expect(stopSpy).not.toHaveBeenCalled();
       expect(mockStorage.delete).toHaveBeenCalledWith('bucketName');
+    });
+  });
+
+  describe('enterprise LLM interception wiring (REQ-ENTERPRISE-004)', () => {
+    const enterpriseEnv = () => ({
+      ...mockEnv,
+      ENTERPRISE_MODE: 'active',
+      AIG_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123',
+      AIG_TOKEN: 'gw-token',
+    });
+
+    it('registers interceptOutboundHttps BEFORE the container starts so the CA is mounted when entrypoint.sh trusts it', async () => {
+      // Root-cause regression: the wiring used to live in onStart() (post-boot),
+      // so the ephemeral CF containers CA did not exist when entrypoint.sh ran
+      // its trust block -> the intercepted TLS handshake failed with "Connection
+      // error" and LlmInterceptor was never reached. It MUST be wired before
+      // super.startAndWaitForPorts (= before the SDK's container.start()).
+      callOrder.length = 0;
+      const fetcher = { id: 'llm-interceptor-fetcher' };
+      const LlmInterceptor = vi.fn(() => fetcher);
+      const interceptOutboundHttps = vi.fn((_host: string, _worker: unknown) => {
+        callOrder.push('interceptOutboundHttps');
+      });
+      const ctx = {
+        ...mockCtx,
+        container: { ...mockContainerRuntime, interceptOutboundHttps },
+        exports: { LlmInterceptor },
+      };
+      const instance = new ContainerClass(ctx as any, enterpriseEnv());
+
+      await instance.startAndWaitForPorts(8080);
+
+      expect(interceptOutboundHttps).toHaveBeenCalledWith('api.openai.com', fetcher);
+      expect(callOrder).toEqual(['interceptOutboundHttps', 'super.startAndWaitForPorts']);
+    });
+
+    it('does NOT wire interception on a non-enterprise start (SaaS start path byte-identical)', async () => {
+      callOrder.length = 0;
+      const interceptOutboundHttps = vi.fn();
+      const ctx = {
+        ...mockCtx,
+        container: { ...mockContainerRuntime, interceptOutboundHttps },
+        exports: { LlmInterceptor: vi.fn() },
+      };
+      // mockEnv has no ENTERPRISE_MODE -> setupEnterpriseInterception is a no-op.
+      const instance = new ContainerClass(ctx as any, mockEnv);
+
+      await instance.startAndWaitForPorts(8080);
+
+      expect(interceptOutboundHttps).not.toHaveBeenCalled();
+      expect(callOrder).toEqual(['super.startAndWaitForPorts']);
     });
   });
 

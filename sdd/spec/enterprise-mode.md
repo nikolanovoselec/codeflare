@@ -139,10 +139,12 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 <!-- @test: src/__tests__/llm-interceptor.test.ts (LlmInterceptor describe -> api.openai.com mapped onto the AI Gateway REST API (api.cloudflare.com/.../ai/v1/*) with account+gateway parsed from AIG_GATEWAY_URL + Authorization Bearer AIG_TOKEN + cf-aig-gateway-id + cf-aig-metadata stamped with opaque user + placeholder auth replaced + streaming preserved + unmapped host (incl. api.anthropic.com) 400 + gateway-unset/unparseable 503 -> AC1..AC7) -->
 <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (enterprise bypass describe -> monthly compute quota never enforced AC3 — enterprise users are never blocked by the monthly compute quota) -->
+<!-- @test: src/__tests__/container/index.test.ts (enterprise LLM interception wiring describe -> interceptOutboundHttps registered before super.startAndWaitForPorts so the CA is mounted when entrypoint.sh trusts it + no wiring on a non-enterprise start -> AC8, AC7) -->
 ### REQ-ENTERPRISE-004: Outbound-Interception LLM Routing to Customer AI Gateway
 
 <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 <!-- @impl: src/container/index.ts::setupEnterpriseInterception -->
+<!-- @impl: src/container/index.ts::startAndWaitForPorts -->
 <!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 
 **Intent:** Enterprise deployments route all agent LLM traffic to the customer's AI Gateway via platform outbound-HTTPS interception, so the gateway credentials never reach the container, nothing is exposed over a public route, and all usage is attributable.
@@ -158,6 +160,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 5. The container's placeholder credential (`Authorization` / `x-api-key`) is stripped before forwarding so it never reaches the gateway; gateway auth is stamped separately.
 6. The interceptor maps only the known provider host (`api.openai.com`); an unmapped host (including `api.anthropic.com`, which is not an enterprise agent host) fails closed (400) and an unconfigured/unparseable gateway fails closed (503) — neither forwards anywhere.
 7. When `ENTERPRISE_MODE` is unset, the DO never wires interception, the interceptor is never instantiated, and agent LLM traffic follows the current direct-key path, byte-identical to current behavior.
+8. Interception is wired **before the container starts** — in the DO's `startAndWaitForPorts` override, ahead of the SDK's `container.start()` — so the ephemeral Cloudflare containers CA is mounted in time for the container entrypoint to install it into the trust store ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC2). Wiring it after boot (e.g. in `onStart`) leaves the entrypoint with no cert to trust, so every intercepted-TLS handshake to the provider host fails with a connection error.
 
 **Constraints:**
 
