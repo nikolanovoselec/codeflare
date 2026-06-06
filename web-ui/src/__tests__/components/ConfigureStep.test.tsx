@@ -7,6 +7,9 @@ const storeState = vi.hoisted(() => ({
   customDomain: '',
   adminUsers: [] as string[],
   allowedUsers: [] as string[],
+  saasMode: false,
+  enterpriseMode: false,
+  enterpriseAccessGroup: '',
 }));
 
 const storeMethods = vi.hoisted(() => ({
@@ -15,6 +18,7 @@ const storeMethods = vi.hoisted(() => ({
   removeAdminUser: vi.fn((email: string) => { storeState.adminUsers = storeState.adminUsers.filter(e => e !== email); }),
   addAllowedUser: vi.fn((email: string) => { storeState.allowedUsers.push(email); }),
   removeAllowedUser: vi.fn((email: string) => { storeState.allowedUsers = storeState.allowedUsers.filter(e => e !== email); }),
+  setEnterpriseAccessGroup: vi.fn((val: string) => { storeState.enterpriseAccessGroup = val; }),
   nextStep: vi.fn(),
   prevStep: vi.fn(),
   loadExistingConfig: vi.fn().mockResolvedValue(undefined),
@@ -25,6 +29,9 @@ vi.mock('../../stores/setup', () => ({
     get customDomain() { return storeState.customDomain; },
     get adminUsers() { return storeState.adminUsers; },
     get allowedUsers() { return storeState.allowedUsers; },
+    get saasMode() { return storeState.saasMode; },
+    get enterpriseMode() { return storeState.enterpriseMode; },
+    get enterpriseAccessGroup() { return storeState.enterpriseAccessGroup; },
     ...storeMethods,
   },
 }));
@@ -41,6 +48,9 @@ describe('ConfigureStep', () => {
     storeState.customDomain = '';
     storeState.adminUsers = [];
     storeState.allowedUsers = [];
+    storeState.saasMode = false;
+    storeState.enterpriseMode = false;
+    storeState.enterpriseAccessGroup = '';
   });
 
   afterEach(() => {
@@ -75,6 +85,26 @@ describe('ConfigureStep', () => {
       render(() => <ConfigureStep />);
       expect(screen.getByText('Back')).toBeInTheDocument();
       expect(screen.getByText('Continue')).toBeInTheDocument();
+    });
+  });
+
+  // REQ-ENTERPRISE-008 AC7: in enterprise mode the setup wizard configures only
+  // admins + the optional Access group; regular users arrive via JIT, so the
+  // Regular Users section is suppressed. Flag-unset parity is the default case
+  // already covered by the "renders regular users section" test above.
+  describe('Enterprise mode surface suppression', () => {
+    it('hides the Regular Users section when enterpriseMode is set', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(screen.queryByText('Regular Users')).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('user@example.com')).not.toBeInTheDocument();
+    });
+
+    it('still renders Admin Users and the Access Group field when enterpriseMode is set', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(screen.getByText('Admin Users')).toBeInTheDocument();
+      expect(screen.getByText('Cloudflare Access Group (optional)')).toBeInTheDocument();
     });
   });
 

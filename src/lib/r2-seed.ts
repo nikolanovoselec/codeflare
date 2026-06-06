@@ -7,6 +7,9 @@ import { getSseHeaders } from './r2-sse';
 
 const logger = createLogger('r2-seed');
 
+const sleep = (ms: number): Promise<void> =>
+  ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+
 /**
  * CF-013: the only env bindings the seed helpers touch are the R2 credentials
  * (forwarded to createR2Client) and ENCRYPTION_KEY (forwarded to getSseHeaders
@@ -105,18 +108,49 @@ export async function seedGettingStartedDocs(
   env: SeedEnv,
   bucketName: string,
   endpoint: string,
-  options: { overwrite?: boolean } = {}
+  options: { overwrite?: boolean; maxAttempts?: number; retryDelayMs?: number } = {}
 ): Promise<SeedDocsResult> {
-  const result = await seedDocuments(env, bucketName, endpoint, SEEDED_DOCUMENTS, options);
+  // A bucket created via the control-plane API is not always immediately
+  // writable on the S3 data plane, and R2 credentials written as Worker
+  // secrets during setup can still be propagating on the first session. The
+  // create-time seed runs once inside the caller's swallowing try/catch, so a
+  // single transient failure used to leave the bucket permanently unseeded —
+  // the new-bucket gate never fires again, and the user had to re-seed by hand.
+  // Retry with backoff so a fresh bucket reliably ends up seeded
+  // (REQ-STOR-009 AC5). Non-overwrite seeding is idempotent, so a retry only
+  // writes the docs a prior attempt missed.
+  const maxAttempts = options.maxAttempts ?? 4;
+  const retryDelayMs = options.retryDelayMs ?? 300;
 
-  logger.info('Seeded getting started docs', {
-    bucketName,
-    overwrite: options.overwrite === true,
-    writtenCount: result.written.length,
-    skippedCount: result.skipped.length,
-  });
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await seedDocuments(env, bucketName, endpoint, SEEDED_DOCUMENTS, options);
+      logger.info('Seeded getting started docs', {
+        bucketName,
+        overwrite: options.overwrite === true,
+        attempt,
+        writtenCount: result.written.length,
+        skippedCount: result.skipped.length,
+      });
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts) {
+        const delay = retryDelayMs * 2 ** (attempt - 1);
+        logger.warn('Getting-started seed attempt failed; retrying', {
+          bucketName,
+          attempt,
+          maxAttempts,
+          delayMs: delay,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await sleep(delay);
+      }
+    }
+  }
 
-  return result;
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 /**

@@ -138,6 +138,45 @@ describe('seedGettingStartedDocs / REQ-STOR-009 (per-user R2 bucket seeded with 
     expect((mockFetch.mock.calls[0][1] as { method: string }).method).toBe('PUT');
     expect((mockFetch.mock.calls[1][1] as { method: string }).method).toBe('PUT');
   });
+
+  // REQ-STOR-009 AC5: a brand-new bucket is not always immediately writable on
+  // the S3 data plane (and setup-written R2 secrets may still be propagating),
+  // so the create-time seed must ride out a transient failure instead of
+  // leaving the bucket permanently unseeded.
+  it('retries on a transient failure and succeeds on a later attempt (AC5)', async () => {
+    // Attempt 1: both PUTs fail (503) → seedDocuments throws.
+    // Attempt 2: both PUTs succeed (200).
+    mockFetch
+      .mockResolvedValueOnce(new Response('', { status: 503 }))
+      .mockResolvedValueOnce(new Response('', { status: 503 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    const result = await seedGettingStartedDocs(
+      env,
+      'test-bucket',
+      'https://test.r2.cloudflarestorage.com',
+      { overwrite: true, retryDelayMs: 0 }
+    );
+
+    expect(result.written).toEqual(['Readme.TXT', 'Guides/QuickStart.MD']);
+    expect(mockFetch).toHaveBeenCalledTimes(4); // 2 failed + 2 retried PUTs
+  });
+
+  it('throws after exhausting retries when the failure persists (AC5)', async () => {
+    mockFetch.mockResolvedValue(new Response('', { status: 503 }));
+
+    await expect(
+      seedGettingStartedDocs(
+        env,
+        'test-bucket',
+        'https://test.r2.cloudflarestorage.com',
+        { overwrite: true, retryDelayMs: 0, maxAttempts: 3 }
+      )
+    ).rejects.toThrow();
+
+    expect(mockFetch).toHaveBeenCalledTimes(6); // 3 attempts × 2 PUTs
+  });
 });
 
 describe('seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on start) / REQ-STOR-010 (reconcileAgentConfigs deletes orphaned seed entries on tier change)', () => {

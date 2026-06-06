@@ -284,6 +284,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (real-component renders -> SettingsPanel Administration hides Manage Subscriptions + Manage Users AC1 + Header username dropdown hides Usage + Subscription AC2 + SettingsPanel/SessionSection mode selector not rendered AC3 + every surface byte-identical when flag unset AC6) -->
 <!-- @test: web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx (Layout -> quota banners + upgrade CTAs not rendered AC4 + enterpriseMode threaded to TerminalArea→Dashboard dropdown AC2 + SettingsPanel admin AC1 + byte-identical when flag unset AC6) -->
 <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (App -> first-time enterprise user routed to /app/ not onboarding/subscribe AC5 + non-enterprise SaaS user still redirected when flag unset AC6) -->
+<!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Enterprise mode surface suppression describe -> setup wizard hides Regular Users section when enterpriseMode set + still renders Admin Users + Access Group field AC7 + Regular Users renders when flag unset, default render tests) -->
 ### REQ-ENTERPRISE-008: Enterprise Frontend Surface Suppression
 
 <!-- @impl: web-ui/src/components/SettingsPanel.tsx -->
@@ -291,6 +292,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @impl: web-ui/src/components/Dashboard.tsx -->
 <!-- @impl: web-ui/src/components/Layout.tsx -->
 <!-- @impl: web-ui/src/components/settings/SessionSection.tsx -->
+<!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx -->
 <!-- @impl: web-ui/src/App.tsx -->
 
 **Intent:** In Enterprise Mode the deployment is single-tenant with no self-serve billing and no in-product user administration, so every SaaS- and admin-oriented frontend surface that would be meaningless or misleading must not render.
@@ -304,7 +306,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 3. When `ENTERPRISE_MODE` is set, the Standard/Pro session-mode selector is not rendered; every user is implicitly Pro (advanced) per [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2.
 4. When `ENTERPRISE_MODE` is set, the monthly-quota warning banners and their "Upgrade" calls-to-action are not rendered.
 5. When `ENTERPRISE_MODE` is set, a first-time (auto-provisioned) user is routed to the application home, never to `/app/subscribe` or the self-serve onboarding/waitlist flow.
-6. When `ENTERPRISE_MODE` is unset, every surface above renders byte-identically to current behavior.
+6. When `ENTERPRISE_MODE` is unset, every surface in AC1–AC5 renders byte-identically to current behavior.
+7. When `ENTERPRISE_MODE` is set, the setup wizard's "Regular Users" section is not rendered — setup configures only Admin Users and the optional Cloudflare Access group, since regular users are provisioned via Cloudflare Access on first sign-in per [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning); when unset, the section renders unchanged.
 
 **Constraints:**
 
@@ -316,7 +319,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC1–AC3, AC6); [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx) (AC4); [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC5)
+**Verification:** [Automated test](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC1–AC3, AC6); [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx) (AC4); [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC5); [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) (AC7)
 
 **Status:** Implemented
 

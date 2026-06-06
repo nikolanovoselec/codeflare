@@ -358,7 +358,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 <!-- @impl: src/routes/storage/seed.ts -->
 <!-- @impl: src/lib/r2-seed.ts -->
-<!-- @test: src/__tests__/lib/r2-seed.test.ts (seedGettingStartedDocs describe → AC1) -->
+<!-- @test: src/__tests__/lib/r2-seed.test.ts (seedGettingStartedDocs describe → AC1 + retries on transient failure and succeeds on a later attempt + throws after exhausting retries → AC5) -->
 <!-- @test: src/__tests__/routes/storage-seed.test.ts (seed endpoint → AC2/AC3/AC4) -->
 
 **Intent:** New users must find starter documentation in their storage on first use so they have immediate orientation material.
@@ -371,6 +371,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. A seed endpoint allows the user to manually re-seed the tutorial content, optionally overwriting existing files.
 3. After a successful seed, the storage-stats cache is invalidated so the next poll returns fresh data.
 4. The seed endpoint is rate-limited at a low ceiling appropriate to its destructive-overwrite mode.
+5. The first-session seed retries on a transient failure (e.g. a freshly created bucket not yet writable on the S3 data plane, or R2 credentials still propagating right after setup) with bounded backoff, so a new bucket reliably ends up seeded rather than left empty until a manual re-seed; once retries are exhausted the failure surfaces to the caller.
 
 **Constraints:**
 

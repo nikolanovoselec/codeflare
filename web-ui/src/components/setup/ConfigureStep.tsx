@@ -85,8 +85,11 @@ const ConfigureStep: Component = () => {
         </div>
       </div>
 
-      {/* Regular Users (Optional) — hidden in SaaS mode */}
-      <Show when={!setupStore.saasMode}>
+      {/* Regular Users (Optional) — hidden in SaaS mode and enterprise mode.
+          REQ-ENTERPRISE-008 AC7: enterprise users are provisioned via Cloudflare
+          Access (JIT on first sign-in), not entered by hand, so setup configures
+          only admins + the optional Access group. No-op when enterpriseMode unset. */}
+      <Show when={!setupStore.saasMode && !setupStore.enterpriseMode}>
         <div class="setup-field">
           <label class="setup-field-label">Regular Users</label>
           <p class="setup-field-description">
