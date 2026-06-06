@@ -530,3 +530,23 @@ CVE-2026-48962
 #                same no-untrusted-XML rationale as CVE-2026-7210 above).
 CVE-2026-3644
 CVE-2026-4224
+
+# cpython 3.11 (libpython3.11-minimal, libpython3.11-stdlib, python3.11,
+# python3.11-minimal, python3.11-venv; 3.11.2-6+deb12u7, Debian bookworm):
+# tarfile module misinterprets a crafted tar header, allowing extraction
+# outside the intended directory. Impact: NONE - python3 is added for ECC
+# observe hooks only (stdlib, run locally on tool-use events); the container
+# extracts no attacker-controlled tar archives via python tarfile. Same
+# package and exposure profile as the existing cpython tarfile/XML entries
+# above (CVE-2025-8194 tarfile infinite loop, CVE-2026-7210, CVE-2026-4224).
+# No fixed version available in Debian bookworm.
+CVE-2025-13462
+
+# Go stdlib in rclone v1.73.x / lazygit v0.60.0 (Go 1.25.x / 1.26.x builds):
+# DoS when decoding a maliciously-crafted MIME header containing many fields
+# (net/textproto / mime). Impact: NONE - these are outbound-only CLI tools in
+# the sandboxed container; they never parse untrusted MIME headers as a server.
+# Same exposure profile as the other Go stdlib rclone/lazygit entries above
+# (CVE-2026-42499 net/mail consumePhrase DoS, CVE-2025-61725). Fix: Go 1.25.11
+# / 1.26.4; rclone and lazygit upstream have not rebuilt yet.
+CVE-2026-42504
