@@ -556,14 +556,17 @@ export async function resolveOrProvisionEnterpriseUser(
   if (kvEntry) {
     // Existing record (setup admin or prior enterprise-jit user) — return as-is,
     // never overwrite the role or downgrade an admin. Every enterprise user is
-    // implicitly Pro/advanced (REQ-ENTERPRISE-008 AC3), so default subscribedMode
-    // to 'advanced' for records that predate the field (older JIT records, setup
-    // admins) — this function only ever runs in enterprise mode.
+    // implicitly Pro/advanced (REQ-ENTERPRISE-008 AC3), so force subscribedMode to
+    // 'advanced' here. Note: resolveUserFromKV already coerces a missing field to
+    // 'default', so a `?? 'advanced'` fallback would be dead code — records that
+    // predate the field (older JIT records, setup admins) come back as 'default'
+    // and must still resolve advanced. This function only ever runs in enterprise
+    // mode, so unconditionally returning 'advanced' is correct.
     return {
       role: kvEntry.role,
       accessTier: kvEntry.accessTier ?? 'advanced',
       subscriptionTier: kvEntry.subscriptionTier,
-      subscribedMode: kvEntry.subscribedMode ?? 'advanced',
+      subscribedMode: 'advanced',
       billingStatus: kvEntry.billingStatus,
       billingPeriodEnd: kvEntry.billingPeriodEnd,
     };
