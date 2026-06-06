@@ -275,6 +275,7 @@ All preseed content is deployed via the manifest pipeline:
   `extensions/` -> `.pi/agent/extensions/`, `skills/` -> `.pi/agent/skills/`,
   `scripts/` -> `.pi/agent/scripts/`, `prompts/` -> `.pi/agent/prompts/`,
   and `agents/` -> `.pi/agent/agents/`.
+  The `agents/` prefix maps both to `.pi/agent/agents/` (session-local overrides for `@gotgenes/pi-subagents`) and to `~/.pi/agent/agents/` (persistent user-level overrides). `preseed/agents/pi/agents/Explore.md` is the first native Pi agent override shipped via this path.
   Package files deploy under `.pi/agent/npm/`; `mcp.json` deploys directly
   under `.pi/agent/`.
 

@@ -41,11 +41,15 @@ When `ENTERPRISE_MODE=active`, users are owned by the customer's Cloudflare Acce
 2. For an unknown email, if the optional access-group gate is configured (see below) it is checked; on pass, a new KV record is written with `addedBy: 'enterprise-jit'`, `role: 'user'`, `accessTier: 'advanced'`, `subscriptionTier: 'unlimited'`. **No welcome/subscription email is sent** (unlike the SaaS path).
 3. The user lands working on `/app/` immediately — there is no pending tier, subscribe page, or onboarding/waitlist flow ([REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC5).
 
+**Enterprise frontend surface suppression ([REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression)):** When `ENTERPRISE_MODE=active`, the following surfaces are globally suppressed for all users regardless of role: Subscribe button, billing management page, setup-wizard access for non-admin users, and any onboarding/waitlist flow. The app header renders an enterprise-mode variant. These suppressions apply in the frontend unconditionally — there is no role or tier combination that re-enables them in enterprise mode.
+
 **Optional access-group gate (`ENTERPRISE_ACCESS_GROUP`):** an operator-managed value stored in KV (`setup:enterprise_access_group`), set via the setup wizard — editable without a redeploy. When set, `isUserInAccessGroup()` calls the Cloudflare Access **get-identity** endpoint (`GET https://{auth_domain}/cdn-cgi/access/get-identity` with the request's `CF_Authorization` cookie) and provisions only members of the named group/scope; non-members get a 403. The check **fails closed** — a missing token, non-OK response, or fetch error denies provisioning rather than admitting on incomplete information. When unset, any user the Access policy admits is provisioned on their valid Access JWT alone. The application JWT does not carry group membership by default, which is why the gate uses get-identity rather than reading a JWT claim. The group name/id is matched **case-sensitively** against the value exactly as it appears in the Cloudflare dashboard — a mismatch denies every user. See [Configuration — Enterprise Mode Runtime Configuration](configuration.md#enterprise-mode-runtime-configuration) for the KV key details.
 
 **Defense in depth:** the SaaS/admin routes that would let an enterprise user self-manage are also hardened server-side — billing, user-management, tier-config, subscribe, request-access, and the Stripe webhook all fail closed (403 / no-op) in enterprise mode ([REQ-ENTERPRISE-009](../../sdd/spec/enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening)).
 
 **Non-enterprise unchanged:** the entire branch is gated on `isEnterpriseMode(env)`; with the flag unset an unknown user follows the existing SaaS or non-SaaS-allowlist path exactly as before.
+
+**Subscribe route and billing UI suppression:** When `ENTERPRISE_MODE=active`, the subscribe page (`/subscribe`) and all billing-management routes return 403. The billing UI and "Subscribe" button are suppressed globally in the frontend regardless of the user's role. There is no path to reach a subscribe or payment flow in enterprise mode ([REQ-ENTERPRISE-002](../../sdd/spec/enterprise-mode.md#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded)).
 
 ---
 
@@ -115,6 +119,7 @@ See [Architecture Internals - SaaS UI Components](architecture-internals.md#saas
 ## Specification Coverage
 
 - [REQ-AUTH-007](../../sdd/spec/authentication.md#req-auth-007-jit-user-provisioning-in-saas-mode) - JIT user provisioning in SaaS mode
+- [REQ-ENTERPRISE-002](../../sdd/spec/enterprise-mode.md#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded) - Subscription UI hidden and subscribe route guarded in enterprise mode
 - [REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) - Enterprise frontend surface suppression
 - [REQ-ENTERPRISE-009](../../sdd/spec/enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening) - Enterprise backend route hardening
 - [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT user provisioning

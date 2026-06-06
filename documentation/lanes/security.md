@@ -351,6 +351,8 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 - [REQ-SEC-021](../../sdd/spec/security.md#req-sec-021-hsts-coverage-on-redirect-response-paths) - HSTS coverage on redirect response paths
 - [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing; gateway credentials never enter the container (AC3)
 - [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) - Container-side CA trust and constant base-URLs
+- [REQ-ENTERPRISE-009](../../sdd/spec/enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening) - Enterprise backend route hardening (billing, tier-config, subscribe, Stripe webhook fail closed with 403)
+- [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT provisioning; get-identity gate fails closed on error or non-membership
 
 ---
 
