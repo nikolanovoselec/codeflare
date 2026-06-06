@@ -259,9 +259,11 @@ app.post('/configure', async (c) => {
       await c.env.KV.put(SETUP_KEYS.CUSTOM_DOMAIN, customDomain.toLowerCase());
 
       // Enterprise: persist (or clear) the optional Access group that gates JIT
-      // provisioning. Only acts when the field is present in the body — absent for
-      // non-enterprise setups, so no other deployment mode is affected.
-      if (enterpriseAccessGroup !== undefined) {
+      // provisioning. Gated on isEnterpriseMode so the write mirrors the read
+      // (access.ts reads this key only in enterprise mode) — a non-enterprise
+      // caller cannot write a key that would never be read. Also requires the
+      // field to be present (absent for non-enterprise setups via the UI).
+      if (isEnterpriseMode(c.env) && enterpriseAccessGroup !== undefined) {
         const trimmedGroup = enterpriseAccessGroup.trim();
         if (trimmedGroup) {
           await c.env.KV.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, trimmedGroup);

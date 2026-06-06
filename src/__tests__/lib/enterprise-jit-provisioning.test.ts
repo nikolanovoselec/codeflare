@@ -142,6 +142,20 @@ describe('REQ-ENTERPRISE-010: Access-gated JIT provisioning', () => {
       ).rejects.toBeInstanceOf(ForbiddenError);
       expect(fetchSpy).not.toHaveBeenCalled();
     });
+
+    it('fails closed when authDomain is not a *.cloudflareaccess.com host (no get-identity call)', async () => {
+      // Defense-in-depth: a corrupted/misconfigured AUTH_DOMAIN must never redirect the
+      // get-identity call to an arbitrary host — the domain is rejected before fetch.
+      mockKV._store.set(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'engineers');
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
+
+      await expect(
+        resolveOrProvisionEnterpriseUser(mockKV as unknown as KVNamespace, 'spoof@example.com', TOKEN, 'evil.example.com'),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(mockKV._store.get('user:spoof@example.com')).toBeUndefined();
+    });
   });
 
   describe('authenticateRequest enterprise integration', () => {
