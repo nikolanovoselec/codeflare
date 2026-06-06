@@ -328,6 +328,7 @@ function piNativeKey(withinPi) {
   if (withinPi.startsWith('skills/')) return `.pi/agent/${withinPi}`;
   if (withinPi.startsWith('scripts/')) return `.pi/agent/${withinPi}`;
   if (withinPi.startsWith('prompts/')) return `.pi/agent/${withinPi}`;
+  if (withinPi.startsWith('agents/')) return `.pi/agent/${withinPi}`;
   if (withinPi === 'package.json') return '.pi/agent/npm/package.json';
   if (withinPi === 'package-lock.json') return '.pi/agent/npm/package-lock.json';
   if (withinPi === 'mcp.json') return '.pi/agent/mcp.json';

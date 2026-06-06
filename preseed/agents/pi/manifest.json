@@ -53,6 +53,12 @@
       "advanced"
     ]
   },
+  "agents/Explore.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/graphify-helpers.ts": {
     "modes": [
       "advanced"

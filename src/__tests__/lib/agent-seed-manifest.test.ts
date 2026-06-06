@@ -220,6 +220,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/sdd-helpers.ts',
       '.pi/agent/extensions/startup-header.ts',
     ]);
+    expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/Explore.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/code-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/spec-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/doc-updater.md');
@@ -245,6 +246,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(codeReviewer?.content).toContain('skills: true');
     expect(codeReviewer?.content).toContain('inherit_context: true');
     expect(codeReviewer?.content).toContain('run_in_background: false');
+    const explore = agents.find((d) => d.key === '.pi/agent/agents/Explore.md');
+    const exploreToolsLine = explore?.content.match(/^tools:.*$/m)?.[0] ?? '';
+    expect(explore?.content).not.toContain('\nmodel:');
+    expect(exploreToolsLine).toBe('tools: read, bash, grep, find, ls, graphify_query, graphify_explain, graphify_path');
+    expect(explore?.content).toContain('no hardcoded provider');
     for (const agent of agents) {
       expect(agent.content).not.toContain('\nmodel:');
     }
