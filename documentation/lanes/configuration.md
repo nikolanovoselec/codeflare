@@ -10,6 +10,7 @@ Environment variables, secrets, CORS configuration, and API token permissions.
 
 - [Environment Variables](#environment-variables)
 - [Secrets](#secrets)
+- [Enterprise Mode Runtime Configuration](#enterprise-mode-runtime-configuration)
 - [CORS](#cors)
 - [Container Specs](#container-specs)
 - [API Token Permissions](#api-token-permissions)
@@ -106,13 +107,15 @@ Both secrets are optional and silently skipped when absent; a deployment without
 
 > **AIG_TOKEN credential type — important.** The `/ai/v1/*` endpoint is in the **Workers AI** namespace; it takes a standard Cloudflare API token in `Authorization`, not a gateway authentication token. **Two types are rejected with `error 10000`:** (a) an AI Gateway *authentication* token minted in the gateway's own settings (works only on the deprecated `gateway.ai.cloudflare.com` path), and (b) a CF API token scoped to **"AI Gateway: Run"** (wrong permission for this endpoint — confirmed 2026-06-05). The `cfut_` prefix is shared across all CF API token types and does **not** indicate scope — verify the permission label, not the prefix. **Do not use the gateway's "Authenticated Gateway" → "Create authentication token" button**: despite Cloudflare's docs pointing at it, that button mints an "AI Gateway: Run" token which this endpoint rejects. Create the token **manually** with the **Workers AI** permission. See [AD74](decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for full rationale.
 
-### Enterprise Mode Setup-Stored Configuration (optional)
+## Enterprise Mode Runtime Configuration
+
+KV values written by the setup wizard that can be changed without redeploying the Worker. Unlike `ENTERPRISE_MODE` and the AIG secrets (deploy-time), these are non-sensitive operator preferences — they contain no credentials and are safe to adjust at runtime. Re-run setup to change them.
 
 | KV key | Purpose | Set via |
 |--------|---------|---------|
-| `setup:enterprise_access_group` | Optional name/id of a Cloudflare Access group that gates Codeflare access in enterprise mode. When set, an unknown Access-authenticated user is JIT-provisioned (`unlimited`) **only if** the Cloudflare Access get-identity response shows them in this group; non-members get 403 (fail-closed). When unset, any user the Access policy admits is provisioned on their valid Access JWT alone. | Setup wizard → KV (re-run setup to change; no redeploy) |
+| `setup:enterprise_access_group` | Optional name/id of a Cloudflare Access group that gates Codeflare access in enterprise mode. When set, an unknown Access-authenticated user is JIT-provisioned (`unlimited`) **only if** the Cloudflare Access get-identity response shows them in this group; non-members get 403 (fail-closed). When unset, any user the Access policy admits is provisioned on their valid Access JWT alone. The value is matched **case-sensitively** against the group name/id exactly as it appears in the Cloudflare dashboard — a mismatch denies every user. | Setup wizard → KV (re-run setup to change; no redeploy) |
 
-Unlike `ENTERPRISE_MODE` and the AIG secrets (deploy-time), the access group is operator-managed at runtime so admins can tighten or relax the gate without redeploying. See [User Provisioning — Enterprise Mode Provisioning](user-provisioning.md#enterprise-mode-provisioning) and [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning).
+See [User Provisioning — Enterprise Mode Provisioning](user-provisioning.md#enterprise-mode-provisioning) and [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning).
 
 ## CORS
 

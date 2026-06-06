@@ -492,6 +492,14 @@ async function isUserInAccessGroup(
     });
     return false;
   }
+  // Defense in depth: authDomain is sourced from setup KV (not the request), but
+  // validate it matches the Cloudflare Access team-domain shape before interpolating
+  // it into an outbound URL so a corrupted/misconfigured KV value cannot redirect the
+  // get-identity call to an arbitrary host.
+  if (!/^[a-z0-9-]+\.cloudflareaccess\.com$/i.test(authDomain)) {
+    logger.warn('Enterprise group gate: auth domain is not a *.cloudflareaccess.com host — denying');
+    return false;
+  }
   try {
     const response = await fetch(`https://${authDomain}/cdn-cgi/access/get-identity`, {
       method: 'GET',

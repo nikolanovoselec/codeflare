@@ -176,14 +176,26 @@ async function loadExistingConfig(): Promise<void> {
     }
 
     if (statusRes.configured) {
+      // Enterprise reconfiguration: GET /api/users returns 403 in enterprise mode
+      // (REQ-ENTERPRISE-009), so admins and the Access group come from the setup
+      // prefill instead. Calling getUsers() here would throw and abort the whole
+      // prefill, leaving enterpriseAccessGroup blank and silently clearing the
+      // stored value on the next save. The non-enterprise path below is unchanged.
+      if (statusRes.enterpriseMode) {
+        const prefill = await api.getSetupPrefill();
+        setState(
+          produce((s) => {
+            if (statusRes.customDomain) {
+              s.customDomain = statusRes.customDomain;
+            }
+            s.adminUsers = Array.from(new Set(prefill.adminUsers.map((email) => email.trim().toLowerCase())));
+            s.enterpriseAccessGroup = prefill.enterpriseAccessGroup ?? '';
+          })
+        );
+        return;
+      }
       // Reconfiguration: load existing config so admin can see what's set
       const { users: usersRes } = await api.getUsers();
-      // Enterprise: prefill the current Access group so re-running setup does not
-      // silently clear it (the field round-trips). Best-effort, admin-gated.
-      let existingGroup = '';
-      if (statusRes.enterpriseMode) {
-        try { existingGroup = (await api.getSetupPrefill()).enterpriseAccessGroup ?? ''; } catch { /* best-effort */ }
-      }
       setState(
         produce((s) => {
           if (statusRes.customDomain) {
@@ -197,7 +209,6 @@ async function loadExistingConfig(): Promise<void> {
               .filter((u) => u.role !== 'admin')
               .map((u) => u.email);
           }
-          s.enterpriseAccessGroup = existingGroup;
         })
       );
       return;
