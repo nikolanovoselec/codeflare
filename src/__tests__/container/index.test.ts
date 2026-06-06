@@ -1015,7 +1015,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
     });
   });
 
-  describe('enterprise LLM interception wiring (REQ-ENTERPRISE-004)', () => {
+  describe('enterprise LLM interception wiring (REQ-ENTERPRISE-011)', () => {
     const enterpriseEnv = () => ({
       ...mockEnv,
       ENTERPRISE_MODE: 'active',
