@@ -139,7 +139,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 <!-- @test: src/__tests__/llm-interceptor.test.ts (LlmInterceptor describe -> api.openai.com mapped onto the AI Gateway REST API (api.cloudflare.com/.../ai/v1/*) with account+gateway parsed from AIG_GATEWAY_URL + Authorization Bearer AIG_TOKEN + cf-aig-gateway-id + cf-aig-metadata stamped with opaque user + placeholder auth replaced + streaming preserved + unmapped host (incl. api.anthropic.com) 400 + gateway-unset/unparseable 503 -> AC1..AC7) -->
 <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (enterprise bypass describe -> monthly compute quota never enforced AC3 — enterprise users are never blocked by the monthly compute quota) -->
-<!-- @test: src/__tests__/container/index.test.ts (enterprise LLM interception wiring describe -> interceptOutboundHttps registered before super.startAndWaitForPorts so the CA is mounted when entrypoint.sh trusts it + no wiring on a non-enterprise start -> AC8, AC7) -->
+<!-- @test: src/__tests__/container/index.test.ts (enterprise LLM interception wiring describe -> interceptOutboundHttps registered before super.startAndWaitForPorts so the CA is mounted when entrypoint.sh trusts it + no wiring on a non-enterprise start -> AC7, AC8) -->
 ### REQ-ENTERPRISE-004: Outbound-Interception LLM Routing to Customer AI Gateway
 
 <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
