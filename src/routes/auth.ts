@@ -5,7 +5,7 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError, toError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
-import { getTierConfig, getEffectiveTier, isActiveTier, SUBSCRIBABLE_TIER_IDS, countPaidSlots } from '../lib/subscription';
+import { getTierConfig, getEffectiveTier, isActiveTier, SUBSCRIBABLE_TIER_IDS, countPaidSlots, isEnterpriseMode } from '../lib/subscription';
 import { getAllUsers, getAdminEmails } from '../lib/access-policy';
 import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
@@ -120,9 +120,11 @@ app.get('/status', requireIdentity, async (c) => {
   const subscribedMode = (userData?.subscribedMode === 'advanced' ? 'advanced' : 'default') as string;
 
   // Check if user capacity is reached (for frontend to disable subscribe buttons)
+  // REQ-ENTERPRISE-009: enterprise has no max-users cap (capacity is owned by Cloudflare
+  // Access), so never report capacity as reached. No-op when ENTERPRISE_MODE is unset.
   let userCapacityReached = false;
   const maxUsers = parseInt(await c.env.KV.get(SETUP_KEYS.MAX_USERS) ?? '0');
-  if (maxUsers > 0 && !hasSubscribed) {
+  if (maxUsers > 0 && !hasSubscribed && !isEnterpriseMode(c.env)) {
     try {
       const allUsers = await getAllUsers(c.env.KV);
       userCapacityReached = countPaidSlots(allUsers) >= maxUsers;
@@ -161,6 +163,11 @@ const RequestAccessSchema = z.object({
 
 // POST /api/auth/request-access - pending users request access with Turnstile captcha (SaaS mode)
 app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c) => {
+  // REQ-ENTERPRISE-009: no access requests in enterprise mode — access is granted by
+  // Cloudflare Access and users are JIT-provisioned. No-op when ENTERPRISE_MODE is unset.
+  if (isEnterpriseMode(c.env)) {
+    throw new ForbiddenError('Access requests are not available in enterprise mode');
+  }
   const user = c.get('user');
   // Default to 'advanced' if tier is unset (pre-setup or service auth)
   const effectiveTier = user.subscriptionTier ?? user.accessTier ?? 'advanced';
@@ -243,6 +250,11 @@ const SubscribeSchema = z.object({
 
 // POST /api/auth/subscribe - self-service tier selection for pending users
 app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
+  // REQ-ENTERPRISE-009: no self-service subscription in enterprise mode — all users are
+  // provisioned unlimited via Cloudflare Access. No-op when ENTERPRISE_MODE is unset.
+  if (isEnterpriseMode(c.env)) {
+    throw new ForbiddenError('Subscriptions are not available in enterprise mode');
+  }
   const user = c.get('user');
   const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
   if (effectiveTier === 'blocked') {

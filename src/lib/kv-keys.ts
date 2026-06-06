@@ -266,6 +266,7 @@ export const SETUP_KEYS = {
   ACCESS_GROUP_USER_ID: 'setup:access_group_user_id',
   ACCESS_GROUP_ADMIN_NAME: 'setup:access_group_admin_name',
   ACCESS_GROUP_USER_NAME: 'setup:access_group_user_name',
+  ENTERPRISE_ACCESS_GROUP: 'setup:enterprise_access_group',
   IDP_LIST: 'setup:idp_list',
   MAX_USERS: 'setup:max_users',
   TURNSTILE_SITE_KEY: 'setup:turnstile_site_key',

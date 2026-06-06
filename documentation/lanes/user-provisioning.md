@@ -11,6 +11,7 @@ See [Authentication](authentication.md) for auth flows. See [Billing](billing.md
 ## Contents
 
 - [JIT User Provisioning](#jit-user-provisioning)
+- [Enterprise Mode Provisioning](#enterprise-mode-provisioning)
 - [Self-Service Subscription Flow](#self-service-subscription-flow)
 - [Session Mode Authorization](#session-mode-authorization)
 - [CF Access Configuration Strategy](#cf-access-configuration-strategy)
@@ -29,6 +30,22 @@ When a GitHub-authenticated user makes their first request to a protected endpoi
 **Concurrency note:** Simultaneous first-logins produce identical records (KV per-key serialization prevents split-brain).
 
 **User data cleanup:** `cleanupUserData()` normalizes email before constructing KV keys and performs full cleanup: destroys active sessions, deletes bucket-keyed KV entries, deletes R2 scoped token, empties and deletes R2 bucket.
+
+---
+
+## Enterprise Mode Provisioning
+
+When `ENTERPRISE_MODE=active`, users are owned by the customer's Cloudflare Access, not by Codeflare. A dedicated branch in `authenticateRequest()` (`src/lib/access.ts`) runs **before** the SaaS path and provisions any Access-authenticated user just-in-time:
+
+1. `resolveOrProvisionEnterpriseUser()` looks up `user:{email}`. An existing record (admin, or a prior JIT user) is returned **unchanged** — enterprise provisioning never downgrades.
+2. For an unknown email, if the optional access-group gate is configured (see below) it is checked; on pass, a new KV record is written with `addedBy: 'enterprise-jit'`, `role: 'user'`, `accessTier: 'advanced'`, `subscriptionTier: 'unlimited'`. **No welcome/subscription email is sent** (unlike the SaaS path).
+3. The user lands working on `/app/` immediately — there is no pending tier, subscribe page, or onboarding/waitlist flow ([REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC5).
+
+**Optional access-group gate (`ENTERPRISE_ACCESS_GROUP`):** an operator-managed value stored in KV (`setup:enterprise_access_group`), set via the setup wizard — editable without a redeploy. When set, `isUserInAccessGroup()` calls the Cloudflare Access **get-identity** endpoint (`GET https://{auth_domain}/cdn-cgi/access/get-identity` with the request's `CF_Authorization` cookie) and provisions only members of the named group/scope; non-members get a 403. The check **fails closed** — a missing token, non-OK response, or fetch error denies provisioning rather than admitting on incomplete information. When unset, any user the Access policy admits is provisioned on their valid Access JWT alone. The application JWT does not carry group membership by default, which is why the gate uses get-identity rather than reading a JWT claim.
+
+**Defense in depth:** the SaaS/admin routes that would let an enterprise user self-manage are also hardened server-side — billing, user-management, tier-config, subscribe, request-access, and the Stripe webhook all fail closed (403 / no-op) in enterprise mode ([REQ-ENTERPRISE-009](../../sdd/spec/enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening)).
+
+**Non-enterprise unchanged:** the entire branch is gated on `isEnterpriseMode(env)`; with the flag unset an unknown user follows the existing SaaS or non-SaaS-allowlist path exactly as before.
 
 ---
 
@@ -98,6 +115,9 @@ See [Architecture Internals - SaaS UI Components](architecture-internals.md#saas
 ## Specification Coverage
 
 - [REQ-AUTH-007](../../sdd/spec/authentication.md#req-auth-007-jit-user-provisioning-in-saas-mode) - JIT user provisioning in SaaS mode
+- [REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) - Enterprise frontend surface suppression
+- [REQ-ENTERPRISE-009](../../sdd/spec/enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening) - Enterprise backend route hardening
+- [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT user provisioning
 
 ---
 

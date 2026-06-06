@@ -26,6 +26,7 @@ interface SettingsPanelProps {
   currentUserEmail?: string;
   currentUserRole?: 'admin' | 'user';
   currentUserAccessTier?: import('../types').AccessTier;
+  enterpriseMode?: boolean;
 }
 
 type AccordionGroup = 'appearance' | 'session' | 'deploy' | 'llm' | 'admin';
@@ -332,6 +333,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             onToggle={() => handleAccordionClick('session')}
           >
             <SessionSection
+              enterpriseMode={() => props.enterpriseMode === true}
               currentSessionMode={currentSessionMode}
               canUseAdvanced={canUseAdvanced}
               fastStartEnabled={fastStartEnabled}
@@ -408,40 +410,48 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     <Icon path={mdiWrenchOutline} size={24} style={{ color: 'white' }} />
                     <span>Setup Wizard</span>
                   </button>
-                  <button
-                    type="button"
-                    class="provider-row-connect-btn"
-                    style={{ background: '#7c3aed' }}
-                    onClick={() => { window.location.href = '/admin/users'; }}
-                  >
-                    <Icon path={mdiAccountGroupOutline} size={24} style={{ color: 'white' }} />
-                    <span>Manage Users</span>
-                  </button>
+                  {/* REQ-ENTERPRISE-008 AC1: user administration is delegated to
+                      Cloudflare Access in enterprise mode — hide the entry. */}
+                  <Show when={!props.enterpriseMode}>
+                    <button
+                      type="button"
+                      class="provider-row-connect-btn"
+                      style={{ background: '#7c3aed' }}
+                      onClick={() => { window.location.href = '/admin/users'; }}
+                    >
+                      <Icon path={mdiAccountGroupOutline} size={24} style={{ color: 'white' }} />
+                      <span>Manage Users</span>
+                    </button>
+                  </Show>
                 </div>
                 <span class="settings-hint type-hint" data-testid="settings-r2-warning">
                   If you rotate your Cloudflare API token, redeploy with the new token and re-run the Setup Wizard.
                 </span>
               </section>
-              <section class="settings-section">
-                <div class="settings-section-header">
-                  <Icon path={mdiCogOutline} size={16} />
-                  <h3 class="settings-section-title type-section-header">Subscription Tiers</h3>
-                </div>
-                <p class="settings-hint type-hint" style={{ "margin-bottom": "var(--space-2)" }}>
-                  Configure monthly hours, pricing, trial periods, and session modes for each tier.
-                </p>
-                <div class="settings-admin-actions">
-                  <button
-                    type="button"
-                    class="provider-row-connect-btn"
-                    style={{ background: '#059669' }}
-                    onClick={() => { window.location.href = '/admin/subscriptions'; }}
-                  >
-                    <Icon path={mdiCogOutline} size={24} style={{ color: 'white' }} />
-                    <span>Manage Subscriptions</span>
-                  </button>
-                </div>
-              </section>
+              {/* REQ-ENTERPRISE-008 AC1: there is a single effective tier (unlimited)
+                  in enterprise mode, so tier/subscription config is hidden. */}
+              <Show when={!props.enterpriseMode}>
+                <section class="settings-section">
+                  <div class="settings-section-header">
+                    <Icon path={mdiCogOutline} size={16} />
+                    <h3 class="settings-section-title type-section-header">Subscription Tiers</h3>
+                  </div>
+                  <p class="settings-hint type-hint" style={{ "margin-bottom": "var(--space-2)" }}>
+                    Configure monthly hours, pricing, trial periods, and session modes for each tier.
+                  </p>
+                  <div class="settings-admin-actions">
+                    <button
+                      type="button"
+                      class="provider-row-connect-btn"
+                      style={{ background: '#059669' }}
+                      onClick={() => { window.location.href = '/admin/subscriptions'; }}
+                    >
+                      <Icon path={mdiCogOutline} size={24} style={{ color: 'white' }} />
+                      <span>Manage Subscriptions</span>
+                    </button>
+                  </div>
+                </section>
+              </Show>
             </AccordionSection>
           </Show>
 

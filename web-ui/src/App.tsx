@@ -67,7 +67,9 @@ const AppContent: Component = () => {
         window.location.href = '/app/subscribe';
         return;
       }
-      if (user.saasMode && !user.onboardingComplete) {
+      // Enterprise users are auto-provisioned and never run the self-serve
+      // onboarding/waitlist flow — route them straight to the app home (AC5).
+      if (!user.enterpriseMode && user.saasMode && !user.onboardingComplete) {
         window.location.href = '/app/onboarding';
         return;
       }

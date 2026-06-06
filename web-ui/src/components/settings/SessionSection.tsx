@@ -12,6 +12,7 @@ import type { Settings } from '../../lib/settings';
 import { isTouchDevice } from '../../lib/mobile';
 
 interface SessionSectionProps {
+  enterpriseMode?: Accessor<boolean>;
   currentSessionMode: Accessor<'default' | 'advanced'>;
   canUseAdvanced: Accessor<boolean>;
   fastStartEnabled: Accessor<boolean>;
@@ -38,7 +39,10 @@ interface SessionSectionProps {
 const SessionSection: Component<SessionSectionProps> = (props) => {
   return (
     <>
-      {/* Session Mode */}
+      {/* Session Mode — REQ-ENTERPRISE-008 AC3: every enterprise user is implicitly
+          Pro (advanced), so the Standard/Pro selector is not rendered. No-op when
+          enterpriseMode is unset/absent. */}
+      <Show when={!props.enterpriseMode?.()}>
       <section class="settings-section">
         <div class="settings-section-header">
           <h3 class="settings-section-title type-section-header">Session Mode</h3>
@@ -87,6 +91,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           </span>
         </div>
       </section>
+      </Show>
 
       {/* Agent Startup / Fast Start */}
       <section class="settings-section">

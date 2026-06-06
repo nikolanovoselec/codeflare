@@ -7,6 +7,7 @@ import { createRateLimiter } from '../../middleware/rate-limit';
 import { CF_API_BASE, logger, getWorkerNameFromHostname } from './shared';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { getAccessGroupNames } from './access';
+import { isEnterpriseMode } from '../../lib/subscription';
 
 const statusRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30, keyPrefix: 'setup-status' });
 const detectTokenRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 10, keyPrefix: 'setup-detect-token' });
@@ -25,8 +26,9 @@ handlers.get('/status', statusRateLimiter, async (c) => {
   const customDomain = configured ? await c.env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN) : null;
   // saasMode reflects env var, not KV (set at deploy time, not runtime)
   const saasMode = c.env.SAAS_MODE === 'active';
+  const enterpriseMode = isEnterpriseMode(c.env);
 
-  return c.json({ configured, ...(customDomain && { customDomain }), saasMode });
+  return c.json({ configured, ...(customDomain && { customDomain }), saasMode, enterpriseMode });
 });
 
 /**
@@ -115,13 +117,16 @@ async function resolveAccountId(token: string, kv: KVNamespace): Promise<string 
  */
 handlers.get('/prefill', prefillRateLimiter, async (c) => {
   const token = c.env.CLOUDFLARE_API_TOKEN;
+  // Enterprise: surface the currently-stored Access group so the wizard field
+  // round-trips on re-run (empty string when unset / non-enterprise).
+  const enterpriseAccessGroup = (await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP)) ?? '';
   if (!token) {
-    return c.json({ adminUsers: [], allowedUsers: [] });
+    return c.json({ adminUsers: [], allowedUsers: [], enterpriseAccessGroup });
   }
 
   // SaaS mode: admin enters everything manually, no prefill from CF Access groups
   if (c.env.SAAS_MODE === 'active') {
-    return c.json({ adminUsers: [], allowedUsers: [] });
+    return c.json({ adminUsers: [], allowedUsers: [], enterpriseAccessGroup });
   }
 
   try {
@@ -147,10 +152,11 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     return c.json({
       adminUsers,
       allowedUsers,
+      enterpriseAccessGroup,
     });
   } catch (error) {
     logger.warn('Setup prefill failed', { error: toError(error).message });
-    return c.json({ adminUsers: [], allowedUsers: [] });
+    return c.json({ adminUsers: [], allowedUsers: [], enterpriseAccessGroup });
   }
 });
 

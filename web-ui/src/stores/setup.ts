@@ -30,6 +30,10 @@ interface SetupState {
   accountId: string | null;
   // SaaS mode
   saasMode: boolean;
+  // Enterprise mode (deploy-time flag, from /api/setup/status)
+  enterpriseMode: boolean;
+  // Enterprise-only: customer-managed Cloudflare Access group that gates JIT provisioning
+  enterpriseAccessGroup: string;
 }
 
 const initialState: SetupState = {
@@ -49,6 +53,8 @@ const initialState: SetupState = {
   customDomainUrl: null,
   accountId: null,
   saasMode: false,
+  enterpriseMode: false,
+  enterpriseAccessGroup: '',
 };
 
 const [state, setState] = createStore<SetupState>({ ...initialState });
@@ -134,6 +140,10 @@ function setCustomDomain(domain: string): void {
   setState({ customDomain: domain, customDomainError: null });
 }
 
+function setEnterpriseAccessGroup(group: string): void {
+  setState('enterpriseAccessGroup', group);
+}
+
 function nextStep(): void {
   if (state.step < TOTAL_STEPS) {
     setState('step', state.step + 1);
@@ -161,10 +171,19 @@ async function loadExistingConfig(): Promise<void> {
     if (statusRes.saasMode) {
       setState('saasMode', true);
     }
+    if (statusRes.enterpriseMode) {
+      setState('enterpriseMode', true);
+    }
 
     if (statusRes.configured) {
       // Reconfiguration: load existing config so admin can see what's set
       const { users: usersRes } = await api.getUsers();
+      // Enterprise: prefill the current Access group so re-running setup does not
+      // silently clear it (the field round-trips). Best-effort, admin-gated.
+      let existingGroup = '';
+      if (statusRes.enterpriseMode) {
+        try { existingGroup = (await api.getSetupPrefill()).enterpriseAccessGroup ?? ''; } catch { /* best-effort */ }
+      }
       setState(
         produce((s) => {
           if (statusRes.customDomain) {
@@ -178,6 +197,7 @@ async function loadExistingConfig(): Promise<void> {
               .filter((u) => u.role !== 'admin')
               .map((u) => u.email);
           }
+          s.enterpriseAccessGroup = existingGroup;
         })
       );
       return;
@@ -199,6 +219,7 @@ async function loadExistingConfig(): Promise<void> {
           .filter((email) => !admins.includes(email));
         s.adminUsers = admins;
         s.allowedUsers = regularUsers;
+        s.enterpriseAccessGroup = prefill.enterpriseAccessGroup ?? '';
       })
     );
   } catch {
@@ -224,6 +245,9 @@ async function configure(): Promise<boolean> {
         customDomain: state.customDomain,
         allowedUsers: allUsers,
         adminUsers: state.adminUsers,
+        // Enterprise-only field; omitted entirely for other modes so their
+        // request body is byte-identical to today.
+        ...(state.enterpriseMode ? { enterpriseAccessGroup: state.enterpriseAccessGroup } : {}),
       }),
     });
 
@@ -375,6 +399,12 @@ export const setupStore = {
   get saasMode() {
     return state.saasMode;
   },
+  get enterpriseMode() {
+    return state.enterpriseMode;
+  },
+  get enterpriseAccessGroup() {
+    return state.enterpriseAccessGroup;
+  },
 
   // Actions
   detectToken,
@@ -384,6 +414,7 @@ export const setupStore = {
   addAllowedUser,
   removeAllowedUser,
   setCustomDomain,
+  setEnterpriseAccessGroup,
   nextStep,
   prevStep,
   goToStep,

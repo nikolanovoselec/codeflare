@@ -28,7 +28,7 @@ import { getPreferencesKey } from '../lib/kv-keys';
 import { getAdminEmails } from '../lib/access-policy';
 import { sendSubscriptionAdminNotification, sendSubscriptionEmail } from '../lib/email';
 import { getBaseUrl } from '../lib/kv-keys';
-import { getTierConfig, getUserTier, getEffectiveTier } from '../lib/subscription';
+import { getTierConfig, getUserTier, getEffectiveTier, isEnterpriseMode } from '../lib/subscription';
 import { resolveUserFromKV } from '../lib/access';
 
 const logger = createLogger('stripe-webhook');
@@ -53,6 +53,13 @@ const webhookRateLimiter = createRateLimiter({
 
 // POST /webhook
 app.post('/webhook', webhookRateLimiter, async (c) => {
+  // REQ-ENTERPRISE-009: enterprise deployments have no Stripe integration. Acknowledge
+  // and discard so a stray/late event can never mutate a user's tier/billing in KV.
+  // No-op when ENTERPRISE_MODE is unset — SaaS webhook handling is unchanged.
+  if (isEnterpriseMode(c.env)) {
+    logger.warn('Stripe webhook received in enterprise mode — discarding');
+    return c.json({ received: true });
+  }
   if (!isStripeConfigured(c.env) || !c.env.STRIPE_WEBHOOK_SECRET) {
     throw new ValidationError('Stripe webhook not configured.');
   }

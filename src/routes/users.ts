@@ -7,9 +7,10 @@ import { authMiddleware, requireAdmin, type AuthVariables } from '../middleware/
 import { createRateLimiter } from '../middleware/rate-limit';
 import { getAllUsers, getAdminEmails, syncAccessPolicy } from '../lib/access-policy';
 import { createLogger } from '../lib/logger';
-import { ValidationError, NotFoundError, toError } from '../lib/error-types';
+import { ValidationError, NotFoundError, ForbiddenError, toError } from '../lib/error-types';
 import { cleanupUserData } from '../lib/user-cleanup';
 import { isSaasModeActive } from '../lib/onboarding';
+import { isEnterpriseMode } from '../lib/subscription';
 import { parseJsonBody } from '../lib/request-helpers';
 import { sendTierChangeNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
@@ -40,6 +41,17 @@ async function trySyncAccessPolicy(env: Env): Promise<void> {
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authMiddleware);
+
+// REQ-ENTERPRISE-009: in enterprise mode, user administration is delegated to the
+// customer's Cloudflare Access — blocking/deleting/tier-changing a user here is
+// meaningless (Access still admits them). Fail closed on every user-management
+// route. No-op when ENTERPRISE_MODE is unset, so SaaS/non-SaaS are unchanged.
+app.use('*', async (c, next) => {
+  if (isEnterpriseMode(c.env)) {
+    throw new ForbiddenError('User management is disabled in enterprise mode — users are managed via Cloudflare Access');
+  }
+  return next();
+});
 
 /**
  * Rate limiter for user mutations (DELETE and PATCH)

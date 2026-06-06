@@ -300,15 +300,17 @@ const Header: Component<HeaderProps> = (props) => {
                   <span>Subscription</span>
                 </a>
               </Show>
-              <a
-                href="/app/usage"
-                class="header-user-dropdown-item"
-                data-testid="header-user-dropdown-usage"
-              >
-                <Icon path={mdiChartBar} size={16} />
-                <span>Usage</span>
-                <UsageInlineBadge />
-              </a>
+              <Show when={!props.enterpriseMode}>
+                <a
+                  href="/app/usage"
+                  class="header-user-dropdown-item"
+                  data-testid="header-user-dropdown-usage"
+                >
+                  <Icon path={mdiChartBar} size={16} />
+                  <span>Usage</span>
+                  <UsageInlineBadge />
+                </a>
+              </Show>
               <a
                 href="/app/onboarding"
                 class="header-user-dropdown-item"
