@@ -12,21 +12,21 @@ import { render, screen, cleanup } from '@solidjs/testing-library';
 
 vi.mock('../../components/Header', () => ({
   default: (props: Record<string, unknown>) => {
-    (window as Record<string, unknown>).__headerProps = props;
+    (window as unknown as Record<string, unknown>).__headerProps = props;
     return <header data-testid="header" />;
   },
 }));
 
 vi.mock('../../components/TerminalArea', () => ({
   default: (props: Record<string, unknown>) => {
-    (window as Record<string, unknown>).__terminalAreaProps = props;
+    (window as unknown as Record<string, unknown>).__terminalAreaProps = props;
     return <main data-testid="terminal-area" />;
   },
 }));
 
 vi.mock('../../components/SettingsPanel', () => ({
   default: (props: Record<string, unknown>) => {
-    (window as Record<string, unknown>).__settingsPanelProps = props;
+    (window as unknown as Record<string, unknown>).__settingsPanelProps = props;
     return <div data-testid="settings-panel" />;
   },
 }));
@@ -85,9 +85,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   usageState.warning = 'none';
   usageState.dismissed = null;
-  delete (window as Record<string, unknown>).__headerProps;
-  delete (window as Record<string, unknown>).__terminalAreaProps;
-  delete (window as Record<string, unknown>).__settingsPanelProps;
+  delete (window as unknown as Record<string, unknown>).__headerProps;
+  delete (window as unknown as Record<string, unknown>).__terminalAreaProps;
+  delete (window as unknown as Record<string, unknown>).__settingsPanelProps;
 });
 
 afterEach(() => cleanup());
@@ -121,16 +121,16 @@ describe('REQ-ENTERPRISE-008 AC4: quota banners are suppressed in enterprise mod
 describe('REQ-ENTERPRISE-008: Layout threads enterpriseMode to children that own suppressed surfaces', () => {
   it('passes enterpriseMode to TerminalArea (→ Dashboard dropdown) and SettingsPanel (admin buttons)', () => {
     render(() => <Layout enterpriseMode />);
-    const ta = (window as Record<string, unknown>).__terminalAreaProps as { enterpriseMode?: boolean };
-    const sp = (window as Record<string, unknown>).__settingsPanelProps as { enterpriseMode?: boolean };
+    const ta = (window as unknown as Record<string, unknown>).__terminalAreaProps as { enterpriseMode?: boolean };
+    const sp = (window as unknown as Record<string, unknown>).__settingsPanelProps as { enterpriseMode?: boolean };
     expect(ta.enterpriseMode).toBe(true);
     expect(sp.enterpriseMode).toBe(true);
   });
 
   it('passes enterpriseMode falsy to children when the flag is unset (AC6)', () => {
     render(() => <Layout />);
-    const ta = (window as Record<string, unknown>).__terminalAreaProps as { enterpriseMode?: boolean };
-    const sp = (window as Record<string, unknown>).__settingsPanelProps as { enterpriseMode?: boolean };
+    const ta = (window as unknown as Record<string, unknown>).__terminalAreaProps as { enterpriseMode?: boolean };
+    const sp = (window as unknown as Record<string, unknown>).__settingsPanelProps as { enterpriseMode?: boolean };
     expect(ta.enterpriseMode).toBeFalsy();
     expect(sp.enterpriseMode).toBeFalsy();
   });
