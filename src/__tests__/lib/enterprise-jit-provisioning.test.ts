@@ -113,6 +113,27 @@ describe('REQ-ENTERPRISE-010: Access-gated JIT provisioning', () => {
       expect(JSON.parse(second as string).addedBy).toBe('enterprise-jit');
     });
 
+    // REQ-ENTERPRISE-008 AC3: every enterprise user is implicitly Pro/advanced. A freshly
+    // provisioned user must PERSIST subscribedMode so the returning-user (existing-record)
+    // branch reads 'advanced' back instead of undefined -> 'default' downstream.
+    it('AC3 regression: a freshly provisioned enterprise-jit user persists subscribedMode=advanced and a returning login keeps it', async () => {
+      const first = await resolveOrProvisionEnterpriseUser(mockKV as unknown as KVNamespace, 'returning@example.com', TOKEN, AUTH_DOMAIN);
+      expect(first.subscribedMode).toBe('advanced');
+      // The persisted record carries the field (so the next login does not degrade to default).
+      expect(JSON.parse(mockKV._store.get('user:returning@example.com') as string).subscribedMode).toBe('advanced');
+      // Second login goes through the existing-record branch.
+      const second = await resolveOrProvisionEnterpriseUser(mockKV as unknown as KVNamespace, 'returning@example.com', TOKEN, AUTH_DOMAIN);
+      expect(second.subscribedMode).toBe('advanced');
+    });
+
+    it('AC3 regression: a pre-existing record without subscribedMode still resolves advanced (admin / pre-fix JIT record)', async () => {
+      mockKV._store.set('user:legacy@example.com', JSON.stringify({
+        addedBy: 'enterprise-jit', addedAt: 't', role: 'user', accessTier: 'advanced', subscriptionTier: 'unlimited',
+      }));
+      const result = await resolveOrProvisionEnterpriseUser(mockKV as unknown as KVNamespace, 'legacy@example.com', TOKEN, AUTH_DOMAIN);
+      expect(result.subscribedMode).toBe('advanced');
+    });
+
     it('fails closed (ForbiddenError) when get-identity errors while a group is required', async () => {
       mockKV._store.set(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'engineers');
       vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network'); }));

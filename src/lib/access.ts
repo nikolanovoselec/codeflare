@@ -555,12 +555,15 @@ export async function resolveOrProvisionEnterpriseUser(
 
   if (kvEntry) {
     // Existing record (setup admin or prior enterprise-jit user) — return as-is,
-    // never overwrite the role or downgrade an admin.
+    // never overwrite the role or downgrade an admin. Every enterprise user is
+    // implicitly Pro/advanced (REQ-ENTERPRISE-008 AC3), so default subscribedMode
+    // to 'advanced' for records that predate the field (older JIT records, setup
+    // admins) — this function only ever runs in enterprise mode.
     return {
       role: kvEntry.role,
       accessTier: kvEntry.accessTier ?? 'advanced',
       subscriptionTier: kvEntry.subscriptionTier,
-      subscribedMode: kvEntry.subscribedMode,
+      subscribedMode: kvEntry.subscribedMode ?? 'advanced',
       billingStatus: kvEntry.billingStatus,
       billingPeriodEnd: kvEntry.billingPeriodEnd,
     };
@@ -577,13 +580,16 @@ export async function resolveOrProvisionEnterpriseUser(
 
   // Provision a custom unlimited user. Concurrent first-logins write identical
   // records (benign). accessTier 'advanced' is the highest real access tier
-  // ('unlimited' is a subscription tier, not an access tier). No welcome email.
+  // ('unlimited' is a subscription tier, not an access tier). subscribedMode
+  // 'advanced' is persisted so returning users read it back (REQ-ENTERPRISE-008
+  // AC3) instead of degrading to 'default'. No welcome email.
   await kv.put(`user:${normalizedEmail}`, JSON.stringify({
     addedBy: 'enterprise-jit',
     addedAt: new Date().toISOString(),
     role: 'user',
     accessTier: 'advanced',
     subscriptionTier: 'unlimited',
+    subscribedMode: 'advanced',
   }));
 
   return { role: 'user', accessTier: 'advanced', subscriptionTier: 'unlimited', subscribedMode: 'advanced' };
