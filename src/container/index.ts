@@ -397,8 +397,9 @@ export class container extends Container<Env> implements ContainerEnvState {
    * is platform-internal so it never traverses Cloudflare Access. The per-session
    * `user` prop is the user's email (stamped into cf-aig-metadata for the gateway's
    * per-user analytics), falling back to the bucket id if no email is set. Both
-   * _userEmail and _bucketName are populated via setBucketName BEFORE the container
-   * is started, so they are already set when startAndWaitForPorts wires interception.
+   * _userEmail and _bucketName are populated by the internal-config handler (which
+   * also calls setBucketName) BEFORE the container is started, so they are already
+   * set when startAndWaitForPorts wires interception.
    *
    * No-op unless ENTERPRISE_MODE=active and the gateway is configured, so a
    * non-enterprise container's egress is byte-identical to today. interceptOutbound*
