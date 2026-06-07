@@ -13,13 +13,14 @@
  *      -> api.cloudflare.com/client/v4/accounts/{acct}/ai/v1/chat/completions.
  * AC2. account id + gateway id are derived from AIG_GATEWAY_URL (account in the
  *      URL path; gateway in the cf-aig-gateway-id header).
- * AC3. Authorization: Bearer <AIG_TOKEN> carries the gateway token (standard
+ * AC3. The upstream response (text/event-stream) is streamed back, status +
+ *      content-type preserved; a missing terminal finish_reason chunk is
+ *      synthesized before [DONE] (idempotent; tool_calls vs stop).
+ * AC4. Authorization: Bearer <AIG_TOKEN> carries the gateway token (standard
  *      header, not cf-aig-authorization); cf-aig-metadata carries the OPAQUE
  *      props.user (never an email).
- * AC4. The container's inbound Authorization / x-api-key placeholder is NOT
+ * AC5. The container's inbound Authorization / x-api-key placeholder is NOT
  *      forwarded upstream (replaced by the gateway token); unrelated headers survive.
- * AC5. The upstream response (text/event-stream) is streamed back, status +
- *      content-type preserved.
  * AC6. An unmapped host (incl. api.anthropic.com — not an enterprise agent host)
  *      returns 400 before any fetch.
  * AC7. AIG_GATEWAY_URL unset/unparseable -> 503 before any fetch.
@@ -100,14 +101,14 @@ describe('REQ-ENTERPRISE-004: OpenAI host -> AI Gateway REST API mapping', () =>
 });
 
 describe('REQ-ENTERPRISE-004: gateway authorization + per-user metadata', () => {
-  it('AC3: stamps the standard Authorization header with the gateway token', async () => {
+  it('AC4: stamps the standard Authorization header with the gateway token', async () => {
     await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }));
     expect(lastFetch?.headers.get('authorization')).toBe(`Bearer ${AIG_TOKEN}`);
     // The legacy gateway-auth header is no longer used.
     expect(lastFetch?.headers.get('cf-aig-authorization')).toBeNull();
   });
 
-  it('AC3: stamps cf-aig-metadata with the OPAQUE props.user (never an email)', async () => {
+  it('AC4: stamps cf-aig-metadata with the OPAQUE props.user (never an email)', async () => {
     await makeInterceptor({}, { user: OPAQUE_USER }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
     );
@@ -118,7 +119,7 @@ describe('REQ-ENTERPRISE-004: gateway authorization + per-user metadata', () => 
     expect(parsed.user).not.toContain('@');
   });
 
-  it('AC3: falls back to user="unknown" when props are absent', async () => {
+  it('AC4: falls back to user="unknown" when props are absent', async () => {
     const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN } as unknown as Env;
     const interceptor = new LlmInterceptor({} as unknown as ExecutionContext, env);
     await interceptor.fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }));
@@ -128,7 +129,7 @@ describe('REQ-ENTERPRISE-004: gateway authorization + per-user metadata', () => 
 });
 
 describe('REQ-ENTERPRISE-004: placeholder-auth stripping', () => {
-  it('AC4: replaces the container Authorization placeholder with the gateway token and strips x-api-key, keeps unrelated headers', async () => {
+  it('AC5: replaces the container Authorization placeholder with the gateway token and strips x-api-key, keeps unrelated headers', async () => {
     await makeInterceptor().fetch(
       new Request('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -142,7 +143,7 @@ describe('REQ-ENTERPRISE-004: placeholder-auth stripping', () => {
     expect(lastFetch?.headers.get('x-custom')).toBe('keepme');
   });
 
-  it('AC4: a client-supplied cf-aig-gateway-id is overwritten with the interceptor-derived gateway id', async () => {
+  it('AC5: a client-supplied cf-aig-gateway-id is overwritten with the interceptor-derived gateway id', async () => {
     await makeInterceptor().fetch(
       new Request('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -157,7 +158,7 @@ describe('REQ-ENTERPRISE-004: placeholder-auth stripping', () => {
 });
 
 describe('REQ-ENTERPRISE-004: streaming passthrough (no buffering)', () => {
-  it('AC5: preserves the text/event-stream content-type and streams the body', async () => {
+  it('AC3: preserves the text/event-stream content-type and streams the body', async () => {
     const res = await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }));
     expect(res.headers.get('content-type')).toBe('text/event-stream');
     const text = await res.text();
@@ -165,7 +166,7 @@ describe('REQ-ENTERPRISE-004: streaming passthrough (no buffering)', () => {
     expect(text).toContain('data: [DONE]');
   });
 
-  it('AC5: forwards the upstream status verbatim', async () => {
+  it('AC3: forwards the upstream status verbatim', async () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       new Response('rate limited', { status: 429, headers: { 'content-type': 'text/plain' } }),
     );
@@ -244,6 +245,36 @@ describe('REQ-ENTERPRISE-004: streaming terminator repair (AC3 — dynamic-route
     );
     const text = await res.text();
     expect(text).not.toContain('finish_reason');
+  });
+
+  it('reassembles a [DONE] marker split across chunk boundaries (line-buffering)', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async () =>
+      sse([
+        dataLine({ id: 'x', model: 'm', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] }),
+        'data: [DO',
+        'NE]\n\n',
+      ]),
+    );
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    const text = await res.text();
+    expect((text.match(/"finish_reason":"stop"/g) ?? []).length).toBe(1);
+    expect(text.indexOf('"finish_reason":"stop"')).toBeLessThan(text.indexOf('data: [DONE]'));
+  });
+
+  it('reassembles a content frame split mid-JSON across chunk boundaries (no corruption, single terminator)', async () => {
+    const frame = dataLine({ id: 'x', model: 'm', choices: [{ index: 0, delta: { content: 'hello' }, finish_reason: null }] });
+    const mid = Math.floor(frame.length / 2);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async () =>
+      sse([frame.slice(0, mid), frame.slice(mid), 'data: [DONE]\n\n']),
+    );
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    const text = await res.text();
+    expect(text).toContain('"content":"hello"');
+    expect((text.match(/"finish_reason":"stop"/g) ?? []).length).toBe(1);
   });
 });
 

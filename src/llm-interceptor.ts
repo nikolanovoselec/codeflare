@@ -150,8 +150,9 @@ function ensureStreamTerminator(): TransformStream<Uint8Array, Uint8Array> {
       if (obj.id) meta.id = obj.id;
       if (obj.model) meta.model = obj.model;
       if (typeof obj.created === 'number') meta.created = obj.created;
-      const choice = obj.choices?.[0];
-      if (choice) {
+      // Scan every choice (not just [0]) so an n>1 stream that carries the
+      // finish_reason on a later choice is still recognized as terminated.
+      for (const choice of obj.choices ?? []) {
         if (choice.finish_reason !== null && choice.finish_reason !== undefined) sawFinishReason = true;
         if (choice.delta?.tool_calls) sawToolCall = true;
       }
@@ -196,14 +197,20 @@ function ensureStreamTerminator(): TransformStream<Uint8Array, Uint8Array> {
       }
     },
     flush(controller) {
+      // If the final buffered line arrived without its trailing newline (a
+      // doubly-malformed upstream: no frame terminator AND no [DONE]), insert a
+      // frame boundary before any synthesized chunk so it is not concatenated
+      // onto the partial line.
+      let sep = '';
       if (buffer.length > 0) {
+        if (!isDone(buffer) && !buffer.endsWith('\n')) sep = '\n\n';
         handle(buffer, controller);
         buffer = '';
       }
       // Stream ended with neither [DONE] nor any finish_reason: synthesize both
       // so the client sees a complete turn rather than a dangling stream.
       if (!sawDone && !sawFinishReason && (meta.id !== undefined || meta.model !== undefined)) {
-        controller.enqueue(encoder.encode(terminator()));
+        controller.enqueue(encoder.encode(sep + terminator()));
         controller.enqueue(encoder.encode('data: [DONE]\n\n'));
       }
     },
