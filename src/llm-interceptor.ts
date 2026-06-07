@@ -16,7 +16,8 @@
  * falling back to the deprecated-but-functional compat path
  * (`gateway.ai.cloudflare.com/v1/{acct}/{gw}/compat/*`) on a 404 — with the
  * gateway authorization + per-user attribution stamped on. The user id comes
- * from the per-session DO props — the opaque bucket id, never an email.
+ * from the per-session DO props — the user's email, so the gateway's per-user
+ * analytics attribute usage to the real identity (an enterprise requirement).
  *
  * The enterprise agent set (REQ-ENTERPRISE-003) is OpenAI-wire-format only
  * (Copilot, Pi): they call api.openai.com and their requests map onto the
@@ -87,6 +88,7 @@ const RESPONSE_STRIPPED_HEADERS: readonly string[] = [
 
 /** Per-session props attached when the DO instantiates this entrypoint. */
 interface InterceptorProps {
+  /** The user's email — stamped into cf-aig-metadata for per-user gateway analytics. */
   user: string;
 }
 
@@ -103,6 +105,30 @@ function parseGateway(raw: string | undefined): { accountId: string; gatewayId: 
   const m = raw.match(/\/v1\/([^/?#]+)\/([^/?#]+)/);
   if (!m) return null;
   return { accountId: m[1], gatewayId: m[2] };
+}
+
+/**
+ * OpenAI-only request fields that non-OpenAI providers reject with a 400
+ * ("Invalid JSON payload received. Unknown name ..."). Cloudflare's compat layer
+ * forwards them verbatim, so the interceptor strips them — but ONLY on the compat
+ * fallback leg (see fetch()), which is the only path that reaches a non-OpenAI
+ * provider (e.g. google-ai-studio). The REST/OpenAI leg keeps them so OpenAI
+ * prompt caching (`prompt_cache_key`) and `store` are unaffected.
+ */
+const COMPAT_INCOMPATIBLE_FIELDS = ['store', 'prompt_cache_key'] as const;
+
+/** Return `raw` with COMPAT_INCOMPATIBLE_FIELDS removed; non-JSON/non-object bodies pass through unchanged. */
+function stripOpenAiOnlyFields(raw: string): string {
+  try {
+    const payload = JSON.parse(raw) as Record<string, unknown>;
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      for (const field of COMPAT_INCOMPATIBLE_FIELDS) delete payload[field];
+      return JSON.stringify(payload);
+    }
+  } catch {
+    /* not JSON: forward the original bytes unchanged */
+  }
+  return raw;
 }
 
 /**
@@ -259,9 +285,9 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     const compatUrl = `https://gateway.ai.cloudflare.com/v1/${gw.accountId}/${gw.gatewayId}/compat${url.pathname.replace(/^\/v1/, '')}${url.search}`;
 
     // Common headers: strip the container's placeholder credential + CF-managed
-    // headers and stamp per-user attribution (the opaque per-user bucket id from
-    // the DO prop — never an email). Transport-specific auth/routing is added per
-    // attempt below.
+    // headers and stamp per-user attribution (the user's email from the DO prop,
+    // for the gateway's per-user analytics). Transport-specific auth/routing is
+    // added per attempt below.
     const baseHeaders = new Headers(request.headers);
     for (const h of STRIPPED_HEADERS) baseHeaders.delete(h);
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
@@ -337,12 +363,12 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // to one surfaces the masked "Model execution failed", also 404). A 404 is a
     // complete error body — not a stream — so the replay never double-bills or
     // truncates a partial response. Genuine non-404 errors are returned as-is.
-    const sendTo = (target: string, h: Headers): Promise<Response> =>
+    const sendTo = (target: string, h: Headers, body: BodyInit | null | undefined = outboundBody): Promise<Response> =>
       fetch(
         new Request(target, {
           method: request.method,
           headers: h,
-          body: outboundBody,
+          body,
           // Do not transparently follow gateway/provider redirects — a 3xx would
           // otherwise be chased to an arbitrary Location host. Surface it to the
           // agent's client instead.
@@ -354,7 +380,10 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     try {
       upstream = await sendTo(restUrl, restHeaders);
       if (upstream.status === 404 && isModelRoutable && typeof outboundBody === 'string') {
-        upstream = await sendTo(compatUrl, compatHeaders);
+        // Compat reaches non-OpenAI providers (e.g. google-ai-studio) that reject
+        // OpenAI-only fields (store, prompt_cache_key) with a 400; strip them on
+        // THIS leg only, so the REST/OpenAI leg above keeps prompt caching intact.
+        upstream = await sendTo(compatUrl, compatHeaders, stripOpenAiOnlyFields(outboundBody));
       }
     } catch (err) {
       // A thrown fetch (DNS, TLS, connection reset to the gateway) would otherwise

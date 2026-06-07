@@ -19,8 +19,8 @@
  *      content-type preserved; a missing terminal finish_reason chunk is
  *      synthesized before [DONE] (idempotent; tool_calls vs stop).
  * AC4. Authorization: Bearer <AIG_TOKEN> carries the gateway token (standard
- *      header, not cf-aig-authorization); cf-aig-metadata carries the OPAQUE
- *      props.user (never an email).
+ *      header, not cf-aig-authorization); cf-aig-metadata carries props.user
+ *      stamped verbatim — the user's email (per-user gateway analytics).
  * AC5. The container's inbound Authorization / x-api-key placeholder is NOT
  *      forwarded upstream (replaced by the gateway token); unrelated headers survive.
  * AC6. An unmapped host (incl. api.anthropic.com — not an enterprise agent host)
@@ -34,10 +34,10 @@ import { LlmInterceptor } from '../llm-interceptor';
 const GATEWAY = 'https://gateway.ai.cloudflare.com/v1/acct/gw';
 const REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/acct/ai';
 const AIG_TOKEN = 'aig-secret-token';
-const OPAQUE_USER = 'codeflare-user-bucket-xyz';
+const SESSION_USER = 'nikola@novoselec.ch'; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
 
 /** Construct an interceptor with the given env + per-session props. */
-function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string } = { user: OPAQUE_USER }) {
+function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string } = { user: SESSION_USER }) {
   const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, ...envOverrides } as unknown as Env;
   // The DO instantiates this via ctx.exports.LlmInterceptor({ props }); props
   // land on ctx.props. A minimal ctx stub mirrors that shape for the unit test.
@@ -110,15 +110,15 @@ describe('REQ-ENTERPRISE-004: gateway authorization + per-user metadata', () => 
     expect(lastFetch?.headers.get('cf-aig-authorization')).toBeNull();
   });
 
-  it('AC4: stamps cf-aig-metadata with the OPAQUE props.user (never an email)', async () => {
-    await makeInterceptor({}, { user: OPAQUE_USER }).fetch(
+  it('AC4: stamps cf-aig-metadata with props.user verbatim (the user email)', async () => {
+    await makeInterceptor({}, { user: SESSION_USER }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
     );
     const metadata = lastFetch?.headers.get('cf-aig-metadata');
     expect(metadata).toBeTruthy();
     const parsed = JSON.parse(metadata as string);
-    expect(parsed.user).toBe(OPAQUE_USER);
-    expect(parsed.user).not.toContain('@');
+    expect(parsed.user).toBe(SESSION_USER);
+    expect(parsed.user).toContain('@'); // the per-session prop is now the user's email
   });
 
   it('AC4: falls back to user="unknown" when props are absent', async () => {
@@ -392,7 +392,7 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
     expect(compat.headers.get('cf-aig-authorization')).toBe(`Bearer ${AIG_TOKEN}`);
     expect(compat.headers.get('authorization')).toBeNull(); // the REST-leg header is not carried over
     // per-user attribution is still stamped on the fallback leg
-    expect(JSON.parse(compat.headers.get('cf-aig-metadata') as string).user).toBe(OPAQUE_USER);
+    expect(JSON.parse(compat.headers.get('cf-aig-metadata') as string).user).toBe(SESSION_USER);
   });
 
   it('replays the SAME buffered (route-pinned) body on the compat leg', async () => {
@@ -436,6 +436,39 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe(`${REST_BASE}/v1/embeddings`);
     expect(res.status).toBe(404);
+  });
+
+  it('strips store + prompt_cache_key on the compat leg (non-OpenAI provider 400-on-unknown-field fix)', async () => {
+    const calls = mockRestThenCompat();
+    await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'google-ai-studio/gemini-2.5-flash', store: false, prompt_cache_key: 'k', messages: [] }),
+      }),
+    );
+    const restBody = JSON.parse(calls[0].body);
+    const compatBody = JSON.parse(calls[1].body);
+    // REST leg keeps the OpenAI-only fields; compat leg has them stripped.
+    expect(restBody.store).toBe(false);
+    expect(restBody.prompt_cache_key).toBe('k');
+    expect(compatBody.store).toBeUndefined();
+    expect(compatBody.prompt_cache_key).toBeUndefined();
+    // the rest of the payload survives on the compat leg
+    expect(compatBody.model).toBe('google-ai-studio/gemini-2.5-flash');
+    expect(compatBody.messages).toEqual([]);
+  });
+
+  it('keeps store + prompt_cache_key when the REST leg succeeds (no fallback — OpenAI caching intact)', async () => {
+    // Default mock returns 200, so the REST leg succeeds and there is no compat retry.
+    await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'gpt-5.5', store: false, prompt_cache_key: 'k' }),
+      }),
+    );
+    const sent = JSON.parse(lastFetch?.body as string);
+    expect(sent.store).toBe(false);
+    expect(sent.prompt_cache_key).toBe('k');
   });
 });
 

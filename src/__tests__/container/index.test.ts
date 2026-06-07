@@ -1064,6 +1064,31 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(interceptOutboundHttps).not.toHaveBeenCalled();
       expect(callOrder).toEqual(['super.startAndWaitForPorts']);
     });
+
+    it('stamps the user email (not the bucket id) as the interceptor per-user prop', async () => {
+      callOrder.length = 0;
+      const fetcher = { id: 'llm-interceptor-fetcher' };
+      const LlmInterceptor = vi.fn(() => fetcher);
+      const ctx = {
+        ...mockCtx,
+        container: { ...mockContainerRuntime, interceptOutboundHttps: vi.fn() },
+        exports: { LlmInterceptor },
+      };
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'userEmail') return 'nikola@novoselec.ch';
+        if (key === 'bucketName') return 'codeflare-enterprise-nikola-novoselec-ch';
+        return null;
+      });
+      const instance = new ContainerClass(ctx as any, enterpriseEnv());
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('userEmail');
+      });
+
+      await instance.startAndWaitForPorts(8080);
+
+      // cf-aig-metadata attribution must carry the real email, not the opaque bucket id.
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch' } });
+    });
   });
 
   describe('onStart lifecycle', () => {

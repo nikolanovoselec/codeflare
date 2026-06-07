@@ -395,9 +395,10 @@ export class container extends Container<Env> implements ContainerEnvState {
    * holds the AI Gateway secrets and stamps per-user attribution. No credential,
    * gateway URL, or token is ever placed inside the container; the interception
    * is platform-internal so it never traverses Cloudflare Access. The per-session
-   * `user` prop is the opaque bucket id (never an email). bucketName is set via
-   * setBucketName BEFORE the container is started, so it is already populated
-   * when startAndWaitForPorts wires interception.
+   * `user` prop is the user's email (stamped into cf-aig-metadata for the gateway's
+   * per-user analytics), falling back to the bucket id if no email is set. Both
+   * _userEmail and _bucketName are populated via setBucketName BEFORE the container
+   * is started, so they are already set when startAndWaitForPorts wires interception.
    *
    * No-op unless ENTERPRISE_MODE=active and the gateway is configured, so a
    * non-enterprise container's egress is byte-identical to today. interceptOutbound*
@@ -419,7 +420,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       // for unauthenticated access. This is almost always a deploy-secret omission.
       this.logger.warn('Enterprise mode active and gateway configured but AIG_TOKEN unset; gateway requests will be unauthenticated');
     }
-    const user = this._bucketName ?? 'unknown';
+    const user = this._userEmail ?? this._bucketName ?? 'unknown';
     try {
       const ictx = this.ctx as unknown as {
         exports: { LlmInterceptor(opts: { props: { user: string } }): Fetcher };
