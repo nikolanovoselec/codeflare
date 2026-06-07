@@ -119,9 +119,17 @@ KV values written by the setup wizard that can be changed without redeploying th
 
 | KV key | Purpose | Set via |
 |--------|---------|---------|
-| `setup:enterprise_access_group` | Optional comma/newline-separated list of Cloudflare Access group names/ids that gate Codeflare access in enterprise mode. When set, an Access-authenticated user is JIT-provisioned (`unlimited`) **only if** the Cloudflare Access get-identity response shows them in **any** of the configured groups; non-members get 403 (fail-closed). When unset, any user the Access policy admits is provisioned on their valid Access JWT alone. The single matched group is forwarded to the customer's AI Gateway as `cf-aig-metadata.group` (alongside `cf-aig-metadata.user` = the user's email) so gateway rules can branch routing / cost / rate-limit policies per group. The value is matched **case-sensitively** against the group name/id exactly as it appears in the Cloudflare dashboard — a mismatch denies every user. Prefer the immutable Access group **ID** over the display name: membership is matched against the group's id, name, or email, and a display name can be renamed or reused. | Setup wizard → KV (re-run setup to change; no redeploy) |
+| `setup:enterprise_access_group` | Comma/newline-separated list of Cloudflare Access group names/ids (any-of gate). When set, JIT provisioning admits only users in a configured group (non-members: 403); the matched group is forwarded to the AI Gateway as `cf-aig-metadata.group`. See [details](#enterprise-access-group-configuration) below. | Setup wizard → KV (re-run setup to change; no redeploy) |
 
-See [User Provisioning — Enterprise Mode Provisioning](user-provisioning.md#enterprise-mode-provisioning) and [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning).
+#### Enterprise Access Group Configuration
+
+`setup:enterprise_access_group` accepts a comma- or newline-separated list of Cloudflare Access group names or IDs. A user in **any** configured group is admitted (any-of gate); a user in no configured group receives 403 (fail-closed). When the key is unset, any user the Access application policy admits is provisioned on their valid Access JWT alone.
+
+The single matched group is forwarded to the customer's AI Gateway as `cf-aig-metadata.group` (alongside `cf-aig-metadata.user` = the user's email), so gateway rules can branch routing, cost, and rate-limit policies per group. The header is omitted when no groups are configured.
+
+The value is matched **case-sensitively** against the group name or ID exactly as it appears in the Cloudflare dashboard — a mismatch denies every user. Prefer the immutable Access group **ID** over the display name: membership is matched against the group's id, name, or email, and a display name can be renamed or reused.
+
+See [User Provisioning — Enterprise Mode Provisioning](user-provisioning.md#enterprise-mode-provisioning), [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) (group-gated JIT provisioning), and [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) (gateway metadata forwarding).
 
 ## CORS
 

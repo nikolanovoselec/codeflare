@@ -104,7 +104,7 @@ describe('ConfigureStep', () => {
       storeState.enterpriseMode = true;
       render(() => <ConfigureStep />);
       expect(screen.getByText('Admin Users')).toBeInTheDocument();
-      expect(screen.getByText('Cloudflare Access Group (optional)')).toBeInTheDocument();
+      expect(screen.getByText('Cloudflare Access Groups (optional)')).toBeInTheDocument();
     });
   });
 
