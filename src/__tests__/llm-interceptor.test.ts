@@ -6,8 +6,10 @@
  * API (api.cloudflare.com/.../ai/v1/*), strips the container's placeholder auth,
  * stamps the gateway Authorization header + cf-aig-gateway-id + cf-aig-metadata
  * (per-user, from DO props), and streams the upstream response back WITHOUT
- * buffering. Transport target is the REST API; the legacy gateway.ai.cloudflare.com
- * /compat + /anthropic paths it replaces are deprecated (AD74).
+ * buffering. Primary transport is the REST API; on a 404 for a model-routable
+ * request it falls back to the deprecated-but-functional gateway.ai.cloudflare.com
+ * /compat path (which still carries every provider, e.g. google-ai-studio),
+ * authenticating with cf-aig-authorization instead of Authorization (AD74).
  *
  * AC1. api.openai.com/v1/chat/completions
  *      -> api.cloudflare.com/client/v4/accounts/{acct}/ai/v1/chat/completions.
@@ -104,7 +106,7 @@ describe('REQ-ENTERPRISE-004: gateway authorization + per-user metadata', () => 
   it('AC4: stamps the standard Authorization header with the gateway token', async () => {
     await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }));
     expect(lastFetch?.headers.get('authorization')).toBe(`Bearer ${AIG_TOKEN}`);
-    // The legacy gateway-auth header is no longer used.
+    // On the REST leg, cf-aig-authorization is NOT set — that header is the compat-leg auth.
     expect(lastFetch?.headers.get('cf-aig-authorization')).toBeNull();
   });
 
@@ -339,6 +341,101 @@ describe('REQ-ENTERPRISE-007: gateway route-pinning (model rewrite)', () => {
     const sent = JSON.parse(lastFetch?.body as string);
     expect(sent.model).toBeUndefined();
     expect(sent.messages).toEqual([]);
+  });
+});
+
+describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD74 amendment)', () => {
+  const COMPAT_BASE = 'https://gateway.ai.cloudflare.com/v1/acct/gw/compat';
+
+  /**
+   * Replace the default mock with a two-leg recorder: the REST API returns
+   * `restStatus` (404 by default), the compat host returns 200. Returns the
+   * array of captured upstream calls so a test can assert order + headers + body.
+   */
+  function mockRestThenCompat(restStatus = 404) {
+    const calls: { url: string; method: string; headers: Headers; body: string }[] = [];
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (input: RequestInfo | URL) => {
+      const req = input as Request;
+      const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await req.text();
+      calls.push({ url: req.url, method: req.method, headers: req.headers, body });
+      if (req.url.startsWith(REST_BASE)) {
+        return new Response('{"error":"Model not found"}', { status: restStatus, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    return calls;
+  }
+
+  it('AC1: replays a model-routable request to the compat path when the REST API returns 404', async () => {
+    const calls = mockRestThenCompat();
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'google-ai-studio/gemini-3.1-pro-preview' }),
+      }),
+    );
+    expect(calls).toHaveLength(2);
+    expect(calls[0].url).toBe(`${REST_BASE}/v1/chat/completions`); // REST tried first
+    expect(calls[1].url).toBe(`${COMPAT_BASE}/chat/completions`); // compat fallback (/v1 stripped)
+    expect(res.status).toBe(200);
+  });
+
+  it('AC4: the compat leg authenticates with cf-aig-authorization, not Authorization: Bearer', async () => {
+    const calls = mockRestThenCompat();
+    await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        body: '{"model":"google-ai-studio/gemini-3.1-pro-preview"}',
+      }),
+    );
+    const compat = calls[1];
+    expect(compat.headers.get('cf-aig-authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+    expect(compat.headers.get('authorization')).toBeNull(); // the REST-leg header is not carried over
+    // per-user attribution is still stamped on the fallback leg
+    expect(JSON.parse(compat.headers.get('cf-aig-metadata') as string).user).toBe(OPAQUE_USER);
+  });
+
+  it('replays the SAME buffered (route-pinned) body on the compat leg', async () => {
+    const calls = mockRestThenCompat();
+    await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise' } as Partial<Env>).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'codeflare', messages: [{ role: 'user', content: 'hi' }] }),
+      }),
+    );
+    // both legs carry the rewritten model, byte-identical (the buffered replay)
+    expect(JSON.parse(calls[0].body).model).toBe('dynamic/codeflare-enterprise');
+    expect(calls[1].body).toBe(calls[0].body);
+  });
+
+  it('falls back on /responses too (compat path strips the /v1 prefix)', async () => {
+    const calls = mockRestThenCompat();
+    await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        body: '{"model":"google-ai-studio/gemini-3.1-pro-preview"}',
+      }),
+    );
+    expect(calls[1].url).toBe(`${COMPAT_BASE}/responses`);
+  });
+
+  it('does NOT fall back on a non-404 error (e.g. 429 is returned as-is, single call)', async () => {
+    const calls = mockRestThenCompat(429);
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{"model":"x"}' }),
+    );
+    expect(calls).toHaveLength(1);
+    expect(res.status).toBe(429);
+  });
+
+  it('does NOT fall back for a non-model-routable path (a 404 on /v1/embeddings is returned as-is)', async () => {
+    const calls = mockRestThenCompat();
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/embeddings', { method: 'POST', body: '{"model":"text-embedding-3-small"}' }),
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(`${REST_BASE}/v1/embeddings`);
+    expect(res.status).toBe(404);
   });
 });
 
