@@ -1838,28 +1838,11 @@ export REQUESTS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
 CA_TRUST_EOF
             cat "$BASHRC_FILE" >> "$CA_TRUST_TMP"
             mv "$CA_TRUST_TMP" "$BASHRC_FILE"
+            chmod 644 "$BASHRC_FILE"
             echo "[entrypoint] Enterprise Mode: CA-trust env prepended to .bashrc (agent PTYs inherit NODE_EXTRA_CA_CERTS)"
         fi
     else
         echo "[entrypoint] WARNING: $CF_CA_SRC not found; outbound HTTPS interception is unavailable (LLM calls will fail)"
-    fi
-
-    # --- Enterprise interception self-test (diagnostic, [ENTERPRISE-DIAG]) -----
-    # Surface the CA-trust state and probe the intercepted provider host from
-    # inside the container so the logs show DEFINITIVELY whether outbound LLM TLS
-    # works end-to-end. curl uses the system trust store (update-ca-certificates);
-    # node uses NODE_EXTRA_CA_CERTS — the path Pi/Copilot actually take. If curl
-    # works but node fails, the issue is node trust, not the system bundle.
-    echo "[ENTERPRISE-DIAG] NODE_EXTRA_CA_CERTS=${NODE_EXTRA_CA_CERTS:-<unset>}"
-    echo "[ENTERPRISE-DIAG] containers CA file present: $([ -f "$CF_CA_SRC" ] && echo yes || echo NO)"
-    echo "[ENTERPRISE-DIAG] system bundle cert count: $(grep -c 'BEGIN CERTIFICATE' /etc/ssl/certs/ca-certificates.crt 2>/dev/null || echo '?')"
-    _DIAG_ERR=$(mktemp)
-    _DIAG_HTTP=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://api.openai.com/v1/models 2>"$_DIAG_ERR" || echo "curl-failed")
-    echo "[ENTERPRISE-DIAG] curl probe https://api.openai.com/v1/models -> HTTP=${_DIAG_HTTP} err=$(tr '\n' ' ' <"$_DIAG_ERR" | head -c 400)"
-    rm -f "$_DIAG_ERR"
-    if command -v node >/dev/null 2>&1; then
-        _NODE_DIAG=$(node -e 'fetch("https://api.openai.com/v1/models",{signal:AbortSignal.timeout(12000)}).then(r=>console.log("HTTP="+r.status)).catch(e=>console.log("FETCH-FAILED:"+((e&&e.cause&&e.cause.message)||(e&&e.message)||e)))' 2>&1 | head -c 400)
-        echo "[ENTERPRISE-DIAG] node fetch probe -> ${_NODE_DIAG}"
     fi
 
     # Constant, NON-SECRET placeholder credential. Each agent CLI only enters
@@ -1902,6 +1885,33 @@ CA_TRUST_EOF
     export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
     export COPILOT_MODEL="$ENTERPRISE_MODEL_HANDLE"
     echo "[entrypoint] Enterprise Mode: Copilot BYOK active (base_url + key + model=$ENTERPRISE_MODEL_HANDLE) via interception"
+
+    # Persist the Copilot BYOK env into .bashrc so the COPILOT AGENT inherits it.
+    # Same propagation failure as the CA-trust block above: the exports just above
+    # live only in THIS (entrypoint) process, and the Worker deliberately omits
+    # these from the container env (see container-env-llm.test.ts). Copilot has NO
+    # config file — its entire BYOK config is env-only — so a copilot PTY that does
+    # not inherit these launches with no provider/url/model at all and falls back
+    # to GitHub-hosted models (asks for GitHub login, ignores the custom base URL).
+    # PREPENDED before the terminal-autostart block, same rationale as CA-trust.
+    BASHRC_FILE="$USER_HOME/.bashrc"
+    if ! grep -q "# enterprise-copilot-byok" "$BASHRC_FILE" 2>/dev/null; then
+        touch "$BASHRC_FILE"
+        COPILOT_BYOK_TMP=$(mktemp)
+        cat > "$COPILOT_BYOK_TMP" << COPILOT_BYOK_EOF
+# enterprise-copilot-byok
+# Copilot BYOK 3-var contract (base URL + key + model), persisted so the copilot
+# PTY inherits it; without this Copilot ignores the gateway and asks for GitHub login.
+export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
+export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
+export COPILOT_MODEL="$ENTERPRISE_MODEL_HANDLE"
+
+COPILOT_BYOK_EOF
+        cat "$BASHRC_FILE" >> "$COPILOT_BYOK_TMP"
+        mv "$COPILOT_BYOK_TMP" "$BASHRC_FILE"
+        chmod 644 "$BASHRC_FILE"
+        echo "[entrypoint] Enterprise Mode: Copilot BYOK env prepended to .bashrc (copilot PTY inherits provider/url/model)"
+    fi
 
     # --- Pi ----------------------------------------------------------------
     # Pi reads custom provider config from ~/.pi/agent/models.json. Register a

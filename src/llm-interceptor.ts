@@ -100,12 +100,120 @@ function parseGateway(raw: string | undefined): { accountId: string; gatewayId: 
   return { accountId: m[1], gatewayId: m[2] };
 }
 
+/**
+ * Normalize a streaming chat-completions SSE body so it always ends with a
+ * terminal `finish_reason` chunk before `data: [DONE]`.
+ *
+ * Cloudflare AI Gateway **dynamic routes** drop the terminal
+ * `{"choices":[{"delta":{},"finish_reason":"stop"}]}` chunk (and the usage
+ * chunk) when they re-emit a streamed response: the content arrives but the
+ * stream ends with `finish_reason: null` then `[DONE]`. Verified against the
+ * live gateway — the same model is conformant non-streaming and when called
+ * directly, but the dynamic-route streaming path strips the terminator. Strict
+ * OpenAI-wire clients (Pi, Copilot) treat that as an incomplete stream, error
+ * with "Stream ended without finish_reason", and retry — multiplying token cost.
+ *
+ * This transform passes every byte through verbatim and, when `[DONE]` arrives
+ * (or the stream ends) without a preceding non-null `finish_reason`, injects one
+ * synthetic terminator chunk first. It is idempotent — when the upstream already
+ * sends a non-null `finish_reason` (non-dynamic-route backends, non-streaming)
+ * nothing is injected. The synthesized reason is `tool_calls` when the stream
+ * carried tool-call deltas, otherwise `stop`, so a tool-calling turn is not
+ * falsely terminated as complete.
+ */
+function ensureStreamTerminator(): TransformStream<Uint8Array, Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = '';
+  let sawFinishReason = false;
+  let sawDone = false;
+  let sawToolCall = false;
+  const meta: { id?: string; model?: string; created?: number } = {};
+
+  const isDone = (line: string): boolean => {
+    const t = line.trim();
+    return t === 'data: [DONE]' || t === 'data:[DONE]';
+  };
+
+  const inspect = (line: string): void => {
+    const t = line.trimStart();
+    if (!t.startsWith('data:')) return;
+    const payload = t.slice(t.indexOf(':') + 1).trim();
+    if (payload === '[DONE]') return;
+    try {
+      const obj = JSON.parse(payload) as {
+        id?: string;
+        model?: string;
+        created?: number;
+        choices?: Array<{ finish_reason?: string | null; delta?: { tool_calls?: unknown } }>;
+      };
+      if (obj.id) meta.id = obj.id;
+      if (obj.model) meta.model = obj.model;
+      if (typeof obj.created === 'number') meta.created = obj.created;
+      const choice = obj.choices?.[0];
+      if (choice) {
+        if (choice.finish_reason !== null && choice.finish_reason !== undefined) sawFinishReason = true;
+        if (choice.delta?.tool_calls) sawToolCall = true;
+      }
+    } catch {
+      /* non-JSON data line (comment / keepalive): ignore */
+    }
+  };
+
+  const terminator = (): string => {
+    const chunk = {
+      id: meta.id ?? 'codeflare-terminator',
+      object: 'chat.completion.chunk',
+      created: meta.created ?? Math.floor(Date.now() / 1000),
+      model: meta.model ?? 'unknown',
+      choices: [{ index: 0, delta: {}, finish_reason: sawToolCall ? 'tool_calls' : 'stop' }],
+    };
+    return `data: ${JSON.stringify(chunk)}\n\n`;
+  };
+
+  const handle = (line: string, controller: TransformStreamDefaultController<Uint8Array>): void => {
+    if (isDone(line)) {
+      if (!sawFinishReason) {
+        controller.enqueue(encoder.encode(terminator()));
+        sawFinishReason = true;
+      }
+      sawDone = true;
+      controller.enqueue(encoder.encode(line));
+      return;
+    }
+    inspect(line);
+    controller.enqueue(encoder.encode(line));
+  };
+
+  return new TransformStream({
+    transform(chunk, controller) {
+      buffer += decoder.decode(chunk, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, idx + 1);
+        buffer = buffer.slice(idx + 1);
+        handle(line, controller);
+      }
+    },
+    flush(controller) {
+      if (buffer.length > 0) {
+        handle(buffer, controller);
+        buffer = '';
+      }
+      // Stream ended with neither [DONE] nor any finish_reason: synthesize both
+      // so the client sees a complete turn rather than a dangling stream.
+      if (!sawDone && !sawFinishReason && (meta.id !== undefined || meta.model !== undefined)) {
+        controller.enqueue(encoder.encode(terminator()));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      }
+    },
+  });
+}
+
 export class LlmInterceptor extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
-    console.log('[ENTERPRISE-DIAG] LlmInterceptor.fetch invoked', { method: request.method, url: request.url });
     const gw = parseGateway(this.env.AIG_GATEWAY_URL);
     if (!gw) {
-      console.error('[ENTERPRISE-DIAG] LlmInterceptor 503: AIG_GATEWAY_URL missing/unparseable', { hasGatewayUrl: !!this.env.AIG_GATEWAY_URL });
       // Enterprise deploy with interception wired but no gateway configured:
       // fail closed rather than letting the request fall through anywhere.
       return new Response(JSON.stringify({ error: 'LLM gateway not configured', code: 'GATEWAY_UNAVAILABLE' }), {
@@ -197,7 +305,6 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         outboundBody = raw; // not JSON: forward the original bytes unchanged
       }
     }
-    console.log('[ENTERPRISE-DIAG] LlmInterceptor forwarding to gateway', { upstreamUrl, method: request.method, hasToken: !!this.env.AIG_TOKEN, gatewayId: gw.gatewayId, modelRewrite: !!(this.env.AIG_LANGUAGE_MODEL && isModelRoutable) });
     let upstream: Response;
     try {
       upstream = await fetch(
@@ -212,14 +319,16 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         }),
       );
     } catch (err) {
-      console.error('[ENTERPRISE-DIAG] LlmInterceptor upstream fetch FAILED', { upstreamUrl, error: err instanceof Error ? err.message : String(err) });
+      // A thrown fetch (DNS, TLS, connection reset to the gateway) would otherwise
+      // escape as an opaque 500; surface it as a clean 502 and log the cause.
+      console.error('LlmInterceptor: upstream gateway fetch failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       return new Response(JSON.stringify({ error: 'gateway fetch failed', code: 'GATEWAY_FETCH_FAILED' }), {
         status: 502,
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    console.log('[ENTERPRISE-DIAG] LlmInterceptor upstream responded', { status: upstream.status, upstreamUrl });
-
     // Strip hop-by-hop and cookie headers from the upstream response before it
     // reaches the container. Returning upstream.body (the ReadableStream) WITHOUT
     // reading it preserves text/event-stream + chunked transfer — tokens reach
@@ -227,7 +336,16 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     const responseHeaders = new Headers(upstream.headers);
     for (const h of RESPONSE_STRIPPED_HEADERS) responseHeaders.delete(h);
 
-    return new Response(upstream.body, {
+    // Repair the dynamic-route streaming terminator (see ensureStreamTerminator):
+    // only for streamed chat-completions responses; every other response (non-
+    // streaming, /responses, errors) passes through byte-for-byte.
+    const contentType = upstream.headers.get('content-type') ?? '';
+    const isStreamingChat =
+      contentType.includes('text/event-stream') && url.pathname.endsWith('/chat/completions');
+    const responseBody =
+      upstream.body && isStreamingChat ? upstream.body.pipeThrough(ensureStreamTerminator()) : upstream.body;
+
+    return new Response(responseBody, {
       status: upstream.status,
       headers: responseHeaders,
     });

@@ -340,7 +340,7 @@ sequenceDiagram
     participant G as AI Gateway REST API
     participant P as Backend (OpenAI / Bedrock / Workers AI / dynamic route)
 
-    Note over C: entrypoint.sh:<br/>- Trusts CF containers CA<br/>- Sets placeholder credential<br/>- Points agent at api.openai.com
+    Note over C: entrypoint.sh:<br/>- Trusts CF containers CA (system store)<br/>- Persists CA env (NODE_EXTRA_CA_CERTS,<br/>  REQUESTS_CA_BUNDLE) to .bashrc<br/>- Sets placeholder credential<br/>- Points agent at api.openai.com
     C->>I: HTTPS to api.openai.com<br/>(TLS intercepted by platform;<br/>placeholder Bearer stripped)
     I->>G: POST api.cloudflare.com/.../ai/v1/<path><br/>Authorization: Bearer AIG_TOKEN<br/>cf-aig-gateway-id: <gateway>
     G->>P: Routed by model id (gateway-side)

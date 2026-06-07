@@ -174,6 +174,79 @@ describe('REQ-ENTERPRISE-004: streaming passthrough (no buffering)', () => {
   });
 });
 
+describe('REQ-ENTERPRISE-004: streaming terminator repair (AC3 — dynamic-route finish_reason fix)', () => {
+  const dataLine = (obj: unknown): string => `data: ${JSON.stringify(obj)}\n\n`;
+  const sse = (chunks: string[]): Response => {
+    const stream = new ReadableStream({
+      start(controller) {
+        for (const c of chunks) controller.enqueue(new TextEncoder().encode(c));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  };
+
+  it('injects a finish_reason:"stop" chunk before [DONE] when the upstream omits it (dynamic-route bug)', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async () =>
+      sse([
+        dataLine({ id: 'x', model: 'm', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] }),
+        dataLine({ id: 'x', model: 'm', choices: [{ index: 0, delta: {}, finish_reason: null }] }),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    const text = await res.text();
+    expect(text).toContain('"finish_reason":"stop"');
+    expect(text.indexOf('"finish_reason":"stop"')).toBeLessThan(text.indexOf('data: [DONE]'));
+  });
+
+  it('is idempotent: does not add a second terminator when the upstream already sends finish_reason', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async () =>
+      sse([
+        dataLine({ id: 'x', model: 'm', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] }),
+        dataLine({ id: 'x', model: 'm', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    const text = await res.text();
+    expect((text.match(/"finish_reason":"stop"/g) ?? []).length).toBe(1);
+  });
+
+  it('synthesizes finish_reason:"tool_calls" when the stream carried tool-call deltas', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async () =>
+      sse([
+        dataLine({
+          id: 'x',
+          model: 'm',
+          choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { name: 'read' } }] }, finish_reason: null }],
+        }),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    const text = await res.text();
+    expect(text).toContain('"finish_reason":"tool_calls"');
+  });
+
+  it('does not touch a non-chat-completions stream (e.g. /responses passes through unchanged)', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async () =>
+      sse(['data: {"type":"response.output_text.delta"}\n\n', 'data: [DONE]\n\n']),
+    );
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/responses', { method: 'POST', body: '{}' }),
+    );
+    const text = await res.text();
+    expect(text).not.toContain('finish_reason');
+  });
+});
+
 describe('REQ-ENTERPRISE-007: gateway route-pinning (model rewrite)', () => {
   it('rewrites the request model to AIG_LANGUAGE_MODEL on a chat/completions request', async () => {
     await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise' } as Partial<Env>).fetch(
