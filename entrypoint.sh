@@ -1940,12 +1940,14 @@ COPILOT_BYOK_EOF
     # with "Required value missing: messages" (it validates as chat/completions),
     # confirmed by synthetic test and gateway logs. So Pi must use the chat/completions
     # adapter, which works (200). Caveat: gpt-5.5 rejects function tools +
-    # reasoning_effort together on /v1/chat/completions, so the model is registered
-    # with reasoning:false -- Pi then never sends reasoning_effort and defaults
-    # thinking OFF (tools-only works, 200). With reasoning:true Pi defaults effort
-    # to medium and gpt-5.5 returns 400. gpt-5.5 reasoning is blocked until CF fixes
-    # /ai/v1/responses; a chat/completions-capable reasoning model (o3 / gpt-5.1)
-    # would allow flipping this back to reasoning:true via this same adapter.
+    # reasoning_effort together on /v1/chat/completions. So the model advertises
+    # reasoning:true (the thinking selector stays available -- Shift+Tab / /settings),
+    # but settings.json pins defaultThinkingLevel:"off" so every session STARTS with
+    # thinking off: Pi sends no reasoning_effort by default (tools-only works, 200,
+    # and the dynamic route can fall back to a reasoning-capable chat/completions
+    # model). The user can raise the level when a route model supports reasoning over
+    # chat/completions (e.g. Gemini); gpt-5.5 stays 400 at levels above off until CF
+    # fixes /ai/v1/responses -- that is the documented, user-visible tradeoff.
     PI_PROVIDER_CONFIG=$(jq -n \
         --arg baseUrl "$PI_GATEWAY_BASE_URL" \
         --arg apiKey "$ENTERPRISE_PLACEHOLDER_TOKEN" \
@@ -1956,7 +1958,7 @@ COPILOT_BYOK_EOF
                 api: "openai-completions",
                 apiKey: $apiKey,
                 authHeader: true,
-                models: [{ id: $model, reasoning: false, input: ["text", "image"] }]
+                models: [{ id: $model, reasoning: true, input: ["text", "image"] }]
             }
         }
     }')
@@ -1977,7 +1979,7 @@ COPILOT_BYOK_EOF
     PI_SETTINGS_CFG=$(jq -n \
         --arg provider "codeflare-gateway" \
         --arg model "$ENTERPRISE_MODEL_HANDLE" \
-        '{defaultProvider: $provider, defaultModel: $model}')
+        '{defaultProvider: $provider, defaultModel: $model, defaultThinkingLevel: "off"}')
     if [ -f "$PI_SETTINGS_JSON" ]; then
         TMP_SET=$(mktemp)
         if jq --argjson cfg "$PI_SETTINGS_CFG" '. * $cfg' "$PI_SETTINGS_JSON" > "$TMP_SET" 2>/dev/null; then
