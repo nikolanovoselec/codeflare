@@ -1940,10 +1940,12 @@ COPILOT_BYOK_EOF
     # with "Required value missing: messages" (it validates as chat/completions),
     # confirmed by synthetic test and gateway logs. So Pi must use the chat/completions
     # adapter, which works (200). Caveat: gpt-5.5 rejects function tools +
-    # reasoning_effort together on /v1/chat/completions, so reasoning must stay OFF
-    # for gpt-5.5 here (tools-only works); gpt-5.5 reasoning is blocked until CF fixes
-    # /ai/v1/responses. A chat/completions-capable reasoning model (o3 / gpt-5.1)
-    # would allow reasoning ON via this same adapter.
+    # reasoning_effort together on /v1/chat/completions, so the model is registered
+    # with reasoning:false -- Pi then never sends reasoning_effort and defaults
+    # thinking OFF (tools-only works, 200). With reasoning:true Pi defaults effort
+    # to medium and gpt-5.5 returns 400. gpt-5.5 reasoning is blocked until CF fixes
+    # /ai/v1/responses; a chat/completions-capable reasoning model (o3 / gpt-5.1)
+    # would allow flipping this back to reasoning:true via this same adapter.
     PI_PROVIDER_CONFIG=$(jq -n \
         --arg baseUrl "$PI_GATEWAY_BASE_URL" \
         --arg apiKey "$ENTERPRISE_PLACEHOLDER_TOKEN" \
@@ -1954,7 +1956,7 @@ COPILOT_BYOK_EOF
                 api: "openai-completions",
                 apiKey: $apiKey,
                 authHeader: true,
-                models: [{ id: $model, reasoning: true, input: ["text", "image"] }]
+                models: [{ id: $model, reasoning: false, input: ["text", "image"] }]
             }
         }
     }')
