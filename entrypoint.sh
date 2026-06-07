@@ -1935,6 +1935,11 @@ COPILOT_BYOK_EOF
 
     # models.json: codeflare-gateway provider with one fixed model. Always register
     # the model — a provider with zero models is invisible in Pi's picker/login.
+    # api="openai-responses" (NOT openai-completions): gpt-5.5 rejects function
+    # tools + reasoning_effort together on /v1/chat/completions ("Please use
+    # /v1/responses instead") — which is exactly Pi's per-turn shape. The Responses
+    # adapter POSTs to /v1/responses with reasoning:{effort} + store:false, which
+    # gpt-5.5 accepts, so reasoning + tools work through the gateway / dynamic route.
     PI_PROVIDER_CONFIG=$(jq -n \
         --arg baseUrl "$PI_GATEWAY_BASE_URL" \
         --arg apiKey "$ENTERPRISE_PLACEHOLDER_TOKEN" \
@@ -1942,7 +1947,7 @@ COPILOT_BYOK_EOF
         providers: {
             "codeflare-gateway": {
                 baseUrl: $baseUrl,
-                api: "openai-completions",
+                api: "openai-responses",
                 apiKey: $apiKey,
                 authHeader: true,
                 models: [{ id: $model, reasoning: true, input: ["text", "image"] }]
