@@ -152,6 +152,12 @@ export class container extends Container<Env> implements ContainerEnvState {
   _vaultKey: string | null = null;
   _sessionId: string | null = null;
   _userEmail: string | null = null;
+  /**
+   * The user's matched Cloudflare Access group (REQ-ENTERPRISE-004), populated by
+   * the internal-config handler alongside _userEmail. Passed as the LlmInterceptor
+   * `group` prop so cf-aig-metadata.group carries it for per-group gateway policies.
+   */
+  _userGroup: string | null = null;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null = null;
   /**
@@ -188,6 +194,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       this._sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY) || null;
       this._usageSeconds = await this.ctx.storage.get<number>('usageSeconds') || 0;
       this._userEmail = await this.ctx.storage.get<string>('userEmail') || null;
+      this._userGroup = await this.ctx.storage.get<string>('userGroup') || null;
       // REQ-MEM-001 AC4: restore the user's IANA timezone so the capture
       // pipeline's TZ resolution produces wall-clock filenames after a
       // DO wake (matches the pattern for sessionId / userEmail above).
@@ -396,10 +403,11 @@ export class container extends Container<Env> implements ContainerEnvState {
    * gateway URL, or token is ever placed inside the container; the interception
    * is platform-internal so it never traverses Cloudflare Access. The per-session
    * `user` prop is the user's email (stamped into cf-aig-metadata for the gateway's
-   * per-user analytics), falling back to the bucket id if no email is set. Both
-   * _userEmail and _bucketName are populated by the internal-config handler (which
-   * also calls setBucketName) BEFORE the container is started, so they are already
-   * set when startAndWaitForPorts wires interception.
+   * per-user analytics), falling back to the bucket id if no email is set; the
+   * optional `group` prop carries the user's matched Access group for per-group
+   * gateway policies. Both _userEmail and _bucketName are populated by the
+   * internal-config handler (which also calls setBucketName) BEFORE the container
+   * is started, so they are already set when startAndWaitForPorts wires interception.
    *
    * No-op unless ENTERPRISE_MODE=active and the gateway is configured, so a
    * non-enterprise container's egress is byte-identical to today. interceptOutbound*
@@ -422,12 +430,17 @@ export class container extends Container<Env> implements ContainerEnvState {
       this.logger.warn('Enterprise mode active and gateway configured but AIG_TOKEN unset; gateway requests will be unauthenticated');
     }
     const user = this._userEmail ?? this._bucketName ?? 'unknown';
+    // Include the matched Access group only when set, so a no-group deploy passes
+    // exactly { user } (unchanged) and cf-aig-metadata omits an empty group key.
+    const props: { user: string; group?: string } = this._userGroup
+      ? { user, group: this._userGroup }
+      : { user };
     try {
       const ictx = this.ctx as unknown as {
-        exports: { LlmInterceptor(opts: { props: { user: string } }): Fetcher };
+        exports: { LlmInterceptor(opts: { props: { user: string; group?: string } }): Fetcher };
         container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
       };
-      const interceptor = ictx.exports.LlmInterceptor({ props: { user } });
+      const interceptor = ictx.exports.LlmInterceptor({ props });
       for (const host of INTERCEPTED_LLM_HOSTS) {
         ictx.container?.interceptOutboundHttps(host, interceptor);
       }

@@ -1089,6 +1089,32 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       // cf-aig-metadata attribution must carry the real email, not the opaque bucket id.
       expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch' } });
     });
+
+    it('passes the matched Access group as the interceptor group prop when set', async () => {
+      callOrder.length = 0;
+      const fetcher = { id: 'llm-interceptor-fetcher' };
+      const LlmInterceptor = vi.fn(() => fetcher);
+      const ctx = {
+        ...mockCtx,
+        container: { ...mockContainerRuntime, interceptOutboundHttps: vi.fn() },
+        exports: { LlmInterceptor },
+      };
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'userEmail') return 'nikola@novoselec.ch';
+        if (key === 'userGroup') return 'codeflare_admins';
+        if (key === 'bucketName') return 'codeflare-enterprise-nikola-novoselec-ch';
+        return null;
+      });
+      const instance = new ContainerClass(ctx as any, enterpriseEnv());
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('userGroup');
+      });
+
+      await instance.startAndWaitForPorts(8080);
+
+      // The matched group rides alongside the email as the second cf-aig-metadata key.
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', group: 'codeflare_admins' } });
+    });
   });
 
   describe('onStart lifecycle', () => {

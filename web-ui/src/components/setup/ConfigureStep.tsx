@@ -128,14 +128,14 @@ const ConfigureStep: Component = () => {
       {/* Enterprise Access Group (Optional) — only shown in enterprise deployments */}
       <Show when={setupStore.enterpriseMode}>
         <div class="setup-field">
-          <label class="setup-field-label">Cloudflare Access Group (optional)</label>
+          <label class="setup-field-label">Cloudflare Access Groups (optional)</label>
           <p class="setup-field-description">
-            Restrict Codeflare to members of a Cloudflare Access group. Leave blank to admit anyone your Access policy lets through — new users are provisioned automatically on first sign-in.
+            Restrict Codeflare to members of one or more Cloudflare Access groups (comma-separated). A user in any of them may sign in; leave blank to admit anyone your Access policy lets through — new users are provisioned automatically on first sign-in. The matched group is forwarded to your AI Gateway for per-group routing and limits.
           </p>
           <Input
             value={setupStore.enterpriseAccessGroup}
             onInput={(value) => setupStore.setEnterpriseAccessGroup(value)}
-            placeholder="e.g. Codeflare-Users"
+            placeholder="e.g. codeflare_admins, codeflare_developers"
           />
         </div>
       </Show>

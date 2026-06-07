@@ -81,6 +81,28 @@ describe('REQ-ENTERPRISE-010: Access-gated JIT provisioning', () => {
       expect(mockKV._store.get('user:outsider@example.com')).toBeUndefined();
     });
 
+    it('AC2 (any-of): admits a user who is in ANY one of several configured groups', async () => {
+      // Two groups configured; the user is in only the SECOND. A first-match-only
+      // gate would deny here, so this fails if the any-of intersection regresses.
+      mockKV._store.set(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'codeflare_admins, codeflare_developers');
+      vi.stubGlobal('fetch', vi.fn(async () => identityOk([{ id: 'g9', name: 'codeflare_developers' }])));
+
+      const result = await resolveOrProvisionEnterpriseUser(mockKV as unknown as KVNamespace, 'dev@example.com', TOKEN, AUTH_DOMAIN);
+
+      expect(result.subscriptionTier).toBe('unlimited');
+      expect(mockKV._store.get('user:dev@example.com')).toBeDefined();
+    });
+
+    it('AC2 (any-of): denies a user who is in NONE of several configured groups', async () => {
+      mockKV._store.set(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'codeflare_admins, codeflare_developers');
+      vi.stubGlobal('fetch', vi.fn(async () => identityOk([{ name: 'random_group' }])));
+
+      await expect(
+        resolveOrProvisionEnterpriseUser(mockKV as unknown as KVNamespace, 'outsider@example.com', TOKEN, AUTH_DOMAIN),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(mockKV._store.get('user:outsider@example.com')).toBeUndefined();
+    });
+
     it('AC3: with no group configured, provisions on a valid token alone (get-identity not called)', async () => {
       const fetchSpy = vi.fn();
       vi.stubGlobal('fetch', fetchSpy);

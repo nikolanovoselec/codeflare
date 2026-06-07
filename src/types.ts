@@ -322,6 +322,8 @@ export interface ContainerConfigPayload {
   encryptionKey?: string;
   llmKeys?: LlmKeys;
   deployKeys?: DeployKeys;
+  /** REQ-ENTERPRISE-004: the user's matched Access group, for cf-aig-metadata.group. */
+  userGroup?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded to the container. */
   userTimezone?: string;
 }

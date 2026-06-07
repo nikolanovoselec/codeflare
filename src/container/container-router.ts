@@ -35,6 +35,7 @@ interface SetBucketNameBody {
   bucketName: string;
   sessionId?: string;
   userEmail?: string;
+  userGroup?: string;
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;
   r2AccountId?: string;
@@ -141,7 +142,7 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, userTimezone, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroup, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, userTimezone, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
     // FIX-28: Idempotency - once bucket name is set, reject subsequent calls.
@@ -151,7 +152,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       // Update user preferences on restart even though bucket is already set.
       // Without this, preference changes made between sessions are lost.
       const prefsChanged = await applyPrefsOnRestart(host, host.ctx.storage, {
-        sessionId, userEmail, workspaceSyncEnabled, fastStartEnabled, tabConfig,
+        sessionId, userEmail, userGroup, workspaceSyncEnabled, fastStartEnabled, tabConfig,
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
         encryptionKey, sessionMode, userTimezone,
       });
@@ -196,6 +197,12 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
     if (userEmail) {
       await host.ctx.storage.put('userEmail', userEmail);
       host._userEmail = userEmail;
+    }
+
+    // Store the matched Access group for per-group gateway attribution (cf-aig-metadata.group).
+    if (userGroup) {
+      await host.ctx.storage.put('userGroup', userGroup);
+      host._userGroup = userGroup;
     }
 
     await applySetBucketName(host, bucketName, {

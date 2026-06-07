@@ -37,7 +37,7 @@ const AIG_TOKEN = 'aig-secret-token';
 const SESSION_USER = 'nikola@novoselec.ch'; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
 
 /** Construct an interceptor with the given env + per-session props. */
-function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string } = { user: SESSION_USER }) {
+function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; group?: string } = { user: SESSION_USER }) {
   const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, ...envOverrides } as unknown as Env;
   // The DO instantiates this via ctx.exports.LlmInterceptor({ props }); props
   // land on ctx.props. A minimal ctx stub mirrors that shape for the unit test.
@@ -127,6 +127,24 @@ describe('REQ-ENTERPRISE-004: gateway authorization + per-user metadata', () => 
     await interceptor.fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }));
     const parsed = JSON.parse(lastFetch?.headers.get('cf-aig-metadata') as string);
     expect(parsed.user).toBe('unknown');
+  });
+
+  it('stamps cf-aig-metadata.group when the group prop is set (per-group attribution)', async () => {
+    await makeInterceptor({}, { user: SESSION_USER, group: 'codeflare_admins' }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    const parsed = JSON.parse(lastFetch?.headers.get('cf-aig-metadata') as string);
+    expect(parsed.user).toBe(SESSION_USER);
+    expect(parsed.group).toBe('codeflare_admins');
+  });
+
+  it('omits group from cf-aig-metadata when the group prop is absent (no-group deploy stamps exactly { user })', async () => {
+    await makeInterceptor({}, { user: SESSION_USER }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    const parsed = JSON.parse(lastFetch?.headers.get('cf-aig-metadata') as string);
+    expect(parsed.user).toBe(SESSION_USER);
+    expect('group' in parsed).toBe(false);
   });
 });
 

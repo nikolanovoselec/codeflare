@@ -37,6 +37,8 @@ export interface ContainerEnvState {
   _containerAuthToken: string | null;
   _sessionId: string | null;
   _userEmail: string | null;
+  /** REQ-ENTERPRISE-004: the user's matched Cloudflare Access group, for cf-aig-metadata.group. */
+  _userGroup: string | null;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null;
 }
@@ -45,6 +47,7 @@ export interface ContainerEnvState {
 interface RestartPrefsInput {
   sessionId?: string;
   userEmail?: string;
+  userGroup?: string;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
@@ -417,6 +420,14 @@ export async function applyPrefsOnRestart(
     state._userEmail = input.userEmail;
     await storage.put('userEmail', input.userEmail);
     logger.info('Updated userEmail on restart', { userEmail: input.userEmail });
+  }
+
+  // Update userGroup on restart so a changed Access-group membership re-stamps
+  // cf-aig-metadata.group on the next interception (REQ-ENTERPRISE-004).
+  if (input.userGroup && input.userGroup !== state._userGroup) {
+    state._userGroup = input.userGroup;
+    await storage.put('userGroup', input.userGroup);
+    logger.info('Updated userGroup on restart', { userGroup: input.userGroup });
   }
 
   return changed;

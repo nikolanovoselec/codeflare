@@ -30,6 +30,8 @@ export const SetBucketNameBodySchema = z.object({
   encryptionKey: z.string().optional(),
   sessionMode: z.string(),
   sleepAfter: z.string(),
+  /** REQ-ENTERPRISE-004: the user's matched Access group, for cf-aig-metadata.group. */
+  userGroup: z.string().optional(),
   /** REQ-MEM-001 AC4: forward the user's IANA timezone to the container. */
   userTimezone: z.string().optional(),
 }).passthrough();

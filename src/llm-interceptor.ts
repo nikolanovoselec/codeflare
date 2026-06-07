@@ -90,6 +90,13 @@ const RESPONSE_STRIPPED_HEADERS: readonly string[] = [
 interface InterceptorProps {
   /** The user's email — stamped into cf-aig-metadata for per-user gateway analytics. */
   user: string;
+  /**
+   * The user's matched Cloudflare Access group, when the deployment configures
+   * group gating — stamped into cf-aig-metadata.group so the gateway can branch
+   * routing / cost / rate-limit policies on it (a user maps to at most one group).
+   * Omitted from the metadata when absent.
+   */
+  group?: string;
 }
 
 /**
@@ -297,7 +304,12 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       // per-user analytics is diagnosable rather than silently missing.
       console.warn('LlmInterceptor: per-session user prop absent; cf-aig-metadata user=unknown');
     }
-    baseHeaders.set('cf-aig-metadata', JSON.stringify({ user: user ?? 'unknown' }));
+    // Per-user (and, when configured, per-group) attribution. `group` is omitted
+    // when absent so a no-group deploy stamps exactly { user } as before, and a
+    // gateway rule on metadata.group simply does not match (keep a default branch).
+    const metadata: { user: string; group?: string } = { user: user ?? 'unknown' };
+    if (props?.group) metadata.group = props.group;
+    baseHeaders.set('cf-aig-metadata', JSON.stringify(metadata));
 
     // REST transport: standard Authorization header (Workers AI scope) + the
     // customer's named gateway in the cf-aig-gateway-id header.
