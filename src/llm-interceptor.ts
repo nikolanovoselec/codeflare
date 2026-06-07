@@ -12,7 +12,9 @@
  *
  * This entrypoint holds the AI Gateway secrets (AIG_GATEWAY_URL + AIG_TOKEN,
  * from the Worker env) and forwards each request to the customer's AI Gateway
- * **REST API** (`api.cloudflare.com/client/v4/accounts/{acct}/ai/v1/*`) with the
+ * over two transports — the REST API (`api.cloudflare.com/.../ai/v1/*`) first,
+ * falling back to the deprecated-but-functional compat path
+ * (`gateway.ai.cloudflare.com/v1/{acct}/{gw}/compat/*`) on a 404 — with the
  * gateway authorization + per-user attribution stamped on. The user id comes
  * from the per-session DO props — the opaque bucket id, never an email.
  *
@@ -25,9 +27,12 @@
  * id to reach this host, and the gateway route name never enters the container.
  * This sidesteps Pi parsing a `dynamic/<route>` model id as `provider/id` and
  * misrouting to a built-in provider (the request would never reach this host).
- * Auth is the standard `Authorization: Bearer <AIG_TOKEN>` header (the AI Gateway
- * REST API; the legacy `gateway.ai.cloudflare.com` `/compat` + `/anthropic` paths
- * it replaces are deprecated — see AD74).
+ * Auth is per transport: the REST API takes `Authorization: Bearer <AIG_TOKEN>`
+ * (the token's Workers AI scope); the compat fallback takes `cf-aig-authorization:
+ * Bearer <AIG_TOKEN>` (the token's AI Gateway Run scope) — so AIG_TOKEN must hold
+ * BOTH scopes. The REST API does not carry every provider (google-ai-studio 404s),
+ * so compat — which carries all providers + dynamic routing — backstops it until
+ * CF migrates them onto the REST API (see AD74, dual transport).
  *
  * Dormant on non-enterprise deploys: the DO only wires interception when
  * ENTERPRISE_MODE=active, so this class is never instantiated otherwise.
@@ -237,29 +242,28 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       });
     }
 
-    // Map the OpenAI-style request onto the AI Gateway REST API. The agent calls
-    // api.openai.com/v1/chat/completions (OpenAI SDK shape); the REST API serves
-    // the OpenAI-compatible endpoint at /ai/v1/chat/completions under the account.
-    //   api.openai.com/v1/chat/completions
-    //   -> api.cloudflare.com/client/v4/accounts/{acct}/ai/v1/chat/completions
-    // The path is forwarded verbatim under /ai, so /v1/responses etc. map too.
-    const upstreamUrl = `https://api.cloudflare.com/client/v4/accounts/${gw.accountId}/ai${url.pathname}${url.search}`;
+    // Two AI Gateway transports, tried in order — see AD74 (dual transport):
+    //   1. REST API — api.cloudflare.com/client/v4/accounts/{acct}/ai/v1/<path>.
+    //      Auth: Authorization: Bearer (AIG_TOKEN's Workers AI scope); gateway by
+    //      cf-aig-gateway-id header. Carries OpenAI + Workers AI + dynamic routes
+    //      to those, but NOT every provider (google-ai-studio returns 404 here).
+    //   2. compat — gateway.ai.cloudflare.com/v1/{acct}/{gw}/compat/<path>.
+    //      Auth: cf-aig-authorization: Bearer (AIG_TOKEN's AI Gateway Run scope);
+    //      gateway in the URL, BYOK supplies the provider key. Deprecated by CF
+    //      but still functional, and carries ALL providers (incl. google-ai-studio)
+    //      plus dynamic routing.
+    // We try the REST API first and fall back to compat only on a 404 (below), so
+    // as CF migrates providers onto the REST API the fallback stops firing and
+    // traffic rides it with no code change. AIG_TOKEN therefore needs BOTH scopes.
+    const restUrl = `https://api.cloudflare.com/client/v4/accounts/${gw.accountId}/ai${url.pathname}${url.search}`;
+    const compatUrl = `https://gateway.ai.cloudflare.com/v1/${gw.accountId}/${gw.gatewayId}/compat${url.pathname.replace(/^\/v1/, '')}${url.search}`;
 
-    const headers = new Headers(request.headers);
-    for (const h of STRIPPED_HEADERS) headers.delete(h);
-    // Gateway authentication: the REST API uses the standard Authorization
-    // header carrying AIG_TOKEN — a Cloudflare API token with the Workers AI
-    // permission (the /ai/v1/* surface is the Workers AI namespace; a token
-    // scoped only to "AI Gateway: Run" is rejected). This replaces the legacy
-    // cf-aig-authorization header (AD74).
-    if (this.env.AIG_TOKEN) {
-      headers.set('authorization', `Bearer ${this.env.AIG_TOKEN}`);
-    }
-    // Route through the customer's named gateway: required for Workers AI models,
-    // honoured for all providers and dynamic routes.
-    headers.set('cf-aig-gateway-id', gw.gatewayId);
-    // Per-user attribution. The user is the opaque per-user bucket id passed as
-    // a DO prop at interception-setup time — never an email.
+    // Common headers: strip the container's placeholder credential + CF-managed
+    // headers and stamp per-user attribution (the opaque per-user bucket id from
+    // the DO prop — never an email). Transport-specific auth/routing is added per
+    // attempt below.
+    const baseHeaders = new Headers(request.headers);
+    for (const h of STRIPPED_HEADERS) baseHeaders.delete(h);
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
     const user = props?.user;
     if (!user) {
@@ -267,7 +271,18 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       // per-user analytics is diagnosable rather than silently missing.
       console.warn('LlmInterceptor: per-session user prop absent; cf-aig-metadata user=unknown');
     }
-    headers.set('cf-aig-metadata', JSON.stringify({ user: user ?? 'unknown' }));
+    baseHeaders.set('cf-aig-metadata', JSON.stringify({ user: user ?? 'unknown' }));
+
+    // REST transport: standard Authorization header (Workers AI scope) + the
+    // customer's named gateway in the cf-aig-gateway-id header.
+    const restHeaders = new Headers(baseHeaders);
+    if (this.env.AIG_TOKEN) restHeaders.set('authorization', `Bearer ${this.env.AIG_TOKEN}`);
+    restHeaders.set('cf-aig-gateway-id', gw.gatewayId);
+
+    // compat transport: cf-aig-authorization (AI Gateway Run scope); the gateway
+    // is in the URL and BYOK supplies the provider key, so no Authorization header.
+    const compatHeaders = new Headers(baseHeaders);
+    if (this.env.AIG_TOKEN) compatHeaders.set('cf-aig-authorization', `Bearer ${this.env.AIG_TOKEN}`);
 
     // Request body. The RESPONSE is always streamed back unbuffered (below) so
     // SSE token streams pass with constant memory. The REQUEST body is normally
@@ -286,11 +301,11 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
     const isModelRoutable = url.pathname.endsWith('/chat/completions') || url.pathname.endsWith('/responses');
     let outboundBody: BodyInit | null | undefined = hasBody ? request.body : undefined;
-    if (hasBody && this.env.AIG_LANGUAGE_MODEL && isModelRoutable) {
-      // Consume the body ONCE as text. Reading the inbound stream can itself
-      // fail (a broken agent->Worker connection); surface that as a clean 400
-      // rather than letting the rejection escape as an opaque 500. A JSON parse
-      // failure, by contrast, is non-fatal: forward the original bytes unchanged.
+    if (hasBody && isModelRoutable) {
+      // Buffer the body ONCE as text so it can be REPLAYED across both transports
+      // on fallback (a stream could only be consumed once). Reading the inbound
+      // stream can itself fail (a broken agent->Worker connection); surface that
+      // as a clean 400 rather than letting the rejection escape as an opaque 500.
       let raw: string;
       try {
         raw = await request.text();
@@ -300,24 +315,33 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      try {
-        const payload = JSON.parse(raw) as Record<string, unknown>;
-        if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'model' in payload) {
-          payload.model = this.env.AIG_LANGUAGE_MODEL;
-          outboundBody = JSON.stringify(payload);
-        } else {
-          outboundBody = raw; // valid JSON without a model field: forward verbatim
+      outboundBody = raw;
+      // Route-pinning rewrite: when AIG_LANGUAGE_MODEL is set, replace the request
+      // `model` with that gateway route id. A JSON parse failure or a model-less
+      // body is non-fatal — forward the original bytes unchanged.
+      if (this.env.AIG_LANGUAGE_MODEL) {
+        try {
+          const payload = JSON.parse(raw) as Record<string, unknown>;
+          if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'model' in payload) {
+            payload.model = this.env.AIG_LANGUAGE_MODEL;
+            outboundBody = JSON.stringify(payload);
+          }
+        } catch {
+          /* not JSON: forward the original bytes unchanged */
         }
-      } catch {
-        outboundBody = raw; // not JSON: forward the original bytes unchanged
       }
     }
-    let upstream: Response;
-    try {
-      upstream = await fetch(
-        new Request(upstreamUrl, {
+    // Send REST-first; fall back to compat only on a 404 for a model-routable
+    // request with a replayable (buffered) body. The REST API returns 404 for a
+    // provider it does not carry (e.g. google-ai-studio; a dynamic route resolving
+    // to one surfaces the masked "Model execution failed", also 404). A 404 is a
+    // complete error body — not a stream — so the replay never double-bills or
+    // truncates a partial response. Genuine non-404 errors are returned as-is.
+    const sendTo = (target: string, h: Headers): Promise<Response> =>
+      fetch(
+        new Request(target, {
           method: request.method,
-          headers,
+          headers: h,
           body: outboundBody,
           // Do not transparently follow gateway/provider redirects — a 3xx would
           // otherwise be chased to an arbitrary Location host. Surface it to the
@@ -325,6 +349,13 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
           redirect: 'manual',
         }),
       );
+
+    let upstream: Response;
+    try {
+      upstream = await sendTo(restUrl, restHeaders);
+      if (upstream.status === 404 && isModelRoutable && typeof outboundBody === 'string') {
+        upstream = await sendTo(compatUrl, compatHeaders);
+      }
     } catch (err) {
       // A thrown fetch (DNS, TLS, connection reset to the gateway) would otherwise
       // escape as an opaque 500; surface it as a clean 502 and log the cause.
