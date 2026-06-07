@@ -121,7 +121,7 @@ KV values written by the setup wizard that can be changed without redeploying th
 |--------|---------|---------|
 | `setup:enterprise_access_group` | Comma/newline-separated list of Cloudflare Access group names/ids (any-of gate). When set, JIT provisioning admits only users in a configured group (non-members: 403); the matched group is forwarded to the AI Gateway as `cf-aig-metadata.group`. See [details](#enterprise-access-group-configuration) below. | Setup wizard → KV (re-run setup to change; no redeploy) |
 
-#### Enterprise Access Group Configuration
+### Enterprise Access Group Configuration
 
 `setup:enterprise_access_group` accepts a comma- or newline-separated list of Cloudflare Access group names or IDs. A user in **any** configured group is admitted (any-of gate); a user in no configured group receives 403 (fail-closed). When the key is unset, any user the Access application policy admits is provisioned on their valid Access JWT alone.
 
