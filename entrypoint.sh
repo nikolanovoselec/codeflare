@@ -1884,6 +1884,14 @@ CA_TRUST_EOF
     export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
     export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
     export COPILOT_MODEL="$ENTERPRISE_MODEL_HANDLE"
+    # The custom model handle is not in Copilot's built-in catalog, so Copilot warns
+    # ("Model ... not in the built-in catalog. Using defaults for ...") and falls back
+    # to default token limits. Advertise gpt-5.5's real window (1,050,000 ctx / 128,000
+    # max output; prompt = ctx - output headroom) so context is not under-sized.
+    # codeflare is a dynamic route — gpt-5.5 is the primary Copilot always hits (it
+    # cannot send reasoning_effort to trigger the gemini fallback, which supports more).
+    export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="920000"
+    export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="128000"
     echo "[entrypoint] Enterprise Mode: Copilot BYOK active (base_url + key + model=$ENTERPRISE_MODEL_HANDLE) via interception"
 
     # Persist the Copilot BYOK env into .bashrc so the COPILOT AGENT inherits it.
@@ -1900,11 +1908,15 @@ CA_TRUST_EOF
         COPILOT_BYOK_TMP=$(mktemp)
         cat > "$COPILOT_BYOK_TMP" << COPILOT_BYOK_EOF
 # enterprise-copilot-byok
-# Copilot BYOK 3-var contract (base URL + key + model), persisted so the copilot
-# PTY inherits it; without this Copilot ignores the gateway and asks for GitHub login.
+# Copilot BYOK contract (base URL + key + model + token limits), persisted so the
+# copilot PTY inherits it; without this Copilot ignores the gateway and asks for GitHub
+# login. The MAX_*_TOKENS vars silence the "model not in catalog" warning and right-size
+# context to gpt-5.5's real 1,050,000 / 128,000 window (prompt = ctx - output headroom).
 export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
 export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
 export COPILOT_MODEL="$ENTERPRISE_MODEL_HANDLE"
+export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="920000"
+export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="128000"
 
 COPILOT_BYOK_EOF
         cat "$BASHRC_FILE" >> "$COPILOT_BYOK_TMP"
