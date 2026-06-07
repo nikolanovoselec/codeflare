@@ -1935,11 +1935,15 @@ COPILOT_BYOK_EOF
 
     # models.json: codeflare-gateway provider with one fixed model. Always register
     # the model — a provider with zero models is invisible in Pi's picker/login.
-    # api="openai-responses" (NOT openai-completions): gpt-5.5 rejects function
-    # tools + reasoning_effort together on /v1/chat/completions ("Please use
-    # /v1/responses instead") — which is exactly Pi's per-turn shape. The Responses
-    # adapter POSTs to /v1/responses with reasoning:{effort} + store:false, which
-    # gpt-5.5 accepts, so reasoning + tools work through the gateway / dynamic route.
+    # api="openai-completions": the AI Gateway REST endpoint /ai/v1/responses is
+    # currently broken on this gateway -- it rejects a valid Responses `input` body
+    # with "Required value missing: messages" (it validates as chat/completions),
+    # confirmed by synthetic test and gateway logs. So Pi must use the chat/completions
+    # adapter, which works (200). Caveat: gpt-5.5 rejects function tools +
+    # reasoning_effort together on /v1/chat/completions, so reasoning must stay OFF
+    # for gpt-5.5 here (tools-only works); gpt-5.5 reasoning is blocked until CF fixes
+    # /ai/v1/responses. A chat/completions-capable reasoning model (o3 / gpt-5.1)
+    # would allow reasoning ON via this same adapter.
     PI_PROVIDER_CONFIG=$(jq -n \
         --arg baseUrl "$PI_GATEWAY_BASE_URL" \
         --arg apiKey "$ENTERPRISE_PLACEHOLDER_TOKEN" \
@@ -1947,7 +1951,7 @@ COPILOT_BYOK_EOF
         providers: {
             "codeflare-gateway": {
                 baseUrl: $baseUrl,
-                api: "openai-responses",
+                api: "openai-completions",
                 apiKey: $apiKey,
                 authHeader: true,
                 models: [{ id: $model, reasoning: true, input: ["text", "image"] }]
