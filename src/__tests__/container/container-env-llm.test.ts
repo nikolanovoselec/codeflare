@@ -44,6 +44,7 @@ function baseState(): ContainerEnvState {
     _containerAuthToken: 'tok',
     _sessionId: 'sid-abcdef12',
     _userEmail: 'user@example.com',
+    _userGroup: null,
     _userTimezone: null,
   };
 }
