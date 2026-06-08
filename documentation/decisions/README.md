@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD75](#ad75-pi-graphify-tools-replaced-by-a-first-party-native-extension) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -85,6 +85,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) | Outbound-HTTPS interception over a Worker-side LLM proxy for enterprise gateway routing | Architecture, Security |
 | [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) | workers.dev enabled on every deployment for setup-wizard bootstrap | Security |
 | [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) | Enterprise LLM transport on the AI Gateway REST API (amends [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing)) | Architecture, Security |
+| [AD75](#ad75-pi-graphify-tools-replaced-by-a-first-party-native-extension) | Pi graphify tools replaced by a first-party native extension (`graphify-native.ts`); `@gaodes/pi-graphify` removed | Architecture |
 
 ---
 
@@ -1379,6 +1380,31 @@ Two facts from the SB 2.8.1 source reshape the fix. First, SB's real service wor
 **Alternative considered — Cloudflare Access-based gateway auth (rejected):** Cloudflare's "identity-driven budgets" announcement (2026-06-05) proposes putting Cloudflare Access in front of the gateway so it derives caller identity from the Access JWT instead of caller-supplied metadata — pitched as removing the gateway token and "honor-system metadata headers." Evaluated as a replacement for `AIG_TOKEN` + Worker-stamped `cf-aig-metadata` and rejected on four grounds. (1) The REST API at `api.cloudflare.com/.../ai/v1/*` still *requires* a Cloudflare API token per request — it is Cloudflare's control-plane API, not a hostname an operator can front with their own Access application; the identity-aware integration attaches to the legacy `gateway.ai.cloudflare.com` endpoint this ADR deliberately migrated off. (2) codeflare's caller is a machine-to-machine `WorkerEntrypoint` with no interactive browser/JWT flow; the non-interactive Access credential is a service token (a client-id/secret pair) — another static secret, one identity per token, with no containment gain over the Worker-only secret model already established in [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing). (3) codeflare runs many end-users behind one Worker credential, so a single Access identity cannot carry per-user attribution; per-user spend limits key on `cf-aig-metadata` (the gateway splits budgets on a metadata field — codeflare stamps `{ user: <email>, group: <access-group> }`), so the metadata path is retained regardless. (4) codeflare's metadata is not honor-system — the Worker stamps it from a server-side DO prop and strips any container-supplied value, so the container cannot forge it. Identity-driven budgets are additionally a closed beta. Net: keep `AIG_TOKEN` + Worker-stamped `cf-aig-metadata`; per-user budgets are achieved today via gateway spend-limit rules splitting on the `cf-aig-metadata` `user` field.
 
 **Related:** [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) (interception mechanism, unchanged), [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode), [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning).
+
+---
+
+### AD75: Pi graphify tools replaced by a first-party native extension
+
+**Category:** Architecture
+
+**Status:** Accepted (2026-06-08)
+
+**Context:** Pi has no MCP client, so the graphify query tools (`graphify_query`/`graphify_path`/`graphify_explain`) were exposed on Pi through the third-party `@gaodes/pi-graphify` npm wrapper plus a never-consumed `mcp.json`. The wrapper re-implemented graphify query logic independently of the Claude MCP-server path, so Pi and Claude could diverge in ranking/output from the same graph, and it added an npm dependency (plus the transitive `@gaodes/pi-utils-ui`) that `bump-shadow-pins.yml` had to track and that re-baked the image on every upstream bump.
+
+**Decision:** Replace `@gaodes/pi-graphify` with a first-party native Pi extension, `preseed/agents/pi/extensions/graphify-native.ts`, registered via `pi.registerTool` (mirroring `browser-run.ts`). It shells the same `graphify` CLI that Claude's MCP server runs (`graphify.serve._query_graph_text`), so both agents query through one engine with identical ranking and output. Delete the dead `preseed/agents/pi/mcp.json` and its seed path-mapping and context-mode strip-branch.
+
+**Consequences:**
+
+- Pi and Claude graphify queries share one engine — no divergent third-party reimplementation.
+- The Pi npm closure shrinks by `@gaodes/pi-graphify` (and the transitive `@gaodes/pi-utils-ui`); `bump-shadow-pins.yml` and `dependabot.yml` no longer track it.
+- Graph resolution is codified in source: the active cloned-repo `graphify-out/graph.json` wins, else the merged global graph (`~/.graphify/global-graph.json`); a graphless session fails soft with a "build a graph first" message.
+- Durable review lanes load `graphify-native.ts` directly (alongside `codeflare-pi.ts`) instead of the @gaodes package, so reviewers keep `graphify_query`/`graphify_path`/`graphify_explain`.
+- The `save-result` feedback loop is restored in both agents' graphify skills, which move to the `references/` progressive-disclosure layout.
+- Clone-time triage (detect graph, prompt build/update/skip) is unchanged in both agents — only the query-tool provider changed.
+
+**Implements:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline).
+
+**Related:** [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) (durable review lanes load extensions additively).
 
 ---
 

@@ -247,8 +247,9 @@ All preseed content is deployed via the manifest pipeline:
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, safe-graphify-update.sh)
-- Pi-native runtime assets include package config, package lock, and MCP
-  config.
+- Pi-native runtime assets include package config and package lock. (Graphify
+  tools ship as the native extension `extensions/graphify-native.ts`, not a
+  seeded `mcp.json` — Pi has no MCP client.)
 
   Extension files deploy Pi-specific runtime behavior:
   `codeflare-commands.ts` provides `/debug`, `/deploy`, and `/brainstorm`;
@@ -276,8 +277,7 @@ All preseed content is deployed via the manifest pipeline:
   `scripts/` -> `.pi/agent/scripts/`, `prompts/` -> `.pi/agent/prompts/`,
   and `agents/` -> `.pi/agent/agents/`.
   The `agents/` prefix maps both to `.pi/agent/agents/` (session-local overrides for `@gotgenes/pi-subagents`) and to `~/.pi/agent/agents/` (persistent user-level overrides). `preseed/agents/pi/agents/Explore.md` is the first native Pi agent override shipped via this path.
-  Package files deploy under `.pi/agent/npm/`; `mcp.json` deploys directly
-  under `.pi/agent/`.
+  Package files deploy under `.pi/agent/npm/`.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
@@ -409,7 +409,7 @@ remaps tool names in agent definition frontmatter, (3) removes
 references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents). Pi additionally
 loads `preseed/agents/pi/manifest.json`, emits native runtime files
-to `.pi/agent/extensions/`, `.pi/agent/scripts/`, `.pi/agent/mcp.json`,
+to `.pi/agent/extensions/`, `.pi/agent/scripts/`,
 `.pi/agent/npm/package.json`, `.pi/agent/npm/package-lock.json`,
 capture-contract prompts to `.pi/agent/prompts/`, native Pi skill overrides under
 `~/.pi/agent/skills/`, and native Pi agent overrides under `~/.pi/agent/agents/`,

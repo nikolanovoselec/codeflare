@@ -18,7 +18,7 @@ updates:
     schedule:
       interval: weekly
 
-  # Pi agent preseed (@gaodes/pi-graphify, @gotgenes/pi-subagents, context-mode)
+  # Pi agent preseed (@gotgenes/pi-subagents, context-mode)
   # is intentionally NOT managed by Dependabot. Although it has a real
   # package.json + lockfile, every version here is ALSO pinned as a literal
   # install spec in entrypoint.sh (the Pi settings `required` array) and baked

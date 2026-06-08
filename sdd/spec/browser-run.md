@@ -8,7 +8,7 @@ A real-browser WebFetch fallback for advanced-mode agents, backed by Cloudflare 
 |---------|-----------|
 | Browser Run | Cloudflare's remote headless-Chrome service. Two surfaces are used: the Chrome DevTools Protocol (CDP) `/devtools` WebSocket (for `chrome-devtools-mcp`) and the REST "Quick Actions" (`/markdown`, `/content`, `/scrape`) for the Pi native wrapper |
 | chrome-devtools-mcp | The MCP server that exposes the CDP-driven browser to an agent as tools. In Codeflare it is registered for Claude Code (in `~/.claude.json`) only in Pro (advanced) session mode, pointed at the Browser Run CDP endpoint |
-| Pi native Browser Run wrapper | A Pi extension (`preseed/agents/pi/extensions/browser-run.ts`) that registers native `browser_markdown` / `browser_content` / `browser_scrape` tools calling the Browser Run REST Quick Actions. Used because Pi does not consume MCP servers (mirrors how `@gaodes/pi-graphify` ships native `graphify_*` tools) |
+| Pi native Browser Run wrapper | A Pi extension (`preseed/agents/pi/extensions/browser-run.ts`) that registers native `browser_markdown` / `browser_content` / `browser_scrape` tools calling the Browser Run REST Quick Actions. Used because Pi does not consume MCP servers (mirrors how the first-party `graphify-native.ts` ships native `graphify_*` tools) |
 | WebFetch Fallback | The role Browser Run plays: when plain WebFetch is blocked (bot protection, login walls, redirect chains, JS-only pages), the agent retries through the real browser to load a public target |
 | Browser Rendering Scope | The `Browser Rendering - Edit` Cloudflare API-token permission required for the deployment to drive Browser Run (both the CDP and REST surfaces) |
 

@@ -47,7 +47,7 @@ AI CLI packages install with `@latest` -- each deploy pulls the newest versions 
 
 ### Pi Extension npm Cache
 
-Pi extensions (`@gotgenes/pi-subagents`, `@gaodes/pi-graphify`, `context-mode`) are preinstalled at Docker build time into `/opt/codeflare/pi-agent/npm/` via `npm ci --omit=dev`. On container boot, `warm_pi_npm_dependencies()` in `entrypoint.sh` symlinks `~/.pi/agent/npm/node_modules` to the image-local cache (instant, zero-copy). The symlink is recreated on each boot since `**/node_modules/**` is excluded from R2 sync. `PI_OFFLINE=1` prevents Pi from writing to the read-only target. The runtime npm cache (`~/.npm`) is purged at boot to reclaim ~200MB of disk from prior session installs.
+Pi extensions (`@gotgenes/pi-subagents`, `context-mode`) are preinstalled at Docker build time into `/opt/codeflare/pi-agent/npm/` via `npm ci --omit=dev`. (Graphify tools are exposed as a first-party native Pi extension via `graphify-native.ts`, not as an npm package — see [Preseed System](preseed.md).) On container boot, `warm_pi_npm_dependencies()` in `entrypoint.sh` symlinks `~/.pi/agent/npm/node_modules` to the image-local cache (instant, zero-copy). The symlink is recreated on each boot since `**/node_modules/**` is excluded from R2 sync. `PI_OFFLINE=1` prevents Pi from writing to the read-only target. The runtime npm cache (`~/.npm`) is purged at boot to reclaim ~200MB of disk from prior session installs.
 
 ### V8 Compile Cache Warm-Up
 
