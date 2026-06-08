@@ -1,4 +1,31 @@
+import { relative } from "node:path";
+
 export const MEMORY_EVERY_N_PROMPTS = 15;
+
+// SINGLE source of truth for vault paths that are generated/agent-owned and must NOT
+// trigger vault-extract. Mirrors prompts/vault-extract-prompt.md output paths plus the
+// entrypoint.sh boot-preseeded artifacts. Directory-prefix semantics: each entry matches
+// the directory itself and anything beneath it.
+export const VAULT_GENERATED_PREFIXES = [
+  "Raw/Sessions", // memory-capture session notes (agent-owned)
+  "Raw/Graphs", // served viz copy: Raw/Graphs/vault-graph.html (extractor step 6) — the self-trigger
+  "graphify-out", // all graphify artifacts (vault-graph.json, graph.json, graph.html, GRAPH_REPORT.md, chunk/labels)
+  ".silverbullet", // editor-managed metadata
+  "Library/Codeflare", // boot-preseeded SilverBullet plug bundles (*.plug.js); vendored, not user content
+] as const;
+
+// codeflare-authoritative root pages: regenerated from preseed on boot, never user-authored.
+export const VAULT_PRESEED_ROOT_FILES = new Set(["Index.md", "README.md", "CONFIG.md", "STYLES.md"]);
+
+// Pure predicate (no node:fs) so the Workers-pool test can exercise it directly. A vault
+// path is excluded from change-detection when it is generated, agent-owned,
+// codeflare-authoritative, or resolves outside the vault root entirely.
+export function isVaultExcludedPath(vaultRoot: string, path: string): boolean {
+  const rel = relative(vaultRoot, path).replaceAll("\\", "/");
+  if (!rel || rel.startsWith("..")) return true; // outside the vault
+  if (VAULT_PRESEED_ROOT_FILES.has(rel)) return true; // codeflare-authoritative root pages
+  return VAULT_GENERATED_PREFIXES.some((p) => rel === p || rel.startsWith(`${p}/`));
+}
 
 export function sessionId(ctx: any): string {
   return String(ctx?.sessionManager?.getSessionId?.() ?? process.ppid).replace(/[^A-Za-z0-9_.-]+/g, "_");

@@ -5,10 +5,10 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, isFirstMessage, isResumedSession, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, withCurrentPrompt } from "./memory-vault-helpers";
+import { buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, isFirstMessage, isResumedSession, isVaultExcludedPath as isVaultExcludedRel, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, withCurrentPrompt } from "./memory-vault-helpers";
 
 const USER_HOME = "/home/user";
 const VAULT_ROOT = join(USER_HOME, "Vault");
@@ -33,7 +33,16 @@ const VAULT_VARS_FILE = join(CACHE_DIR, "vault-extract.pi.vars");
 const VAULT_INFLIGHT = join(CACHE_DIR, "vault-extract.pi.in-flight");
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
 const VAULT_EXTRACT_INFLIGHT_TTL_MS = 5 * 60 * 1000;
-const VAULT_PRESEED_ROOT_FILES = new Set(["Index.md", "README.md", "CONFIG.md", "STYLES.md"]);
+// Append-only trigger audit. Had this existed, the Raw/Graphs self-trigger loop would
+// have been one grep away: a repeated vault_extract_spawned row naming the same file.
+const VAULT_EVENTS_LOG = join(CACHE_DIR, "vault-extract.pi.events.jsonl");
+
+function appendVaultEvent(row: Record<string, unknown>): void {
+  try {
+    mkdirSync(CACHE_DIR, { recursive: true });
+    appendFileSync(VAULT_EVENTS_LOG, `${JSON.stringify({ ts: Date.now(), ...row })}\n`, "utf8");
+  } catch { /* best effort: observability must never break the turn */ }
+}
 
 function ensureDirs(): void {
   mkdirSync(CACHE_DIR, { recursive: true });
@@ -91,13 +100,12 @@ function readSessionMessages(ctx: any, fallback: any[]): any[] {
   return fallback;
 }
 
+// VAULT_ROOT-bound wrapper over the pure predicate in memory-vault-helpers, so the
+// exclusion list lives in one testable place. Raw/Graphs (the served viz copy the
+// extractor re-renders every run) and Library/Codeflare are now covered there — the
+// former is what caused the self-trigger loop.
 function isVaultExcludedPath(path: string): boolean {
-  const rel = relative(VAULT_ROOT, path).replaceAll("\\", "/");
-  if (!rel || rel.startsWith("..")) return true;
-  if (VAULT_PRESEED_ROOT_FILES.has(rel)) return true;
-  return rel === "Raw/Sessions" || rel.startsWith("Raw/Sessions/")
-    || rel === "graphify-out" || rel.startsWith("graphify-out/")
-    || rel === ".silverbullet" || rel.startsWith(".silverbullet/");
+  return isVaultExcludedRel(VAULT_ROOT, path);
 }
 
 function changedVaultFiles(since: number): string[] {
@@ -294,6 +302,7 @@ export default function (pi: ExtensionAPI) {
 
     const vaultPrompt = `PROMPT_FILE=${VAULT_PROMPT_FILE}\nVARS_FILE=${VAULT_VARS_FILE}\nChanged files:\n${changed.slice(0, 80).join("\n")}\nThe Pi extension already touched ${VAULT_MARKER_FILE}. Run the Pi vault-extract contract end to end: read the changed files, author a chunk, run merge-vault-graph.py to fold it into the cumulative vault-graph.json, publish that to the global graph, and re-render the viz. Do not update the marker (the extension owns it).`;
     const spawned = spawn("vault-extract", vaultPrompt, "Extract Vault graph changes", process.env.CODEFLARE_MEMORY_MODEL);
+    appendVaultEvent({ event: "vault_extract_spawned", changedFiles: changed.slice(0, 80), count: changed.length, spawned: Boolean(spawned), markerMtime: previous });
     if (!spawned) pi.sendUserMessage(`Agent({ subagent_type: "vault-extract", prompt: ${JSON.stringify(vaultPrompt)}, description: "Extract Vault graph changes", run_in_background: true })`, { deliverAs: "followUp" });
     bestEffortMergeGraphs();
   });
