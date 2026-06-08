@@ -20,7 +20,7 @@ const base: ComputeReviewStateInput = {
   autofixRequested: false,
 };
 
-describe('computeReviewStateFrom', () => {
+describe('computeReviewStateFrom (REQ-AGENT-057 AC1)', () => {
   it('reports all lanes pending when nothing has happened', () => {
     const s = computeReviewStateFrom({ ...base });
     expect(s.overall).toBe('pending');
