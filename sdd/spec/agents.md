@@ -1101,8 +1101,8 @@ None.
 3. Pi suppresses duplicate PR-boundary review result and summary announcements for the same repo, head, lane, and result path. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::installReviewMessageDedupe -->
 4. After all required lanes complete, Pi publishes a merged chat summary instead of separate per-lane chat result blocks. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewSummaryMarkdown -->
 5. The merged chat summary reports aggregate severity counts across code, spec, and documentation lanes and renders findings sorted by criticality, without requiring per-lane result-file links in chat. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergedReviewSummaryModel --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary -->
-6. When the exact-head review job is complete with all required result files, Pi requests a fix pass for only legitimate `MEDIUM`/`HIGH`/`CRITICAL` findings, never from partial results, and instead presents findings and waits when the latest user directive says wait or do-not-auto-fix. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestReviewAutofix --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::requestReviewAutofixForRows --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAutofixModeFromUserMessages -->
-7. Durable PR-boundary review lanes run as isolated, detached, headless child `pi` processes (`--mode json -p --no-session --no-extensions`, read-only tools, stdin from `/dev/null`); `--no-extensions` blocks recursive enforcement while explicit `-e` paths still load the `graphify-native` extension and any settings-enabled lane packages (context-mode's `ctx_*`). <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::laneExtensionSources -->
+6. When every required exact-head result file exists, Pi requests a fix pass only for legitimate `MEDIUM`/`HIGH`/`CRITICAL` findings; partial results never trigger fixes, and wait/do-not-auto-fix directives make Pi present findings instead. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestReviewAutofix --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::requestReviewAutofixForRows --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAutofixModeFromUserMessages -->
+7. Durable review lanes run as detached headless child `pi` processes with read-only tools and stdin from `/dev/null`; explicit `-e` paths load graphify-native, review-lane-guards, and settings-enabled context-mode. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::laneExtensionSources -->
 
 **Constraints:**
 
@@ -1561,16 +1561,13 @@ None.
 
 **Constraints:**
 
-- The codeflare image uses the upstream graphify package without a fork.
-- Pi's first-party graphify tools resolve graphs in order: cwd repo `graphify-out/graph.json`, active-repo sentinel graph, then merged global graph (`~/.graphify/global-graph.json`).
-- If no graph exists, Pi graphify tools fail soft with a "build a graph first" message.
-- Ambient MCP/native graphify capability is available in every mode; graph-first discipline, Pi graphify workflow assets, clone triage, and active-repo tracking are advanced-only.
-- Per-branch graphs are not supported; users refresh the graph after a branch checkout.
-- Optional office/video/Neo4j/local-backend/provider extras are not installed by default (users install upstream extras manually), and Codeflare's interactive Graphify workflow does not use provider extras for community labeling.
-- Preseed surfaces refresh an existing graph through the bounded update wrapper (applies `RLIMIT_AS`, sets `GRAPHIFY_MAX_WORKERS`, preserves `GRAPHIFY_VIZ_NODE_LIMIT`, does not rewrite output), never bare `graphify update`.
-- Pi creates a first-time full AST graph with `build-graphify-ast.sh` (Graphify's own detect/extract/build/cluster/report/export, no Codeflare allowlists) and an architecture graph with `build-graphify-architecture.sh` (generic noise filters, then projects the symbol graph into a file/module dependency graph).
-- The Pi session-start graph summary is bounded against blocking: graphs larger than 30MB report availability without a synchronous parse, the git probes are wrapped with a short timeout, and the structural-search gate is fail-open (any unexpected error never locks the user out of search).
-- The container entrypoint mounts tmpfs `/dev/shm` at boot, supplying the POSIX shared memory that Graphify's AST extractor (Python `ProcessPoolExecutor`/`multiprocessing.Lock`), the memory-capture chunker, and the vault-extract writer need and a cold Firecracker rootfs otherwise lacks.
+- The image uses upstream graphify without a fork; provider/office/video/Neo4j/local-backend extras are not installed.
+- Pi query tools resolve the session cwd repo graph, then the same-repo sentinel graph, then the merged global graph; no graph fails soft.
+- Ambient MCP/native query capability is all-mode; graph-first discipline, Pi workflow assets, clone triage, active-repo tracking, and graph summaries are advanced-only.
+- Per-branch graphs are unsupported; users refresh after checkout.
+- Existing graph refreshes use the bounded update wrapper, never bare `graphify update`.
+- Pi first-build scripts own AST and architecture graph creation.
+- Entrypoint mounts tmpfs `/dev/shm` for Graphify AST multiprocessing, memory capture, and vault extraction.
 
 **Priority:** P1
 

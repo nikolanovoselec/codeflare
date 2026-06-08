@@ -204,10 +204,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const scripts = piDocs.filter((d) => d.key.startsWith('.pi/agent/scripts/'));
     expect(skills.length).toBeGreaterThan(0);
     expect(extensions.map((d) => d.key).sort()).toEqual([
+      '.pi/agent/extensions/browser-run.ts',
       '.pi/agent/extensions/codeflare-commands.ts',
       '.pi/agent/extensions/codeflare-pi.ts',
       '.pi/agent/extensions/commands-helpers.ts',
       '.pi/agent/extensions/graphify-helpers.ts',
+      '.pi/agent/extensions/graphify-native.ts',
       '.pi/agent/extensions/guard-helpers.ts',
       '.pi/agent/extensions/local-statusline.ts',
       '.pi/agent/extensions/memory-vault-helpers.ts',
@@ -217,6 +219,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/review-helpers.ts',
       '.pi/agent/extensions/review-job-helpers.ts',
       '.pi/agent/extensions/review-jobs.ts',
+      '.pi/agent/extensions/review-lane-guards.ts',
       '.pi/agent/extensions/sdd-helpers.ts',
       '.pi/agent/extensions/startup-header.ts',
     ]);

@@ -531,16 +531,46 @@ function installReviewMessageDedupe(pi: ExtensionAPI): void {
   globalState.__codeflareReviewSendMessagePatchVersions.set(piObject, patchVersion);
 }
 
+function reviewSummaryRecordsFromDisk(state: PendingReview): DurableReviewSummaryRecord[] {
+  return state.lanes.map((lane) => {
+    const path = reviewResultPath(state.repo, state.head, lane);
+    const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+    const counts = countReviewSeverities(text);
+    const recommendation = durableReviewRecommendation(counts);
+    return { lane, path, text, counts, recommendation };
+  });
+}
+
+function writeReviewSummaryFromDisk(state: PendingReview): void {
+  const content = formatMergedReviewSummary({
+    repoName: basename(state.repo),
+    head: state.head,
+    records: reviewSummaryRecordsFromDisk(state),
+  });
+  const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
+  mkdirSync(dirname(summaryPath), { recursive: true });
+  writeFileSync(summaryPath, `${content}\n`, "utf8");
+}
+
+function finalizeCompletedReviewFromDisk(state: PendingReview): void {
+  appendReviewEvent(state.repo, { event: "review_acked", head: state.head, lanes: state.lanes });
+  writeAck(state.repo, state.head);
+  resetBlockCount(state.repo);
+  clearBreaker(state.repo);
+  clearPending(state.repo);
+  writeReviewSummaryFromDisk(state);
+}
+
 // Autonomous review reaper (REQ-AGENT-054 AC7). Detached lane children run to completion
 // on their own, but the reaper that harvests them (writes the result file, advances the
 // state machine) otherwise only runs on user-driven lifecycle ticks — so a push followed
 // by an idle session leaves finished lanes unharvested (agent_end on disk, no result file).
 // Pi exposes no periodic/idle hook, so this plain interval (registered once, below) drives
-// the reaper without a ctx while a review window is pending: it reaps finished lanes and
-// spawns the next *fresh* eligible lane (e.g. doc-updater once spec-reviewer has a result).
-// Failed-lane RETRIES are intentionally left to the on-turn driver so the breaker still
-// bounds them; the ctx-dependent merged summary + ack also stay on the next real tick
-// (finalizeCompletedReview). Best-effort and self-clearing: it must never throw.
+// the reaper without a ctx while a review window is pending: it reaps finished lanes,
+// finalizes completed reviews from disk, and spawns the next *fresh* eligible lane (e.g.
+// doc-updater once spec-reviewer has a result). Failed-lane RETRIES are intentionally left
+// to the on-turn driver so the breaker still bounds them. Best-effort and self-clearing:
+// it must never throw.
 function autonomousReviewReaperTick(): void {
   try {
     // The timer has no event ctx, so it cannot use ctx.sessionManager.getCwd() like the on-turn
@@ -552,7 +582,10 @@ function autonomousReviewReaperTick(): void {
     if (!pending || !pending.head || pending.lanes.length === 0) return;
     reapDurableReviewLanes(pending.repo, pending.head);
     const completed = completedDurableReviewLanes(pending.repo, pending.head, pending.lanes);
-    if (completed.length === pending.lanes.length) return; // all lanes done; ack/summary is the on-turn driver's job
+    if (completed.length === pending.lanes.length) {
+      finalizeCompletedReviewFromDisk(pending);
+      return;
+    }
     const job = readDurableReviewJob(pending.repo, pending.head);
     const running = runningDurableReviewLanes(pending.repo, pending.head, pending.lanes);
     const eligible = durableReviewEligibleLanes({
@@ -1090,12 +1123,16 @@ export default function (pi: ExtensionAPI) {
     const state = hydratePending(ctx);
     if (state && reviewHeadStatus(state) === "advanced") { void rollForwardAdvancedReview(state, ctx, "session_start detected advanced PR head"); return; }
     refreshReviewStatusFromDurable(ctx);
+    // Catch a boundary missed before this session started (forced: once per session start).
+    void reconcileOpenPrReview(ctx, true);
   });
 
   const onUiRefresh = (_event: any, ctx: any): void => {
     if (!isActiveRun()) return;
     remember(ctx);
     refreshReviewStatusFromDurable(ctx);
+    // Throttled catch-up for a missed boundary on every UI/turn tick (REQ-AGENT-058).
+    void reconcileOpenPrReview(ctx, false);
   };
 
   pi.on("resources_discover", onUiRefresh);
@@ -1207,10 +1244,10 @@ export default function (pi: ExtensionAPI) {
     remember(ctx);
     const state = hydratePending(ctx);
     if (!state) {
-      // No persisted review window: stay passive. Review starts ONLY from an actual
-      // PR-boundary command event (gh pr create to main, or git push to a branch with an
-      // open PR to main) handled in onToolEnd — never from mere open-PR existence at turn
-      // end or session start (REQ-036 AC7). Just publish any final summary and clear status.
+      // No persisted review window: a real open, enforced PR with an unacked head and no
+      // review job is a missed boundary. Let bounded reconciliation decide; otherwise just
+      // publish any final summary and clear status.
+      if (await reconcileOpenPrReview(ctx, true)) return;
       clearReviewStatus(ctx);
       publishSummaryForCurrentPr(ctx);
       return;

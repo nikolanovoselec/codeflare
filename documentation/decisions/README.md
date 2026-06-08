@@ -74,7 +74,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) | Pi `/review` ships as a dedicated native skill (Claude commands do not deploy to Pi) | Architecture |
 | [AD62](#ad62-pi-model-name-genericization-with-codeflare_memory_model-lever) | Pi model-name genericization with `CODEFLARE_MEMORY_MODEL` lever | Architecture |
 | [AD63](#ad63-pi-safe-graphify-updatesh-is-a-thin-bounded-upstream-update-wrapper) | Pi `safe-graphify-update.sh` is a thin bounded upstream-update wrapper | Architecture |
-| [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) | Durable review lanes load extensions additively behind the `noExtensions` shield | Agents |
+| [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) | _superseded by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) -- lanes now run as detached headless Pi processes_ | (superseded) |
 | [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy) | Gemini CLI replaced by Antigravity (agy) _(no-preseed-lane clause superseded by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored))_ | Architecture |
 | [AD66](#ad66-security-sensitive-rate-limiters-fail-closed-on-kv-outage) | Security-sensitive rate limiters fail closed on KV outage | Security |
 | [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored) | Antigravity reads the Gemini CLI config tree; preseed lane restored | Architecture |
@@ -86,6 +86,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) | workers.dev enabled on every deployment for setup-wizard bootstrap | Security |
 | [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) | Enterprise LLM transport on the AI Gateway REST API (amends [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing)) | Architecture, Security |
 | [AD75](#ad75-pi-graphify-tools-replaced-by-a-first-party-native-extension) | Pi graphify tools replaced by a first-party native extension (`graphify-native.ts`); `@gaodes/pi-graphify` removed | Architecture |
+| [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) | Durable review lanes run as detached headless Pi processes | Agents |
 
 ---
 
@@ -1134,7 +1135,7 @@ Three smaller decisions bundled in:
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-05-30)
+**Status:** Superseded by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) (2026-06-08)
 
 **Context:** PR-boundary review enforcement ([REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)/053/054) runs each lane as an in-process `createAgentSession` (`review-jobs.ts::runDurableLane`) with `DefaultResourceLoader({ noExtensions: true })`. That shield exists because extension factories run synchronously during load (pi's `loader.js` `await factory(api)`), and `review-enforcement.ts`'s factory writes a process-global run token (`__codeflareReviewEnforcementRun`) at load time; if a lane loaded that extension in the same process it would overwrite the token and silently disable the **main** session's enforcement (the merge gate). `@gotgenes/pi-subagents` similarly couples in-process state. But the blunt `noExtensions: true` also stripped every useful capability, leaving lanes with only the 7 built-in tools: reviewers had no `graphify_*`, no `ctx_*`, and none of `codeflare-pi`'s guards. A transient `gh pr view` failure once dropped the merge gate by mis-classifying a live head as stale (the "failure #13" referenced in `review-helpers.ts`); `classifyReviewHead` now separates `stale` from `unknown` to keep the gate fail-closed, and the durable `.git/`-persisted state makes that classification recoverable.
 
@@ -1389,7 +1390,7 @@ Two facts from the SB 2.8.1 source reshape the fix. First, SB's real service wor
 
 **Status:** Accepted (2026-06-08)
 
-**Context:** Pi has no MCP client, so the graphify query tools (`graphify_query`/`graphify_path`/`graphify_explain`) were exposed on Pi through the third-party `@gaodes/pi-graphify` npm wrapper plus a never-consumed `mcp.json`. The wrapper re-implemented graphify query logic independently of the Claude MCP-server path, so Pi and Claude could diverge in ranking/output from the same graph, and it added an npm dependency (plus the transitive `@gaodes/pi-utils-ui`) that `bump-shadow-pins.yml` had to track and that re-baked the image on every upstream bump. <!-- @impl: preseed/agents/pi/extensions/graphify-native.ts -->
+**Context:** Pi has no MCP client, so the graphify query tools (`graphify_query`/`graphify_path`/`graphify_explain`) were exposed on Pi through the third-party `@gaodes/pi-graphify` npm wrapper plus a never-consumed `mcp.json`. The wrapper re-implemented graphify query logic independently of the Claude MCP-server path, so Pi and Claude could diverge in ranking/output from the same graph, and it added an npm dependency (plus the transitive `@gaodes/pi-utils-ui`) that `bump-shadow-pins.yml` had to track and that re-baked the image on every upstream bump. <!-- @impl: preseed/agents/pi/extensions/graphify-native.ts::resolveGraph -->
 
 **Decision:** Replace `@gaodes/pi-graphify` with a first-party native Pi extension, `preseed/agents/pi/extensions/graphify-native.ts`, registered via `pi.registerTool` (mirroring `browser-run.ts`). It shells the same `graphify` CLI that Claude's MCP server runs (`graphify.serve._query_graph_text`), so both agents query through one engine with identical ranking and output. Delete the dead `preseed/agents/pi/mcp.json` and its seed path-mapping and context-mode strip-branch.
 
@@ -1397,14 +1398,41 @@ Two facts from the SB 2.8.1 source reshape the fix. First, SB's real service wor
 
 - Pi and Claude graphify queries share one engine — no divergent third-party reimplementation.
 - The Pi npm closure shrinks by `@gaodes/pi-graphify` (and the transitive `@gaodes/pi-utils-ui`); `bump-shadow-pins.yml` and `dependabot.yml` no longer track it.
-- Graph resolution is codified in source: the active cloned-repo `graphify-out/graph.json` wins, else the merged global graph (`~/.graphify/global-graph.json`); a graphless session fails soft with a "build a graph first" message.
-- Durable review lanes load `graphify-native.ts` directly (alongside `codeflare-pi.ts`) instead of the @gaodes package, so reviewers keep `graphify_query`/`graphify_path`/`graphify_explain`.
+- Graph resolution is codified in source: the session/job cwd repo's `graphify-out/graph.json` wins, then the same-repo active sentinel graph, then the merged global graph (`~/.graphify/global-graph.json`); a graphless session fails soft with a "build a graph first" message.
+- Durable review lanes load `graphify-native.ts` via explicit `-e`, plus `review-lane-guards.ts` and settings-enabled context-mode, so reviewers keep graphify tools without loading `codeflare-pi.ts` or recursive review enforcement.
 - The `save-result` feedback loop is restored in both agents' graphify skills, which move to the `references/` progressive-disclosure layout.
 - Clone-time triage (detect graph, prompt build/update/skip) is unchanged in both agents — only the query-tool provider changed.
 
 **Implements:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline).
 
-**Related:** [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) (durable review lanes load extensions additively).
+**Related:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) (durable review lanes run detached).
+
+---
+
+### AD76: Durable review lanes run as detached headless Pi processes
+
+**Category:** Agents
+
+**Status:** Accepted (2026-06-08)
+
+**Supersedes:** [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield)
+
+<!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane -->
+<!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::reapDurableReviewLanes -->
+<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick -->
+<!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::laneExtensionSources -->
+
+**Context:** In-process `createAgentSession` lanes could die when the spawning Pi session exited, leaving `.git/codeflare-review-jobs/<head>/` stuck `running`. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane -->
+
+**Decision:** Launch each durable lane as a detached `pi --mode json -p --no-session --no-extensions --no-context-files` child with stdin from `/dev/null`. Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts`, and settings-enabled context-mode.
+
+**Consequences:**
+
+- Lanes survive the spawning session and are reaped from disk.
+- Reviewers get read-only built-ins plus graphify tools, local-build blockers, and optional `ctx_search`.
+- Lanes do not load `codeflare-pi.ts`, `review-enforcement`, or `@gotgenes/pi-subagents`.
+
+**Related:** [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop), [REQ-AGENT-054](../../sdd/spec/agents.md#req-agent-054-pi-durable-review-lane-failure-handling).
 
 ---
 

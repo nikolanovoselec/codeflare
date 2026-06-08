@@ -333,12 +333,15 @@ function spawnDurableLane(jobInput: DurableReviewJobInput, request: ReviewSpawnR
   writeFileSync(promptPath, systemPrompt, "utf8");
 
   // --no-extensions disables discovery (so review-enforcement never loads recursively),
-  // but explicit `-e` paths still load: the first-party graphify-native extension always,
-  // and the settings-enabled lane packages (context-mode's ctx_* when enabled). This gives
-  // reviewers graphify + ctx without the full extension stack.
+  // but explicit `-e` paths still load: the first-party graphify-native extension, a
+  // minimal lane guard extension, and settings-enabled lane packages (context-mode's
+  // ctx_* when enabled). This gives reviewers graphify + ctx + build/test blockers
+  // without the full extension stack.
   const graphifyNativePath = join(getAgentDir(), "extensions", "graphify-native.ts");
+  const laneGuardsPath = join(getAgentDir(), "extensions", "review-lane-guards.ts");
   const extensionArgs: string[] = [];
   if (existsSync(graphifyNativePath)) extensionArgs.push("-e", graphifyNativePath);
+  if (existsSync(laneGuardsPath)) extensionArgs.push("-e", laneGuardsPath);
   for (const source of laneExtensionSources(readPiAgentPackages())) extensionArgs.push("-e", source);
 
   const args = [

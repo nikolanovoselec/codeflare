@@ -87,9 +87,11 @@ function resolveGraph(ctx?: ExtensionContext): ResolvedGraph | undefined {
   const processRoot = repoRootFromPath(safeCwd());
   const cwdRoot = sessionRoot || processRoot;
   const sentinelRoot = repoRootFromPath(readTrimmed(ACTIVE_REPO_SENTINEL));
+  const processGraph = processRoot && (!sessionRoot || processRoot === sessionRoot)
+    ? repoGraphCandidate(processRoot)
+    : undefined;
   return pickGraphSource({
-    cwdGraph: (sessionRoot ? repoGraphCandidate(sessionRoot) : undefined)
-      || (processRoot ? repoGraphCandidate(processRoot) : undefined),
+    cwdGraph: (sessionRoot ? repoGraphCandidate(sessionRoot) : undefined) || processGraph,
     sentinelGraph: sentinelRoot && (!cwdRoot || sentinelRoot === cwdRoot) ? repoGraphCandidate(sentinelRoot) : undefined,
     globalGraph: existsSync(GLOBAL_GRAPH)
       ? { graphPath: GLOBAL_GRAPH, cwd: "/home/user", scope: "merged global graph (vault + all repos)" }

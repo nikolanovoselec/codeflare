@@ -412,7 +412,14 @@ to `.pi/agent/extensions/`, `.pi/agent/scripts/`,
 capture-contract prompts to `.pi/agent/prompts/`, native Pi skill overrides under
 `~/.pi/agent/skills/`, and native Pi agent overrides under `~/.pi/agent/agents/`,
 and adapts Claude agent definitions into `.pi/agent/agents/*.md` for
-`@gotgenes/pi-subagents`. Pi's generated agent frontmatter deliberately drops context-mode tools so those `@gotgenes/pi-subagents` subagents run against the native Pi tool surface. This applies to subagent frontmatter only; the durable PR-boundary review lanes are a separate `createAgentSession` path that loads context-mode additively when it is enabled (see [AD64](../decisions/README.md#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield)), so "review runs without ctx tools" is not categorical.
+`@gotgenes/pi-subagents`. Pi's generated agent frontmatter deliberately drops
+context-mode tools so those `@gotgenes/pi-subagents` subagents run against the
+native Pi tool surface. This applies to subagent frontmatter only. Durable
+PR-boundary review lanes are not `@gotgenes/pi-subagents` and not in-process
+`createAgentSession` calls: `spawnDurableLane` launches detached headless `pi`
+child processes with read-only tools, `--no-extensions`, and explicit `-e`
+loading for `graphify-native.ts`, `review-lane-guards.ts`, plus
+settings-enabled context-mode.
 
 **Per-mode seeding**: Default mode seeds the core rules plus the
 universal skills; advanced mode seeds the full set (memory, ECC
@@ -497,7 +504,9 @@ without masking other required lanes, while a stale uncompleted lane past
 the transcript recency bound is demanded again.
 
 The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`.
-Doc-only pushes spawn only `doc-updater`; `sdd/`-only pushes spawn
+Generated-only `graphify-out/` diffs require no review lanes and are auto-acked
+with a durable audit event; generated artifacts never suppress review for mixed
+diffs. Doc-only pushes spawn only `doc-updater`; `sdd/`-only pushes spawn
 `spec-reviewer` then `doc-updater`; source pushes spawn all three; non-SDD
 projects fire no review agents.
 
@@ -507,13 +516,22 @@ predicates) and the pipe-alternated MCP matcher
 `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute`.
 This keeps attribution blocking and push detection effective whether
 context-mode is active or not. Implements
-[REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC3, [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1+AC2, and [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC4-AC7. Hooks
-registered in settings.json, scripts delivered via plugin.
+[REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC3,
+[REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1+AC2,
+and [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1+AC2+AC4-AC7.
+Hooks registered in settings.json, scripts delivered via plugin.
 
 ## Third-party plugin: context-mode
 
 [context-mode](https://github.com/mksglu/context-mode) is registered
-as an optional Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi does not load context-mode by default; `/ctx on` enables the package for the current running Pi session and reloads resources, while `/ctx off` disables it again. Durable PR-boundary review lanes inherit this state: when context-mode is enabled in Pi settings, `runDurableLane` additively loads it into the lane via `additionalExtensionPaths` (see [AD64](../decisions/README.md#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield)), so reviewers gain `ctx_*` tools only when the main session has `/ctx on`; with it off, lanes run without them.
+as an optional Claude Code MCP server (`ctx_*` helper tools) where that runtime
+enables it. Pi does not load context-mode by default; `/ctx on` enables the
+package for the current running Pi session and reloads resources, while `/ctx off`
+disables it again. Durable PR-boundary review lanes inherit `/ctx on` only when
+`spawnDurableLane` adds the settings-enabled context-mode package as an explicit
+`-e` argument; with `/ctx on`, the lane can expose `ctx_search`, and with it off
+the lane runs without ctx tools. `graphify-native.ts` and
+`review-lane-guards.ts` are loaded separately.
 The npm package is fetched by the user's own container from the npm
 registry on first invocation; Codeflare does not redistribute the
 source. Commercial users receive only the MCP server registration:
