@@ -1668,6 +1668,11 @@ const disabledPackageIds = new Set(['npm:context-mode']);
 const disabledPackages = [
   { source: 'npm:context-mode@1.0.162', extensions: [], skills: [] },
 ];
+// Migration: hard-remove the deprecated third-party graphify wrapper from existing settings.
+// graphify is now the first-party graphify-native.ts extension; loading both registers the same
+// tools (graphify_query/path/explain) and Pi refuses to start. Unlike disabled packages this is
+// dropped and never re-added, so an upgrade from the @gaodes era loads cleanly.
+const removedPackageIds = new Set(['npm:@gaodes/pi-graphify']);
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;
@@ -1683,7 +1688,7 @@ for (const spec of existing) {
   const source = sourceOf(spec);
   if (!source) continue;
   const id = identity(source);
-  if (disabledPackageIds.has(id)) continue;
+  if (disabledPackageIds.has(id) || removedPackageIds.has(id)) continue;
   byName.set(id, spec);
 }
 for (const spec of required) byName.set(identity(spec), spec);

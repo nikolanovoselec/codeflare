@@ -561,13 +561,18 @@ function finalizeCompletedReviewFromDisk(state: PendingReview): void {
   writeReviewSummaryFromDisk(state);
 }
 
+// Set by the extension's default export to a pi-bound finalize closure, so the module-level
+// autonomous timer (which has no pi/ctx) can emit the merged summary into the session AND fire
+// the autofix turn when an idle review completes. Falls back to disk-only ack until it is bound.
+let activeReviewFinalize: ((state: PendingReview) => void) | undefined;
+
 // Autonomous review reaper (REQ-AGENT-054 AC7). Detached lane children run to completion
 // on their own, but the reaper that harvests them (writes the result file, advances the
 // state machine) otherwise only runs on user-driven lifecycle ticks — so a push followed
 // by an idle session leaves finished lanes unharvested (agent_end on disk, no result file).
 // Pi exposes no periodic/idle hook, so this plain interval (registered once, below) drives
 // the reaper without a ctx while a review window is pending: it reaps finished lanes,
-// finalizes completed reviews from disk, and spawns the next *fresh* eligible lane (e.g.
+// finalizes completed reviews (emit summary + autofix via the pi-bound closure), and spawns the next *fresh* eligible lane (e.g.
 // doc-updater once spec-reviewer has a result). Failed-lane RETRIES are intentionally left
 // to the on-turn driver so the breaker still bounds them. Best-effort and self-clearing:
 // it must never throw.
@@ -583,7 +588,13 @@ function autonomousReviewReaperTick(): void {
     reapDurableReviewLanes(pending.repo, pending.head);
     const completed = completedDurableReviewLanes(pending.repo, pending.head, pending.lanes);
     if (completed.length === pending.lanes.length) {
-      finalizeCompletedReviewFromDisk(pending);
+      // Idle finalization with no ctx: the pi-bound closure (set by the default export) emits the
+      // merged summary into the session AND fires the autofix (pi.sendMessage with triggerTurn), so
+      // an idle completed review resumes and shows results with zero user input. The user can ESC to
+      // decline the fix. publishReviewSummary/requestReviewAutofix are claim-guarded, so a later real
+      // turn never double-emits. Disk-only ack is the fallback before the closure is bound.
+      if (activeReviewFinalize) activeReviewFinalize(pending);
+      else finalizeCompletedReviewFromDisk(pending);
       return;
     }
     const job = readDurableReviewJob(pending.repo, pending.head);
@@ -624,6 +635,8 @@ export default function (pi: ExtensionAPI) {
   // Reload-safe singleton (clear any prior interval first so /reload does not stack timers);
   // unref so it never keeps the process alive on its own.
   {
+    // Bind the pi-aware finalize so the module-level autonomous timer can emit + autofix on idle.
+    activeReviewFinalize = (state: PendingReview) => finalizeCompletedReview(state);
     const reaperKey = "__codeflareReviewReaperTimer";
     const store = globalThis as Record<string, ReturnType<typeof setInterval> | undefined>;
     if (store[reaperKey]) clearInterval(store[reaperKey]);
@@ -674,6 +687,7 @@ export default function (pi: ExtensionAPI) {
   // indeterminate "unknown" (gh query failed) must preserve state and retry, so
   // a transient failure can never silently drop the review gate without an ack.
   const discardStale = (state: PendingReview, ctx: any): void => {
+    appendReviewEvent(state.repo, { event: "review_superseded", head: state.head, reason: "open PR no longer points at this head", lanes: state.lanes });
     clearPending(state.repo);
     pending = undefined;
     clearReviewStatus(ctx);
@@ -695,6 +709,7 @@ export default function (pi: ExtensionAPI) {
     if (!isEnforcedPr(currentPr)) return false;
     const head = reviewCandidateHead(state.repo, currentPr);
     if (!head || head === state.head || !isAncestor(state.repo, state.head, head)) return false;
+    appendReviewEvent(state.repo, { event: "review_superseded", head: state.head, reason: `${reason}; rolled forward to ${head.slice(0, 12)}`, lanes: state.lanes });
 
     const review = mergeLaneState(state.repo, head, state);
     if (review.lanes.length === 0) {
@@ -830,7 +845,7 @@ export default function (pi: ExtensionAPI) {
         details: { repo: state.repo, head: state.head, summary: content },
       });
     } catch {
-      ctx.ui.notify(`PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Merged summary saved: ${summaryPath}`, "info");
+      if (ctx) ctx.ui.notify(`PR-boundary review acknowledged for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Merged summary saved: ${summaryPath}`, "info");
     }
   }
 
@@ -885,7 +900,7 @@ export default function (pi: ExtensionAPI) {
         head: state.head,
         rows: reviewSummaryRows(state),
         reviewComplete,
-        suppress: reviewAutofixModeFromUserMessages(sessionUserMessages(ctx)) === "manual",
+        suppress: ctx ? reviewAutofixModeFromUserMessages(sessionUserMessages(ctx)) === "manual" : false,
         claim: () => {
           mkdirSync(dirname(marker), { recursive: true });
           try {
@@ -907,7 +922,7 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.notify(`PR-boundary ${lane} completed for ${basename(state.repo)} at ${state.head.slice(0, 12)}. Findings saved: ${path}`, "info");
   }
 
-  function finalizeCompletedReview(state: PendingReview, ctx: any): void {
+  function finalizeCompletedReview(state: PendingReview, ctx?: any): void {
     appendReviewEvent(state.repo, { event: "review_acked", head: state.head, lanes: state.lanes });
     writeAck(state.repo, state.head);
     resetBlockCount(state.repo);
