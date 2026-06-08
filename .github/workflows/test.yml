@@ -68,6 +68,17 @@ jobs:
         run: npm ci
         working-directory: web-ui
 
+      - name: Agent seed generator drift guard
+        # The committed src/lib/agent-seed.generated.ts must equal a fresh generation
+        # from preseed/. `pretest` regenerates it during `npm test`, so a stale committed
+        # copy would silently ship OLD extension bytes to R2/containers (the deploy-seeding
+        # path embeds this file). Fail fast if the generator output drifts from what is
+        # committed. The generator uses only Node builtins, so it needs no node_modules.
+        run: |
+          node scripts/generate-agent-seed.mjs
+          git diff --exit-code src/lib/agent-seed.generated.ts \
+            || { echo "::error::agent-seed.generated.ts is stale — run 'npm run generate:agent-seed' and commit the result"; exit 1; }
+
       - name: Lint backend
         run: npm run lint
 
