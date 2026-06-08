@@ -564,6 +564,93 @@ export function durableReviewJobDir(repo: string, head: string): string {
   return `${repo}/.git/codeflare-review-jobs/${head}`;
 }
 
+// ── Canonical review state (review.md §17.2) ────────────────────────────────
+// One pure definition of "what is the review state for this head", derived from
+// disk facts injected by the thin fs wrapper in review-jobs.ts. Every read-only
+// consumer (the /review-status command, and any future status surface) renders
+// THIS instead of re-deriving status from a different subset of the state files.
+
+export type ReviewLaneStatus = "pending" | "running" | "completed" | "failed";
+export type ReviewOverall = "none" | "pending" | "running" | "complete" | "failed";
+
+export type ReviewState = {
+  repo: string;
+  head: string;
+  prNumber?: number;
+  baseRefName?: string;
+  reviewBase?: string;
+  lanes: string[];
+  laneStatus: Record<string, ReviewLaneStatus>;
+  overall: ReviewOverall;
+  acked: boolean;
+  summaryReady: boolean;
+  autofixRequested: boolean;
+  breakerOpen: boolean;
+  attempts: number;
+  startedAt?: number;
+};
+
+export type ComputeReviewStateInput = {
+  repo: string;
+  head: string;
+  prNumber?: number;
+  baseRefName?: string;
+  reviewBase?: string;
+  lanes: string[];
+  // job.laneState[lane].status, or undefined when no lane record exists yet.
+  laneJobStatus: (lane: string) => ReviewLaneStatus | undefined;
+  // existsSync(reviewResultPath(repo, head, lane)) — an authored result is authoritative.
+  resultLaneExists: (lane: string) => boolean;
+  // runningLanes Set membership — only meaningful in the process that spawned the lane.
+  runningInMemory: (lane: string) => boolean;
+  ackHead: string;
+  breakerHead: string;
+  attempts: number;
+  autofixRequested: boolean;
+  startedAt?: number;
+};
+
+// Status precedence — the single source of this rule:
+// 1. result .md exists        → completed (existence is proof, survives reload/process death)
+// 2. job lane status failed    → failed
+// 3. running in memory OR job lane status running → running
+// 4. otherwise                 → pending
+function laneStatusFrom(lane: string, input: ComputeReviewStateInput): ReviewLaneStatus {
+  if (input.resultLaneExists(lane)) return "completed";
+  const jobStatus = input.laneJobStatus(lane);
+  if (jobStatus === "failed") return "failed";
+  if (input.runningInMemory(lane) || jobStatus === "running") return "running";
+  return "pending";
+}
+
+export function computeReviewStateFrom(input: ComputeReviewStateInput): ReviewState {
+  const laneStatus: Record<string, ReviewLaneStatus> = {};
+  for (const lane of input.lanes) laneStatus[lane] = laneStatusFrom(lane, input);
+  const statuses = input.lanes.map((lane) => laneStatus[lane]);
+  const overall: ReviewOverall =
+    input.lanes.length === 0 ? "none"
+      : statuses.includes("failed") ? "failed"
+        : statuses.includes("running") ? "running"
+          : statuses.includes("pending") ? "pending"
+            : "complete";
+  return {
+    repo: input.repo,
+    head: input.head,
+    prNumber: input.prNumber,
+    baseRefName: input.baseRefName,
+    reviewBase: input.reviewBase,
+    lanes: input.lanes,
+    laneStatus,
+    overall,
+    acked: input.head !== "" && input.ackHead === input.head,
+    summaryReady: input.lanes.length > 0 && input.lanes.every((lane) => laneStatus[lane] === "completed"),
+    autofixRequested: input.autofixRequested,
+    breakerOpen: input.head !== "" && input.breakerHead === input.head,
+    attempts: input.attempts,
+    startedAt: input.startedAt,
+  };
+}
+
 // Package source strings a durable review lane should load as additionalExtensionPaths.
 // graphify always (if configured) - reviewers benefit from graphify_query/path/explain.
 // context-mode only when enabled (bare-string form, or an object entry without an

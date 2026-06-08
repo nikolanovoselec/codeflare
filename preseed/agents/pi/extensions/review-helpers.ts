@@ -181,6 +181,31 @@ export function isPrBoundaryCommand(command: string): boolean {
   return reviewBoundaryCommands(command).some(isBoundaryWords);
 }
 
+function isGitPushWords(words: ShellCommand): boolean {
+  return gitArgs(words)?.[0] === "push";
+}
+
+function isGhRepoSyncWords(words: ShellCommand): boolean {
+  return words[0] === "gh" && words[1] === "repo" && words[2] === "sync";
+}
+
+function isGhPrUpdateBranchWords(words: ShellCommand): boolean {
+  return words[0] === "gh" && words[1] === "pr" && words[2] === "update-branch";
+}
+
+// THE single PR-boundary trigger predicate (review.md §17.5). A real boundary is a
+// git push / gh repo sync, a gh pr update-branch, or a gh pr create targeting
+// main/master. `gh pr merge` is deliberately NOT a trigger: it is the merge gate
+// (handled separately), so merging never arms a fresh review of the head being
+// merged. Use this for "should this command start a review?"; isPrBoundaryCommand
+// stays the low-level word matcher used to pluck a command out of a tool event.
+export function isPrBoundaryTrigger(command: string): boolean {
+  if (prCreateBoundaryBase(command)) return true;
+  return reviewBoundaryCommands(command).some(
+    (words) => isGitPushWords(words) || isGhRepoSyncWords(words) || isGhPrUpdateBranchWords(words),
+  );
+}
+
 export function commandTextFromEvent(event: any): string {
   const inputs = [event?.input, event?.params, event?.args, event?.arguments, event?.toolCall?.arguments, event?.toolCall?.input, event?.toolCall?.params];
   const commands: string[] = [];
