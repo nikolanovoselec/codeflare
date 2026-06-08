@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { compactDurableReviewStatus } from "./review-job-helpers";
 
 const ACTIVE_REPO_FILE = "/home/user/.cache/codeflare-hooks/graphify-active-cwd";
 const CACHE_TTL_MS = 1_000;
@@ -112,6 +113,42 @@ function truncateToWidth(text: string, width: number): string {
   return `${output}\x1b[0m…`;
 }
 
+// Compute the PR-boundary review row FRESH FROM DISK each render. The review-enforcement
+// extension can only push its status via ctx.ui.setStatus on a user turn, so a lane advanced
+// by the autonomous reaper timer (no ctx) never repaints the footer. Reading the durable job
+// here — the footer already re-renders every CACHE_TTL_MS — makes the row reflect disk truth
+// (e.g. doc-updater turning yellow) regardless of who advanced it. Returns undefined when no
+// review is active or every lane is done, so the row appears only while a review is in flight.
+function liveReviewRow(repo: string, theme: { fg(style: string, text: string): string }): string | undefined {
+  try {
+    const pending = JSON.parse(readFileSync(join(repo, ".git", "sdd-review-pending.json"), "utf8")) as { head?: string; lanes?: string[] };
+    const head = pending.head;
+    const lanes = pending.lanes;
+    if (!head || !lanes || lanes.length === 0) return undefined;
+    let laneState: Record<string, { status?: string }> = {};
+    try {
+      laneState = (JSON.parse(readFileSync(join(repo, ".git", "codeflare-review-jobs", head, "job.json"), "utf8")).laneState) || {};
+    } catch {
+      // no durable job yet — lanes are all pending
+    }
+    const completed = lanes.filter((lane) => existsSync(join(repo, ".git", "sdd-review-results", head, `${lane}.md`)) || laneState[lane]?.status === "completed");
+    if (completed.length === lanes.length) return undefined; // review finished — clear the row
+    const running = lanes.filter((lane) => laneState[lane]?.status === "running");
+    return compactDurableReviewStatus({
+      head,
+      lanes,
+      completed,
+      running,
+      style: {
+        done: (label: string) => theme.fg("success", label),
+        running: (label: string) => theme.fg("warning", label),
+      },
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 function renderLine(ctx: ExtensionContext, effort: string): string {
   const model = ctx.model?.id ?? "model";
   return [
@@ -147,7 +184,15 @@ export default function (pi: ExtensionAPI) {
           if (!cached || now - cached.checkedAt > CACHE_TTL_MS) {
             cached = { value: renderLine(ctx, pi.getThinkingLevel()), checkedAt: now };
           }
-          const statuses = Array.from(footerData.getExtensionStatuses().values()).filter(Boolean);
+          // Take every extension status EXCEPT codeflare-review (that one only refreshes on a
+          // user turn); compute the review row fresh from disk so timer-driven lane changes show.
+          const statuses = Array.from(footerData.getExtensionStatuses().entries())
+            .filter(([key]) => key !== "codeflare-review")
+            .map(([, value]) => value)
+            .filter(Boolean);
+          const repo = activeRepoFromSentinel() ?? findGitRoot(ctx.sessionManager.getCwd()) ?? findGitRoot(ctx.cwd);
+          const reviewRow = repo ? liveReviewRow(repo, theme) : undefined;
+          if (reviewRow) statuses.push(reviewRow);
           const lines = [theme.fg("dim", truncateToWidth(cached.value, width))];
           if (statuses.length > 0) lines.push(truncateToWidth(statuses.join(" | "), width));
           return lines;
