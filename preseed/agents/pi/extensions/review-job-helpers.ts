@@ -346,12 +346,12 @@ export function stripExistingReviewSummary(text: string): string {
 }
 
 // A review lane can emit a severity COUNT block inside its findings body — e.g. the doc-updater
-// report header lists "CRITICAL: 0", "HIGH: 2", etc. Those lines start with a severity word but
-// are tallies, not findings. A line is a count line when the text after the severity tag is empty
-// or just a number; excluding them stops both the counter and the finding parser from inflating
-// (a phantom CRITICAL from a "CRITICAL: 0" line would otherwise flip the merged verdict to block).
+// report header lists "CRITICAL: 0", "HIGH: 2", or "HIGH: 2 (A, B)". Those lines start with a
+// severity word but are tallies, not findings. Excluding them stops both the counter and the
+// finding parser from inflating (a phantom CRITICAL from "CRITICAL: 0 (none)" would otherwise
+// flip the merged verdict to block).
 function isSeverityCountLine(afterSeverity: string): boolean {
-  return /^\s*:?\s*\d+\s*$/.test(afterSeverity);
+  return /^\s*:?\s*\d+\s*(?:\([^)]*\))?\s*$/.test(afterSeverity);
 }
 
 export function countReviewSeverities(text: string): ReviewSeverityCounts {

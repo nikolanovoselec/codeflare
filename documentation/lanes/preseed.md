@@ -417,9 +417,11 @@ context-mode tools so those `@gotgenes/pi-subagents` subagents run against the
 native Pi tool surface. This applies to subagent frontmatter only. Durable
 PR-boundary review lanes are not `@gotgenes/pi-subagents` and not in-process
 `createAgentSession` calls: `spawnDurableLane` launches detached headless `pi`
-child processes with read-only tools, `--no-extensions`, and explicit `-e`
-loading for `graphify-native.ts`, `review-lane-guards.ts`, plus
-settings-enabled context-mode.
+child processes with a bounded inspection tool allowlist, `--no-extensions`,
+and explicit `-e` loading for `graphify-native.ts`, `review-lane-guards.ts`,
+plus settings-enabled context-mode. Bash remains available for git/gh diff
+inspection; `review-lane-guards.ts` blocks local build, test, lint, and dev-server
+commands in the headless lane.
 
 **Per-mode seeding**: Default mode seeds the core rules plus the
 universal skills; advanced mode seeds the full set (memory, ECC
@@ -529,9 +531,9 @@ enables it. Pi does not load context-mode by default; `/ctx on` enables the
 package for the current running Pi session and reloads resources, while `/ctx off`
 disables it again. Durable PR-boundary review lanes inherit `/ctx on` only when
 `spawnDurableLane` adds the settings-enabled context-mode package as an explicit
-`-e` argument; with `/ctx on`, the lane can expose `ctx_search`, and with it off
-the lane runs without ctx tools. `graphify-native.ts` and
-`review-lane-guards.ts` are loaded separately.
+`-e` argument. With `/ctx on`, the lane can expose `ctx_search`; with it off,
+the lane runs without ctx tools. `graphify-native.ts` and `review-lane-guards.ts`
+are loaded separately.
 The npm package is fetched by the user's own container from the npm
 registry on first invocation; Codeflare does not redistribute the
 source. Commercial users receive only the MCP server registration:

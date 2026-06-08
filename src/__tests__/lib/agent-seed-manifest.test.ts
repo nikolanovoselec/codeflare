@@ -5,6 +5,7 @@ import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, comman
 import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
+import { reviewLaneBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 import localStatuslineExtension from '../../../preseed/agents/pi/extensions/local-statusline';
@@ -831,10 +832,10 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '',
       'doc-updater report — autonomy: auto; scope: `a..b` for `documentation/ sdd/`',
       '',
-      'CRITICAL: 0',
-      'HIGH: 2',
-      'MEDIUM: 1',
-      'LOW: 0',
+      'CRITICAL: 0 (none)',
+      'HIGH: 2 (ADR ledger, preseed docs)',
+      'MEDIUM: 1 (lane classifier docs)',
+      'LOW: 0 (none)',
       'Auto-fixed: 0 (report-only; no files modified)',
       '',
       '[HIGH] ADR ledger is stale after the detached-lane changes',
@@ -912,6 +913,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
             'If any required review lane is still running, pending, missing, or unknown, do not edit, commit, or push; wait for the final merged review summary.',
             'If the user has explicitly said not to automatically fix/implement this round, or to wait for GO/approval, do not edit, commit, or push; present the findings and wait for their command.',
             'Otherwise, fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.',
+            'A finding\'s age is never a reason to skip it: fix every legitimate finding whether it is newly introduced or pre-existing, in this diff or adjacent. Do not exclude, defer, or ask about a legitimate finding because it pre-dates this change — legitimacy is the only criterion.',
             'Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.',
             'Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.',
           ].join('\n'),
@@ -1693,6 +1695,11 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
   it('AC5: a non-build command is never blocked regardless of the sentinel', () => {
     const fs = { existsSync: () => false, unlinkSync: () => { throw new Error('should not be called'); } };
     expect(localBuildBlockReason('git status', fs)).toBeUndefined();
+  });
+
+  it('REQ-AGENT-053 AC16: detached review lanes never consume the local-build bypass sentinel', () => {
+    expect(reviewLaneBlockReason('npm run build')).toMatch(/create \/tmp\/local-build-bypass/);
+    expect(reviewLaneBlockReason('git diff origin/main...HEAD')).toBeUndefined();
   });
 });
 

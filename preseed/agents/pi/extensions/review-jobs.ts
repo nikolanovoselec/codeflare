@@ -63,12 +63,13 @@ type ReviewRunnerContext = {
 
 // Each lane is a detached, headless `pi` child running with no extensions (so it
 // cannot recursively load review-enforcement, starts fast, and exits cleanly) and
-// a fixed read-only tool set. The reaper enforces this wall-clock budget from disk,
+// a bounded inspection tool set. The reaper enforces this wall-clock budget from disk,
 // so it survives the spawning process exiting — unlike an in-process setTimeout.
 const DURABLE_LANE_TIMEOUT_MS = 15 * 60 * 1000;
-// Read-only review tool set. Built-ins plus graphify (always loaded into the lane)
-// and context-mode's read-only ctx_search (available when the context-mode package
-// is enabled in settings); listing a tool whose extension did not load is harmless.
+// Bounded review inspection tool set. Built-ins plus bash for git/gh diff inspection,
+// graphify (always loaded into the lane), and context-mode's read-only ctx_search
+// (available when the context-mode package is enabled in settings); listing a tool
+// whose extension did not load is harmless.
 const LANE_TOOLS = "read,grep,find,bash,graphify_query,graphify_explain,graphify_path,ctx_search";
 
 function now(): number {
