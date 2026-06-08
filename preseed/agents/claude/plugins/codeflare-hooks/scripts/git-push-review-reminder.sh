@@ -95,6 +95,14 @@ COMMAND=$(echo "$INPUT" | jq -r '
 # The `([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*` group consumes any
 # leading VAR=value env prefix (zero-or-more, so bare commands still match).
 # This mirrors the awk fix in enforce-review-spawn.sh PUSH_LINE.
+#
+# Newlines are command separators too: a `git push` on its own line in a
+# multi-line Bash command is a real PR boundary, but the [;&|] separator class
+# in the regex below excludes \n — so an agent pushing via a multi-line command
+# silently skipped the in-turn review directive entirely. Normalize newlines/CRs
+# to ';' so the anchored regex catches a newline-separated push (parity with
+# enforce-review-spawn.sh, whose awk already recognizes \n before git push).
+COMMAND=$(printf '%s' "$COMMAND" | tr '\n\r' ';;')
 TRIGGER=""
 if [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$) ]]; then
   TRIGGER="pr-open"

@@ -195,6 +195,19 @@ describe('git-push-review-reminder.sh — PR-SYNC trigger (base-gated)', () => {
     assert.match(r.stdout, /PR-sync/);
   });
 
+  it('detects git push on its own line in a NEWLINE-separated command', () => {
+    // Regression: the trigger regex's separator class was [;&|], excluding \n,
+    // so a multi-line Bash command with `git push` on a later line silently
+    // emitted no review directive. COMMAND is now newline-normalized to ';'.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const r = runHook(cwd, 'git checkout feature\ngit push origin feature', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/);
+    assert.match(r.stdout, /PR-sync/);
+  });
+
   it('emits silent directive when current branch has open PR to master', () => {
     const cwd = makeFixture();
     withSdd(cwd);
