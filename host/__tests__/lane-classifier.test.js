@@ -183,6 +183,31 @@ describe('compute_required_lanes - file classification', () => {
   });
 });
 
+describe('compute_required_lanes - generated graphify-out artifacts (REQ-AGENT-040 AC8)', () => {
+  it('graphify-out-only diff returns empty (generated artifact, caller auto-acks)', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'src/foo.ts', '1\n', 'feat: base');
+    const next = commitFile(cwd, run, 'graphify-out/graph.json', '{}\n', 'chore: refresh graph');
+    assert.equal(classify(cwd, base, next), '');
+  });
+
+  it('graphify-out mixed with a source file still returns all three lanes (generated never suppresses a real review)', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'documentation/notes.md', '1\n', 'docs: base');
+    commitFile(cwd, run, 'graphify-out/graph.json', '{}\n', 'chore: refresh graph');
+    const next = commitFile(cwd, run, 'src/foo.ts', 'export {};\n', 'feat: foo');
+    assert.equal(classify(cwd, base, next), 'code-reviewer spec-reviewer doc-updater');
+  });
+
+  it('graphify-out mixed with sdd only returns spec-reviewer + doc-updater', () => {
+    const { cwd, run } = makeRepo();
+    const base = commitFile(cwd, run, 'src/foo.ts', '1\n', 'feat: base');
+    commitFile(cwd, run, 'graphify-out/graph.json', '{}\n', 'chore: refresh graph');
+    const next = commitFile(cwd, run, 'sdd/memory.md', '# REQ\n', 'spec: REQ');
+    assert.equal(classify(cwd, base, next), 'spec-reviewer doc-updater');
+  });
+});
+
 describe('compute_required_lanes - rename safety (--no-renames)', () => {
   it('src->doc rename still classifies as behavioral (rename attack guard)', () => {
     // Adversarial case: a rename from src/foo.ts to documentation/foo.md

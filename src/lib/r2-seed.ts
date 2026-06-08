@@ -175,18 +175,10 @@ function normalizePiSeedDocument(doc: SeedDocument): SeedDocument | null {
   // Pi agents keep the context-mode tool declarations remapped from the shared agent
   // frontmatter: inert when context-mode is off (the ctx_* tools are absent and Pi
   // drops them), usable when /ctx enables it. No Pi-specific stripping.
-
-  if (doc.key === '.pi/agent/mcp.json') {
-    try {
-      const parsed = JSON.parse(doc.content) as { mcpServers?: Record<string, unknown> };
-      if (parsed.mcpServers && 'context-mode' in parsed.mcpServers) {
-        delete parsed.mcpServers['context-mode'];
-        return { ...doc, content: `${JSON.stringify(parsed, null, 2)}\n` };
-      }
-    } catch {
-      return doc;
-    }
-  }
+  //
+  // Pi has no MCP client: graphify and context-mode reach Pi as first-party native
+  // extensions (graphify-native.ts) and tool declarations, never via a seeded mcp.json,
+  // so there is no mcp.json server list to strip here.
 
   return doc;
 }

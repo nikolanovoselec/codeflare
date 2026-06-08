@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "graphify": {
-      "command": "/root/.local/share/uv/tools/graphifyy/bin/python",
-      "args": ["-m", "graphify.serve"]
-    }
-  }
-}

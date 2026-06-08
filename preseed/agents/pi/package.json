@@ -2,7 +2,6 @@
   "name": "codeflare-pi-preseed",
   "private": true,
   "dependencies": {
-    "@gaodes/pi-graphify": "0.2.2",
     "@gotgenes/pi-subagents": "14.0.0",
     "context-mode": "1.0.162"
   }

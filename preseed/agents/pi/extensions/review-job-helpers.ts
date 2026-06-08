@@ -651,8 +651,48 @@ export function computeReviewStateFrom(input: ComputeReviewStateInput): ReviewSt
   };
 }
 
-// Package source strings a durable review lane should load as additionalExtensionPaths.
-// graphify always (if configured) - reviewers benefit from graphify_query/path/explain.
+// ── Open-PR reconciliation (REQ-AGENT-058) ──────────────────────────────────
+// The onToolEnd boundary path can miss a PR-open command (compound `&&` + here-doc
+// parsing, a reload between command and event, a model that prints the URL without
+// the structured tool result). Reconciliation is the durable fallback: on lifecycle
+// ticks, if an OPEN, non-draft, ENFORCED main/master PR has a head that is not yet
+// acknowledged and has no review window and no open breaker, start one. This is the
+// narrow, bounded re-read REQ-036 AC7 permits - it never fires on mere branch/PR
+// existence, only on an open enforced PR whose head has no review at all. Returning a
+// reason (not a bare boolean) keeps the decision auditable: the caller logs every
+// non-reconcile outcome as a boundary_candidate_ignored event (never-silent, AC4).
+
+export type OpenPrReconcileInput = {
+  // PR facts (from `gh pr view`): the PR for this branch is OPEN and not a draft.
+  prOpen: boolean;
+  prDraft: boolean;
+  // Enforced = SDD project AND the PR base is main/master (the only gated boundary).
+  enforced: boolean;
+  // The resolved enforced head commit to review ("" when none could be resolved).
+  head: string;
+  // Review state for that head, from computeReviewState.
+  acked: boolean;
+  hasReviewJob: boolean;
+  reviewActive: boolean;
+  breakerOpen: boolean;
+};
+
+export type OpenPrReconcileDecision = { reconcile: boolean; reason: string };
+
+export function shouldReconcileOpenPr(input: OpenPrReconcileInput): OpenPrReconcileDecision {
+  if (!input.prOpen) return { reconcile: false, reason: "no open PR for branch" };
+  if (input.prDraft) return { reconcile: false, reason: "PR is a draft" };
+  if (!input.enforced) return { reconcile: false, reason: "PR not enforced (base not main/master, or not an SDD project)" };
+  if (!input.head) return { reconcile: false, reason: "no resolvable enforced head" };
+  if (input.acked) return { reconcile: false, reason: "head already acknowledged" };
+  if (input.breakerOpen) return { reconcile: false, reason: "review breaker open for head" };
+  if (input.hasReviewJob || input.reviewActive) return { reconcile: false, reason: "review window already exists for head" };
+  return { reconcile: true, reason: "open enforced PR head is unacknowledged with no review window" };
+}
+
+// Npm package source strings a durable review lane should load as additionalExtensionPaths.
+// Graphify is a first-party LOCAL extension (graphify-native.ts), loaded directly by the lane
+// runner alongside codeflare-pi - it is not an npm package and never appears here.
 // context-mode only when enabled (bare-string form, or an object entry without an
 // `extensions` filter - mirrors codeflare-pi's contextModeEnabled), so lanes inherit /ctx on.
 // Never @gotgenes/pi-subagents (the lane must not spawn subagents).
@@ -664,8 +704,7 @@ export function laneExtensionSources(
     const source = typeof entry === "string" ? entry : entry?.source ?? "";
     if (!source) continue;
     const enabled = typeof entry === "string" || entry.extensions === undefined;
-    if (source.includes("@gaodes/pi-graphify")) sources.push(source);
-    else if (source.includes("context-mode") && enabled) sources.push(source);
+    if (source.includes("context-mode") && enabled) sources.push(source);
   }
   return sources;
 }

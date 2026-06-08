@@ -2,8 +2,8 @@
  * Codeflare Pi native Browser Run wrapper (REQ-BROWSER-003).
  *
  * Pi does not consume MCP servers, so Browser Run is exposed as NATIVE Pi tools
- * (mirroring how @gaodes/pi-graphify ships graphify_* tools) instead of via
- * chrome-devtools-mcp the way Claude Code is wired. These tools call Cloudflare
+ * (mirroring how the first-party graphify-native.ts ships graphify_* tools) instead
+ * of via chrome-devtools-mcp the way Claude Code is wired. These tools call Cloudflare
  * Browser Run's REST "Quick Actions" — a real headless Chrome that renders the
  * page with JavaScript executed — so the agent can fall back to it when the
  * built-in web fetch is blocked by bot protection, login walls, redirect chains,

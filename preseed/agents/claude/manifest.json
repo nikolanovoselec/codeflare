@@ -472,6 +472,26 @@
       "advanced"
     ]
   },
+  "skills/graphify/references/extraction-spec.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/graphify/references/build.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/graphify/references/update.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/graphify/references/query.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/iterative-retrieval/SKILL.md": {
     "modes": [
       "advanced"

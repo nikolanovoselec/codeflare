@@ -27,6 +27,8 @@
 #   - sdd/** only              -> "spec-reviewer doc-updater"
 #   - documentation/** etc.    -> "doc-updater"
 #   - sdd + docs (no source)   -> "spec-reviewer doc-updater"
+#   - graphify-out/** only     -> "" (generated, machine-authored knowledge graph;
+#                                 no reviewable behavior, caller auto-acks. REQ-AGENT-040 AC8)
 #
 # Classification details, NUL-byte hazards, and rename safety are
 # documented at each branch below; keep this file and the callers
@@ -97,11 +99,18 @@ compute_required_lanes() {
   # classification produced no signal, force all three lanes. This
   # guards against any future NUL-handling regression or unexpected
   # git output.
-  local has_behavioral=0 touches_sdd=0 touches_docs=0 file_count=0
+  local has_behavioral=0 touches_sdd=0 touches_docs=0 file_count=0 generated_count=0
   while IFS= read -r -d '' file; do
     [ -z "$file" ] && continue
     file_count=$((file_count + 1))
     case "$file" in
+      graphify-out/*)
+        # Generated, machine-authored artifact (the checked-in graphify knowledge
+        # graph). Contributes no review lane (REQ-AGENT-040 AC8). Counted so a
+        # generated-ONLY diff is distinguishable from an empty/errored diff below;
+        # a diff mixing it with real source/sdd/docs is still classified by those.
+        generated_count=$((generated_count + 1))
+        ;;
       sdd/*)
         touches_sdd=1
         ;;
@@ -123,6 +132,14 @@ compute_required_lanes() {
   # Conservative: require all three lanes rather than silently ack.
   if [ "$file_count" = "0" ]; then
     echo "code-reviewer spec-reviewer doc-updater"
+    return
+  fi
+
+  # Generated-only diff (REQ-AGENT-040 AC8): every changed file is a machine-authored
+  # graphify-out/ artifact, so there is no reviewable behavior. Require no lanes; the
+  # caller auto-acks the head (same empty-string contract as an already-acked same-SHA
+  # advance). This is the only path that returns empty for a non-empty diff.
+  if [ "$((file_count - generated_count))" = "0" ]; then
     return
   fi
 

@@ -513,11 +513,16 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isPrBoundaryCommand('gh pr view --json number')).toBe(false);
   });
 
-  it('REQ-AGENT-036: seeded Pi review enforcement has no passive agent_end catch-up', () => {
+  it('REQ-AGENT-036 / REQ-AGENT-058: seeded Pi review enforcement recovers a missed boundary only through the bounded open-PR reconciliation, never from passive branch existence', () => {
     const seeded = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/extensions/review-enforcement.ts');
-    expect(seeded?.content).toContain('Passive session lifecycle events are not PR-boundary events');
+    // The missed-event recovery path is wired in (REQ-AGENT-058): agent_end no longer goes
+    // passive on a missing window — it runs reconciliation first.
+    expect(seeded?.content).toContain('reconcileOpenPrReview');
+    // The decision is the pure, narrowly-gated shouldReconcileOpenPr (open + non-draft + enforced
+    // + unacked + no window + no breaker), so reconciliation is never triggered by branch existence.
+    expect(seeded?.content).toContain('shouldReconcileOpenPr');
+    // It must not re-introduce an unconditional, passive catch-up summon keyed on mere PR existence.
     expect(seeded?.content).not.toContain('PR-boundary review catch-up required');
-    expect(seeded?.content).not.toContain('agent_end catch-up');
   });
 
   it('REQ-AGENT-040: Pi review enforcement dedupes paired terminal events and evicts old ids', () => {
@@ -860,30 +865,24 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(durableReviewJobDir('/repo', 'abc123')).toBe('/repo/.git/codeflare-review-jobs/abc123');
   });
 
-  it('REQ-AGENT-053 AC8: durable review lanes load graphify always, context-mode only when enabled, never subagents', () => {
+  it('REQ-AGENT-053 AC8: durable review lanes load context-mode only when enabled, never subagents; graphify is a first-party local extension, not a package', () => {
     const enabledCtx = [
-      'npm:@gaodes/pi-graphify@0.2.2',
       'npm:@gotgenes/pi-subagents@14.0.0',
       'npm:context-mode@1.0.151',
     ];
-    // graphify always; context-mode enabled (bare string); subagents never.
-    expect(laneExtensionSources(enabledCtx)).toEqual([
-      'npm:@gaodes/pi-graphify@0.2.2',
-      'npm:context-mode@1.0.151',
-    ]);
+    // context-mode enabled (bare string); subagents never. Graphify is no longer pulled from
+    // npm: it is the first-party graphify-native.ts local extension the lane runner loads directly.
+    expect(laneExtensionSources(enabledCtx)).toEqual(['npm:context-mode@1.0.151']);
 
     const disabledCtx = [
-      'npm:@gaodes/pi-graphify@0.2.2',
       'npm:@gotgenes/pi-subagents@14.0.0',
       { source: 'npm:context-mode@1.0.151', extensions: [], skills: [] },
     ];
-    // context-mode in disabled filter form -> only graphify.
-    expect(laneExtensionSources(disabledCtx)).toEqual(['npm:@gaodes/pi-graphify@0.2.2']);
+    // context-mode in disabled filter form -> nothing additive loads.
+    expect(laneExtensionSources(disabledCtx)).toEqual([]);
 
-    // object graphify entry without an extensions filter is still enabled.
-    expect(laneExtensionSources([{ source: 'npm:@gaodes/pi-graphify@0.2.2' }])).toEqual([
-      'npm:@gaodes/pi-graphify@0.2.2',
-    ]);
+    // The third-party @gaodes graphify wrapper is no longer a package source and is never loaded.
+    expect(laneExtensionSources(['npm:@gaodes/pi-graphify@0.2.2'])).toEqual([]);
 
     // empty / unrelated packages -> nothing.
     expect(laneExtensionSources([])).toEqual([]);
@@ -915,9 +914,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(selectReviewBase({ previous: undefined, lastAck: undefined, previousRemoteHead: 'remote-prev' })).toBeUndefined();
   });
 
-  it('REQ-AGENT-023: Pi native runtime assets include graphify package, MCP config, and skill override', () => {
+  it('REQ-AGENT-023: Pi native runtime assets expose first-party graphify-native tools (no MCP, no third-party wrapper)', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
-    expect(keys.has('.pi/agent/mcp.json')).toBe(true);
+    // Pi has no MCP client: graphify is a first-party native extension, never an MCP server.
+    expect(keys.has('.pi/agent/extensions/graphify-native.ts')).toBe(true);
+    expect(keys.has('.pi/agent/mcp.json')).toBe(false);
     expect(keys.has('.pi/agent/npm/package.json')).toBe(true);
     expect(keys.has('.pi/agent/npm/package-lock.json')).toBe(true);
     expect(keys.has('.pi/agent/skills/graphify/SKILL.md')).toBe(true);
@@ -925,8 +926,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(keys.has('.pi/agent/scripts/build-graphify-ast.sh')).toBe(true);
     expect(keys.has('.pi/agent/scripts/build-graphify-architecture.sh')).toBe(true);
     expect(keys.has('.pi/agent/scripts/local-graphify-labels.sh')).toBe(true);
+    // The third-party @gaodes/pi-graphify wrapper is gone from the Pi npm closure.
     const piPackage = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/npm/package.json');
-    expect(piPackage?.content).toContain('"@gaodes/pi-graphify": "0.2.2"');
+    expect(piPackage?.content ?? '').not.toContain('@gaodes/pi-graphify');
+    // graphify-native is ambient (default + advanced); the heavier graph-build scripts stay advanced-only.
+    const graphifyNative = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/extensions/graphify-native.ts');
+    expect(graphifyNative?.modes).toEqual(['default', 'advanced']);
     for (const key of [
       '.pi/agent/extensions/graphify-helpers.ts',
       '.pi/agent/skills/graphify/SKILL.md',

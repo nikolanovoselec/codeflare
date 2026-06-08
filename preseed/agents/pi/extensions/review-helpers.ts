@@ -223,6 +223,16 @@ export function isFailedToolExecution(event: any): boolean {
   return event?.isError === true || event?.error === true || String(event?.status ?? "").toLowerCase() === "error";
 }
 
+// Extract a GitHub PR URL from arbitrary tool-output text. `gh pr create` prints
+// the new PR's URL on success; when the command text itself could not be parsed
+// out of the tool event, this lets the boundary path still recognise that a PR
+// was created and reconcile from it (REQ-AGENT-058 AC5).
+export function prUrlFromText(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const match = text.match(/https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+/);
+  return match ? match[0] : undefined;
+}
+
 export type ReviewHeadStatus = "current" | "advanced" | "stale" | "unknown";
 
 export function bypassAckHeadForStatus(params: { status: ReviewHeadStatus; pendingHead: string; currentHead?: string }): string | undefined {
@@ -328,6 +338,22 @@ export function selectReviewBase(params: {
   return params.previous?.head || params.lastAck;
 }
 
+// Generated, machine-authored artifacts checked into the repo. The graphify
+// knowledge graph under `graphify-out/` is derived output, not authored source,
+// so a diff touching only these needs no prose review lane (REQ-AGENT-040 AC8).
+const GENERATED_ARTIFACT_PREFIXES = ["graphify-out/"];
+
+export function isGeneratedArtifactPath(file: string): boolean {
+  return GENERATED_ARTIFACT_PREFIXES.some((prefix) => file.startsWith(prefix));
+}
+
+// True when a non-empty diff touches ONLY generated artifacts. The caller uses
+// this to write an explicit, durable auto-ack audit reason rather than spawning
+// reviewers on derived output.
+export function isGeneratedOnlyDiff(files: string[] | undefined): boolean {
+  return Array.isArray(files) && files.length > 0 && files.every(isGeneratedArtifactPath);
+}
+
 export function classifyReviewFiles(files: string[] | undefined): string[] | undefined {
   if (files === undefined) return ALL_REVIEW_LANES;
   if (files.length === 0) return [];
@@ -335,6 +361,9 @@ export function classifyReviewFiles(files: string[] | undefined): string[] | und
   let touchesSdd = false;
   let touchesDocs = false;
   for (const file of files) {
+    // Generated artifacts contribute no review lane. A diff that mixes them with
+    // real source/sdd/docs is still classified by those non-generated files.
+    if (isGeneratedArtifactPath(file)) continue;
     if (file.startsWith("sdd/")) touchesSdd = true;
     else if (file.startsWith("documentation/") || ["README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "LICENSE"].includes(file)) touchesDocs = true;
     else hasBehavioral = true;

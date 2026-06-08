@@ -265,11 +265,14 @@ async function runDurableLane(runner: ReviewRunnerContext, job: DurableReviewJob
     ].join("\n");
 
     // Keep noExtensions (so review-enforcement/subagents never load in-process), but additively
-    // load codeflare-pi (build-blocker + guards) and the graphify/context-mode packages so the
-    // reviewer has graphify_query and, when /ctx on, ctx_* tools.
+    // load codeflare-pi (build-blocker + guards), the first-party graphify-native extension
+    // (graphify_query/path/explain), and context-mode so the reviewer has graphify and, when
+    // /ctx on, ctx_* tools.
     const codeflarePiPath = join(getAgentDir(), "extensions", "codeflare-pi.ts");
+    const graphifyNativePath = join(getAgentDir(), "extensions", "graphify-native.ts");
     const additionalExtensionPaths = [
       ...(existsSync(codeflarePiPath) ? [codeflarePiPath] : []),
+      ...(existsSync(graphifyNativePath) ? [graphifyNativePath] : []),
       ...laneExtensionSources(readPiAgentPackages()),
     ];
 

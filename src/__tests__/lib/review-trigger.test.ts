@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPrBoundaryTrigger, isPrBoundaryCommand } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { isPrBoundaryTrigger, isPrBoundaryCommand, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * isPrBoundaryTrigger is the single "should this command start a review?" predicate.
@@ -44,5 +44,62 @@ describe('isPrBoundaryTrigger', () => {
     expect(isPrBoundaryTrigger('git status')).toBe(false);
     expect(isPrBoundaryTrigger('git commit -m "wip"')).toBe(false);
     expect(isPrBoundaryTrigger('ls -la')).toBe(false);
+  });
+});
+
+/**
+ * REQ-AGENT-040 AC8: a diff that touches ONLY the generated graphify-out/ knowledge graph must
+ * classify to zero review lanes so the PR-boundary auto-acknowledges — that checked-in graph is
+ * machine-authored and carries no reviewable behavior. A diff that MIXES generated artifacts with
+ * real source/sdd/docs is still classified by the non-generated files (the generated ones are
+ * skipped, not allowed to suppress a real review).
+ */
+describe('classifyReviewFiles generated-artifact handling', () => {
+  it('classifies a graphify-out-only diff to zero lanes (auto-ack)', () => {
+    expect(classifyReviewFiles(['graphify-out/graph.json'])).toEqual([]);
+    expect(classifyReviewFiles(['graphify-out/graph.json', 'graphify-out/memory/q1.md'])).toEqual([]);
+  });
+
+  it('still classifies the non-generated files when a diff mixes them with graphify-out', () => {
+    expect(classifyReviewFiles(['graphify-out/graph.json', 'src/lib/access.ts'])).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
+    expect(classifyReviewFiles(['graphify-out/graph.json', 'sdd/spec/agents.md'])).toEqual(['spec-reviewer', 'doc-updater']);
+    expect(classifyReviewFiles(['graphify-out/graph.json', 'documentation/lanes/architecture.md'])).toEqual(['doc-updater']);
+  });
+
+  it('preserves the undefined (unknowable diff -> full review) and empty (no change -> ack) contracts', () => {
+    expect(classifyReviewFiles(undefined)).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
+    expect(classifyReviewFiles([])).toEqual([]);
+  });
+});
+
+describe('isGeneratedArtifactPath / isGeneratedOnlyDiff', () => {
+  it('matches only the top-level graphify-out/ generated tree', () => {
+    expect(isGeneratedArtifactPath('graphify-out/graph.json')).toBe(true);
+    expect(isGeneratedArtifactPath('graphify-out/memory/q.md')).toBe(true);
+    expect(isGeneratedArtifactPath('src/graphify-out/x')).toBe(false);
+    expect(isGeneratedArtifactPath('src/lib/access.ts')).toBe(false);
+  });
+
+  it('isGeneratedOnlyDiff is true only for a non-empty, all-generated diff', () => {
+    expect(isGeneratedOnlyDiff(['graphify-out/graph.json'])).toBe(true);
+    expect(isGeneratedOnlyDiff(['graphify-out/graph.json', 'src/b.ts'])).toBe(false);
+    expect(isGeneratedOnlyDiff([])).toBe(false);
+    expect(isGeneratedOnlyDiff(undefined)).toBe(false);
+  });
+});
+
+/**
+ * REQ-AGENT-058 AC5: the PR-URL fallback recovers a missed `gh pr create` boundary by spotting
+ * the PR URL the command printed even when the command text itself was not parsed as a boundary.
+ */
+describe('prUrlFromText', () => {
+  it('extracts the first GitHub PR URL from tool output', () => {
+    expect(prUrlFromText('Creating pull request for feature into main\nhttps://github.com/owner/repo/pull/512\n')).toBe('https://github.com/owner/repo/pull/512');
+  });
+
+  it('returns undefined for output without a PR URL', () => {
+    expect(prUrlFromText('https://github.com/owner/repo/issues/3')).toBeUndefined();
+    expect(prUrlFromText('no url here')).toBeUndefined();
+    expect(prUrlFromText(undefined)).toBeUndefined();
   });
 });
