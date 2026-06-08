@@ -566,7 +566,7 @@ function finalizeCompletedReviewFromDisk(state: PendingReview): void {
 // the autofix turn when an idle review completes. Falls back to disk-only ack until it is bound.
 let activeReviewFinalize: ((state: PendingReview) => void) | undefined;
 
-// Autonomous review reaper (REQ-AGENT-054 AC7). Detached lane children run to completion
+// Autonomous review reaper (REQ-AGENT-061 AC1-AC3). Detached lane children run to completion
 // on their own, but the reaper that harvests them (writes the result file, advances the
 // state machine) otherwise only runs on user-driven lifecycle ticks — so a push followed
 // by an idle session leaves finished lanes unharvested (agent_end on disk, no result file).

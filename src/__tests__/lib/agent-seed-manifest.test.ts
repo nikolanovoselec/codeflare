@@ -897,7 +897,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(merged.findings).toHaveLength(3);
   });
 
-  it('REQ-AGENT-053: hidden autofix requests send one follow-up only for actionable findings and only after marker claim', () => {
+  it('REQ-AGENT-059: hidden autofix requests send one follow-up only for actionable findings and only after marker claim', () => {
     const sent: Array<{ message: unknown; options: unknown }> = [];
     const sender = { sendMessage: (message: unknown, options: unknown) => sent.push({ message, options }) };
 
@@ -972,13 +972,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(sent).toHaveLength(0);
   });
 
-  it('REQ-AGENT-053: review autofix follows the latest explicit user auto/manual directive', () => {
+  it('REQ-AGENT-059: review autofix follows the latest explicit user auto/manual directive', () => {
     expect(reviewAutofixModeFromUserMessages(['do not auto fix next round', 'review summary arrived'])).toBe('manual');
     expect(reviewAutofixModeFromUserMessages(['do not automatically implement', 'GO, implement findings'])).toBe('auto');
     expect(reviewAutofixModeFromUserMessages(['ordinary review discussion'])).toBe('unset');
   });
 
-  it('REQ-AGENT-053: durable Pi review severity helpers identify actionable findings for the fix loop', () => {
+  it('REQ-AGENT-059: durable Pi review severity helpers identify actionable findings for the fix loop', () => {
     const counts = countReviewSeverities('[CRITICAL] broken\n[HIGH] risky\n[MEDIUM] incomplete\n[LOW] typo');
     expect(counts).toEqual({ critical: 1, high: 1, medium: 1, low: 1 });
     expect(actionableReviewCount(counts)).toBe(3);
@@ -1014,7 +1014,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(durableReviewJobDir('/repo', 'abc123')).toBe('/repo/.git/codeflare-review-jobs/abc123');
   });
 
-  it('REQ-AGENT-053 AC8: durable review lanes load context-mode only when enabled, never subagents; graphify is a first-party local extension, not a package', () => {
+  it('REQ-AGENT-060 AC6: durable review lanes load context-mode only when enabled, never subagents; graphify is a first-party local extension, not a package', () => {
     const enabledCtx = [
       'npm:@gotgenes/pi-subagents@14.0.1',
       'npm:context-mode@1.0.151',
@@ -1697,7 +1697,7 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
     expect(localBuildBlockReason('git status', fs)).toBeUndefined();
   });
 
-  it('REQ-AGENT-053 AC16: detached review lanes never consume the local-build bypass sentinel', () => {
+  it('REQ-AGENT-060 AC7: detached review lanes never consume the local-build bypass sentinel', () => {
     expect(reviewLaneBlockReason('npm run build')).toMatch(/create \/tmp\/local-build-bypass/);
     expect(reviewLaneBlockReason('git diff origin/main...HEAD')).toBeUndefined();
   });

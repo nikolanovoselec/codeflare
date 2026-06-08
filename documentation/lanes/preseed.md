@@ -304,13 +304,14 @@ All preseed content is deployed via the manifest pipeline:
   `## Findings`, and `## Finding Details` sections. That chat summary aggregates
   severity counts across code/spec/docs, lists all findings sorted by
   criticality, and avoids per-lane result-file links; the per-lane `.md` files
-  remain the durable evidence store. Partial lane results, including any
-  missing, failed, timed-out, or still-running lane, cannot trigger autofix. If
-  legitimate MEDIUM/HIGH/CRITICAL findings remain after the complete exact-head
-  summary, Pi then requests a fix-and-push pass, unless the latest explicit user
-  directive opts out of auto-fixing for the round (in which case Pi presents the
-  findings and waits). Implements
-  [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop).
+  remain the durable evidence store. Implements
+  [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-and-result-formatting).
+
+  Partial lane results, including any missing, failed, timed-out, or still-running
+  lane, cannot trigger autofix. If legitimate MEDIUM/HIGH/CRITICAL findings remain
+  after the complete exact-head summary, Pi then requests a fix-and-push pass,
+  unless the latest explicit user directive opts out of auto-fixing for the round.
+  Implements [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop).
 
   Timed-out or failed durable lanes are recorded as failed and do not produce
   the required result file. The PR head remains unacked until a later review run
@@ -715,7 +716,10 @@ To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-
 - [REQ-AGENT-047](../../sdd/spec/agents.md#req-agent-047-resume-mode-closure-and-review-pipeline-gate) - Resume Mode closure and review-pipeline gate
 - [REQ-AGENT-048](../../sdd/spec/agents.md#req-agent-048-audit-accumulator-surfaces) - Audit accumulator surfaces
 - [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill) - Pi-Native `/review` Workflow Skill
-- [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-result-formatting-and-fix-loop) - Pi Durable Review Status, Result Formatting, and Fix Loop
+- [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-and-result-formatting) - Pi Durable Review Status and Result Formatting
+- [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop) - Pi Durable Review Fix Loop
+- [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface) - Pi Durable Review Lane Tool Surface
+- [REQ-AGENT-061](../../sdd/spec/agents.md#req-agent-061-pi-idle-durable-review-reaper) - Pi Idle Durable Review Reaper
 - [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement) - Pi PR-Boundary Review Window Advancement
 - [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) - Pi Local Statusline Footer
 - [REQ-AGENT-057](../../sdd/spec/agents.md#req-agent-057-pi-review-status-command) - Pi Review-Status Command
