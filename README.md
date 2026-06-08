@@ -117,7 +117,7 @@ Containers scale to zero when idle (no sessions, no bill); storage persists. A p
 
 ## Quick start
 
-Four steps.
+Four simple steps.
 
 ### 1. Fork this repo
 
