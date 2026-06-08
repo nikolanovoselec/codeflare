@@ -37,6 +37,7 @@ type PrState = {
   state?: string;
   baseRefName?: string;
   headRefOid?: string;
+  headRefName?: string;
   number?: number;
   isDraft?: boolean;
 };
@@ -101,7 +102,7 @@ function isSddProject(repo: string): boolean {
 
 function prState(repo: string): PrState | undefined {
   try {
-    const out = shell("gh pr view --json number,state,baseRefName,headRefOid,isDraft 2>/dev/null", repo);
+    const out = shell("gh pr view --json number,state,baseRefName,headRefOid,headRefName,isDraft 2>/dev/null", repo);
     return out ? JSON.parse(out) as PrState : undefined;
   } catch {
     return undefined;
@@ -314,7 +315,13 @@ function resolveEnforcedHead(repo: string, pr: PrState): string {
   const local = localHead(repo) || "";
   if (!prHead) return local;
   if (!local || prHead === local) return prHead;
-  if (isAncestor(repo, prHead, local)) return local;
+  // Only prefer local HEAD over the reported PR head when we are actually on the PR's own
+  // branch AND local strictly descends from the reported head — i.e. a real push gh's metadata
+  // has not caught up to yet (mirrors reviewCandidateHead's local-push gate). On any other
+  // branch (a sibling whose HEAD merely descends from the PR head) trust GitHub's PR head, so
+  // reconciliation never arms a review window for a commit the PR never had.
+  const onPrBranch = Boolean(pr.headRefName) && currentBranch(repo) === pr.headRefName;
+  if (onPrBranch && isAncestor(repo, prHead, local)) return local;
   return prHead;
 }
 
@@ -928,13 +935,16 @@ export default function (pi: ExtensionAPI) {
   // throttle for once-per-turn ticks. Returns true when a window was created or acked.
   async function reconcileOpenPrReview(ctx: any, force: boolean): Promise<boolean> {
     if (!isActiveRun()) return false;
-    if (pending) return false; // an in-process window is already managed by the normal / roll-forward paths
+    const repo = findGitRoot(ctx.sessionManager.getCwd()) || activeRepoFallback();
+    if (!repo || !isSddProject(repo)) return false;
+    // An in-process window for THIS repo is already managed by the normal / roll-forward paths.
+    // Scope the guard to repo so a stale in-memory window from a different repo cannot suppress
+    // reconciliation for the current one.
+    if (pending && pending.repo === repo) return false;
     const nowTs = Date.now();
     if (!force && nowTs - lastReconcileCheckAt < RECONCILE_THROTTLE_MS) return false;
     lastReconcileCheckAt = nowTs;
 
-    const repo = findGitRoot(ctx.sessionManager.getCwd()) || activeRepoFallback();
-    if (!repo || !isSddProject(repo)) return false;
     const pr = prState(repo);
     const enforced = isEnforcedPr(pr);
     const head = enforced ? resolveEnforcedHead(repo, pr) : "";
