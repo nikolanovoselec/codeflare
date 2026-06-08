@@ -1,10 +1,11 @@
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
-import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
+import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
@@ -585,6 +586,39 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     })).toEqual(['doc-updater']);
     expect(allDurableReviewLanesComplete(lanes, ['code-reviewer', 'spec-reviewer'])).toBe(false);
     expect(allDurableReviewLanesComplete(lanes, ['code-reviewer', 'spec-reviewer', 'doc-updater'])).toBe(true);
+  });
+
+  it('REQ-AGENT-061: idle reaper helpers advance completed lanes to exact-head summary and autofix', () => {
+    const lanes = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
+    expect(durableReviewEligibleLanes({
+      lanes,
+      completed: ['code-reviewer', 'spec-reviewer'],
+      running: [],
+      requestedAt: {},
+      now: 1000,
+      retryMs: 60_000,
+    })).toEqual(['doc-updater']);
+    expect(durableReviewAckReady({ lanes, resultLanes: ['code-reviewer', 'spec-reviewer'] })).toBe(false);
+    expect(durableReviewAckReady({ lanes, resultLanes: ['code-reviewer', 'spec-reviewer', 'doc-updater'] })).toBe(true);
+
+    const summary = formatMergedReviewSummary({
+      repoName: 'codeflare',
+      head: 'abc123',
+      records: [{ lane: 'code-reviewer', path: '/tmp/code.md', text: '[HIGH] fix me', counts: { critical: 0, high: 1, medium: 0, low: 0 }, recommendation: 'fix' }],
+    });
+    expect(summary).toContain('PR-boundary review acknowledged for codeflare at abc123.');
+    expect(summary).toContain('| HIGH | 1 | warn |');
+
+    const sent: Array<{ message: { details?: unknown }; options: unknown }> = [];
+    expect(requestReviewAutofixForRows({
+      sender: { sendMessage: (message: { details?: unknown }, options: unknown) => sent.push({ message, options }) },
+      repo: '/repo/codeflare',
+      head: 'abc123',
+      rows: [{ counts: { critical: 0, high: 1, medium: 0, low: 0 } }],
+      reviewComplete: true,
+      claim: () => true,
+    })).toBe(true);
+    expect(sent).toEqual([{ message: expect.objectContaining({ details: { repo: '/repo/codeflare', head: 'abc123' } }), options: { triggerTurn: true, deliverAs: 'followUp' } }]);
   });
 
   it('REQ-AGENT-054: durable lane recovery reflects disk status (result wins; running is preserved for the reaper; completed-without-result reopens; failed stays unacked)', () => {
@@ -1698,8 +1732,16 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
   });
 
   it('REQ-AGENT-060 AC7: detached review lanes never consume the local-build bypass sentinel', () => {
-    expect(reviewLaneBlockReason('npm run build')).toMatch(/create \/tmp\/local-build-bypass/);
-    expect(reviewLaneBlockReason('git diff origin/main...HEAD')).toBeUndefined();
+    const hadSentinel = existsSync(LOCAL_BUILD_BYPASS);
+    writeFileSync(LOCAL_BUILD_BYPASS, '', 'utf8');
+    try {
+      expect(reviewLaneBlockReason('npm run build')).toMatch(/create \/tmp\/local-build-bypass/);
+      expect(existsSync(LOCAL_BUILD_BYPASS)).toBe(true);
+      expect(reviewLaneBlockReason('git diff origin/main...HEAD')).toBeUndefined();
+    } finally {
+      if (hadSentinel) writeFileSync(LOCAL_BUILD_BYPASS, '', 'utf8');
+      else rmSync(LOCAL_BUILD_BYPASS, { force: true });
+    }
   });
 });
 
