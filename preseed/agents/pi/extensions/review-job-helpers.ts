@@ -8,6 +8,8 @@ export type DurableReviewLaneSnapshot = {
   resultPath?: string;
   transcriptPath?: string;
   error?: string;
+  pid?: number;
+  pidStart?: string;
 };
 
 export function recoverDurableReviewLaneState(input: {
