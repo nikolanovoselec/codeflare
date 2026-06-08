@@ -59,6 +59,8 @@ Never edit, commit, or push review-finding fixes from partial lane results. Wait
 
 A hidden autofix/follow-up request is valid only when it explicitly says to use the final merged review summary and the persisted review job is complete for the same head. If the visible statusline or durable job disagrees, trust the durable job files and do not edit until completion is clear.
 
+**A finding's age is never a reason to skip it.** Once the review is complete, fix every legitimate finding — whether it was introduced by this change or pre-existing, whether it sits in the diff or in adjacent code. Legitimacy is the ONLY criterion. Never exclude, defer, or ask the user about a legitimate finding because it pre-dates the change or is "out of scope." The only non-fix outcomes are: the finding is a false positive (say why), or the fix is destructive/irreversible (confirm first).
+
 ## Branch-protection note
 
 The intended workflow is:

@@ -183,7 +183,7 @@ describe('compute_required_lanes - file classification', () => {
   });
 });
 
-describe('compute_required_lanes - generated graphify-out artifacts (REQ-AGENT-040 AC8)', () => {
+describe('compute_required_lanes - generated graphify-out artifacts (REQ-AGENT-040 AC2)', () => {
   it('graphify-out-only diff returns empty (generated artifact, caller auto-acks)', () => {
     const { cwd, run } = makeRepo();
     const base = commitFile(cwd, run, 'src/foo.ts', '1\n', 'feat: base');

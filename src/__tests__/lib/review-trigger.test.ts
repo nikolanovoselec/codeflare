@@ -48,7 +48,7 @@ describe('isPrBoundaryTrigger', () => {
 });
 
 /**
- * REQ-AGENT-040 AC8: a diff that touches ONLY the generated graphify-out/ knowledge graph must
+ * REQ-AGENT-040 AC2: a diff that touches ONLY the generated graphify-out/ knowledge graph must
  * classify to zero review lanes so the PR-boundary auto-acknowledges — that checked-in graph is
  * machine-authored and carries no reviewable behavior. A diff that MIXES generated artifacts with
  * real source/sdd/docs is still classified by the non-generated files (the generated ones are

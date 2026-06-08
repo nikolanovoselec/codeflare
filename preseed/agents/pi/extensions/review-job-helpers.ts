@@ -269,6 +269,7 @@ export function reviewAutofixRequest(repo: string, head: string): ReviewAutofixR
         "If any required review lane is still running, pending, missing, or unknown, do not edit, commit, or push; wait for the final merged review summary.",
         "If the user has explicitly said not to automatically fix/implement this round, or to wait for GO/approval, do not edit, commit, or push; present the findings and wait for their command.",
         "Otherwise, fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
+        "A finding's age is never a reason to skip it: fix every legitimate finding whether it is newly introduced or pre-existing, in this diff or adjacent. Do not exclude, defer, or ask about a legitimate finding because it pre-dates this change — legitimacy is the only criterion.",
         "Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.",
         "Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
       ].join("\n"),
