@@ -175,6 +175,20 @@ describe('REQ-ENTERPRISE-004: placeholder-auth stripping', () => {
     // by the gateway id parsed from AIG_GATEWAY_URL, never honoured.
     expect(lastFetch?.headers.get('cf-aig-gateway-id')).toBe('gw');
   });
+
+  it('AC5: a client-supplied cf-aig-authorization is stripped, never forwarded on the REST leg', async () => {
+    await makeInterceptor().fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'cf-aig-authorization': 'Bearer attacker-token' },
+        body: '{}',
+      }),
+    );
+    // cf-aig-authorization is the compat-leg auth and is never set on the REST leg,
+    // so a container-supplied value must be stripped — otherwise it would ride the
+    // REST leg unmodified (the REST leg authenticates via Authorization: Bearer).
+    expect(lastFetch?.headers.get('cf-aig-authorization')).toBeNull();
+  });
 });
 
 describe('REQ-ENTERPRISE-004: streaming passthrough (no buffering)', () => {

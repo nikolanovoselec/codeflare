@@ -63,9 +63,12 @@ const STRIPPED_HEADERS: readonly string[] = [
   'content-length',
   // cf-aig-* control headers are interceptor-owned: strip any client-supplied
   // value so they are set only from the Worker env / DO props below, never the
-  // container. (cf-aig-gateway-id and cf-aig-metadata are re-set after stripping.)
+  // container. (cf-aig-gateway-id and cf-aig-metadata are re-set after stripping;
+  // cf-aig-authorization is re-set only on the compat leg, so stripping it here
+  // also stops a container-supplied value from riding the REST leg unset.)
   'cf-aig-metadata',
   'cf-aig-gateway-id',
+  'cf-aig-authorization',
 ];
 
 /**

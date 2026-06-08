@@ -1215,6 +1215,37 @@ None.
 
 ---
 
+### REQ-AGENT-057: Pi Review-Status Command
+
+<!-- @impl: preseed/agents/pi/extensions/review-command.ts::review-status -->
+<!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::computeReviewState -->
+<!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::computeReviewStateFrom -->
+<!-- @test: src/__tests__/lib/review-state.test.ts (computeReviewStateFrom lane-status precedence + overall aggregation + acked/breaker semantics -> AC1) -->
+
+**Intent:** A Pi user needs a read-only way to see PR-boundary review enforcement state for the current repo — whether a review is running, why a merge is blocked, and what recently happened — without inspecting `.git/` by hand.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A `/review-status` command renders the canonical review state for the current repo's enforced head: PR / local / last-acked heads, per-lane status, overall verdict, summary readiness, autofix state, breaker state, and the merge-gate verdict. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::formatReviewStatus --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::computeReviewState -->
+2. The command is read-only: it never spawns a review, advances the ack, or mutates any enforcement state. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::review-status -->
+3. The command appends a short tail of the decision audit log (`.git/codeflare-review-events.jsonl`) so recent enforcement decisions are visible inline. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::recentReviewEvents -->
+
+**Constraints:**
+
+- The command is diagnostic and must not block or alter agent execution when repository, PR, or review state cannot be read.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-055](#req-agent-055-pi-pr-boundary-review-window-advancement)
+
+**Verification:** [Canonical review-state unit tests](../../src/__tests__/lib/review-state.test.ts); the command's rendering layer (`formatReviewStatus`) is manually verified.
+
+**Status:** Partial
+
+---
+
 ### REQ-AGENT-041: PR-Boundary Review Bypass Surfaces
 
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
