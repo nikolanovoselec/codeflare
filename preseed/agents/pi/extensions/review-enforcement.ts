@@ -13,9 +13,9 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prCreateBoundaryBase, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
-import { completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, REVIEW_JOBS_EVENT_LANE_COMPLETED, REVIEW_JOBS_EVENT_LANE_FAILED, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
+import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
@@ -322,10 +322,6 @@ function mergeLaneState(repo: string, currentHead: string, previous?: PendingRev
   return { lanes: changedLanes, completed };
 }
 
-function isRealSessionCtx(ctx: unknown): boolean {
-  return Boolean(ctx && typeof ctx === "object" && (ctx as { modelRegistry?: unknown }).modelRegistry);
-}
-
 function reviewPrompt(repo: string, pr: PrState, head: string, reviewBase?: string): string {
   if (reviewBase) {
     return `Work in ${repo}. Review PR #${pr.number || "?"} for ${basename(repo)}. Scope is ONLY the incremental diff from ${reviewBase} to ${head}. First run: git diff --name-only ${reviewBase} ${head}. Review only those changed files, then run: git diff ${reviewBase} ${head} -- <path> for each changed file. Do NOT review the full PR diff against ${pr.baseRefName}. Do NOT scan unrelated repo files except minimal direct context for a finding. Report findings only; do not modify files.`;
@@ -426,9 +422,12 @@ async function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: stri
     .map((lane) => ({ lane, prompt: promptForLane(pending, pr, lane), description: descriptionForLane(lane) }));
   if (requests.length === 0) return;
 
+  // Resolve a concrete modelRegistry value from the live on-turn ctx (never a lazy ctx
+  // getter read later inside the async lane — that was the DL-1 undefined/throw). The lane
+  // runner takes the resolved value, so it needs neither `pi` nor a captured ctx.
+  const modelRegistry = (() => { try { return ctx.modelRegistry; } catch { return undefined; } })();
   const result = startDurableReviewLanes(
-    ctx.pi ?? (globalThis as { __codeflarePi?: ExtensionAPI }).__codeflarePi,
-    ctx,
+    { modelRegistry },
     {
       repo: pending.repo,
       prNumber: pending.prNumber,
@@ -504,7 +503,6 @@ function installReviewMessageDedupe(pi: ExtensionAPI): void {
 export default function (pi: ExtensionAPI) {
   installReviewMessageDedupe(pi);
   const runToken = Symbol("codeflare-review-enforcement");
-  (globalThis as { __codeflarePi?: ExtensionAPI; __codeflareReviewEnforcementRun?: symbol }).__codeflarePi = pi;
   (globalThis as { __codeflareReviewEnforcementRun?: symbol }).__codeflareReviewEnforcementRun = runToken;
   const isActiveRun = (): boolean => (globalThis as { __codeflareReviewEnforcementRun?: symbol }).__codeflareReviewEnforcementRun === runToken;
   let pending: PendingReview | undefined;
@@ -516,10 +514,6 @@ export default function (pi: ExtensionAPI) {
   pi.registerMessageRenderer("codeflare-review-summary-v2", () => new Text("", 0, 0));
   pi.registerMessageRenderer("codeflare-review-summary-v3", (message: any) => new Markdown(String(message.content || ""), 0, 0, getMarkdownTheme()));
 
-  // Background events (subagents:completed/failed) arrive without a usable session ctx.
-  // Remember the most recent real ctx from live handlers so doc-updater can still be
-  // spawned (and the service ctx re-seeded) when a reviewer completes off-turn.
-  let lastCtx: any;
   const installReviewNotifyFilter = (ctx: any): void => {
     const ui = ctx?.ui;
     if (!ui?.notify) return;
@@ -537,12 +531,14 @@ export default function (pi: ExtensionAPI) {
       originalNotify(message, type);
     };
   };
+  // Lane completion is PULLED on-turn (turn_start/turn_end/agent_end/resources_discover
+  // → refreshReviewStatusFromDurable / agent_end reconciler), never pushed from an
+  // off-turn bus listener with a stale ctx. `remember` therefore only installs the
+  // notify filter; there is no captured ctx to reuse off-turn, which is what eliminated
+  // the assertActive() stale-ctx flood entirely (review.md §10, Failure #7).
   const remember = (ctx: any): void => {
     installReviewNotifyFilter(ctx);
-    if (isRealSessionCtx(ctx)) lastCtx = ctx;
   };
-  const completionCtx = (): any =>
-    isRealSessionCtx(lastCtx) ? lastCtx : { sessionManager: { getCwd: () => process.cwd() }, ui: { notify: () => undefined } };
 
   // Pending state may only be discarded when the PR has DEFINITIVELY moved on
   // (reviewHeadStatus === "stale"), and always with a visible warning. An
@@ -783,6 +779,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function finalizeCompletedReview(state: PendingReview, ctx: any): void {
+    appendReviewEvent(state.repo, { event: "review_acked", head: state.head, lanes: state.lanes });
     writeAck(state.repo, state.head);
     resetBlockCount(state.repo);
     clearBreaker(state.repo);
@@ -877,6 +874,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
       if (!acked(repo, head)) {
+        appendReviewEvent(repo, { event: "merge_blocked", head, reason: "head_not_acked" });
         return { block: true, reason: `PR-boundary review required before merge for ${basename(repo)} at ${head.slice(0, 12)}. Complete required reviewers or use the user-only ${REVIEW_BYPASS} bypass.` };
       }
       return;
@@ -963,7 +961,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     const command = commandText(event);
-    if (!isPrBoundaryCommand(command)) return;
+    if (!isPrBoundaryTrigger(command)) return;
 
     const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
     if (!repo || !isSddProject(repo)) return;
@@ -988,6 +986,7 @@ export default function (pi: ExtensionAPI) {
 
     const review = mergeLaneState(repo, head, reusablePrevious);
     if (review.lanes.length === 0) {
+      appendReviewEvent(repo, { event: "boundary_detected", head, decision: "ack_no_lanes" });
       writeAck(repo, head);
       clearPending(repo);
       return;
@@ -1005,6 +1004,7 @@ export default function (pi: ExtensionAPI) {
     const initialLanes = durableReviewInitialLanes(pending.lanes);
     savePending(pending);
     updateReviewStatus(pending, ctx);
+    appendReviewEvent(repo, { event: "boundary_detected", head, decision: "start_review", lanes: review.lanes });
     ctx.ui.notify(`PR-boundary review required for ${basename(repo)} at ${head.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
     await spawnReviewLanes(pending, effectivePr, initialLanes, ctx, "initial PR-boundary trigger");
   };
@@ -1018,26 +1018,12 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_result", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
   pi.on("tool_execution_end", (event: any, ctx: any) => onToolEnd(withStartArgs(event), ctx));
 
-  const onDurableLaneCompleted = async (event: any, ctx: any) => {
-    if (!isActiveRun()) return;
-    const lane = String(event?.lane || "");
-    const head = String(event?.head || "");
-    const state = hydratePending(ctx);
-    if (!lane || !state || state.head !== head) return;
-    await markCompleted(lane, ctx);
-  };
-
-  const onDurableLaneFailed = async (event: any, ctx: any) => {
-    if (!isActiveRun()) return;
-    const lane = String(event?.lane || "");
-    const head = String(event?.head || "");
-    const state = hydratePending(ctx);
-    if (!lane || !state || state.head !== head) return;
-    updateReviewStatus(state, ctx);
-  };
-
-  (pi as any).events?.on?.(REVIEW_JOBS_EVENT_LANE_COMPLETED, (event: any) => onDurableLaneCompleted(event, completionCtx()));
-  (pi as any).events?.on?.(REVIEW_JOBS_EVENT_LANE_FAILED, (event: any) => onDurableLaneFailed(event, completionCtx()));
+  // Durable lane completions are reconciled on-turn from disk (the agent_end reconciler
+  // below + refreshReviewStatusFromDurable on turn_start/turn_end/resources_discover),
+  // each with the fresh live ctx Pi hands the handler. The old pi.events.on(LANE_*)
+  // bus bridge — which leaked one stale closure per /reload and fired markCompleted with
+  // a fabricated/stale ctx (assertActive() throw → the console flood) — is deleted. There
+  // is no off-turn handler left that needs a ctx.
 
   pi.on("agent_end", async (_event, ctx) => {
     if (!isActiveRun()) return;
@@ -1119,6 +1105,7 @@ export default function (pi: ExtensionAPI) {
     const attempts = incrementBlockCount(currentState.repo);
     if (attempts >= MAX_REVIEW_ATTEMPTS || pendingAge >= MAX_REVIEW_AGE_MS) {
       openBreaker(currentState.repo, currentState.head);
+      appendReviewEvent(currentState.repo, { event: "breaker_opened", head: currentState.head, attempts });
       clearPending(currentState.repo);
       resetBlockCount(currentState.repo);
       pending = undefined;

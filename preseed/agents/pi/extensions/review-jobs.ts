@@ -14,13 +14,9 @@ import {
   DefaultResourceLoader,
   getAgentDir,
   SessionManager,
-  type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { formatDurableReviewResult, laneExtensionSources, recoverDurableReviewLaneState } from "./review-job-helpers";
+import { computeReviewStateFrom, formatDurableReviewResult, laneExtensionSources, recoverDurableReviewLaneState, type ReviewState } from "./review-job-helpers";
 import type { ReviewSpawnRequest } from "./review-helpers";
-
-export const REVIEW_JOBS_EVENT_LANE_COMPLETED = "codeflare-review-jobs:lane-completed";
-export const REVIEW_JOBS_EVENT_LANE_FAILED = "codeflare-review-jobs:lane-failed";
 
 export type DurableReviewLaneStatus = "pending" | "running" | "completed" | "failed";
 
@@ -242,7 +238,7 @@ export function recordDurableReviewLane(jobInput: DurableReviewJobInput, lane: D
   return next;
 }
 
-async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: DurableReviewJobInput, request: ReviewSpawnRequest): Promise<void> {
+async function runDurableLane(runner: ReviewRunnerContext, job: DurableReviewJobInput, request: ReviewSpawnRequest): Promise<void> {
   const key = laneKey(job.repo, job.head, request.lane);
   if (runningLanes.has(key)) return;
   runningLanes.add(key);
@@ -293,7 +289,7 @@ async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: D
     const { session } = await createAgentSession({
       cwd: job.repo,
       agentDir: getAgentDir(),
-      modelRegistry: ctx.modelRegistry as never,
+      modelRegistry: runner.modelRegistry as never,
       sessionManager: SessionManager.inMemory(),
       resourceLoader,
     } as never);
@@ -309,16 +305,24 @@ async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: D
       }
     });
 
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      session.agent.abort();
-    }, DURABLE_LANE_TIMEOUT_MS);
+    // Authoritative watchdog: race the prompt against a timeout that aborts the agent
+    // and rejects. Unlike `await session.prompt(...)` then checking a flag, this reclaims
+    // the lane even if prompt() is wedged and never settles — the rejection drives the
+    // catch + finally, so runningLanes is always released (review.md §7.1).
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const watchdog = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        if (settled) return;
+        try { session.agent.abort(); } catch { /* best effort */ }
+        reject(new Error(`durable review lane timed out after ${DURABLE_LANE_TIMEOUT_MS}ms`));
+      }, DURABLE_LANE_TIMEOUT_MS);
+    });
     try {
-      await session.prompt(request.prompt);
-      if (timedOut) throw new Error(`durable review lane timed out after ${DURABLE_LANE_TIMEOUT_MS}ms`);
+      await Promise.race([session.prompt(request.prompt).then(() => { settled = true; }), watchdog]);
     } finally {
-      clearTimeout(timeout);
+      settled = true;
+      if (timer) clearTimeout(timer);
       unsubscribe();
       session.dispose();
     }
@@ -326,27 +330,73 @@ async function runDurableLane(pi: ExtensionAPI, ctx: ReviewRunnerContext, job: D
     mkdirSync(dirname(resultPath), { recursive: true });
     writeFileSync(resultPath, formatDurableReviewResult(job, request.lane, finalText), "utf8");
     recordDurableReviewLane(job, { lane: request.lane, status: "completed", startedAt: readLane(job.repo, job.head, request.lane)?.startedAt, completedAt: now(), transcriptPath, resultPath });
-    pi.events.emit(REVIEW_JOBS_EVENT_LANE_COMPLETED, { repo: job.repo, head: job.head, lane: request.lane, resultPath, result: finalText });
+    appendReviewEvent(job.repo, { event: "lane_completed", head: job.head, lane: request.lane, resultPath });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     recordDurableReviewLane(job, { lane: request.lane, status: "failed", startedAt: readLane(job.repo, job.head, request.lane)?.startedAt, completedAt: now(), transcriptPath, error: message });
-    pi.events.emit(REVIEW_JOBS_EVENT_LANE_FAILED, { repo: job.repo, head: job.head, lane: request.lane, error: message });
+    appendReviewEvent(job.repo, { event: "lane_failed", head: job.head, lane: request.lane, error: message });
   } finally {
     runningLanes.delete(key);
     laneDepth.__codeflareReviewLaneDepth = (laneDepth.__codeflareReviewLaneDepth ?? 1) - 1;
   }
 }
 
-export function startDurableReviewLanes(pi: ExtensionAPI, ctx: ReviewRunnerContext, jobInput: DurableReviewJobInput, requests: ReviewSpawnRequest[]): { job: DurableReviewJob; launched: string[] } {
+export function startDurableReviewLanes(runner: ReviewRunnerContext, jobInput: DurableReviewJobInput, requests: ReviewSpawnRequest[]): { job: DurableReviewJob; launched: string[] } {
   const job = ensureDurableReviewJob(jobInput);
   const launched: string[] = [];
   for (const request of requests) {
     const current = job.laneState[request.lane] ?? readLane(job.repo, job.head, request.lane);
     if (current?.status === "completed" || runningLanes.has(laneKey(job.repo, job.head, request.lane))) continue;
     launched.push(request.lane);
-    void runDurableLane(pi, ctx, jobInput, request);
+    appendReviewEvent(jobInput.repo, { event: "lane_spawned", head: jobInput.head, lane: request.lane });
+    void runDurableLane(runner, jobInput, request);
   }
   return { job: readDurableReviewJob(jobInput.repo, jobInput.head) ?? job, launched };
+}
+
+function readTrimmedFile(path: string): string {
+  try { return readFileSync(path, "utf8").trim(); } catch { return ""; }
+}
+
+function readIntFile(path: string): number {
+  const value = Number.parseInt(readTrimmedFile(path), 10);
+  return Number.isFinite(value) ? value : 0;
+}
+
+// Append-only trigger/decision audit. Every meaningful enforcement decision lands here so
+// a stuck or surprising review is one `cat .git/codeflare-review-events.jsonl` away
+// (review.md §17.4). Best-effort: the audit log must never break the merge gate.
+export function appendReviewEvent(repo: string, row: Record<string, unknown>): void {
+  try {
+    const path = join(repo, ".git", "codeflare-review-events.jsonl");
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, `${JSON.stringify({ ts: now(), ...row })}\n`, "utf8");
+  } catch { /* best effort */ }
+}
+
+// Canonical, fs-backed review state for a head — the one read every status surface uses
+// (review.md §17.2). Pure decision logic lives in computeReviewStateFrom; this wrapper
+// only injects the disk facts. runningInMemory is meaningful only in the spawning process.
+export function computeReviewState(repo: string, head: string): ReviewState {
+  const job = readDurableReviewJob(repo, head);
+  const lanes = job?.lanes ?? [];
+  const gitDir = join(repo, ".git");
+  return computeReviewStateFrom({
+    repo,
+    head,
+    prNumber: job?.prNumber,
+    baseRefName: job?.baseRefName,
+    reviewBase: job?.reviewBase,
+    lanes,
+    laneJobStatus: (lane) => job?.laneState?.[lane]?.status,
+    resultLaneExists: (lane) => existsSync(reviewResultPath(repo, head, lane)),
+    runningInMemory: (lane) => runningLanes.has(laneKey(repo, head, lane)),
+    ackHead: readTrimmedFile(join(gitDir, "sdd-last-ack-pr-head")),
+    breakerHead: readTrimmedFile(join(gitDir, "sdd-review-breaker")),
+    attempts: readIntFile(join(gitDir, "sdd-review-block-count")),
+    autofixRequested: existsSync(join(reviewJobDir(repo, head), "autofix.requested")),
+    startedAt: job?.startedAt,
+  });
 }
 
 export default function () {
