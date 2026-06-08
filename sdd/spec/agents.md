@@ -1196,7 +1196,7 @@ None.
 2. Durable review lanes start without stdin from the parent session. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane -->
 3. Durable review lanes start without context files and do not recursively load the full Codeflare extension stack. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane -->
 4. Durable review lanes expose bash for git/gh diff inspection. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane -->
-5. Durable review lanes expose graphify inspection tools while keeping recursive review enforcement out of the lane process. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane -->
+5. Durable review lanes expose graphify inspection tools. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane -->
 6. Settings-enabled context-mode may add `ctx_search` to durable review lanes. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::laneExtensionSources -->
 7. Durable review lane guards block local build, test, lint, and dev-server commands. <!-- @impl: preseed/agents/pi/extensions/review-lane-guards.ts::reviewLaneBlockReason -->
 
@@ -1217,8 +1217,8 @@ None.
 ### REQ-AGENT-061: Pi Idle Durable Review Reaper
 
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-061 idle reaper helper test covers AC1/AC2/AC3 gating; runtime interval has integration smoke coverage) -->
-<!-- coverage-gap: The idle no-turn driver is a reload-safe `setInterval`; it is runtime-smoke-tested with detached lanes, with no dedicated automated test in the Workers vitest pool. -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-061 idle reaper helper test covers AC2/AC3 gating; AC1 runtime reaping has integration smoke coverage) -->
+<!-- coverage-gap: AC1's no-turn finished-lane reaping path is driven by a reload-safe `setInterval`; it is runtime-smoke-tested with detached lanes, with no dedicated automated test in the Workers vitest pool. -->
 
 **Intent:** Pi must advance and finalize durable review jobs even when the user does not submit another prompt.
 
