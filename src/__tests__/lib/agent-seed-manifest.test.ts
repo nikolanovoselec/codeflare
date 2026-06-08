@@ -820,6 +820,82 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(escapedSummary).toContain('Replace x\\|y\\\\z safely.');
   });
 
+  it('REQ-AGENT-053: a lane severity tally block is not counted or parsed as findings', () => {
+    // The doc-updater lane prints an inline "CRITICAL: 0 / HIGH: 2 / ..." tally above its real
+    // findings. Those lines start with a severity word but are counts, not findings; the merger
+    // must skip them so the count stays honest and no phantom CRITICAL flips the verdict to block.
+    const docsText = [
+      '# PR-boundary doc-updater',
+      '',
+      '## Findings',
+      '',
+      'doc-updater report — autonomy: auto; scope: `a..b` for `documentation/ sdd/`',
+      '',
+      'CRITICAL: 0',
+      'HIGH: 2',
+      'MEDIUM: 1',
+      'LOW: 0',
+      'Auto-fixed: 0 (report-only; no files modified)',
+      '',
+      '[HIGH] ADR ledger is stale after the detached-lane changes',
+      'File: `documentation/decisions/README.md:1137`',
+      'Issue: AD64 still describes in-process lanes.',
+      'Fix: Mark AD64 superseded and add AD76.',
+      '',
+      '[HIGH] Preseed docs cite removed lane symbols',
+      'File: `documentation/lanes/preseed.md:415`',
+      'Issue: createAgentSession no longer exists.',
+      'Fix: Describe spawnDurableLane instead.',
+      '',
+      '[MEDIUM] Lane-classifier docs omit generated-only auto-ack',
+      'File: `documentation/lanes/preseed.md:499`',
+      'Issue: The no-lane auto-ack behavior is undocumented.',
+      'Fix: Document the generated-only auto-ack.',
+    ].join('\n');
+
+    // Tally lines must not inflate the counts (was 1C/3H/2M/1L before the fix).
+    expect(countReviewSeverities(docsText)).toEqual({ critical: 0, high: 2, medium: 1, low: 0 });
+    // And must not appear as phantom ": 0" / ": 2" findings (was 7 entries before the fix).
+    expect(extractReviewFindings('doc-updater', docsText)).toEqual([
+      {
+        lane: 'doc-updater',
+        severity: 'HIGH',
+        title: 'ADR ledger is stale after the detached-lane changes',
+        file: 'documentation/decisions/README.md:1137',
+        issue: 'AD64 still describes in-process lanes.',
+        fix: 'Mark AD64 superseded and add AD76.',
+      },
+      {
+        lane: 'doc-updater',
+        severity: 'HIGH',
+        title: 'Preseed docs cite removed lane symbols',
+        file: 'documentation/lanes/preseed.md:415',
+        issue: 'createAgentSession no longer exists.',
+        fix: 'Describe spawnDurableLane instead.',
+      },
+      {
+        lane: 'doc-updater',
+        severity: 'MEDIUM',
+        title: 'Lane-classifier docs omit generated-only auto-ack',
+        file: 'documentation/lanes/preseed.md:499',
+        issue: 'The no-lane auto-ack behavior is undocumented.',
+        fix: 'Document the generated-only auto-ack.',
+      },
+    ]);
+
+    // Merged: no phantom CRITICAL, totals match the real findings, verdict is not "block".
+    const docCounts = countReviewSeverities(docsText);
+    const merged = mergedReviewSummaryModel({
+      repoName: 'codeflare',
+      head: '6769bca06f843a50e2d991563afc58498fd7cf81',
+      records: [
+        { lane: 'doc-updater', path: '/tmp/doc-updater.md', text: docsText, counts: docCounts, recommendation: durableReviewRecommendation(docCounts) },
+      ],
+    });
+    expect(merged.counts).toEqual({ critical: 0, high: 2, medium: 1, low: 0 });
+    expect(merged.findings).toHaveLength(3);
+  });
+
   it('REQ-AGENT-053: hidden autofix requests send one follow-up only for actionable findings and only after marker claim', () => {
     const sent: Array<{ message: unknown; options: unknown }> = [];
     const sender = { sendMessage: (message: unknown, options: unknown) => sent.push({ message, options }) };

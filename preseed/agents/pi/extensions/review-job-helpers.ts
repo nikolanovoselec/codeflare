@@ -345,6 +345,15 @@ export function stripExistingReviewSummary(text: string): string {
   return text.replace(/\n+## Review Summary[\s\S]*$/i, "").trim();
 }
 
+// A review lane can emit a severity COUNT block inside its findings body — e.g. the doc-updater
+// report header lists "CRITICAL: 0", "HIGH: 2", etc. Those lines start with a severity word but
+// are tallies, not findings. A line is a count line when the text after the severity tag is empty
+// or just a number; excluding them stops both the counter and the finding parser from inflating
+// (a phantom CRITICAL from a "CRITICAL: 0" line would otherwise flip the merged verdict to block).
+function isSeverityCountLine(afterSeverity: string): boolean {
+  return /^\s*:?\s*\d+\s*$/.test(afterSeverity);
+}
+
 export function countReviewSeverities(text: string): ReviewSeverityCounts {
   const counts: ReviewSeverityCounts = { critical: 0, high: 0, medium: 0, low: 0 };
   let inFence = false;
@@ -354,8 +363,9 @@ export function countReviewSeverities(text: string): ReviewSeverityCounts {
       continue;
     }
     if (inFence) continue;
-    const match = line.match(/^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:\*\*)?\[?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\]?\b/i);
+    const match = line.match(/^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:\*\*)?\[?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\]?\b(.*)$/i);
     if (!match) continue;
+    if (isSeverityCountLine(match[2])) continue;
     const severity = match[1].toUpperCase();
     if (severity === "BLOCKING" || severity === "CRITICAL") counts.critical += 1;
     else if (severity === "HIGH") counts.high += 1;
@@ -448,7 +458,7 @@ function findingHeaderMatches(body: string): RegExpMatchArray[] {
     if (!inFence) {
       header.lastIndex = 0;
       const match = header.exec(line);
-      if (match) {
+      if (match && !isSeverityCountLine(match[2])) {
         match.index = offset + (match.index || 0);
         matches.push(match);
       }
