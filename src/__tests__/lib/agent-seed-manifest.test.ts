@@ -863,7 +863,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   it('REQ-AGENT-053 AC8: durable review lanes load graphify always, context-mode only when enabled, never subagents', () => {
     const enabledCtx = [
       'npm:@gaodes/pi-graphify@0.2.2',
-      'npm:@gotgenes/pi-subagents@14.0.0',
+      'npm:@gotgenes/pi-subagents@14.0.1',
       'npm:context-mode@1.0.151',
     ];
     // graphify always; context-mode enabled (bare string); subagents never.
@@ -874,7 +874,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
     const disabledCtx = [
       'npm:@gaodes/pi-graphify@0.2.2',
-      'npm:@gotgenes/pi-subagents@14.0.0',
+      'npm:@gotgenes/pi-subagents@14.0.1',
       { source: 'npm:context-mode@1.0.151', extensions: [], skills: [] },
     ];
     // context-mode in disabled filter form -> only graphify.
@@ -887,7 +887,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
     // empty / unrelated packages -> nothing.
     expect(laneExtensionSources([])).toEqual([]);
-    expect(laneExtensionSources(['npm:@gotgenes/pi-subagents@14.0.0', '', { source: '' }])).toEqual([]);
+    expect(laneExtensionSources(['npm:@gotgenes/pi-subagents@14.0.1', '', { source: '' }])).toEqual([]);
   });
 
   it('REQ-AGENT-055 AC4-AC5: Pi review enforcement selects the unreviewed incremental review base', () => {
