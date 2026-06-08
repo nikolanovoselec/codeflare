@@ -9,7 +9,7 @@ type SeedDocument = {
   modes: ('default' | 'advanced')[];
 };
 
-export const PRESEED_CONTENT_HASH = '56dd9bfd0ff313c3';
+export const PRESEED_CONTENT_HASH = '99e736197c71bc2f';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
@@ -207,7 +207,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".claude/plugins/codeflare-memory/.claude-plugin/plugin.json",
     "contentType": "application/json; charset=utf-8",
-    "content": "{\n  \"name\": \"codeflare-memory\",\n  \"description\": \"Automatic conversation memory capture via MCP\",\n  \"version\": \"1.0.0\"\n}\n",
+    "content": "{\n  \"name\": \"codeflare-memory\",\n  \"description\": \"Automatic conversation memory capture via hooks + the Vault knowledge graph\",\n  \"version\": \"1.0.0\"\n}\n",
     "modes": [
       "advanced"
     ]

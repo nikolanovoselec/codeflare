@@ -1,5 +1,5 @@
 {
   "name": "codeflare-memory",
-  "description": "Automatic conversation memory capture via MCP",
+  "description": "Automatic conversation memory capture via hooks + the Vault knowledge graph",
   "version": "1.0.0"
 }
