@@ -543,7 +543,10 @@ function installReviewMessageDedupe(pi: ExtensionAPI): void {
 // (finalizeCompletedReview). Best-effort and self-clearing: it must never throw.
 function autonomousReviewReaperTick(): void {
   try {
-    const repo = findGitRoot(process.cwd());
+    // The timer has no event ctx, so it cannot use ctx.sessionManager.getCwd() like the on-turn
+    // handlers. process.cwd() is pi's PROCESS dir, not the session/repo dir, so resolve the repo
+    // the way every other handler's fallback does: the active-repo sentinel first, process.cwd() last.
+    const repo = activeRepoFallback() || findGitRoot(process.cwd());
     if (!repo) return;
     const pending = loadPending(repo);
     if (!pending || !pending.head || pending.lanes.length === 0) return;
