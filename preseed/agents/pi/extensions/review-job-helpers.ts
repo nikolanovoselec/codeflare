@@ -15,11 +15,14 @@ export function recoverDurableReviewLaneState(input: {
   current?: DurableReviewLaneSnapshot;
   resultExists: boolean;
   resultPath?: string;
-  activeInMemory: boolean;
 }): DurableReviewLaneSnapshot {
+  // Result-file existence is the one durable proof of completion — it survives
+  // process death and reloads, so it always wins.
   if (input.resultExists) {
     return { ...input.current, lane: input.lane, status: "completed", resultPath: input.resultPath };
   }
+  // Recorded "completed" but the result file is gone (manual clean / corruption):
+  // re-open as pending so the lane can be re-run.
   if (input.current?.status === "completed") {
     return {
       lane: input.lane,
@@ -29,15 +32,115 @@ export function recoverDurableReviewLaneState(input: {
       transcriptPath: input.current.transcriptPath,
     };
   }
-  if (input.current?.status === "running" && !input.activeInMemory) {
-    return {
-      lane: input.lane,
-      status: "pending",
-      startedAt: input.current.startedAt,
-      transcriptPath: input.current.transcriptPath,
-    };
-  }
+  // "running" is preserved verbatim. Lanes now run as detached child `pi`
+  // processes, so a lane recorded "running" by another (possibly exited) session
+  // may still have a live child or a finished transcript on disk. The single
+  // authority for the running → completed/failed transition is reapLaneDecision,
+  // which checks child-process liveness and the transcript. Resetting running →
+  // pending here (the old in-process-model heuristic) caused re-spawn churn: the
+  // spawning session would exit, a later session would re-read the job, flip the
+  // lane back to pending, and reconcile would spawn a duplicate (review.md §7.1).
   return input.current ?? { lane: input.lane, status: "pending" };
+}
+
+// ── Durable lane reaping (detached child `pi` processes) ────────────────────
+// Lanes run as detached `pi --mode json -p` child processes that write a
+// newline-delimited JSON event stream to a transcript file. summarizeLaneTranscript
+// distils that stream into the facts the reaper needs; reapLaneDecision is the pure
+// running → completed/failed transition. Both are process-independent (driven from
+// disk facts) so ANY session can reap a lane another session spawned.
+
+export type LaneTranscriptSummary = {
+  // agent_end seen → the child finished its run (it may already have exited).
+  agentEnded: boolean;
+  // The last assistant message_end text — persisted verbatim as the lane result.
+  finalText: string;
+  // stopReason of the final assistant turn ("stop" = clean; "error"/"aborted" = failure).
+  stopReason?: string;
+  // The final assistant message carried an error payload.
+  errored: boolean;
+};
+
+export function summarizeLaneTranscript(lines: string[]): LaneTranscriptSummary {
+  let agentEnded = false;
+  let finalText = "";
+  let stopReason: string | undefined;
+  let errored = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let event: { type?: string; message?: { role?: string; content?: unknown; stopReason?: string; errorMessage?: string } };
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      // Partial flush of the last line, or a non-JSON banner — never fatal.
+      continue;
+    }
+    if (event?.type === "agent_end") agentEnded = true;
+    if (event?.type === "message_end" && event.message?.role === "assistant") {
+      const content = event.message.content;
+      const text = Array.isArray(content)
+        ? content.map((part) => (part && typeof part === "object" && (part as { type?: unknown }).type === "text" ? String((part as { text?: unknown }).text ?? "") : "")).join("")
+        : typeof content === "string" ? content : "";
+      if (text.trim()) finalText = text;
+      if (typeof event.message.stopReason === "string") stopReason = event.message.stopReason;
+      if (event.message.errorMessage) errored = true;
+    }
+  }
+  return { agentEnded, finalText, stopReason, errored };
+}
+
+export type ReapLaneInput = {
+  // Current on-disk lane status.
+  status: "pending" | "running" | "completed" | "failed";
+  // A result .md already exists (settled by this or another session).
+  resultExists: boolean;
+  transcript: LaneTranscriptSummary;
+  // The lane recorded a child pid.
+  hasPid: boolean;
+  // The child is still alive AND is still our process (identity-checked against the
+  // recorded /proc start-time, so a reused pid reads as not-alive, not an impostor).
+  pidAlive: boolean;
+  startedAt?: number;
+  now: number;
+  timeoutMs: number;
+};
+
+export type ReapLaneDecision =
+  | { action: "none" }
+  | { action: "complete"; finalText: string }
+  | { action: "fail"; reason: string; kill: boolean };
+
+export function reapLaneDecision(input: ReapLaneInput): ReapLaneDecision {
+  // Only running lanes are reapable; everything else is already settled.
+  if (input.resultExists) return { action: "none" };
+  if (input.status !== "running") return { action: "none" };
+  const t = input.transcript;
+  const usable = t.finalText.trim().length > 0 && t.stopReason !== "error" && t.stopReason !== "aborted" && !t.errored;
+  // agent_end → the run finished; the child is already gone (or exiting), so the work is
+  // complete and there is nothing live to kill (kill: false avoids signalling a possibly
+  // reused pid). Checked FIRST so a child that finishes and exits in the same tick
+  // completes rather than being misread as "exited before result".
+  if (t.agentEnded) {
+    return usable
+      ? { action: "complete", finalText: t.finalText }
+      : { action: "fail", reason: `lane finished without a usable result (stopReason=${t.stopReason ?? "unknown"}${t.errored ? ", errored" : ""})`, kill: false };
+  }
+  // Child is gone but never emitted agent_end. If it nonetheless flushed a usable final
+  // assistant message before dying, KEEP it — don't discard a real review over a missing
+  // terminal line (transcript flush ordering / abrupt exit). Otherwise it crashed → fail.
+  // The child is gone either way, so no kill.
+  if (input.hasPid && !input.pidAlive) {
+    return usable
+      ? { action: "complete", finalText: t.finalText }
+      : { action: "fail", reason: "lane process exited before producing a result", kill: false };
+  }
+  // Verified-alive (pidAlive is identity-checked against the child's /proc start-time, so
+  // never a reused-pid impostor) but over its wall-clock budget → reclaim it (kill group).
+  if (input.startedAt !== undefined && input.now - input.startedAt > input.timeoutMs) {
+    return { action: "fail", reason: `lane exceeded ${input.timeoutMs}ms budget`, kill: true };
+  }
+  return { action: "none" };
 }
 
 export function durableReviewMessageKey(input: {
@@ -601,7 +704,8 @@ export type ComputeReviewStateInput = {
   laneJobStatus: (lane: string) => ReviewLaneStatus | undefined;
   // existsSync(reviewResultPath(repo, head, lane)) — an authored result is authoritative.
   resultLaneExists: (lane: string) => boolean;
-  // runningLanes Set membership — only meaningful in the process that spawned the lane.
+  // Legacy hook; always false now that "running" is read from the on-disk lane record
+  // (the reaper keeps it accurate cross-process). Retained for call-site compatibility.
   runningInMemory: (lane: string) => boolean;
   ackHead: string;
   breakerHead: string;

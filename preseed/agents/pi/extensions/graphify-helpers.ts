@@ -135,6 +135,21 @@ export function graphifyClonePromptDecision(options: {
   };
 }
 
+export type ResolvedGraph = { graphPath: string; cwd: string; scope: string };
+
+// Pure precedence (REQ-AGENT-023) behind graphify-native's graph resolution: the cwd repo graph
+// wins, then the active-repo sentinel's graph, then the merged global graph. cwd is FIRST because
+// graphify-native is ambient in every session mode and in review lanes — both run IN the repo,
+// where the advanced-only active-repo sentinel (written by codeflare-pi.ts) is absent or points at
+// a stale/other repo; trusting the sentinel first would query the wrong repo's (or the global) graph.
+export function pickGraphSource(candidates: {
+  cwdGraph?: ResolvedGraph;
+  sentinelGraph?: ResolvedGraph;
+  globalGraph?: ResolvedGraph;
+}): ResolvedGraph | undefined {
+  return candidates.cwdGraph || candidates.sentinelGraph || candidates.globalGraph;
+}
+
 export default function () {
   // Pure helper module for codeflare-pi.ts; no extension registration needed.
 }

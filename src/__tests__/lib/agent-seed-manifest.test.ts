@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
@@ -513,15 +513,27 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isPrBoundaryCommand('gh pr view --json number')).toBe(false);
   });
 
-  it('REQ-AGENT-036 / REQ-AGENT-058: seeded Pi review enforcement recovers a missed boundary only through the bounded open-PR reconciliation, never from passive branch existence', () => {
+  it('REQ-AGENT-036 / REQ-AGENT-058: missed-boundary recovery reconciles only a real open enforced unacked PR, never from passive branch existence', () => {
+    // Behavioral: exercise the actual decision shouldReconcileOpenPr (not the seed text). The one
+    // shape that reconciles is a real open, non-draft, enforced PR with an unacked head and no
+    // window/breaker; "passive branch existence" (no open enforced PR) and an already-handled head
+    // (acked, or a window/breaker already present) must NOT reconcile. This fails if reconciliation
+    // becomes dead code, drops a gate, or starts firing on mere branch/PR existence.
+    const realOpenPr: OpenPrReconcileInput = {
+      prOpen: true, prDraft: false, enforced: true, head: 'abc123',
+      acked: false, hasReviewJob: false, reviewActive: false, breakerOpen: false,
+    };
+    expect(shouldReconcileOpenPr(realOpenPr).reconcile).toBe(true);
+    // Passive branch existence — no open/enforced PR to act on:
+    expect(shouldReconcileOpenPr({ ...realOpenPr, prOpen: false }).reconcile).toBe(false);
+    expect(shouldReconcileOpenPr({ ...realOpenPr, enforced: false }).reconcile).toBe(false);
+    // Already handled — a window/job/breaker exists or the head was acked:
+    expect(shouldReconcileOpenPr({ ...realOpenPr, acked: true }).reconcile).toBe(false);
+    expect(shouldReconcileOpenPr({ ...realOpenPr, hasReviewJob: true }).reconcile).toBe(false);
+    expect(shouldReconcileOpenPr({ ...realOpenPr, breakerOpen: true }).reconcile).toBe(false);
+    // Regression guard: the deployed seed must not re-introduce the old unconditional, passive
+    // catch-up summon keyed on mere PR existence (the pre-REQ-058 failure mode).
     const seeded = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/extensions/review-enforcement.ts');
-    // The missed-event recovery path is wired in (REQ-AGENT-058): agent_end no longer goes
-    // passive on a missing window — it runs reconciliation first.
-    expect(seeded?.content).toContain('reconcileOpenPrReview');
-    // The decision is the pure, narrowly-gated shouldReconcileOpenPr (open + non-draft + enforced
-    // + unacked + no window + no breaker), so reconciliation is never triggered by branch existence.
-    expect(seeded?.content).toContain('shouldReconcileOpenPr');
-    // It must not re-introduce an unconditional, passive catch-up summon keyed on mere PR existence.
     expect(seeded?.content).not.toContain('PR-boundary review catch-up required');
   });
 
@@ -568,12 +580,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(allDurableReviewLanesComplete(lanes, ['code-reviewer', 'spec-reviewer', 'doc-updater'])).toBe(true);
   });
 
-  it('REQ-AGENT-040 / REQ-AGENT-054: durable Pi review job recovery does not treat orphaned persisted running state as active and keeps failed lanes unacked', () => {
+  it('REQ-AGENT-054: durable lane recovery reflects disk status (result wins; running is preserved for the reaper; completed-without-result reopens; failed stays unacked)', () => {
+    // Failed lane with no result → preserved verbatim, and stays unacked.
     expect(recoverDurableReviewLaneState({
       lane: 'code-reviewer',
       current: { lane: 'code-reviewer', status: 'failed', startedAt: 5, completedAt: 6, error: 'timeout' },
       resultExists: false,
-      activeInMemory: false,
     })).toEqual({
       lane: 'code-reviewer',
       status: 'failed',
@@ -584,28 +596,28 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(allDurableReviewLanesComplete(['code-reviewer'], [])).toBe(false);
     expect(durableReviewAckReady({ lanes: ['code-reviewer'], resultLanes: [] })).toBe(false);
     expect(durableReviewAckReady({ lanes: ['code-reviewer'], resultLanes: ['code-reviewer'] })).toBe(true);
+    // Running lane with no result → PRESERVED as running (incl. pid). Lanes are
+    // detached child processes; the running → completed/failed transition is owned by
+    // the reaper (reapLaneDecision), which checks child-process liveness. Recovery
+    // must NOT reset running → pending here — that reset caused re-spawn churn when a
+    // spawning session exited and a later session re-read the job (REQ-AGENT-058).
     expect(recoverDurableReviewLaneState({
       lane: 'code-reviewer',
-      current: { lane: 'code-reviewer', status: 'running', startedAt: 10, transcriptPath: '/repo/.git/codeflare-review-jobs/head/transcripts/code-reviewer.jsonl' },
+      current: { lane: 'code-reviewer', status: 'running', startedAt: 10, pid: 4242, transcriptPath: '/repo/.git/codeflare-review-jobs/head/transcripts/code-reviewer.jsonl' },
       resultExists: false,
-      activeInMemory: false,
     })).toEqual({
       lane: 'code-reviewer',
-      status: 'pending',
+      status: 'running',
       startedAt: 10,
+      pid: 4242,
       transcriptPath: '/repo/.git/codeflare-review-jobs/head/transcripts/code-reviewer.jsonl',
     });
-    expect(recoverDurableReviewLaneState({
-      lane: 'spec-reviewer',
-      current: { lane: 'spec-reviewer', status: 'running', startedAt: 20 },
-      resultExists: false,
-      activeInMemory: true,
-    })).toEqual({ lane: 'spec-reviewer', status: 'running', startedAt: 20 });
+    // Completed record but the result file is gone (manual clean / corruption) →
+    // reopened as pending so the lane can run again.
     expect(recoverDurableReviewLaneState({
       lane: 'spec-reviewer',
       current: { lane: 'spec-reviewer', status: 'completed', startedAt: 20, completedAt: 30, transcriptPath: '/repo/.git/codeflare-review-jobs/head/transcripts/spec-reviewer.jsonl' },
       resultExists: false,
-      activeInMemory: false,
     })).toEqual({
       lane: 'spec-reviewer',
       status: 'pending',
@@ -613,18 +625,71 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       completedAt: 30,
       transcriptPath: '/repo/.git/codeflare-review-jobs/head/transcripts/spec-reviewer.jsonl',
     });
+    // Result file exists → completed is authoritative, even over a 'running' record.
     expect(recoverDurableReviewLaneState({
       lane: 'doc-updater',
       current: { lane: 'doc-updater', status: 'running', startedAt: 30 },
       resultExists: true,
       resultPath: '/repo/.git/sdd-review-results/head/doc-updater.md',
-      activeInMemory: false,
     })).toEqual({
       lane: 'doc-updater',
       status: 'completed',
       startedAt: 30,
       resultPath: '/repo/.git/sdd-review-results/head/doc-updater.md',
     });
+  });
+
+  it('REQ-AGENT-054: summarizeLaneTranscript distils a child pi --mode json stream into reaper facts', () => {
+    const lines = [
+      JSON.stringify({ type: 'session' }),
+      JSON.stringify({ type: 'agent_start' }),
+      JSON.stringify({ type: 'message_end', message: { role: 'user', content: 'Task: review' } }),
+      'this is not json — partial flush, must be skipped',
+      JSON.stringify({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'hmm' }, { type: 'text', text: '## Findings\n[HIGH] bug' }], stopReason: 'stop' } }),
+      JSON.stringify({ type: 'agent_end' }),
+      '',
+    ];
+    expect(summarizeLaneTranscript(lines)).toEqual({
+      agentEnded: true,
+      finalText: '## Findings\n[HIGH] bug',
+      stopReason: 'stop',
+      errored: false,
+    });
+    // No assistant output yet, no agent_end → nothing usable.
+    expect(summarizeLaneTranscript([JSON.stringify({ type: 'agent_start' })])).toEqual({
+      agentEnded: false,
+      finalText: '',
+      stopReason: undefined,
+      errored: false,
+    });
+  });
+
+  it('REQ-AGENT-054: reapLaneDecision is the running → completed/failed authority (agent_end completes; usable result survives a missing terminal line; dead/over-budget fails; only over-budget-while-alive kills)', () => {
+    const baseTranscript = { agentEnded: false, finalText: '', stopReason: undefined as string | undefined, errored: false };
+    // agent_end + usable text → complete (the child is already gone; never kill).
+    expect(reapLaneDecision({ status: 'running', resultExists: false, transcript: { agentEnded: true, finalText: 'findings', stopReason: 'stop', errored: false }, hasPid: true, pidAlive: false, startedAt: 0, now: 1000, timeoutMs: 60_000 }))
+      .toEqual({ action: 'complete', finalText: 'findings' });
+    // agent_end but the model errored → fail WITHOUT kill (the run already finished).
+    expect(reapLaneDecision({ status: 'running', resultExists: false, transcript: { agentEnded: true, finalText: '', stopReason: 'error', errored: true }, hasPid: true, pidAlive: true, startedAt: 0, now: 1000, timeoutMs: 60_000 }))
+      .toEqual({ action: 'fail', reason: 'lane finished without a usable result (stopReason=error, errored)', kill: false });
+    // Child gone, NO agent_end, but a usable final message was flushed → keep it (don't
+    // discard a real review over a missing terminal line).
+    expect(reapLaneDecision({ status: 'running', resultExists: false, transcript: { agentEnded: false, finalText: 'findings', stopReason: 'stop', errored: false }, hasPid: true, pidAlive: false, startedAt: 0, now: 1000, timeoutMs: 60_000 }))
+      .toEqual({ action: 'complete', finalText: 'findings' });
+    // Child gone with no agent_end and no usable output → crashed; fail (no kill).
+    expect(reapLaneDecision({ status: 'running', resultExists: false, transcript: baseTranscript, hasPid: true, pidAlive: false, startedAt: 0, now: 1000, timeoutMs: 60_000 }))
+      .toEqual({ action: 'fail', reason: 'lane process exited before producing a result', kill: false });
+    // Verified-alive, over budget → reclaim (the ONLY kill path).
+    expect(reapLaneDecision({ status: 'running', resultExists: false, transcript: baseTranscript, hasPid: true, pidAlive: true, startedAt: 0, now: 120_000, timeoutMs: 60_000 }))
+      .toEqual({ action: 'fail', reason: 'lane exceeded 60000ms budget', kill: true });
+    // Alive, within budget, no agent_end → keep waiting.
+    expect(reapLaneDecision({ status: 'running', resultExists: false, transcript: baseTranscript, hasPid: true, pidAlive: true, startedAt: 0, now: 1000, timeoutMs: 60_000 }))
+      .toEqual({ action: 'none' });
+    // Already settled (result exists, or not running) → never reaped again.
+    expect(reapLaneDecision({ status: 'running', resultExists: true, transcript: { agentEnded: true, finalText: 'x', stopReason: 'stop', errored: false }, hasPid: true, pidAlive: false, startedAt: 0, now: 1000, timeoutMs: 60_000 }))
+      .toEqual({ action: 'none' });
+    expect(reapLaneDecision({ status: 'failed', resultExists: false, transcript: baseTranscript, hasPid: false, pidAlive: false, startedAt: 0, now: 1000, timeoutMs: 60_000 }))
+      .toEqual({ action: 'none' });
   });
 
   it('REQ-AGENT-053: durable Pi review results derive structured severity state from findings', () => {

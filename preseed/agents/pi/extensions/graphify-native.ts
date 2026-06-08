@@ -21,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { Type } from "typebox";
+import { pickGraphSource, type ResolvedGraph } from "./graphify-helpers";
 
 // Pi extension SDK surface, declared inline (mirrors browser-run.ts /
 // codeflare-pi.ts) so this file needs no Pi SDK installed in Codeflare's repo.
@@ -42,20 +43,34 @@ function readTrimmed(path: string): string {
   }
 }
 
-type ResolvedGraph = { graphPath: string; cwd: string; scope: string };
-
-// Active cloned-repo graph wins; otherwise the merged global graph. Returns the
-// graph path plus the cwd graphify should run from (the repo for a repo graph,
-// /home/user for the global graph).
-function resolveGraph(): ResolvedGraph | undefined {
-  const repo = readTrimmed(ACTIVE_REPO_SENTINEL);
+function repoGraphCandidate(repo: string): ResolvedGraph | undefined {
   if (repo && existsSync(join(repo, "graphify-out", "graph.json"))) {
     return { graphPath: join(repo, "graphify-out", "graph.json"), cwd: repo, scope: `repo ${basename(repo)}` };
   }
-  if (existsSync(GLOBAL_GRAPH)) {
-    return { graphPath: GLOBAL_GRAPH, cwd: "/home/user", scope: "merged global graph (vault + all repos)" };
-  }
   return undefined;
+}
+
+function safeCwd(): string {
+  try {
+    return process.cwd();
+  } catch {
+    return "";
+  }
+}
+
+// Resolve the graph a query runs against: the cwd repo graph, then the active-repo sentinel's
+// graph, then the merged global graph (see pickGraphSource for why cwd is first). Returns the
+// graph path plus the cwd graphify should run from.
+function resolveGraph(): ResolvedGraph | undefined {
+  const cwd = safeCwd();
+  const sentinel = readTrimmed(ACTIVE_REPO_SENTINEL);
+  return pickGraphSource({
+    cwdGraph: cwd ? repoGraphCandidate(cwd) : undefined,
+    sentinelGraph: sentinel && sentinel !== cwd ? repoGraphCandidate(sentinel) : undefined,
+    globalGraph: existsSync(GLOBAL_GRAPH)
+      ? { graphPath: GLOBAL_GRAPH, cwd: "/home/user", scope: "merged global graph (vault + all repos)" }
+      : undefined,
+  });
 }
 
 function truncate(text: string): string {

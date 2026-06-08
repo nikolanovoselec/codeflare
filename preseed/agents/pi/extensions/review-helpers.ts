@@ -374,6 +374,24 @@ export function classifyReviewFiles(files: string[] | undefined): string[] | und
   return [];
 }
 
+// Pure decision behind resolveEnforcedHead (REQ-AGENT-058 AC3). Given the resolved git facts,
+// choose whether the enforced PR-boundary head is the local HEAD or GitHub's reported PR head.
+// Prefer local ONLY when it is on the PR's own branch, descends from the reported head, AND was
+// actually pushed (the remote-tracking ref contains it) — so a push whose PR metadata still lags
+// is enforced, but an unpushed local WIP commit never arms a review for a commit the PR never had.
+export function enforcedHeadDecision(input: {
+  prHead: string;
+  local: string;
+  onPrBranch: boolean;
+  localDescendsFromPrHead: boolean;
+  localPushed: boolean;
+}): "local" | "prHead" {
+  if (!input.prHead) return "local";
+  if (!input.local || input.prHead === input.local) return "prHead";
+  if (input.onPrBranch && input.localDescendsFromPrHead && input.localPushed) return "local";
+  return "prHead";
+}
+
 export default function () {
   // Helper module for review-enforcement.ts; no extension registration needed.
 }

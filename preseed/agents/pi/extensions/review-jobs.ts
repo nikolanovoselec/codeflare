@@ -7,15 +7,11 @@
  * can be recovered after reloads or context-mode changes.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import {
-  createAgentSession,
-  DefaultResourceLoader,
-  getAgentDir,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
-import { computeReviewStateFrom, formatDurableReviewResult, laneExtensionSources, recoverDurableReviewLaneState, type ReviewState } from "./review-job-helpers";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { computeReviewStateFrom, formatDurableReviewResult, laneExtensionSources, reapLaneDecision, recoverDurableReviewLaneState, summarizeLaneTranscript, type ReviewState } from "./review-job-helpers";
 import type { ReviewSpawnRequest } from "./review-helpers";
 
 export type DurableReviewLaneStatus = "pending" | "running" | "completed" | "failed";
@@ -28,6 +24,14 @@ export type DurableReviewLane = {
   resultPath?: string;
   transcriptPath?: string;
   error?: string;
+  // Detached child `pi` process-group id (== child.pid, since lanes are spawned
+  // detached). Used by the reaper for liveness (process.kill(pid, 0)) and to kill
+  // the group on timeout. Absent until the lane is spawned.
+  pid?: number;
+  // The child's /proc/<pid>/stat start-time, captured at spawn. Liveness re-checks it
+  // so a reused pid (Linux recycles pids) reads as dead rather than a live impostor —
+  // prevents both a wedged "running" lane and SIGKILL to an unrelated process group.
+  pidStart?: string;
 };
 
 export type DurableReviewJob = {
@@ -52,19 +56,27 @@ export type DurableReviewJobInput = {
   lanes: string[];
 };
 
+// Kept for call-site signature stability; lanes use pi's default model, not this.
 type ReviewRunnerContext = {
   modelRegistry?: unknown;
 };
 
-const runningLanes = new Set<string>();
-const DURABLE_LANE_TIMEOUT_MS = 10 * 60 * 1000;
+// Each lane is a detached, headless `pi` child running with no extensions (so it
+// cannot recursively load review-enforcement, starts fast, and exits cleanly) and
+// a fixed read-only tool set. The reaper enforces this wall-clock budget from disk,
+// so it survives the spawning process exiting — unlike an in-process setTimeout.
+const DURABLE_LANE_TIMEOUT_MS = 15 * 60 * 1000;
+// Read-only review tool set. Built-ins plus graphify (always loaded into the lane)
+// and context-mode's read-only ctx_search (available when the context-mode package
+// is enabled in settings); listing a tool whose extension did not load is harmless.
+const LANE_TOOLS = "read,grep,find,bash,graphify_query,graphify_explain,graphify_path,ctx_search";
 
 function now(): number {
   return Date.now();
 }
 
-// Pi agent settings.json `packages` drives which extension packages a lane may load.
-// Read best-effort; the lane resolves these against the same agentDir the loader uses.
+// Pi agent settings.json `packages` drives which extension packages a lane may load
+// (context-mode when enabled). Read best-effort against the same agentDir pi uses.
 function readPiAgentPackages(): Array<string | { source?: string; extensions?: unknown }> {
   try {
     const settings = JSON.parse(readFileSync(join(getAgentDir(), "settings.json"), "utf8")) as {
@@ -99,16 +111,20 @@ export function reviewLaneTranscriptPath(repo: string, head: string, lane: strin
   return join(reviewJobDir(repo, head), "transcripts", `${lane}.jsonl`);
 }
 
+export function reviewLaneErrPath(repo: string, head: string, lane: string): string {
+  return join(reviewJobDir(repo, head), "transcripts", `${lane}.err`);
+}
+
+function reviewLanePromptPath(repo: string, head: string, lane: string): string {
+  return join(reviewJobDir(repo, head), `${lane}.prompt.md`);
+}
+
 export function reviewResultsDir(repo: string, head: string): string {
   return join(repo, ".git", "sdd-review-results", head);
 }
 
 export function reviewResultPath(repo: string, head: string, lane: string): string {
   return join(reviewResultsDir(repo, head), `${lane}.md`);
-}
-
-function laneKey(repo: string, head: string, lane: string): string {
-  return `${repo}\u0000${head}\u0000${lane}`;
 }
 
 function readJson<T>(path: string): T | undefined {
@@ -142,7 +158,6 @@ function normalizeLaneState(repo: string, head: string, lane: string, current?: 
     current,
     resultExists: existsSync(resultPath),
     resultPath,
-    activeInMemory: runningLanes.has(laneKey(repo, head, lane)),
   });
 }
 
@@ -184,8 +199,13 @@ export function failedDurableReviewLanes(repo: string, head: string, lanes: stri
   return lanes.filter((lane) => job?.laneState?.[lane]?.status === "failed");
 }
 
+// A lane is "running" iff its on-disk record says so. The reaper transitions
+// running → completed/failed before any consumer reads this (the poller reaps
+// first), so disk status is the cross-process source of truth — no per-process
+// in-memory Set, which only ever knew about lanes THIS process spawned.
 export function runningDurableReviewLanes(repo: string, head: string, lanes: string[]): string[] {
-  return lanes.filter((lane) => runningLanes.has(laneKey(repo, head, lane)));
+  const job = readDurableReviewJob(repo, head);
+  return lanes.filter((lane) => job?.laneState?.[lane]?.status === "running");
 }
 
 function stripFrontmatter(text: string): string {
@@ -203,26 +223,69 @@ function readAgentPrompt(lane: string): string {
   return `You are ${lane}. Review the assigned PR-boundary diff. Report findings only; do not modify files.`;
 }
 
-function appendTranscript(path: string, event: unknown): void {
-  mkdirSync(dirname(path), { recursive: true });
+// Resolve how to invoke a child `pi`, mirroring the canonical subagent example:
+// from inside pi, process.argv[1] is pi's cli.js, so re-run it under the same
+// runtime; fall back to a bare `pi` on PATH when the entry script is virtual/bun.
+function getPiInvocation(args: string[]): { command: string; args: string[] } {
+  const currentScript = process.argv[1];
+  const isBunVirtual = typeof currentScript === "string" && currentScript.startsWith("/$bunfs/root/");
+  if (currentScript && !isBunVirtual && existsSync(currentScript)) {
+    return { command: process.execPath, args: [currentScript, ...args] };
+  }
+  const execName = (process.execPath.split("/").pop() ?? "").toLowerCase();
+  const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
+  if (!isGenericRuntime) return { command: process.execPath, args };
+  return { command: "pi", args };
+}
+
+// The child's start-time from /proc/<pid>/stat field 22 (clock ticks since boot) — a
+// stable per-process token that distinguishes a recycled pid. comm (field 2) is
+// parenthesized and may contain spaces/parens, so parse from the last ')': the tail
+// starts at field 3 (state), making starttime index 19. Linux-only; undefined elsewhere.
+function readProcessStartTime(pid: number): string | undefined {
   try {
-    appendFileSync(path, `${JSON.stringify(event)}\n`, "utf8");
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const tail = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/);
+    return tail[19];
   } catch {
-    // Transcript loss must not break the merge gate; result files are authoritative.
+    return undefined;
   }
 }
 
-function extractTextContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content.map((item) => {
-    if (item && typeof item === "object" && (item as { type?: unknown }).type === "text") {
-      return String((item as { text?: unknown }).text ?? "");
-    }
-    return "";
-  }).join("");
+// Lanes are spawned detached, so child.pid is the process-GROUP id. Liveness is
+// identity-checked: a pid that is signalable but whose /proc start-time no longer
+// matches the recorded one is a RECYCLED pid (a different process) and reads as dead,
+// so the reaper never trusts it for "still running" nor kills its (unrelated) group.
+function isProcessAlive(pid: number, expectedStart?: string): boolean {
+  if (!pid || pid <= 1) return false;
+  let signalable = false;
+  try {
+    process.kill(pid, 0);
+    signalable = true;
+  } catch (error) {
+    // EPERM: the process exists but is not ours to signal — treat as alive.
+    signalable = (error as { code?: string })?.code === "EPERM";
+  }
+  if (!signalable) return false;
+  if (expectedStart) {
+    const current = readProcessStartTime(pid);
+    if (current && current !== expectedStart) return false; // pid recycled → impostor
+  }
+  return true;
 }
 
+function killLaneProcessGroup(pid: number): void {
+  if (!pid || pid <= 1) return;
+  // Negative pid targets the whole group (detached child is the group leader),
+  // so any tool subprocess the reviewer spawned dies with it. Best-effort.
+  try { process.kill(-pid, "SIGTERM"); } catch { /* already gone */ }
+  try { process.kill(-pid, "SIGKILL"); } catch { /* already gone */ }
+}
+
+function readTranscriptLines(path?: string): string[] {
+  if (!path) return [];
+  try { return readFileSync(path, "utf8").split("\n"); } catch { return []; }
+}
 
 export function recordDurableReviewLane(jobInput: DurableReviewJobInput, lane: DurableReviewLane): DurableReviewJob {
   writeLane(jobInput.repo, jobInput.head, lane);
@@ -238,121 +301,146 @@ export function recordDurableReviewLane(jobInput: DurableReviewJobInput, lane: D
   return next;
 }
 
-async function runDurableLane(runner: ReviewRunnerContext, job: DurableReviewJobInput, request: ReviewSpawnRequest): Promise<void> {
-  const key = laneKey(job.repo, job.head, request.lane);
-  if (runningLanes.has(key)) return;
-  runningLanes.add(key);
-  // Mark that a durable review lane is loading in this process so codeflare-pi can skip
-  // its per-session global-graph merge. Counter (not boolean) so concurrent lanes are safe.
-  const laneDepth = globalThis as { __codeflareReviewLaneDepth?: number };
-  laneDepth.__codeflareReviewLaneDepth = (laneDepth.__codeflareReviewLaneDepth ?? 0) + 1;
+// Spawn one review lane as a DETACHED, headless child `pi` process. The child
+// outlives the spawning session (so a review survives the user quitting pi), writes
+// its `--mode json` event stream to the lane transcript file, and is reaped from disk
+// by reapDurableReviewLanes. This is Pi's canonical subagent pattern (examples/
+// extensions/subagent: "each subagent runs in a separate pi process"). Two hard-won
+// env requirements proven against pi 0.78.1: stdin MUST be /dev/null (an inherited
+// stdin hangs print mode at startup), and --no-extensions is required so the child
+// (a) cannot recursively load review-enforcement, (b) starts fast, (c) exits cleanly.
+function spawnDurableLane(jobInput: DurableReviewJobInput, request: ReviewSpawnRequest): void {
+  const { repo, head } = jobInput;
+  const lane = request.lane;
+  const transcriptPath = reviewLaneTranscriptPath(repo, head, lane);
+  const errPath = reviewLaneErrPath(repo, head, lane);
+  const promptPath = reviewLanePromptPath(repo, head, lane);
 
-  const transcriptPath = reviewLaneTranscriptPath(job.repo, job.head, request.lane);
-  const resultPath = reviewResultPath(job.repo, job.head, request.lane);
-  recordDurableReviewLane(job, { lane: request.lane, status: "running", startedAt: now(), transcriptPath });
+  const systemPrompt = [
+    readAgentPrompt(lane),
+    "",
+    "# Codeflare PR-boundary durable review job",
+    "You are running inside Codeflare's durable PR-boundary review gate as an isolated, headless review process.",
+    "Report findings only. Do not modify files. Do not run builds, tests, linters, or dev servers.",
+    "If graphify tools are available, use only graphify_query, graphify_path, and graphify_explain for read-only lookups; do not build, update, or watch graphs. If ctx_search is available, use it for read-only context lookups.",
+    "Use severity prefixes [CRITICAL], [HIGH], [MEDIUM], or [LOW] for findings. Use [CRITICAL] for merge-blocking findings.",
+    "Your final assistant message is persisted verbatim as this lane's review result; Codeflare adds the Review Summary table after it, so do not add your own summary table.",
+  ].join("\n");
 
-  let finalText = "";
+  // Fresh transcript/err on every (re)spawn so a stale partial from a prior, dead
+  // attempt is never mis-read by the reaper. openSync("w") truncates.
+  mkdirSync(dirname(transcriptPath), { recursive: true });
+  writeFileSync(promptPath, systemPrompt, "utf8");
+
+  // --no-extensions disables discovery (so review-enforcement never loads recursively),
+  // but explicit `-e` paths still load: the first-party graphify-native extension always,
+  // and the settings-enabled lane packages (context-mode's ctx_* when enabled). This gives
+  // reviewers graphify + ctx without the full extension stack.
+  const graphifyNativePath = join(getAgentDir(), "extensions", "graphify-native.ts");
+  const extensionArgs: string[] = [];
+  if (existsSync(graphifyNativePath)) extensionArgs.push("-e", graphifyNativePath);
+  for (const source of laneExtensionSources(readPiAgentPackages())) extensionArgs.push("-e", source);
+
+  const args = [
+    "--mode", "json",
+    "-p",
+    "--no-session",
+    "--no-extensions",
+    "--no-context-files",
+    ...extensionArgs,
+    "--tools", LANE_TOOLS,
+    "--append-system-prompt", promptPath,
+    `Task: ${request.prompt}`,
+  ];
+  const invocation = getPiInvocation(args);
+
+  const out = openSync(transcriptPath, "w");
+  const err = openSync(errPath, "w");
+  let pid: number | undefined;
   try {
-    const systemPrompt = [
-      readAgentPrompt(request.lane),
-      "",
-      "# Codeflare PR-boundary durable review job",
-      "You are running inside Codeflare's durable PR-boundary review gate.",
-      "Report findings only. Do not modify files. Do not spawn subagents. Do not run builds, tests, linters, or dev servers.",
-      "If graphify tools are available, use only graphify_query, graphify_path, and graphify_explain for read-only lookups; do not build, update, or watch graphs.",
-      "Use severity prefixes [CRITICAL], [HIGH], [MEDIUM], or [LOW] for findings. Use [CRITICAL] for merge-blocking findings.",
-      "Your final answer is persisted as the review result for this lane. Codeflare adds the standard Review Summary table after your findings, so do not add your own summary table.",
-    ].join("\n");
-
-    // Keep noExtensions (so review-enforcement/subagents never load in-process), but additively
-    // load codeflare-pi (build-blocker + guards), the first-party graphify-native extension
-    // (graphify_query/path/explain), and context-mode so the reviewer has graphify and, when
-    // /ctx on, ctx_* tools.
-    const codeflarePiPath = join(getAgentDir(), "extensions", "codeflare-pi.ts");
-    const graphifyNativePath = join(getAgentDir(), "extensions", "graphify-native.ts");
-    const additionalExtensionPaths = [
-      ...(existsSync(codeflarePiPath) ? [codeflarePiPath] : []),
-      ...(existsSync(graphifyNativePath) ? [graphifyNativePath] : []),
-      ...laneExtensionSources(readPiAgentPackages()),
-    ];
-
-    const resourceLoader = new DefaultResourceLoader({
-      cwd: job.repo,
-      agentDir: getAgentDir(),
-      systemPrompt,
-      noExtensions: true,
-      additionalExtensionPaths,
-      noPromptTemplates: true,
-      noThemes: true,
-      noContextFiles: true,
-      noSkills: false,
+    const child = spawn(invocation.command, invocation.args, {
+      cwd: repo,
+      detached: true,
+      stdio: ["ignore", out, err],
+      env: { ...process.env, BROWSER: "" },
     });
-    await resourceLoader.reload();
-
-    const { session } = await createAgentSession({
-      cwd: job.repo,
-      agentDir: getAgentDir(),
-      modelRegistry: runner.modelRegistry as never,
-      sessionManager: SessionManager.inMemory(),
-      resourceLoader,
-    } as never);
-
-    const unsubscribe = session.subscribe((event: any) => {
-      appendTranscript(transcriptPath, event);
-      if (event?.type === "message_end") {
-        const message = event.message as { role?: string; content?: unknown } | undefined;
-        if (message?.role === "assistant") {
-          const text = extractTextContent(message.content);
-          if (text.trim()) finalText = text;
-        }
-      }
+    // An async spawn failure (e.g. ENOENT) would otherwise be an unhandled error
+    // event; record it so the reaper/state machine sees a failed lane, not a hang.
+    child.on("error", (error) => {
+      recordDurableReviewLane(jobInput, { lane, status: "failed", completedAt: now(), transcriptPath, error: `spawn failed: ${error instanceof Error ? error.message : String(error)}` });
+      appendReviewEvent(repo, { event: "lane_failed", head, lane, error: `spawn failed: ${error instanceof Error ? error.message : String(error)}` });
     });
-
-    // Authoritative watchdog: race the prompt against a timeout that aborts the agent
-    // and rejects. Unlike `await session.prompt(...)` then checking a flag, this reclaims
-    // the lane even if prompt() is wedged and never settles — the rejection drives the
-    // catch + finally, so runningLanes is always released (review.md §7.1).
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const watchdog = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => {
-        if (settled) return;
-        try { session.agent.abort(); } catch { /* best effort */ }
-        reject(new Error(`durable review lane timed out after ${DURABLE_LANE_TIMEOUT_MS}ms`));
-      }, DURABLE_LANE_TIMEOUT_MS);
-    });
-    try {
-      await Promise.race([session.prompt(request.prompt).then(() => { settled = true; }), watchdog]);
-    } finally {
-      settled = true;
-      if (timer) clearTimeout(timer);
-      unsubscribe();
-      session.dispose();
-    }
-
-    mkdirSync(dirname(resultPath), { recursive: true });
-    writeFileSync(resultPath, formatDurableReviewResult(job, request.lane, finalText), "utf8");
-    recordDurableReviewLane(job, { lane: request.lane, status: "completed", startedAt: readLane(job.repo, job.head, request.lane)?.startedAt, completedAt: now(), transcriptPath, resultPath });
-    appendReviewEvent(job.repo, { event: "lane_completed", head: job.head, lane: request.lane, resultPath });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    recordDurableReviewLane(job, { lane: request.lane, status: "failed", startedAt: readLane(job.repo, job.head, request.lane)?.startedAt, completedAt: now(), transcriptPath, error: message });
-    appendReviewEvent(job.repo, { event: "lane_failed", head: job.head, lane: request.lane, error: message });
+    child.unref();
+    pid = child.pid;
   } finally {
-    runningLanes.delete(key);
-    laneDepth.__codeflareReviewLaneDepth = (laneDepth.__codeflareReviewLaneDepth ?? 1) - 1;
+    closeSync(out);
+    closeSync(err);
+  }
+
+  // No pid means spawn failed synchronously — fail loudly now (the caller's catch records
+  // it) instead of recording a "running" lane with no process for the reaper to find.
+  if (!pid) throw new Error("spawn produced no pid");
+  const pidStart = readProcessStartTime(pid);
+  recordDurableReviewLane(jobInput, { lane, status: "running", startedAt: now(), transcriptPath, pid, pidStart });
+}
+
+// The single, process-independent authority for the running → completed/failed
+// transition. Called by the poller on every lifecycle tick (any session can reap a
+// lane another session spawned). reapLaneDecision holds the pure logic; this wrapper
+// injects the disk + process facts and applies the side effects (result file, lane
+// record, audit event, killing the finished/over-budget child's group).
+export function reapDurableReviewLanes(repo: string, head: string): void {
+  const job = readDurableReviewJob(repo, head);
+  if (!job) return;
+  for (const lane of job.lanes) {
+    const rec = job.laneState[lane];
+    if (!rec || rec.status !== "running") continue;
+    const hasPid = typeof rec.pid === "number";
+    const decision = reapLaneDecision({
+      status: rec.status,
+      resultExists: existsSync(reviewResultPath(repo, head, lane)),
+      transcript: summarizeLaneTranscript(readTranscriptLines(rec.transcriptPath)),
+      hasPid,
+      pidAlive: hasPid ? isProcessAlive(rec.pid as number, rec.pidStart) : false,
+      startedAt: rec.startedAt,
+      now: now(),
+      timeoutMs: DURABLE_LANE_TIMEOUT_MS,
+    });
+    if (decision.action === "complete") {
+      const resultPath = reviewResultPath(repo, head, lane);
+      mkdirSync(dirname(resultPath), { recursive: true });
+      writeFileSync(resultPath, formatDurableReviewResult(job, lane, decision.finalText), "utf8");
+      recordDurableReviewLane(job, { lane, status: "completed", startedAt: rec.startedAt, completedAt: now(), transcriptPath: rec.transcriptPath, resultPath });
+      appendReviewEvent(repo, { event: "lane_completed", head, lane, resultPath });
+      // Defensive: a completed lane's child is normally already gone; only signal if it
+      // is still alive AND identity-matches, so we never SIGKILL a recycled pid's group.
+      if (hasPid && isProcessAlive(rec.pid as number, rec.pidStart)) killLaneProcessGroup(rec.pid as number);
+    } else if (decision.action === "fail") {
+      recordDurableReviewLane(job, { lane, status: "failed", startedAt: rec.startedAt, completedAt: now(), transcriptPath: rec.transcriptPath, error: decision.reason });
+      appendReviewEvent(repo, { event: "lane_failed", head, lane, error: decision.reason });
+      if (decision.kill && hasPid && isProcessAlive(rec.pid as number, rec.pidStart)) killLaneProcessGroup(rec.pid as number);
+    }
   }
 }
 
-export function startDurableReviewLanes(runner: ReviewRunnerContext, jobInput: DurableReviewJobInput, requests: ReviewSpawnRequest[]): { job: DurableReviewJob; launched: string[] } {
+export function startDurableReviewLanes(_runner: ReviewRunnerContext, jobInput: DurableReviewJobInput, requests: ReviewSpawnRequest[]): { job: DurableReviewJob; launched: string[] } {
   const job = ensureDurableReviewJob(jobInput);
   const launched: string[] = [];
   for (const request of requests) {
     const current = job.laneState[request.lane] ?? readLane(job.repo, job.head, request.lane);
-    if (current?.status === "completed" || runningLanes.has(laneKey(job.repo, job.head, request.lane))) continue;
+    if (current?.status === "completed") continue;
+    // A lane with a still-alive child is already running — don't double-spawn. A
+    // "running" record whose child is dead (no result) is a stale orphan; respawn it.
+    if (current?.status === "running" && typeof current.pid === "number" && isProcessAlive(current.pid, current.pidStart)) continue;
     launched.push(request.lane);
     appendReviewEvent(jobInput.repo, { event: "lane_spawned", head: jobInput.head, lane: request.lane });
-    void runDurableLane(runner, jobInput, request);
+    try {
+      spawnDurableLane(jobInput, request);
+    } catch (error) {
+      const message = `spawn failed: ${error instanceof Error ? error.message : String(error)}`;
+      recordDurableReviewLane(jobInput, { lane: request.lane, status: "failed", completedAt: now(), error: message });
+      appendReviewEvent(jobInput.repo, { event: "lane_failed", head: jobInput.head, lane: request.lane, error: message });
+    }
   }
   return { job: readDurableReviewJob(jobInput.repo, jobInput.head) ?? job, launched };
 }
@@ -379,7 +467,8 @@ export function appendReviewEvent(repo: string, row: Record<string, unknown>): v
 
 // Canonical, fs-backed review state for a head — the one read every status surface uses
 // (review.md §17.2). Pure decision logic lives in computeReviewStateFrom; this wrapper
-// only injects the disk facts. runningInMemory is meaningful only in the spawning process.
+// only injects the disk facts. "running" now comes purely from the on-disk lane record
+// (the reaper keeps it accurate cross-process), so runningInMemory is always false.
 export function computeReviewState(repo: string, head: string): ReviewState {
   const job = readDurableReviewJob(repo, head);
   const lanes = job?.lanes ?? [];
@@ -393,7 +482,7 @@ export function computeReviewState(repo: string, head: string): ReviewState {
     lanes,
     laneJobStatus: (lane) => job?.laneState?.[lane]?.status,
     resultLaneExists: (lane) => existsSync(reviewResultPath(repo, head, lane)),
-    runningInMemory: (lane) => runningLanes.has(laneKey(repo, head, lane)),
+    runningInMemory: () => false,
     ackHead: readTrimmedFile(join(gitDir, "sdd-last-ack-pr-head")),
     breakerHead: readTrimmedFile(join(gitDir, "sdd-review-breaker")),
     attempts: readIntFile(join(gitDir, "sdd-review-block-count")),

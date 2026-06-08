@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPrBoundaryTrigger, isPrBoundaryCommand, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { isPrBoundaryTrigger, isPrBoundaryCommand, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * isPrBoundaryTrigger is the single "should this command start a review?" predicate.
@@ -101,5 +101,50 @@ describe('prUrlFromText', () => {
     expect(prUrlFromText('https://github.com/owner/repo/issues/3')).toBeUndefined();
     expect(prUrlFromText('no url here')).toBeUndefined();
     expect(prUrlFromText(undefined)).toBeUndefined();
+  });
+});
+
+/**
+ * enforcedHeadDecision is the pure decision behind resolveEnforcedHead (REQ-AGENT-058 AC3).
+ * The load-bearing safety property is that an UNPUSHED local commit (descends from the reported
+ * head but localPushed=false) must NOT be enforced — otherwise passive reconciliation arms a
+ * review for a commit the PR never had. These fail if that gate, or the metadata-lag tolerance
+ * it guards, regresses.
+ */
+describe('enforcedHeadDecision (REQ-AGENT-058 AC3)', () => {
+  const lagging = {
+    prHead: 'aaaaaaa',
+    local: 'bbbbbbb',
+    onPrBranch: true,
+    localDescendsFromPrHead: true,
+    localPushed: true,
+  };
+
+  it('enforces the pushed local head when gh metadata still lags behind the push', () => {
+    expect(enforcedHeadDecision(lagging)).toBe('local');
+  });
+
+  it('does NOT enforce an unpushed local WIP commit — falls back to the reported PR head', () => {
+    expect(enforcedHeadDecision({ ...lagging, localPushed: false })).toBe('prHead');
+  });
+
+  it('does NOT enforce a local head on a different branch even if pushed and descending', () => {
+    expect(enforcedHeadDecision({ ...lagging, onPrBranch: false })).toBe('prHead');
+  });
+
+  it('does NOT enforce a local head that does not descend from the reported head (diverged)', () => {
+    expect(enforcedHeadDecision({ ...lagging, localDescendsFromPrHead: false })).toBe('prHead');
+  });
+
+  it('trusts the reported PR head when it equals local HEAD', () => {
+    expect(enforcedHeadDecision({ ...lagging, prHead: 'ccccccc', local: 'ccccccc', localDescendsFromPrHead: false })).toBe('prHead');
+  });
+
+  it('falls back to local only when there is no reported PR head at all', () => {
+    expect(enforcedHeadDecision({ ...lagging, prHead: '', localDescendsFromPrHead: false })).toBe('local');
+  });
+
+  it('trusts the reported PR head when there is no local checkout', () => {
+    expect(enforcedHeadDecision({ ...lagging, local: '', localDescendsFromPrHead: false, localPushed: false })).toBe('prHead');
   });
 });

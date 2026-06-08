@@ -13,9 +13,9 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prCreateBoundaryBase, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prCreateBoundaryBase, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldReconcileOpenPr, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
-import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
+import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
@@ -305,24 +305,26 @@ function reviewCandidateHead(repo: string, pr: PrState, command?: string): strin
 
 // Lag-tolerant enforced head for open-PR reconciliation (REQ-AGENT-058 AC3). `gh pr view` can
 // report a stale headRefOid for a few seconds after a push, so when local HEAD is on the PR
-// branch and strictly descends from the reported PR head, the just-pushed local commit is the
-// real boundary head (matches the local-push path in reviewCandidateHead). Otherwise trust
-// GitHub's PR head (remote advanced, branches diverged, or no local checkout). Returns "" when
-// neither is resolvable. Any head mismatch self-corrects: the merge gate acks the PR head, and
-// reconciliation is idempotent and re-runs each tick until they converge.
+// branch, descends from the reported PR head, AND has actually been pushed, the local commit is
+// the real boundary head. The push check is load-bearing: an unpushed local WIP commit also
+// descends from the reported head, and without it reconciliation would arm a review for a commit
+// the PR never had. "Pushed" = the remote-tracking ref origin/<branch> contains local HEAD; git
+// push updates that ref locally, so this holds even before a fetch and while gh metadata lags.
+// Returns "" when neither head is resolvable; any mismatch self-corrects (the merge gate acks the
+// PR head and reconciliation re-runs each tick until they converge). Decision is the pure
+// enforcedHeadDecision so it is unit-testable without a git fixture.
 function resolveEnforcedHead(repo: string, pr: PrState): string {
   const prHead = pr.headRefOid || "";
   const local = localHead(repo) || "";
-  if (!prHead) return local;
-  if (!local || prHead === local) return prHead;
-  // Only prefer local HEAD over the reported PR head when we are actually on the PR's own
-  // branch AND local strictly descends from the reported head — i.e. a real push gh's metadata
-  // has not caught up to yet (mirrors reviewCandidateHead's local-push gate). On any other
-  // branch (a sibling whose HEAD merely descends from the PR head) trust GitHub's PR head, so
-  // reconciliation never arms a review window for a commit the PR never had.
   const onPrBranch = Boolean(pr.headRefName) && currentBranch(repo) === pr.headRefName;
-  if (onPrBranch && isAncestor(repo, prHead, local)) return local;
-  return prHead;
+  const decision = enforcedHeadDecision({
+    prHead,
+    local,
+    onPrBranch,
+    localDescendsFromPrHead: Boolean(prHead) && Boolean(local) && prHead !== local && isAncestor(repo, prHead, local),
+    localPushed: onPrBranch && isAncestor(repo, local, `origin/${pr.headRefName}`),
+  });
+  return decision === "local" ? local : prHead;
 }
 
 function mergeLaneState(repo: string, currentHead: string, previous?: PendingReview): { lanes: string[]; completed: Set<string> } {
@@ -529,8 +531,70 @@ function installReviewMessageDedupe(pi: ExtensionAPI): void {
   globalState.__codeflareReviewSendMessagePatchVersions.set(piObject, patchVersion);
 }
 
+// Autonomous review reaper (REQ-AGENT-054 AC7). Detached lane children run to completion
+// on their own, but the reaper that harvests them (writes the result file, advances the
+// state machine) otherwise only runs on user-driven lifecycle ticks — so a push followed
+// by an idle session leaves finished lanes unharvested (agent_end on disk, no result file).
+// Pi exposes no periodic/idle hook, so this plain interval (registered once, below) drives
+// the reaper without a ctx while a review window is pending: it reaps finished lanes and
+// spawns the next *fresh* eligible lane (e.g. doc-updater once spec-reviewer has a result).
+// Failed-lane RETRIES are intentionally left to the on-turn driver so the breaker still
+// bounds them; the ctx-dependent merged summary + ack also stay on the next real tick
+// (finalizeCompletedReview). Best-effort and self-clearing: it must never throw.
+function autonomousReviewReaperTick(): void {
+  try {
+    const repo = findGitRoot(process.cwd());
+    if (!repo) return;
+    const pending = loadPending(repo);
+    if (!pending || !pending.head || pending.lanes.length === 0) return;
+    reapDurableReviewLanes(pending.repo, pending.head);
+    const completed = completedDurableReviewLanes(pending.repo, pending.head, pending.lanes);
+    if (completed.length === pending.lanes.length) return; // all lanes done; ack/summary is the on-turn driver's job
+    const job = readDurableReviewJob(pending.repo, pending.head);
+    const running = runningDurableReviewLanes(pending.repo, pending.head, pending.lanes);
+    const eligible = durableReviewEligibleLanes({
+      lanes: pending.lanes,
+      completed,
+      running,
+      requestedAt: pending.requestedAt,
+      now: Date.now(),
+      retryMs: REVIEW_REQUEST_RETRY_MS,
+    }).filter((lane) => {
+      const status = job?.laneState?.[lane]?.status;
+      return status === undefined || status === "pending"; // only never-attempted lanes; retries → on-turn driver + breaker
+    });
+    if (eligible.length === 0) return;
+    const pr = { baseRefName: pending.baseRefName, number: pending.prNumber, headRefOid: pending.head } as PrState;
+    const requests: ReviewSpawnRequest[] = eligible
+      .filter((lane) => shouldRequestLane(pending, lane))
+      .map((lane) => ({ lane, prompt: promptForLane(pending, pr, lane), description: descriptionForLane(lane) }));
+    if (requests.length === 0) return;
+    startDurableReviewLanes({ modelRegistry: undefined }, {
+      repo: pending.repo,
+      prNumber: pending.prNumber,
+      baseRefName: pending.baseRefName,
+      head: pending.head,
+      reviewBase: pending.reviewBase,
+      lanes: pending.lanes,
+    }, requests);
+  } catch {
+    // Never throw from the autonomous timer — a transient fs/spawn error must not crash pi.
+  }
+}
+
 export default function (pi: ExtensionAPI) {
   installReviewMessageDedupe(pi);
+  // Drive the autonomous reaper on an interval so reviews finalize without a user turn.
+  // Reload-safe singleton (clear any prior interval first so /reload does not stack timers);
+  // unref so it never keeps the process alive on its own.
+  {
+    const reaperKey = "__codeflareReviewReaperTimer";
+    const store = globalThis as Record<string, ReturnType<typeof setInterval> | undefined>;
+    if (store[reaperKey]) clearInterval(store[reaperKey]);
+    const timer = setInterval(autonomousReviewReaperTick, 20_000);
+    if (typeof (timer as { unref?: () => void }).unref === "function") (timer as { unref: () => void }).unref();
+    store[reaperKey] = timer;
+  }
   const runToken = Symbol("codeflare-review-enforcement");
   (globalThis as { __codeflareReviewEnforcementRun?: symbol }).__codeflareReviewEnforcementRun = runToken;
   const isActiveRun = (): boolean => (globalThis as { __codeflareReviewEnforcementRun?: symbol }).__codeflareReviewEnforcementRun === runToken;
@@ -826,6 +890,12 @@ export default function (pi: ExtensionAPI) {
       publishSummaryForCurrentPr(ctx);
       return;
     }
+    // Reap detached lane children from disk FIRST: any lane that finished (agent_end),
+    // died, or blew its budget transitions running → completed/failed here, so the
+    // completion/ack checks below see fresh state. This is what drives the state
+    // machine forward across turns — and across sessions, since the reaper is purely
+    // disk-driven and can finalize a lane another (now-exited) session spawned.
+    reapDurableReviewLanes(state.repo, state.head);
     const headStatus = reviewHeadStatus(state);
     if (headStatus === "stale") {
       discardStale(state, ctx);
@@ -1015,16 +1085,12 @@ export default function (pi: ExtensionAPI) {
     const state = hydratePending(ctx);
     if (state && reviewHeadStatus(state) === "advanced") { void rollForwardAdvancedReview(state, ctx, "session_start detected advanced PR head"); return; }
     refreshReviewStatusFromDurable(ctx);
-    // Catch a boundary missed before this session started (forced: once per session start).
-    void reconcileOpenPrReview(ctx, true);
   });
 
   const onUiRefresh = (_event: any, ctx: any): void => {
     if (!isActiveRun()) return;
     remember(ctx);
     refreshReviewStatusFromDurable(ctx);
-    // Throttled catch-up for a missed boundary on every UI/turn tick (REQ-AGENT-058).
-    void reconcileOpenPrReview(ctx, false);
   };
 
   pi.on("resources_discover", onUiRefresh);
@@ -1136,14 +1202,10 @@ export default function (pi: ExtensionAPI) {
     remember(ctx);
     const state = hydratePending(ctx);
     if (!state) {
-      // No persisted review window. Before going passive, run the bounded open-PR
-      // reconciliation (REQ-AGENT-058): the onToolEnd boundary path can miss a PR-open
-      // event (compound `&&`, here-doc body, or a reload between the command and its
-      // event), so an OPEN, non-draft, ENFORCED main/master PR whose head is unacknowledged
-      // with no review window and no open breaker is a missed boundary — start its review
-      // now. This is the narrow re-read REQ-036 AC7 permits; it never fires on mere branch
-      // or PR existence (the gating lives in the pure shouldReconcileOpenPr).
-      if (await reconcileOpenPrReview(ctx, true)) return;
+      // No persisted review window: stay passive. Review starts ONLY from an actual
+      // PR-boundary command event (gh pr create to main, or git push to a branch with an
+      // open PR to main) handled in onToolEnd — never from mere open-PR existence at turn
+      // end or session start (REQ-036 AC7). Just publish any final summary and clear status.
       clearReviewStatus(ctx);
       publishSummaryForCurrentPr(ctx);
       return;
@@ -1184,6 +1246,12 @@ export default function (pi: ExtensionAPI) {
     }
 
     const currentState = loadPending(state.repo) || state;
+    // Reap detached lane children from disk before reading lane state: any lane that
+    // emitted agent_end, died, or blew its budget transitions running → completed/failed
+    // here, so the completion/failure/eligible checks below act on fresh facts. This is
+    // what advances the state machine each turn (detached children write their result;
+    // the reaper, in whatever session ticks next, finalizes it — no in-process callback).
+    reapDurableReviewLanes(currentState.repo, currentState.head);
     for (const lane of completedDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes)) {
       if (!currentState.completed.has(lane)) {
         await markCompleted(lane, ctx);
