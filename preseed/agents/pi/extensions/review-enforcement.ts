@@ -1017,7 +1017,7 @@ export default function (pi: ExtensionAPI) {
     refreshReviewStatusFromDurable(ctx);
     // Catch a boundary missed before this session started (forced: once per session start).
     void reconcileOpenPrReview(ctx, true);
-  };
+  });
 
   const onUiRefresh = (_event: any, ctx: any): void => {
     if (!isActiveRun()) return;
