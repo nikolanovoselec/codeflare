@@ -391,14 +391,12 @@ active-repo/global-graph maintenance and clone triage, automatic memory capture,
 Vault graph extraction/global-graph merge, local-build blocking,
 and AI-attribution blocking. Pi receives a dedicated native graphify skill
 that uses local AST extraction plus Pi `Agent` subagents instead of the
-Claude/MCP-specific transformed skill. The Pi runtime adapter also makes
-native `graphify_query` / `graphify_path` / `graphify_explain` active-repo
-aware: if the packaged graphify tool resolves the session cwd
-(`~/workspace`) and reports `/home/user/workspace/graphify-out/graph.json`
-missing, Codeflare retries the same query through the graphify CLI with
-`--graph <active-repo>/graphify-out/graph.json`. The active repo identity
-injected into Pi context includes repository basename, checked-out branch,
-and HEAD prefix. Pi receives a separate
+Claude/MCP-specific transformed skill. The Pi runtime also registers first-party native
+`graphify_query` / `graphify_path` / `graphify_explain` tools through
+`graphify-native.ts`. Each query shells the upstream Graphify CLI and resolves
+the cwd repo graph first, then the active-repo sentinel graph, then the merged
+global graph. The active repo identity injected into Pi context includes
+repository basename, checked-out branch, and HEAD prefix. Pi receives a separate
 `review-command.ts` for the user-invoked `/review` UX and
 `review-enforcement.ts` for PR-boundary review enforcement.
 
@@ -551,20 +549,19 @@ All tiers append tool guidance (pointing at `mcp__graphify__query_graph`, `mcp__
 
 In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing. If no repo graph exists, the agent asks the user which graph action to take before doing any graph work: Full repo AST-only, Full repo semantic, or no graph action. Claude's clone hook injects a directive that tells the agent to compare `graphify-out/graph.json` `built_at_commit` with `git rev-parse HEAD`; Pi performs that freshness comparison natively in its lifecycle extension. Fresh graphs produce an information message only. Stale or unknown graphs ask the user before any update, offering existing-graph-as-is, Full repo AST-only update, or Full repo semantic refresh. The AST-only update uses the bounded upstream-update wrapper only after the user chooses it. Full semantic build/refresh records clone-time intent only: after corpus detection, the graphify skill must show actual uncached file/subagent counts and get confirmation before dispatching semantic subagents. Pi mirrors the same behavior through native lifecycle events and suppresses clone triage inside durable PR-boundary review lanes.
 
-### Pi active-repo query fallback ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
+### Pi native graphify tools ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
 
-Pi sessions run from `~/workspace`, while checked-out repositories live under
-child directories. The packaged Pi graphify tools execute from the Pi session
-cwd, so they can initially look for `/home/user/workspace/graphify-out/graph.json`.
-`codeflare-pi.ts` handles that mismatch in the `tool_result` hook: when
-`graphify_query`, `graphify_path`, or `graphify_explain` fails specifically with
-that missing workspace-root graph, the extension resolves the active repository
-from `~/.cache/codeflare-hooks/graphify-active-cwd`, verifies that
-`<repo>/graphify-out/graph.json` exists, and retries the equivalent CLI command
-with `--graph <repo>/graphify-out/graph.json`. The patched result is returned to
-Pi as a successful tool result, with details recording the repo path, graph path,
-branch, and HEAD prefix. If the retry fails too, the original tool error is left
-unchanged so the agent can fall back manually.
+Pi has no MCP client, so Codeflare exposes `graphify_query`, `graphify_path`,
+and `graphify_explain` through `graphify-native.ts`. The extension shells the
+same upstream `graphify` CLI used by Claude's MCP server and passes the resolved
+`--graph` path explicitly.
+
+Graph resolution is local-first: the cwd repo's `graphify-out/graph.json` wins,
+then the active-repo sentinel's graph, then `~/.graphify/global-graph.json`.
+Tool results include the graph path, scope, and repo cwd so the graphify skill
+can save the answer back to the same graph. If no graph exists, the tools fail
+soft with a build-graph hint. `codeflare-pi.ts` still owns active-repo context
+and clone triage; it no longer acts as the primary query retry shim.
 
 ### Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
 

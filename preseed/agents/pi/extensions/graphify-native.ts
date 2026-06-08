@@ -19,7 +19,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { Type } from "typebox";
 import { pickGraphSource, type ResolvedGraph } from "./graphify-helpers";
 
@@ -27,6 +27,7 @@ import { pickGraphSource, type ResolvedGraph } from "./graphify-helpers";
 // codeflare-pi.ts) so this file needs no Pi SDK installed in Codeflare's repo.
 type ToolContent = { type: "text"; text: string };
 type AgentToolResult = { content: ToolContent[]; details?: unknown; isError?: boolean };
+type ExtensionContext = { cwd?: string; sessionManager?: { getCwd?: () => string } };
 type ExtensionAPI = { registerTool(tool: unknown): void };
 
 const GLOBAL_GRAPH = "/home/user/.graphify/global-graph.json";
@@ -50,6 +51,17 @@ function repoGraphCandidate(repo: string): ResolvedGraph | undefined {
   return undefined;
 }
 
+function repoRootFromPath(start: string): string | undefined {
+  let current = start;
+  while (current) {
+    if (existsSync(join(current, ".git")) || existsSync(join(current, "graphify-out", "graph.json"))) return current;
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+  return undefined;
+}
+
 function safeCwd(): string {
   try {
     return process.cwd();
@@ -58,15 +70,27 @@ function safeCwd(): string {
   }
 }
 
-// Resolve the graph a query runs against: the cwd repo graph, then the active-repo sentinel's
-// graph, then the merged global graph (see pickGraphSource for why cwd is first). Returns the
-// graph path plus the cwd graphify should run from.
-function resolveGraph(): ResolvedGraph | undefined {
-  const cwd = safeCwd();
-  const sentinel = readTrimmed(ACTIVE_REPO_SENTINEL);
+function sessionCwd(ctx?: ExtensionContext): string {
+  try {
+    return ctx?.sessionManager?.getCwd?.() || ctx?.cwd || "";
+  } catch {
+    return ctx?.cwd || "";
+  }
+}
+
+// Resolve the graph a query runs against: the session/job cwd repo graph, then the
+// active-repo sentinel's graph, then the merged global graph (see pickGraphSource for
+// why cwd is first). process.cwd() is only a fallback because normal Pi sessions often
+// keep the process in ~/workspace while ctx.sessionManager tracks the live shell cwd.
+function resolveGraph(ctx?: ExtensionContext): ResolvedGraph | undefined {
+  const sessionRoot = repoRootFromPath(sessionCwd(ctx));
+  const processRoot = repoRootFromPath(safeCwd());
+  const cwdRoot = sessionRoot || processRoot;
+  const sentinelRoot = repoRootFromPath(readTrimmed(ACTIVE_REPO_SENTINEL));
   return pickGraphSource({
-    cwdGraph: cwd ? repoGraphCandidate(cwd) : undefined,
-    sentinelGraph: sentinel && sentinel !== cwd ? repoGraphCandidate(sentinel) : undefined,
+    cwdGraph: (sessionRoot ? repoGraphCandidate(sessionRoot) : undefined)
+      || (processRoot ? repoGraphCandidate(processRoot) : undefined),
+    sentinelGraph: sentinelRoot && (!cwdRoot || sentinelRoot === cwdRoot) ? repoGraphCandidate(sentinelRoot) : undefined,
     globalGraph: existsSync(GLOBAL_GRAPH)
       ? { graphPath: GLOBAL_GRAPH, cwd: "/home/user", scope: "merged global graph (vault + all repos)" }
       : undefined,
@@ -105,8 +129,8 @@ function errorResult(message: string): AgentToolResult {
 }
 
 // Resolve the graph, run the graphify subcommand against it, and shape the result.
-function runResolved(args: string[], details: Record<string, unknown>): AgentToolResult {
-  const resolved = resolveGraph();
+function runResolved(args: string[], details: Record<string, unknown>, ctx?: ExtensionContext): AgentToolResult {
+  const resolved = resolveGraph(ctx);
   if (!resolved) {
     return errorResult(
       "No graphify graph found for the active repo or the global graph. Build one with the graphify skill (/graphify <path>) before querying.",
@@ -143,14 +167,14 @@ export default function (pi: ExtensionAPI) {
       "Reach for graphify_query before broad text search on architecture/dependency/call-flow questions.",
       "After answering from the result, persist the Q&A with `graphify save-result` (see the graphify skill) so the next graph update folds it back in.",
     ],
-    async execute(_id: string, params: { question: string; mode?: string; budget?: number }): Promise<AgentToolResult> {
+    async execute(_id: string, params: { question: string; mode?: string; budget?: number }, _signal?: unknown, _onUpdate?: unknown, ctx?: ExtensionContext): Promise<AgentToolResult> {
       if (!params.question?.trim()) return errorResult("graphify_query needs a question.");
       const mode = params.mode === "dfs" ? "dfs" : "bfs";
       const budget = typeof params.budget === "number" && Number.isFinite(params.budget) ? Math.floor(params.budget) : 2000;
       return runResolved(["query", params.question, ...(mode === "dfs" ? ["--dfs"] : []), "--budget", String(budget)], {
         question: params.question,
         mode,
-      });
+      }, ctx);
     },
   });
 
@@ -162,9 +186,9 @@ export default function (pi: ExtensionAPI) {
       from: Type.String({ description: "Source concept/node label." }),
       to: Type.String({ description: "Target concept/node label." }),
     }),
-    async execute(_id: string, params: { from: string; to: string }): Promise<AgentToolResult> {
+    async execute(_id: string, params: { from: string; to: string }, _signal?: unknown, _onUpdate?: unknown, ctx?: ExtensionContext): Promise<AgentToolResult> {
       if (!params.from?.trim() || !params.to?.trim()) return errorResult("graphify_path needs both `from` and `to`.");
-      return runResolved(["path", params.from, params.to], { from: params.from, to: params.to });
+      return runResolved(["path", params.from, params.to], { from: params.from, to: params.to }, ctx);
     },
   });
 
@@ -175,9 +199,9 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({
       concept: Type.String({ description: "The concept/node to explain." }),
     }),
-    async execute(_id: string, params: { concept: string }): Promise<AgentToolResult> {
+    async execute(_id: string, params: { concept: string }, _signal?: unknown, _onUpdate?: unknown, ctx?: ExtensionContext): Promise<AgentToolResult> {
       if (!params.concept?.trim()) return errorResult("graphify_explain needs a `concept`.");
-      return runResolved(["explain", params.concept], { concept: params.concept });
+      return runResolved(["explain", params.concept], { concept: params.concept }, ctx);
     },
   });
 }

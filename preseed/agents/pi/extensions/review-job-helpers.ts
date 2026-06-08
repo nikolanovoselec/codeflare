@@ -784,6 +784,25 @@ export type OpenPrReconcileInput = {
 
 export type OpenPrReconcileDecision = { reconcile: boolean; reason: string };
 
+export type OpenPrReconcileLifecycleInput = {
+  activeRun: boolean;
+  hasRepo: boolean;
+  sddProject: boolean;
+  pendingSameRepo: boolean;
+  throttled: boolean;
+};
+
+export type OpenPrReconcileLifecycleDecision = { check: boolean; reason: string };
+
+export function shouldCheckOpenPrReconciliation(input: OpenPrReconcileLifecycleInput): OpenPrReconcileLifecycleDecision {
+  if (!input.activeRun) return { check: false, reason: "inactive review run" };
+  if (!input.hasRepo) return { check: false, reason: "no repo" };
+  if (!input.sddProject) return { check: false, reason: "not an SDD project" };
+  if (input.pendingSameRepo) return { check: false, reason: "pending window already managed" };
+  if (input.throttled) return { check: false, reason: "reconciliation throttled" };
+  return { check: true, reason: "lifecycle check may query open PR state" };
+}
+
 export function shouldReconcileOpenPr(input: OpenPrReconcileInput): OpenPrReconcileDecision {
   if (!input.prOpen) return { reconcile: false, reason: "no open PR for branch" };
   if (input.prDraft) return { reconcile: false, reason: "PR is a draft" };

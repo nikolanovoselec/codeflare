@@ -80,7 +80,7 @@ Cloudflare Containers run as root, and both Claude Code and Antigravity launch w
 
 - **SilverBullet vault** — every Pro session ships a browser-native note editor at `~/Vault/`. Notes, decisions, and transcripts bisync to R2 (covered by `ENCRYPTION_KEY` when set) and are IndexedDB-encrypted at rest with a zero-UI per-session key.
 - **Cross-session memory** — conversation context is auto-captured every 15 prompts into the vault, so the next session opens with full recall of prior decisions — even on a different device.
-- **Knowledge graph** — a queryable semantic graph (Graphify) over project source and vault content, reachable via `mcp__graphify__*` ("what depends on X", "how does Y connect to Z").
+- **Knowledge graph** — a queryable semantic graph (Graphify) over project source and vault content, reachable in Claude via `mcp__graphify__*` and in Pi via native `graphify_query`, `graphify_path`, and `graphify_explain` tools.
 
 ![Codeflare on a phone](documentation/images/mobile-phone.jpg)
 *Strongly optimized for mobile. Swipe up/down with the keyboard open to navigate like arrow keys; swipe left/right to scroll terminal text.*

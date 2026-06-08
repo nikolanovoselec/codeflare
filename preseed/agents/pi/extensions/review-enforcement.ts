@@ -14,7 +14,7 @@ import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prCreateBoundaryBase, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldReconcileOpenPr, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
+import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -1007,41 +1007,43 @@ export default function (pi: ExtensionAPI) {
   // boundary_candidate_ignored so a stuck PR is never silent (AC4). `force` bypasses the network
   // throttle for once-per-turn ticks. Returns true when a window was created or acked.
   async function reconcileOpenPrReview(ctx: any, force: boolean): Promise<boolean> {
-    if (!isActiveRun()) return false;
     const repo = findGitRoot(ctx.sessionManager.getCwd()) || activeRepoFallback();
-    if (!repo || !isSddProject(repo)) return false;
-    // An in-process window for THIS repo is already managed by the normal / roll-forward paths.
-    // Scope the guard to repo so a stale in-memory window from a different repo cannot suppress
-    // reconciliation for the current one.
-    if (pending && pending.repo === repo) return false;
     const nowTs = Date.now();
-    if (!force && nowTs - lastReconcileCheckAt < RECONCILE_THROTTLE_MS) return false;
+    const lifecycle = shouldCheckOpenPrReconciliation({
+      activeRun: isActiveRun(),
+      hasRepo: Boolean(repo),
+      sddProject: repo ? isSddProject(repo) : false,
+      pendingSameRepo: Boolean(repo && pending && pending.repo === repo),
+      throttled: !force && nowTs - lastReconcileCheckAt < RECONCILE_THROTTLE_MS,
+    });
+    if (!lifecycle.check) return false;
     lastReconcileCheckAt = nowTs;
 
-    const pr = prState(repo);
+    const resolvedRepo = repo as string;
+    const pr = prState(resolvedRepo);
     const enforced = isEnforcedPr(pr);
-    const head = enforced ? resolveEnforcedHead(repo, pr) : "";
-    const durableJob = head ? readDurableReviewJob(repo, head) : undefined;
+    const head = enforced ? resolveEnforcedHead(resolvedRepo, pr) : "";
+    const durableJob = head ? readDurableReviewJob(resolvedRepo, head) : undefined;
     const decision = shouldReconcileOpenPr({
       prOpen: pr?.state === "OPEN",
       prDraft: pr?.isDraft === true,
       enforced,
       head,
-      acked: head ? acked(repo, head) : false,
-      hasReviewJob: (loadPending(repo)?.head === head) || Boolean(durableJob),
+      acked: head ? acked(resolvedRepo, head) : false,
+      hasReviewJob: (loadPending(resolvedRepo)?.head === head) || Boolean(durableJob),
       reviewActive: durableJob?.status === "running",
-      breakerOpen: head ? isBreakerOpen(repo, head) : false,
+      breakerOpen: head ? isBreakerOpen(resolvedRepo, head) : false,
     });
     if (!decision.reconcile) {
       // Log only genuine near-misses, not healthy outcomes (window exists / acked / not a PR).
       if (decision.reason === "review breaker open for head" || decision.reason === "no resolvable enforced head") {
-        appendReviewEvent(repo, { event: "boundary_candidate_ignored", head, reason: decision.reason });
+        appendReviewEvent(resolvedRepo, { event: "boundary_candidate_ignored", head, reason: decision.reason });
       }
       return false;
     }
-    appendReviewEvent(repo, { event: "boundary_reconciled", head, reason: decision.reason });
-    ctx.ui.notify(`PR-boundary review reconciled for ${basename(repo)} at ${head.slice(0, 12)} (missed boundary event recovered).`, "warning");
-    return ensureReviewWindow({ repo, pr: pr as PrState, head, ctx, trigger: "open-PR reconciliation" });
+    appendReviewEvent(resolvedRepo, { event: "boundary_reconciled", head, reason: decision.reason });
+    ctx.ui.notify(`PR-boundary review reconciled for ${basename(resolvedRepo)} at ${head.slice(0, 12)} (missed boundary event recovered).`, "warning");
+    return ensureReviewWindow({ repo: resolvedRepo, pr: pr as PrState, head, ctx, trigger: "open-PR reconciliation" });
   }
 
   const onAgentStart = (event: any, ctx: any) => {

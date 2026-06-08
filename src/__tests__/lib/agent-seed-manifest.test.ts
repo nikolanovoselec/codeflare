@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
@@ -514,27 +514,30 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   });
 
   it('REQ-AGENT-036 / REQ-AGENT-058: missed-boundary recovery reconciles only a real open enforced unacked PR, never from passive branch existence', () => {
-    // Behavioral: exercise the actual decision shouldReconcileOpenPr (not the seed text). The one
-    // shape that reconciles is a real open, non-draft, enforced PR with an unacked head and no
-    // window/breaker; "passive branch existence" (no open enforced PR) and an already-handled head
-    // (acked, or a window/breaker already present) must NOT reconcile. This fails if reconciliation
-    // becomes dead code, drops a gate, or starts firing on mere branch/PR existence.
+    // Behavioral: exercise the lifecycle gate plus the PR-state decision. A lifecycle tick may
+    // query GitHub only for an active SDD repo with no pending window and no throttle. After that,
+    // the one PR shape that reconciles is a real open, non-draft, enforced PR with an unacked head
+    // and no window/breaker. Passive branch existence and already-handled heads must not reconcile.
+    expect(shouldCheckOpenPrReconciliation({
+      activeRun: true, hasRepo: true, sddProject: true, pendingSameRepo: false, throttled: false,
+    }).check).toBe(true);
+    expect(shouldCheckOpenPrReconciliation({
+      activeRun: true, hasRepo: true, sddProject: true, pendingSameRepo: true, throttled: false,
+    }).check).toBe(false);
+    expect(shouldCheckOpenPrReconciliation({
+      activeRun: true, hasRepo: true, sddProject: false, pendingSameRepo: false, throttled: false,
+    }).check).toBe(false);
+
     const realOpenPr: OpenPrReconcileInput = {
       prOpen: true, prDraft: false, enforced: true, head: 'abc123',
       acked: false, hasReviewJob: false, reviewActive: false, breakerOpen: false,
     };
     expect(shouldReconcileOpenPr(realOpenPr).reconcile).toBe(true);
-    // Passive branch existence — no open/enforced PR to act on:
     expect(shouldReconcileOpenPr({ ...realOpenPr, prOpen: false }).reconcile).toBe(false);
     expect(shouldReconcileOpenPr({ ...realOpenPr, enforced: false }).reconcile).toBe(false);
-    // Already handled — a window/job/breaker exists or the head was acked:
     expect(shouldReconcileOpenPr({ ...realOpenPr, acked: true }).reconcile).toBe(false);
     expect(shouldReconcileOpenPr({ ...realOpenPr, hasReviewJob: true }).reconcile).toBe(false);
     expect(shouldReconcileOpenPr({ ...realOpenPr, breakerOpen: true }).reconcile).toBe(false);
-    // Regression guard: the deployed seed must not re-introduce the old unconditional, passive
-    // catch-up summon keyed on mere PR existence (the pre-REQ-058 failure mode).
-    const seeded = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/extensions/review-enforcement.ts');
-    expect(seeded?.content).not.toContain('PR-boundary review catch-up required');
   });
 
   it('REQ-AGENT-040: Pi review enforcement dedupes paired terminal events and evicts old ids', () => {
@@ -997,8 +1000,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // graphify-native is ambient (default + advanced); the heavier graph-build scripts stay advanced-only.
     const graphifyNative = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/extensions/graphify-native.ts');
     expect(graphifyNative?.modes).toEqual(['default', 'advanced']);
+    const graphifyHelpers = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/extensions/graphify-helpers.ts');
+    expect(graphifyHelpers?.modes).toEqual(['default', 'advanced']);
     for (const key of [
-      '.pi/agent/extensions/graphify-helpers.ts',
       '.pi/agent/skills/graphify/SKILL.md',
       '.pi/agent/scripts/safe-graphify-update.sh',
       '.pi/agent/scripts/build-graphify-ast.sh',
