@@ -565,9 +565,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(shouldProcess('tool-1', true)).toBe(true);
   });
 
-  it('REQ-AGENT-040: durable Pi review jobs sequence spec before docs and ack only after every lane completes', () => {
+  it('REQ-AGENT-040: durable Pi review jobs dispatch all report-only lanes in parallel and ack only after every lane completes', () => {
     const lanes = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
-    expect(durableReviewInitialLanes(lanes)).toEqual(['code-reviewer', 'spec-reviewer']);
+    // All required lanes dispatch in the initial wave — doc-updater no longer waits for spec-reviewer.
+    expect(durableReviewInitialLanes(lanes)).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
+    // With only code-reviewer done, BOTH spec-reviewer and doc-updater are eligible (no ordering gate).
     expect(durableReviewEligibleLanes({
       lanes,
       completed: ['code-reviewer'],
@@ -575,11 +577,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       requestedAt: {},
       now: 1000,
       retryMs: 60_000,
-    })).toEqual(['spec-reviewer']);
+    })).toEqual(['spec-reviewer', 'doc-updater']);
+    // doc-updater is eligible WHILE spec-reviewer is still running (proves no spec→doc gate);
+    // a running lane is not re-dispatched.
     expect(durableReviewEligibleLanes({
       lanes,
-      completed: ['code-reviewer', 'spec-reviewer'],
-      running: [],
+      completed: ['code-reviewer'],
+      running: ['spec-reviewer'],
       requestedAt: {},
       now: 1000,
       retryMs: 60_000,

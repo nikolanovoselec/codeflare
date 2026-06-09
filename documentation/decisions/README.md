@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD77](#ad77-enterprise-vault-service-worker-reached-via-a-higher-precedence-access-bypass-app) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -88,6 +88,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD75](#ad75-pi-graphify-tools-replaced-by-a-first-party-native-extension) | Pi graphify tools replaced by a first-party native extension (`graphify-native.ts`); `@gaodes/pi-graphify` removed | Architecture |
 | [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) | Durable review lanes run as detached headless Pi processes | Agents |
 | [AD77](#ad77-enterprise-vault-service-worker-reached-via-a-higher-precedence-access-bypass-app) | Enterprise vault service-worker reached via a higher-precedence Access bypass app | Architecture, Security |
+| [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers) | PR-boundary review lanes run in parallel (report-only reviewers) | Agents |
 
 ---
 
@@ -509,7 +510,7 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 - **PR-based safety net** for unleashed mode: walk-away users get reviewable surface (PR description has full audit log), and rollback is "close the PR" - the working branch is never touched.
 - **Universal enforcement layer** (`rules/spec-discipline.md`) inlined into every agent's instructions file ensures Codex (no agent files) and Copilot (no skill loading) get the same discipline as Claude.
 - **Project-agnostic agent refactor**: spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings and read `documentation/README.md` to discover the project's actual file structure. Both agents gate on `sdd/` existence - on non-SDD projects (vibe-coding mode) they exit silently and the post-push `git-push-review-reminder` hook also emits no reminder, so `git push` proceeds with zero review agents. `doc-updater` no longer auto-scaffolds `documentation/README.md` on non-SDD projects (previous behavior was too aggressive). Opt-in to the full workflow is binary: run `/sdd init` and all three review agents (code-reviewer, spec-reviewer, doc-updater) fire on every push; don't, and none do.
-- **Sequential execution** (spec-reviewer first, doc-updater second) prevents race conditions on shared files.
+- **Sequential execution in `/sdd clean`** (spec-enforce before doc-enforce) prevents race conditions on shared files: `/sdd clean` *applies* fixes inline, so doc cross-references depend on the just-fixed spec. (PR-boundary review is the opposite case — those reviewers are report-only and run in parallel; see [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers).)
 - **2-round commit-cycle limit** with `[sdd-clean]` tag exclusion catches micro-fix spirals without crashing the rescue command itself.
 - **`enforce_tdd` rule** (renamed from `auto_demote`, default `true`): spec-reviewer auto-demotes `Implemented` REQs without test coverage to `Partial`, detects `Planned`/`Partial` REQs whose source code exists but has no corresponding test (code-without-test finding), and runs test-quality heuristics (AC-count vs test-count ratio, tautology detection, skipped-test detection) on every push. Forced `true` in unleashed mode where the PR review is the safety net.
 - **Plan Mode mandate**: `/sdd init`, `/sdd edit`, and `/sdd add` emit `EnterPlanMode` directives so spec-to-code transitions always go through Plan Mode (a built-in Claude Code primitive). The `/plan` custom slash command is removed - Plan Mode replaces it.
@@ -1462,6 +1463,33 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 - Flag-unset parity: non-enterprise deployments are path-scoped (`/app/*`) already and reach the SW path, so no bypass app is created.
 
 **Related:** [REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC6, [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker).
+
+---
+
+### AD78: PR-boundary review lanes run in parallel (report-only reviewers)
+
+**Category:** Agents
+
+**Status:** Accepted (2026-06-09)
+
+**Context:** At a PR-boundary the SDD pipeline dispatches three review lanes — `code-reviewer` (source), `spec-reviewer` (`sdd/`), and `doc-updater` (`documentation/` + root `README.md`). The original design ran them **sequentially**: `spec-reviewer` first, then `doc-updater`, on the rationale that the reviewers *edited* their lanes in place and `doc-updater` had to validate REQ cross-references against the spec `spec-reviewer` had just moved (the race-condition concern recorded in [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution)). Both engines encoded that ordering: Pi's `durableReviewInitialLanes` withheld `doc-updater` from the initial wave and `review-enforcement.ts` spawned it on `spec-reviewer` completion; Claude's `enforce-review-spawn.sh` demanded `doc-updater` only after `spec-reviewer` acked, sequenced via a `PIPELINE_COMPLETE` marker. That auto-fix model has since been superseded: the review agents are now **report-only** — each writes findings to its own lane triage file (`spec-reviewer` → `sdd/spec/.review-queue.md`, `doc-updater` → `documentation/.doc-coverage.md`) and the **main session** applies every fix. With the reviewers no longer mutating the spec/docs, the ordering rationale no longer holds, yet the sequential gate remained — adding a full `spec-reviewer` round of latency to every PR-boundary before `doc-updater` even started.
+
+**Decision:** Dispatch all three review lanes **in parallel** at a PR-boundary. The reviewers' write targets are disjoint (each lane's own triage file) and read-only with respect to each other's domain, so there is no shared-write race and no ordering dependency. Pi: `durableReviewInitialLanes` returns every lane and `durableReviewEligibleLanes` drops the doc-waits-for-spec gate; the `spec-reviewer`-completion → `doc-updater`-spawn trigger in `review-enforcement.ts` is removed (it would double-spawn). Claude: `enforce-review-spawn.sh` demands all three in the parallel MISSING block and acks the head on `all_required_lanes_completed_for_current_head` (the per-lane `PIPELINE_COMPLETE` sequencing is gone); `git-push-review-reminder.sh` emits a single parallel directive. **`/sdd clean` is explicitly excluded** — it *applies* fixes inline (not report-only), so it keeps the AD44 sequential order (spec-enforce before doc-enforce), since doc cross-references depend on the just-fixed spec.
+
+**Rationale:** Parallelism is correct precisely because the reviewers are report-only: the only thing that made sequencing necessary (in-place edits to a shared source of truth) was removed when fix-application moved to the main session. Running the lanes concurrently cuts PR-boundary review latency from "slowest lane + spec-reviewer" to "slowest single lane" with identical coverage and zero added race surface.
+
+**Alternatives considered:**
+
+- **Keep the sequential gate (rejected):** it bought nothing once the reviewers stopped editing — `doc-updater` reads the *committed* spec, not an in-flight `spec-reviewer` edit — and cost a full lane of serial latency on every PR-boundary.
+- **Parallelize `/sdd clean` too (rejected):** `/sdd clean` applies fixes inline, so doc cross-references genuinely depend on the just-fixed spec; parallelizing it would reintroduce the exact race AD44 guards against. The report-only/apply-inline distinction is the dividing line.
+
+**Consequences:**
+
+- PR-boundary review completes faster; the three lanes' triage files are produced concurrently and the main session applies fixes from all of them.
+- Pi's `pending.json` retains the now-vestigial `docPromptSent` field for backward-compat with in-flight review jobs serialized under the old schema; it is no longer read for sequencing.
+- `/sdd clean` behavior is unchanged.
+
+**Related:** [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC4/AC5, [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) (the `/sdd clean` sequential order this decision deliberately preserves), [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes).
 
 ---
 

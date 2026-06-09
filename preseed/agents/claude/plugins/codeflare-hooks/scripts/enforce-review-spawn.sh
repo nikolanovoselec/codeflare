@@ -896,10 +896,13 @@ all_required_lanes_completed_for_current_head() {
 # while still letting an independent/sequential lane be demanded on schedule.
 
 # ---------------------------------------------------------------------------
-# Parallel block: code-reviewer + spec-reviewer can be spawned together.
-# Only the ones present in REQUIRED_LANES are demanded. A lane with fresh
-# current-head coverage or an in-flight run is skipped (not re-summoned) but
-# does not suppress the other lanes.
+# Parallel block: code-reviewer + spec-reviewer + doc-updater are spawned together.
+# All three review lanes are report-only and write to disjoint files (spec-reviewer ->
+# sdd/spec/.review-queue.md, doc-updater -> documentation/.doc-coverage.md), so there is
+# no ordering dependency and no shared-write race; the old spec->doc sequential gate
+# existed only for the superseded auto-fix model. Only the lanes present in
+# REQUIRED_LANES are demanded. A lane with fresh current-head coverage or an in-flight
+# run is skipped (not re-summoned) but does not suppress the other lanes.
 # ---------------------------------------------------------------------------
 MISSING=""
 if requires_lane "code-reviewer" && ! lane_has_current_coverage "code-reviewer" && ! lane_in_flight "code-reviewer"; then
@@ -908,6 +911,9 @@ fi
 if requires_lane "spec-reviewer" && ! lane_has_current_coverage "spec-reviewer" && ! lane_in_flight "spec-reviewer"; then
   MISSING="$MISSING spec-reviewer"
 fi
+if requires_lane "doc-updater" && ! lane_has_current_coverage "doc-updater" && ! lane_in_flight "doc-updater"; then
+  MISSING="$MISSING doc-updater"
+fi
 
 if [ -n "$MISSING" ]; then
   REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: spawn$MISSING in parallel. Run the agent(s) in the background (Agent tool with run_in_background: true) so the main session stays usable. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
@@ -915,113 +921,17 @@ if [ -n "$MISSING" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Doc-updater check. Two modes:
+# doc-updater is demanded in the parallel block above, alongside code-reviewer and
+# spec-reviewer. The three review lanes are report-only and write to disjoint files, so
+# there is no ordering dependency between them (the old spec->doc sequential gate existed
+# only for the superseded auto-fix model where spec-reviewer edited sdd/ in place).
 #
-#   - Sequential (spec-reviewer ALSO required): doc-updater must follow
-#     spec-reviewer's completion to avoid racing on sdd/ files. This is
-#     the legacy behaviour and the path the spec-discipline rule relies
-#     on for the AC-backlink follow-up.
-#
-#   - Independent (spec-reviewer NOT required): doc-updater can be
-#     spawned any time after the push. This is the pure-documentation
-#     push case that motivated task #58.
+# Advance the checkpoint only when EVERY required lane has a current-head completion
+# marker. all_required_lanes_completed_for_current_head is stricter than the demand-side
+# coverage check (it requires an actual completion, not just an in-flight spawn), so the
+# ack never fires while any lane is still running.
 # ---------------------------------------------------------------------------
-PIPELINE_COMPLETE=0
-DOC_REQUIRED=0
-requires_lane "doc-updater" && DOC_REQUIRED=1
-SPEC_REQUIRED=0
-requires_lane "spec-reviewer" && SPEC_REQUIRED=1
-
-if [ "$DOC_REQUIRED" = "1" ] && [ "$SPEC_REQUIRED" = "1" ]; then
-  # Sequential gating: wait for spec-reviewer's tool-use to mark
-  # completed</status>, then require doc-updater to follow.
-  # Anchor each subagent_type match on `"type":"tool_use"` AND
-  # `"name":"Agent"` so prose / tool_result text quoting the bytes
-  # cannot false-positive (see the Agent-envelope match contract above).
-  SPEC_SPAWN_LINE=$(awk -v p="$PUSH_LINE" '
-    NR > p \
-      && index($0, "\"type\":\"tool_use\"") \
-      && index($0, "\"name\":\"Agent\"") \
-      && index($0, "\"subagent_type\":\"spec-reviewer\"") { print NR }
-  ' "$TRANSCRIPT" | tail -1)
-
-  if [ -n "$SPEC_SPAWN_LINE" ]; then
-    SPEC_LINE_CONTENT=$(awk -v L="$SPEC_SPAWN_LINE" 'NR==L { print; exit }' "$TRANSCRIPT")
-    SPEC_TOOL_USE_ID=$(echo "$SPEC_LINE_CONTENT" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
-
-    if [ -n "$SPEC_TOOL_USE_ID" ]; then
-      SINCE_SPEC=$(tail -n +"$SPEC_SPAWN_LINE" "$TRANSCRIPT" 2>/dev/null)
-      SPEC_DONE_LINE=$(echo "$SINCE_SPEC" | grep -nF "tool-use-id>${SPEC_TOOL_USE_ID}<" | grep -F 'completed</status>' | tail -1 | cut -d: -f1)
-
-      if [ -n "$SPEC_DONE_LINE" ]; then
-        SPEC_DONE_ABS=$((SPEC_SPAWN_LINE + SPEC_DONE_LINE - 1))
-        if ! lane_has_coverage_after_line "doc-updater" "$SPEC_DONE_ABS" && ! lane_in_flight "doc-updater"; then
-          REASON="spec-reviewer done; spawn doc-updater (sequential). Run the agent(s) in the background (Agent tool with run_in_background: true) so the main session stays usable. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
-          emit_block "$REASON"
-        fi
-        PIPELINE_COMPLETE=1
-      fi
-    fi
-  fi
-elif [ "$DOC_REQUIRED" = "1" ]; then
-  # Independent doc-updater (spec-reviewer not required this round).
-  # No completion-marker dependency: must just be spawned later in the
-  # transcript than the push. PIPELINE_COMPLETE only flips once we see
-  # the doc-updater tool-use envelope; we cannot ack a SHA we never
-  # verified.
-  if ! lane_has_current_coverage "doc-updater" && ! lane_in_flight "doc-updater"; then
-    REASON="PR #$CURRENT @ ${CURRENT_PR_HEAD:0:7}: spawn doc-updater. Run the agent(s) in the background (Agent tool with run_in_background: true) so the main session stays usable. USER-ONLY bypass: user types 'skip review' (agent must never self-bypass)."
-    emit_block "$REASON"
-  fi
-  PIPELINE_COMPLETE=1
-elif [ "$SPEC_REQUIRED" = "1" ]; then
-  # Spec-reviewer was required but doc-updater was not (would only
-  # happen if the classification table changes; today every sdd/ touch
-  # also pulls doc-updater). Ack once spec-reviewer's tool-use is
-  # marked completed.
-  SPEC_SPAWN_LINE=$(awk -v p="$PUSH_LINE" '
-    NR > p \
-      && index($0, "\"type\":\"tool_use\"") \
-      && index($0, "\"name\":\"Agent\"") \
-      && index($0, "\"subagent_type\":\"spec-reviewer\"") { print NR }
-  ' "$TRANSCRIPT" | tail -1)
-  if [ -n "$SPEC_SPAWN_LINE" ]; then
-    SPEC_LINE_CONTENT=$(awk -v L="$SPEC_SPAWN_LINE" 'NR==L { print; exit }' "$TRANSCRIPT")
-    SPEC_TOOL_USE_ID=$(echo "$SPEC_LINE_CONTENT" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
-    if [ -n "$SPEC_TOOL_USE_ID" ]; then
-      SINCE_SPEC=$(tail -n +"$SPEC_SPAWN_LINE" "$TRANSCRIPT" 2>/dev/null)
-      if echo "$SINCE_SPEC" | grep -F "tool-use-id>${SPEC_TOOL_USE_ID}<" | grep -qF 'completed</status>'; then
-        PIPELINE_COMPLETE=1
-      fi
-    fi
-  fi
-else
-  # Only code-reviewer required (no spec, no docs). Ack once
-  # code-reviewer's tool-use is marked completed.
-  CODE_SPAWN_LINE=$(awk -v p="$PUSH_LINE" '
-    NR > p \
-      && index($0, "\"type\":\"tool_use\"") \
-      && index($0, "\"name\":\"Agent\"") \
-      && index($0, "\"subagent_type\":\"code-reviewer\"") { print NR }
-  ' "$TRANSCRIPT" | tail -1)
-  if [ -n "$CODE_SPAWN_LINE" ]; then
-    CODE_LINE_CONTENT=$(awk -v L="$CODE_SPAWN_LINE" 'NR==L { print; exit }' "$TRANSCRIPT")
-    CODE_TOOL_USE_ID=$(echo "$CODE_LINE_CONTENT" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
-    if [ -n "$CODE_TOOL_USE_ID" ]; then
-      SINCE_CODE=$(tail -n +"$CODE_SPAWN_LINE" "$TRANSCRIPT" 2>/dev/null)
-      if echo "$SINCE_CODE" | grep -F "tool-use-id>${CODE_TOOL_USE_ID}<" | grep -qF 'completed</status>'; then
-        PIPELINE_COMPLETE=1
-      fi
-    fi
-  fi
-fi
-
-# ---------------------------------------------------------------------------
-# Advance checkpoint only when the FULL pipeline completed for this PR HEAD.
-# Conservative: if any required lane is still running, exit 0 without ack
-# and the next Stop re-evaluates.
-# ---------------------------------------------------------------------------
-if [ "$PIPELINE_COMPLETE" = "1" ] && all_required_lanes_completed_for_current_head; then
+if all_required_lanes_completed_for_current_head; then
   echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
   clear_counter
 fi

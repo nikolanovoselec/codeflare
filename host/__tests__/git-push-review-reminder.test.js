@@ -671,7 +671,7 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
       'doc-only directive must NOT mention spec-reviewer');
   });
 
-  it('emits spec+doc sequential directive when ACK->HEAD diff is sdd/-only', () => {
+  it('emits spec+doc parallel directive when ACK->HEAD diff is sdd/-only', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: seed');
@@ -680,8 +680,8 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const binDir = fakeGhWithHead(cwd, { headSha });
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /Sequential: spec-reviewer.*then doc-updater/,
-      'sdd-only diff must produce the sequential spec->doc directive');
+    assert.match(r.stdout, /Parallel: spec-reviewer.*doc-updater/,
+      'sdd-only diff must produce the parallel spec+doc directive');
     assert.doesNotMatch(r.stdout, /code-reviewer/,
       'sdd-only directive must NOT mention code-reviewer (no source touch)');
     assert.match(r.stdout, /Code lane silently excluded by Stop hook/,
@@ -698,7 +698,7 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /Parallel: code-reviewer/);
-    assert.match(r.stdout, /Sequential: spec-reviewer.*then doc-updater/);
+    assert.match(r.stdout, /Parallel: code-reviewer.*spec-reviewer.*doc-updater/);
   });
 
   it('emits no directive when LAST_ACK equals CURRENT_PR_HEAD (already acked)', () => {
@@ -725,6 +725,6 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     const r = runHook(cwd, 'git push origin develop', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /Parallel: code-reviewer/);
-    assert.match(r.stdout, /Sequential: spec-reviewer.*then doc-updater/);
+    assert.match(r.stdout, /Parallel: code-reviewer.*spec-reviewer.*doc-updater/);
   });
 });

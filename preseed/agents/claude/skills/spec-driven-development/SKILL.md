@@ -168,7 +168,7 @@ Conservative JUDGMENT auto-resolution rules live in the `sdd-clean` skill (that'
 
 Once `sdd/` exists, the workflow runs automatically:
 
-- At PR-boundary events for PRs targeting `main` or `master` (PR open OR push to a branch with such a PR open): `code-reviewer` runs in parallel; `spec-reviewer` runs first, then `doc-updater` (sequential, never parallel).
+- At PR-boundary events for PRs targeting `main` or `master` (PR open OR push to a branch with such a PR open): `code-reviewer`, `spec-reviewer`, and `doc-updater` all run **in parallel** — they are report-only (findings go to a triage file; the main session applies fixes), so there is no shared-write race or ordering dependency.
 - Both `sdd/`-lane agents detect `sdd/` exists → SDD-strict mode.
 - **Layout detection:** `test -d sdd/spec` → nested (canonical); else flat (legacy, in migration window). Skills' file globs branch on this detection. `sdd/config.yml` lives at `sdd/spec/config.yml` (nested) or `sdd/config.yml` (flat).
 - Both agents read `config.yml` → know whether to be interactive/auto/unleashed.

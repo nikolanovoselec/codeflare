@@ -24,7 +24,7 @@ Full Status semantics + transition rules live in `spec-driven-development` skill
 
 ## Lane separation
 
-`spec-reviewer` owns `sdd/` only. `doc-updater` owns `documentation/` + root `README.md`. Other agents own source. Sequential PR-boundary execution: spec-reviewer first, doc-updater second.
+`spec-reviewer` owns `sdd/` only. `doc-updater` owns `documentation/` + root `README.md`. Other agents own source. PR-boundary review runs all three lanes **in parallel**: the reviewers are report-only (findings go to a lane triage file; the main session applies fixes), so there is no shared-write race or spec→doc ordering dependency. (`/sdd clean` is different — it *applies* fixes inline and runs spec-enforce before doc-enforce, since doc cross-references depend on the just-fixed spec.)
 
 ## Commit-prefix contract (load-bearing)
 

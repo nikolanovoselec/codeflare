@@ -50,6 +50,8 @@ type PendingReview = {
   reviewBase?: string;
   lanes: string[];
   completed: Set<string>;
+  /** Vestigial: retained for pending.json backward-compat. doc-updater now dispatches in
+   *  the initial parallel wave, so spec-reviewer completion no longer gates it. */
   docPromptSent: boolean;
   spawned: boolean;
   spawnedIds: Record<string, string>;
@@ -588,8 +590,9 @@ let activeReviewFinalize: ((state: PendingReview) => void) | undefined;
 // by an idle session leaves finished lanes unharvested (agent_end on disk, no result file).
 // Pi exposes no periodic/idle hook, so this plain interval (registered once, below) drives
 // the reaper without a ctx while a review window is pending: it reaps finished lanes,
-// finalizes completed reviews (emit summary + autofix via the pi-bound closure), and spawns the next *fresh* eligible lane (e.g.
-// doc-updater once spec-reviewer has a result). Failed-lane RETRIES are intentionally left
+// finalizes completed reviews (emit summary + autofix via the pi-bound closure), and re-spawns any
+// *fresh* eligible lane that is not yet running (all lanes are eligible from the start now — no
+// ordering). Failed-lane RETRIES are intentionally left
 // to the on-turn driver so the breaker still bounds them. Best-effort and self-clearing:
 // it must never throw.
 function autonomousReviewReaperTick(): void {
@@ -1008,13 +1011,9 @@ export default function (pi: ExtensionAPI) {
     state.completed.add(type);
     updateReviewStatus(state, ctx);
     resetBlockCount(state.repo); // a lane completing is progress: reset the breaker patience counter
-    if (type === "spec-reviewer" && state.lanes.includes("doc-updater") && !state.docPromptSent) {
-      state.docPromptSent = true;
-      savePending(state);
-      const currentPr = prState(state.repo) || { baseRefName: state.baseRefName, number: state.prNumber, headRefOid: state.head } as PrState;
-      await spawnReviewLanes(state, currentPr, ["doc-updater"], ctx, "spec-reviewer completion");
-      return;
-    }
+    // doc-updater is dispatched in the initial parallel wave (durableReviewInitialLanes),
+    // so spec-reviewer's completion no longer spawns it — every lane completes independently
+    // and the ack-ready check below fires once all report-only lanes have landed.
     savePending(state);
     if (durableReviewAckReady({ lanes: state.lanes, resultLanes: completedDurableReviewLanes(state.repo, state.head, state.lanes) })) {
       finalizeCompletedReview(state, ctx);

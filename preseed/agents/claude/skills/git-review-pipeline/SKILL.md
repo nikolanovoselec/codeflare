@@ -1,6 +1,6 @@
 ---
 name: git-review-pipeline
-description: SDD-mode review pipeline mechanics. PR-boundary trigger semantics, the three agents (code-reviewer, spec-reviewer, doc-updater), execution order (code-reviewer parallel; spec-reviewer then doc-updater sequential), branch-protection setup commands. Invoked at PR-boundary events when sdd/ is bootstrapped, and when configuring branch protection on a new repo.
+description: SDD-mode review pipeline mechanics. PR-boundary trigger semantics, the three agents (code-reviewer, spec-reviewer, doc-updater), execution order (all three lanes run in parallel — report-only, the main session applies fixes), branch-protection setup commands. Invoked at PR-boundary events when sdd/ is bootstrapped, and when configuring branch protection on a new repo.
 version: 1.0.0
 ---
 
@@ -44,15 +44,11 @@ Branch-tracking note: the hook's cheap-path `@{u}` short-circuit relies on the c
 
 To manually invoke code-reviewer or doc-updater on a non-SDD project (e.g., to audit code quality or maintain a `documentation/` folder by hand), use the Task tool directly with the agent name. The automatic PR-boundary workflow is the only thing that's gated.
 
-## Execution order when SDD is bootstrapped (partial parallelism)
+## Execution order when SDD is bootstrapped (full parallelism)
 
-1. **code-reviewer** runs in parallel with the others (it touches source code only, not `sdd/` or `documentation/`)
-2. **spec-reviewer** runs FIRST among the docs/spec agents
-3. **doc-updater** runs SECOND, AFTER spec-reviewer has finished (sequential to spec-reviewer)
+All three review agents run **in parallel** — `code-reviewer` (source lane), `spec-reviewer` (`sdd/` lane), and `doc-updater` (`documentation/` + root `README.md` lane).
 
-**Why sequential between spec-reviewer and doc-updater:** both may touch related files (spec-reviewer may move REQs, doc-updater may generate cross-references to those REQ IDs). Running them in parallel races on shared filesystem state and produces dangling cross-links. The discipline rule (`rules/spec-discipline.md` lane-separation section) makes this explicit.
-
-**code-reviewer** can run in parallel with both because its lane (source code) doesn't overlap with `sdd/` or `documentation/`.
+**Why parallel:** the review agents are **report-only** — they detect findings and write them to their own lane's triage file (spec-reviewer → `sdd/spec/.review-queue.md`, doc-updater → `documentation/.doc-coverage.md`), and the **main session** applies every fix. They never edit the spec or docs themselves, so there is no shared-write race and no ordering dependency. The old spec→doc sequential gate existed only for the superseded auto-fix model, where spec-reviewer edited `sdd/` in place and doc-updater validated REQ cross-references against the just-moved REQs. The discipline rule (`rules/spec-discipline.md` lane-separation section) makes the report-only/parallel contract explicit.
 
 ## The three agents (SDD mode only)
 

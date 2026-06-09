@@ -644,8 +644,12 @@ export function formatDurableReviewResult(job: { repo: string; head: string; prN
 }
 
 export function durableReviewInitialLanes(lanes: string[]): string[] {
-  const hasSpec = lanes.includes("spec-reviewer");
-  return lanes.filter((lane) => lane !== "doc-updater" || !hasSpec);
+  // All required lanes dispatch together. The reviewers are report-only and write to
+  // disjoint lane files (spec-reviewer → sdd/spec/.review-queue.md, doc-updater →
+  // documentation/.doc-coverage.md), so doc-updater no longer waits for spec-reviewer —
+  // there is no shared-write race, and the old sequential gate only existed for the
+  // superseded auto-fix model where spec-reviewer edited sdd/ in place.
+  return [...lanes];
 }
 
 export function durableReviewEligibleLanes(input: {
@@ -660,7 +664,8 @@ export function durableReviewEligibleLanes(input: {
   const running = new Set(input.running);
   return input.lanes.filter((lane) => {
     if (completed.has(lane) || running.has(lane)) return false;
-    if (lane === "doc-updater" && input.lanes.includes("spec-reviewer") && !completed.has("spec-reviewer")) return false;
+    // No lane ordering: all report-only reviewers are eligible immediately (doc-updater
+    // no longer gated on spec-reviewer completion — disjoint write targets, no race).
     const lastRequested = input.requestedAt[lane] || 0;
     return lastRequested === 0 || input.now - lastRequested >= input.retryMs;
   });
