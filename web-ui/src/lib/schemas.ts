@@ -192,11 +192,18 @@ export const DetectTokenResponseSchema = z.object({
   error: z.string().optional(),
 });
 
+// Feature C reasoning levels, shared by the prefill default-route + UI selector.
+export const RouteReasoningSchema = z.enum(['off', 'low', 'medium', 'high']);
+
 export const SetupPrefillResponseSchema = z.object({
   customDomain: z.string().optional(),
   adminUsers: z.array(z.string()).default([]),
   allowedUsers: z.array(z.string()).default([]),
-  enterpriseAccessGroup: z.string().optional(),
+  // Feature A: Access-group chip list (was a single CSV string).
+  enterpriseAccessGroup: z.array(z.string()).default([]),
+  // Feature C: route catalog + optional default route.
+  dynamicRoutes: z.array(z.string()).default([]),
+  defaultRoute: z.object({ route: z.string(), reasoning: RouteReasoningSchema }).nullable().default(null),
 });
 
 // User management schemas - moved from client.ts (strict versions)

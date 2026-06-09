@@ -256,6 +256,50 @@ describe('Setup Store', () => {
     });
   });
 
+  describe('enterprise groups + routes management', () => {
+    it('should add and remove an access group', () => {
+      setupStore.addAccessGroup('team_a');
+      setupStore.addAccessGroup('team_b');
+      expect(setupStore.enterpriseAccessGroups).toEqual(['team_a', 'team_b']);
+
+      setupStore.removeAccessGroup('team_a');
+      expect(setupStore.enterpriseAccessGroups).toEqual(['team_b']);
+    });
+
+    it('should not add a duplicate or empty access group', () => {
+      setupStore.addAccessGroup('team_a');
+      setupStore.addAccessGroup('team_a');
+      setupStore.addAccessGroup('');
+      expect(setupStore.enterpriseAccessGroups).toEqual(['team_a']);
+    });
+
+    it('should add and remove a dynamic route', () => {
+      setupStore.addDynamicRoute('development');
+      setupStore.addDynamicRoute('prod');
+      expect(setupStore.dynamicRoutes).toEqual(['development', 'prod']);
+
+      setupStore.removeDynamicRoute('development');
+      expect(setupStore.dynamicRoutes).toEqual(['prod']);
+    });
+
+    it('should clear the default route name when the default route is removed', () => {
+      setupStore.addDynamicRoute('development');
+      setupStore.setDefaultRouteName('development');
+      expect(setupStore.defaultRouteName).toBe('development');
+
+      setupStore.removeDynamicRoute('development');
+      expect(setupStore.defaultRouteName).toBe('');
+    });
+
+    it('should set default route name and reasoning', () => {
+      setupStore.addDynamicRoute('development');
+      setupStore.setDefaultRouteName('development');
+      setupStore.setDefaultRouteReasoning('high');
+      expect(setupStore.defaultRouteName).toBe('development');
+      expect(setupStore.defaultRouteReasoning).toBe('high');
+    });
+  });
+
   describe('custom domain', () => {
     it('should set custom domain', () => {
       setupStore.setCustomDomain('my-app.example.com');
@@ -364,6 +408,82 @@ describe('Setup Store', () => {
       expect(body.customDomain).toBe('my-app.example.com');
       expect(body.allowedUsers).toEqual(['user@example.com']);
       expect(body.allowedOrigins).toBeUndefined();
+    });
+
+    it('should include groups/routes/default in the body in enterprise mode', async () => {
+      // Enable enterprise mode via loadExistingConfig (sets state.enterpriseMode).
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+
+      setupStore.addAccessGroup('g');
+      setupStore.addDynamicRoute('development');
+      setupStore.setDefaultRouteName('development');
+      setupStore.setDefaultRouteReasoning('medium');
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.enterpriseAccessGroup).toEqual(['g']);
+      expect(body.dynamicRoutes).toEqual(['development']);
+      expect(body.defaultRoute).toEqual({ route: 'development', reasoning: 'medium' });
+    });
+
+    it('should omit groups/routes/default in non-enterprise mode (regression)', async () => {
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+
+      await setupStore.configure();
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+      expect(body.enterpriseAccessGroup).toBeUndefined();
+      expect(body.dynamicRoutes).toBeUndefined();
+      expect(body.defaultRoute).toBeUndefined();
+    });
+
+    it('should send defaultRoute as null when routes exist but no default is chosen', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+
+      setupStore.addDynamicRoute('x');
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.defaultRoute).toBeNull();
     });
 
     it('should not include token in request body', async () => {
@@ -533,6 +653,10 @@ describe('Setup Store', () => {
       setupStore.nextStep();
       setupStore.setCustomDomain('test.com');
       setupStore.addAllowedUser('user@example.com');
+      setupStore.addAccessGroup('team_a');
+      setupStore.addDynamicRoute('development');
+      setupStore.setDefaultRouteName('development');
+      setupStore.setDefaultRouteReasoning('high');
 
       // Mock successful detect
       mockFetch.mockResolvedValue(
@@ -555,6 +679,10 @@ describe('Setup Store', () => {
       expect(setupStore.customDomain).toBe('');
       expect(setupStore.customDomainError).toBeNull();
       expect(setupStore.allowedUsers).toEqual([]);
+      expect(setupStore.enterpriseAccessGroups).toEqual([]);
+      expect(setupStore.dynamicRoutes).toEqual([]);
+      expect(setupStore.defaultRouteName).toBe('');
+      expect(setupStore.defaultRouteReasoning).toBe('off');
       expect(setupStore.configuring).toBe(false);
       expect(setupStore.configureSteps).toEqual([]);
       expect(setupStore.configureError).toBeNull();
@@ -678,7 +806,13 @@ describe('Setup Store', () => {
         }
         if (url === '/api/setup/prefill') {
           return Promise.resolve(new Response(
-            JSON.stringify({ adminUsers: ['admin@example.com'], allowedUsers: [], enterpriseAccessGroup: 'Codeflare-Users' }),
+            JSON.stringify({
+              adminUsers: ['admin@example.com'],
+              allowedUsers: [],
+              enterpriseAccessGroup: ['Codeflare-Users'],
+              dynamicRoutes: ['development'],
+              defaultRoute: { route: 'development', reasoning: 'low' },
+            }),
             { status: 200, headers: { 'Content-Type': 'application/json' } }
           ));
         }
@@ -697,7 +831,10 @@ describe('Setup Store', () => {
       expect(usersCalled).toBe(false);
       expect(setupStore.customDomain).toBe('claude.example.com');
       expect(setupStore.adminUsers).toEqual(['admin@example.com']);
-      expect(setupStore.enterpriseAccessGroup).toBe('Codeflare-Users');
+      expect(setupStore.enterpriseAccessGroups).toEqual(['Codeflare-Users']);
+      expect(setupStore.dynamicRoutes).toEqual(['development']);
+      expect(setupStore.defaultRouteName).toBe('development');
+      expect(setupStore.defaultRouteReasoning).toBe('low');
       expect(mockFetch).toHaveBeenCalledWith('/api/setup/prefill', expect.any(Object));
     });
   });

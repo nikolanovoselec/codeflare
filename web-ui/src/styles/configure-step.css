@@ -106,6 +106,29 @@
           border-top: 1px solid var(--glass-border);
         }
 
+        .route-default-row {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .route-select {
+          flex: 1;
+          min-width: 160px;
+          min-height: 38px;
+          padding: 6px 10px;
+          background: rgba(24, 24, 27, 0.82);
+          border: 1px solid var(--color-border-subtle);
+          border-radius: 8px;
+          font-size: 13px;
+          color: var(--color-text-primary);
+        }
+
+        .route-select:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
         @media (max-width: 640px) {
           .configure-step {
             gap: 14px;
@@ -126,5 +149,9 @@
 
           .email-input-row .button[data-size="sm"] {
             width: 100%;
+          }
+
+          .route-default-row {
+            flex-direction: column;
           }
         }

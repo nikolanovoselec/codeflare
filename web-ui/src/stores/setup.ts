@@ -32,8 +32,12 @@ interface SetupState {
   saasMode: boolean;
   // Enterprise mode (deploy-time flag, from /api/setup/status)
   enterpriseMode: boolean;
-  // Enterprise-only: customer-managed Cloudflare Access group that gates JIT provisioning
-  enterpriseAccessGroup: string;
+  // Enterprise-only: customer-managed Cloudflare Access group NAMES (chip list)
+  enterpriseAccessGroups: string[];
+  // Feature C: enterprise gateway dynamic-route catalog + optional default.
+  dynamicRoutes: string[];
+  defaultRouteName: string;            // '' = no default
+  defaultRouteReasoning: 'off' | 'low' | 'medium' | 'high';
 }
 
 const initialState: SetupState = {
@@ -54,7 +58,10 @@ const initialState: SetupState = {
   accountId: null,
   saasMode: false,
   enterpriseMode: false,
-  enterpriseAccessGroup: '',
+  enterpriseAccessGroups: [],
+  dynamicRoutes: [],
+  defaultRouteName: '',
+  defaultRouteReasoning: 'off',
 };
 
 const [state, setState] = createStore<SetupState>({ ...initialState });
@@ -136,12 +143,41 @@ function removeAllowedUser(email: string): void {
   );
 }
 
-function setCustomDomain(domain: string): void {
-  setState({ customDomain: domain, customDomainError: null });
+function addAccessGroup(name: string): void {
+  if (name && !state.enterpriseAccessGroups.includes(name)) {
+    setState(produce((s) => { s.enterpriseAccessGroups.push(name); }));
+  }
+}
+function removeAccessGroup(name: string): void {
+  setState(produce((s) => {
+    const i = s.enterpriseAccessGroups.indexOf(name);
+    if (i !== -1) s.enterpriseAccessGroups.splice(i, 1);
+  }));
 }
 
-function setEnterpriseAccessGroup(group: string): void {
-  setState('enterpriseAccessGroup', group);
+function addDynamicRoute(name: string): void {
+  if (name && !state.dynamicRoutes.includes(name)) {
+    setState(produce((s) => { s.dynamicRoutes.push(name); }));
+  }
+}
+function removeDynamicRoute(name: string): void {
+  setState(produce((s) => {
+    const i = s.dynamicRoutes.indexOf(name);
+    if (i !== -1) s.dynamicRoutes.splice(i, 1);
+    // If the removed route was the default, clear the default selection.
+    if (s.defaultRouteName === name) s.defaultRouteName = '';
+  }));
+}
+
+function setDefaultRouteName(name: string): void {
+  setState('defaultRouteName', name);
+}
+function setDefaultRouteReasoning(level: 'off' | 'low' | 'medium' | 'high'): void {
+  setState('defaultRouteReasoning', level);
+}
+
+function setCustomDomain(domain: string): void {
+  setState({ customDomain: domain, customDomainError: null });
 }
 
 function nextStep(): void {
@@ -189,7 +225,10 @@ async function loadExistingConfig(): Promise<void> {
               s.customDomain = statusRes.customDomain;
             }
             s.adminUsers = Array.from(new Set(prefill.adminUsers.map((email) => email.trim().toLowerCase())));
-            s.enterpriseAccessGroup = prefill.enterpriseAccessGroup ?? '';
+            s.enterpriseAccessGroups = prefill.enterpriseAccessGroup;
+            s.dynamicRoutes = prefill.dynamicRoutes;
+            s.defaultRouteName = prefill.defaultRoute?.route ?? '';
+            s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
           })
         );
         return;
@@ -230,7 +269,10 @@ async function loadExistingConfig(): Promise<void> {
           .filter((email) => !admins.includes(email));
         s.adminUsers = admins;
         s.allowedUsers = regularUsers;
-        s.enterpriseAccessGroup = prefill.enterpriseAccessGroup ?? '';
+        s.enterpriseAccessGroups = prefill.enterpriseAccessGroup;
+        s.dynamicRoutes = prefill.dynamicRoutes;
+        s.defaultRouteName = prefill.defaultRoute?.route ?? '';
+        s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
       })
     );
   } catch {
@@ -256,9 +298,15 @@ async function configure(): Promise<boolean> {
         customDomain: state.customDomain,
         allowedUsers: allUsers,
         adminUsers: state.adminUsers,
-        // Enterprise-only field; omitted entirely for other modes so their
+        // Enterprise-only fields; omitted entirely for other modes so their
         // request body is byte-identical to today.
-        ...(state.enterpriseMode ? { enterpriseAccessGroup: state.enterpriseAccessGroup } : {}),
+        ...(state.enterpriseMode ? {
+          enterpriseAccessGroup: state.enterpriseAccessGroups,
+          dynamicRoutes: state.dynamicRoutes,
+          defaultRoute: state.defaultRouteName
+            ? { route: state.defaultRouteName, reasoning: state.defaultRouteReasoning }
+            : null,
+        } : {}),
       }),
     });
 
@@ -357,7 +405,7 @@ async function configure(): Promise<boolean> {
 
 function reset(): void {
   configLoaded = false;
-  setState({ ...initialState, adminUsers: [], allowedUsers: [], configureSteps: [] });
+  setState({ ...initialState, adminUsers: [], allowedUsers: [], enterpriseAccessGroups: [], dynamicRoutes: [], configureSteps: [] });
 }
 
 export const setupStore = {
@@ -413,9 +461,10 @@ export const setupStore = {
   get enterpriseMode() {
     return state.enterpriseMode;
   },
-  get enterpriseAccessGroup() {
-    return state.enterpriseAccessGroup;
-  },
+  get enterpriseAccessGroups() { return state.enterpriseAccessGroups; },
+  get dynamicRoutes() { return state.dynamicRoutes; },
+  get defaultRouteName() { return state.defaultRouteName; },
+  get defaultRouteReasoning() { return state.defaultRouteReasoning; },
 
   // Actions
   detectToken,
@@ -425,7 +474,12 @@ export const setupStore = {
   addAllowedUser,
   removeAllowedUser,
   setCustomDomain,
-  setEnterpriseAccessGroup,
+  addAccessGroup,
+  removeAccessGroup,
+  addDynamicRoute,
+  removeDynamicRoute,
+  setDefaultRouteName,
+  setDefaultRouteReasoning,
   nextStep,
   prevStep,
   goToStep,

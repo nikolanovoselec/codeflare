@@ -9,7 +9,10 @@ const storeState = vi.hoisted(() => ({
   allowedUsers: [] as string[],
   saasMode: false,
   enterpriseMode: false,
-  enterpriseAccessGroup: '',
+  enterpriseAccessGroups: [] as string[],
+  dynamicRoutes: [] as string[],
+  defaultRouteName: '',
+  defaultRouteReasoning: 'off' as 'off' | 'low' | 'medium' | 'high',
 }));
 
 const storeMethods = vi.hoisted(() => ({
@@ -18,7 +21,12 @@ const storeMethods = vi.hoisted(() => ({
   removeAdminUser: vi.fn((email: string) => { storeState.adminUsers = storeState.adminUsers.filter(e => e !== email); }),
   addAllowedUser: vi.fn((email: string) => { storeState.allowedUsers.push(email); }),
   removeAllowedUser: vi.fn((email: string) => { storeState.allowedUsers = storeState.allowedUsers.filter(e => e !== email); }),
-  setEnterpriseAccessGroup: vi.fn((val: string) => { storeState.enterpriseAccessGroup = val; }),
+  addAccessGroup: vi.fn((name: string) => { storeState.enterpriseAccessGroups.push(name); }),
+  removeAccessGroup: vi.fn((name: string) => { storeState.enterpriseAccessGroups = storeState.enterpriseAccessGroups.filter(g => g !== name); }),
+  addDynamicRoute: vi.fn((name: string) => { storeState.dynamicRoutes.push(name); }),
+  removeDynamicRoute: vi.fn((name: string) => { storeState.dynamicRoutes = storeState.dynamicRoutes.filter(r => r !== name); }),
+  setDefaultRouteName: vi.fn((name: string) => { storeState.defaultRouteName = name; }),
+  setDefaultRouteReasoning: vi.fn((level: 'off' | 'low' | 'medium' | 'high') => { storeState.defaultRouteReasoning = level; }),
   nextStep: vi.fn(),
   prevStep: vi.fn(),
   loadExistingConfig: vi.fn().mockResolvedValue(undefined),
@@ -31,7 +39,10 @@ vi.mock('../../stores/setup', () => ({
     get allowedUsers() { return storeState.allowedUsers; },
     get saasMode() { return storeState.saasMode; },
     get enterpriseMode() { return storeState.enterpriseMode; },
-    get enterpriseAccessGroup() { return storeState.enterpriseAccessGroup; },
+    get enterpriseAccessGroups() { return storeState.enterpriseAccessGroups; },
+    get dynamicRoutes() { return storeState.dynamicRoutes; },
+    get defaultRouteName() { return storeState.defaultRouteName; },
+    get defaultRouteReasoning() { return storeState.defaultRouteReasoning; },
     ...storeMethods,
   },
 }));
@@ -50,7 +61,10 @@ describe('ConfigureStep', () => {
     storeState.allowedUsers = [];
     storeState.saasMode = false;
     storeState.enterpriseMode = false;
-    storeState.enterpriseAccessGroup = '';
+    storeState.enterpriseAccessGroups = [];
+    storeState.dynamicRoutes = [];
+    storeState.defaultRouteName = '';
+    storeState.defaultRouteReasoning = 'off';
   });
 
   afterEach(() => {
@@ -105,6 +119,94 @@ describe('ConfigureStep', () => {
       render(() => <ConfigureStep />);
       expect(screen.getByText('Admin Users')).toBeInTheDocument();
       expect(screen.getByText('Cloudflare Access Groups (optional)')).toBeInTheDocument();
+    });
+  });
+
+  // Feature A/C: enterprise chip lists (groups + dynamic routes) and the
+  // optional default route + reasoning selector.
+  describe('Enterprise groups + routes chips', () => {
+    it('adds an access group via the group Add button', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+
+      const input = screen.getByPlaceholderText('e.g. codeflare_developers');
+      fireEvent.input(input, { target: { value: 'team_a' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(storeMethods.addAccessGroup).toHaveBeenCalledWith('team_a');
+    });
+
+    it('displays access group chips and removes one on x click', () => {
+      storeState.enterpriseMode = true;
+      storeState.enterpriseAccessGroups = ['team_a'];
+      render(() => <ConfigureStep />);
+
+      expect(screen.getByText('team_a')).toBeInTheDocument();
+      const removeBtn = screen.getByText('team_a').querySelector('.email-tag-remove') as HTMLElement;
+      fireEvent.click(removeBtn);
+      expect(storeMethods.removeAccessGroup).toHaveBeenCalledWith('team_a');
+    });
+
+    it('adds a dynamic route via Enter', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+
+      const input = screen.getByPlaceholderText('e.g. development');
+      fireEvent.input(input, { target: { value: 'development' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(storeMethods.addDynamicRoute).toHaveBeenCalledWith('development');
+    });
+
+    it('hides the Default Route selector when no routes exist', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = [];
+      render(() => <ConfigureStep />);
+      expect(screen.queryByText('Default Route (optional)')).not.toBeInTheDocument();
+    });
+
+    it('shows the Default Route selector and lists routes as options when routes exist', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development', 'prod'];
+      render(() => <ConfigureStep />);
+
+      expect(screen.getByText('Default Route (optional)')).toBeInTheDocument();
+      const routeSelect = document.querySelectorAll('.route-select')[0] as HTMLSelectElement;
+      const optionValues = Array.from(routeSelect.options).map(o => o.value);
+      expect(optionValues).toContain('development');
+      expect(optionValues).toContain('prod');
+    });
+
+    it('sets the default route name on change', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+
+      const routeSelect = document.querySelectorAll('.route-select')[0] as HTMLSelectElement;
+      fireEvent.change(routeSelect, { target: { value: 'development' } });
+      expect(storeMethods.setDefaultRouteName).toHaveBeenCalledWith('development');
+    });
+
+    it('disables the reasoning selector until a default route is chosen', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development'];
+      storeState.defaultRouteName = '';
+      render(() => <ConfigureStep />);
+
+      const reasoningSelect = document.querySelectorAll('.route-select')[1] as HTMLSelectElement;
+      expect(reasoningSelect.disabled).toBe(true);
+    });
+
+    it('enables the reasoning selector and sets reasoning when a default route is chosen', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development'];
+      storeState.defaultRouteName = 'development';
+      render(() => <ConfigureStep />);
+
+      const reasoningSelect = document.querySelectorAll('.route-select')[1] as HTMLSelectElement;
+      expect(reasoningSelect.disabled).toBe(false);
+      fireEvent.change(reasoningSelect, { target: { value: 'medium' } });
+      expect(storeMethods.setDefaultRouteReasoning).toHaveBeenCalledWith('medium');
     });
   });
 
