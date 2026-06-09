@@ -86,10 +86,8 @@ async function dispatchReview(pi: ExtensionAPI, args: string, ctx: ExtensionComm
 type PrView = { number?: number; state?: string; baseRefName?: string; headRefOid?: string };
 
 function activeRepo(startDir: string): string | undefined {
-  try {
-    const sentinel = readFileSync("/home/user/.cache/codeflare-hooks/graphify-active-cwd", "utf8").trim();
-    if (sentinel && existsSync(sentinel)) return sentinel;
-  } catch { /* fall through */ }
+  // Resolve from the caller's own cwd, never the shared graphify active-cwd sentinel (which flaps
+  // to whichever agent acted last under concurrent Claude+Pi). See resolveReviewRepo() rationale.
   return findGitRoot(startDir);
 }
 

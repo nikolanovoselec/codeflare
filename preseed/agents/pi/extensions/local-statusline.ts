@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { compactDurableReviewStatus } from "./review-job-helpers";
 
-const ACTIVE_REPO_FILE = "/home/user/.cache/codeflare-hooks/graphify-active-cwd";
 const CACHE_TTL_MS = 1_000;
 
 type Cache<T> = {
@@ -48,15 +47,6 @@ function findGitRoot(startDir: string): string | undefined {
   }
 }
 
-function activeRepoFromSentinel(): string | undefined {
-  try {
-    const repo = readFileSync(ACTIVE_REPO_FILE, "utf8").trim();
-    return repo && existsSync(repo) ? repo : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function gitOutput(repo: string, args: string[]): string | undefined {
   try {
     return execFileSync("git", args, {
@@ -71,7 +61,7 @@ function gitOutput(repo: string, args: string[]): string | undefined {
 }
 
 function repositoryLabel(ctx: ExtensionContext): string | undefined {
-  const repo = activeRepoFromSentinel() ?? findGitRoot(ctx.sessionManager.getCwd()) ?? findGitRoot(ctx.cwd);
+  const repo = findGitRoot(ctx.sessionManager.getCwd()) ?? findGitRoot(ctx.cwd);
   if (!repo) return undefined;
 
   const branch = gitOutput(repo, ["branch", "--show-current"])
@@ -190,7 +180,7 @@ export default function (pi: ExtensionAPI) {
             .filter(([key]) => key !== "codeflare-review")
             .map(([, value]) => value)
             .filter(Boolean);
-          const repo = activeRepoFromSentinel() ?? findGitRoot(ctx.sessionManager.getCwd()) ?? findGitRoot(ctx.cwd);
+          const repo = findGitRoot(ctx.sessionManager.getCwd()) ?? findGitRoot(ctx.cwd);
           const reviewRow = repo ? liveReviewRow(repo, theme) : undefined;
           if (reviewRow) statuses.push(reviewRow);
           const lines = [theme.fg("dim", truncateToWidth(cached.value, width))];

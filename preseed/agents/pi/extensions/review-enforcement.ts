@@ -14,7 +14,7 @@ import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prBoundaryCommandBase, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
+import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -85,14 +85,19 @@ function cwdFromCommand(command: string): string | undefined {
   return cwdFromBoundaryCommand(command);
 }
 
-function activeRepoFallback(): string | undefined {
-  try {
-    const p = "/home/user/.cache/codeflare-hooks/graphify-active-cwd";
-    if (existsSync(p)) return readFileSync(p, "utf8").trim() || undefined;
-  } catch {
-    return undefined;
-  }
-  return undefined;
+// The repo THIS Pi session is reviewing, remembered for the no-ctx autonomous reaper. Set by
+// reviewRepoForCtx whenever a ctx-bearing handler resolves the review repo from the session cwd.
+// Deliberately replaces the old graphify active-cwd sentinel read: that sentinel is shared across
+// agents (Claude's hook + Pi's codeflare-pi.ts both write it) and flaps to whichever agent acted
+// last, so it cannot identify the repo THIS Pi session is reviewing. See resolveReviewRepo().
+let sessionReviewRepo: string | undefined;
+
+// Resolve + remember the review repo for a ctx-bearing handler: an explicit command cwd (`cd`/`-C`
+// in the boundary command) first, then the Pi session's own cwd. Never the graphify sentinel.
+function reviewRepoForCtx(ctx: any, commandCwd?: string): string | undefined {
+  const repo = resolveReviewRepo({ commandCwd, sessionCwd: ctx?.sessionManager?.getCwd?.() }, findGitRoot);
+  if (repo) sessionReviewRepo = repo;
+  return repo;
 }
 
 function commandText(event: any): string {
@@ -604,9 +609,10 @@ let activeReviewFinalize: ((state: PendingReview) => void) | undefined;
 function autonomousReviewReaperTick(): void {
   try {
     // The timer has no event ctx, so it cannot use ctx.sessionManager.getCwd() like the on-turn
-    // handlers. process.cwd() is pi's PROCESS dir, not the session/repo dir, so resolve the repo
-    // the way every other handler's fallback does: the active-repo sentinel first, process.cwd() last.
-    const repo = activeRepoFallback() || findGitRoot(process.cwd());
+    // handlers. Use the in-session review repo remembered by reviewRepoForCtx (set when this session
+    // armed/reconciled the review), falling back to pi's process dir. NOT the graphify active-cwd
+    // sentinel — under concurrent agents it flaps to whatever repo acted last, misrouting finalize.
+    const repo = resolveReviewRepo({ sessionReviewRepo, processCwd: process.cwd() }, findGitRoot);
     if (!repo) return;
     const pending = loadPending(repo);
     if (!pending || !pending.head || pending.lanes.length === 0) return;
@@ -804,7 +810,7 @@ export default function (pi: ExtensionAPI) {
 
   function hydratePending(ctx: any): PendingReview | undefined {
     if (pending) return pending;
-    const repo = activeRepoFallback() || findGitRoot(ctx.sessionManager.getCwd());
+    const repo = reviewRepoForCtx(ctx);
     pending = repo ? loadPending(repo) : undefined;
     return pending;
   }
@@ -904,7 +910,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function publishSummaryForCurrentPr(ctx: any): boolean {
-    const repo = activeRepoFallback() || findGitRoot(ctx.sessionManager.getCwd());
+    const repo = reviewRepoForCtx(ctx);
     if (!repo || !isSddProject(repo)) return false;
     const pr = prState(repo);
     if (!isEnforcedPr(pr)) return false;
@@ -1089,7 +1095,7 @@ export default function (pi: ExtensionAPI) {
   // boundary_candidate_ignored so a stuck PR is never silent (AC4). `force` bypasses the network
   // throttle for once-per-turn ticks. Returns true when a window was created or acked.
   async function reconcileOpenPrReview(ctx: any, force: boolean): Promise<boolean> {
-    const repo = findGitRoot(ctx.sessionManager.getCwd()) || activeRepoFallback();
+    const repo = reviewRepoForCtx(ctx);
     const nowTs = Date.now();
     const lifecycle = shouldCheckOpenPrReconciliation({
       activeRun: isActiveRun(),
@@ -1157,7 +1163,7 @@ export default function (pi: ExtensionAPI) {
     // commandText() pulls the command from bash (input.command) or, when context-mode is on,
     // the ctx_* tools (code/commands). Gate on the command itself, never the tool name.
     if (isGhPrMerge(command)) {
-      const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
+      const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
       if (!repo || !isSddProject(repo)) return;
       const pr = prState(repo);
       if (!isEnforcedPr(pr)) return;
@@ -1189,7 +1195,7 @@ export default function (pi: ExtensionAPI) {
   // auto-started (REQ-AGENT-058 revised). /review-run launches the required reviewers for the
   // current enforced PR head; /review-skip acks that head so the merge gate opens with no review.
   function resolveCommandRepo(ctx: any): string | undefined {
-    return findGitRoot(ctx?.sessionManager?.getCwd?.() || process.cwd()) || activeRepoFallback();
+    return reviewRepoForCtx(ctx);
   }
 
   pi.registerCommand("review-run", {
@@ -1293,7 +1299,7 @@ export default function (pi: ExtensionAPI) {
       // a boundary, record the near-miss and let the bounded open-PR reconciliation start the
       // review. Gated on /pr create/ so read-only gh commands (pr view/list) never trigger it.
       if (/pr\s+create/i.test(command) && prUrlFromText(stringifyReviewResult(toolResultPayload(event)))) {
-        const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
+        const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
         if (repo && isSddProject(repo)) {
           appendReviewEvent(repo, { event: "boundary_candidate_ignored", reason: "pr_create_url_not_parsed" });
           await reconcileOpenPrReview(ctx, true);
@@ -1302,7 +1308,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const repo = findGitRoot(cwdFromCommand(command) || ctx.sessionManager.getCwd()) || activeRepoFallback();
+    const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
     if (!repo || !isSddProject(repo)) return;
 
     const pr = prForBoundaryCommand(repo, command, prState(repo));

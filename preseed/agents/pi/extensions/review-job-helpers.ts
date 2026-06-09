@@ -872,6 +872,30 @@ export function reviewBaselineContinuation(
   return isAncestor(baseline, head);
 }
 
+// Resolve which repo a review handler should act on, WITHOUT consulting the shared graphify
+// active-cwd sentinel. That sentinel (/home/user/.cache/codeflare-hooks/graphify-active-cwd) is a
+// single-active-repo file written by BOTH Claude's graphify-active-repo.sh hook AND Pi's
+// codeflare-pi.ts (proactively, on every tool execution) from each agent's OWN cwd — so under
+// concurrent agents it flaps to whichever agent acted last, not the repo THIS Pi session is
+// reviewing. When Pi reviews a different (e.g. nested) repo than the one that last wrote the
+// sentinel, sentinel-based resolution silently misroutes finalize/footer to the wrong .git: the
+// summary never emits, autofix never starts, and the progress footer shows nothing. Precedence:
+//   commandCwd (explicit `cd`/`-C` in the boundary command) -> sessionCwd (Pi's session cwd)
+//   -> sessionReviewRepo (already-resolved root remembered in-session, for the no-ctx reaper)
+//   -> processCwd (Pi process dir, last resort).
+// commandCwd/sessionCwd/processCwd are directories resolved to a git root via gitRootOf;
+// sessionReviewRepo is already a git root and is returned verbatim.
+export function resolveReviewRepo(
+  input: { commandCwd?: string; sessionCwd?: string; sessionReviewRepo?: string; processCwd?: string },
+  gitRootOf: (dir: string) => string | undefined,
+): string | undefined {
+  const fromDir = (dir: string | undefined): string | undefined => (dir ? gitRootOf(dir) : undefined);
+  return fromDir(input.commandCwd)
+    ?? fromDir(input.sessionCwd)
+    ?? input.sessionReviewRepo
+    ?? fromDir(input.processCwd);
+}
+
 // Npm package source strings a durable review lane should load as additionalExtensionPaths.
 // Graphify is a first-party LOCAL extension (graphify-native.ts), loaded directly by the lane
 // runner alongside codeflare-pi - it is not an npm package and never appears here.

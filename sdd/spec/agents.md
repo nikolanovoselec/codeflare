@@ -1230,6 +1230,7 @@ None.
 2. An idle Pi session starts the next eligible durable review lane after prerequisite lanes complete. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick -->
 3. An idle Pi session finalizes completed durable reviews by acknowledging the exact head, saving the merged summary, and starting the autofix request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview -->
 4. Off-turn finalization does NOT claim the chat-summary marker; the next on-turn tick emits the visible merged summary. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::publishSummaryForCurrentPr -->
+5. Review-repo resolution for the reaper, the on-turn finalizers, and the footer progress row derives the repo from the boundary-command cwd / Pi session cwd plus an in-session remembered review repo — never the shared graphify active-cwd sentinel, which multiple agents write and which points at whatever repo acted last. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::resolveReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewRepoForCtx --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::liveReviewRow --> <!-- @test: src/__tests__/lib/review-state.test.ts (resolveReviewRepo precedence + never probes the sentinel path -> AC5) -->
 
 **Constraints:**
 

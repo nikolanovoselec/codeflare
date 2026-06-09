@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -205,6 +205,51 @@ describe('reviewBaselineContinuation (bug-A fix: offer on launch, autostart only
 
   it('returns false for an empty head regardless of baseline', () => {
     expect(reviewBaselineContinuation('basehead', '', descends)).toBe(false);
+  });
+});
+
+/**
+ * resolveReviewRepo picks the repo a review handler acts on FROM ITS OWN candidate dirs, never the
+ * shared graphify active-cwd sentinel (a cross-agent file that flaps to whichever agent acted
+ * last). These fail if the precedence regresses, or if the resolver ever reaches outside its given
+ * candidates — the regression that left a nested-repo review with no footer and no finalize because
+ * the sentinel pointed at the outer repo Claude was in.
+ */
+describe('resolveReviewRepo (review-repo resolution detached from the graphify sentinel)', () => {
+  const roots: Record<string, string> = {
+    '/ws/ai-news-digest/src': '/ws/ai-news-digest',
+    '/ws/ai-news-digest': '/ws/ai-news-digest',
+    '/ws': '/ws',
+    '/pi/proc': '/pi/proc-repo',
+  };
+  const gitRootOf = (dir: string): string | undefined => roots[dir];
+
+  it('prefers an explicit command cwd over the session cwd (boundary `cd <repo> && git push`)', () => {
+    expect(resolveReviewRepo({ commandCwd: '/ws/ai-news-digest', sessionCwd: '/ws' }, gitRootOf)).toBe('/ws/ai-news-digest');
+  });
+
+  it('falls back to the session cwd (walked up to its git root) when there is no command cwd', () => {
+    expect(resolveReviewRepo({ sessionCwd: '/ws/ai-news-digest/src' }, gitRootOf)).toBe('/ws/ai-news-digest');
+  });
+
+  it('uses the remembered in-session review repo for the no-ctx reaper, before the process cwd', () => {
+    expect(resolveReviewRepo({ sessionReviewRepo: '/ws/ai-news-digest', processCwd: '/pi/proc' }, gitRootOf)).toBe('/ws/ai-news-digest');
+  });
+
+  it('falls back to the process cwd only when nothing else resolves', () => {
+    expect(resolveReviewRepo({ processCwd: '/pi/proc' }, gitRootOf)).toBe('/pi/proc-repo');
+  });
+
+  it('returns undefined when no candidate resolves and there is no remembered repo', () => {
+    expect(resolveReviewRepo({ sessionCwd: '/tmp/not-a-repo' }, gitRootOf)).toBeUndefined();
+  });
+
+  it('only ever probes the candidate dirs it was given — never an external sentinel path', () => {
+    const seen: string[] = [];
+    const tracking = (dir: string): string | undefined => { seen.push(dir); return roots[dir]; };
+    resolveReviewRepo({ commandCwd: '/ws/ai-news-digest', sessionCwd: '/ws', processCwd: '/pi/proc' }, tracking);
+    expect(seen).toEqual(['/ws/ai-news-digest']); // short-circuits on the first resolving candidate
+    expect(seen).not.toContain('/home/user/.cache/codeflare-hooks/graphify-active-cwd');
   });
 });
 
