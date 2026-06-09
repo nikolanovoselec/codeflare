@@ -36,12 +36,12 @@
     "glob": ">=11.0.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.16.12",
+    "@cloudflare/vitest-pool-workers": "0.16.13",
     "@types/node": "^25.9.2",
     "@vitest/coverage-v8": "^4.1.7",
     "fast-check": "^4.8.0",
     "knip": "^6.16.1",
-    "oxlint": "^1.68.0",
+    "oxlint": "^1.69.0",
     "puppeteer": "^25.1.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8",
