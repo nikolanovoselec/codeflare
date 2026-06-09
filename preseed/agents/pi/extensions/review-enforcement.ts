@@ -1147,8 +1147,6 @@ export default function (pi: ExtensionAPI) {
   const onAgentStart = (event: any, ctx: any) => {
     if (!isActiveRun()) return;
     remember(ctx);
-    const toolName = String(event?.toolName || "").toLowerCase();
-    const input = event?.input || event?.params || event?.args || event?.arguments || {};
     const command = commandText(event);
     // commandText() pulls the command from bash (input.command) or, when context-mode is on,
     // the ctx_* tools (code/commands). Gate on the command itself, never the tool name.
@@ -1168,19 +1166,8 @@ export default function (pi: ExtensionAPI) {
       }
       return;
     }
-
-    if (toolName !== "agent") return;
-    const type = String(input.subagent_type || input.subagentType || "");
-    if (type !== "doc-updater") return;
-    const state = hydratePending(ctx);
-    if (!state) return;
-    if (reviewHeadStatus(state) === "stale") {
-      discardStale(state, ctx);
-      return;
-    }
-    if (state.lanes.includes("spec-reviewer") && !state.completed.has("spec-reviewer")) {
-      return { block: true, reason: "PR-boundary review order violation: doc-updater must run only after spec-reviewer completes for this PR HEAD." };
-    }
+    // No doc-updater-after-spec-reviewer ordering gate: the lanes run in parallel
+    // (REQ-AGENT-040 AC4/AC5, AD78), so onAgentStart only enforces the merge gate.
   };
 
   pi.on("session_start", (_event: any, ctx: any) => {

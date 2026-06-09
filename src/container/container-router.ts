@@ -217,11 +217,16 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       await host.ctx.storage.put('routeCatalog', routeCatalog);
       host._routeCatalog = routeCatalog;
     }
-    if (defaultRoute) {
+    // `!== undefined`, not truthiness: an empty-string default route/reasoning is the
+    // meaningful "admin cleared / default drifted out of catalog" reset (reasoning-off or
+    // first-route fallback) and must be stored as such — matching applyPrefsOnRestart's
+    // documented empty-reset contract. buildEnvVars omits the env var when state holds '',
+    // so an empty value surfaces downstream as "reasoning off" / first route.
+    if (defaultRoute !== undefined) {
       await host.ctx.storage.put('defaultRoute', defaultRoute);
       host._defaultRoute = defaultRoute;
     }
-    if (defaultReasoning) {
+    if (defaultReasoning !== undefined) {
       await host.ctx.storage.put('defaultReasoning', defaultReasoning);
       host._defaultReasoning = defaultReasoning;
     }
