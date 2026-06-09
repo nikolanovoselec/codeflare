@@ -929,7 +929,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       // The outcome is durably recorded - never silently swallowed.
       const auditPut = mockStorage.put.mock.calls.find((c) => c[0] === 'finalSyncAudit');
       expect(auditPut).toBeDefined();
-      expect((auditPut?.[1] as { outcome: string }).outcome).toBe('completed');
+      expect((auditPut![1] as { outcome: string }).outcome).toBe('completed');
     });
 
     it('#516: persists outcome "errored" and still completes destroy when the drain rejects under a transient not-running reading', async () => {
@@ -939,7 +939,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await expect(instance.destroy()).resolves.toBeUndefined();
       const auditPut = mockStorage.put.mock.calls.find((c) => c[0] === 'finalSyncAudit');
-      expect((auditPut?.[1] as { outcome: string }).outcome).toBe('errored');
+      expect(auditPut).toBeDefined();
+      expect((auditPut![1] as { outcome: string }).outcome).toBe('errored');
     });
 
     it('graceful shutdown: falls back to SIGKILL when the container is still running after the 135 s timeout', async () => {
