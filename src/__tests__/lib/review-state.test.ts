@@ -136,27 +136,40 @@ describe('shouldReconcileOpenPr (REQ-AGENT-058 AC1)', () => {
 });
 
 /**
- * reconcileBoundaryAction is the offers-once decision for a missed-boundary PR head
- * (REQ-AGENT-058 revised). It must OFFER a reconcilable head exactly once and NOOP on a
- * re-offer of the same (already-offered) head, and NOOP whenever the head is not
- * reconcilable. These tests fail if the offer/noop branching regresses — there is no
- * implementation to gut while staying green (the reconciler's only behaviour on a missed
- * boundary is to offer or not).
+ * reconcileBoundaryAction is the action gate for a missed-boundary PR head (REQ-AGENT-058
+ * revised). The locked design: an in-session continuation (the missed head DESCENDS from a
+ * previously-acked head, i.e. the onToolEnd auto-start was dropped by a compound `&&`/here-doc/
+ * `gh pr edit`/reload) AUTO-STARTS the review just like the onToolEnd boundary path; a fresh
+ * clone/checkout (no prior ack to descend from) is OFFERED once; a re-offer of an already-offered
+ * clone head NOOPs; and a non-reconcilable head always NOOPs. These tests fail if the
+ * autostart/offer/noop branching regresses — the reconciler's only behaviour on a missed
+ * boundary is one of these three actions.
  */
-describe('reconcileBoundaryAction (REQ-AGENT-058 revised: offer-once, never auto-spawn)', () => {
-  it('offers when the head is reconcilable and has not been offered yet', () => {
-    const input: ReconcileBoundaryInput = { reconcile: true, alreadyOffered: false };
+describe('reconcileBoundaryAction (REQ-AGENT-058 revised: autostart in-session, offer-once on clone)', () => {
+  it('AUTO-STARTS an in-session continuation (missed onToolEnd auto-start), even when not yet offered', () => {
+    const input: ReconcileBoundaryInput = { reconcile: true, alreadyOffered: false, inSessionContinuation: true };
+    expect(reconcileBoundaryAction(input)).toBe('autostart');
+  });
+
+  it('AUTO-STARTS an in-session continuation regardless of a prior offer on the same head', () => {
+    const input: ReconcileBoundaryInput = { reconcile: true, alreadyOffered: true, inSessionContinuation: true };
+    expect(reconcileBoundaryAction(input)).toBe('autostart');
+  });
+
+  it('offers a fresh-clone reconcilable head (no continuation) that has not been offered yet', () => {
+    const input: ReconcileBoundaryInput = { reconcile: true, alreadyOffered: false, inSessionContinuation: false };
     expect(reconcileBoundaryAction(input)).toBe('offer');
   });
 
-  it('noops on a re-offer of the same already-offered head (offered once, not twice)', () => {
-    const input: ReconcileBoundaryInput = { reconcile: true, alreadyOffered: true };
+  it('noops on a re-offer of the same already-offered clone head (offered once, not twice)', () => {
+    const input: ReconcileBoundaryInput = { reconcile: true, alreadyOffered: true, inSessionContinuation: false };
     expect(reconcileBoundaryAction(input)).toBe('noop');
   });
 
-  it('noops when the head is not reconcilable, regardless of offered state', () => {
-    expect(reconcileBoundaryAction({ reconcile: false, alreadyOffered: false })).toBe('noop');
-    expect(reconcileBoundaryAction({ reconcile: false, alreadyOffered: true })).toBe('noop');
+  it('noops when the head is not reconcilable, regardless of offered/continuation state', () => {
+    expect(reconcileBoundaryAction({ reconcile: false, alreadyOffered: false, inSessionContinuation: false })).toBe('noop');
+    expect(reconcileBoundaryAction({ reconcile: false, alreadyOffered: true, inSessionContinuation: false })).toBe('noop');
+    expect(reconcileBoundaryAction({ reconcile: false, alreadyOffered: false, inSessionContinuation: true })).toBe('noop');
   });
 });
 

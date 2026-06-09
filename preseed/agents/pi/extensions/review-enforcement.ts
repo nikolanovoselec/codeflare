@@ -947,7 +947,20 @@ export default function (pi: ExtensionAPI) {
     resetBlockCount(state.repo);
     clearBreaker(state.repo);
     clearPending(state.repo);
-    publishReviewSummary(state, ctx);
+    if (ctx) {
+      publishReviewSummary(state, ctx);
+    } else {
+      // Off-turn idle finalization: the autonomous reaper has no ctx, and pi.sendMessage does not
+      // surface a visible message outside a live turn. publishReviewSummary claims the exclusive
+      // summary-v3 announcement marker BEFORE emitting, so claiming it here would permanently
+      // suppress the on-turn re-emit (the marker is wx-create, never retried) and the summary would
+      // be lost — acked, pending cleared, but never shown. Persist the merged summary to disk only
+      // and leave the chat announcement UNCLAIMED; the next on-turn tick (refreshReviewStatusFromDurable
+      // → publishSummaryForCurrentPr → publishReviewSummary) claims and emits it with a live ctx. The
+      // autofix request below still fires and triggers a turn when there are actionable findings, which
+      // is what surfaces that deferred summary with zero extra user input.
+      writeReviewSummaryFromDisk(state);
+    }
     requestReviewAutofix(state, ctx);
     clearReviewStatus(ctx);
     pending = undefined;
@@ -1104,15 +1117,27 @@ export default function (pi: ExtensionAPI) {
       }
       return false;
     }
-    // REQ-AGENT-058 (revised): a missed boundary surfaced by reconciliation — typically a fresh
-    // clone or branch checkout of a repo that already has an open PR — must NOT auto-spawn the
-    // durable reviewers. Auto-starting here is what produced an unstoppable review immediately
-    // after `git clone` (the reaper re-spawned killed lanes). Offer the choice once and let the
-    // user decide; the merge gate stays closed because the head remains unacked, and the 20s
-    // reaper never fires because no review window is created. An in-session push still
-    // auto-starts via the onToolEnd boundary path — only this catch-up path defers to the user.
-    const action = reconcileBoundaryAction({ reconcile: decision.reconcile, alreadyOffered: offered(resolvedRepo, head) });
+    // REQ-AGENT-058 (revised): decide whether this missed boundary is in-session continuation
+    // work whose onToolEnd auto-start was dropped (compound `&&`, here-doc, `gh pr edit`, or a
+    // reload between the command and its event), or a fresh clone/checkout of a repo that already
+    // has an open PR. The new head is in-session continuation when it DESCENDS from a head we
+    // already acked in this repo; a fresh clone has no prior ack (the ack lives in .git, which a
+    // clone does not carry). Continuation AUTO-STARTS exactly like the onToolEnd boundary path
+    // (the locked design: an in-session push always auto-starts), so a dropped tool event no
+    // longer silently skips the review. A fresh clone falls through to OFFER once — `git clone`
+    // never auto-spawns an unstoppable review (the reaper that re-spawned killed lanes was the
+    // original reason the catch-up was made offer-only).
+    const lastAck = lastAckHead(resolvedRepo);
+    const inSessionContinuation = Boolean(lastAck) && lastAck !== head && isAncestor(resolvedRepo, lastAck, head);
+    const action = reconcileBoundaryAction({
+      reconcile: decision.reconcile,
+      alreadyOffered: offered(resolvedRepo, head),
+      inSessionContinuation,
+    });
     if (action === "noop") return false;
+    if (action === "autostart") {
+      return await ensureReviewWindow({ repo: resolvedRepo, pr: pr as PrState, head, ctx, trigger: "open-PR reconciliation (in-session continuation)" });
+    }
     writeOffered(resolvedRepo, head);
     appendReviewEvent(resolvedRepo, { event: "boundary_offered", head, reason: decision.reason });
     ctx.ui.notify(`PR-boundary review available for ${basename(resolvedRepo)} at ${head.slice(0, 12)} (missed boundary). Run /review-run to start the required reviewers, or /review-skip to skip and ack this HEAD. Merge stays blocked until you choose.`, "warning");

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPrBoundaryTrigger, isPrBoundaryCommand, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { isPrBoundaryTrigger, isPrBoundaryCommand, prEditBoundaryBase, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * isPrBoundaryTrigger is the single "should this command start a review?" predicate.
@@ -31,6 +31,16 @@ describe('isPrBoundaryTrigger', () => {
     expect(isPrBoundaryTrigger('gh pr create --base develop --title x')).toBe(false);
   });
 
+  it('treats gh pr edit retargeting an existing PR onto main/master as a boundary', () => {
+    expect(isPrBoundaryTrigger('gh pr edit 286 --base main')).toBe(true);
+    expect(isPrBoundaryTrigger('gh pr edit --base master')).toBe(true);
+  });
+
+  it('does NOT treat gh pr edit onto a non-main base, or a non-base edit, as a boundary', () => {
+    expect(isPrBoundaryTrigger('gh pr edit 286 --base develop')).toBe(false);
+    expect(isPrBoundaryTrigger('gh pr edit 286 --title x --body y')).toBe(false);
+  });
+
   it('does NOT treat gh pr merge as a trigger, but the word matcher still sees it as a boundary', () => {
     expect(isPrBoundaryTrigger('gh pr merge 501 --squash')).toBe(false);
     expect(isPrBoundaryCommand('gh pr merge 501 --squash')).toBe(true);
@@ -54,6 +64,30 @@ describe('isPrBoundaryTrigger', () => {
  * real source/sdd/docs is still classified by the non-generated files (the generated ones are
  * skipped, not allowed to suppress a real review).
  */
+/**
+ * prEditBoundaryBase parses the new base out of a `gh pr edit --base ...` so retargeting an
+ * existing PR onto a protected branch arms a review (the create path only fires at creation).
+ * It must return the base ONLY for main/master, across the --base / --base= / -B flag forms,
+ * and undefined for any other base or a non-base edit.
+ */
+describe('prEditBoundaryBase (gh pr edit retarget)', () => {
+  it('returns the protected base across flag forms', () => {
+    expect(prEditBoundaryBase('gh pr edit 286 --base main')).toBe('main');
+    expect(prEditBoundaryBase('gh pr edit --base=master')).toBe('master');
+    expect(prEditBoundaryBase('gh pr edit 286 -B main')).toBe('main');
+  });
+
+  it('returns undefined for a non-main base, a non-base edit, or a non-edit command', () => {
+    expect(prEditBoundaryBase('gh pr edit 286 --base develop')).toBeUndefined();
+    expect(prEditBoundaryBase('gh pr edit 286 --title x')).toBeUndefined();
+    expect(prEditBoundaryBase('gh pr create --base main')).toBeUndefined();
+  });
+
+  it('finds the retarget inside a compound command', () => {
+    expect(prEditBoundaryBase('cd /repo && gh pr edit 286 --base main')).toBe('main');
+  });
+});
+
 describe('classifyReviewFiles generated-artifact handling', () => {
   it('classifies a graphify-out-only diff to zero lanes (auto-ack)', () => {
     expect(classifyReviewFiles(['graphify-out/graph.json'])).toEqual([]);

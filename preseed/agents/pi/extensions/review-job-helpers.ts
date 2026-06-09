@@ -831,18 +831,25 @@ export function shouldReconcileOpenPr(input: OpenPrReconcileInput): OpenPrReconc
   return { reconcile: true, reason: "open enforced PR head is unacknowledged with no review window" };
 }
 
-// Offers-once gate for a reconciled (missed-boundary) PR head (REQ-AGENT-058 revised).
+// Action gate for a reconciled (missed-boundary) PR head (REQ-AGENT-058 revised).
 // shouldReconcileOpenPr decides WHETHER a head is reconcilable; this decides what the
-// reconciler DOES with a reconcilable head: OFFER it once (notify + persist the offered
-// marker) so the user runs /review-run or /review-skip, or NOOP when this exact head was
-// already offered (the marker is head-keyed, so a new commit re-offers). Pure: no fs, no
-// notify — the caller performs the side effects keyed off the returned action. Never
-// auto-spawns; the auto-spawn path is the in-session onToolEnd boundary, not this.
-export type ReconcileBoundaryInput = { reconcile: boolean; alreadyOffered: boolean };
-export type ReconcileBoundaryAction = "offer" | "noop";
+// reconciler DOES with it. The locked design is: an in-session push still AUTO-STARTS the
+// review exactly like the onToolEnd boundary path, and only a fresh clone/checkout of a repo
+// with a pre-existing open PR is OFFERED (notify + persist the offered marker) so the user
+// runs /review-run or /review-skip. `inSessionContinuation` is the caller's verdict that this
+// head is continuous work on a branch we have ALREADY reviewed (the new head descends from a
+// previously-acked head), which means the onToolEnd auto-start was MISSED (compound `&&`,
+// here-doc, `gh pr edit`, or a reload between the command and its event) rather than this being
+// a fresh clone — so we auto-start to honour the design. A fresh clone has no prior ack on this
+// repo, so it falls through to OFFER, and `git clone` never auto-spawns an unstoppable review.
+// Offer is once-per-head (the marker is head-keyed, so a new commit re-offers). Pure: no fs, no
+// notify — the caller performs the side effects keyed off the returned action.
+export type ReconcileBoundaryInput = { reconcile: boolean; alreadyOffered: boolean; inSessionContinuation: boolean };
+export type ReconcileBoundaryAction = "autostart" | "offer" | "noop";
 
 export function reconcileBoundaryAction(input: ReconcileBoundaryInput): ReconcileBoundaryAction {
   if (!input.reconcile) return "noop";
+  if (input.inSessionContinuation) return "autostart";
   if (input.alreadyOffered) return "noop";
   return "offer";
 }
