@@ -115,6 +115,21 @@ CVE-2025-7458
 CVE-2025-11001
 CVE-2025-11002
 
+# p7zip 16.02 (really 25.01)/p7zip-full: heap buffer write overflow in the 7-Zip
+# NTFS archive handler (no fix in Debian bookworm). CVSS 8.8.
+# p7zip is used by yazi for archive preview only on user-owned files.
+#
+# CVE-2026-48095: 7-Zip — CInStream::GetCuSize (NtfsHandler.cpp) computes the NTFS
+# compression-unit buffer with a 32-bit shift `1 << (BlockSizeLog + CompressionUnit)`;
+# a crafted NTFS image (ClusterSizeLog >= 28, CompressionUnit == 4) drives the shift to
+# 32 (undefined behaviour) and under-allocates _inBuf to 1 byte → heap write overflow →
+# potential RCE. Reachable via 7-Zip's signature-based fallback even from a .7z/.zip/.rar
+# extension. Impact: NONE — same exposure profile as the p7zip entries above; p7zip is
+# invoked by yazi only to preview the user's own archives in the per-session sandbox, and
+# the container extracts no attacker-controlled archives. Fixed in 7-Zip 26.01 (2026-04-27);
+# p7zip is unmaintained, so Debian bookworm ships no fix (flagged on p7zip + p7zip-full).
+CVE-2026-48095
+
 # zlib 1.2.13: integer overflow in zipOpenNewFileInZip4_64 (will_not_fix in bookworm)
 # Only affects minizip API for creating ZIP files — container doesn't create ZIPs.
 CVE-2023-45853
