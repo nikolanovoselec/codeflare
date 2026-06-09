@@ -21,10 +21,11 @@ on:
           - production
           - integration
           - enterprise
+          - enterprise integration
         default: integration
 
 concurrency:
-  group: deploy-${{ ((github.event_name == 'workflow_run' || github.ref == 'refs/heads/main') && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || 'integration' }}
+  group: deploy-${{ ((github.event_name == 'workflow_run' || github.ref == 'refs/heads/main') && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
   cancel-in-progress: true
 
 permissions:
@@ -62,9 +63,10 @@ jobs:
     #   workflow_run.event == 'push'                   -- only post-merge runs trigger deploy
     #   head_repository.full_name == github.repository -- and only from this repo, never a fork
     # production is locked to main (the guard step below rejects it elsewhere);
-    # enterprise is a separate single-tenant env that may be deployed from any
-    # branch (e.g. develop) for iteration; everything else off non-main -> integration.
-    environment: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || 'integration' }}
+    # enterprise and enterprise integration are separate single-tenant envs that may
+    # be deployed from any branch (e.g. develop) for iteration; everything else off
+    # non-main -> integration.
+    environment: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
     timeout-minutes: 30
     env:
       WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}

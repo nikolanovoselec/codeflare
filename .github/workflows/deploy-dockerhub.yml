@@ -22,13 +22,17 @@ on:
           - production
           - integration
           - enterprise
+          - enterprise integration
         default: integration
 
 concurrency:
-  # Share the prefix with deploy.yml so the two workflows can never deploy
-  # to the same worker simultaneously - whichever fires later cancels the
-  # one already in flight.
-  group: deploy-${{ github.ref == 'refs/heads/main' && (inputs.environment || 'production') || 'integration' }}
+  # Share the prefix AND the target-resolution expression with deploy.yml so the
+  # two workflows can never deploy to the same worker simultaneously - whichever
+  # fires later cancels the one already in flight. enterprise / enterprise
+  # integration get their own groups so they never cancel (or are cancelled by) an
+  # integration deploy. (No workflow_run trigger here, so the main-branch arm only
+  # checks github.ref.)
+  group: deploy-${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
   cancel-in-progress: true
 
 permissions:
@@ -48,7 +52,11 @@ jobs:
     # PR Checks would skip the guard but the deploy job's needs:
     # would still be satisfied - the gate must be on the job that
     # actually performs the deploy.
-    environment: ${{ github.ref == 'refs/heads/main' && (inputs.environment || 'production') || 'integration' }}
+    # Mirrors deploy.yml's target resolution: production is locked to main (the
+    # guard step below rejects it elsewhere); enterprise and enterprise integration
+    # are single-tenant envs deployable from any branch; everything else off
+    # non-main -> integration.
+    environment: ${{ (github.ref == 'refs/heads/main' && (inputs.environment || 'production')) || (inputs.environment == 'enterprise' && 'enterprise') || (inputs.environment == 'enterprise integration' && 'enterprise integration') || 'integration' }}
     timeout-minutes: 30
     env:
       WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
