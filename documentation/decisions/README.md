@@ -1486,7 +1486,7 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 **Consequences:**
 
 - PR-boundary review completes faster; the three lanes' triage files are produced concurrently and the main session applies fixes from all of them.
-- Pi's `pending.json` retains the now-vestigial `docPromptSent` field for backward-compat with in-flight review jobs serialized under the old schema; it is no longer read for sequencing.
+- Pi's `pending.json` retains the now-vestigial `docPromptSent` field for backward-compat with in-flight review jobs serialized under the old sequential-dispatch model (jobs where `spec-reviewer` had completed but `doc-updater` had not yet been spawned); it is no longer read for sequencing.
 - `/sdd clean` behavior is unchanged.
 
 **Related:** [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC4/AC5, [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) (the `/sdd clean` sequential order this decision deliberately preserves), [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes).
