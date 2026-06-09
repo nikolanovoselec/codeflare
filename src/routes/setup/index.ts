@@ -127,6 +127,13 @@ app.post('/configure', async (c) => {
     }
   }
 
+  // Enterprise mode requires at least one dynamic route: every request must
+  // resolve to a gateway route (the first route is the default). Validated here,
+  // before any KV write, so a rejected configure leaves no partial state.
+  if (isEnterpriseMode(c.env) && (dynamicRoutes ?? []).length === 0) {
+    throw new ValidationError('At least one dynamic route is required in enterprise mode');
+  }
+
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
@@ -303,15 +310,11 @@ app.post('/configure', async (c) => {
         }
       }
 
-      // Feature C: persist (or clear) the enterprise dynamic-route catalog and
-      // the optional default route+reasoning. Stored as JSON (no legacy CSV
-      // reader, unlike groups). Same enterprise gate.
+      // Feature C: persist the enterprise dynamic-route catalog and the default
+      // route+reasoning. Stored as JSON (no legacy CSV reader, unlike groups).
+      // Same enterprise gate; the catalog is non-empty here (validated above).
       if (isEnterpriseMode(c.env) && dynamicRoutes !== undefined) {
-        if (dynamicRoutes.length > 0) {
-          await c.env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, JSON.stringify(dynamicRoutes));
-        } else {
-          await c.env.KV.delete(SETUP_KEYS.DYNAMIC_ROUTES);
-        }
+        await c.env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, JSON.stringify(dynamicRoutes));
       }
       if (isEnterpriseMode(c.env) && defaultRoute !== undefined) {
         if (defaultRoute) {

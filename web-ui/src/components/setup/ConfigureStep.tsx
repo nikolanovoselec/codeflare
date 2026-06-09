@@ -88,7 +88,7 @@ const ConfigureStep: Component = () => {
         <div class="email-tags">
           <For each={setupStore.adminUsers}>
             {(email) => (
-              <span class="email-tag email-tag--admin">
+              <span class="email-tag email-tag--accent">
                 {email}
                 <button
                   type="button"
@@ -162,7 +162,7 @@ const ConfigureStep: Component = () => {
           <div class="email-tags">
             <For each={setupStore.enterpriseAccessGroups}>
               {(name) => (
-                <span class="email-tag">
+                <span class="email-tag email-tag--accent">
                   {name}
                   <button
                     type="button"
@@ -179,9 +179,9 @@ const ConfigureStep: Component = () => {
 
         {/* Feature C: Dynamic-route catalog (chip list) */}
         <div class="setup-field">
-          <label class="setup-field-label">Dynamic Routes (optional)</label>
+          <label class="setup-field-label">Dynamic Routes</label>
           <p class="setup-field-description">
-            Names of the gateway dynamic routes your agents may select (the slash-free handle, e.g. "development"). Leave blank to forward the model the agent sends unchanged.
+            Names of the gateway dynamic routes your agents may select (the slash-free handle, e.g. "development"). At least one is required; the first you add becomes the default an agent uses when it does not name a route.
           </p>
           <div class="email-input-row">
             <Input
@@ -195,7 +195,7 @@ const ConfigureStep: Component = () => {
           <div class="email-tags">
             <For each={setupStore.dynamicRoutes}>
               {(name) => (
-                <span class="email-tag">
+                <span class="email-tag email-tag--accent">
                   {name}
                   <button
                     type="button"
@@ -213,7 +213,7 @@ const ConfigureStep: Component = () => {
         {/* Feature C: optional default route + reasoning level */}
         <Show when={setupStore.dynamicRoutes.length > 0}>
           <div class="setup-field">
-            <label class="setup-field-label">Default Route (optional)</label>
+            <label class="setup-field-label">Default Route</label>
             <p class="setup-field-description">
               The route used when an agent does not name one, and its reasoning level (applied inside the container).
             </p>
@@ -223,7 +223,6 @@ const ConfigureStep: Component = () => {
                 value={setupStore.defaultRouteName}
                 onChange={(e) => setupStore.setDefaultRouteName(e.currentTarget.value)}
               >
-                <option value="">(no default)</option>
                 <For each={setupStore.dynamicRoutes}>
                   {(name) => <option value={name}>{name}</option>}
                 </For>
@@ -251,7 +250,11 @@ const ConfigureStep: Component = () => {
         </Button>
         <Button
           onClick={() => setupStore.nextStep()}
-          disabled={!setupStore.customDomain || setupStore.adminUsers.length === 0}
+          disabled={
+            !setupStore.customDomain ||
+            setupStore.adminUsers.length === 0 ||
+            (setupStore.enterpriseMode && setupStore.dynamicRoutes.length === 0)
+          }
         >
           Continue
         </Button>

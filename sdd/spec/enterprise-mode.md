@@ -451,6 +451,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/lib/access-group-resolution.test.ts (parseAccessGroups -> list/single/blank parsing AC1) -->
 <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (setup store -> add/remove/dedup access-group and dynamic-route chips AC1/AC2) -->
 <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (loadEnterpriseRouteConfig -> catalog parse + configured-default-in-catalog + fallback-to-first-drops-reasoning + unset-default-first-route-reasoning-off + malformed-degrades + non-enterprise-empty -> AC2/AC3/AC4/AC5) -->
+<!-- @test: src/__tests__/routes/setup.test.ts (enterprise configure -> rejects empty/absent dynamicRoutes with 400 before any KV write AC6) -->
+<!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Continue disabled in enterprise mode until >=1 route added + route select offers no empty default option AC6/AC2) -->
+<!-- @test: web-ui/src/__tests__/stores/setup.test.ts (first route added auto-becomes the default + default falls back to the new first route on removal AC2) -->
 ### REQ-ENTERPRISE-012: Setup-Configured Dynamic-Route Catalog and Access-Group List
 
 <!-- @impl: src/routes/setup/index.ts -->
@@ -467,10 +470,11 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. The setup wizard edits the access-group list and the dynamic-route catalog as add/Enter/chip-with-x lists (cloning the admin-user interaction), batch-saved through the existing `POST /api/setup/configure` (no new endpoint). Names validate 1–256 chars, trimmed, comma/newline forbidden (so a name with spaces like `Agentic AI Test Account` is allowed); access groups persist comma/newline-joined under `SETUP_KEYS.ENTERPRISE_ACCESS_GROUP`, split back via `parseAccessGroups`.
-2. The route catalog persists as a JSON `string[]` (`SETUP_KEYS.DYNAMIC_ROUTES`) and one optional `{route, reasoning}` default (`SETUP_KEYS.DEFAULT_ROUTE`); `defaultRoute.route` must be a member of the catalog (rejected `400` otherwise). An unset default resolves at read time to the first catalog route with reasoning off.
+2. The route catalog persists as a JSON `string[]` (`SETUP_KEYS.DYNAMIC_ROUTES`) and one `{route, reasoning}` default (`SETUP_KEYS.DEFAULT_ROUTE`) where the first route added auto-becomes the default; `defaultRoute.route` must be a member of the catalog (rejected `400` otherwise). An unset default resolves at read time to the first catalog route with reasoning off.
 3. `GET /api/setup/prefill` round-trips the stored groups, catalog, and default route so a setup re-run shows the current configuration; a malformed stored value degrades to empty defaults rather than failing the prefill.
 4. The catalog/default feed the interceptor's route mapping ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning)) and the container env fan ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1) via the shared `loadEnterpriseRouteConfig` resolver; the group list feeds the JIT gate ([REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)) and the per-group metadata tags ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4).
 5. When `ENTERPRISE_MODE` is unset, the dynamic-route catalog UI and KV reads add no behavior; the access-group field already existed and is unchanged for non-enterprise deployments.
+6. In enterprise mode at least one dynamic route is required: the setup wizard blocks "Continue" until ≥1 route is added, and `POST /api/setup/configure` rejects an empty or absent `dynamicRoutes` with `400` before any KV write. Every enterprise request therefore resolves to a gateway route, so the interceptor's empty-catalog passthrough ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning) AC2) is a defensive fallback, not a reachable enterprise configuration.
 
 **Constraints:**
 

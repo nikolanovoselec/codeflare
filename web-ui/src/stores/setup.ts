@@ -157,15 +157,21 @@ function removeAccessGroup(name: string): void {
 
 function addDynamicRoute(name: string): void {
   if (name && !state.dynamicRoutes.includes(name)) {
-    setState(produce((s) => { s.dynamicRoutes.push(name); }));
+    setState(produce((s) => {
+      s.dynamicRoutes.push(name);
+      // The first route added auto-becomes the default an agent uses when it
+      // names none; a later explicit pick overrides it.
+      if (!s.defaultRouteName) s.defaultRouteName = name;
+    }));
   }
 }
 function removeDynamicRoute(name: string): void {
   setState(produce((s) => {
     const i = s.dynamicRoutes.indexOf(name);
     if (i !== -1) s.dynamicRoutes.splice(i, 1);
-    // If the removed route was the default, clear the default selection.
-    if (s.defaultRouteName === name) s.defaultRouteName = '';
+    // If the removed route was the default, fall back to the new first route
+    // (or clear when the catalog is now empty).
+    if (s.defaultRouteName === name) s.defaultRouteName = s.dynamicRoutes[0] ?? '';
   }));
 }
 

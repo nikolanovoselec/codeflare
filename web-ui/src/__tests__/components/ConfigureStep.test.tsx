@@ -162,7 +162,7 @@ describe('ConfigureStep', () => {
       storeState.enterpriseMode = true;
       storeState.dynamicRoutes = [];
       render(() => <ConfigureStep />);
-      expect(screen.queryByText('Default Route (optional)')).not.toBeInTheDocument();
+      expect(screen.queryByText('Default Route')).not.toBeInTheDocument();
     });
 
     it('shows the Default Route selector and lists routes as options when routes exist', () => {
@@ -170,7 +170,7 @@ describe('ConfigureStep', () => {
       storeState.dynamicRoutes = ['development', 'prod'];
       render(() => <ConfigureStep />);
 
-      expect(screen.getByText('Default Route (optional)')).toBeInTheDocument();
+      expect(screen.getByText('Default Route')).toBeInTheDocument();
       const routeSelect = document.querySelectorAll('.route-select')[0] as HTMLSelectElement;
       const optionValues = Array.from(routeSelect.options).map(o => o.value);
       expect(optionValues).toContain('development');
@@ -207,6 +207,39 @@ describe('ConfigureStep', () => {
       expect(reasoningSelect.disabled).toBe(false);
       fireEvent.change(reasoningSelect, { target: { value: 'medium' } });
       expect(storeMethods.setDefaultRouteReasoning).toHaveBeenCalledWith('medium');
+    });
+
+    it('offers no empty "(no default)" route option — every option is a real route', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development', 'prod'];
+      render(() => <ConfigureStep />);
+
+      const routeSelect = document.querySelectorAll('.route-select')[0] as HTMLSelectElement;
+      const optionValues = Array.from(routeSelect.options).map(o => o.value);
+      expect(optionValues).toEqual(['development', 'prod']);
+      expect(optionValues).not.toContain('');
+    });
+
+    it('keeps Continue disabled in enterprise mode until a dynamic route is added (AC6)', () => {
+      storeState.enterpriseMode = true;
+      storeState.customDomain = 'claude.example.com';
+      storeState.adminUsers = ['admin@test.com'];
+      storeState.dynamicRoutes = [];
+      render(() => <ConfigureStep />);
+
+      const continueBtn = screen.getByText('Continue').closest('button') as HTMLButtonElement;
+      expect(continueBtn.disabled).toBe(true);
+    });
+
+    it('enables Continue in enterprise mode once domain, admin, and a route exist (AC6)', () => {
+      storeState.enterpriseMode = true;
+      storeState.customDomain = 'claude.example.com';
+      storeState.adminUsers = ['admin@test.com'];
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+
+      const continueBtn = screen.getByText('Continue').closest('button') as HTMLButtonElement;
+      expect(continueBtn.disabled).toBe(false);
     });
   });
 
@@ -255,7 +288,7 @@ describe('ConfigureStep', () => {
       storeState.adminUsers = ['admin@test.com'];
       render(() => <ConfigureStep />);
 
-      const removeBtn = document.querySelector('.email-tag--admin .email-tag-remove') as HTMLElement;
+      const removeBtn = document.querySelector('.email-tag--accent .email-tag-remove') as HTMLElement;
       fireEvent.click(removeBtn);
 
       expect(storeMethods.removeAdminUser).toHaveBeenCalledWith('admin@test.com');

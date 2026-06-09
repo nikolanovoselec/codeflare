@@ -298,6 +298,25 @@ describe('Setup Store', () => {
       expect(setupStore.defaultRouteName).toBe('development');
       expect(setupStore.defaultRouteReasoning).toBe('high');
     });
+
+    it('makes the first route added the default automatically', () => {
+      expect(setupStore.defaultRouteName).toBe('');
+      setupStore.addDynamicRoute('development');
+      expect(setupStore.defaultRouteName).toBe('development');
+      // A second route does not steal the default from the first.
+      setupStore.addDynamicRoute('prod');
+      expect(setupStore.defaultRouteName).toBe('development');
+    });
+
+    it('falls back to the new first route when the default is removed and others remain', () => {
+      setupStore.addDynamicRoute('development'); // becomes default
+      setupStore.addDynamicRoute('prod');
+      expect(setupStore.defaultRouteName).toBe('development');
+
+      setupStore.removeDynamicRoute('development');
+      expect(setupStore.dynamicRoutes).toEqual(['prod']);
+      expect(setupStore.defaultRouteName).toBe('prod');
+    });
   });
 
   describe('custom domain', () => {
@@ -457,7 +476,7 @@ describe('Setup Store', () => {
       expect(body.defaultRoute).toBeUndefined();
     });
 
-    it('should send defaultRoute as null when routes exist but no default is chosen', async () => {
+    it('sends the first route as the default when no explicit default is chosen', async () => {
       mockFetch.mockImplementation((url: string) => {
         if (url === '/api/setup/status') {
           return Promise.resolve(new Response(
@@ -477,13 +496,16 @@ describe('Setup Store', () => {
 
       mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
 
+      // The first route added auto-becomes the default (reasoning off), so the
+      // configure payload always carries a default route — never null.
       setupStore.addDynamicRoute('x');
 
       await setupStore.configure();
 
       const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
       const body = JSON.parse(lastCall[1].body);
-      expect(body.defaultRoute).toBeNull();
+      expect(body.dynamicRoutes).toEqual(['x']);
+      expect(body.defaultRoute).toEqual({ route: 'x', reasoning: 'off' });
     });
 
     it('should not include token in request body', async () => {

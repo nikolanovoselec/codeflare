@@ -1923,8 +1923,10 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
     });
 
     describe('Feature A/C: enterprise groups chip list + dynamic routes', () => {
+      // Enterprise mode requires >=1 dynamic route (AC6), so the catalog is
+      // present by default; route-specific tests override it via `extra`.
       function enterpriseBody(extra: Record<string, unknown>) {
-        return { ...standardBody, ...extra };
+        return { ...standardBody, dynamicRoutes: ['development'], ...extra };
       }
 
       it('persists the access groups comma-joined', async () => {
@@ -1970,6 +1972,23 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(res.status).toBe(200);
         await readNdjson(res);
         expect(mockKV.put).toHaveBeenCalledWith('setup:dynamic_routes', JSON.stringify(['development', 'prod']));
+      });
+
+      it('returns 400 and writes nothing when enterprise mode has no dynamic routes (AC6)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ dynamicRoutes: [] })),
+        });
+
+        expect(res.status).toBe(400);
+        const body = await res.json() as { code: string };
+        expect(body.code).toBe('VALIDATION_ERROR');
+        // Rejected before any KV write — no partial setup state.
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:dynamic_routes', expect.anything());
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:custom_domain', expect.anything());
       });
 
       it('persists defaultRoute as JSON', async () => {
