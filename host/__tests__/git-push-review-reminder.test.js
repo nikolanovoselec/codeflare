@@ -184,6 +184,41 @@ describe('git-push-review-reminder.sh — PR-OPEN trigger (base-gated)', () => {
   });
 });
 
+describe('git-push-review-reminder.sh — PR-RETARGET trigger (protected-base gh pr edit)', () => {
+  it('emits silent directive when gh pr edit retargets to main/master across flag forms', () => {
+    for (const command of [
+      'gh pr edit 286 --base main',
+      'gh pr edit --base=master',
+      'gh pr edit 286 -B main',
+    ]) {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const binDir = fakeGhFails(cwd);
+      const r = runHook(cwd, command, binDir);
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /additionalContext/, command);
+      assert.match(r.stdout, /PR retarget to main\/master/, command);
+      assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/,
+        'retarget command base is authoritative; hook must not depend on stale gh view');
+    }
+  });
+
+  it('exits silently for non-protected retargets and metadata-only edits', () => {
+    for (const command of [
+      'gh pr edit 286 --base develop',
+      'gh pr edit 286 --title "metadata only"',
+    ]) {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const binDir = fakeGhFails(cwd);
+      const r = runHook(cwd, command, binDir);
+      assert.equal(r.status, 0);
+      assert.equal(r.stdout, '', command);
+      assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/);
+    }
+  });
+});
+
 describe('git-push-review-reminder.sh — PR-SYNC trigger (base-gated)', () => {
   it('emits silent directive on git push when current branch has open PR to main', () => {
     const cwd = makeFixture();

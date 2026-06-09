@@ -31,7 +31,8 @@
 #     at this state)
 #   - Open PR + CURRENT_PR_HEAD ≠ LAST_ACK → enforce: require
 #     code-reviewer + spec-reviewer + doc-updater spawned later in
-#     the transcript than the push line
+#     the transcript than the boundary candidate line (`git push`,
+#     `gh pr merge`, or `gh pr edit --base main|master`)
 #
 # Migration from v4: if .git/sdd-last-ack-push (timestamp checkpoint)
 # exists, it is deleted on first v5 invocation. The PR HEAD SHA
@@ -56,10 +57,9 @@
 #      reset via API): the current Claude session has no `git push`
 #      line in its transcript, so PUSH_LINE detection exits 0. Review
 #      fires on the next local push to the branch.
-#   2. Spec-reviewer subagent errored without writing
-#      `completed</status>` for its tool-use id: doc-updater is not
-#      required → push proceeds. The user sees the spec-reviewer
-#      failure in the agent's own report; rerun manually.
+#   2. A required review lane is still in flight or lacks a completed
+#      marker: the hook withholds acknowledgement and continues blocking
+#      until every required parallel lane has a current-head completion.
 #   3. Transcript file rotated or truncated mid-session: PUSH_LINE
 #      detection silently returns 0. Review fires on the next push.
 #
@@ -105,6 +105,9 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 #   C. mcp__*__ctx_execute        → field `"code":"..."` (only when the
 #                                   sibling `"language":"shell"` appears on
 #                                   the same JSONL line)
+#
+# Candidate commands are `git push`, `gh pr merge`, and protected-base
+# `gh pr edit --base main|master` retargets.
 #
 # Issue #319: prior to multi-tool scanning, `git push` made via ctx_execute
 # or ctx_batch_execute was invisible to PUSH_LINE detection because the awk
@@ -154,6 +157,12 @@ PUSH_LINE=$(awk '
     if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
       print NR; next
     }
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+edit[^;&|]*[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]"\\\047);&|]|$)/) {
+      print NR; next
+    }
+    if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+edit[^;&|]*[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]"\\\047);&|]|$)/) {
+      print NR; next
+    }
   }
   # B. mcp__*__ctx_batch_execute tool_use (per-entry `"command"` field).
   #    Pattern note: `mcp__[^"]*ctx_batch_execute"` requires the literal
@@ -171,6 +180,12 @@ PUSH_LINE=$(awk '
       print NR; next
     }
     if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
+      print NR; next
+    }
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+edit[^;&|]*[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]"\\\047);&|]|$)/) {
+      print NR; next
+    }
+    if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+edit[^;&|]*[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]"\\\047);&|]|$)/) {
       print NR; next
     }
   }
@@ -191,6 +206,12 @@ PUSH_LINE=$(awk '
       print NR; next
     }
     if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+merge[[:space:]"\\\047);&|]/) {
+      print NR; next
+    }
+    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+edit[^;&|]*[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]"\\\047);&|]|$)/) {
+      print NR; next
+    }
+    if ($0 ~ /(\\n|[;&|])[[:space:]]*gh[[:space:]]+pr[[:space:]]+edit[^;&|]*[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]"\\\047);&|]|$)/) {
       print NR; next
     }
   }

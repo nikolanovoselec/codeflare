@@ -241,6 +241,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 4. When `ENTERPRISE_MODE` is enabled, the interceptor fails closed (503) if the `AIG_GATEWAY_URL` secret is missing or unparseable (no `/v1/{account_id}/{gateway_id}` segments), rather than silently routing to nowhere, and the DO logs a warning when it skips interception wiring.
 5. When `ENTERPRISE_MODE` is configured, the CF Access application created by the setup wizard is host-scoped (bare custom domain, no path suffix) so the session cookie covers all paths uniformly; non-enterprise deployments retain the path-scoped (`/app/*`) application.
 6. When `ENTERPRISE_MODE` is configured, the setup wizard also provisions a higher-precedence Access app + `decision:'bypass'` (include everyone) policy scoped to `/api/vault/*/service_worker.js`, so the credential-less SW registration fetch reaches the Worker's short-circuit ([REQ-VAULT-017](vault.md#req-vault-017-silverbullet-native-service-worker)) instead of a host-wide-Access 302 to the IdP. Best-effort: it never aborts the host-wide Access setup, persists the app id (`SETUP_KEYS.ACCESS_SW_BYPASS_APP_ID`) only after the policy succeeds, and rolls back a freshly-created app on policy failure (a policy-less self-hosted app would deny the path). Non-enterprise leaves the SW path reachable, so no bypass app is created.
+7. `deploy.yml` exposes `enterprise` and `enterprise integration` as manual-dispatch environments deployable from any branch, separate from production and integration.
 
 **Constraints:**
 
@@ -252,7 +253,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes)
 
-**Verification:** [SW-bypass Access app provisioning](../../src/__tests__/routes/setup/access.test.ts) (AC6 — enterprise provisions the higher-precedence SW-bypass app, rolls it back on policy failure and persists no id, and creates none when non-enterprise). AC1–AC5 are deploy-time Worker-binding / GitHub Actions plumbing with no automated test; REQ held `Planned`.
+**Verification:** [SW-bypass Access app provisioning](../../src/__tests__/routes/setup/access.test.ts) (AC6 — enterprise provisions the higher-precedence SW-bypass app, rolls it back on policy failure and persists no id, and creates none when non-enterprise). AC1–AC5 and AC7 are deploy-time Worker-binding / GitHub Actions plumbing with no automated test; REQ held `Planned`.
 
 **Status:** Planned
 
@@ -474,7 +475,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 3. `GET /api/setup/prefill` round-trips the stored groups, catalog, and default route so a setup re-run shows the current configuration; a malformed stored value degrades to empty defaults rather than failing the prefill.
 4. The catalog/default feed the interceptor's route mapping ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning)) and the container env fan ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1) via the shared `loadEnterpriseRouteConfig` resolver; the group list feeds the JIT gate ([REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)) and the per-group metadata tags ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4).
 5. When `ENTERPRISE_MODE` is unset, the dynamic-route catalog UI and KV reads add no behavior; the access-group field already existed and is unchanged for non-enterprise deployments.
-6. In enterprise mode at least one dynamic route is required: the setup wizard blocks "Continue" until ≥1 route is added, and `POST /api/setup/configure` rejects an empty or absent `dynamicRoutes` with `400` before any KV write. Every enterprise request therefore resolves to a gateway route, so the interceptor's empty-catalog passthrough ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning) AC2) is a defensive fallback, not a reachable enterprise configuration.
+6. In enterprise mode, the setup wizard blocks "Continue" until at least one dynamic route is added.
+7. `POST /api/setup/configure` rejects empty or absent `dynamicRoutes` with `400` before any KV write. The interceptor's empty-catalog passthrough ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning) AC2) is defensive only.
 
 **Constraints:**
 

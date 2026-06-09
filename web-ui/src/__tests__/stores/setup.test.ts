@@ -862,6 +862,43 @@ describe('Setup Store', () => {
       expect(setupStore.defaultRouteReasoning).toBe('low');
       expect(mockFetch).toHaveBeenCalledWith('/api/setup/prefill', expect.any(Object));
     });
+
+    it('enterprise reconfiguration falls back to the first route when no default is stored', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({
+              adminUsers: ['admin@example.com'],
+              allowedUsers: [],
+              enterpriseAccessGroup: ['Codeflare-Users'],
+              dynamicRoutes: ['development', 'prod'],
+              defaultRoute: null,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      await setupStore.loadExistingConfig();
+
+      expect(setupStore.dynamicRoutes).toEqual(['development', 'prod']);
+      expect(setupStore.defaultRouteName).toBe('development');
+      expect(setupStore.defaultRouteReasoning).toBe('off');
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.defaultRoute).toEqual({ route: 'development', reasoning: 'off' });
+    });
   });
 
   describe('detectToken batching (FIX-7)', () => {

@@ -133,6 +133,7 @@ function isBoundaryWords(words: ShellCommand): boolean {
   if (git?.[0] === "push") return true;
   if (words[0] !== "gh") return false;
   if (words[1] === "repo" && words[2] === "sync") return true;
+  if (words[1] === "pr" && words[2] === "edit") return Boolean(prEditBaseFromWords(words));
   return words[1] === "pr" && ["create", "merge", "update-branch"].includes(words[2]);
 }
 
@@ -158,15 +159,7 @@ function prEditWords(command: string): ShellCommand | undefined {
   return reviewBoundaryCommands(command).find((words) => words[0] === "gh" && words[1] === "pr" && words[2] === "edit");
 }
 
-// A `gh pr edit --base main|master` retargets an EXISTING PR onto a protected base — the same
-// enforced boundary `gh pr create --base main` establishes, but applied after creation. The
-// create path only fires at creation time, so without this a PR opened against another base (or
-// via the web UI) and later retargeted to main with `gh pr edit` would never arm a review. Only
-// an explicit `--base main|master` qualifies; a `gh pr edit` that changes title/body/labels is not
-// a boundary.
-export function prEditBoundaryBase(command: string): string | undefined {
-  const words = prEditWords(command);
-  if (!words) return undefined;
+function prEditBaseFromWords(words: ShellCommand): string | undefined {
   let base: string | undefined;
   for (let index = 3; index < words.length; index += 1) {
     const word = words[index];
@@ -176,6 +169,17 @@ export function prEditBoundaryBase(command: string): string | undefined {
   }
   if (!base || (base !== "main" && base !== "master")) return undefined;
   return base;
+}
+
+// A `gh pr edit --base main|master` retargets an EXISTING PR onto a protected base — the same
+// enforced boundary `gh pr create --base main` establishes, but applied after creation. The
+// create path only fires at creation time, so without this a PR opened against another base (or
+// via the web UI) and later retargeted to main with `gh pr edit` would never arm a review. Only
+// an explicit `--base main|master` qualifies; a `gh pr edit` that changes title/body/labels is not
+// a boundary.
+export function prEditBoundaryBase(command: string): string | undefined {
+  const words = prEditWords(command);
+  return words ? prEditBaseFromWords(words) : undefined;
 }
 
 export function isGhPrCreateCommand(command: string): boolean {
@@ -199,6 +203,10 @@ export function prCreateBoundaryBase(command: string, knownBase?: string): strin
   const base = ghPrCreateBase(command) || knownBase || "";
   if (base && base !== "main" && base !== "master") return undefined;
   return base || "main";
+}
+
+export function prBoundaryCommandBase(command: string, knownBase?: string): string | undefined {
+  return prCreateBoundaryBase(command, knownBase) || prEditBoundaryBase(command);
 }
 
 export function isPrBoundaryCommand(command: string): boolean {

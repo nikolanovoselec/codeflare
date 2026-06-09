@@ -42,8 +42,8 @@ For the Pi preseed job, both `@gotgenes/pi-subagents` and context-mode live in `
 |-------------|---------|---------|
 | `production` | `deploy.yml`, `pentest.yml` | Auto on push to `main`, or manual dispatch with `production` selected |
 | `integration` | `deploy.yml`, `e2e.yml`, `stress-test.yml` | Manual dispatch with `integration` selected |
-| `enterprise` | `deploy.yml`, `deploy-dockerhub.yml` | Manual dispatch with `enterprise` selected; deployable from any branch |
-| `enterprise integration` | `deploy.yml`, `deploy-dockerhub.yml` | Manual dispatch with `enterprise integration` selected; deployable from any branch; separate concurrency group from `integration` |
+| `enterprise` | `deploy.yml`, `deploy-dockerhub.yml` | Manual dispatch with `enterprise` selected; deployable from any branch ([REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC7) |
+| `enterprise integration` | `deploy.yml`, `deploy-dockerhub.yml` | Manual dispatch with `enterprise integration` selected; deployable from any branch; separate concurrency group from `integration` ([REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC7) |
 
 ### GitHub Secrets and Variables
 

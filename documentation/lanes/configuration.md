@@ -124,7 +124,9 @@ KV values written by the setup wizard that can be changed without redeploying th
 
 | KV key | Purpose | Set via |
 |--------|---------|---------|
-| `setup:enterprise_access_group` | Comma/newline-separated list of Cloudflare Access group names/ids (any-of gate). When set, JIT provisioning admits only users in a configured group (non-members: 403); the matched group is forwarded to the AI Gateway as `cf-aig-metadata.group`. See [details](#enterprise-access-group-configuration) below. | Setup wizard → KV (re-run setup to change; no redeploy) |
+| `setup:enterprise_access_group` | Comma/newline-separated list of Cloudflare Access group names/ids (any-of gate). When set, JIT provisioning admits only users in a configured group (non-members: 403); matched groups are forwarded to AI Gateway metadata. See [details](#enterprise-access-group-configuration) below. | Setup wizard → KV (re-run setup to change; no redeploy) |
+| `setup:dynamic_routes` | JSON string array of AI Gateway dynamic-route handles that the interceptor maps to `dynamic/<name>` and exposes to container agents as selectable routes. | Setup wizard → KV (re-run setup to change; no redeploy) |
+| `setup:default_route` | JSON `{route, reasoning}` default route. When unset, runtime resolves the first catalog route with reasoning `off`; when set, `route` must exist in `setup:dynamic_routes`. | Setup wizard → KV (re-run setup to change; no redeploy) |
 
 ### Enterprise Access Group Configuration
 

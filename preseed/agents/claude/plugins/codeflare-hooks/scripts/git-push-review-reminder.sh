@@ -6,6 +6,8 @@
 #
 #   - `gh pr create ...` runs → PR-OPEN candidate → query gh for the
 #     just-created PR's base; fire review only if base is main/master
+#   - `gh pr edit ... --base main|master` retargets an existing PR to a
+#     protected base → PR-RETARGET candidate → fire review for current HEAD
 #   - `git push` runs AND current branch has an open PR with base in
 #     (main, master) → PR-SYNC trigger → fire review pipeline
 #   - `git push` runs AND open PR base is NOT main/master (e.g.
@@ -51,7 +53,7 @@ INPUT=$(cat 2>/dev/null) || exit 0
 # cumulative blocking time over a long session.
 # ---------------------------------------------------------------------------
 case "$INPUT" in
-  *"git push"*|*"gh pr create"*) ;; # candidate — fall through
+  *"git push"*|*"gh pr create"*|*"gh pr edit"*) ;; # candidate — fall through
   *) exit 0 ;;
 esac
 
@@ -81,8 +83,9 @@ COMMAND=$(echo "$INPUT" | jq -r '
   end
 ' 2>/dev/null) || true
 
-# Classify the command. Direct gh pr create is unambiguous (PR-OPEN).
-# git push is conditional on open-PR detection (PR-SYNC vs DEFERRED).
+# Classify the command. Direct gh pr create is unambiguous (PR-OPEN), and
+# protected-base gh pr edit is a PR-RETARGET. git push is conditional on
+# open-PR detection (PR-SYNC vs DEFERRED).
 #
 # Anchored regex (not substring): `git push` and `gh pr create` must
 # appear as actual command tokens, not as substrings inside echo
@@ -104,8 +107,12 @@ COMMAND=$(echo "$INPUT" | jq -r '
 # enforce-review-spawn.sh, whose awk already recognizes \n before git push).
 COMMAND=$(printf '%s' "$COMMAND" | tr '\n\r' ';;')
 TRIGGER=""
+PR_EDIT_BASE=""
 if [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$) ]]; then
   TRIGGER="pr-open"
+elif [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+edit([[:space:]][^\;\&\|]*)?[[:space:]]+(--base[[:space:]]+|--base=|-B[[:space:]]+|-B=)(main|master)([[:space:]]|$|[\;\&\|]) ]]; then
+  TRIGGER="pr-retarget"
+  PR_EDIT_BASE="${BASH_REMATCH[5]}"
 elif [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]+push([[:space:]]|$) ]]; then
   TRIGGER="git-push"
 else
@@ -270,6 +277,13 @@ fi
 # was opened. Stop hook (enforce-review-spawn.sh) is the universal
 # safety net: it runs `gh pr view` at turn end and enforces on any
 # un-acked PR HEAD with a main/master base.
+if [ "$TRIGGER" = "pr-retarget" ]; then
+  CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
+  [ -n "$CURRENT" ] || exit 0
+  [ "$CURRENT" = "HEAD" ] && exit 0
+  PR_BASE="$PR_EDIT_BASE"
+fi
+
 if [ "$TRIGGER" = "pr-open" ]; then
   CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
   [ -n "$CURRENT" ] || exit 0
@@ -355,8 +369,9 @@ fi
 # Emit silent directive — assistant must act WITHOUT user-facing output.
 # ---------------------------------------------------------------------------
 case "$TRIGGER" in
-  pr-open)  CONTEXT="PR open" ;;
-  git-push) CONTEXT="push to PR-tracked branch (PR-sync)" ;;
+  pr-open)     CONTEXT="PR open" ;;
+  pr-retarget) CONTEXT="PR retarget to main/master" ;;
+  git-push)    CONTEXT="push to PR-tracked branch (PR-sync)" ;;
 esac
 
 needs_code=0; needs_spec=0; needs_doc=0

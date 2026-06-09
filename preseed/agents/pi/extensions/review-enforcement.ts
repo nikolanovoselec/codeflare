@@ -13,7 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prCreateBoundaryBase, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prBoundaryCommandBase, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
@@ -305,7 +305,7 @@ function isGitPushCommand(command: string): boolean {
 
 function prForBoundaryCommand(repo: string, command: string, pr: PrState | undefined): PrState | undefined {
   if (isEnforcedPr(pr)) return pr;
-  const base = prCreateBoundaryBase(command, pr?.baseRefName);
+  const base = prBoundaryCommandBase(command, pr?.baseRefName);
   if (!base) return pr;
   const head = localHead(repo) || pr?.headRefOid;
   if (!head) return pr;

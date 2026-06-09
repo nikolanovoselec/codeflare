@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPrBoundaryTrigger, isPrBoundaryCommand, prEditBoundaryBase, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { isPrBoundaryTrigger, isPrBoundaryCommand, prBoundaryCommandBase, prEditBoundaryBase, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * isPrBoundaryTrigger is the single "should this command start a review?" predicate.
@@ -33,7 +33,8 @@ describe('isPrBoundaryTrigger', () => {
 
   it('treats gh pr edit retargeting an existing PR onto main/master as a boundary', () => {
     expect(isPrBoundaryTrigger('gh pr edit 286 --base main')).toBe(true);
-    expect(isPrBoundaryTrigger('gh pr edit --base master')).toBe(true);
+    expect(isPrBoundaryTrigger('gh pr edit --base=master')).toBe(true);
+    expect(isPrBoundaryTrigger('gh pr edit 286 -B main')).toBe(true);
   });
 
   it('does NOT treat gh pr edit onto a non-main base, or a non-base edit, as a boundary', () => {
@@ -85,6 +86,17 @@ describe('prEditBoundaryBase (gh pr edit retarget)', () => {
 
   it('finds the retarget inside a compound command', () => {
     expect(prEditBoundaryBase('cd /repo && gh pr edit 286 --base main')).toBe('main');
+  });
+});
+
+describe('prBoundaryCommandBase', () => {
+  it('synthesizes a protected base for create and edit boundary commands', () => {
+    expect(prBoundaryCommandBase('gh pr create --base main')).toBe('main');
+    expect(prBoundaryCommandBase('gh pr edit 286 --base main', 'develop')).toBe('main');
+  });
+
+  it('does not let stale known metadata turn a non-protected edit into a boundary', () => {
+    expect(prBoundaryCommandBase('gh pr edit 286 --base develop', 'main')).toBeUndefined();
   });
 });
 

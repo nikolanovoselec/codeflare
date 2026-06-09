@@ -893,6 +893,55 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
     assert.equal(r.status, 0);
     assert.match(r.stdout, /"decision"\s*:\s*"block"/);
   });
+
+  it('blocks on Bash gh pr edit protected-base retargets across flag forms', () => {
+    for (const command of [
+      'gh pr edit 394 --base main',
+      'gh pr edit --base=master',
+      'gh pr edit 394 -B main',
+    ]) {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+      const t = writeTranscript(cwd, [bashGhMerge('2026-05-03T12:00:00.000Z', command)]);
+      const r = runHook(cwd, { transcriptPath: t, binDir });
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /"decision"\s*:\s*"block"/, command);
+    }
+  });
+
+  it('does NOT classify non-protected or metadata-only gh pr edit commands', () => {
+    for (const command of [
+      'gh pr edit 394 --base develop',
+      'gh pr edit 394 --title metadata-only',
+    ]) {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+      const t = writeTranscript(cwd, [bashGhMerge('2026-05-03T12:00:00.000Z', command)]);
+      const r = runHook(cwd, { transcriptPath: t, binDir });
+      assert.equal(r.status, 0);
+      assert.equal(r.stdout, '', command);
+    }
+  });
+
+  it('blocks on ctx_execute and ctx_batch_execute gh pr edit retargets', () => {
+    const cases = [
+      ctxExecPush('2026-05-03T12:00:00.000Z', 'gh pr edit 394 --base main'),
+      ctxBatchPush('2026-05-03T12:00:00.000Z', [
+        { label: 'retarget', command: 'gh pr edit 394 --base main' },
+      ]),
+    ];
+    for (const line of cases) {
+      const cwd = makeFixture();
+      withSdd(cwd);
+      const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+      const t = writeTranscript(cwd, [line]);
+      const r = runHook(cwd, { transcriptPath: t, binDir });
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+    }
+  });
 });
 
 describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => {

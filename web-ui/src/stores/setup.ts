@@ -238,7 +238,7 @@ async function loadExistingConfig(): Promise<void> {
             s.adminUsers = Array.from(new Set(prefill.adminUsers.map((email) => email.trim().toLowerCase())));
             s.enterpriseAccessGroups = prefill.enterpriseAccessGroup;
             s.dynamicRoutes = prefill.dynamicRoutes;
-            s.defaultRouteName = prefill.defaultRoute?.route ?? '';
+            s.defaultRouteName = prefill.defaultRoute?.route ?? prefill.dynamicRoutes[0] ?? '';
             s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
           })
         );
@@ -282,7 +282,7 @@ async function loadExistingConfig(): Promise<void> {
         s.allowedUsers = regularUsers;
         s.enterpriseAccessGroups = prefill.enterpriseAccessGroup;
         s.dynamicRoutes = prefill.dynamicRoutes;
-        s.defaultRouteName = prefill.defaultRoute?.route ?? '';
+        s.defaultRouteName = prefill.defaultRoute?.route ?? prefill.dynamicRoutes[0] ?? '';
         s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
       })
     );
@@ -314,8 +314,8 @@ async function configure(): Promise<boolean> {
         ...(state.enterpriseMode ? {
           enterpriseAccessGroup: state.enterpriseAccessGroups,
           dynamicRoutes: state.dynamicRoutes,
-          defaultRoute: state.defaultRouteName
-            ? { route: state.defaultRouteName, reasoning: state.defaultRouteReasoning }
+          defaultRoute: state.defaultRouteName || state.dynamicRoutes[0]
+            ? { route: state.defaultRouteName || state.dynamicRoutes[0], reasoning: state.defaultRouteName ? state.defaultRouteReasoning : 'off' }
             : null,
         } : {}),
       }),
