@@ -854,6 +854,24 @@ export function reconcileBoundaryAction(input: ReconcileBoundaryInput): Reconcil
   return "offer";
 }
 
+// In-session continuation = the enforced head ADVANCED during THIS Pi session, i.e. it
+// differs from and descends from the head observed when this session first reconciled
+// (the in-memory baseline, captured at session start). That is the only signal of an
+// in-session push whose on-tool-end auto-start was dropped (so reconciliation should
+// auto-start). A head present at session start (baseline undefined, or baseline === head)
+// was NOT pushed during this session — it is a fresh launch/clone/checkout and must OFFER,
+// never auto-start. Deriving continuation from the on-disk ack marker instead (the prior
+// implementation) wrongly treated ANY descendant-of-a-prior-ack head as continuation, so
+// every bare Pi start auto-spawned reviewers — the regression this restores to offering.
+export function reviewBaselineContinuation(
+  baseline: string | undefined,
+  head: string,
+  isAncestor: (ancestor: string, current: string) => boolean,
+): boolean {
+  if (!baseline || !head || baseline === head) return false;
+  return isAncestor(baseline, head);
+}
+
 // Npm package source strings a durable review lane should load as additionalExtensionPaths.
 // Graphify is a first-party LOCAL extension (graphify-native.ts), loaded directly by the lane
 // runner alongside codeflare-pi - it is not an npm package and never appears here.

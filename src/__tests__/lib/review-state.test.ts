@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -170,6 +170,41 @@ describe('reconcileBoundaryAction (REQ-AGENT-058 revised: autostart in-session, 
     expect(reconcileBoundaryAction({ reconcile: false, alreadyOffered: false, inSessionContinuation: false })).toBe('noop');
     expect(reconcileBoundaryAction({ reconcile: false, alreadyOffered: true, inSessionContinuation: false })).toBe('noop');
     expect(reconcileBoundaryAction({ reconcile: false, alreadyOffered: false, inSessionContinuation: true })).toBe('noop');
+  });
+});
+
+/**
+ * reviewBaselineContinuation feeds reconcileBoundaryAction's `inSessionContinuation` flag.
+ * It decides continuation from an IN-MEMORY per-session baseline (the head this Pi session
+ * first observed), NOT the on-disk ack. That distinction is the bug-A fix: keying off the
+ * on-disk ack made every fresh `pi` launch whose head descended from a prior ack report
+ * continuation → auto-start reviewers on launch (regression: "offering worked yesterday").
+ * Continuation is true ONLY when the head ADVANCED beyond the baseline during this session.
+ * These fail if a bare launch (baseline undefined or unchanged) is ever treated as
+ * continuation, or if a genuine in-session advance stops being treated as one.
+ */
+describe('reviewBaselineContinuation (bug-A fix: offer on launch, autostart only on in-session advance)', () => {
+  const descends = () => true;   // isAncestor stub: head descends from baseline
+  const unrelated = () => false; // isAncestor stub: head does NOT descend from baseline
+
+  it('returns false on the first reconcile of a session (baseline undefined → fresh launch offers)', () => {
+    expect(reviewBaselineContinuation(undefined, 'headsha', descends)).toBe(false);
+  });
+
+  it('returns false when the head is unchanged since the session baseline (relaunch on same head offers)', () => {
+    expect(reviewBaselineContinuation('samehead', 'samehead', descends)).toBe(false);
+  });
+
+  it('returns true when the head advanced beyond the baseline and descends from it (dropped in-session push)', () => {
+    expect(reviewBaselineContinuation('basehead', 'newhead', descends)).toBe(true);
+  });
+
+  it('returns false when the new head does not descend from the baseline (unrelated branch, not a continuation)', () => {
+    expect(reviewBaselineContinuation('basehead', 'newhead', unrelated)).toBe(false);
+  });
+
+  it('returns false for an empty head regardless of baseline', () => {
+    expect(reviewBaselineContinuation('basehead', '', descends)).toBe(false);
   });
 });
 

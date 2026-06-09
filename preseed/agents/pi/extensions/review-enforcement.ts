@@ -14,7 +14,7 @@ import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prBoundaryCommandBase, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
+import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -32,6 +32,12 @@ const REVIEW_REQUEST_RETRY_MS = 60 * 1000;
 // to at most once per window; forced ticks (session_start, agent_end, PR-URL fallback) bypass it.
 const RECONCILE_THROTTLE_MS = 20 * 1000;
 let lastReconcileCheckAt = 0;
+// Per-repo enforced head observed when THIS Pi session first reconciled (≈ session start).
+// In-memory only (never persisted): a head present at launch is not an in-session push, so it
+// must offer, not auto-start. Only a head that later advances beyond this baseline is treated
+// as in-session continuation (a dropped on-tool-end push) and auto-starts. Process-scoped so a
+// fresh `pi` launch always re-baselines and offers — restoring the offer-on-start behavior.
+const reviewSessionBaselineHead = new Map<string, string>();
 
 type PrState = {
   state?: string;
@@ -1119,16 +1125,16 @@ export default function (pi: ExtensionAPI) {
     }
     // REQ-AGENT-058 (revised): decide whether this missed boundary is in-session continuation
     // work whose onToolEnd auto-start was dropped (compound `&&`, here-doc, `gh pr edit`, or a
-    // reload between the command and its event), or a fresh clone/checkout of a repo that already
-    // has an open PR. The new head is in-session continuation when it DESCENDS from a head we
-    // already acked in this repo; a fresh clone has no prior ack (the ack lives in .git, which a
-    // clone does not carry). Continuation AUTO-STARTS exactly like the onToolEnd boundary path
-    // (the locked design: an in-session push always auto-starts), so a dropped tool event no
-    // longer silently skips the review. A fresh clone falls through to OFFER once — `git clone`
-    // never auto-spawns an unstoppable review (the reaper that re-spawned killed lanes was the
-    // original reason the catch-up was made offer-only).
-    const lastAck = lastAckHead(resolvedRepo);
-    const inSessionContinuation = Boolean(lastAck) && lastAck !== head && isAncestor(resolvedRepo, lastAck, head);
+    // reload between the command and its event), or a head we simply inherited at launch (a fresh
+    // clone/checkout, or just relaunching `pi` on an existing repo with an open PR). The signal is
+    // an IN-MEMORY, per-session baseline: the head this session first observed here. A head present
+    // at launch (baseline unset on this first reconcile, or unchanged since) is NOT an in-session
+    // push, so it OFFERS; only a head that later ADVANCES beyond the baseline auto-starts. This
+    // restores the offer-on-launch behavior — keying off the on-disk ack instead made every launch
+    // whose head descended from a prior ack auto-start, which is the regression being fixed.
+    const baseline = reviewSessionBaselineHead.get(resolvedRepo);
+    if (baseline === undefined) reviewSessionBaselineHead.set(resolvedRepo, head);
+    const inSessionContinuation = reviewBaselineContinuation(baseline, head, (a, b) => isAncestor(resolvedRepo, a, b));
     const action = reconcileBoundaryAction({
       reconcile: decision.reconcile,
       alreadyOffered: offered(resolvedRepo, head),
