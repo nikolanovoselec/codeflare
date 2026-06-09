@@ -120,18 +120,22 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
   const token = c.env.CLOUDFLARE_API_TOKEN;
   // Enterprise: surface the currently-stored Access groups / route catalog /
   // default route so the wizard round-trips on re-run. parseAccessGroups splits
-  // the CSV-joined groups value back into the chip array the UI expects.
-  const enterpriseAccessGroup = parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
-  // KV.get(...,'json') throws on malformed stored JSON; this runs before the try
-  // below, so a bad value would 500 the whole prefill. Degrade to empty/null like
-  // the runtime route-config reader does (loadEnterpriseRouteConfig in lib/access).
-  let dynamicRoutes: string[] = [];
-  let defaultRoute: { route: string; reasoning: string } | null = null;
-  try {
-    dynamicRoutes = (await c.env.KV.get<string[]>(SETUP_KEYS.DYNAMIC_ROUTES, 'json')) ?? [];
-    defaultRoute = (await c.env.KV.get<{ route: string; reasoning: string }>(SETUP_KEYS.DEFAULT_ROUTE, 'json')) ?? null;
-  } catch { /* malformed stored JSON → wizard starts from empty */ }
-  const enterpriseExtras = { enterpriseAccessGroup, dynamicRoutes, defaultRoute };
+  // the CSV-joined groups value back into the chip array the UI expects. Gated on
+  // enterprise mode so a non-enterprise prefill response is byte-identical to
+  // before this feature (the fields are enterprise-only).
+  let enterpriseExtras: Record<string, unknown> = {};
+  if (isEnterpriseMode(c.env)) {
+    const enterpriseAccessGroup = parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
+    // KV.get(...,'json') throws on malformed stored JSON; degrade to empty/null like
+    // the runtime route-config reader does (loadEnterpriseRouteConfig in lib/access).
+    let dynamicRoutes: string[] = [];
+    let defaultRoute: { route: string; reasoning: string } | null = null;
+    try {
+      dynamicRoutes = (await c.env.KV.get<string[]>(SETUP_KEYS.DYNAMIC_ROUTES, 'json')) ?? [];
+      defaultRoute = (await c.env.KV.get<{ route: string; reasoning: string }>(SETUP_KEYS.DEFAULT_ROUTE, 'json')) ?? null;
+    } catch { /* malformed stored JSON → wizard starts from empty */ }
+    enterpriseExtras = { enterpriseAccessGroup, dynamicRoutes, defaultRoute };
+  }
   if (!token) {
     return c.json({ adminUsers: [], allowedUsers: [], ...enterpriseExtras });
   }

@@ -213,22 +213,27 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
     // Store the dynamic-route catalog + resolved default route:reasoning so
     // buildEnvVars emits them for entrypoint.sh on each container start.
     // REQ-ENTERPRISE-005 (revised).
+    // The default route + reasoning travel as a unit with the catalog (they are only
+    // ever sent alongside a non-empty catalog — see buildSetBucketNameBody), so the
+    // writes are nested under catalog presence. This self-guards the non-enterprise
+    // path: with no catalog on the wire, a stray empty-string default cannot write
+    // enterprise route state into a non-enterprise container.
     if (routeCatalog && routeCatalog.length > 0) {
       await host.ctx.storage.put('routeCatalog', routeCatalog);
       host._routeCatalog = routeCatalog;
-    }
-    // `!== undefined`, not truthiness: an empty-string default route/reasoning is the
-    // meaningful "admin cleared / default drifted out of catalog" reset (reasoning-off or
-    // first-route fallback) and must be stored as such — matching applyPrefsOnRestart's
-    // documented empty-reset contract. buildEnvVars omits the env var when state holds '',
-    // so an empty value surfaces downstream as "reasoning off" / first route.
-    if (defaultRoute !== undefined) {
-      await host.ctx.storage.put('defaultRoute', defaultRoute);
-      host._defaultRoute = defaultRoute;
-    }
-    if (defaultReasoning !== undefined) {
-      await host.ctx.storage.put('defaultReasoning', defaultReasoning);
-      host._defaultReasoning = defaultReasoning;
+      // `!== undefined`, not truthiness: an empty-string default route/reasoning is the
+      // meaningful "admin cleared / default drifted out of catalog" reset (reasoning-off or
+      // first-route fallback) and must be stored as such — matching applyPrefsOnRestart's
+      // documented empty-reset contract. buildEnvVars omits the env var when state holds '',
+      // so an empty value surfaces downstream as "reasoning off" / first route.
+      if (defaultRoute !== undefined) {
+        await host.ctx.storage.put('defaultRoute', defaultRoute);
+        host._defaultRoute = defaultRoute;
+      }
+      if (defaultReasoning !== undefined) {
+        await host.ctx.storage.put('defaultReasoning', defaultReasoning);
+        host._defaultReasoning = defaultReasoning;
+      }
     }
 
     await applySetBucketName(host, bucketName, {

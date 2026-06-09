@@ -308,14 +308,17 @@ describe('Setup Store', () => {
       expect(setupStore.defaultRouteName).toBe('development');
     });
 
-    it('falls back to the new first route when the default is removed and others remain', () => {
+    it('falls back to the new first route (reasoning reset to off) when the default is removed and others remain', () => {
       setupStore.addDynamicRoute('development'); // becomes default
       setupStore.addDynamicRoute('prod');
+      setupStore.setDefaultRouteReasoning('high');
       expect(setupStore.defaultRouteName).toBe('development');
 
       setupStore.removeDynamicRoute('development');
       expect(setupStore.dynamicRoutes).toEqual(['prod']);
       expect(setupStore.defaultRouteName).toBe('prod');
+      // The removed route's reasoning grade must not carry over to the fallback.
+      expect(setupStore.defaultRouteReasoning).toBe('off');
     });
   });
 

@@ -169,9 +169,14 @@ function removeDynamicRoute(name: string): void {
   setState(produce((s) => {
     const i = s.dynamicRoutes.indexOf(name);
     if (i !== -1) s.dynamicRoutes.splice(i, 1);
-    // If the removed route was the default, fall back to the new first route
-    // (or clear when the catalog is now empty).
-    if (s.defaultRouteName === name) s.defaultRouteName = s.dynamicRoutes[0] ?? '';
+    // If the removed route was the default, fall back to the new first route (or
+    // clear when the catalog is now empty). The reasoning grade belonged to the
+    // removed route, so reset it to off for the fallback (matching the resolver's
+    // "unset default → reasoning off" rule); the admin can re-raise it.
+    if (s.defaultRouteName === name) {
+      s.defaultRouteName = s.dynamicRoutes[0] ?? '';
+      s.defaultRouteReasoning = 'off';
+    }
   }));
 }
 

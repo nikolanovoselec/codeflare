@@ -211,6 +211,20 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       expect(body.defaultRoute).toBeNull();
     });
 
+    it('GET /prefill omits the enterprise extras when ENTERPRISE_MODE is unset (regression)', async () => {
+      // Even with values stored in KV, a non-enterprise prefill response must be
+      // byte-identical to the pre-feature shape (no enterprise keys leak).
+      mockKV._store.set('setup:enterprise_access_group', 'team_a');
+      mockKV._store.set('setup:dynamic_routes', JSON.stringify(['development']));
+      const app = createApp(); // ENTERPRISE_MODE unset
+      const res = await app.request('/setup/prefill');
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      expect(body).not.toHaveProperty('enterpriseAccessGroup');
+      expect(body).not.toHaveProperty('dynamicRoutes');
+      expect(body).not.toHaveProperty('defaultRoute');
+    });
+
     it('GET /prefill returns the extras on the no-token path (regression)', async () => {
       mockKV._store.set('setup:enterprise_access_group', 'team_a');
       const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);

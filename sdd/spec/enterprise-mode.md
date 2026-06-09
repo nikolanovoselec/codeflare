@@ -447,7 +447,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 ---
 
 <!-- @test: src/__tests__/routes/setup.test.ts (enterprise configure -> persists dynamicRoutes as a JSON array AC2 + persists defaultRoute as JSON / clears the key when null AC2 + rejects defaultRoute.route not in the catalog AC2 + persists the enterpriseAccessGroup chip list AC1 + rejects a comma/newline in a group/route name + rejects a >256-char name AC1) -->
-<!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill -> round-trips the stored access groups, dynamicRoutes, and defaultRoute + returns empty defaults when nothing stored + degrades to empty defaults when stored route JSON is malformed AC3) -->
+<!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill -> round-trips the stored access groups, dynamicRoutes, and defaultRoute + returns empty defaults when nothing stored + degrades to empty defaults when stored route JSON is malformed AC3 + omits all enterprise extras when ENTERPRISE_MODE unset AC5) -->
 <!-- @test: src/__tests__/lib/access-group-resolution.test.ts (parseAccessGroups -> list/single/blank parsing AC1) -->
 <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (setup store -> add/remove/dedup access-group and dynamic-route chips AC1/AC2) -->
 <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (loadEnterpriseRouteConfig -> catalog parse + configured-default-in-catalog + fallback-to-first-drops-reasoning + unset-default-first-route-reasoning-off + malformed-degrades + non-enterprise-empty -> AC2/AC3/AC4/AC5) -->
