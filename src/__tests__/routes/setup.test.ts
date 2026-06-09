@@ -1921,6 +1921,197 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       );
       expect(turnstileCall).toBeUndefined();
     });
+
+    describe('Feature A/C: enterprise groups chip list + dynamic routes', () => {
+      function enterpriseBody(extra: Record<string, unknown>) {
+        return { ...standardBody, ...extra };
+      }
+
+      it('persists the access groups comma-joined', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ enterpriseAccessGroup: ['team_a', 'team_b'] })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:enterprise_access_group', 'team_a,team_b');
+      });
+
+      it('clears the access-group key when the array is empty', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ enterpriseAccessGroup: [] })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.delete).toHaveBeenCalledWith('setup:enterprise_access_group');
+      });
+
+      it('persists dynamicRoutes as a JSON array', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ dynamicRoutes: ['development', 'prod'] })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:dynamic_routes', JSON.stringify(['development', 'prod']));
+      });
+
+      it('persists defaultRoute as JSON', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            dynamicRoutes: ['development'],
+            defaultRoute: { route: 'development', reasoning: 'medium' },
+          })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:default_route', JSON.stringify({ route: 'development', reasoning: 'medium' }));
+      });
+
+      it('clears the default-route key when defaultRoute is null', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ dynamicRoutes: ['x'], defaultRoute: null })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.delete).toHaveBeenCalledWith('setup:default_route');
+      });
+
+      it('returns 400 when a group name contains a comma', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ enterpriseAccessGroup: ['bad,name'] })),
+        });
+
+        expect(res.status).toBe(400);
+        const body = await res.json() as { code: string };
+        expect(body.code).toBe('VALIDATION_ERROR');
+      });
+
+      it('returns 400 when a route name contains a newline', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ dynamicRoutes: ['bad\nroute'] })),
+        });
+
+        expect(res.status).toBe(400);
+        const body = await res.json() as { code: string };
+        expect(body.code).toBe('VALIDATION_ERROR');
+      });
+
+      it('returns 400 when a name exceeds 256 characters', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ enterpriseAccessGroup: ['a'.repeat(257)] })),
+        });
+
+        expect(res.status).toBe(400);
+        const body = await res.json() as { code: string };
+        expect(body.code).toBe('VALIDATION_ERROR');
+      });
+
+      it('returns 400 when defaultRoute.route is not in the catalog', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            dynamicRoutes: ['a'],
+            defaultRoute: { route: 'b', reasoning: 'off' },
+          })),
+        });
+
+        expect(res.status).toBe(400);
+        const body = await res.json() as { code: string };
+        expect(body.code).toBe('VALIDATION_ERROR');
+      });
+
+      it('returns 400 when reasoning is outside the enum', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            dynamicRoutes: ['a'],
+            defaultRoute: { route: 'a', reasoning: 'extreme' },
+          })),
+        });
+
+        expect(res.status).toBe(400);
+        const body = await res.json() as { code: string };
+        expect(body.code).toBe('VALIDATION_ERROR');
+      });
+
+      it('ignores the fields in non-enterprise mode (regression)', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ enterpriseAccessGroup: ['x'] })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:enterprise_access_group', expect.anything());
+      });
+
+      it('trims each group name before joining', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ enterpriseAccessGroup: ['  team_a  '] })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:enterprise_access_group', 'team_a');
+      });
+    });
   });
 
 });

@@ -20,6 +20,22 @@ import handlers from './handlers';
 import { isOnboardingLandingPageActive, isSaasModeActive } from '../../lib/onboarding';
 import { isEnterpriseMode } from '../../lib/subscription';
 
+// Feature A/C: a Cloudflare Access group name or a gateway route name. Trimmed,
+// 1–256 chars, and MUST NOT contain comma or newline — those are the delimiters
+// the runtime split() uses for the CSV-joined ENTERPRISE_ACCESS_GROUP value
+// (src/lib/access.ts parseAccessGroups), and they would corrupt the catalog.
+const accessNameSchema = z
+  .string()
+  .transform((s) => s.trim())
+  .pipe(
+    z.string()
+      .min(1, 'Name must not be empty')
+      .max(256, 'Name must be at most 256 characters')
+      .refine((s) => !/[,\n]/.test(s), 'Name must not contain a comma or newline'),
+  );
+
+const reasoningSchema = z.enum(['off', 'low', 'medium', 'high']);
+
 const ConfigureBodySchema = z.object({
   customDomain: z
     .string()
@@ -35,12 +51,27 @@ const ConfigureBodySchema = z.object({
     z.string().min(1).regex(/^\.[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$/,
       'Origin patterns must start with . and contain valid domain segments (e.g., .workers.dev)')
   ).optional(),
-  // Enterprise-only: names a customer-managed Cloudflare Access group that gates
-  // JIT provisioning (REQ-ENTERPRISE-010). Absent for non-enterprise setups.
-  enterpriseAccessGroup: z.string().max(256).optional(),
+  // Enterprise-only: customer-managed Cloudflare Access group NAMES that gate JIT
+  // provisioning (REQ-ENTERPRISE-010). Sent as a validated chip list; persisted
+  // comma-joined so access.ts parseAccessGroups keeps reading it. Absent for
+  // non-enterprise setups.
+  enterpriseAccessGroup: z.array(accessNameSchema).optional(),
+  // Feature C (enterprise-only): the gateway dynamic-route catalog (route names)
+  // plus an optional default route + reasoning level applied container-side.
+  dynamicRoutes: z.array(accessNameSchema).optional(),
+  defaultRoute: z
+    .object({ route: accessNameSchema, reasoning: reasoningSchema })
+    .nullable()
+    .optional(),
 }).refine(
   (data) => data.adminUsers.every((admin) => data.allowedUsers.includes(admin)),
   { message: 'All adminUsers must also be in allowedUsers', path: ['adminUsers'] }
+).refine(
+  // A chosen default route must name a route that exists in the catalog.
+  (data) =>
+    !data.defaultRoute ||
+    (data.dynamicRoutes ?? []).includes(data.defaultRoute.route),
+  { message: 'defaultRoute.route must be one of dynamicRoutes', path: ['defaultRoute'] }
 );
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -83,7 +114,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, dynamicRoutes, defaultRoute } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   // During reconfiguration, prevent admin from removing themselves
@@ -258,17 +289,35 @@ app.post('/configure', async (c) => {
       // Store custom domain in KV (case-insensitive per RFC 4343)
       await c.env.KV.put(SETUP_KEYS.CUSTOM_DOMAIN, customDomain.toLowerCase());
 
-      // Enterprise: persist (or clear) the optional Access group that gates JIT
-      // provisioning. Gated on isEnterpriseMode so the write mirrors the read
-      // (access.ts reads this key only in enterprise mode) — a non-enterprise
-      // caller cannot write a key that would never be read. Also requires the
-      // field to be present (absent for non-enterprise setups via the UI).
+      // Enterprise: persist (or clear) the optional Access groups that gate JIT
+      // provisioning. Persisted comma-joined (the format access.ts
+      // parseAccessGroups splits on) so the runtime reader is unchanged. Schema
+      // already trimmed each name and forbade comma/newline. Gated on
+      // isEnterpriseMode so the write mirrors the read.
       if (isEnterpriseMode(c.env) && enterpriseAccessGroup !== undefined) {
-        const trimmedGroup = enterpriseAccessGroup.trim();
-        if (trimmedGroup) {
-          await c.env.KV.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, trimmedGroup);
+        const joinedGroups = enterpriseAccessGroup.join(',');
+        if (joinedGroups) {
+          await c.env.KV.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, joinedGroups);
         } else {
           await c.env.KV.delete(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP);
+        }
+      }
+
+      // Feature C: persist (or clear) the enterprise dynamic-route catalog and
+      // the optional default route+reasoning. Stored as JSON (no legacy CSV
+      // reader, unlike groups). Same enterprise gate.
+      if (isEnterpriseMode(c.env) && dynamicRoutes !== undefined) {
+        if (dynamicRoutes.length > 0) {
+          await c.env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, JSON.stringify(dynamicRoutes));
+        } else {
+          await c.env.KV.delete(SETUP_KEYS.DYNAMIC_ROUTES);
+        }
+      }
+      if (isEnterpriseMode(c.env) && defaultRoute !== undefined) {
+        if (defaultRoute) {
+          await c.env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, JSON.stringify(defaultRoute));
+        } else {
+          await c.env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
         }
       }
 
