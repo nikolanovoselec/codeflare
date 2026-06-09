@@ -1350,7 +1350,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::appendReviewEvent -->
 <!-- @test: src/__tests__/lib/review-state.test.ts (shouldReconcileOpenPr decision gating -> AC1/AC6; reconcileBoundaryAction offer-once: offers when reconcilable+un-offered, no-ops on re-offer, no-ops when not reconcilable -> AC1; every suppressed gate names a distinct non-empty reason -> AC4) -->
 <!-- @test: src/__tests__/lib/review-trigger.test.ts (enforcedHeadDecision pushed-vs-unpushed table -> AC3; prUrlFromText PR-URL boundary detection -> AC5) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (seeded review-enforcement wires reconcileOpenPrReview + shouldReconcileOpenPr -> AC1/AC2/AC4) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (seeded review-enforcement wires reconcileOpenPrReview + shouldReconcileOpenPr -> AC1/AC4) -->
 
 **Intent:** Review initiation must not depend solely on capturing a transient tool event. A missed or mis-parsed boundary command must not silently skip review: an open enforced PR whose head was never reviewed is recoverable on a later turn, the start path is shared with the boundary path so the two cannot drift, and every near-miss leaves a durable diagnostic so a skipped review is detectable instead of silent.
 
@@ -1373,7 +1373,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-055](#req-agent-055-pi-pr-boundary-review-window-advancement)
 
-**Verification:** Unit tests: [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (`shouldReconcileOpenPr` gating + every suppressed gate names a distinct non-empty reason → AC1/AC4/AC6; `reconcileBoundaryAction` offer-once → AC1), [review-trigger.test.ts](../../src/__tests__/lib/review-trigger.test.ts) (`enforcedHeadDecision` pushed-vs-unpushed → AC3; `prUrlFromText` PR-URL detection → AC5), [agent-seed-manifest.test.ts](../../src/__tests__/lib/agent-seed-manifest.test.ts) (seed wires reconcileOpenPrReview + shouldReconcileOpenPr → AC1/AC2). The decision core for every AC is unit-tested; the thin `appendReviewEvent` / `ctx.ui.notify` runtime wiring that acts on those decisions is integration glue, per the repo's runtime-coverage convention.
+**Verification:** Unit tests: [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (`shouldReconcileOpenPr` gating + every suppressed gate names a distinct non-empty reason → AC1/AC4/AC6; `reconcileBoundaryAction` offer-once → AC1), [review-trigger.test.ts](../../src/__tests__/lib/review-trigger.test.ts) (`enforcedHeadDecision` pushed-vs-unpushed → AC3; `prUrlFromText` PR-URL detection → AC5), [agent-seed-manifest.test.ts](../../src/__tests__/lib/agent-seed-manifest.test.ts) (seed wires reconcileOpenPrReview + shouldReconcileOpenPr → AC1). AC2 (the in-session boundary path and `/review-run` produce byte-identical windows) is a structural single-routine invariant — exactly one `ensureReviewWindow` exists and is the sole window-creator both paths call — verified by inspection, not a decision test. The decision core for every other AC is unit-tested; the thin `appendReviewEvent` / `ctx.ui.notify` runtime wiring that acts on those decisions is integration glue, per the repo's runtime-coverage convention.
 
 **Status:** Implemented
 

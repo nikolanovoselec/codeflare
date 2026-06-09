@@ -237,6 +237,69 @@ describe('Setup Access', () => {
       expect(mockFetch.mock.calls).toHaveLength(9);
       expect(mockKV.put).not.toHaveBeenCalledWith('setup:access_sw_bypass_app_id', expect.anything());
     });
+
+    it('rolls back a freshly-created SW-bypass app when the bypass policy fails (best-effort; parent step still succeeds, id not persisted)', async () => {
+      const steps: SetupStep[] = [];
+      mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList))                                   // 0 listIdP
+        .mockResolvedValueOnce(cfSuccess([]))                                            // 1 listGroups
+        .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-enterprise-admins' })) // 2
+        .mockResolvedValueOnce(cfSuccess({ id: 'grp-user', name: 'codeflare-enterprise-users' }))   // 3
+        .mockResolvedValueOnce(cfSuccess([]))                                            // 4 listApps
+        .mockResolvedValueOnce(cfSuccess({ id: 'app-ent', aud: 'aud-ent' }))            // 5 upsertApp
+        .mockResolvedValueOnce(cfSuccess([]))                                            // 6 listPolicies
+        .mockResolvedValueOnce(new Response('', { status: 200 }))                        // 7 createPolicy
+        .mockResolvedValueOnce(cfSuccess({ auth_domain: 'test.cloudflareaccess.com' })) // 8 org
+        .mockResolvedValueOnce(cfSuccess({ id: 'sw-bypass-app' }))                       // 9 SW-bypass upsert (POST, created)
+        .mockResolvedValueOnce(cfSuccess([]))                                            // 10 SW-policy list (empty => POST)
+        .mockResolvedValueOnce(new Response('', { status: 403 }))                        // 11 SW-policy create FAILS
+        .mockResolvedValueOnce(new Response('', { status: 200 }));                       // 12 rollback DELETE
+
+      await handleCreateAccessApp(
+        'test-token', 'account-123', 'enterprise.example.com',
+        ['admin@example.com', 'user@example.com'], ['admin@example.com'],
+        steps, mockKV as unknown as KVNamespace, 'codeflare-enterprise', false, true,
+      );
+
+      // Best-effort: the host-wide Access setup already succeeded, so the step stays
+      // success even though the bypass policy failed.
+      expect(steps[0].status).toBe('success');
+      // The freshly-created bypass app is rolled back via DELETE so a policy-less
+      // self_hosted app never lingers (that would DENY the SW path — worse than the 302).
+      const rollbackCall = mockFetch.mock.calls[12];
+      expect((rollbackCall[1] as RequestInit).method).toBe('DELETE');
+      expect(String(rollbackCall[0])).toContain('/access/apps/sw-bypass-app');
+      // The id is NOT persisted when the policy never landed.
+      expect(mockKV.put).not.toHaveBeenCalledWith('setup:access_sw_bypass_app_id', expect.anything());
+    });
+
+    it('does not persist an id, reach the policy step, or roll back when the SW-bypass app upsert fails', async () => {
+      const steps: SetupStep[] = [];
+      mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList))                                   // 0 listIdP
+        .mockResolvedValueOnce(cfSuccess([]))                                            // 1 listGroups
+        .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-enterprise-admins' })) // 2
+        .mockResolvedValueOnce(cfSuccess({ id: 'grp-user', name: 'codeflare-enterprise-users' }))   // 3
+        .mockResolvedValueOnce(cfSuccess([]))                                            // 4 listApps
+        .mockResolvedValueOnce(cfSuccess({ id: 'app-ent', aud: 'aud-ent' }))            // 5 upsertApp
+        .mockResolvedValueOnce(cfSuccess([]))                                            // 6 listPolicies
+        .mockResolvedValueOnce(new Response('', { status: 200 }))                        // 7 createPolicy
+        .mockResolvedValueOnce(cfSuccess({ auth_domain: 'test.cloudflareaccess.com' })) // 8 org
+        .mockResolvedValueOnce(cfError('mid-path wildcard scope rejected'));            // 9 SW-bypass upsert FAILS (success:false)
+
+      await handleCreateAccessApp(
+        'test-token', 'account-123', 'enterprise.example.com',
+        ['admin@example.com', 'user@example.com'], ['admin@example.com'],
+        steps, mockKV as unknown as KVNamespace, 'codeflare-enterprise', false, true,
+      );
+
+      // Best-effort: a rejected bypass-app upsert warns and returns without aborting setup.
+      expect(steps[0].status).toBe('success');
+      // No policy list/create and no rollback DELETE — exactly the 9 base fetches plus the
+      // single failed bypass-app upsert (nothing was created, so nothing is torn down).
+      expect(mockFetch.mock.calls).toHaveLength(10);
+      expect(mockKV.put).not.toHaveBeenCalledWith('setup:access_sw_bypass_app_id', expect.anything());
+    });
   });
 
   describe('cross-environment domain validation', () => {

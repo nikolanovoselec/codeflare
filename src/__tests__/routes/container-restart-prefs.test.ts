@@ -149,4 +149,50 @@ describe('REQ-SESSION-008: Container restart preserves R2 bucket', () => {
       expect(changed).toBe(false);
     });
   });
+
+  // REQ-ENTERPRISE-005 (revised): when an admin clears the default route:reasoning
+  // (or it drifts out of the catalog) the resolver emits defaultReasoning '' and the
+  // container must reset DOWN to "reasoning off" on the next restart. A truthiness
+  // guard would swallow the empty reset and strand the container on the stale grade.
+  describe('REQ-ENTERPRISE-005: default route:reasoning resets downward on restart', () => {
+    it('clears a stale elevated defaultReasoning when input is empty string', async () => {
+      const state = baseState();
+      (state as any)._defaultReasoning = 'medium';
+      const { writes, storage } = makeStorage();
+
+      const changed = await applyPrefsOnRestart(state, storage, {
+        defaultReasoning: '',
+      });
+
+      expect(changed).toBe(true);
+      expect((state as any)._defaultReasoning).toBe('');
+      expect(writes.defaultReasoning).toBe('');
+    });
+
+    it('clears a stale defaultRoute when input is empty string', async () => {
+      const state = baseState();
+      (state as any)._defaultRoute = 'development';
+      const { writes, storage } = makeStorage();
+
+      const changed = await applyPrefsOnRestart(state, storage, {
+        defaultRoute: '',
+      });
+
+      expect(changed).toBe(true);
+      expect((state as any)._defaultRoute).toBe('');
+      expect(writes.defaultRoute).toBe('');
+    });
+
+    it('is a no-op when defaultReasoning is omitted (non-enterprise restart)', async () => {
+      const state = baseState();
+      (state as any)._defaultReasoning = 'medium';
+      const { writes, storage } = makeStorage();
+
+      const changed = await applyPrefsOnRestart(state, storage, {});
+
+      expect(changed).toBe(false);
+      expect((state as any)._defaultReasoning).toBe('medium');
+      expect(writes.defaultReasoning).toBeUndefined();
+    });
+  });
 });

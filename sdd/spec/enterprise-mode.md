@@ -75,6 +75,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 <!-- @impl: web-ui/src/components -->
 <!-- @impl: src/routes -->
+<!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002 -> deploy-time enterpriseMode signal AC3 + flag-off parity AC4) -->
+<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription menu hidden when enterpriseMode -> billing UI hidden AC1 + shown when flag unset AC4) -->
 
 **Intent:** When the deployment is in Enterprise Mode there is no self-serve billing, so the subscription UI and the subscribe route must not be reachable.
 
@@ -96,7 +98,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-SUB-016](subscription.md#req-sub-016-customer-portal-and-plan-switching), [REQ-SUB-017](subscription.md#req-sub-017-enterprise-tier-contact-flow)
 
-**Verification:** [Automated test](../../src/__tests__/lib/enterprise-mode.test.ts)
+**Verification:** [API enterpriseMode flag](../../src/__tests__/routes/user-profile-enterprise.test.ts) (AC3 deploy-time signal, AC4 flag-off), [Header subscription-hide](../../web-ui/src/__tests__/components/Header.test.tsx) (AC1 billing UI hidden, AC4 parity). AC2 (`/app/subscribe` route guard) has no automated test yet; REQ held `Planned`.
 
 **Status:** Planned
 
@@ -250,7 +252,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes)
 
-**Verification:** [Automated test](../../src/__tests__/lib/enterprise-mode.test.ts)
+**Verification:** [SW-bypass Access app provisioning](../../src/__tests__/routes/setup/access.test.ts) (AC6 — enterprise provisions the higher-precedence SW-bypass app, rolls it back on policy failure and persists no id, and creates none when non-enterprise). AC1–AC5 are deploy-time Worker-binding / GitHub Actions plumbing with no automated test; REQ held `Planned`.
 
 **Status:** Planned
 
@@ -448,7 +450,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill -> round-trips the stored access groups, dynamicRoutes, and defaultRoute + returns empty defaults when nothing stored + degrades to empty defaults when stored route JSON is malformed AC3) -->
 <!-- @test: src/__tests__/lib/access-group-resolution.test.ts (parseAccessGroups -> list/single/blank parsing AC1) -->
 <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (setup store -> add/remove/dedup access-group and dynamic-route chips AC1/AC2) -->
-<!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (loadEnterpriseRouteConfig -> catalog parse + configured-default-in-catalog + fallback-to-first-drops-reasoning + unset-default-first-route-reasoning-off + malformed-degrades + non-enterprise-empty -> AC2/AC3/AC5) -->
+<!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (loadEnterpriseRouteConfig -> catalog parse + configured-default-in-catalog + fallback-to-first-drops-reasoning + unset-default-first-route-reasoning-off + malformed-degrades + non-enterprise-empty -> AC2/AC3/AC4/AC5) -->
 ### REQ-ENTERPRISE-012: Setup-Configured Dynamic-Route Catalog and Access-Group List
 
 <!-- @impl: src/routes/setup/index.ts -->

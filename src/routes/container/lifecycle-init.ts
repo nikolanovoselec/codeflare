@@ -64,9 +64,15 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     // REQ-ENTERPRISE-005 (revised): forward the dynamic-route catalog + resolved
     // default route:reasoning so buildEnvVars emits them for entrypoint.sh (Pi
     // models.json lists all routes; Copilot/Pi default model + Pi thinking level).
-    ...(params.routeCatalog && params.routeCatalog.length > 0 && { routeCatalog: params.routeCatalog }),
-    ...(params.defaultRoute && { defaultRoute: params.defaultRoute }),
-    ...(params.defaultReasoning && { defaultReasoning: params.defaultReasoning }),
+    // The default route + reasoning travel as a unit with the catalog. defaultReasoning
+    // '' is a meaningful "reasoning off" value (admin cleared the default, or it drifted
+    // out of the catalog), so it is forwarded explicitly — a truthiness guard would drop
+    // the empty reset and leave applyPrefsOnRestart stranded on a stale grade.
+    ...(params.routeCatalog && params.routeCatalog.length > 0 && {
+      routeCatalog: params.routeCatalog,
+      defaultRoute: params.defaultRoute ?? '',
+      defaultReasoning: params.defaultReasoning ?? '',
+    }),
     // REQ-MEM-001 AC4: forward the user's IANA timezone so the capture
     // pipeline's TZ resolution produces wall-clock filenames matching
     // the user's location instead of UTC.

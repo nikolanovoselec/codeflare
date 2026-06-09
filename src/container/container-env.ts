@@ -459,13 +459,19 @@ export async function applyPrefsOnRestart(
     changed = true;
     logger.info('Updated routeCatalog on restart', { routeCatalog: input.routeCatalog });
   }
-  if (input.defaultRoute && input.defaultRoute !== state._defaultRoute) {
+  // `!== undefined`, not truthiness: an empty-string default route/reasoning is the
+  // meaningful "admin cleared / default drifted out of catalog" reset — the resolver
+  // emits '' for reasoning-off and for a dropped default. A truthiness guard would
+  // swallow that reset and strand the container on a stale elevated grade (the
+  // documented empty-reset trap). buildEnvVars omits the env var when state holds '',
+  // so an empty value surfaces downstream as "reasoning off".
+  if (input.defaultRoute !== undefined && input.defaultRoute !== state._defaultRoute) {
     state._defaultRoute = input.defaultRoute;
     await storage.put('defaultRoute', input.defaultRoute);
     changed = true;
     logger.info('Updated defaultRoute on restart', { defaultRoute: input.defaultRoute });
   }
-  if (input.defaultReasoning && input.defaultReasoning !== state._defaultReasoning) {
+  if (input.defaultReasoning !== undefined && input.defaultReasoning !== state._defaultReasoning) {
     state._defaultReasoning = input.defaultReasoning;
     await storage.put('defaultReasoning', input.defaultReasoning);
     changed = true;
