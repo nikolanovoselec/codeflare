@@ -826,6 +826,22 @@ export function shouldReconcileOpenPr(input: OpenPrReconcileInput): OpenPrReconc
   return { reconcile: true, reason: "open enforced PR head is unacknowledged with no review window" };
 }
 
+// Offers-once gate for a reconciled (missed-boundary) PR head (REQ-AGENT-058 revised).
+// shouldReconcileOpenPr decides WHETHER a head is reconcilable; this decides what the
+// reconciler DOES with a reconcilable head: OFFER it once (notify + persist the offered
+// marker) so the user runs /review-run or /review-skip, or NOOP when this exact head was
+// already offered (the marker is head-keyed, so a new commit re-offers). Pure: no fs, no
+// notify — the caller performs the side effects keyed off the returned action. Never
+// auto-spawns; the auto-spawn path is the in-session onToolEnd boundary, not this.
+export type ReconcileBoundaryInput = { reconcile: boolean; alreadyOffered: boolean };
+export type ReconcileBoundaryAction = "offer" | "noop";
+
+export function reconcileBoundaryAction(input: ReconcileBoundaryInput): ReconcileBoundaryAction {
+  if (!input.reconcile) return "noop";
+  if (input.alreadyOffered) return "noop";
+  return "offer";
+}
+
 // Npm package source strings a durable review lane should load as additionalExtensionPaths.
 // Graphify is a first-party LOCAL extension (graphify-native.ts), loaded directly by the lane
 // runner alongside codeflare-pi - it is not an npm package and never appears here.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeReviewStateFrom, shouldReconcileOpenPr, type ComputeReviewStateInput, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -132,5 +132,30 @@ describe('shouldReconcileOpenPr (REQ-AGENT-058 AC1)', () => {
     const d = shouldReconcileOpenPr({ ...reconcilable, breakerOpen: true });
     expect(d.reconcile).toBe(false);
     expect(d.reason).toBe('review breaker open for head');
+  });
+});
+
+/**
+ * reconcileBoundaryAction is the offers-once decision for a missed-boundary PR head
+ * (REQ-AGENT-058 revised). It must OFFER a reconcilable head exactly once and NOOP on a
+ * re-offer of the same (already-offered) head, and NOOP whenever the head is not
+ * reconcilable. These tests fail if the offer/noop branching regresses — there is no
+ * implementation to gut while staying green (the reconciler's only behaviour on a missed
+ * boundary is to offer or not).
+ */
+describe('reconcileBoundaryAction (REQ-AGENT-058 revised: offer-once, never auto-spawn)', () => {
+  it('offers when the head is reconcilable and has not been offered yet', () => {
+    const input: ReconcileBoundaryInput = { reconcile: true, alreadyOffered: false };
+    expect(reconcileBoundaryAction(input)).toBe('offer');
+  });
+
+  it('noops on a re-offer of the same already-offered head (offered once, not twice)', () => {
+    const input: ReconcileBoundaryInput = { reconcile: true, alreadyOffered: true };
+    expect(reconcileBoundaryAction(input)).toBe('noop');
+  });
+
+  it('noops when the head is not reconcilable, regardless of offered state', () => {
+    expect(reconcileBoundaryAction({ reconcile: false, alreadyOffered: false })).toBe('noop');
+    expect(reconcileBoundaryAction({ reconcile: false, alreadyOffered: true })).toBe('noop');
   });
 });

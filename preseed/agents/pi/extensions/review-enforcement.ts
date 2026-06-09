@@ -14,7 +14,7 @@ import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prCreateBoundaryBase, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
+import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -143,6 +143,22 @@ function acked(repo: string, head: string): boolean {
 
 function writeAck(repo: string, head: string): void {
   writeFileSync(ackPath(repo), `${head}\n`, "utf8");
+}
+
+// "Offered" marker (REQ-AGENT-058 revised). A missed boundary surfaced by reconciliation
+// (e.g. a fresh clone/checkout of a repo with an open PR) is OFFERED to the user once instead
+// of auto-spawning reviewers. Keyed by head so a new commit re-offers; distinct from the ack
+// file because being offered does NOT open the merge gate — only an explicit ack/skip does.
+function offeredPath(repo: string): string {
+  return join(repo, ".git", "sdd-review-offered-head");
+}
+
+function offered(repo: string, head: string): boolean {
+  try { return readFileSync(offeredPath(repo), "utf8").trim() === head; } catch { return false; }
+}
+
+function writeOffered(repo: string, head: string): void {
+  writeFileSync(offeredPath(repo), `${head}\n`, "utf8");
 }
 
 function clearPending(repo: string): void {
@@ -1089,9 +1105,19 @@ export default function (pi: ExtensionAPI) {
       }
       return false;
     }
-    appendReviewEvent(resolvedRepo, { event: "boundary_reconciled", head, reason: decision.reason });
-    ctx.ui.notify(`PR-boundary review reconciled for ${basename(resolvedRepo)} at ${head.slice(0, 12)} (missed boundary event recovered).`, "warning");
-    return ensureReviewWindow({ repo: resolvedRepo, pr: pr as PrState, head, ctx, trigger: "open-PR reconciliation" });
+    // REQ-AGENT-058 (revised): a missed boundary surfaced by reconciliation — typically a fresh
+    // clone or branch checkout of a repo that already has an open PR — must NOT auto-spawn the
+    // durable reviewers. Auto-starting here is what produced an unstoppable review immediately
+    // after `git clone` (the reaper re-spawned killed lanes). Offer the choice once and let the
+    // user decide; the merge gate stays closed because the head remains unacked, and the 20s
+    // reaper never fires because no review window is created. An in-session push still
+    // auto-starts via the onToolEnd boundary path — only this catch-up path defers to the user.
+    const action = reconcileBoundaryAction({ reconcile: decision.reconcile, alreadyOffered: offered(resolvedRepo, head) });
+    if (action === "noop") return false;
+    writeOffered(resolvedRepo, head);
+    appendReviewEvent(resolvedRepo, { event: "boundary_offered", head, reason: decision.reason });
+    ctx.ui.notify(`PR-boundary review available for ${basename(resolvedRepo)} at ${head.slice(0, 12)} (missed boundary). Run /review-run to start the required reviewers, or /review-skip to skip and ack this HEAD. Merge stays blocked until you choose.`, "warning");
+    return false;
   }
 
   const onAgentStart = (event: any, ctx: any) => {
@@ -1140,6 +1166,45 @@ export default function (pi: ExtensionAPI) {
     refreshReviewStatusFromDurable(ctx);
     // Catch a boundary missed before this session started (forced: once per session start).
     void reconcileOpenPrReview(ctx, true);
+  });
+
+  // User controls for a missed-boundary review that reconciliation OFFERED rather than
+  // auto-started (REQ-AGENT-058 revised). /review-run launches the required reviewers for the
+  // current enforced PR head; /review-skip acks that head so the merge gate opens with no review.
+  function resolveCommandRepo(ctx: any): string | undefined {
+    return findGitRoot(ctx?.sessionManager?.getCwd?.() || process.cwd()) || activeRepoFallback();
+  }
+
+  pi.registerCommand("review-run", {
+    description: "Start the PR-boundary reviewers for the current enforced PR head",
+    handler: async (_args: string, ctx: any) => {
+      const repo = resolveCommandRepo(ctx);
+      if (!repo || !isSddProject(repo)) { ctx.ui.notify("/review-run: not inside an SDD repository.", "warning"); return; }
+      const pr = prState(repo);
+      if (!isEnforcedPr(pr)) { ctx.ui.notify("/review-run: no open PR to main/master for this repo — nothing to review.", "warning"); return; }
+      const head = resolveEnforcedHead(repo, pr);
+      if (!head) { ctx.ui.notify("/review-run: could not resolve the PR head.", "warning"); return; }
+      if (acked(repo, head)) { ctx.ui.notify(`/review-run: head ${head.slice(0, 12)} is already acked; nothing to do.`, "info"); return; }
+      remember(ctx);
+      const started = await ensureReviewWindow({ repo, pr, head, ctx, trigger: "user /review-run" });
+      if (!started) ctx.ui.notify(`/review-run: a review window for ${head.slice(0, 12)} already exists.`, "info");
+    },
+  });
+
+  pi.registerCommand("review-skip", {
+    description: "Skip the PR-boundary review and ack the current enforced PR head",
+    handler: (_args: string, ctx: any) => {
+      const repo = resolveCommandRepo(ctx);
+      if (!repo || !isSddProject(repo)) { ctx.ui.notify("/review-skip: not inside an SDD repository.", "warning"); return; }
+      const pr = prState(repo);
+      const head = isEnforcedPr(pr) ? resolveEnforcedHead(repo, pr) : (localHead(repo) || "");
+      if (!head) { ctx.ui.notify("/review-skip: could not resolve the current head.", "warning"); return; }
+      clearPending(repo);
+      clearBreaker(repo);
+      writeAck(repo, head);
+      appendReviewEvent(repo, { event: "review_skipped", head, reason: "user /review-skip" });
+      ctx.ui.notify(`PR-boundary review skipped for ${basename(repo)} at ${head.slice(0, 12)}; merge gate opened (head acked).`, "warning");
+    },
   });
 
   const onUiRefresh = (_event: any, ctx: any): void => {
