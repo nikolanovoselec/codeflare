@@ -262,6 +262,7 @@ export const SETUP_KEYS = {
   ACCESS_AUD: 'setup:access_aud',
   ACCESS_AUD_LIST: 'setup:access_aud_list',
   ACCESS_APP_ID: 'setup:access_app_id',
+  ACCESS_SW_BYPASS_APP_ID: 'setup:access_sw_bypass_app_id',
   ACCESS_GROUP_ADMIN_ID: 'setup:access_group_admin_id',
   ACCESS_GROUP_USER_ID: 'setup:access_group_user_id',
   ACCESS_GROUP_ADMIN_NAME: 'setup:access_group_admin_name',
