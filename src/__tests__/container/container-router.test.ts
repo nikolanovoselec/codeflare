@@ -110,4 +110,26 @@ describe('CF-016 dispatchInternalRoute', () => {
     const request = new Request('http://container/_internal/setBucketName', { method: 'GET' });
     expect(dispatchInternalRoute(host, request)).toBeNull();
   });
+
+  // REQ-ENTERPRISE-005: the first-config persistence path must store an EMPTY-STRING
+  // default route/reasoning (the "reasoning off / first-route fallback" reset), not swallow
+  // it the way a truthiness guard would - mirroring applyPrefsOnRestart's empty-reset
+  // contract (container-restart-prefs.test.ts). The puts fire before applySetBucketName, so
+  // this asserts the observable storage writes regardless of the R2 setup outcome. Reverting
+  // the guard to `if (defaultRoute)` makes both puts disappear and fails this test.
+  it('persists an empty-string defaultRoute/defaultReasoning on first config (empty-reset, not swallowed)', async () => {
+    const host = makeHost();
+    const request = new Request('http://container/_internal/setBucketName', {
+      method: 'POST',
+      body: JSON.stringify({ bucketName: 'b', routeCatalog: ['development'], defaultRoute: '', defaultReasoning: '' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    await dispatchInternalRoute(host, request)!;
+
+    expect((host.ctx.storage.put as any)).toHaveBeenCalledWith('defaultRoute', '');
+    expect((host.ctx.storage.put as any)).toHaveBeenCalledWith('defaultReasoning', '');
+    expect(host._defaultRoute).toBe('');
+    expect(host._defaultReasoning).toBe('');
+  });
 });

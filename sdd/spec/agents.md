@@ -1217,7 +1217,7 @@ None.
 ### REQ-AGENT-061: Pi Idle Durable Review Reaper
 
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-061 idle reaper helper test covers AC2/AC3 gating; AC1 runtime reaping has integration smoke coverage) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-061 idle reaper helper test covers AC2 gating; AC1 runtime reaping + AC3 off-turn summary deferral have integration smoke coverage) -->
 <!-- coverage-gap: AC1's no-turn finished-lane reaping path is driven by a reload-safe `setInterval`; it is runtime-smoke-tested with detached lanes, with no dedicated automated test in the Workers vitest pool. AC3's off-turn summary deferral (no-ctx finalize persists summary.md but leaves the chat announcement unclaimed for the next on-turn emit) is the same off-turn `setInterval`/`pi.sendMessage` integration glue, verified by inspection and runtime smoke rather than a Workers-pool unit test. -->
 
 **Intent:** Pi must advance and finalize durable review jobs even when the user does not submit another prompt.
