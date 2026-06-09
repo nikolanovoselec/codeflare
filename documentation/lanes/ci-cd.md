@@ -23,7 +23,7 @@ Dependabot runs weekly against the `develop` branch for three npm package direct
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
-| `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets. Deploy only fires after checks pass - eliminates the parallel-trigger race where a broken merge could deploy before checks failed. |
+| `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets. Deploy only fires after checks pass - eliminates the parallel-trigger race where a broken merge could deploy before checks failed. |
 | `test.yml` | PRs to `main`, push to `main`/`develop` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, dead code check (knip), `npm audit --omit=dev`, dependency review. Push-to-main trigger provides the post-merge signal that `deploy.yml` gates on. |
 | `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker - sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile` |
 | `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security |
@@ -31,7 +31,7 @@ Dependabot runs weekly against the `develop` branch for three npm package direct
 | `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
 | `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
 | `stress-test.yml` | `workflow_dispatch` | k6 stress tests (API throughput, session lifecycle, storage operations, rate-limit validation) against integration worker. Configurable concurrency via `STRESS_TEST_CONCURRENCY` variable. |
-| `deploy-dockerhub.yml` | `workflow_dispatch` (production/integration/enterprise) | Fallback deploy pipeline identical to `deploy.yml` but pushes the container image to Docker Hub instead of `registry.cloudflare.com`. Used when the Cloudflare managed registry drops connections mid-upload. Requires `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets. |
+| `deploy-dockerhub.yml` | `workflow_dispatch` (production/integration/enterprise/enterprise integration) | Fallback deploy pipeline identical to `deploy.yml` but pushes the container image to Docker Hub instead of `registry.cloudflare.com`. Used when the Cloudflare managed registry drops connections mid-upload. Requires `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets. |
 | `bump-shadow-pins.yml` | Weekly (Monday 06:00 UTC) + `workflow_dispatch` | Tracks non-Dependabot pins: context-mode, graphifyy plugin version, Dockerfile binaries, and Pi preseed npm pins. Opens one PR per bump and regenerates matching lockfiles/agent seed when duplicated literals change. SHA256 checksums are invalidated on Dockerfile-binary bumps. |
 
 For the Pi preseed job, both `@gotgenes/pi-subagents` and context-mode live in `preseed/agents/pi/package.json` and the generated seed. Only `@gotgenes/pi-subagents` is in the Pi settings `required` install array; context-mode is carried as a disabled package spec. Dependabot intentionally skips that directory, so this workflow keeps the duplicates aligned.
@@ -42,6 +42,8 @@ For the Pi preseed job, both `@gotgenes/pi-subagents` and context-mode live in `
 |-------------|---------|---------|
 | `production` | `deploy.yml`, `pentest.yml` | Auto on push to `main`, or manual dispatch with `production` selected |
 | `integration` | `deploy.yml`, `e2e.yml`, `stress-test.yml` | Manual dispatch with `integration` selected |
+| `enterprise` | `deploy.yml`, `deploy-dockerhub.yml` | Manual dispatch with `enterprise` selected; deployable from any branch |
+| `enterprise integration` | `deploy.yml`, `deploy-dockerhub.yml` | Manual dispatch with `enterprise integration` selected; deployable from any branch; separate concurrency group from `integration` |
 
 ### GitHub Secrets and Variables
 
