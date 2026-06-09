@@ -478,6 +478,8 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
    * configured route; else (empty catalog) '' (no rewrite happens).
    */
   private async loadRouteCatalog(): Promise<{ routes: string[]; defaultRoute: string }> {
+    // No KV binding ⇒ no catalog ⇒ no rewrite (forward the agent handle verbatim).
+    if (!this.env.KV) return { routes: [], defaultRoute: '' };
     const rawCatalog = await this.env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES);
     let routes: string[] = [];
     try { const p = JSON.parse(rawCatalog ?? '[]'); if (Array.isArray(p)) routes = p.filter((r): r is string => typeof r === 'string'); } catch { /* malformed → empty */ }

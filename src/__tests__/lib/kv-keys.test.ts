@@ -423,8 +423,8 @@ describe('getBaseUrl', () => {
 });
 
 describe('SETUP_KEYS', () => {
-  it('contains 21 setup keys', () => {
-    expect(Object.keys(SETUP_KEYS)).toHaveLength(21);
+  it('contains 24 setup keys', () => {
+    expect(Object.keys(SETUP_KEYS)).toHaveLength(24);
   });
 
   it('all values start with "setup:"', () => {
