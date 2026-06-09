@@ -602,9 +602,10 @@ export async function loadEnterpriseRouteConfig(
   // not in the catalog (drift), we fall back to the first catalog route AND drop the
   // reasoning — applying the discarded route's reasoning to the fallback is wrong;
   // an unset default resolves to the first route with reasoning off (spec C5).
-  const useConfigured = configuredDefault !== null && routeCatalog.includes(configuredDefault);
-  const defaultRoute = useConfigured ? configuredDefault : (routeCatalog[0] ?? '');
-  return { routeCatalog, defaultRoute, defaultReasoning: useConfigured ? defaultReasoning : '' };
+  if (configuredDefault !== null && routeCatalog.includes(configuredDefault)) {
+    return { routeCatalog, defaultRoute: configuredDefault, defaultReasoning };
+  }
+  return { routeCatalog, defaultRoute: routeCatalog[0] ?? '', defaultReasoning: '' };
 }
 
 /**

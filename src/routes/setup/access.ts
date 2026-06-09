@@ -316,9 +316,12 @@ async function upsertSwBypassAccessApp(
       { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) },
     ));
     const polList = await parseCfResponse<Array<{ id: string }>>(polListRes);
-    const polRes = (polList.success && polList.result?.length)
+    const existingPolicyId = (polList.success && polList.result && polList.result.length > 0)
+      ? polList.result[0].id
+      : null;
+    const polRes = existingPolicyId
       ? await cfApiCB.execute(() => fetch(
-          `${CF_API_BASE}/accounts/${accountId}/access/apps/${swAppId}/policies/${polList.result[0].id}`,
+          `${CF_API_BASE}/accounts/${accountId}/access/apps/${swAppId}/policies/${existingPolicyId}`,
           { method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(policyBody), signal: AbortSignal.timeout(10000) },
         ))
       : await cfApiCB.execute(() => fetch(
