@@ -1,24 +1,26 @@
 /**
- * REQ-ENTERPRISE-005: enterprise-mode container env injection.
+ * REQ-ENTERPRISE-005 (revised): enterprise-mode container env injection.
  *
- * With the outbound-interception transport the container needs ONLY the
- * ENTERPRISE_MODE flag. The gateway route id (AIG_LANGUAGE_MODEL) is a Worker /
- * gateway concern: the LlmInterceptor rewrites the wire `model` to it on egress
- * (see llm-interceptor.ts), and the agents are configured with a fixed,
- * slash-free handle (`codeflare`) in entrypoint.sh — so the route name, like
- * every other gateway concern (URL, token), never enters the container.
- * buildEnvVars therefore must NOT fan AIG_LANGUAGE_MODEL (or any gateway URL /
- * token / base-URL) into the container.
+ * With the outbound-interception transport the container needs the ENTERPRISE_MODE
+ * flag PLUS the dynamic-route NAMES + default reasoning grade (revised invariant):
+ * the route catalog (Pi models.json lists all), the default route (Copilot
+ * COPILOT_MODEL + Pi defaultModel), and its reasoning grade (Pi
+ * defaultThinkingLevel). The interceptor maps each slash-free handle to
+ * dynamic/<route> on egress, so NO gateway URL / token / credential ever enters
+ * the container — buildEnvVars still must NOT fan those (or COPILOT_MODEL /
+ * PI_MODEL, which entrypoint.sh sets from the fanned default route, not buildEnvVars).
  *
  * ENTERPRISE_MODE gates the entrypoint.sh block that trusts the Cloudflare
  * containers CA and points each agent at the constant provider base-URLs; the
  * actual LLM routing is the DO's outbound-HTTPS interception.
  *
- * AC (emit): ENTERPRISE_MODE='active' appears iff env.ENTERPRISE_MODE==='active'.
- * AC (omit / flag-off regression): ENTERPRISE_MODE and any gateway/base-URL var
- *   are absent on a non-enterprise deploy (byte-identical to today). COPILOT_MODEL
- *   and PI_MODEL are NEVER emitted by buildEnvVars in ANY mode (entrypoint-fixed),
- *   even when AIG_LANGUAGE_MODEL is set.
+ * AC (emit): ENTERPRISE_MODE='active' appears iff env.ENTERPRISE_MODE==='active';
+ *   ENTERPRISE_ROUTE_CATALOG / ENTERPRISE_DEFAULT_ROUTE / ENTERPRISE_DEFAULT_REASONING
+ *   appear iff enterprise AND the corresponding state field is present.
+ * AC (omit / flag-off regression): ENTERPRISE_MODE, the route vars, and any
+ *   gateway/base-URL var are absent on a non-enterprise deploy (byte-identical to
+ *   today). COPILOT_MODEL and PI_MODEL are NEVER emitted by buildEnvVars in ANY
+ *   mode (entrypoint-fixed), even with a default route configured.
  */
 import { describe, it, expect } from 'vitest';
 import { buildEnvVars, type ContainerEnvState } from '../../container/container-env';
@@ -45,6 +47,9 @@ function baseState(): ContainerEnvState {
     _sessionId: 'sid-abcdef12',
     _userEmail: 'user@example.com',
     _userGroups: [],
+    _routeCatalog: [],
+    _defaultRoute: null,
+    _defaultReasoning: null,
     _userTimezone: null,
   };
 }
@@ -55,13 +60,13 @@ describe('REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)', () => {
     expect(vars.ENTERPRISE_MODE).toBe('active');
   });
 
-  it('never injects a gateway URL, token, route id, or per-agent base-URL into the container', () => {
-    // The whole point of interception: no credential, URL, or route reaches the
-    // container. These must NEVER appear regardless of enterprise mode — even
-    // when AIG_LANGUAGE_MODEL is configured on the Worker.
+  it('never injects a gateway URL, token, or per-agent base-URL into the container', () => {
+    // The whole point of interception: no credential or URL reaches the container.
+    // These must NEVER appear regardless of enterprise mode.
     const vars = buildEnvVars(baseState(), {
       ENTERPRISE_MODE: 'active',
-      AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise',
+      AIG_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/acct/gw',
+      AIG_TOKEN: 'secret',
     } as Env);
     expect(vars.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(vars.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
@@ -71,16 +76,30 @@ describe('REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)', () => {
     expect(vars.AIG_TOKEN).toBeUndefined();
   });
 
-  it('does NOT fan AIG_LANGUAGE_MODEL into the container as COPILOT_MODEL / PI_MODEL', () => {
-    // The route id is Worker-only (the LlmInterceptor stamps it on egress).
-    // Agents get a fixed handle from entrypoint.sh, so buildEnvVars must not emit
-    // these keys at all — assert key-absence, not just an undefined value.
-    const vars = buildEnvVars(baseState(), {
-      ENTERPRISE_MODE: 'active',
-      AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise',
-    } as Env);
+  it('does NOT fan COPILOT_MODEL / PI_MODEL even with a default route configured', () => {
+    // The route HANDLE is set in entrypoint.sh (from the fanned default route),
+    // never by buildEnvVars — assert key-absence, not just an undefined value.
+    const state = { ...baseState(), _routeCatalog: ['development'], _defaultRoute: 'development', _defaultReasoning: 'off' };
+    const vars = buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env);
     expect('COPILOT_MODEL' in vars).toBe(false);
     expect('PI_MODEL' in vars).toBe(false);
+  });
+
+  it('fans the route catalog + default route + reasoning grade when enterprise + present', () => {
+    // Revised REQ-ENTERPRISE-005: the route NAMES + reasoning grade ARE fanned so
+    // entrypoint.sh can build Pi models.json / settings.json + Copilot COPILOT_MODEL.
+    const state = { ...baseState(), _routeCatalog: ['development', 'production'], _defaultRoute: 'development', _defaultReasoning: 'medium' };
+    const vars = buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env);
+    expect(vars.ENTERPRISE_ROUTE_CATALOG).toBe(JSON.stringify(['development', 'production']));
+    expect(vars.ENTERPRISE_DEFAULT_ROUTE).toBe('development');
+    expect(vars.ENTERPRISE_DEFAULT_REASONING).toBe('medium');
+  });
+
+  it('omits the route vars when enterprise but the route config is unset (empty catalog)', () => {
+    const vars = buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env);
+    expect('ENTERPRISE_ROUTE_CATALOG' in vars).toBe(false);
+    expect('ENTERPRISE_DEFAULT_ROUTE' in vars).toBe(false);
+    expect('ENTERPRISE_DEFAULT_REASONING' in vars).toBe(false);
   });
 });
 
@@ -95,12 +114,16 @@ describe('REQ-ENTERPRISE-005: enterprise env injection (flag-off regression)', (
     expect(vars.ENTERPRISE_MODE).toBeUndefined();
   });
 
-  it('omits COPILOT_MODEL / PI_MODEL on a non-enterprise deploy even if AIG_LANGUAGE_MODEL is set', () => {
-    const vars = buildEnvVars(baseState(), {
-      AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise',
-    } as Env);
+  it('omits COPILOT_MODEL / PI_MODEL + the route vars on a non-enterprise deploy even with route state set', () => {
+    // Flag-off: even if the DO state carried a route catalog, the flag-off gate
+    // suppresses every enterprise var so the env is byte-identical to today.
+    const state = { ...baseState(), _routeCatalog: ['development'], _defaultRoute: 'development', _defaultReasoning: 'off' };
+    const vars = buildEnvVars(state, {} as Env);
     expect('COPILOT_MODEL' in vars).toBe(false);
     expect('PI_MODEL' in vars).toBe(false);
+    expect('ENTERPRISE_ROUTE_CATALOG' in vars).toBe(false);
+    expect('ENTERPRISE_DEFAULT_ROUTE' in vars).toBe(false);
+    expect('ENTERPRISE_DEFAULT_REASONING' in vars).toBe(false);
   });
 
   it('does not disturb the existing env vars (full regression guard)', () => {

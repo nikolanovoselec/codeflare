@@ -32,6 +32,10 @@ export const SetBucketNameBodySchema = z.object({
   sleepAfter: z.string(),
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */
   userGroups: z.array(z.string()).optional(),
+  /** REQ-ENTERPRISE-005 (revised): dynamic-route catalog + resolved default route:reasoning for entrypoint.sh. */
+  routeCatalog: z.array(z.string()).optional(),
+  defaultRoute: z.string().optional(),
+  defaultReasoning: z.string().optional(),
   /** REQ-MEM-001 AC4: forward the user's IANA timezone to the container. */
   userTimezone: z.string().optional(),
 }).passthrough();

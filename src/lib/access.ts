@@ -566,6 +566,45 @@ export async function resolveSessionAccessGroup(request: Request, env: Env): Pro
 }
 
 /**
+ * Resolve the enterprise dynamic-route config from Setup→KV for the container:
+ * the full route catalog (Pi models.json lists all routes), the resolved default
+ * route (Copilot COPILOT_MODEL + Pi defaultModel), and its reasoning grade (Pi
+ * defaultThinkingLevel). Read ONCE at session start (buildEnvVars is synchronous
+ * and cannot await KV) and threaded into the DO alongside userGroups.
+ *
+ * Setup persists SETUP_KEYS.DYNAMIC_ROUTES (JSON string[]) and
+ * SETUP_KEYS.DEFAULT_ROUTE (JSON { route, reasoning }). The default-route rule is
+ * kept IDENTICAL to the interceptor's loadRouteCatalog: explicit default if it is
+ * in the catalog; else the first configured route; else '' (empty catalog).
+ * Returns empty fields when not enterprise so a non-enterprise body is unchanged.
+ * REQ-ENTERPRISE-005 (revised: the route name + reasoning grade ARE fanned now).
+ */
+export async function loadEnterpriseRouteConfig(
+  env: Env,
+): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string }> {
+  if (!isEnterpriseMode(env)) return { routeCatalog: [], defaultRoute: '', defaultReasoning: '' };
+  let routeCatalog: string[] = [];
+  try {
+    const p = JSON.parse((await env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES)) ?? '[]');
+    if (Array.isArray(p)) routeCatalog = p.filter((r): r is string => typeof r === 'string');
+  } catch { /* malformed → empty */ }
+  let configuredDefault: string | null = null;
+  let defaultReasoning = '';
+  try {
+    const d = JSON.parse((await env.KV.get(SETUP_KEYS.DEFAULT_ROUTE)) ?? 'null');
+    if (d && typeof d === 'object') {
+      const rec = d as { route?: unknown; reasoning?: unknown };
+      if (typeof rec.route === 'string') configuredDefault = rec.route;
+      if (typeof rec.reasoning === 'string') defaultReasoning = rec.reasoning;
+    }
+  } catch { /* malformed → none */ }
+  const defaultRoute = (configuredDefault && routeCatalog.includes(configuredDefault))
+    ? configuredDefault
+    : (routeCatalog[0] ?? '');
+  return { routeCatalog, defaultRoute, defaultReasoning };
+}
+
+/**
  * Resolve an existing user from KV, or JIT-provision a new ENTERPRISE user.
  *
  * Enterprise deployments delegate identity to the customer's Cloudflare Access:

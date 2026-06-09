@@ -315,6 +315,12 @@ export interface ContainerConfigPayload {
   deployKeys?: DeployKeys;
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */
   userGroups?: string[];
+  /** REQ-ENTERPRISE-005 (revised): the full dynamic-route catalog (Pi models.json lists all). */
+  routeCatalog?: string[];
+  /** REQ-ENTERPRISE-005 (revised): the resolved default route (Copilot model + Pi default model). */
+  defaultRoute?: string;
+  /** REQ-ENTERPRISE-005 (revised): the default route's reasoning grade (Pi defaultThinkingLevel). */
+  defaultReasoning?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded to the container. */
   userTimezone?: string;
 }

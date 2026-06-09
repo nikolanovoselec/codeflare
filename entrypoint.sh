@@ -1855,14 +1855,20 @@ CA_TRUST_EOF
     # gateway. The customer's real provider key lives on the AI Gateway.
     ENTERPRISE_PLACEHOLDER_TOKEN="codeflare-enterprise"
 
-    # Fixed, slash-free model handle every enterprise agent is configured with.
-    # The REAL gateway route is stamped by the Worker interceptor on egress
-    # (it rewrites the wire `model` to AIG_LANGUAGE_MODEL), so this is only an
-    # internal handle and the route name never enters the container. It MUST stay
-    # slash-free: Pi parses `a/b` in a model id as `provider/model`, so a
-    # `dynamic/<route>` id would be bound to a non-existent/built-in provider and
-    # never reach api.openai.com (the only intercepted host).
-    ENTERPRISE_MODEL_HANDLE="codeflare"
+    # Route catalog (JSON array) + default route + reasoning grade fanned by the
+    # Worker (buildEnvVars) from Setup→KV. The interceptor maps each slash-free
+    # handle -> dynamic/<route> on egress, so the handles stay slash-free here.
+    # They MUST stay slash-free: Pi parses `a/b` in a model id as `provider/model`,
+    # so a `dynamic/<route>` id would be bound to a non-existent/built-in provider
+    # and never reach api.openai.com (the only intercepted host). The full catalog
+    # is listed in Pi models.json; Copilot launches on the default route only.
+    ENTERPRISE_ROUTE_CATALOG="${ENTERPRISE_ROUTE_CATALOG:-[]}"
+    ENTERPRISE_DEFAULT_ROUTE="${ENTERPRISE_DEFAULT_ROUTE:-}"        # resolved Worker-side
+    ENTERPRISE_DEFAULT_REASONING="${ENTERPRISE_DEFAULT_REASONING:-off}"
+    # Fallback default if the Worker sent none: first catalog entry, else "codeflare".
+    if [ -z "$ENTERPRISE_DEFAULT_ROUTE" ]; then
+        ENTERPRISE_DEFAULT_ROUTE="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -r 'if type=="array" and length>0 then .[0] else "codeflare" end')"
+    fi
 
     # NOTE: Claude Code is intentionally NOT configured here. It speaks the
     # Anthropic-native wire format, which the AI Gateway REST transport does not
@@ -1874,7 +1880,9 @@ CA_TRUST_EOF
     # BYOK against the real OpenAI host (intercepted -> gateway REST API). BYOK is
     # a 3-var contract: base URL + key + MODEL are ALL required, or the CLI never
     # enters BYOK mode and falls back to GitHub-hosted models. The model is the
-    # fixed slash-free handle; the Worker interceptor rewrites it to the real
+    # default route's slash-free handle (Copilot cannot enumerate multiple BYOK
+    # models — GitHub #3282 open — so it launches on the default route only;
+    # switching routes = relaunch); the Worker interceptor maps it to the real
     # gateway route on egress. COPILOT_PROVIDER_TYPE defaults to "openai" (correct
     # for the gateway compat path), so it is left unset.
     #
@@ -1887,7 +1895,7 @@ CA_TRUST_EOF
     # disables the GitHub-hosted features above).
     export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
     export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
-    export COPILOT_MODEL="$ENTERPRISE_MODEL_HANDLE"
+    export COPILOT_MODEL="$ENTERPRISE_DEFAULT_ROUTE"
     # The custom model handle is not in Copilot's built-in catalog, so Copilot warns
     # ("Model ... not in the built-in catalog. Using defaults for ...") and falls back
     # to default token limits. Advertise gpt-5.5's real window (1,050,000 ctx / 128,000
@@ -1896,7 +1904,7 @@ CA_TRUST_EOF
     # cannot send reasoning_effort to trigger the gemini fallback, which supports more).
     export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="920000"
     export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="128000"
-    echo "[entrypoint] Enterprise Mode: Copilot BYOK active (base_url + key + model=$ENTERPRISE_MODEL_HANDLE) via interception"
+    echo "[entrypoint] Enterprise Mode: Copilot BYOK active (base_url + key + model=$ENTERPRISE_DEFAULT_ROUTE) via interception"
 
     # Persist the Copilot BYOK env into .bashrc so the COPILOT AGENT inherits it.
     # Same propagation failure as the CA-trust block above: the exports just above
@@ -1906,11 +1914,15 @@ CA_TRUST_EOF
     # not inherit these launches with no provider/url/model at all and falls back
     # to GitHub-hosted models (asks for GitHub login, ignores the custom base URL).
     # PREPENDED before the terminal-autostart block, same rationale as CA-trust.
+    # Re-asserted EVERY start (not prepend-once): a changed default route must
+    # overwrite a stale persisted COPILOT_MODEL on a restored home dir (Copilot is
+    # env-only, no config file). Strip any prior managed block (between the two
+    # sentinels) then prepend a fresh one. The explicit end-sentinel avoids the
+    # blank-line-range fragility of a "sentinel..blank line" delete.
     BASHRC_FILE="$USER_HOME/.bashrc"
-    if ! grep -q "# enterprise-copilot-byok" "$BASHRC_FILE" 2>/dev/null; then
-        touch "$BASHRC_FILE"
-        COPILOT_BYOK_TMP=$(mktemp)
-        cat > "$COPILOT_BYOK_TMP" << COPILOT_BYOK_EOF
+    touch "$BASHRC_FILE"
+    COPILOT_BYOK_TMP=$(mktemp)
+    cat > "$COPILOT_BYOK_TMP" << COPILOT_BYOK_EOF
 # enterprise-copilot-byok
 # Copilot BYOK contract (base URL + key + model + token limits), persisted so the
 # copilot PTY inherits it; without this Copilot ignores the gateway and asks for GitHub
@@ -1918,21 +1930,23 @@ CA_TRUST_EOF
 # context to gpt-5.5's real 1,050,000 / 128,000 window (prompt = ctx - output headroom).
 export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
 export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
-export COPILOT_MODEL="$ENTERPRISE_MODEL_HANDLE"
+export COPILOT_MODEL="$ENTERPRISE_DEFAULT_ROUTE"
 export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="920000"
 export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="128000"
+# end-enterprise-copilot-byok
 
 COPILOT_BYOK_EOF
-        cat "$BASHRC_FILE" >> "$COPILOT_BYOK_TMP"
-        mv "$COPILOT_BYOK_TMP" "$BASHRC_FILE"
-        chmod 644 "$BASHRC_FILE"
-        echo "[entrypoint] Enterprise Mode: Copilot BYOK env prepended to .bashrc (copilot PTY inherits provider/url/model)"
-    fi
+    # append the existing .bashrc MINUS any previously-managed block (sentinel..sentinel)
+    sed '/^# enterprise-copilot-byok$/,/^# end-enterprise-copilot-byok$/d' "$BASHRC_FILE" >> "$COPILOT_BYOK_TMP"
+    mv "$COPILOT_BYOK_TMP" "$BASHRC_FILE"
+    chmod 644 "$BASHRC_FILE"
+    echo "[entrypoint] Enterprise Mode: Copilot BYOK env re-asserted in .bashrc (COPILOT_MODEL=$ENTERPRISE_DEFAULT_ROUTE)"
 
     # --- Pi ----------------------------------------------------------------
     # Pi reads custom provider config from ~/.pi/agent/models.json. Register a
     # provider pointing at the real OpenAI host (intercepted -> gateway REST API)
-    # with the placeholder key and ONE fixed slash-free model handle, then PIN it
+    # with the placeholder key and ALL slash-free route handles from the catalog
+    # (Pi natively switches between them via /model), then PIN the default route
     # as the default in ~/.pi/agent/settings.json.
     #
     # Why the pin is essential: without a default, Pi keeps all its built-in
@@ -1942,45 +1956,52 @@ COPILOT_BYOK_EOF
     # SigV4 call to AWS Bedrock (-> UnrecognizedClientException) that NEVER reaches
     # api.openai.com, so the interceptor and gateway see nothing. Pinning
     # defaultProvider+defaultModel makes Pi gateway-bound on launch, zero-touch.
-    # The handle is slash-free (Pi parses a slash as provider/model); the real
-    # gateway route is stamped by the Worker interceptor (AIG_LANGUAGE_MODEL).
+    # The handles are slash-free (Pi parses a slash as provider/model); the real
+    # gateway route is mapped by the Worker interceptor from the slash-free handle.
     PI_GATEWAY_BASE_URL="https://api.openai.com/v1"
     PI_MODELS_JSON="$USER_HOME/.pi/agent/models.json"
     PI_SETTINGS_JSON="$USER_HOME/.pi/agent/settings.json"
     mkdir -p "$(dirname "$PI_MODELS_JSON")"
 
-    # models.json: codeflare-gateway provider with one fixed model. Always register
-    # the model — a provider with zero models is invisible in Pi's picker/login.
+    # models.json: codeflare-gateway provider with ONE model per catalog route.
+    # Always register at least one model — a provider with zero models is invisible
+    # in Pi's picker/login — so an empty catalog falls back to the default route.
     # api="openai-completions": the AI Gateway REST endpoint /ai/v1/responses is
     # currently broken on this gateway -- it rejects a valid Responses `input` body
     # with "Required value missing: messages" (it validates as chat/completions),
     # confirmed by synthetic test and gateway logs. So Pi must use the chat/completions
     # adapter, which works (200). Caveat: gpt-5.5 rejects function tools +
-    # reasoning_effort together on /v1/chat/completions. So the model advertises
+    # reasoning_effort together on /v1/chat/completions. So each model advertises
     # reasoning:true (the thinking selector stays available -- Shift+Tab / /settings),
-    # but settings.json pins defaultThinkingLevel:"off" so every session STARTS with
-    # thinking off: Pi sends no reasoning_effort by default (tools-only works, 200,
-    # and the dynamic route can fall back to a reasoning-capable chat/completions
-    # model). The user can raise the level when a route model supports reasoning over
-    # chat/completions (e.g. Gemini); gpt-5.5 stays 400 at levels above off until CF
-    # fixes /ai/v1/responses -- that is the documented, user-visible tradeoff.
+    # but settings.json pins defaultThinkingLevel to the default route's reasoning
+    # grade (off/low/medium/high) so every session STARTS at that level: at "off" Pi
+    # sends no reasoning_effort by default (tools-only works, 200, and the dynamic
+    # route can fall back to a reasoning-capable chat/completions model). The user
+    # can raise the level when a route model supports reasoning over chat/completions
+    # (e.g. Gemini); gpt-5.5 stays 400 at levels above off until CF fixes
+    # /ai/v1/responses -- that is the documented, user-visible tradeoff.
+    PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c --arg def "$ENTERPRISE_DEFAULT_ROUTE" '
+        (if type=="array" and length>0 then . else [$def] end)
+        | map({ id: ., reasoning: true, input: ["text", "image"] })')"
     PI_PROVIDER_CONFIG=$(jq -n \
         --arg baseUrl "$PI_GATEWAY_BASE_URL" \
         --arg apiKey "$ENTERPRISE_PLACEHOLDER_TOKEN" \
-        --arg model "$ENTERPRISE_MODEL_HANDLE" '{
+        --argjson models "$PI_MODELS_ARRAY" '{
         providers: {
             "codeflare-gateway": {
                 baseUrl: $baseUrl,
                 api: "openai-completions",
                 apiKey: $apiKey,
                 authHeader: true,
-                models: [{ id: $model, reasoning: true, input: ["text", "image"] }]
+                models: $models
             }
         }
     }')
     if [ -f "$PI_MODELS_JSON" ]; then
         TMP_JSON=$(mktemp)
-        if jq --argjson cfg "$PI_PROVIDER_CONFIG" '. * $cfg' "$PI_MODELS_JSON" > "$TMP_JSON" 2>/dev/null; then
+        # Authoritative for codeflare-gateway only: replace that provider key wholesale
+        # (so a removed route disappears) while preserving any other providers.
+        if jq --argjson cfg "$PI_PROVIDER_CONFIG" '.providers = (.providers // {}) * $cfg.providers' "$PI_MODELS_JSON" > "$TMP_JSON" 2>/dev/null; then
             mv "$TMP_JSON" "$PI_MODELS_JSON"
         else
             echo "[entrypoint] WARNING: Could not merge Pi gateway provider (malformed models.json?)"
@@ -1990,12 +2011,15 @@ COPILOT_BYOK_EOF
         echo "$PI_PROVIDER_CONFIG" | jq '.' > "$PI_MODELS_JSON"
     fi
 
-    # settings.json: pin codeflare-gateway as default provider + model. Deep-merge
-    # so any existing keys (e.g. packages) are preserved.
+    # settings.json: overwrite ONLY defaultProvider/defaultModel/defaultThinkingLevel
+    # from the default route + reasoning grade each start (authoritative for these 3
+    # keys), preserving everything else (e.g. packages). defaultThinkingLevel comes
+    # from the default route's reasoning grade (container-side), not a hardcoded "off".
     PI_SETTINGS_CFG=$(jq -n \
         --arg provider "codeflare-gateway" \
-        --arg model "$ENTERPRISE_MODEL_HANDLE" \
-        '{defaultProvider: $provider, defaultModel: $model, defaultThinkingLevel: "off"}')
+        --arg model "$ENTERPRISE_DEFAULT_ROUTE" \
+        --arg thinking "$ENTERPRISE_DEFAULT_REASONING" \
+        '{defaultProvider: $provider, defaultModel: $model, defaultThinkingLevel: $thinking}')
     if [ -f "$PI_SETTINGS_JSON" ]; then
         TMP_SET=$(mktemp)
         if jq --argjson cfg "$PI_SETTINGS_CFG" '. * $cfg' "$PI_SETTINGS_JSON" > "$TMP_SET" 2>/dev/null; then
@@ -2007,7 +2031,7 @@ COPILOT_BYOK_EOF
     else
         echo "$PI_SETTINGS_CFG" | jq '.' > "$PI_SETTINGS_JSON"
     fi
-    echo "[entrypoint] Enterprise Mode: Pi pinned to codeflare-gateway/$ENTERPRISE_MODEL_HANDLE (default provider + model)"
+    echo "[entrypoint] Enterprise Mode: Pi pinned to codeflare-gateway/$ENTERPRISE_DEFAULT_ROUTE (default provider + model; catalog has all routes)"
 fi
 
 # Configure context-mode MCP server. (Implements REQ-AGENT-005)

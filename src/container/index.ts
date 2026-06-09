@@ -159,6 +159,14 @@ export class container extends Container<Env> implements ContainerEnvState {
    * per-group gateway policies.
    */
   _userGroups: string[] = [];
+  /**
+   * Enterprise dynamic-route config (REQ-ENTERPRISE-005 revised), populated by the
+   * internal-config handler. buildEnvVars fans these to entrypoint.sh as
+   * ENTERPRISE_ROUTE_CATALOG / ENTERPRISE_DEFAULT_ROUTE / ENTERPRISE_DEFAULT_REASONING.
+   */
+  _routeCatalog: string[] = [];
+  _defaultRoute: string | null = null;
+  _defaultReasoning: string | null = null;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null = null;
   /**
@@ -205,6 +213,11 @@ export class container extends Container<Env> implements ContainerEnvState {
         const legacy = await this.ctx.storage.get<string>('userGroup');
         this._userGroups = legacy ? [legacy] : [];
       }
+      // REQ-ENTERPRISE-005 (revised): restore the dynamic-route config so a DO wake
+      // re-emits the entrypoint env (matches the userGroups / userEmail pattern).
+      this._routeCatalog = await this.ctx.storage.get<string[]>('routeCatalog') || [];
+      this._defaultRoute = await this.ctx.storage.get<string>('defaultRoute') || null;
+      this._defaultReasoning = await this.ctx.storage.get<string>('defaultReasoning') || null;
       // REQ-MEM-001 AC4: restore the user's IANA timezone so the capture
       // pipeline's TZ resolution produces wall-clock filenames after a
       // DO wake (matches the pattern for sessionId / userEmail above).

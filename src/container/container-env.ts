@@ -39,6 +39,12 @@ export interface ContainerEnvState {
   _userEmail: string | null;
   /** REQ-ENTERPRISE-004: the user's matched Cloudflare Access groups, one cf-aig-metadata tag per group. */
   _userGroups: string[];
+  /** REQ-ENTERPRISE-005 (revised): the full dynamic-route catalog (Pi models.json lists all). */
+  _routeCatalog: string[];
+  /** REQ-ENTERPRISE-005 (revised): the resolved default route (Copilot model + Pi default model). */
+  _defaultRoute: string | null;
+  /** REQ-ENTERPRISE-005 (revised): the default route's reasoning grade (Pi defaultThinkingLevel). */
+  _defaultReasoning: string | null;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null;
 }
@@ -48,6 +54,9 @@ interface RestartPrefsInput {
   sessionId?: string;
   userEmail?: string;
   userGroups?: string[];
+  routeCatalog?: string[];
+  defaultRoute?: string;
+  defaultReasoning?: string;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
@@ -226,12 +235,18 @@ export function buildEnvVars(
     // Emitted only when ENTERPRISE_MODE=active, so a non-enterprise container's
     // env is byte-identical to today.
     ...(isEnterpriseMode(env) && { ENTERPRISE_MODE: 'active' }),
-    // NB: the gateway route id (AIG_LANGUAGE_MODEL) is deliberately NOT fanned
-    // into the container. Agents are configured with a fixed, slash-free handle
-    // (`codeflare`) in entrypoint.sh; the Worker-side LlmInterceptor rewrites the
-    // wire `model` to AIG_LANGUAGE_MODEL on egress. This keeps the route name —
-    // like every other gateway concern — out of the container, and lets the
-    // operator change the route by editing one Worker var with no agent reconfig.
+    // REQ-ENTERPRISE-005 (revised): the dynamic-route NAMES + the default route's
+    // reasoning grade ARE fanned into the container (amends the prior "route name
+    // NOT fanned" invariant). entrypoint.sh builds Pi models.json from the catalog,
+    // sets Copilot COPILOT_MODEL + Pi defaultModel to the default route, and Pi
+    // defaultThinkingLevel from the reasoning grade. NO credential / gateway URL /
+    // token is fanned — those still never enter the container; the LlmInterceptor
+    // maps the slash-free handle to dynamic/<route> on egress. Emitted only when
+    // enterprise AND present, so a non-enterprise (or unconfigured) container's env
+    // is byte-identical to today.
+    ...(isEnterpriseMode(env) && state._routeCatalog.length > 0 && { ENTERPRISE_ROUTE_CATALOG: JSON.stringify(state._routeCatalog) }),
+    ...(isEnterpriseMode(env) && state._defaultRoute && { ENTERPRISE_DEFAULT_ROUTE: state._defaultRoute }),
+    ...(isEnterpriseMode(env) && state._defaultReasoning && { ENTERPRISE_DEFAULT_REASONING: state._defaultReasoning }),
   };
 }
 
@@ -430,6 +445,31 @@ export async function applyPrefsOnRestart(
     state._userGroups = input.userGroups;
     await storage.put('userGroups', input.userGroups);
     logger.info('Updated userGroups on restart', { userGroups: input.userGroups });
+  }
+
+  // Update the dynamic-route config on restart so a changed Setup catalog / default
+  // route:reasoning re-emits the entrypoint env on the next start (REQ-ENTERPRISE-005
+  // revised). These DO affect buildEnvVars output (unlike userGroups, which only
+  // shapes interceptor props), so they set `changed` to regenerate the env. Value
+  // equality (JSON.stringify) on the catalog array — a reference !== compare is
+  // always true and would churn storage every restart.
+  if (input.routeCatalog && JSON.stringify(input.routeCatalog) !== JSON.stringify(state._routeCatalog)) {
+    state._routeCatalog = input.routeCatalog;
+    await storage.put('routeCatalog', input.routeCatalog);
+    changed = true;
+    logger.info('Updated routeCatalog on restart', { routeCatalog: input.routeCatalog });
+  }
+  if (input.defaultRoute && input.defaultRoute !== state._defaultRoute) {
+    state._defaultRoute = input.defaultRoute;
+    await storage.put('defaultRoute', input.defaultRoute);
+    changed = true;
+    logger.info('Updated defaultRoute on restart', { defaultRoute: input.defaultRoute });
+  }
+  if (input.defaultReasoning && input.defaultReasoning !== state._defaultReasoning) {
+    state._defaultReasoning = input.defaultReasoning;
+    await storage.put('defaultReasoning', input.defaultReasoning);
+    changed = true;
+    logger.info('Updated defaultReasoning on restart', { defaultReasoning: input.defaultReasoning });
   }
 
   return changed;

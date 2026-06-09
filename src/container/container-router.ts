@@ -36,6 +36,9 @@ interface SetBucketNameBody {
   sessionId?: string;
   userEmail?: string;
   userGroups?: string[];
+  routeCatalog?: string[];
+  defaultRoute?: string;
+  defaultReasoning?: string;
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;
   r2AccountId?: string;
@@ -142,7 +145,7 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, userGroups, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, userTimezone, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, userTimezone, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
     // FIX-28: Idempotency - once bucket name is set, reject subsequent calls.
@@ -152,7 +155,8 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       // Update user preferences on restart even though bucket is already set.
       // Without this, preference changes made between sessions are lost.
       const prefsChanged = await applyPrefsOnRestart(host, host.ctx.storage, {
-        sessionId, userEmail, userGroups, workspaceSyncEnabled, fastStartEnabled, tabConfig,
+        sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning,
+        workspaceSyncEnabled, fastStartEnabled, tabConfig,
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
         encryptionKey, sessionMode, userTimezone,
       });
@@ -204,6 +208,22 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
     if (userGroups && userGroups.length > 0) {
       await host.ctx.storage.put('userGroups', userGroups);
       host._userGroups = userGroups;
+    }
+
+    // Store the dynamic-route catalog + resolved default route:reasoning so
+    // buildEnvVars emits them for entrypoint.sh on each container start.
+    // REQ-ENTERPRISE-005 (revised).
+    if (routeCatalog && routeCatalog.length > 0) {
+      await host.ctx.storage.put('routeCatalog', routeCatalog);
+      host._routeCatalog = routeCatalog;
+    }
+    if (defaultRoute) {
+      await host.ctx.storage.put('defaultRoute', defaultRoute);
+      host._defaultRoute = defaultRoute;
+    }
+    if (defaultReasoning) {
+      await host.ctx.storage.put('defaultReasoning', defaultReasoning);
+      host._defaultReasoning = defaultReasoning;
     }
 
     await applySetBucketName(host, bucketName, {
