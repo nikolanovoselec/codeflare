@@ -93,9 +93,10 @@ function cwdFromCommand(command: string): string | undefined {
 let sessionReviewRepo: string | undefined;
 
 // Resolve + remember the review repo for a ctx-bearing handler: an explicit command cwd (`cd`/`-C`
-// in the boundary command) first, then the Pi session's own cwd. Never the graphify sentinel.
+// in the boundary command) first, then the Pi session's own cwd, then pi's process dir as a last
+// resort (its own dir, not the cross-agent sentinel). Never the graphify sentinel.
 function reviewRepoForCtx(ctx: any, commandCwd?: string): string | undefined {
-  const repo = resolveReviewRepo({ commandCwd, sessionCwd: ctx?.sessionManager?.getCwd?.() }, findGitRoot);
+  const repo = resolveReviewRepo({ commandCwd, sessionCwd: ctx?.sessionManager?.getCwd?.(), processCwd: process.cwd() }, findGitRoot);
   if (repo) sessionReviewRepo = repo;
   return repo;
 }
