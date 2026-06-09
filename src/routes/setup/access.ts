@@ -257,14 +257,14 @@ async function upsertSwBypassAccessApp(
   customDomain: string,
   kv: KVNamespace,
   existingApps: AccessApp[],
-  steps: SetupStep[],
-  stepIndex: number,
 ): Promise<void> {
+  // Best-effort: a failure here must NEVER abort the already-succeeded host-wide
+  // Access setup, and must never leave a policy-less self_hosted app on the SW path
+  // (a self_hosted app with no policy DENIES the path — worse than the 302 we fix).
+  // So the app id is persisted only after the bypass policy succeeds, a freshly
+  // created app is rolled back if the policy step fails, and every failure warns loudly.
   const swAppName = 'codeflare-vault-sw-bypass';
   const destinations = getSwBypassDestinations(customDomain);
-  // CF resolves overlapping apps by precedence; the more specific path must win
-  // over the host-wide app. Set the lowest precedence number (1 = highest
-  // priority). Verify in-dashboard that the SW path resolves to THIS app.
   const storedId = await kv.get(SETUP_KEYS.ACCESS_SW_BYPASS_APP_ID);
   const existing = (storedId && existingApps.find((a) => a.id === storedId))
     || existingApps.find((a) => a.name === swAppName) || null;
@@ -275,6 +275,8 @@ async function upsertSwBypassAccessApp(
 
   const appBody: Record<string, unknown> = {
     name: swAppName,
+    // CF resolves overlapping apps by precedence; this more-specific path must win
+    // over the host-wide app. Verify in-dashboard that the SW path resolves here.
     domain: `${customDomain}/api/vault/*/service_worker.js`,
     destinations,
     type: 'self_hosted',
@@ -283,48 +285,58 @@ async function upsertSwBypassAccessApp(
     precedence: 1,
   };
 
-  const appRes = await withSetupRetry(
-    () => cfApiCB.execute(() => fetch(url, {
-      method,
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(appBody),
-      signal: AbortSignal.timeout(10000),
-    })),
-    'upsertSwBypassAccessApp',
-  );
-  const appData = await parseCfResponse<AccessAppResult>(appRes);
-  if (!appData.success || !appData.result?.id) {
-    // Best-effort with a LOUD warning (never silent): if the mid-path scope is
-    // rejected, an operator must know to apply the /api/vault prefix fallback.
-    logger.warn('SW-bypass Access app upsert failed; vault service-worker may 302 under enterprise Access', {
-      domain: appBody.domain,
-      error: appData.errors?.[0]?.message ?? 'unknown',
-    });
-    return;
-  }
-  const swAppId = appData.result.id;
-  await kv.put(SETUP_KEYS.ACCESS_SW_BYPASS_APP_ID, swAppId);
-  logger.info('SW-bypass Access app upserted', { swAppId, domain: appBody.domain });
+  let createdAppId: string | null = null;
+  try {
+    const appRes = await withSetupRetry(
+      () => cfApiCB.execute(() => fetch(url, {
+        method,
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(appBody),
+        signal: AbortSignal.timeout(10000),
+      })),
+      'upsertSwBypassAccessApp',
+    );
+    const appData = await parseCfResponse<AccessAppResult>(appRes);
+    if (!appData.success || !appData.result?.id) {
+      // If the mid-path scope is rejected, an operator must know to apply the
+      // documented /api/vault prefix fallback — warn loudly, never silent.
+      logger.warn('SW-bypass Access app upsert failed; vault service-worker may 302 under enterprise Access', {
+        domain: appBody.domain,
+        error: appData.errors?.[0]?.message ?? 'unknown',
+      });
+      return;
+    }
+    const swAppId = appData.result.id;
+    if (!existing) createdAppId = swAppId;
 
-  // BYPASS policy: include everyone, decision 'bypass' (no auth required).
-  const policyBody = { name: 'Vault SW bypass', decision: 'bypass', include: [{ everyone: {} }] };
-  const polListRes = await cfApiCB.execute(() => fetch(
-    `${CF_API_BASE}/accounts/${accountId}/access/apps/${swAppId}/policies`,
-    { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) },
-  ));
-  const polList = await parseCfResponse<Array<{ id: string }>>(polListRes);
-  if (polList.success && polList.result?.length) {
-    await cfApiCB.execute(() => fetch(
-      `${CF_API_BASE}/accounts/${accountId}/access/apps/${swAppId}/policies/${polList.result[0].id}`,
-      { method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(policyBody), signal: AbortSignal.timeout(10000) },
-    ));
-  } else {
-    await cfApiCB.execute(() => fetch(
+    // BYPASS policy: include everyone, decision 'bypass' (no auth required).
+    const policyBody = { name: 'Vault SW bypass', decision: 'bypass', include: [{ everyone: {} }] };
+    const polListRes = await cfApiCB.execute(() => fetch(
       `${CF_API_BASE}/accounts/${accountId}/access/apps/${swAppId}/policies`,
-      { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(policyBody), signal: AbortSignal.timeout(10000) },
+      { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) },
     ));
+    const polList = await parseCfResponse<Array<{ id: string }>>(polListRes);
+    const polRes = (polList.success && polList.result?.length)
+      ? await cfApiCB.execute(() => fetch(
+          `${CF_API_BASE}/accounts/${accountId}/access/apps/${swAppId}/policies/${polList.result[0].id}`,
+          { method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(policyBody), signal: AbortSignal.timeout(10000) },
+        ))
+      : await cfApiCB.execute(() => fetch(
+          `${CF_API_BASE}/accounts/${accountId}/access/apps/${swAppId}/policies`,
+          { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(policyBody), signal: AbortSignal.timeout(10000) },
+        ));
+    if (!polRes.ok) {
+      logger.warn('SW-bypass Access policy failed; rolling back the bypass app to avoid blocking the vault service-worker', { swAppId, status: polRes.status });
+      if (createdAppId) await deleteAccessApp(token, accountId, createdAppId).catch(() => { /* best effort */ });
+      return;
+    }
+    // Persist the id only after the bypass policy is in place.
+    await kv.put(SETUP_KEYS.ACCESS_SW_BYPASS_APP_ID, swAppId);
+    logger.info('SW-bypass Access app + policy provisioned', { swAppId, domain: appBody.domain });
+  } catch (error) {
+    logger.warn('SW-bypass Access provisioning errored; vault service-worker may 302 under enterprise Access', { error: toErrorMessage(error) });
+    if (createdAppId) await deleteAccessApp(token, accountId, createdAppId).catch(() => { /* best effort */ });
   }
-  logger.info('SW-bypass Access policy applied', { swAppId });
 }
 
 async function listAccessGroups(token: string, accountId: string): Promise<AccessGroup[]> {
@@ -733,7 +745,7 @@ export async function handleCreateAccessApp(
     // request through to the Worker's own SW short-circuit. Default/SaaS leave the
     // SW path reachable already, so no bypass app is created.
     if (enterprise) {
-      await upsertSwBypassAccessApp(token, accountId, customDomain, kv, existingApps, steps, stepIndex);
+      await upsertSwBypassAccessApp(token, accountId, customDomain, kv, existingApps);
     }
 
     steps[stepIndex].status = 'success';

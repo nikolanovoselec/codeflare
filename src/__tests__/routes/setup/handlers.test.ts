@@ -195,6 +195,22 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       expect(body.defaultRoute).toBeNull();
     });
 
+    it('GET /prefill degrades to empty defaults when stored route JSON is malformed', async () => {
+      // Real Cloudflare KV.get(key, 'json') THROWS on malformed stored JSON. This
+      // read runs before the handler's CF-API try block, so without a guard a bad
+      // value would 500 the whole prefill. Simulate the boundary throwing.
+      mockKV.get.mockImplementation(async (_key: string, type?: string) => {
+        if (type === 'json') throw new SyntaxError('Unexpected token in JSON');
+        return null;
+      });
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { dynamicRoutes?: string[]; defaultRoute?: unknown };
+      expect(body.dynamicRoutes).toEqual([]);
+      expect(body.defaultRoute).toBeNull();
+    });
+
     it('GET /prefill returns the extras on the no-token path (regression)', async () => {
       mockKV._store.set('setup:enterprise_access_group', 'team_a');
       const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
