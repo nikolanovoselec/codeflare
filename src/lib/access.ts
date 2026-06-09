@@ -480,16 +480,12 @@ export function parseAccessGroups(raw: string | null | undefined): string[] {
 }
 
 /**
- * Resolve which single configured Access group the user belongs to, by calling
- * the Access get-identity endpoint with the user's CF_Authorization token and
- * intersecting the user's group membership with `configuredGroups`. Returns the
- * matched group (the canonical configured spelling), or null if the user is in
- * none. Fails CLOSED (returns null) on any missing input or error — an
- * enterprise group gate must never admit, nor attribute, on uncertainty.
- *
- * A user is expected to map to AT MOST ONE codeflare group (the IdP enforces
- * single-membership). If more than one matches it is an IdP misconfiguration, so
- * the first by configured order is returned and a warning is logged.
+ * Resolve which configured Access groups the user belongs to, by calling the
+ * Access get-identity endpoint with the user's CF_Authorization token and
+ * intersecting the user's group membership with `configuredGroups`. Returns ALL
+ * matched groups in configured order, or [] if the user is in none. Fails CLOSED
+ * (returns []) on any missing input or error — an enterprise group gate must
+ * never admit, nor attribute, on uncertainty.
  *
  * get-identity lives on the team auth domain
  * (`https://<team>.cloudflareaccess.com/cdn-cgi/access/get-identity`) and returns
@@ -501,14 +497,14 @@ export async function resolveUserAccessGroup(
   accessToken: string | null,
   authDomain: string | null | undefined,
   configuredGroups: string[],
-): Promise<string | null> {
-  if (configuredGroups.length === 0) return null;
+): Promise<string[]> {
+  if (configuredGroups.length === 0) return [];
   if (!accessToken || !authDomain) {
     logger.warn('Enterprise group gate: missing token or auth domain — denying', {
       hasToken: !!accessToken,
       hasDomain: !!authDomain,
     });
-    return null;
+    return [];
   }
   // Defense in depth: authDomain is sourced from setup KV (not the request), but
   // validate it matches the Cloudflare Access team-domain shape before interpolating
@@ -516,7 +512,7 @@ export async function resolveUserAccessGroup(
   // get-identity call to an arbitrary host.
   if (!/^[a-z0-9-]+\.cloudflareaccess\.com$/i.test(authDomain)) {
     logger.warn('Enterprise group gate: auth domain is not a *.cloudflareaccess.com host — denying');
-    return null;
+    return [];
   }
   try {
     const response = await fetch(`https://${authDomain}/cdn-cgi/access/get-identity`, {
@@ -526,7 +522,7 @@ export async function resolveUserAccessGroup(
     });
     if (!response.ok) {
       logger.warn('Enterprise group gate: get-identity returned non-OK — denying', { status: response.status });
-      return null;
+      return [];
     }
     const identity = (await response.json()) as { groups?: unknown };
     const userGroups = Array.isArray(identity?.groups) ? identity.groups : [];
@@ -539,32 +535,31 @@ export async function resolveUserAccessGroup(
         }
         return false;
       });
-    const matched = configuredGroups.filter(isMember);
-    if (matched.length === 0) return null;
-    if (matched.length > 1) {
-      logger.warn('Enterprise group gate: user matched multiple codeflare groups — IdP misconfiguration (a user should map to at most one); using the first by configured order', { matched });
-    }
-    return matched[0] ?? null;
+    // Return ALL matched configured groups (configured order preserved). A user
+    // may legitimately belong to several codeflare groups; each becomes one
+    // cf-aig-metadata tag downstream (REQ-ENTERPRISE-004 revised). No collapse,
+    // no IdP-misconfiguration warning — multi-membership is now expected.
+    return configuredGroups.filter(isMember);
   } catch (err) {
     logger.warn('Enterprise group gate: get-identity call failed — denying', {
       error: err instanceof Error ? err.message : String(err),
     });
-    return null;
+    return [];
   }
 }
 
 /**
- * Resolve the single Cloudflare Access group (among the configured codeflare
- * groups) that the current request's user belongs to, for per-user gateway
- * attribution (stamped as cf-aig-metadata.group). Enterprise-mode only; returns
- * null when not enterprise, when no groups are configured, or when the user
- * matches none. Issues at most one get-identity call — invoke it ONCE per session
- * start (see the container /start route), never per request. REQ-ENTERPRISE-004.
+ * Resolve the Cloudflare Access groups (among the configured codeflare groups)
+ * that the current request's user belongs to, for per-group gateway attribution
+ * (each stamped as a cf-aig-metadata group tag). Enterprise-mode only; returns []
+ * when not enterprise, when no groups are configured, or when the user matches
+ * none. Issues at most one get-identity call — invoke it ONCE per session start
+ * (see the container /start route), never per request. REQ-ENTERPRISE-004.
  */
-export async function resolveSessionAccessGroup(request: Request, env: Env): Promise<string | null> {
-  if (!isEnterpriseMode(env)) return null;
+export async function resolveSessionAccessGroup(request: Request, env: Env): Promise<string[]> {
+  if (!isEnterpriseMode(env)) return [];
   const configuredGroups = parseAccessGroups(await env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
-  if (configuredGroups.length === 0) return null;
+  if (configuredGroups.length === 0) return [];
   const { authDomain } = await loadAuthConfig(env);
   const accessToken = extractAccessJwt(request);
   return resolveUserAccessGroup(accessToken, authDomain, configuredGroups);
@@ -618,8 +613,8 @@ export async function resolveOrProvisionEnterpriseUser(
   // user in ANY configured group may use the deployment (REQ-ENTERPRISE-010).
   const configuredGroups = parseAccessGroups(await kv.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
   if (configuredGroups.length > 0) {
-    const matchedGroup = await resolveUserAccessGroup(accessToken, authDomain, configuredGroups);
-    if (!matchedGroup) {
+    const matchedGroups = await resolveUserAccessGroup(accessToken, authDomain, configuredGroups);
+    if (matchedGroups.length === 0) {
       throw new ForbiddenError('User not in allowlist');
     }
   }

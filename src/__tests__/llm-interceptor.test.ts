@@ -37,8 +37,11 @@ const AIG_TOKEN = 'aig-secret-token';
 const SESSION_USER = 'nikola@novoselec.ch'; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
 
 /** Construct an interceptor with the given env + per-session props. */
-function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; group?: string } = { user: SESSION_USER }) {
-  const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, ...envOverrides } as unknown as Env;
+function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; groups?: string[] } = { user: SESSION_USER }) {
+  // The interceptor now reads the route catalog from KV; tests pass a __kv map
+  // of key -> JSON string via envOverrides, which backs a minimal KV.get stub.
+  const kvStore: Record<string, string> = (envOverrides as { __kv?: Record<string, string> }).__kv ?? {};
+  const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, KV: { get: async (k: string) => kvStore[k] ?? null }, ...envOverrides } as unknown as Env;
   // The DO instantiates this via ctx.exports.LlmInterceptor({ props }); props
   // land on ctx.props. A minimal ctx stub mirrors that shape for the unit test.
   const ctx = { props } as unknown as ExecutionContext;
@@ -129,22 +132,37 @@ describe('REQ-ENTERPRISE-004: gateway authorization + per-user metadata', () => 
     expect(parsed.user).toBe('unknown');
   });
 
-  it('stamps cf-aig-metadata.group when the group prop is set (per-group attribution)', async () => {
-    await makeInterceptor({}, { user: SESSION_USER, group: 'codeflare_admins' }).fetch(
-      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+  it('stamps one group_<sanitized>=1 tag per matched group and NO scalar group key', async () => {
+    await makeInterceptor({}, { user: SESSION_USER, groups: ['codeflare_admins', 'Dev Team'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{"model":"x"}' }),
     );
     const parsed = JSON.parse(lastFetch?.headers.get('cf-aig-metadata') as string);
     expect(parsed.user).toBe(SESSION_USER);
-    expect(parsed.group).toBe('codeflare_admins');
+    expect('group' in parsed).toBe(false); // scalar dropped
+    const groupKeys = Object.keys(parsed).filter((k) => k.startsWith('group_'));
+    expect(groupKeys).toHaveLength(2);
+    for (const k of groupKeys) expect(parsed[k]).toBe(1); // value is a filterable scalar
+    // sanitization: spaces/case folded into the key
+    expect(groupKeys.some((k) => k.includes('dev_team'))).toBe(true);
   });
 
-  it('omits group from cf-aig-metadata when the group prop is absent (no-group deploy stamps exactly { user })', async () => {
-    await makeInterceptor({}, { user: SESSION_USER }).fetch(
-      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+  it('stamps exactly { user } with no group_* keys when groups is empty/absent', async () => {
+    await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{"model":"x"}' }));
+    const parsed = JSON.parse(lastFetch?.headers.get('cf-aig-metadata') as string);
+    expect(Object.keys(parsed)).toEqual(['user']);
+  });
+
+  it('truncates to 4 group tags (user + 4 = CF 5-tag cap) deterministically in configured order and warns', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await makeInterceptor({}, { user: SESSION_USER, groups: ['g1', 'g2', 'g3', 'g4', 'g5', 'g6'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{"model":"x"}' }),
     );
     const parsed = JSON.parse(lastFetch?.headers.get('cf-aig-metadata') as string);
-    expect(parsed.user).toBe(SESSION_USER);
-    expect('group' in parsed).toBe(false);
+    const groupKeys = Object.keys(parsed).filter((k) => k.startsWith('group_'));
+    expect(groupKeys).toHaveLength(4); // 4 groups + 1 user = 5 total (CF cap)
+    expect(groupKeys.some((k) => k.startsWith('group_g1_'))).toBe(true); // first kept
+    expect(groupKeys.some((k) => k.startsWith('group_g5_'))).toBe(false); // 5th/6th dropped
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('g5, g6')); // drop logged, not silent
   });
 });
 
@@ -312,67 +330,86 @@ describe('REQ-ENTERPRISE-004: streaming terminator repair (AC3 — dynamic-route
   });
 });
 
-describe('REQ-ENTERPRISE-007: gateway route-pinning (model rewrite)', () => {
-  it('rewrites the request model to AIG_LANGUAGE_MODEL on a chat/completions request', async () => {
-    await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise' } as Partial<Env>).fetch(
-      new Request('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        body: JSON.stringify({ model: 'codeflare', messages: [{ role: 'user', content: 'hi' }] }),
-      }),
+describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE_MODEL)', () => {
+  // Setup persists the catalog under SETUP_KEYS.DYNAMIC_ROUTES (JSON string[]) and
+  // the default under SETUP_KEYS.DEFAULT_ROUTE (JSON { route, reasoning }). The
+  // harness injects both via the __kv map (see makeInterceptor).
+  const withCatalog = (routes: string[], def?: string) =>
+    ({
+      __kv: {
+        'setup:dynamic_routes': JSON.stringify(routes),
+        ...(def !== undefined && { 'setup:default_route': JSON.stringify({ route: def, reasoning: 'off' }) }),
+      },
+    } as unknown as Partial<Env>);
+
+  it('maps a known slash-free handle to dynamic/<route> on chat/completions', async () => {
+    await makeInterceptor(withCatalog(['development', 'production'], 'development')).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'production', messages: [] }) }),
     );
-    const sent = JSON.parse(lastFetch?.body as string);
-    expect(sent.model).toBe('dynamic/codeflare-enterprise');
-    // The rest of the payload is preserved verbatim.
-    expect(sent.messages).toEqual([{ role: 'user', content: 'hi' }]);
+    expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/production');
   });
 
-  it('rewrites the model on a /responses request too', async () => {
-    await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/r' } as Partial<Env>).fetch(
-      new Request('https://api.openai.com/v1/responses', {
-        method: 'POST',
-        body: JSON.stringify({ model: 'codeflare', input: 'x' }),
-      }),
+  it('fails safe to the default route on an unknown handle', async () => {
+    await makeInterceptor(withCatalog(['development', 'production'], 'development')).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'bogus' }) }),
     );
-    expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/r');
+    expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/development');
   });
 
-  it('does NOT rewrite when AIG_LANGUAGE_MODEL is unset (forwards the agent model verbatim)', async () => {
-    await makeInterceptor().fetch(
-      new Request('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        body: JSON.stringify({ model: 'codeflare' }),
-      }),
+  it('resolves the default to the first catalog entry when none is configured', async () => {
+    await makeInterceptor(withCatalog(['alpha', 'beta'])).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'unknown' }) }),
+    );
+    expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/alpha');
+  });
+
+  it('does NOT rewrite when the catalog is empty (forwards the agent model verbatim)', async () => {
+    await makeInterceptor().fetch( // no __kv → empty catalog
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'codeflare' }) }),
     );
     expect(JSON.parse(lastFetch?.body as string).model).toBe('codeflare');
   });
 
-  it('does NOT rewrite a non-model-routable path (e.g. /v1/embeddings) even when set', async () => {
-    await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise' } as Partial<Env>).fetch(
-      new Request('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        body: JSON.stringify({ model: 'text-embedding-3-small', input: 'x' }),
-      }),
+  it('does NOT rewrite a non-model-routable path (e.g. /v1/embeddings)', async () => {
+    await makeInterceptor(withCatalog(['development'], 'development')).fetch(
+      new Request('https://api.openai.com/v1/embeddings', { method: 'POST', body: JSON.stringify({ model: 'text-embedding-3-small' }) }),
     );
     expect(JSON.parse(lastFetch?.body as string).model).toBe('text-embedding-3-small');
   });
 
-  it('forwards a non-JSON body unchanged (no crash) on a routable path when set', async () => {
-    await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise' } as Partial<Env>).fetch(
+  it('tolerates a pre-prefixed dynamic/<handle> and re-resolves through the catalog', async () => {
+    await makeInterceptor(withCatalog(['development'], 'development')).fetch(
+      new Request('https://api.openai.com/v1/responses', { method: 'POST', body: JSON.stringify({ model: 'dynamic/development', input: 'x' }) }),
+    );
+    expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/development');
+  });
+
+  it('forwards a non-JSON body unchanged (no crash) on a routable path with a catalog', async () => {
+    await makeInterceptor(withCatalog(['development'], 'development')).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: 'not-json' }),
     );
     expect(lastFetch?.body).toBe('not-json');
   });
 
   it('forwards JSON without a model field unchanged (no model injected)', async () => {
-    await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise' } as Partial<Env>).fetch(
-      new Request('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        body: JSON.stringify({ messages: [] }),
-      }),
+    await makeInterceptor(withCatalog(['development'], 'development')).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ messages: [] }) }),
     );
     const sent = JSON.parse(lastFetch?.body as string);
     expect(sent.model).toBeUndefined();
     expect(sent.messages).toEqual([]);
+  });
+
+  it('preserves the rest of the payload verbatim when mapping the model', async () => {
+    await makeInterceptor(withCatalog(['development', 'production'], 'development')).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'production', messages: [{ role: 'user', content: 'hi' }] }),
+      }),
+    );
+    const sent = JSON.parse(lastFetch?.body as string);
+    expect(sent.model).toBe('dynamic/production');
+    expect(sent.messages).toEqual([{ role: 'user', content: 'hi' }]);
   });
 });
 
@@ -427,16 +464,19 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
     expect(JSON.parse(compat.headers.get('cf-aig-metadata') as string).user).toBe(SESSION_USER);
   });
 
-  it('replays the SAME buffered (route-pinned) body on the compat leg', async () => {
+  it('replays the SAME buffered (catalog-mapped) body on the compat leg', async () => {
     const calls = mockRestThenCompat();
-    await makeInterceptor({ AIG_LANGUAGE_MODEL: 'dynamic/codeflare-enterprise' } as Partial<Env>).fetch(
+    const env = {
+      __kv: { 'setup:dynamic_routes': JSON.stringify(['codeflare']), 'setup:default_route': JSON.stringify({ route: 'codeflare', reasoning: 'off' }) },
+    } as unknown as Partial<Env>;
+    await makeInterceptor(env).fetch(
       new Request('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         body: JSON.stringify({ model: 'codeflare', messages: [{ role: 'user', content: 'hi' }] }),
       }),
     );
-    // both legs carry the rewritten model, byte-identical (the buffered replay)
-    expect(JSON.parse(calls[0].body).model).toBe('dynamic/codeflare-enterprise');
+    // both legs carry the mapped model, byte-identical (the buffered replay)
+    expect(JSON.parse(calls[0].body).model).toBe('dynamic/codeflare');
     expect(calls[1].body).toBe(calls[0].body);
   });
 

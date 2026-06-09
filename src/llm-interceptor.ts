@@ -23,11 +23,13 @@
  * (Copilot, Pi): they call api.openai.com and their requests map onto the
  * gateway's OpenAI-compatible REST endpoint. Backend model selection — native
  * provider, Amazon Bedrock, Workers AI, or a dynamic route — is gateway-side.
- * When AIG_LANGUAGE_MODEL is configured the Worker rewrites the request `model`
- * to that route id (see fetch()): the agent only needs a clean, slash-free model
- * id to reach this host, and the gateway route name never enters the container.
- * This sidesteps Pi parsing a `dynamic/<route>` model id as `provider/id` and
- * misrouting to a built-in provider (the request would never reach this host).
+ * The Worker maps each agent-sent slash-free handle to a gateway dynamic route
+ * `dynamic/<route>` from the Setup-configured catalog in KV (see fetch() and
+ * loadRouteCatalog), failing safe to the default route on an unknown handle: the
+ * agent only needs a clean, slash-free model id to reach this host, and the
+ * gateway route name never enters the container. This sidesteps Pi parsing a
+ * `dynamic/<route>` model id as `provider/id` and misrouting to a built-in
+ * provider (the request would never reach this host).
  * Auth is per transport: the REST API takes `Authorization: Bearer <AIG_TOKEN>`
  * (the token's Workers AI scope); the compat fallback takes `cf-aig-authorization:
  * Bearer <AIG_TOKEN>` (the token's AI Gateway Run scope) — so AIG_TOKEN must hold
@@ -40,6 +42,7 @@
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from './types';
+import { SETUP_KEYS } from './lib/kv-keys';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -94,12 +97,13 @@ interface InterceptorProps {
   /** The user's email — stamped into cf-aig-metadata for per-user gateway analytics. */
   user: string;
   /**
-   * The user's matched Cloudflare Access group, when the deployment configures
-   * group gating — stamped into cf-aig-metadata.group so the gateway can branch
-   * routing / cost / rate-limit policies on it (a user maps to at most one group).
-   * Omitted from the metadata when absent.
+   * The user's matched Cloudflare Access groups, when the deployment configures
+   * group gating. Each becomes one cf-aig-metadata tag (group_<sanitized>=1) so
+   * the gateway can branch routing/cost/rate-limit policies per group with an
+   * equals filter (CF metadata log filters support equals/not-equals only — no
+   * contains — so per-group KEYS, not a CSV value). Omitted when empty.
    */
-  group?: string;
+  groups?: string[];
 }
 
 /**
@@ -139,6 +143,21 @@ function stripOpenAiOnlyFields(raw: string): string {
     /* not JSON: forward the original bytes unchanged */
   }
   return raw;
+}
+
+// CF AI Gateway metadata keys must be simple strings; a group name can contain
+// spaces / punctuation / unicode. Sanitize to [a-z0-9_]: lowercase, replace each
+// run of non-[a-z0-9] with a single '_', trim leading/trailing '_'. To avoid two
+// distinct group names colliding onto the same sanitized key (e.g. "Dev Team" and
+// "dev-team" both → "dev_team"), append a short stable hash suffix of the ORIGINAL
+// name so the key is unique per source name while staying equals-filterable.
+const MAX_METADATA_TAGS = 5; // CF hard cap; extras are silently dropped upstream.
+function sanitizeGroupKey(name: string): string {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'group';
+  // djb2-ish short hash of the original (collision avoidance across sanitized keys).
+  let h = 5381;
+  for (let i = 0; i < name.length; i++) h = ((h << 5) + h + name.charCodeAt(i)) >>> 0;
+  return `group_${base}_${h.toString(36)}`;
 }
 
 /**
@@ -307,11 +326,21 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       // per-user analytics is diagnosable rather than silently missing.
       console.warn('LlmInterceptor: per-session user prop absent; cf-aig-metadata user=unknown');
     }
-    // Per-user (and, when configured, per-group) attribution. `group` is omitted
-    // when absent so a no-group deploy stamps exactly { user } as before, and a
-    // gateway rule on metadata.group simply does not match (keep a default branch).
-    const metadata: { user: string; group?: string } = { user: user ?? 'unknown' };
-    if (props?.group) metadata.group = props.group;
+    // Per-user + per-group attribution. One tag per matched group
+    // (group_<sanitized>=1) so each is equals-filterable to drive Dynamic-Route
+    // if/else (CF filters: equals/not-equals only). Budget: 1 user tag + up to
+    // (MAX_METADATA_TAGS-1) group tags. CF silently drops extras past 5, so a
+    // user matching more groups than fit is truncated DETERMINISTICALLY (configured
+    // order, preserved from resolveUserAccessGroup) and the drop is LOGGED (never
+    // silent). The scalar `group` tag is dropped entirely (revised contract).
+    const metadata: Record<string, string | number> = { user: user ?? 'unknown' };
+    const groups = props?.groups ?? [];
+    const groupBudget = MAX_METADATA_TAGS - 1; // user always occupies one slot.
+    const kept = groups.slice(0, groupBudget);
+    if (groups.length > groupBudget) {
+      console.warn(`LlmInterceptor: ${groups.length} matched groups exceed the ${groupBudget}-group metadata budget; keeping the first ${groupBudget} (configured order) and dropping ${groups.slice(groupBudget).join(', ')}`);
+    }
+    for (const g of kept) metadata[sanitizeGroupKey(g)] = 1;
     baseHeaders.set('cf-aig-metadata', JSON.stringify(metadata));
 
     // REST transport: standard Authorization header (Workers AI scope) + the
@@ -329,16 +358,18 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // SSE token streams pass with constant memory. The REQUEST body is normally
     // passed straight through too — GET/HEAD carry none, so pass undefined.
     //
-    // Enterprise route-pinning (the one rewrite): when AIG_LANGUAGE_MODEL is set,
-    // the Worker authoritatively replaces the request `model` with that gateway
-    // route id. The gateway selects a dynamic route by `model: dynamic/<route>`,
-    // but Pi parses a slash-bearing model id as `provider/id` and misroutes to a
-    // built-in provider — so a `dynamic/...` id configured in the container never
-    // reaches this host. Letting the agent carry only a clean, slash-free id
-    // (which routes correctly to api.openai.com) and stamping the real route HERE
-    // removes that whole class of misconfiguration and keeps the route name out
-    // of the container. Buffering a chat request body (the prompt) is cheap; only
-    // model-routable endpoints are rewritten, everything else passes verbatim.
+    // Enterprise route mapping (the one rewrite): the Worker maps the agent-sent
+    // slash-free handle (e.g. "development") to a gateway dynamic route
+    // `dynamic/<route>` from the Setup-configured catalog (KV). The gateway selects
+    // a dynamic route by `model: dynamic/<route>`, but Pi parses a slash-bearing
+    // model id as `provider/id` and misroutes to a built-in provider — so a
+    // `dynamic/...` id configured in the container never reaches this host. Letting
+    // the agent carry only a clean, slash-free handle (which routes correctly to
+    // api.openai.com) and stamping the real route HERE removes that whole class of
+    // misconfiguration and keeps the route name out of the container. An unknown
+    // handle fails safe to the default route. Buffering a chat request body (the
+    // prompt) is cheap; only model-routable endpoints are rewritten, everything
+    // else passes verbatim.
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
     const isModelRoutable = url.pathname.endsWith('/chat/completions') || url.pathname.endsWith('/responses');
     let outboundBody: BodyInit | null | undefined = hasBody ? request.body : undefined;
@@ -357,14 +388,18 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         });
       }
       outboundBody = raw;
-      // Route-pinning rewrite: when AIG_LANGUAGE_MODEL is set, replace the request
-      // `model` with that gateway route id. A JSON parse failure or a model-less
-      // body is non-fatal — forward the original bytes unchanged.
-      if (this.env.AIG_LANGUAGE_MODEL) {
+      // Map the agent-sent slash-free handle (e.g. "development") to the gateway
+      // dynamic route `dynamic/<name>`, from the Setup catalog (KV). An unknown
+      // handle FAILS SAFE to the default route. A model-less / non-JSON body is
+      // non-fatal — forward the original bytes unchanged.
+      const catalog = await this.loadRouteCatalog();
+      if (catalog.routes.length > 0) {
         try {
           const payload = JSON.parse(raw) as Record<string, unknown>;
-          if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'model' in payload) {
-            payload.model = this.env.AIG_LANGUAGE_MODEL;
+          if (payload && typeof payload === 'object' && !Array.isArray(payload) && typeof payload.model === 'string') {
+            const handle = payload.model.replace(/^dynamic\//, ''); // tolerate a pre-prefixed handle
+            const route = catalog.routes.includes(handle) ? handle : catalog.defaultRoute;
+            payload.model = `dynamic/${route}`;
             outboundBody = JSON.stringify(payload);
           }
         } catch {
@@ -431,5 +466,27 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       status: upstream.status,
       headers: responseHeaders,
     });
+  }
+
+  /**
+   * Load the Setup-configured dynamic-route catalog + resolved default route from
+   * KV. SETUP_KEYS.DYNAMIC_ROUTES is a JSON string[] of route names;
+   * SETUP_KEYS.DEFAULT_ROUTE is a JSON { route, reasoning } object written by the
+   * Setup wizard (reasoning is container-side only — entrypoint reads it). The
+   * default-route rule (locked, kept identical to loadEnterpriseRouteConfig in
+   * access.ts): the explicit default if it is in the catalog; else the first
+   * configured route; else (empty catalog) '' (no rewrite happens).
+   */
+  private async loadRouteCatalog(): Promise<{ routes: string[]; defaultRoute: string }> {
+    const rawCatalog = await this.env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES);
+    let routes: string[] = [];
+    try { const p = JSON.parse(rawCatalog ?? '[]'); if (Array.isArray(p)) routes = p.filter((r): r is string => typeof r === 'string'); } catch { /* malformed → empty */ }
+    const rawDefault = await this.env.KV.get(SETUP_KEYS.DEFAULT_ROUTE);
+    let configuredDefault: string | null = null;
+    try { const d = JSON.parse(rawDefault ?? 'null'); if (d && typeof d === 'object' && typeof (d as { route?: unknown }).route === 'string') configuredDefault = (d as { route: string }).route; } catch { /* malformed → none */ }
+    const defaultRoute = (configuredDefault && routes.includes(configuredDefault))
+      ? configuredDefault
+      : (routes[0] ?? '');
+    return { routes, defaultRoute };
   }
 }

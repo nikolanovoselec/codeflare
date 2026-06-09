@@ -1132,7 +1132,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch' } });
     });
 
-    it('passes the matched Access group as the interceptor group prop when set', async () => {
+    it('passes the matched Access groups as the interceptor groups prop when set', async () => {
       callOrder.length = 0;
       const fetcher = { id: 'llm-interceptor-fetcher' };
       const LlmInterceptor = vi.fn(() => fetcher);
@@ -1143,7 +1143,36 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       };
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'userEmail') return 'nikola@novoselec.ch';
-        if (key === 'userGroup') return 'codeflare_admins';
+        if (key === 'userGroups') return ['codeflare_admins', 'codeflare_developers'];
+        if (key === 'bucketName') return 'codeflare-enterprise-nikola-novoselec-ch';
+        return null;
+      });
+      const instance = new ContainerClass(ctx as any, enterpriseEnv());
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('userGroups');
+      });
+
+      await instance.startAndWaitForPorts(8080);
+
+      // The matched groups ride alongside the email; the interceptor stamps one
+      // cf-aig-metadata tag per group.
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', groups: ['codeflare_admins', 'codeflare_developers'] } });
+    });
+
+    it('coerces a legacy single-string userGroup storage value to a one-element userGroups list on wake', async () => {
+      callOrder.length = 0;
+      const fetcher = { id: 'llm-interceptor-fetcher' };
+      const LlmInterceptor = vi.fn(() => fetcher);
+      const ctx = {
+        ...mockCtx,
+        container: { ...mockContainerRuntime, interceptOutboundHttps: vi.fn() },
+        exports: { LlmInterceptor },
+      };
+      // Older sessions persisted a scalar under 'userGroup' and have NO 'userGroups'.
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'userEmail') return 'nikola@novoselec.ch';
+        if (key === 'userGroups') return undefined; // new key absent on a legacy DO
+        if (key === 'userGroup') return 'codeflare_admins'; // legacy scalar
         if (key === 'bucketName') return 'codeflare-enterprise-nikola-novoselec-ch';
         return null;
       });
@@ -1154,8 +1183,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
 
       await instance.startAndWaitForPorts(8080);
 
-      // The matched group rides alongside the email as the second cf-aig-metadata key.
-      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', group: 'codeflare_admins' } });
+      // The legacy scalar is coerced to a one-element list so the in-flight
+      // session keeps its per-group attribution.
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', groups: ['codeflare_admins'] } });
     });
   });
 

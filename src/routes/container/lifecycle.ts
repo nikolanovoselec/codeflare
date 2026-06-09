@@ -222,11 +222,12 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     // straight from the Worker deploy var. The gateway URL/token live only in
     // the LlmInterceptor's env - they never reach the container.
 
-    // Enterprise per-group attribution: resolve the user's matched Access group
-    // ONCE here (session start), not per request, and forward it to the DO so the
-    // LlmInterceptor stamps cf-aig-metadata.group. Null when non-enterprise, no
-    // groups are configured, or the user matches none. REQ-ENTERPRISE-004.
-    const userGroup = (await resolveSessionAccessGroup(c.req.raw, c.env)) ?? undefined;
+    // Enterprise per-group attribution: resolve the user's matched Access groups
+    // ONCE here (session start), not per request, and forward them to the DO so the
+    // LlmInterceptor stamps one cf-aig-metadata tag per group. Empty when
+    // non-enterprise, no groups are configured, or the user matches none.
+    // REQ-ENTERPRISE-004 (revised).
+    const userGroups = await resolveSessionAccessGroup(c.req.raw, c.env); // string[] (empty when none)
 
     // Step 4: Configure the container DO
     const { needsBucketUpdate, setBucketBody } = await configureContainerDO({
@@ -235,7 +236,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       bucketName,
       sessionId,
       userEmail: user.email,
-      userGroup,
+      userGroups,
       scopedCreds,
       r2Config,
       tabConfig,

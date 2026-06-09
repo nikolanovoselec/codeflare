@@ -58,9 +58,9 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     sessionMode: params.sessionMode,
     sleepAfter: params.sleepAfter,
-    // REQ-ENTERPRISE-004: forward the user's matched Access group so the
-    // LlmInterceptor stamps cf-aig-metadata.group for the gateway.
-    ...(params.userGroup && { userGroup: params.userGroup }),
+    // REQ-ENTERPRISE-004: forward the user's matched Access groups so the
+    // LlmInterceptor stamps one cf-aig-metadata tag per group for the gateway.
+    ...(params.userGroups && params.userGroups.length > 0 && { userGroups: params.userGroups }),
     // REQ-MEM-001 AC4: forward the user's IANA timezone so the capture
     // pipeline's TZ resolution produces wall-clock filenames matching
     // the user's location instead of UTC.

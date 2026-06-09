@@ -106,15 +106,6 @@ export interface Env {
   // Never exposed to the container.
   AIG_TOKEN?: string;
 
-  // Enterprise-only: the gateway model id / route the gateway should use — e.g.
-  // `dynamic/<route>` (a gateway dynamic route) or `openai/gpt-4.1`,
-  // `anthropic/claude-…`, `aws-bedrock/…`. A single operator deploy var, held in
-  // the Worker/interceptor env ONLY — never fanned into the container. The
-  // LlmInterceptor stamps it onto each agent request's `model` field on egress
-  // (route-pinning, AD74); agents carry only a fixed slash-free handle. Unset ⇒
-  // the model the agent sent is forwarded unchanged.
-  AIG_LANGUAGE_MODEL?: string;
-
 }
 
 /**
@@ -322,8 +313,8 @@ export interface ContainerConfigPayload {
   encryptionKey?: string;
   llmKeys?: LlmKeys;
   deployKeys?: DeployKeys;
-  /** REQ-ENTERPRISE-004: the user's matched Access group, for cf-aig-metadata.group. */
-  userGroup?: string;
+  /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */
+  userGroups?: string[];
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded to the container. */
   userTimezone?: string;
 }

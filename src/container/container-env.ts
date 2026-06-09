@@ -37,8 +37,8 @@ export interface ContainerEnvState {
   _containerAuthToken: string | null;
   _sessionId: string | null;
   _userEmail: string | null;
-  /** REQ-ENTERPRISE-004: the user's matched Cloudflare Access group, for cf-aig-metadata.group. */
-  _userGroup: string | null;
+  /** REQ-ENTERPRISE-004: the user's matched Cloudflare Access groups, one cf-aig-metadata tag per group. */
+  _userGroups: string[];
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null;
 }
@@ -47,7 +47,7 @@ export interface ContainerEnvState {
 interface RestartPrefsInput {
   sessionId?: string;
   userEmail?: string;
-  userGroup?: string;
+  userGroups?: string[];
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
@@ -422,12 +422,14 @@ export async function applyPrefsOnRestart(
     logger.info('Updated userEmail on restart', { userEmail: input.userEmail });
   }
 
-  // Update userGroup on restart so a changed Access-group membership re-stamps
-  // cf-aig-metadata.group on the next interception (REQ-ENTERPRISE-004).
-  if (input.userGroup && input.userGroup !== state._userGroup) {
-    state._userGroup = input.userGroup;
-    await storage.put('userGroup', input.userGroup);
-    logger.info('Updated userGroup on restart', { userGroup: input.userGroup });
+  // Update userGroups on restart so a changed Access-group membership re-stamps the
+  // per-group cf-aig-metadata tags on the next interception (REQ-ENTERPRISE-004
+  // revised). Value equality (JSON.stringify) — a reference !== compare on arrays
+  // is always true and would churn storage every restart.
+  if (input.userGroups && JSON.stringify(input.userGroups) !== JSON.stringify(state._userGroups)) {
+    state._userGroups = input.userGroups;
+    await storage.put('userGroups', input.userGroups);
+    logger.info('Updated userGroups on restart', { userGroups: input.userGroups });
   }
 
   return changed;

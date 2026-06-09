@@ -180,4 +180,24 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     expect(changed).toBe(false);
     expect(writes.userTimezone).toBeUndefined();
   });
+
+  // REQ-ENTERPRISE-004 (revised): userGroups restart compare uses JSON.stringify
+  // value equality. A reference !== compare on arrays is ALWAYS true, so it would
+  // re-write storage every restart even when the membership is unchanged.
+  it('does NOT re-write userGroups storage on restart when the list is value-equal (different array reference)', async () => {
+    const state = baseState();
+    (state as unknown as { _userGroups: string[] })._userGroups = ['a', 'b'];
+    const { writes, storage } = makeStorage();
+    await applyPrefsOnRestart(state, storage, { userGroups: ['a', 'b'] }); // fresh array, same value
+    expect(writes.userGroups).toBeUndefined();
+  });
+
+  it('re-writes userGroups storage on restart when the list value changed', async () => {
+    const state = baseState();
+    (state as unknown as { _userGroups: string[] })._userGroups = ['a'];
+    const { writes, storage } = makeStorage();
+    await applyPrefsOnRestart(state, storage, { userGroups: ['a', 'b'] });
+    expect(writes.userGroups).toEqual(['a', 'b']);
+    expect((state as unknown as { _userGroups: string[] })._userGroups).toEqual(['a', 'b']);
+  });
 });
