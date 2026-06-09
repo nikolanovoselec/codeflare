@@ -159,3 +159,47 @@ describe('reconcileBoundaryAction (REQ-AGENT-058 revised: offer-once, never auto
     expect(reconcileBoundaryAction({ reconcile: false, alreadyOffered: true })).toBe('noop');
   });
 });
+
+/**
+ * REQ-AGENT-058 AC4: a boundary-shaped command that does not start a review appends a
+ * durable `boundary_candidate_ignored` audit event NAMING the gate reason, so a skipped
+ * review is always reconstructable from disk (never-silent). reconcileOpenPrReview stamps
+ * `decision.reason` from shouldReconcileOpenPr verbatim into that event, so the audit's
+ * diagnostic value rests entirely on the decision surfacing a specific, non-empty reason
+ * per gate. These fail if any gate regresses to a bare/duplicated reason — which would make
+ * one ignored boundary indistinguishable from another in the event log.
+ */
+describe('REQ-AGENT-058 AC4: every suppressed reconcile gate names its own reason (boundary_candidate_ignored)', () => {
+  const reconcilable: OpenPrReconcileInput = {
+    prOpen: true,
+    prDraft: false,
+    enforced: true,
+    head: 'abc123',
+    acked: false,
+    hasReviewJob: false,
+    reviewActive: false,
+    breakerOpen: false,
+  };
+  const gates: Array<[string, OpenPrReconcileInput]> = [
+    ['no open PR', { ...reconcilable, prOpen: false }],
+    ['draft', { ...reconcilable, prDraft: true }],
+    ['not enforced', { ...reconcilable, enforced: false }],
+    ['no head', { ...reconcilable, head: '' }],
+    ['acked', { ...reconcilable, acked: true }],
+    ['breaker open', { ...reconcilable, breakerOpen: true }],
+    ['window exists', { ...reconcilable, hasReviewJob: true }],
+  ];
+
+  it('every suppressed gate yields reconcile=false with a non-empty reason to stamp', () => {
+    for (const [, input] of gates) {
+      const d = shouldReconcileOpenPr(input);
+      expect(d.reconcile).toBe(false);
+      expect(d.reason.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it('each gate names a DISTINCT reason so the audit event identifies which gate fired', () => {
+    const reasons = gates.map(([, input]) => shouldReconcileOpenPr(input).reason);
+    expect(new Set(reasons).size).toBe(reasons.length);
+  });
+});
