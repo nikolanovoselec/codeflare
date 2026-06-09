@@ -1346,9 +1346,10 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::resolveEnforcedHead -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldReconcileOpenPr -->
+<!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reconcileBoundaryAction -->
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::appendReviewEvent -->
-<!-- @test: src/__tests__/lib/review-state.test.ts (shouldReconcileOpenPr decision gating -> AC1/AC6) -->
-<!-- @test: src/__tests__/lib/review-trigger.test.ts (prUrlFromText PR-URL boundary detection -> AC5) -->
+<!-- @test: src/__tests__/lib/review-state.test.ts (shouldReconcileOpenPr decision gating -> AC1/AC6; reconcileBoundaryAction offer-once: offers when reconcilable+un-offered, no-ops on re-offer, no-ops when not reconcilable -> AC1; every suppressed gate names a distinct non-empty reason -> AC4) -->
+<!-- @test: src/__tests__/lib/review-trigger.test.ts (enforcedHeadDecision pushed-vs-unpushed table -> AC3; prUrlFromText PR-URL boundary detection -> AC5) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (seeded review-enforcement wires reconcileOpenPrReview + shouldReconcileOpenPr -> AC1/AC2/AC4) -->
 
 **Intent:** Review initiation must not depend solely on capturing a transient tool event. A missed or mis-parsed boundary command must not silently skip review: an open enforced PR whose head was never reviewed is recoverable on a later turn, the start path is shared with the boundary path so the two cannot drift, and every near-miss leaves a durable diagnostic so a skipped review is detectable instead of silent.
@@ -1357,10 +1358,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. On lifecycle events, Pi creates a review window for an SDD repo with an open, non-draft, enforced PR whose resolved head is unacknowledged, has no pending job, and has no open breaker. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileOpenPrReview --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldReconcileOpenPr -->
+1. On lifecycle events, for an SDD repo with an open, non-draft, enforced PR whose resolved head is unacknowledged (no pending job, no open breaker), Pi OFFERS the review once — a `ctx.ui.notify` pointing at the `/review-run` and `/review-skip` commands — rather than auto-spawning it, so a fresh clone never launches an unstoppable review; the head stays unacked (merge gate blocked) until the user runs `/review-run` (spawns the window via the shared routine) or `/review-skip` (acks the head). In-session push boundaries still auto-create the window. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileOpenPrReview --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldReconcileOpenPr --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reconcileBoundaryAction -->
 2. Boundary-command and reconciliation paths call one shared routine, so reconciled windows match captured-command windows in lanes, review base, durable job, and audit trail. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow -->
 3. Head resolution reviews local HEAD during metadata lag only when it is on the PR branch, descends from GitHub's PR head, and the remote-tracking ref contains it. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::resolveEnforcedHead --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::enforcedHeadDecision --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (enforcedHeadDecision pushed-vs-unpushed table -> AC3) -->
-4. A boundary-shaped command that does not start a review appends a durable `boundary_candidate_ignored` audit event naming the gate reason, so a skipped review is always reconstructable from disk. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::onToolEnd --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::appendReviewEvent --> <!-- @test: (none — boundary_candidate_ignored audit emission has no direct unit test, which is why this REQ is Partial) -->
+4. A boundary-shaped command that does not start a review appends a durable `boundary_candidate_ignored` audit event naming the gate reason, so a skipped review is always reconstructable from disk. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::onToolEnd --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldReconcileOpenPr --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::appendReviewEvent --> <!-- @test: src/__tests__/lib/review-state.test.ts (REQ-AGENT-058 AC4: every suppressed reconcile gate names a distinct non-empty reason to stamp into boundary_candidate_ignored -> AC4) -->
 5. A successful `gh pr create` whose command text could not be parsed but whose tool output contains a GitHub PR URL is reconciled by reading the open PR, so unparseable command shapes still start review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::onToolEnd --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prUrlFromText -->
 6. Reconciliation drives at most one transition per turn and is a no-op when the head is acked, a pending job exists, or the breaker is open, so it never duplicates work or re-spawns a completed review. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldReconcileOpenPr -->
 
@@ -1372,9 +1373,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-055](#req-agent-055-pi-pr-boundary-review-window-advancement)
 
-**Verification:** Unit tests: [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (`shouldReconcileOpenPr` gating → AC1/AC6), [review-trigger.test.ts](../../src/__tests__/lib/review-trigger.test.ts) (`prUrlFromText` PR-URL detection → AC5); the on-turn ctx wiring and head/diagnostic paths (AC3/AC4) have no direct automated test (see Status: Partial).
+**Verification:** Unit tests: [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (`shouldReconcileOpenPr` gating + every suppressed gate names a distinct non-empty reason → AC1/AC4/AC6; `reconcileBoundaryAction` offer-once → AC1), [review-trigger.test.ts](../../src/__tests__/lib/review-trigger.test.ts) (`enforcedHeadDecision` pushed-vs-unpushed → AC3; `prUrlFromText` PR-URL detection → AC5), [agent-seed-manifest.test.ts](../../src/__tests__/lib/agent-seed-manifest.test.ts) (seed wires reconcileOpenPrReview + shouldReconcileOpenPr → AC1/AC2). The decision core for every AC is unit-tested; the thin `appendReviewEvent` / `ctx.ui.notify` runtime wiring that acts on those decisions is integration glue, per the repo's runtime-coverage convention.
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

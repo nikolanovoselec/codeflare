@@ -10,7 +10,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 | AI Gateway | The customer's Cloudflare AI Gateway endpoint that fronts the upstream LLM providers; its URL and token are held only in the Worker/interceptor env as secrets (`AIG_GATEWAY_URL`, `AIG_TOKEN`) |
 | LLM Interceptor | A `WorkerEntrypoint` (`LlmInterceptor`) the container DO wires into container egress via `ctx.container.interceptOutboundHttps`; it receives the container's outbound HTTPS to the real provider hosts at the platform level (never the public internet, never Cloudflare Access), maps each onto the gateway provider path, and forwards with gateway auth + per-user attribution stamped on |
 | Outbound Interception | The Cloudflare Containers platform mechanism (`interceptOutboundHttps` + `ctx.exports`, on by default at this project's compat date — the `enable_ctx_exports` flag became the default on 2025-11-17, so no flag is set) that routes a container's matching egress hostnames through a `WorkerEntrypoint` with no credential, URL, or token in the container |
-| Per-User Attribution | The user's email passed to the interceptor as a per-session DO prop (sourced from `_userEmail` in `setupEnterpriseInterception`, falling back to the deterministic bucket id when absent) and stamped as `cf-aig-metadata.user` so the customer's gateway per-user analytics attribute usage to the real identity; the user's single matched Access group (when groups are configured) is stamped alongside as `cf-aig-metadata.group` for per-group gateway routing/cost/rate-limit policies |
+| Per-User Attribution | The user's email passed to the interceptor as a per-session DO prop (sourced from `_userEmail` in `setupEnterpriseInterception`, falling back to the deterministic bucket id when absent) and stamped as `cf-aig-metadata.user` so the customer's gateway per-user analytics attribute usage to the real identity; **every** Cloudflare Access group the user matches (when groups are configured) is stamped alongside as a per-group `group_<sanitized>=1` tag (the scalar `group` key is not used), within CF's 5-entry metadata cap (`user` + up to 4 groups, deterministic truncation), so the gateway can branch routing/cost/rate-limit policies per group |
 | JIT Provisioning | Auto-creation of an `unlimited` Codeflare user on first authenticated access in Enterprise Mode, keyed by the Cloudflare-Access-verified `email`; gated optionally by `ENTERPRISE_ACCESS_GROUP` membership (see [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)) |
 | Access get-identity | The Cloudflare Access endpoint `${iss}/cdn-cgi/access/get-identity`, called with the request's `CF_Authorization` token, returning the full identity (including IdP group membership) used to enforce `ENTERPRISE_ACCESS_GROUP` — the application JWT carries no group claim by default |
 | `ENTERPRISE_ACCESS_GROUP` | Optional value set during the setup wizard and stored in KV (`SETUP_KEYS.ENTERPRISE_ACCESS_GROUP`), editable by re-running setup; names one or more **customer-managed** Cloudflare Access groups (comma/newline-separated) that gate Codeflare entry — a user in ANY configured group is admitted. Codeflare references them (via `get-identity`) but never creates or populates them — unlike the non-enterprise admin/user groups it manages itself. When set, JIT provisioning verifies membership and denies non-members; when unset, any user who clears Cloudflare Access is provisioned an account (the gate then lives entirely in the customer's Access application policy) |
@@ -137,13 +137,15 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-<!-- @test: src/__tests__/llm-interceptor.test.ts (LlmInterceptor describe -> api.openai.com mapped onto the AI Gateway REST API (api.cloudflare.com/.../ai/v1/*) with account+gateway parsed from AIG_GATEWAY_URL + Authorization Bearer AIG_TOKEN + cf-aig-gateway-id + cf-aig-metadata stamped with the user email (+ matched group when the group prop is set, omitted when absent) + placeholder auth replaced + streaming preserved + streaming terminator repair (missing finish_reason synthesized before [DONE]; idempotent; tool_calls vs stop) + compat fallback on REST 404 for a model-routable request (gateway.ai.cloudflare.com/v1/{acct}/{gw}/compat/* with cf-aig-authorization, buffered body replayed, OpenAI-only fields (store/prompt_cache_key) stripped on the compat leg but kept on REST; no fallback on non-404 or non-model-routable path) + unmapped host (incl. api.anthropic.com) 400 + gateway-unset/unparseable 503 -> AC1..AC7) -->
+<!-- @test: src/__tests__/llm-interceptor.test.ts (LlmInterceptor describe -> api.openai.com mapped onto the AI Gateway REST API (api.cloudflare.com/.../ai/v1/*) with account+gateway parsed from AIG_GATEWAY_URL + Authorization Bearer AIG_TOKEN + cf-aig-gateway-id + cf-aig-metadata stamped with the user email + one group_<sanitized>=1 tag per matched group (scalar group dropped; empty-groups → {user} only; truncated to user+4 deterministically in configured order with a warn) + placeholder auth replaced + streaming preserved + streaming terminator repair (missing finish_reason synthesized before [DONE]; idempotent; tool_calls vs stop) + compat fallback on REST 404 for a model-routable request (gateway.ai.cloudflare.com/v1/{acct}/{gw}/compat/* with cf-aig-authorization, buffered body replayed, OpenAI-only fields (store/prompt_cache_key) stripped on the compat leg but kept on REST; no fallback on non-404 or non-model-routable path) + unmapped host (incl. api.anthropic.com) 400 + gateway-unset/unparseable 503 -> AC1..AC7) -->
 <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (enterprise bypass describe -> monthly compute quota never enforced AC3 — enterprise users are never blocked by the monthly compute quota) -->
 <!-- @test: src/__tests__/container/index.test.ts (enterprise LLM interception wiring describe -> "stamps the user email (not the bucket id) as the interceptor per-user prop" -> AC4; the describe is labelled REQ-ENTERPRISE-011 for the wiring-ordering subject, but this it() also verifies REQ-ENTERPRISE-004 AC4 email attribution) -->
 ### REQ-ENTERPRISE-004: Outbound-Interception LLM Routing to Customer AI Gateway
 
 <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+<!-- @impl: src/llm-interceptor.ts::sanitizeGroupKey -->
 <!-- @impl: src/container/index.ts::setupEnterpriseInterception -->
+<!-- @impl: src/lib/access.ts::resolveSessionAccessGroup -->
 <!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 
 **Intent:** Enterprise deployments route all agent LLM traffic to the customer's AI Gateway via platform outbound-HTTPS interception, so the gateway credentials never reach the container, nothing is exposed over a public route, and all usage is attributable.
@@ -155,7 +157,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. The container DO routes the container's outbound HTTPS to the real LLM provider host (`api.openai.com`) through a `WorkerEntrypoint` (`LlmInterceptor`) via `ctx.container.interceptOutboundHttps` + `ctx.exports`; the interceptor forwards each request to the customer's AI Gateway **REST API** (`https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/*`), mapping the OpenAI path verbatim under `/ai`. If the REST API returns `404` for a model-routable request (a `POST` to a `/chat/completions` or `/responses` path, whose body is buffered so it can be replayed), the interceptor replays the buffered request to the deprecated compat path (`https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat/<path>`) with `cf-aig-authorization: Bearer <AIG_TOKEN>` in place of `Authorization: Bearer`; non-model-routable paths and non-404 responses do not trigger the fallback. On this compat replay the interceptor strips OpenAI-only request fields (`store`, `prompt_cache_key`) that non-OpenAI providers (e.g. `google-ai-studio`) reject with a `400`; the REST API leg keeps them so OpenAI prompt caching is unaffected.
 2. The AI Gateway URL and token are read only from the interceptor's Worker env (`AIG_GATEWAY_URL`, `AIG_TOKEN`) and are never sent to or readable from the container; there is no public Worker route carrying LLM traffic, so the path never traverses Cloudflare Access. The account id (URL path) and gateway id (`cf-aig-gateway-id` header) are parsed from `AIG_GATEWAY_URL`.
 3. Streaming responses are preserved end-to-end (the upstream stream is piped through without buffering the full body). A streamed chat-completions response whose terminal `finish_reason` chunk is missing — as the AI Gateway dynamic-route wrapper omits it on the wire — is normalized: a synthetic terminator chunk (`finish_reason` `stop`, or `tool_calls` when the stream carried tool-call deltas) is injected before `data: [DONE]` so strict OpenAI-wire clients (Pi, Copilot) see a complete stream and do not error/retry. Idempotent — when the upstream already sends a non-null `finish_reason` nothing is injected; only streamed `chat/completions` responses are touched.
-4. Each forwarded request stamps `cf-aig-gateway-id` with the gateway id and `cf-aig-metadata` with the user's email (passed as a per-session DO prop) so the gateway's per-user analytics attribute usage to the real identity, falling back to the deterministic bucket id when no email is set; when the deployment configures Access groups, the user's single matched group is stamped alongside as `cf-aig-metadata.group` (omitted when absent) so gateway rules can branch routing/cost/rate-limit policies per group. On the REST API leg the gateway auth is `Authorization: Bearer <AIG_TOKEN>`; on the compat fallback leg it is `cf-aig-authorization: Bearer <AIG_TOKEN>` (the compat endpoint requires this header instead).
+4. Each forwarded request stamps `cf-aig-gateway-id` with the gateway id and `cf-aig-metadata` with the user's email (a per-session DO prop) for per-user analytics, falling back to the deterministic bucket id when no email is set; when Access groups are configured, **every** matched group is stamped as a per-group `group_<sanitized>=1` tag (no scalar `group` key) within CF's 5-entry metadata cap — `user` + up to 4 groups, excess truncated deterministically in configured order with a `console.warn` — so gateway rules can branch routing/cost/rate-limit policies per group. On the REST API leg the gateway auth is `Authorization: Bearer <AIG_TOKEN>`; on the compat fallback leg it is `cf-aig-authorization: Bearer <AIG_TOKEN>` (the compat endpoint requires this header instead).
 5. The container's placeholder credential (`Authorization` / `x-api-key`) is stripped before forwarding so it never reaches the gateway; gateway auth is stamped separately.
 6. The interceptor maps only the known provider host (`api.openai.com`); an unmapped host (including `api.anthropic.com`, which is not an enterprise agent host) fails closed (400) and an unconfigured/unparseable gateway fails closed (503) — neither forwards anywhere.
 7. When `ENTERPRISE_MODE` is unset, the DO never wires interception, the interceptor is never instantiated, and agent LLM traffic follows the current direct-key path, byte-identical to current behavior.
@@ -177,7 +179,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-<!-- @test: src/__tests__/container/container-env-llm.test.ts (enterprise env injection describe -> ENTERPRISE_MODE emitted from env when active + COPILOT_MODEL/PI_MODEL never fanned into the container (route id is Worker-only) + no gateway URL/token/route/base-URL ever injected + ENTERPRISE_MODE omitted when flag unset/non-active -> AC1..AC6) -->
+<!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005 enterprise env injection describe -> emits ENTERPRISE_MODE=active AC1 + fans ENTERPRISE_ROUTE_CATALOG/DEFAULT_ROUTE/DEFAULT_REASONING when enterprise+catalog present, omits them when catalog unset AC1 + never fans COPILOT_MODEL/PI_MODEL or a gateway URL/token/base-URL AC1/AC5 + ENTERPRISE_MODE + route vars omitted when flag unset/non-active AC6) -->
 ### REQ-ENTERPRISE-005: Container-Side Enterprise Routing (CA Trust + Constant Base-URLs)
 
 <!-- @impl: src/container/container-env.ts::buildEnvVars -->
@@ -190,10 +192,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, the container env pipeline emits exactly one enterprise var — `ENTERPRISE_MODE=active`; no gateway route id, agent model id, base-URL, or token is ever injected into the container.
+1. When `ENTERPRISE_MODE` is set, the container env pipeline emits `ENTERPRISE_MODE=active` plus — when a route catalog is configured — the non-secret routing hints `ENTERPRISE_ROUTE_CATALOG`/`ENTERPRISE_DEFAULT_ROUTE`/`ENTERPRISE_DEFAULT_REASONING`; it never injects a gateway URL/token, account id, per-agent base-URL, or a resolved gateway model id (`COPILOT_MODEL`/`PI_MODEL`).
 2. When `ENTERPRISE_MODE=active`, the Cloudflare containers CA is installed into the system trust store and the Node/Python CA env vars (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`) are prepended to `.bashrc` (idempotent, enterprise-gated) so the PTY-spawned agent shells inherit them and all agent HTTPS clients trust the intercepted (TLS-terminated) connections — a process-only export does not reach the agents.
-3. When `ENTERPRISE_MODE=active`, Copilot is configured via the complete BYOK contract pointing at the constant real provider base-URL (`api.openai.com`) with a non-secret placeholder credential and a fixed, slash-free model handle (`codeflare`); the BYOK vars (`COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_API_KEY`, `COPILOT_MODEL`) plus the token-limit hints (`COPILOT_PROVIDER_MAX_PROMPT_TOKENS`, `COPILOT_PROVIDER_MAX_OUTPUT_TOKENS`) are prepended to `.bashrc` so the copilot PTY inherits them — a process-only export does not reach the agent and leaves Copilot to fall back to GitHub-hosted models; the token-limit hints suppress Copilot's "model not in catalog" warning and right-size the context to the routed model's window (gpt-5.5: 1,050,000 / 128,000), since the slash-free `codeflare` handle is a dynamic-route alias absent from Copilot's built-in catalog; the interceptor rewrites the model to the gateway route on egress ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning) AC1).
-4. When `ENTERPRISE_MODE=active`, Pi is configured with a custom provider entry pointing at `api.openai.com` using the `openai-completions` adapter (`api: "openai-completions"`). The model is registered with `reasoning: true` so Pi's thinking-level selector stays available (Shift+Tab / `/settings`), but `settings.json` pins `defaultThinkingLevel: "off"` so every session starts with thinking off and Pi sends no `reasoning_effort` by default — which keeps gpt-5.5 at 200 (it rejects `reasoning_effort` + function tools together on `/v1/chat/completions`, and the CF AI Gateway's `/ai/v1/responses` endpoint currently rejects valid Responses bodies, "Required value missing: messages", which blocks the `openai-responses` adapter). Raising the level lets a route model that supports reasoning over chat/completions (e.g. Gemini) think; gpt-5.5 returns HTTP 400 for any thinking level above "off" until CF fixes `/ai/v1/responses`. The provider uses the same placeholder credential and the same slash-free handle, and its default provider and model are pinned so it reaches the gateway without any manual login step.
+3. When `ENTERPRISE_MODE=active`, Copilot is configured via the complete BYOK contract pointing at the constant real provider base-URL (`api.openai.com`) with a non-secret placeholder credential and the configured default route's slash-free handle (`ENTERPRISE_DEFAULT_ROUTE`, re-asserted each start so a changed default overwrites a stale persisted value); the BYOK vars (`COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_API_KEY`, `COPILOT_MODEL`) plus the token-limit hints (`COPILOT_PROVIDER_MAX_PROMPT_TOKENS`, `COPILOT_PROVIDER_MAX_OUTPUT_TOKENS`) are prepended to `.bashrc` so the copilot PTY inherits them — a process-only export does not reach the agent and leaves Copilot to fall back to GitHub-hosted models; the token-limit hints suppress Copilot's "model not in catalog" warning and right-size the context to the routed model's window (gpt-5.5: 1,050,000 / 128,000), since the slash-free route handle is a dynamic-route alias absent from Copilot's built-in catalog (Copilot cannot enumerate multiple BYOK models — GitHub #3282 — so it launches on the default route only; switching routes requires a relaunch); the interceptor maps the handle to `dynamic/<route>` on egress ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning) AC1).
+4. When `ENTERPRISE_MODE=active`, Pi is configured with a custom provider entry pointing at `api.openai.com` using the `openai-completions` adapter (`api: "openai-completions"`). `models.json` registers **one model per catalog route** (Pi natively switches between them via `/model`), each with `reasoning: true` so the thinking-level selector stays available (Shift+Tab / `/settings`); `settings.json` overwrites only `defaultProvider`/`defaultModel`/`defaultThinkingLevel` each start (authoritative for those three keys, everything else preserved), pinning `defaultModel` to the configured default route and `defaultThinkingLevel` to that route's reasoning grade (container-side; default `off`) — so every session starts at the configured default and a user `/model`/thinking change does not persist across restarts. Starting with thinking off keeps gpt-5.5 at 200 (it rejects `reasoning_effort` + function tools together on `/v1/chat/completions`, and the CF AI Gateway's `/ai/v1/responses` endpoint currently rejects valid Responses bodies, "Required value missing: messages", which blocks the `openai-responses` adapter). Raising the level lets a route model that supports reasoning over chat/completions (e.g. Gemini) think; gpt-5.5 returns HTTP 400 for any thinking level above "off" until CF fixes `/ai/v1/responses`. The provider uses the same placeholder credential and the slash-free route handles, and an empty catalog falls back to the default route so Pi always boots work-ready with no manual login step.
 5. The container never receives the AI Gateway URL, the gateway token, or any per-session secret; routing to the gateway is done entirely by the DO's outbound interception ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)).
 6. When `ENTERPRISE_MODE` is unset, `ENTERPRISE_MODE` is not emitted, no agent configuration block runs, and the container env is byte-identical to current behavior.
 
@@ -201,7 +203,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 - The placeholder credential is a fixed non-secret constant; the interceptor strips it before forwarding ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC5), so it never reaches the gateway.
 - `ENTERPRISE_MODE` rides the existing container env pipeline ([REQ-AGENT-031](agents.md#req-agent-031-llm-api-key-propagation-to-container)); no per-agent login step is added.
-- `AIG_LANGUAGE_MODEL` is a non-secret Worker-only routing hint; it is never injected into the container. Backend keys stay in the gateway (BYOK).
+- The route catalog/default/reasoning are non-secret routing hints fanned to the container so the agents can list/select routes; the actual gateway route is mapped Worker-side by the interceptor from the slash-free handle ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning)). Backend keys stay in the gateway (BYOK).
 - Only the allowlisted enterprise agents ([REQ-ENTERPRISE-003](#req-enterprise-003-agent-allowlist-in-enterprise-mode)) are configured; `bash` needs no LLM configuration.
 
 **Priority:** P1
@@ -222,6 +224,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @impl: .github/workflows/deploy.yml -->
 <!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 <!-- @impl: src/routes/setup/access.ts::getManagedAppDomain -->
+<!-- @impl: src/routes/setup/access.ts::upsertSwBypassAccessApp -->
+<!-- @test: src/__tests__/routes/setup/access.test.ts (handleCreateAccessApp describe -> enterprise mode provisions a higher-precedence SW-bypass Access app with decision 'bypass' + include everyone scoped to the SW path AC6 + default/non-enterprise mode does NOT create a SW-bypass app) -->
 
 **Intent:** Enterprise configuration must be supplied at deploy time through Worker bindings, kept secret where appropriate, and default to off.
 
@@ -230,15 +234,16 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. `AIG_GATEWAY_URL` and `AIG_TOKEN` are configured as Worker secrets so they are not stored in plaintext config or exposed to the container. `AIG_TOKEN` must carry **both** the Workers AI permission (required for the REST API path, `Authorization: Bearer`) and the AI Gateway Run permission (required for the compat fallback path, `cf-aig-authorization: Bearer`); a token missing either scope is rejected with `error 10000` on the corresponding transport.
-2. `ENTERPRISE_MODE` and the optional `AIG_LANGUAGE_MODEL` (gateway route id) are configured as non-secret Worker vars; `AIG_LANGUAGE_MODEL` is read only by the interceptor for route-pinning (see [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning)) and is never injected into the container.
+2. `ENTERPRISE_MODE` is configured as a non-secret Worker var. The dynamic-route catalog and default route are NOT deploy-time vars — they are configured in the setup wizard and stored in KV ([REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)), editable with no redeploy; the former static `AIG_LANGUAGE_MODEL` route-pin var (and its `deploy.yml` plumbing) is removed.
 3. Enterprise Mode is off by default: an absent or empty `ENTERPRISE_MODE` binding resolves to disabled.
 4. When `ENTERPRISE_MODE` is enabled, the interceptor fails closed (503) if the `AIG_GATEWAY_URL` secret is missing or unparseable (no `/v1/{account_id}/{gateway_id}` segments), rather than silently routing to nowhere, and the DO logs a warning when it skips interception wiring.
 5. When `ENTERPRISE_MODE` is configured, the CF Access application created by the setup wizard is host-scoped (bare custom domain, no path suffix) so the session cookie covers all paths uniformly; non-enterprise deployments retain the path-scoped (`/app/*`) application.
+6. When `ENTERPRISE_MODE` is configured, the setup wizard also provisions a higher-precedence Access app + `decision:'bypass'` (include everyone) policy scoped to `/api/vault/*/service_worker.js`, so the credential-less SW registration fetch reaches the Worker's short-circuit ([REQ-VAULT-017](vault.md#req-vault-017-silverbullet-native-service-worker)) instead of a host-wide-Access 302 to the IdP. Best-effort: it never aborts the host-wide Access setup, persists the app id (`SETUP_KEYS.ACCESS_SW_BYPASS_APP_ID`) only after the policy succeeds, and rolls back a freshly-created app on policy failure (a policy-less self-hosted app would deny the path). Non-enterprise leaves the SW path reachable, so no bypass app is created.
 
 **Constraints:**
 
 - The flag is evaluated at deploy time from bindings, consistent with the deployment-mode determination in [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes).
-- Secrets are never written to the container env; the only enterprise env var the container receives is the `ENTERPRISE_MODE` flag, derived from a Worker deploy var, never from session state ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1). The gateway route id stays Worker-only.
+- Secrets are never written to the container env; the enterprise env vars the container receives are the `ENTERPRISE_MODE` flag plus the non-secret route catalog/default/reasoning hints, all derived from Worker config (deploy var + KV), never from session state ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1). The gateway URL/token/account-id and the resolved gateway route stay Worker-only.
 - `AIG_GATEWAY_URL` is the single source for the gateway coordinates: the interceptor parses the account id and gateway id from it for the REST API call ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC2), so no separate account-id binding is required.
 
 **Priority:** P1
@@ -251,26 +256,27 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-<!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-007: gateway route-pinning (model rewrite) describe -> request model rewritten to AIG_LANGUAGE_MODEL on /chat/completions & /responses AC1 + passthrough when unset/non-routable/non-JSON/model-less AC2 -> AC1..AC2) -->
+<!-- @test: src/__tests__/llm-interceptor.test.ts (Feature C: catalog-driven dynamic-route mapping describe -> maps a known slash-free handle to dynamic/<route> AC1 + fails safe to the default route on an unknown handle AC1 + resolves the default to the first catalog entry when none configured AC1 + tolerates a pre-prefixed dynamic/<handle> AC1 + forwards unchanged when the catalog is empty / non-model-routable path / non-JSON / model-less body AC2 + preserves the rest of the payload AC1) -->
 ### REQ-ENTERPRISE-007: Gateway Route-Pinning
 
 <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+<!-- @impl: src/llm-interceptor.ts::loadRouteCatalog -->
 <!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 
-**Intent:** The gateway route must be selected Worker-side so agents carry only a fixed slash-free model handle, eliminating agent-side model-string parsing (e.g. Pi reading a `dynamic/<route>` slash as `provider/model`) that would misroute traffic away from the interceptor.
+**Intent:** The gateway route must be selected Worker-side from the Setup-configured catalog so agents carry only a slash-free model handle, eliminating agent-side model-string parsing (e.g. Pi reading a `dynamic/<route>` slash as `provider/model`) that would misroute traffic away from the interceptor.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When `AIG_LANGUAGE_MODEL` is set, the interceptor rewrites the request body's `model` field to that route id before forwarding, on the model-routable endpoints `/chat/completions` and `/responses`.
-2. When `AIG_LANGUAGE_MODEL` is unset, or the body is non-JSON, has no `model` field, or the path is not model-routable, the request body is forwarded unchanged.
+1. When a route catalog is configured (KV `SETUP_KEYS.DYNAMIC_ROUTES`), the interceptor maps the request body's slash-free `model` handle to `dynamic/<route>` before forwarding, on the model-routable endpoints `/chat/completions` and `/responses`: a handle in the catalog maps to itself; an unknown handle fails safe to the resolved default route (the configured default if it is in the catalog, else the first catalog entry). A pre-prefixed `dynamic/<handle>` is tolerated and re-resolved through the catalog.
+2. When the catalog is empty, or the body is non-JSON, has no `model` field, or the path is not model-routable, the request body is forwarded unchanged.
 
 **Constraints:**
 
-- `AIG_LANGUAGE_MODEL` is a non-secret Worker-only var ([REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC2); it is never injected into the container, and agents carry only a fixed slash-free handle (`codeflare`) ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC3, AC4).
+- The route catalog and default live in KV ([REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)), not a deploy-time var; the catalog of slash-free handles is fanned to the container so agents can list/select routes, but the gateway route is resolved Worker-side ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC3, AC4).
 - Only the request `model` field is rewritten; no other request field and no response byte is altered.
-- Route-pinning runs only when interception is active ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)); when `ENTERPRISE_MODE` is unset the interceptor is never instantiated.
+- Route mapping runs only when interception is active ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)); when `ENTERPRISE_MODE` is unset the interceptor is never instantiated.
 
 **Priority:** P1
 
@@ -433,5 +439,46 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)
 
 **Verification:** [Automated test](../../src/__tests__/container/index.test.ts)
+
+**Status:** Implemented
+
+---
+
+<!-- @test: src/__tests__/routes/setup.test.ts (enterprise configure -> persists dynamicRoutes as a JSON array AC2 + persists defaultRoute as JSON / clears the key when null AC2 + rejects defaultRoute.route not in the catalog AC2 + persists the enterpriseAccessGroup chip list AC1 + rejects a comma/newline in a group/route name + rejects a >256-char name AC1) -->
+<!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill -> round-trips the stored access groups, dynamicRoutes, and defaultRoute + returns empty defaults when nothing stored + degrades to empty defaults when stored route JSON is malformed AC3) -->
+<!-- @test: src/__tests__/lib/access-group-resolution.test.ts (parseAccessGroups -> list/single/blank parsing AC1) -->
+<!-- @test: web-ui/src/__tests__/stores/setup.test.ts (setup store -> add/remove/dedup access-group and dynamic-route chips AC1/AC2) -->
+<!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (loadEnterpriseRouteConfig -> catalog parse + configured-default-in-catalog + fallback-to-first-drops-reasoning + unset-default-first-route-reasoning-off + malformed-degrades + non-enterprise-empty -> AC2/AC3/AC5) -->
+### REQ-ENTERPRISE-012: Setup-Configured Dynamic-Route Catalog and Access-Group List
+
+<!-- @impl: src/routes/setup/index.ts -->
+<!-- @impl: src/routes/setup/handlers.ts -->
+<!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS -->
+<!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig -->
+<!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx -->
+<!-- @impl: web-ui/src/stores/setup.ts -->
+
+**Intent:** An enterprise admin must manage an unlimited set of Cloudflare Access groups and an unlimited set of gateway dynamic routes from the setup wizard with no redeploy — the same way admin users are managed — so adding a team or a route is a wizard edit, not a code or deploy-var change.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The setup wizard edits the access-group list and the dynamic-route catalog as add/Enter/chip-with-x lists (cloning the admin-user interaction), batch-saved through the existing `POST /api/setup/configure` (no new endpoint). Names validate 1–256 chars, trimmed, comma/newline forbidden (so a name with spaces like `Agentic AI Test Account` is allowed); access groups persist comma/newline-joined under `SETUP_KEYS.ENTERPRISE_ACCESS_GROUP`, split back via `parseAccessGroups`.
+2. The route catalog persists as a JSON `string[]` (`SETUP_KEYS.DYNAMIC_ROUTES`) and one optional `{route, reasoning}` default (`SETUP_KEYS.DEFAULT_ROUTE`); `defaultRoute.route` must be a member of the catalog (rejected `400` otherwise). An unset default resolves at read time to the first catalog route with reasoning off.
+3. `GET /api/setup/prefill` round-trips the stored groups, catalog, and default route so a setup re-run shows the current configuration; a malformed stored value degrades to empty defaults rather than failing the prefill.
+4. The catalog/default feed the interceptor's route mapping ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning)) and the container env fan ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1) via the shared `loadEnterpriseRouteConfig` resolver; the group list feeds the JIT gate ([REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)) and the per-group metadata tags ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4).
+5. When `ENTERPRISE_MODE` is unset, the dynamic-route catalog UI and KV reads add no behavior; the access-group field already existed and is unchanged for non-enterprise deployments.
+
+**Constraints:**
+
+- No new persistence layer or endpoint: the lists ride the existing setup wizard configure flow and KV (`SETUP_KEYS`), consistent with how `ENTERPRISE_ACCESS_GROUP` was already stored ([REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)).
+- Access groups are stored comma/newline-joined (back-compat with the prior single-value config) and routes as a JSON array; the comma/newline ban on names keeps the joined encoding lossless.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)
+
+**Verification:** [Setup configure tests](../../src/__tests__/routes/setup.test.ts), [prefill tests](../../src/__tests__/routes/setup/handlers.test.ts), [route-config resolver tests](../../src/__tests__/lib/enterprise-route-config.test.ts), [access-group parsing](../../src/__tests__/lib/access-group-resolution.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts)
 
 **Status:** Implemented

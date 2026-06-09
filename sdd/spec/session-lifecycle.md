@@ -391,7 +391,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 <!-- @impl: host/src/final-sync.ts -->
 <!-- @impl: entrypoint.sh::shutdown_handler -->
 <!-- @impl: Dockerfile -->
-<!-- @test: src/__tests__/container/index.test.ts (destroy describe -> drains final-sync before stop + best-effort on drain failure -> AC1/AC4/AC5) -->
+<!-- @test: src/__tests__/container/index.test.ts (destroy describe -> drains final-sync before stop + best-effort on drain failure -> AC1/AC4/AC5; #516 describe -> drain attempted despite running:false + finalSyncAudit outcome completed/errored persisted + destroy still completes when the drain rejects -> AC1/AC6) -->
 <!-- @test: src/__tests__/container-metrics.test.ts (final-sync drain describe -> drainFinalSync no-op/best-effort + idle-stop drains before stop -> AC1/AC6; REQ-SUB-008 describe -> quota-stop drains before stop -> AC6) -->
 <!-- @test: host/__tests__/final-sync-endpoint.test.js (evaluateFinalSync completion detection describe -> in-flight ignored + syncing->success/failed -> AC2/AC3; structural describes -> endpoint wiring + entrypoint signal) -->
 
@@ -401,7 +401,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Before signalling the container to stop, every deliberate stop path runs a live bidirectional R2 sync to completion while the container is still fully running. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync -->
+1. Before signalling the container to stop, every deliberate stop path runs a live bidirectional R2 sync to completion while the container is still fully running — including a delete where the platform reports `running:false` transiently (the drain is never gated on that reading, #516) — and records the drain outcome durably (DO storage `finalSyncAudit`) instead of silently swallowing it. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync -->
 2. The container exposes an awaitable final-sync endpoint that triggers a fresh bisync and responds only once that bisync has completed (success or failure) or an internal timeout elapses, distinguishing completion from failure and timeout. <!-- @impl: host/src/server.ts --> <!-- @impl: host/src/final-sync.ts -->
 3. The sync-status record carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, and the endpoint accepts a terminal status only after observing its own run's `syncing` (stamped strictly after the trigger), never a bare `success`. <!-- @impl: host/src/final-sync.ts --> <!-- @impl: entrypoint.sh -->
 4. The Durable Object waits up to a bounded sync budget (120s) for the live sync to report completion; a failed or timed-out sync still proceeds to stop rather than blocking teardown. <!-- @impl: src/container/container-lifecycle.ts::destroy -->
