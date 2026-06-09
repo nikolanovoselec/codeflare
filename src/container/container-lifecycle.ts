@@ -16,7 +16,6 @@ import {
   collectMetrics as doCollectMetrics,
   updateKvStatus,
   openNotRunningConfirmation,
-  drainFinalSync,
   SHUTDOWN_REQUESTED_KEY,
   FINAL_SYNC_BUDGET_MS,
   type MetricsState,
@@ -73,6 +72,53 @@ export async function collectMetrics(host: LifecycleHost): Promise<void> {
   await doCollectMetrics(host as unknown as MetricsState, host.ctx, host.env, callbacks);
 }
 
+// Durable audit of the final-sync outcome on teardown (#516). Persisted to DO
+// storage (survives the destroy) AND logged, so a drain that is skipped or fails
+// on a stop/delete is never silent. The collectMetrics drain callers keep using
+// the plain best-effort drainFinalSync; only the teardown path audits.
+const FINAL_SYNC_AUDIT_KEY = 'finalSyncAudit';
+type FinalSyncOutcome = 'completed' | 'incomplete' | 'errored';
+
+// Teardown-path variant of drainFinalSync that RETURNS the outcome so destroy()
+// can audit it. Unlike drainFinalSync it does NOT self-guard on
+// ctx.container.running: that flag reads transiently false on a DO wake /
+// deploy-roll while the container is alive (#516), and skipping the drain there
+// silently drops the last edits on stop/delete. Attempt the drain regardless; a
+// genuinely-dead container makes port.fetch error/timeout, which is swallowed
+// and reported as 'errored' (still best-effort, still bounded by budgetMs).
+async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number): Promise<FinalSyncOutcome> {
+  if (!host.ctx.container?.running) {
+    // We still attempt: a not-running reading at the start is worth recording as
+    // the likely transient the #516 fix exists to survive.
+    host.logger.warn('Final sync attempted while container reads not-running (possible transient)', { budgetMs });
+  }
+  try {
+    const port = host.ctx.container?.getTcpPort(8080);
+    if (!port) return 'errored';
+    const res = await port.fetch('http://localhost/internal/final-sync', {
+      method: 'POST',
+      signal: AbortSignal.timeout(budgetMs),
+    });
+    return res.ok ? 'completed' : 'incomplete';
+  } catch {
+    return 'errored';
+  }
+}
+
+// Replace the silent swallow with a durable audit event (#516): persist the
+// outcome under FINAL_SYNC_AUDIT_KEY (same durable store SHUTDOWN_REQUESTED_KEY
+// uses, so it survives the destroy and is observable by a later incarnation /
+// tests) and log it (info on success, warn otherwise).
+async function recordFinalSyncAudit(host: LifecycleHost, outcome: FinalSyncOutcome): Promise<void> {
+  const event = { outcome, at: Date.now(), running: host.ctx.container?.running ?? false };
+  if (outcome === 'completed') {
+    host.logger.info('Final sync audit (teardown)', event);
+  } else {
+    host.logger.warn('Final sync did NOT complete on teardown', event);
+  }
+  try { await host.ctx.storage.put(FINAL_SYNC_AUDIT_KEY, event); } catch { /* storage racing teardown */ }
+}
+
 /**
  * Override destroy to drain a final R2 bisync while the container is still
  * running, BEFORE signalling stop (REQ-SESSION-011) - the platform SIGKILLs the
@@ -126,28 +172,35 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     host.logger.error('Failed to clear storage', toError(err));
   }
 
+  // REQ-SESSION-011 + #516: ALWAYS attempt the final drain on a deliberate
+  // stop/delete, even when ctx.container.running reads transiently false (a DO
+  // wake / deploy-roll can report false while the container is alive - the same
+  // transient NOT_RUNNING_CONFIRM_MS guards in collectMetrics). Skipping the
+  // drain on that transient silently lost the last edits on delete (#516). The
+  // drain is best-effort and bounded; a genuinely-dead container errors out fast
+  // and is swallowed. The teardown clock starts here so the 135s hard force-kill
+  // ceiling spans the whole drain-then-stop sequence: 120s sync budget + 15s for
+  // the actual stop. The old design relied on the entrypoint's SIGTERM trap to
+  // run the final bisync, but the platform kills the container ~3s after SIGTERM
+  // - far short of a bisync that can take up to ~2min under the 15-min cadence
+  // (AD56) - so the trap was cut off and the last edits never reached R2 (data
+  // loss on stop/delete). Syncing here removes the kill-grace dependency; the
+  // trap remains a best-effort backstop. See AD57.
+  host._shutdownStartedAt = Date.now();
+  const hardKillMs = 135_000;
+  const warnThresholdMs = 110_000;
+  const pollMs = 250;
+  const start = host._shutdownStartedAt;
+  let warned = false;
+
+  // Authoritative final sync (bounded). Best-effort: the drain swallows
+  // failure/timeout so we always fall through to stop. Emit a durable audit
+  // event recording the outcome so a skipped/failed final sync on delete is
+  // never silent (#516).
+  const syncOutcome = await drainFinalSyncAudited(host, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start)));
+  await recordFinalSyncAudit(host, syncOutcome);
+
   if (host.ctx.container?.running) {
-    // REQ-SESSION-011: drain a final R2 sync BEFORE signalling stop, while the
-    // container is still fully alive and this DO holds the teardown open. The
-    // old design relied on the entrypoint's SIGTERM trap to run the final
-    // bisync, but the platform kills the container ~3s after SIGTERM - far
-    // short of a bisync that can take up to ~2min under the 15-min cadence
-    // (AD56) - so the trap was cut off and the last edits never reached R2
-    // (data loss on stop/delete). Syncing here removes the kill-grace
-    // dependency. The teardown clock starts NOW so the 135s hard force-kill
-    // ceiling spans the whole drain-then-stop sequence: 120s sync budget + 15s
-    // for the actual stop. The trap remains a best-effort backstop. See AD57.
-    host._shutdownStartedAt = Date.now();
-    const hardKillMs = 135_000;
-    const warnThresholdMs = 110_000;
-    const pollMs = 250;
-    const start = host._shutdownStartedAt;
-    let warned = false;
-
-    // Authoritative final sync (bounded). Best-effort: drainFinalSync swallows
-    // failure/timeout so we always fall through to stop.
-    await drainFinalSync(host.ctx, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start)));
-
     try {
       await host.stop('SIGTERM');
       while (host.ctx.container?.running && Date.now() - start < hardKillMs) {

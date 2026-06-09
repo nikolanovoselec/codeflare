@@ -900,6 +900,48 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
     });
 
+    // #516: a deliberate stop/delete that lands during a transient not-running
+    // reading (DO wake / deploy-roll) must STILL attempt the final drain - skipping
+    // it silently dropped the last edits. Pre-fix, the running gate skipped the whole
+    // block. Post-fix, the drain fetch fires regardless and the outcome is persisted.
+    it('REQ-SESSION-011/#516: attempts the final-sync drain on delete even when container.running reads transiently false, and persists a durable audit marker', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        return null;
+      });
+      // The transient: container reports not-running at teardown start.
+      mockContainerRuntime.running = false;
+
+      let drainAttempted = false;
+      mockTcpPortFetch.mockImplementation(async (url: string) => {
+        if (typeof url === 'string' && url.includes('/internal/final-sync')) {
+          drainAttempted = true;
+          return new Response(JSON.stringify({ synced: true }), { status: 200 });
+        }
+        return new Response('', { status: 200 });
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await instance.destroy();
+
+      // Drain was attempted despite running===false (the #516 fix).
+      expect(drainAttempted).toBe(true);
+      // The outcome is durably recorded - never silently swallowed.
+      const auditPut = mockStorage.put.mock.calls.find((c) => c[0] === 'finalSyncAudit');
+      expect(auditPut).toBeDefined();
+      expect((auditPut?.[1] as { outcome: string }).outcome).toBe('completed');
+    });
+
+    it('#516: persists outcome "errored" and still completes destroy when the drain rejects under a transient not-running reading', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => (key === 'bucketName' ? 'test-bucket' : null));
+      mockContainerRuntime.running = false;
+      mockTcpPortFetch.mockRejectedValue(new Error('Connection refused'));
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await expect(instance.destroy()).resolves.toBeUndefined();
+      const auditPut = mockStorage.put.mock.calls.find((c) => c[0] === 'finalSyncAudit');
+      expect((auditPut?.[1] as { outcome: string }).outcome).toBe('errored');
+    });
+
     it('graceful shutdown: falls back to SIGKILL when the container is still running after the 135 s timeout', async () => {
       vi.useFakeTimers();
       try {
