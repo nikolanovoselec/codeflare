@@ -1,5 +1,11 @@
 # Trivy vulnerability suppressions
 # Review monthly and remove entries when upstream fixes are available.
+#
+# NOTE: the deploy Trivy scan runs with `ignore-unfixed: true`, so CVEs with no
+# available fix (blank Fixed Version) no longer need an entry here — they are
+# skipped automatically. This file is now for FIXABLE CVEs we consciously accept
+# (a fix exists upstream but a vendored CLI / base image hasn't rebuilt yet).
+# Existing unfixed-CVE entries below are redundant but kept as a documented record.
 
 # rclone v1.73.2 built with grpc v1.76.0 — fix requires grpc v1.79.3.
 # Waiting for rclone upstream to update. Authorization bypass via missing

@@ -261,6 +261,12 @@ jobs:
         with:
           image-ref: ${{ steps.docker-build.outputs.local_ref }}
           severity: HIGH,CRITICAL
+          # Gate only on CVEs that have an available fix. Unfixed base-image
+          # CVEs (blank Fixed Version, no upstream patch) cannot be remediated
+          # by rebuilding and would otherwise block every deploy whenever the
+          # Trivy feed adds one. Fixable CVEs we consciously accept (e.g. fixed
+          # upstream but a vendored CLI hasn't rebuilt) stay listed in .trivyignore.
+          ignore-unfixed: true
           exit-code: 1
           format: table
           scanners: vuln
