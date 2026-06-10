@@ -745,6 +745,7 @@ jobs:
             'preseed/agents/pi/extensions/codeflare-pi.ts',
             'entrypoint.sh',
             'src/__tests__/lib/agent-seed-manifest.test.ts',
+            'host/__tests__/pi-settings-packages.test.js',
           ];
           for (const f of files) {
             const before = fs.readFileSync(f, 'utf-8');
@@ -786,7 +787,7 @@ jobs:
           - \`preseed/agents/pi/package.json\` + \`package-lock.json\`
           - \`preseed/agents/pi/extensions/codeflare-pi.ts\` (\`CONTEXT_MODE_PACKAGE\`, when context-mode bumps)
           - \`entrypoint.sh\` (Pi settings \`required\` install specs)
-          - \`src/__tests__/lib/agent-seed-manifest.test.ts\` (pinned-version assertions)
+          - \`src/__tests__/lib/agent-seed-manifest.test.ts\` + \`host/__tests__/pi-settings-packages.test.js\` (pinned-version assertions)
           - \`src/lib/agent-seed.generated.ts\` (regenerated)
 
           ## Test plan

@@ -2,9 +2,9 @@
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
 //   - context-mode being ENABLED by default for Pi (moved out of disabledPackages),
-//   - the four tool extensions (rpiv-ask-user-question, rpiv-todo, pi-web-access,
-//     pi-mcp-adapter) being present in `required` so they are available WITH AND
-//     WITHOUT context-mode — toggling /ctx never removes them.
+//   - the five tool extensions (rpiv-advisor, rpiv-ask-user-question, rpiv-todo,
+//     pi-web-access, pi-mcp-adapter) being present in `required` so they are
+//     available WITH AND WITHOUT context-mode — toggling /ctx never removes them.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -42,6 +42,7 @@ const sourceOf = (entry) => (typeof entry === 'string' ? entry : entry && entry.
 const REQUIRED = [
   'npm:@gotgenes/pi-subagents@15.0.1',
   'npm:context-mode@1.0.162',
+  'npm:@juicesharp/rpiv-advisor@1.19.1',
   'npm:@juicesharp/rpiv-ask-user-question@1.19.1',
   'npm:@juicesharp/rpiv-todo@1.19.1',
   'npm:pi-web-access@0.10.7',
@@ -49,7 +50,7 @@ const REQUIRED = [
 ];
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
-  it('from empty settings: enables every required package (subagents + context-mode + 4 extensions)', () => {
+  it('from empty settings: enables every required package (subagents + context-mode + 5 extensions)', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
     for (const spec of REQUIRED) {
@@ -63,7 +64,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     assert.equal(typeof cm, 'string', 'context-mode must be enabled by default — a bare string, not a {source,extensions,skills} disabled entry');
   });
 
-  it('coexistence: a prior settings that DISABLED context-mode is upgraded to enabled, with the 4 extensions present and unrelated packages preserved', () => {
+  it('coexistence: a prior settings that DISABLED context-mode is upgraded to enabled, with the 5 extensions present and unrelated packages preserved', () => {
     const initial = JSON.stringify({
       packages: [
         { source: 'npm:context-mode@1.0.162', extensions: [], skills: [] }, // previously disabled
@@ -75,7 +76,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     // context-mode is now enabled (string), not the disabled object.
     const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.162');
     assert.equal(typeof cm, 'string', 'a previously-disabled context-mode must be re-enabled on assembly');
-    // The four tool extensions are present regardless of context-mode's prior state.
+    // The five tool extensions are present regardless of context-mode's prior state.
     for (const spec of REQUIRED) assert.ok(sources.includes(spec), `must include ${spec}`);
     // The user's unrelated package is preserved (assembly merges, never wipes).
     assert.ok(sources.includes('npm:some-user-package@1.0.0'), 'unrelated existing packages must be preserved');

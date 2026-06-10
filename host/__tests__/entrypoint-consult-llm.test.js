@@ -97,8 +97,10 @@ describe('entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, s
   it('codex auth present, no keys: OpenAI routes through codex-cli (no API key in env)', () => {
     const h = buildHarness(baseTmp, { codexAuth: true });
     const claude = h.claudeJson.mcpServers['consult-llm'];
-    assert.equal(claude.command, 'npx');
-    assert.deepEqual(claude.args, ['-y', 'consult-llm-mcp']);
+    // consult-llm-mcp is pre-warmed as a pinned global install (Dockerfile), so the
+    // MCP command is the global bin, not a per-session `npx -y` registry fetch.
+    assert.equal(claude.command, 'consult-llm-mcp');
+    assert.deepEqual(claude.args, []);
     assert.equal(claude.env.CONSULT_LLM_OPENAI_BACKEND, 'codex-cli');
     assert.equal(claude.env.CONSULT_LLM_CODEX_REASONING_EFFORT, 'high');
     assert.ok(!('OPENAI_API_KEY' in claude.env), 'subscription path injects no API key');
@@ -109,8 +111,8 @@ describe('entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, s
   it('Pi mcp.json mirrors the server and promotes consult_llm via directTools', () => {
     const h = buildHarness(baseTmp, { codexAuth: true });
     const pi = h.piMcp.mcpServers['consult-llm'];
-    assert.equal(pi.command, 'npx');
-    assert.deepEqual(pi.args, ['-y', 'consult-llm-mcp']);
+    assert.equal(pi.command, 'consult-llm-mcp');
+    assert.deepEqual(pi.args, []);
     assert.deepEqual(pi.directTools, ['consult_llm']);
     assert.equal(pi.env.CONSULT_LLM_OPENAI_BACKEND, 'codex-cli');
   });
