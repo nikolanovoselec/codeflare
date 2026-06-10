@@ -354,6 +354,7 @@ Every entry carries an inline comment recording the affected package, the impact
 - [REQ-SEC-006](../../sdd/spec/security.md#req-sec-006-transparent-kv-encryption-migration) - Transparent KV encryption migration
 - [REQ-SEC-009](../../sdd/spec/security.md#req-sec-009-input-validation-at-system-boundaries) - Input validation at system boundaries
 - [REQ-SEC-010](../../sdd/spec/security.md#req-sec-010-path-traversal-prevention-on-storage-endpoints) - Path traversal prevention on storage endpoints
+- [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy) - Container image scanned for CVEs before deploy
 - [REQ-SEC-012](../../sdd/spec/security.md#req-sec-012-container-auth-token-per-do-lifecycle) - Container auth token per DO lifecycle
 - [REQ-SEC-014](../../sdd/spec/security.md#req-sec-014-saas-service-token-header-not-trusted-in-saas-mode) - SaaS service-token header not trusted in SaaS mode
 - [REQ-SEC-016](../../sdd/spec/security.md#req-sec-016-concurrent-cache-deduplication-for-auth-config) - Concurrent cache deduplication for auth config
