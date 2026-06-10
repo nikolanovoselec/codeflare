@@ -537,7 +537,7 @@ None.
 <!-- @impl: host/src/prewarm-config.ts -->
 <!-- @impl: entrypoint.sh -->
 <!-- @test: host/__tests__/prewarm-readiness.test.js (getPrewarmConfig: tab-1 pre-warm command extraction → AC1) -->
-<!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up 1013 retriable-reject gate → AC4) -->
+<!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up 1013 retriable-reject gate → AC4; terminal-ws.test.ts is primarily REQ-SEC-020's test file, this specific describe is the SESSION-015 AC4 anchor) -->
 <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (REQ-SESSION-015 describe → guarded warm-up calls still reach init-flag write on failure + regression sentinel that unguarded form aborts before flag → Constraints fault-containment invariant) -->
 <!-- @test: host/__tests__/dockerfile-pi-warm.test.js (baked jiti cache layer + entrypoint /tmp/jiti symlink → AC5) -->
 

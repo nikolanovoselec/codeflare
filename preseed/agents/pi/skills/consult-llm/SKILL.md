@@ -1,12 +1,11 @@
 ---
 name: consult-llm
-description: This skill should be used when the user wants to consult external LLMs for a second opinion or discussion. Use when the user says "discuss with llms", "consult llms", "consult LLMs", "ask LLMs", "get LLM opinions", "what do other LLMs think", "ask ChatGPT", "consult Gemini", "ask GPT", "get a second opinion", "ask another AI".
-version: 3.0.0
+description: Consult external LLMs (OpenAI GPT, Google Gemini) for a second opinion via the consult_llm tool. Use when the user says "consult llms", "ask LLMs", "get a second opinion", "ask GPT", "ask ChatGPT", "ask Gemini", "consult Gemini", "what do other LLMs think".
 ---
 
-# Consult LLM: Query External AI Models
+# Consult LLM (Pi): Query External AI Models
 
-Query external LLM providers via the `consult_llm` MCP tool and present their responses for comparison. Two providers are available: **OpenAI** (GPT) and **Google Gemini**.
+Query external LLM providers via the `consult_llm` tool (promoted to a first-class tool by the pi-mcp-adapter) and present their responses for comparison. Two providers are available: **OpenAI** (GPT) and **Google Gemini**.
 
 The server picks the backend automatically — for OpenAI it uses your **Codex subscription** when you are logged into Codex (no API spend), otherwise your OpenAI API key; for Gemini it uses your Gemini API key. Keys/login are managed in **Settings → LLM API Keys** (and `codex login`) and take effect on the next session start.
 
@@ -14,7 +13,7 @@ The server picks the backend automatically — for OpenAI it uses your **Codex s
 
 **If the user named a specific model** ("ask gpt-5.5…", "use gemini-3.1-pro…") → use that exact model ID, no dialog.
 
-**Otherwise you MUST show an `AskUserQuestion` dialog** (single-select) so the user picks. Provide these four options — the tool automatically adds an "Other" free-text choice, giving **five** total:
+**Otherwise show an `ask_user_question` dialog** (single-select) so the user picks. Provide these four options — the tool automatically adds an "Other" free-text choice, giving **five** total:
 
 1. **Latest Google (Gemini)** — call with the selector `model: "gemini"`.
 2. **Latest OpenAI (GPT)** — call with the selector `model: "openai"`.

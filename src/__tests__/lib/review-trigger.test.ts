@@ -59,6 +59,41 @@ describe('isPrBoundaryTrigger', () => {
 });
 
 /**
+ * Robustness regression for the stateless-regex boundary parser (the rewrite away from the
+ * stateful shell tokenizer that desynced on heredoc bodies). These are the exact shapes Pi
+ * pushed with that the old word-tokenizer dropped on the floor, leaving a real PR-to-main with
+ * no review offered: a `gh pr create` whose --body carries a heredoc full of markdown pipes and
+ * apostrophes (which mis-split the tokenizer); pushes over ssh/https remote URLs; an env-var
+ * prefix with a quoted, space-bearing value (`GIT_SSH_COMMAND='ssh -i k' git push`); and a
+ * batched create+edit. The regex matches the verb directly in the raw string, so heredoc body
+ * content can never desync detection.
+ */
+describe('isPrBoundaryTrigger robustness (regex parser, not a shell tokenizer)', () => {
+  it('detects a gh pr create whose heredoc --body carries markdown pipes and apostrophes', () => {
+    const cmd = `gh pr create --base main --title "x" --body "$(cat <<'EOF'\n| col | col |\nit's a test\nEOF\n)"`;
+    expect(isPrBoundaryTrigger(cmd)).toBe(true);
+  });
+
+  it('detects a push over an ssh or https remote URL', () => {
+    expect(isPrBoundaryTrigger('git push git@github.com:org/repo.git main')).toBe(true);
+    expect(isPrBoundaryTrigger('git push https://github.com/org/repo.git main')).toBe(true);
+  });
+
+  it('detects a push behind an env-var prefix with a quoted, space-bearing value', () => {
+    expect(isPrBoundaryTrigger(`GIT_SSH_COMMAND='ssh -i k' git push origin main`)).toBe(true);
+  });
+
+  it('detects the protected create/edit inside a batched compound command', () => {
+    expect(isPrBoundaryTrigger('gh pr create --base develop && gh pr edit 5 --base main')).toBe(true);
+  });
+
+  it('does not false-trigger on a quoted literal or an env-var that merely contains "git"', () => {
+    expect(isPrBoundaryTrigger(`printf '%s' 'git push'`)).toBe(false);
+    expect(isPrBoundaryTrigger('FOO=git push')).toBe(false);
+  });
+});
+
+/**
  * REQ-AGENT-040 AC2: a diff that touches ONLY the generated graphify-out/ knowledge graph must
  * classify to zero review lanes so the PR-boundary auto-acknowledges — that checked-in graph is
  * machine-authored and carries no reviewable behavior. A diff that MIXES generated artifacts with

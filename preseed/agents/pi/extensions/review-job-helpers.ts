@@ -910,14 +910,26 @@ export function reviewBaselineContinuation(
 //   -> processCwd (Pi process dir, last resort).
 // commandCwd/sessionCwd/processCwd are directories resolved to a git root via gitRootOf;
 // sessionReviewRepo is already a git root and is returned verbatim.
+// activeRepo (added) is the IN-MEMORY active-cwd codeflare-pi.ts tracks on every tool execution —
+// the SAME signal the statusline footer resolves the repo from. It is load-bearing when the Pi
+// session cwd is a NON-repo parent workspace (/home/user/workspace) and the user works in a nested
+// clone via `cd`/`git -C`: commandCwd is absent on a slash command (/review-run) and on a
+// no-command reconciliation tick, sessionCwd/processCwd resolve to the parentless workspace, and
+// sessionReviewRepo is unset until a review has already run — so without activeRepo BOTH /review-run
+// AND open-PR reconciliation returned undefined ("not inside an SDD repository" / reconciliation
+// silently bailed on hasRepo=false and never auto-started) even though the footer showed the repo.
+// It sits after the reliable signals, before processCwd, validated through gitRootOf. This is the
+// recallActiveRepo() in-memory value (this Pi process only), NOT the cross-process on-disk sentinel
+// that flaps under concurrent agents — so it is safe for routing, unlike the sentinel above.
 export function resolveReviewRepo(
-  input: { commandCwd?: string; sessionCwd?: string; sessionReviewRepo?: string; processCwd?: string },
+  input: { commandCwd?: string; sessionCwd?: string; sessionReviewRepo?: string; activeRepo?: string; processCwd?: string },
   gitRootOf: (dir: string) => string | undefined,
 ): string | undefined {
   const fromDir = (dir: string | undefined): string | undefined => (dir ? gitRootOf(dir) : undefined);
   return fromDir(input.commandCwd)
     ?? fromDir(input.sessionCwd)
     ?? input.sessionReviewRepo
+    ?? fromDir(input.activeRepo)
     ?? fromDir(input.processCwd);
 }
 

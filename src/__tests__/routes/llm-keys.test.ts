@@ -270,4 +270,50 @@ describe('LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 
       expect(mockKV.delete).toHaveBeenCalledWith('llm-keys:test-bucket');
     });
   });
+
+  // REQ-AGENT-031 AC6 / REQ-AGENT-009 + REQ-AGENT-020 enterprise constraint:
+  // per-user LLM keys do not exist in enterprise mode (models route through the
+  // managed AI Gateway BYOK). Every method is rejected with 403 BEFORE touching KV.
+  describe('enterprise mode (REQ-AGENT-031 AC6)', () => {
+    function createEnterpriseTestApp() {
+      const app = new Hono<{ Bindings: Env }>();
+      app.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as any);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+      app.use('*', async (c, next) => {
+        (c.env as any) = { KV: mockKV, ENTERPRISE_MODE: 'active' };
+        return next();
+      });
+      app.route('/api/llm-keys', llmKeysRoutes);
+      return app;
+    }
+
+    it('GET returns 403 and never reads KV', async () => {
+      const app = createEnterpriseTestApp();
+      const res = await app.request('/api/llm-keys');
+      expect(res.status).toBe(403);
+      expect(mockKV.get).not.toHaveBeenCalled();
+    });
+
+    it('PUT returns 403 and never writes KV', async () => {
+      const app = createEnterpriseTestApp();
+      const res = await app.request('/api/llm-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openaiApiKey: 'sk-should-not-store' }),
+      });
+      expect(res.status).toBe(403);
+      expect(mockKV.put).not.toHaveBeenCalled();
+    });
+
+    it('DELETE returns 403 and never deletes KV', async () => {
+      const app = createEnterpriseTestApp();
+      const res = await app.request('/api/llm-keys', { method: 'DELETE' });
+      expect(res.status).toBe(403);
+      expect(mockKV.delete).not.toHaveBeenCalled();
+    });
+  });
 });

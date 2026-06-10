@@ -237,9 +237,10 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // are emitted directly (not transformed from Claude), so the Pi manifest -> seed pipeline
     // must surface them.
     expect(skills.map((d) => d.key)).toContain('.pi/agent/skills/review/SKILL.md');
-    // The four npm tool-extension skills ship a "when to use which tool" guide; the
-    // manifest -> seed pipeline must surface each one.
-    for (const skill of ['rpiv-ask-user-question', 'rpiv-todo', 'pi-web-access', 'pi-mcp-adapter']) {
+    // The five Pi tool-extension skills ship a "when to use which tool" guide; the
+    // manifest -> seed pipeline must surface each one (advisor is codeflare-authored
+    // for the @juicesharp/rpiv-advisor extension, which ships no skill of its own).
+    for (const skill of ['advisor', 'rpiv-ask-user-question', 'rpiv-todo', 'pi-web-access', 'pi-mcp-adapter']) {
       expect(skills.map((d) => d.key)).toContain(`.pi/agent/skills/${skill}/SKILL.md`);
     }
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/codeflare-commands.ts');
@@ -1182,11 +1183,20 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('consult-llm skill is excluded from all non-Claude agents', () => {
-    const nonClaude = AGENTS_SEEDED_CONFIGS.filter((d) => !d.key.startsWith('.claude/'));
-    for (const doc of nonClaude) {
-      expect(doc.key).not.toContain('consult-llm');
-    }
+  // REQ-AGENT-031 AC4: consult-llm is scoped to Claude + Pi ONLY. Claude gets it
+  // from its manifest; Pi gets it as a native skill (pi/manifest.json) paired with
+  // the pi-mcp-adapter directTools promotion. codex/opencode/antigravity never get
+  // it (they have no consult-llm MCP server, so the skill would reference a missing
+  // tool) - it stays in CLAUDE_ONLY_SKILLS, which excludes it from the transform lane.
+  it('consult-llm skill is available to Claude and Pi only', () => {
+    const consultKeys = AGENTS_SEEDED_CONFIGS
+      .map((d) => d.key)
+      .filter((k) => k.includes('consult-llm'))
+      .sort();
+    expect(consultKeys).toEqual([
+      '.claude/skills/consult-llm/SKILL.md',
+      '.pi/agent/skills/consult-llm/SKILL.md',
+    ]);
   });
 
   // Pi-native and transformed Pi *.md documents (skills, prompts, agent definitions,
@@ -1614,27 +1624,50 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
   });
 });
 
-describe('REQ-AGENT-031 consult-llm invocation behaviour (provider dialog + latest-flagship model)', () => {
-  function consultLlmSkill(): string {
-    const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.claude/skills/consult-llm/SKILL.md');
-    expect(doc, 'consult-llm SKILL.md must be bundled in the Claude seed').toBeTruthy();
+describe('REQ-AGENT-031 consult-llm invocation behaviour (5-choice model dialog + server-side selectors)', () => {
+  function consultLlmSkill(key: string): string {
+    const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === key);
+    expect(doc, `${key} must be bundled in the seed`).toBeTruthy();
     return doc!.content;
   }
 
-  it('AC4: skill mandates an AskUserQuestion provider dialog naming OpenAI + Gemini', () => {
-    const body = consultLlmSkill();
+  // AC5: when no model is named, the skill drives a single-select dialog of four
+  // explicit choices (+ the tool's automatic "Other" write-in = five): latest
+  // Gemini, latest OpenAI, both, and "list all available".
+  it('AC5: Claude skill mandates an AskUserQuestion model dialog with the five choices', () => {
+    const body = consultLlmSkill('.claude/skills/consult-llm/SKILL.md');
     expect(body).toContain('AskUserQuestion');
-    expect(body).toMatch(/OpenAI/);
-    expect(body).toMatch(/Gemini/);
-    expect(body).toMatch(/provider/i);
+    expect(body).toMatch(/five/i);
+    expect(body).toMatch(/Latest Google|Gemini/);
+    expect(body).toMatch(/Latest OpenAI|GPT/);
+    expect(body).toMatch(/\bboth\b/i);
+    expect(body).toMatch(/list all available/i);
+    expect(body).toMatch(/\bother\b/i);
   });
 
-  it('AC5: skill requires an explicit latest-flagship model and forbids the MCP server default', () => {
-    const body = consultLlmSkill();
-    expect(body.toLowerCase()).toContain('latest flagship');
-    expect(body).toContain('/v1/models');
-    expect(body).toContain('/v1beta/models');
-    expect(body.toLowerCase()).toMatch(/never rely on the .*default|never the (mcp )?server default|never let the call fall back/);
+  // AC5: "latest" is resolved by the server-side selectors, never a hardcoded model
+  // ID and never a live provider model-list fetch - the isolation-breaking curl that
+  // leaked the raw provider key is gone from both the Claude and Pi skills.
+  it('AC5: both skills use the openai/gemini selectors and never curl a provider model list', () => {
+    for (const key of ['.claude/skills/consult-llm/SKILL.md', '.pi/agent/skills/consult-llm/SKILL.md']) {
+      const body = consultLlmSkill(key);
+      expect(body, key).toContain('"openai"');
+      expect(body, key).toContain('"gemini"');
+      // Regression: the old skill curled the provider catalogs with the raw API key.
+      expect(body, key).not.toContain('/v1/models');
+      expect(body, key).not.toContain('/v1beta/models');
+      expect(body, key).not.toContain('Authorization: Bearer');
+      // Dialog is skipped when the user already named a model.
+      expect(body.toLowerCase(), key).toContain('named a specific model');
+    }
+  });
+
+  // AC4: the Pi skill mirrors the Claude one but drives Pi's ask_user_question tool.
+  it('AC4: Pi skill mirrors the dialog using ask_user_question (not AskUserQuestion)', () => {
+    const body = consultLlmSkill('.pi/agent/skills/consult-llm/SKILL.md');
+    expect(body).toContain('ask_user_question');
+    expect(body).not.toContain('AskUserQuestion');
+    expect(body).toMatch(/five/i);
   });
 });
 

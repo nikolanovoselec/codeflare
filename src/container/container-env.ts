@@ -209,9 +209,16 @@ export function buildEnvVars(
     SESSION_ID: state._sessionId || '',
     // Tab configuration (JSON string for the terminal server to parse)
     ...(state._tabConfig && { TAB_CONFIG: JSON.stringify(state._tabConfig) }),
-    // LLM API keys (injected for consult-llm-mcp MCP server)
-    ...(state._openaiApiKey && { OPENAI_API_KEY: state._openaiApiKey }),
-    ...(state._geminiApiKey && { GEMINI_API_KEY: state._geminiApiKey }),
+    // LLM API keys for the consult-llm-mcp MCP server. Injected under a
+    // CODEFLARE_ namespace (NOT the bare OPENAI_API_KEY / GEMINI_API_KEY) so the
+    // coding agents (Pi, opencode, antigravity) cannot auto-detect them as their
+    // own provider credentials and silently bill the user's API account - the
+    // exact failure that drained the user's OpenAI quota. entrypoint.sh maps them
+    // back to the standard names ONLY inside the consult-llm MCP server's scoped
+    // env block. Suppressed in enterprise mode, where models route through the AI
+    // Gateway BYOK and per-user LLM keys do not exist.
+    ...(!isEnterpriseMode(env) && state._openaiApiKey && { CODEFLARE_OPENAI_API_KEY: state._openaiApiKey }),
+    ...(!isEnterpriseMode(env) && state._geminiApiKey && { CODEFLARE_GEMINI_API_KEY: state._geminiApiKey }),
     // Encryption key for rclone SSE-C
     ...(state._encryptionKey && { ENCRYPTION_KEY: state._encryptionKey }),
     // Deploy credentials (GitHub + Cloudflare for push & deploy)

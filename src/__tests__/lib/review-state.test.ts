@@ -236,6 +236,17 @@ describe('resolveReviewRepo (review-repo resolution detached from the graphify s
     expect(resolveReviewRepo({ sessionReviewRepo: '/ws/ai-news-digest', processCwd: '/pi/proc' }, gitRootOf)).toBe('/ws/ai-news-digest');
   });
 
+  it('falls back to the in-memory active repo (walked to its git root) before the process cwd', () => {
+    // The /review-run + no-ctx-reaper fix: no commandCwd, the session cwd is the parentless
+    // workspace, and sessionReviewRepo is unset until a review has already run — so the active-cwd
+    // codeflare-pi.ts tracks on every tool execution is the only signal that finds the nested clone.
+    expect(resolveReviewRepo({ activeRepo: '/ws/ai-news-digest/src', processCwd: '/pi/proc' }, gitRootOf)).toBe('/ws/ai-news-digest');
+  });
+
+  it('prefers a remembered sessionReviewRepo over the active repo', () => {
+    expect(resolveReviewRepo({ sessionReviewRepo: '/ws/ai-news-digest', activeRepo: '/pi/proc' }, gitRootOf)).toBe('/ws/ai-news-digest');
+  });
+
   it('falls back to the process cwd only when nothing else resolves', () => {
     expect(resolveReviewRepo({ processCwd: '/pi/proc' }, gitRootOf)).toBe('/pi/proc-repo');
   });
