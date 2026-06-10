@@ -47,10 +47,11 @@ deployed on Recreate or new bucket creation.
 | git-review-pipeline skill (SDD PR-boundary review pipeline) | No | Yes | Yes |
 | SDD template scaffolding for `/sdd init` | No | Yes | Yes |
 | Known marketplaces plugin config | Yes | Yes | Yes |
-| context-mode helper package (`ctx_*` tools) | Disabled by default in Pi; optional `/ctx on` for current session | Disabled by default in Pi; optional `/ctx on` for current session | Disabled by default in Pi; optional `/ctx on` for current session |
+| context-mode helper package (`ctx_*` tools) | Enabled by default in Pi; `/ctx off` to disable for current session | Enabled by default in Pi; `/ctx off` to disable for current session | Enabled by default in Pi; `/ctx off` to disable for current session |
+| Pi tool extensions (`rpiv-ask-user-question`, `rpiv-todo`, `pi-web-access`, `pi-mcp-adapter`) | Yes (always-on `required`) | Yes (always-on `required`) | Yes (always-on `required`) |
 | context-mode plugin folder (Claude Code auto-routing hooks for context-window reduction) | No | No | Yes |
 
-The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Pi always starts with context-mode disabled so the native Pi tool surface is stable; the Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off` for temporary per-session opt-in. The next Codeflare container start resets Pi back to disabled.
+The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Pi starts with context-mode **enabled** by default (its `ctx_*` tools and the bash-curl-redirect hook are active without `/ctx on`); the Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off` for per-session control. The next Codeflare container start resets Pi back to enabled. The four Pi tool extensions are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle.
 
 **Storage**: `sessionMode?: 'default' | 'advanced'` in
 `UserPreferences` (KV). Undefined = `'default'`.
@@ -527,10 +528,11 @@ Hooks registered in settings.json, scripts delivered via plugin.
 ## Third-party plugin: context-mode
 
 [context-mode](https://github.com/mksglu/context-mode) is registered
-as an optional Claude Code MCP server (`ctx_*` helper tools) where that runtime
-enables it. Pi does not load context-mode by default; `/ctx on` enables the
-package for the current running Pi session and reloads resources, while `/ctx off`
-disables it again. Durable PR-boundary review lanes inherit `/ctx on` only when
+as a Claude Code MCP server (`ctx_*` helper tools) where that runtime
+enables it. Pi loads context-mode by default (in the settings `required` set);
+`/ctx off` disables the package for the current running Pi session and reloads
+resources, while `/ctx on` re-enables it, and the next Codeflare container start
+resets Pi back to enabled. Durable PR-boundary review lanes inherit `/ctx on` only when
 `spawnDurableLane` adds the settings-enabled context-mode package as an explicit
 `-e` argument. With `/ctx on`, the lane can expose `ctx_search`; with it off,
 the lane runs without ctx tools. `graphify-native.ts` and `review-lane-guards.ts`

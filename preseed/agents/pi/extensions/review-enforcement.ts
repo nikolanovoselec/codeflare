@@ -14,7 +14,7 @@ import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prBoundaryCommandBase, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
+import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -85,19 +85,24 @@ function cwdFromCommand(command: string): string | undefined {
   return cwdFromBoundaryCommand(command);
 }
 
-// The repo THIS Pi session is reviewing, remembered for the no-ctx autonomous reaper. Set by
-// reviewRepoForCtx whenever a ctx-bearing handler resolves the review repo from the session cwd.
-// Deliberately replaces the old graphify active-cwd sentinel read: that sentinel is shared across
-// agents (Claude's hook + Pi's codeflare-pi.ts both write it) and flaps to whichever agent acted
-// last, so it cannot identify the repo THIS Pi session is reviewing. See resolveReviewRepo().
-let sessionReviewRepo: string | undefined;
+// The repo THIS Pi session is reviewing is remembered in the shared review-job-helpers module
+// (rememberReviewRepo/recallReviewRepo), so BOTH the no-ctx autonomous reaper AND the
+// local-statusline footer (a separate extension sharing the same module instance) recall the SAME
+// value. Deliberately replaces the old graphify active-cwd sentinel read: that sentinel is shared
+// across agents (Claude's hook + Pi's codeflare-pi.ts both write it) and flaps to whichever agent
+// acted last, so it cannot identify the repo THIS Pi session is reviewing. See resolveReviewRepo().
 
 // Resolve + remember the review repo for a ctx-bearing handler: an explicit command cwd (`cd`/`-C`
-// in the boundary command) first, then the Pi session's own cwd, then pi's process dir as a last
-// resort (its own dir, not the cross-agent sentinel). Never the graphify sentinel.
+// in the boundary command) first, then the Pi session's own cwd, then the repo remembered earlier
+// this session (so a NESTED review clone still resolves when the session cwd is its parent
+// workspace — the on-turn summary-emit bug), then pi's process dir as a last resort. Never the
+// graphify sentinel.
 function reviewRepoForCtx(ctx: any, commandCwd?: string): string | undefined {
-  const repo = resolveReviewRepo({ commandCwd, sessionCwd: ctx?.sessionManager?.getCwd?.(), processCwd: process.cwd() }, findGitRoot);
-  if (repo) sessionReviewRepo = repo;
+  const repo = resolveReviewRepo(
+    { commandCwd, sessionCwd: ctx?.sessionManager?.getCwd?.(), sessionReviewRepo: recallReviewRepo(), processCwd: process.cwd() },
+    findGitRoot,
+  );
+  rememberReviewRepo(repo);
   return repo;
 }
 
@@ -613,7 +618,7 @@ function autonomousReviewReaperTick(): void {
     // handlers. Use the in-session review repo remembered by reviewRepoForCtx (set when this session
     // armed/reconciled the review), falling back to pi's process dir. NOT the graphify active-cwd
     // sentinel — under concurrent agents it flaps to whatever repo acted last, misrouting finalize.
-    const repo = resolveReviewRepo({ sessionReviewRepo, processCwd: process.cwd() }, findGitRoot);
+    const repo = resolveReviewRepo({ sessionReviewRepo: recallReviewRepo(), processCwd: process.cwd() }, findGitRoot);
     if (!repo) return;
     const pending = loadPending(repo);
     if (!pending || !pending.head || pending.lanes.length === 0) return;

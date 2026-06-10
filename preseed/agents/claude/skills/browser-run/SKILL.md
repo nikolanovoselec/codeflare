@@ -12,9 +12,12 @@ Only available in Pro (advanced) sessions when a Cloudflare API token with the *
 
 ## When to use
 
-1. Try `WebFetch` first — it's faster and cheaper.
-2. If `WebFetch` errors, returns a CAPTCHA/anti-bot page, an empty body, or obviously unrendered HTML, **fall back to the `chrome-devtools` browser tools**.
-3. Public URLs only. Do not point Browser Run at internal hosts, `localhost`, private IPs, or anything requiring the user's session/credentials.
+The `chrome-devtools` browser is the **last resort** — a real Chrome engine is the most expensive way to read a page. Use the cheaper tools first:
+
+1. **Static / normal page** → `WebFetch`, or `ctx_fetch_and_index` (context-mode) when the page is large or you only want specific facts (it keeps the bytes out of your context). Fast and cheap.
+2. **Raw HTTP / JSON API** → `curl` via Bash.
+3. **Use the `chrome-devtools` browser ONLY when** the page is **JavaScript-only / a SPA** (content materializes after JS runs) or is **bot-protected / CAPTCHA / redirect-walled**, so `WebFetch` returns an error, an anti-bot page, or empty/unrendered HTML. Don't retry `WebFetch` on a page you already know needs JS — go straight to the browser tools.
+4. Public URLs only. Never point Browser Run at internal hosts, `localhost`, private IPs, or anything requiring the user's session/credentials.
 
 ## How to use
 

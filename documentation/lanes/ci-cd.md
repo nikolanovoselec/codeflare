@@ -34,7 +34,7 @@ Dependabot runs weekly against the `develop` branch for three npm package direct
 | `deploy-dockerhub.yml` | `workflow_dispatch` (production/integration/enterprise/enterprise integration) | Fallback deploy pipeline identical to `deploy.yml` but pushes the container image to Docker Hub instead of `registry.cloudflare.com`. Used when the Cloudflare managed registry drops connections mid-upload. Requires `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets. |
 | `bump-shadow-pins.yml` | Weekly (Monday 06:00 UTC) + `workflow_dispatch` | Tracks non-Dependabot pins: context-mode, graphifyy plugin version, Dockerfile binaries, and Pi preseed npm pins. Opens one PR per bump and regenerates matching lockfiles/agent seed when duplicated literals change. SHA256 checksums are invalidated on Dockerfile-binary bumps. |
 
-For the Pi preseed job, both `@gotgenes/pi-subagents` and context-mode live in `preseed/agents/pi/package.json` and the generated seed. Only `@gotgenes/pi-subagents` is in the Pi settings `required` install array; context-mode is carried as a disabled package spec. Dependabot intentionally skips that directory, so this workflow keeps the duplicates aligned.
+For the Pi preseed job, `@gotgenes/pi-subagents`, context-mode, and the four tool extensions (`@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `pi-web-access`, `pi-mcp-adapter`) all live in `preseed/agents/pi/package.json` and the generated seed. All of them are in the Pi settings `required` install array (so context-mode is enabled by default and the extensions stay available regardless of the `/ctx` toggle). Dependabot intentionally skips that directory, so this workflow keeps the duplicates aligned.
 
 ### GitHub Environments
 

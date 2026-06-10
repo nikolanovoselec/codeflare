@@ -434,8 +434,8 @@ function setContextModeEnabled(enabled: boolean): "enabled" | "disabled" {
 function contextModeStatusText(): string {
   const enabled = contextModeEnabled();
   return enabled
-    ? "context-mode is enabled for this running Pi session. It will be disabled again on the next Codeflare container start. Use `/ctx off` to disable now."
-    : "context-mode is disabled. Use `/ctx on` to enable it for this running Pi session, then Pi will reload resources.";
+    ? "context-mode is enabled (the default for Pi). Use `/ctx off` to disable it for this running Pi session; the next Codeflare container start re-enables it."
+    : "context-mode is disabled for this running Pi session. Use `/ctx on` to re-enable it now (Pi reloads resources); the next Codeflare container start re-enables it by default.";
 }
 
 function newestVaultMtime(): number | undefined {

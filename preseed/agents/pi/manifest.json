@@ -116,6 +116,30 @@
       "advanced"
     ]
   },
+  "skills/rpiv-ask-user-question/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/rpiv-todo/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/pi-web-access/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/pi-mcp-adapter/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "scripts/safe-graphify-update.sh": {
     "modes": [
       "advanced"
