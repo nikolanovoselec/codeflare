@@ -936,6 +936,43 @@ export function recallReviewRepo(): string | undefined {
   return rememberedReviewRepo;
 }
 
+// In-session memory of the repo the USER is working in, shared the same way
+// (codeflare-pi remembers it every time it resolves a git root from a command —
+// `git -C <repo>`, `cd <repo> && …`, clone — when it updates the graphify
+// active-cwd sentinel; the local-statusline footer recalls it). Display-only:
+// review ROUTING must never read this (resolveReviewRepo stays on its explicit
+// precedence chain) because it tracks whatever repo the last command touched.
+// Without it the footer shows no repo:branch when the session cwd is a non-repo
+// parent workspace and work happens in a nested repo via `git -C`.
+let rememberedActiveRepo: string | undefined;
+export function rememberActiveRepo(repo: string | undefined): void {
+  if (repo) rememberedActiveRepo = repo;
+}
+export function recallActiveRepo(): string | undefined {
+  return rememberedActiveRepo;
+}
+
+// Last-resort display-only fallback for the footer's repo:branch segment: the
+// on-disk graphify active-cwd sentinel. It is written by BOTH Claude's hook and
+// Pi's codeflare-pi extension, so under concurrent agents it flaps to whichever
+// acted last — hence the guards: the value must be a git repo AND live inside one
+// of this session's roots (session cwd / ctx cwd), so an unrelated repo touched
+// by another agent elsewhere can never hijack this session's footer. Pure so the
+// guards are unit-testable; the caller injects file content and the .git check.
+export function activeRepoSentinelForDisplay(input: {
+  sentinelContent: string | undefined;
+  sessionRoots: (string | undefined)[];
+  hasGitDir: (path: string) => boolean;
+}): string | undefined {
+  const value = input.sentinelContent?.trim();
+  if (!value || !input.hasGitDir(value)) return undefined;
+  const inside = input.sessionRoots.some((root) => {
+    if (!root) return false;
+    return value === root || value.startsWith(root.endsWith("/") ? root : `${root}/`);
+  });
+  return inside ? value : undefined;
+}
+
 // Npm package source strings a durable review lane should load as additionalExtensionPaths.
 // Graphify is a first-party LOCAL extension (graphify-native.ts), loaded directly by the lane
 // runner alongside codeflare-pi - it is not an npm package and never appears here.
