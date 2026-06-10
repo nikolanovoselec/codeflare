@@ -954,6 +954,11 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       });
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
+      // The constructor loads _sessionId via blockConcurrencyWhile; the test mock
+      // does not await that init, so set the in-memory field directly (as the
+      // containerStartedAt test does). destroy() captures host._sessionId before
+      // the storage-clear nulls it.
+      (instance as any)._sessionId = 'sess123';
       const stopSpy = vi.spyOn(instance, 'stop' as any).mockImplementation(async () => {
         mockContainerRuntime.running = false;
       });
