@@ -8,5 +8,8 @@
     "context-mode": "1.0.162",
     "pi-mcp-adapter": "2.9.0",
     "pi-web-access": "0.10.7"
+  },
+  "overrides": {
+    "@mozilla/readability": "0.6.0"
   }
 }
