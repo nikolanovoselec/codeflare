@@ -395,6 +395,15 @@ export async function collectMetrics(
     } else {
       const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string };
 
+      if (health.syncStatus === 'failed' || health.syncStatus === 'timeout') {
+        // Surface in-container bisync failures in Workers logs: the integration
+        // bisync death of 2026-05-31 ran invisible for 11 days because the sync
+        // daemon's state never left the container (sync.log is not shipped
+        // anywhere). One warn per metrics tick (60s) while the condition
+        // persists - cheap, queryable, alertable.
+        logger.warn('collectMetrics: container R2 sync unhealthy', { syncStatus: health.syncStatus });
+      }
+
       const sessionId = await ctx.storage.get<string>(SESSION_ID_KEY);
       // Fallback: if _bucketName isn't set on the instance, try loading from storage
       const bucketName = state._bucketName || await ctx.storage.get<string>('bucketName') || null;

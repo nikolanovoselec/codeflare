@@ -1656,6 +1656,18 @@ warm_pi_npm_dependencies() {
         echo "[entrypoint] Pi extension npm dependencies symlinked"
     fi
 
+    # Expose the image-baked jiti transpile cache at jiti's tmpdir fallback
+    # path (this pi build ignores a path-valued JITI_FS_CACHE env; it caches
+    # under $TMPDIR/jiti). The cache is content-addressed, so entries baked at
+    # image build hit for the seeded extensions + npm packages and the first
+    # Pi launch loads warm (~4s instead of ~9s of cold transpile) — keeping
+    # the host pre-warm under its 20s cap. Skipped if something already
+    # created a real /tmp/jiti (its entries would be newer truth).
+    if [ -d /opt/codeflare/jiti-cache ] && [ ! -e /tmp/jiti ]; then
+        ln -s /opt/codeflare/jiti-cache /tmp/jiti
+        echo "[entrypoint] Pi jiti transpile cache symlinked (image-baked warm cache)"
+    fi
+
     local pi_settings="${PI_SETTINGS_FILE:-$USER_HOME/.pi/agent/settings.json}"
     mkdir -p "$(dirname "$pi_settings")"
     node - "$pi_settings" <<'NODE'
