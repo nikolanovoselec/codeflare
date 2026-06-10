@@ -1999,8 +1999,13 @@ COPILOT_BYOK_EOF
     # can raise the level when a route model supports reasoning over chat/completions
     # (e.g. Gemini); gpt-5.5 stays 400 at levels above off until CF fixes
     # /ai/v1/responses -- that is the documented, user-visible tradeoff.
-    PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c --arg def "$ENTERPRISE_DEFAULT_ROUTE" '
-        (if type=="array" and length>0 then . else [$def] end)
+    # NOTE: the jq arg is named `defroute`, NOT `def`. `def` is a reserved jq
+    # keyword (function definition), so `--arg def ... $def` is a compile error
+    # on jq 1.6 (the Debian bookworm base image's version) — and because this is
+    # an unguarded command-substitution under `set -euo pipefail`, that aborted
+    # entrypoint.sh and crash-looped every enterprise container.
+    PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c --arg defroute "$ENTERPRISE_DEFAULT_ROUTE" '
+        (if type=="array" and length>0 then . else [$defroute] end)
         | map({ id: ., reasoning: true, input: ["text", "image"] })')"
     PI_PROVIDER_CONFIG=$(jq -n \
         --arg baseUrl "$PI_GATEWAY_BASE_URL" \

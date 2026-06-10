@@ -187,6 +187,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @impl: src/container/container-env.ts::buildEnvVars -->
 <!-- @impl: entrypoint.sh -->
 <!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
+<!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (AC4 Pi models.json build: one model per catalog route + empty-catalog fallback to default + guard against reserved-keyword jq args that crash the container) -->
 
 **Intent:** Agents in Enterprise Mode must be work-ready against the AI Gateway with zero manual login and zero injected credentials, so the container only learns it is in enterprise mode and configures itself to use the intercepted provider hosts.
 

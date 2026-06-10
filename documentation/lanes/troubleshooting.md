@@ -16,6 +16,16 @@ Diagnostic commands, common failure modes, and resolution steps.
 
 Frequently encountered problems grouped by symptom, with causes and resolution steps.
 
+### Enterprise Containers Won't Start / Crash-Loop (Terminal Reconnect Storm)
+
+**Symptom:** In Enterprise Mode, sessions never reach a usable terminal. Worker logs (`codeflare-enterprise-<env>`) show a rapid terminal-WebSocket reconnect storm (~10+ per minute), `Error proxying request to container`, and teardown `Final sync did NOT complete on teardown … The container is not running` — i.e. the container's PID 1 keeps exiting. Plain (non-enterprise) sessions on the same image are unaffected.
+
+**Cause:** A failing command in the `ENTERPRISE_MODE=active` block of `entrypoint.sh`, which runs under `set -euo pipefail`, aborts the script and kills PID 1. The block is full of unguarded `jq` command-substitutions; any one of them failing crashes the container. The first instance of this was a `jq --arg def …`/`$def` — `def` is a reserved jq keyword (function definition), a hard compile error on the bookworm base image's jq 1.6 — which crashed every enterprise container until fixed (see REQ-ENTERPRISE-005 AC4).
+
+**Diagnose:** Container stdout/stderr is not shipped to Workers logs, so reproduce the enterprise block locally with the same env the Worker fans (`ENTERPRISE_ROUTE_CATALOG`, `ENTERPRISE_DEFAULT_ROUTE`, `ENTERPRISE_DEFAULT_REASONING`) under `set -euo pipefail` and watch for the first non-zero exit. The configured route catalog/default live in the env KV under `setup:dynamic_routes` / `setup:default_route`.
+
+**Fix:** Correct the failing entrypoint command and redeploy the enterprise image. Keep enterprise-block `jq` calls either guarded (`if jq …; then … else warn; fi`) or free of reserved-keyword `--arg` names; `entrypoint-enterprise-pi-models.test.js` now runs the real models.json build and forbids reserved-keyword jq args.
+
 ### New User Has Preseed Configs but No "Docs & Examples"
 
 **Symptom:** A newly provisioned user's R2 bucket contains the agent-config preseed files, but the getting-started Docs & Examples are missing. Clicking **Recreate Docs & Examples** in Settings creates them.
