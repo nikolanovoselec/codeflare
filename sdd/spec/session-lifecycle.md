@@ -539,6 +539,7 @@ None.
 <!-- @test: host/__tests__/prewarm-readiness.test.js (1013 reject + init-flag gate → AC2) -->
 <!-- @test: src/__tests__/container/index.test.ts (DO-side prewarm contract → AC1) -->
 <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (REQ-SESSION-015 describe → guarded warm-up calls still reach init-flag write on failure + regression sentinel that unguarded form aborts before flag → Constraints fault-containment invariant) -->
+<!-- @test: host/__tests__/dockerfile-pi-warm.test.js (baked jiti cache layer + pinned pi version + entrypoint /tmp/jiti symlink → AC5) -->
 
 **Intent:** A new container must bind its serving port quickly so Cloudflare's port-wait check succeeds, yet must refuse real terminal traffic until initial state restore and pre-warm are complete; the readiness gate sits between the port bind and the first accepted WebSocket upgrade.
 
@@ -550,6 +551,7 @@ None.
 2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @impl: entrypoint.sh -->
 3. Tab-1 PTY pre-warm is gated on the init-complete signal, so it never starts before initial state restore is in place. <!-- @impl: host/src/server.ts -->
 4. The host terminal server rejects terminal WebSocket upgrades with a retriable ("try again later") close code and a human-readable container-warming reason until both the init-complete signal is observed and the pre-warm session is registered. <!-- @impl: host/src/server.ts -->
+5. The image bakes a pre-transpiled (jiti) cache for the full Pi extension set at build time — warmed via a throwaway `pi` run with the package list derived from the preseed `package.json`, the build failing if the cache comes out empty — and the entrypoint exposes it at jiti's tmpdir fallback path (`/tmp/jiti` symlink), so the pre-warm PTY's first output is not delayed by a cold extension transpile (measured ~9s cold vs ~4s warm; the cold path pushed pre-warm past its 20s hard cap and doubled perceived session startup). The `pi` CLI version is pinned in the image so the warmed cache and extension API stay reproducible across rebuilds. <!-- @impl: Dockerfile --> <!-- @impl: entrypoint.sh -->
 
 **Constraints:**
 
@@ -560,7 +562,7 @@ None.
 
 **Dependencies:** [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** [Automated test](../../host/__tests__/prewarm-readiness.test.js)
+**Verification:** [Automated test](../../host/__tests__/prewarm-readiness.test.js); [dockerfile-pi-warm.test.js](../../host/__tests__/dockerfile-pi-warm.test.js) (AC5 — baked cache layer, derived package list, empty-cache build guard, pinned pi, entrypoint symlink)
 
 **Status:** Implemented
 

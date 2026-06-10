@@ -125,13 +125,14 @@ vi.mock('../lib/r2-config', () => ({
   getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://test.r2.cloudflarestorage.com' })),
 }));
 
+const mockLogger = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
 vi.mock('../lib/logger', () => ({
-  createLogger: () => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  }),
+  createLogger: () => mockLogger,
 }));
 
 // Import AFTER mocks are set up
@@ -192,6 +193,28 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
   });
 
   describe('collectMetrics', () => {
+    it('warns when /health reports an unhealthy R2 sync (failed/timeout) so an in-container bisync death is visible in Workers logs', async () => {
+      // The 2026-05-31 integration bisync death ran invisible for 11 days
+      // because the daemon's state never left the container. This warn (one
+      // per 60s metrics tick while unhealthy) is the queryable signal.
+      mockLogger.warn.mockClear();
+      testState.healthResult.syncStatus = 'failed';
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z', lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      } as Session);
+
+      await containerInstance.collectMetrics();
+
+      expect(mockLogger.warn).toHaveBeenCalledWith('collectMetrics: container R2 sync unhealthy', { syncStatus: 'failed' });
+
+      // A healthy sync must NOT warn (no alert noise on the steady state).
+      mockLogger.warn.mockClear();
+      testState.healthResult.syncStatus = 'success';
+      await containerInstance.collectMetrics();
+      expect(mockLogger.warn).not.toHaveBeenCalledWith('collectMetrics: container R2 sync unhealthy', expect.anything());
+    });
+
     it('should fetch health data from TCP port and write metrics to KV', async () => {
       // Seed a session in KV
       const session: Session = {

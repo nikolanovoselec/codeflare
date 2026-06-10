@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD79](#ad79-image-baked-pi-extension-transpile-cache-with-pinned-pi-version) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -89,6 +89,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) | Durable review lanes run as detached headless Pi processes | Agents |
 | [AD77](#ad77-enterprise-vault-service-worker-reached-via-a-higher-precedence-access-bypass-app) | Enterprise vault service-worker reached via a higher-precedence Access bypass app | Architecture, Security |
 | [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers) | PR-boundary review lanes run in parallel (report-only reviewers) | Agents |
+| [AD79](#ad79-image-baked-pi-extension-transpile-cache-with-pinned-pi-version) | Image-baked Pi extension transpile cache with pinned pi version | Performance |
 
 ---
 
@@ -1495,6 +1496,34 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 - `/sdd clean` behavior is unchanged.
 
 **Related:** [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC4/AC5, [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) (the `/sdd clean` sequential order this decision deliberately preserves), [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes).
+
+---
+
+### AD79: Image-baked Pi extension transpile cache with pinned pi version
+
+**Category:** Performance
+
+**Status:** Accepted (2026-06-10)
+
+**Context:** The 2026-06-10 preseed bundle grew Pi's loaded extension set from 1 npm package to 6 (context-mode enabled by default + four tool extensions). Pi loads every extension through jiti (`moduleCache: false`); jiti caches transpiles on disk under `$TMPDIR/jiti` because no `node_modules` directory sits next to `~/.pi/agent/extensions/` (and this pi build ignores a path-valued `JITI_FS_CACHE` env — verified empirically). `/tmp` starts empty in every fresh container, so **every session cold-transpiled the full extension graph before Pi's first PTY output** — measured live at ~9s cold vs ~4s warm. The host pre-warm (REQ-SESSION-015) treats first PTY output as its readiness signal with a 20s hard cap; the cold transpile pushed it past the cap, doubling perceived session startup (15s → 30-35s, user-reported). Compounding the diagnosis: the Dockerfile installed `@earendil-works/pi-coding-agent@latest`, so the regressing deploy also silently changed the pi core — an unmeasured variable that made the regression unbisectable.
+
+**Decision:** Bake a warmed jiti cache into the image and pin the pi version. A Dockerfile layer runs a throwaway `pi -p` at build with `TMPDIR` redirected, against an agent dir that mirrors the runtime layout (npm symlinked to the image preseed cache; package list **derived** from the preseed `package.json`, never duplicated), then moves the result to `/opt/codeflare/jiti-cache` and **fails the build if the cache is empty**. The entrypoint symlinks `/tmp/jiti` → the baked cache at boot (the same pattern as the npm preseed `node_modules` symlink). <!-- @impl: Dockerfile --> <!-- @impl: entrypoint.sh --> `@earendil-works/pi-coding-agent` is pinned to an exact version (the other agent CLIs stay `@latest` — none of them carry a build-time-warmed cache contract).
+
+**Rationale:** jiti's cache is content-addressed (source hash), so entries baked at build hit at runtime even though the R2-seeded extensions land at a different path with fresh mtimes (seeding is verbatim — verified). Validated end-to-end in the live container: 153/153 cache hits, 3.8s extension load through the symlinked baked cache, zero rewrites. The empty-cache build guard turns "a pi CLI change broke the warm-up" into a visible build failure instead of a silent production startup regression.
+
+**Alternatives considered:**
+
+- **`JITI_FS_CACHE=<path>` env (rejected):** ignored by this jiti build — entries land in `$TMPDIR/jiti` regardless (tested).
+- **Lazy/deferred extension loading upstream (rejected for now):** requires pi-core changes; the cache bake achieves the same perceived latency without forking load semantics.
+- **Raising the pre-warm 20s cap (rejected):** treats the symptom; sessions would still pay the cold transpile, just behind a quieter gate.
+
+**Consequences:**
+
+- First Pi launch in a fresh container loads warm (~4s); pre-warm settles on real output, under its cap.
+- A preseed package bump automatically re-warms the right set (derived list); bumping pi is now a deliberate, visible Dockerfile change.
+- The V8 compile cache (`NODE_COMPILE_CACHE`, already baked for `--version` paths) additionally gains the extension-graph entries from the same warm run.
+
+**Related:** [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC5, [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) (the same incident's data-loss half).
 
 ---
 
