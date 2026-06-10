@@ -260,7 +260,11 @@ All preseed content is deployed via the manifest pipeline:
   registers native `browser_markdown`, `browser_content`, and `browser_scrape`
   tools that call the Cloudflare Browser Run REST Quick Actions — Pi's
   equivalent of Claude Code's `chrome-devtools-mcp` MCP server, self-gated on
-  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The `browser-run` skill
+  (Claude Code) and `browser-run.ts` extension (Pi) position Browser Run as the
+  last-resort web fetcher — `WebFetch`/`ctx_fetch_and_index` → `curl` → Browser
+  Run, reserved for JS-rendered or bot-protected pages — per the decision tree
+  in the skill's "When to use" section.
 
   Native skill overrides include graphify
   ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch)

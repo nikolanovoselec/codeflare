@@ -562,7 +562,7 @@ None.
 
 **Dependencies:** [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** [Automated test](../../host/__tests__/prewarm-readiness.test.js); [dockerfile-pi-warm.test.js](../../host/__tests__/dockerfile-pi-warm.test.js) (AC5 — baked cache layer, derived package list, empty-cache build guard, entrypoint symlink)
+**Verification:** [Automated test](../../host/__tests__/prewarm-readiness.test.js) (AC2); [DO-side prewarm contract](../../src/__tests__/container/index.test.ts) (AC1); [dockerfile-pi-warm.test.js](../../host/__tests__/dockerfile-pi-warm.test.js) (AC5 — baked cache layer, derived package list, empty-cache build guard, entrypoint symlink)
 
 **Status:** Implemented
 

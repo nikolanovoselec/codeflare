@@ -386,7 +386,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** [Automated test](../../src/__tests__/lib/r2-seed.test.ts) (AC1/AC5); [self-heal seeding](../../src/__tests__/routes/container-lifecycle-helpers.test.ts) (AC6)
+**Verification:** [Automated test](../../src/__tests__/lib/r2-seed.test.ts) (AC1/AC5); [seed endpoint test](../../src/__tests__/routes/storage-seed.test.ts) (AC2/AC3/AC4); [self-heal seeding](../../src/__tests__/routes/container-lifecycle-helpers.test.ts) (AC6)
 
 **Status:** Implemented
 
