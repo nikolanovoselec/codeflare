@@ -1111,7 +1111,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1/AC3-AC5); [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (AC2 — elapsed/token badge formatting + compact status rendering/omission)
 
 **Status:** Implemented
 
@@ -1308,7 +1308,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** [Pi local statusline render test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** [Pi local statusline render test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1-AC5); [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (AC2 — repo-label resolution via rememberReviewRepo/recallReviewRepo)
 
 **Status:** Implemented
 
