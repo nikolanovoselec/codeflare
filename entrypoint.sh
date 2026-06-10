@@ -2004,24 +2004,36 @@ COPILOT_BYOK_EOF
     # on jq 1.6 (the Debian bookworm base image's version) — and because this is
     # an unguarded command-substitution under `set -euo pipefail`, that aborted
     # entrypoint.sh and crash-looped every enterprise container.
+    # Build the provider config defensively. These jq command-substitutions run
+    # under `set -euo pipefail`; an UNGUARDED failure here kills PID 1 and
+    # crash-loops the container with no shipped logs (the failure mode this whole
+    # section was hardened against). A malformed catalog must degrade to "Pi
+    # unpinned, container stays up", never a dead container — so the `|| OK=0`
+    # guards keep set -e from aborting and we skip the pin on any jq failure.
+    PI_GATEWAY_CONFIG_OK=1
     PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c --arg defroute "$ENTERPRISE_DEFAULT_ROUTE" '
         (if type=="array" and length>0 then . else [$defroute] end)
-        | map({ id: ., reasoning: true, input: ["text", "image"] })')"
-    PI_PROVIDER_CONFIG=$(jq -n \
-        --arg baseUrl "$PI_GATEWAY_BASE_URL" \
-        --arg apiKey "$ENTERPRISE_PLACEHOLDER_TOKEN" \
-        --argjson models "$PI_MODELS_ARRAY" '{
-        providers: {
-            "codeflare-gateway": {
-                baseUrl: $baseUrl,
-                api: "openai-completions",
-                apiKey: $apiKey,
-                authHeader: true,
-                models: $models
+        | map({ id: ., reasoning: true, input: ["text", "image"] })' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
+    PI_PROVIDER_CONFIG=""
+    if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then
+        PI_PROVIDER_CONFIG="$(jq -n \
+            --arg baseUrl "$PI_GATEWAY_BASE_URL" \
+            --arg apiKey "$ENTERPRISE_PLACEHOLDER_TOKEN" \
+            --argjson models "$PI_MODELS_ARRAY" '{
+            providers: {
+                "codeflare-gateway": {
+                    baseUrl: $baseUrl,
+                    api: "openai-completions",
+                    apiKey: $apiKey,
+                    authHeader: true,
+                    models: $models
+                }
             }
-        }
-    }')
-    if [ -f "$PI_MODELS_JSON" ]; then
+        }' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
+    fi
+    if [ "$PI_GATEWAY_CONFIG_OK" != "1" ] || [ -z "$PI_PROVIDER_CONFIG" ]; then
+        echo "[entrypoint] WARNING: could not build Pi enterprise gateway config (catalog=$ENTERPRISE_ROUTE_CATALOG); leaving Pi unpinned — container stays up"
+    elif [ -f "$PI_MODELS_JSON" ]; then
         TMP_JSON=$(mktemp)
         # Authoritative for codeflare-gateway only: replace that provider key wholesale
         # (so a removed route disappears) while preserving any other providers.

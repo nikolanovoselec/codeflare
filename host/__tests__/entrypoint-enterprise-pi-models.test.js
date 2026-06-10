@@ -80,8 +80,12 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005)', () =
       'def', 'if', 'then', 'elif', 'else', 'end', 'as', 'reduce', 'foreach',
       'try', 'catch', 'import', 'include', 'label', 'and', 'or', 'not',
     ];
+    // Strip full-line `#` comments first, so a comment that mentions the bad
+    // pattern (e.g. this fix's own explanatory note about `--arg def`) does not
+    // trip the guard — we only want to catch it in actual shell commands.
+    const code = entrypoint.split('\n').filter((line) => !/^\s*#/.test(line)).join('\n');
     const re = new RegExp(`--arg(?:json)?\\s+(${KEYWORDS.join('|')})\\b`, 'g');
-    const hits = entrypoint.match(re) || [];
+    const hits = code.match(re) || [];
     assert.deepEqual(hits, [], `reserved-keyword jq arg name(s) in entrypoint.sh: ${hits.join(', ')}`);
   });
 });

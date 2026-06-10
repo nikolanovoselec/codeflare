@@ -213,7 +213,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-AGENT-031](agents.md#req-agent-031-llm-api-key-propagation-to-container)
 
-**Verification:** [Automated test](../../src/__tests__/container/container-env-llm.test.ts)
+**Verification:** [env-pipeline test](../../src/__tests__/container/container-env-llm.test.ts) (AC1/AC5/AC6 env injection); [Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC4 — one model per catalog route, empty-catalog fallback, reserved-keyword jq guard). AC2 (CA trust), AC3 (Copilot BYOK), and AC5/AC6 entrypoint behaviours have no automated test; REQ held Planned.
 
 **Status:** Planned
 
