@@ -44,7 +44,7 @@ AI CLI packages install with `@latest` -- each deploy pulls the newest versions 
 | `opencode-ai` | 1.2.15 | `opencode` command |
 | `@github/copilot` | 0.0.418 | `copilot` command. Post-install: non-linux-x64 prebuilds, `mxc-bin/arm64`, bundled `ripgrep/` (system `rg` used instead), and non-linux native modules (`clipboard`, `pvrecorder`, `sharp` node_modules) stripped to save ~200MB. |
 | `bun` | 1.3.14 (pinned) | JS/TS subprocess runtime. context-mode autodetects Bun for `ctx_execute` / `ctx_batch_execute`. Post-install: `node_modules/` (258MB of non-linux platform binaries) stripped; only the linux-x64 binary in `bin/` is retained. |
-| `consult-llm-mcp` | 2.13.4 (pinned) | `consult-llm-mcp` command — the LLM Consultation MCP server for Claude Code + Pi. Installed `-g` and verified on `PATH` at build time so the server starts without a runtime `npx` fetch. Pinned + shadow-pinned (the `consult-llm-mcp` job in `bump-shadow-pins.yml`) since the version is duplicated in `entrypoint.sh`. |
+| `consult-llm-mcp` | 2.13.4 (pinned) | `consult-llm-mcp` command — the LLM Consultation MCP server for Claude Code + Pi. Installed `-g` and verified on `PATH` at build time so the server starts without a runtime `npx` fetch. Pinned + shadow-pinned (the `consult-llm-mcp` job in `bump-shadow-pins.yml`) — the version literal lives only in the `Dockerfile` `npm install -g` line, invisible to Dependabot, so the workflow bumps it weekly. |
 
 ### Pi Extension npm Cache
 
