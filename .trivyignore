@@ -565,3 +565,12 @@ CVE-2025-13462
 # (CVE-2026-42499 net/mail consumePhrase DoS, CVE-2025-61725). Fix: Go 1.25.11
 # / 1.26.4; rclone and lazygit upstream have not rebuilt yet.
 CVE-2026-42504
+
+# perl 5.36 in the Debian bookworm base image (libperl5.36, perl, perl-base,
+# perl-modules-5.36; 5.36.0-7+deb12u3): IO::Uncompress::Unzip before 2.220
+# allows CPU exhaustion (DoS) when decompressing a crafted Zip stream. Impact:
+# NONE - perl ships as a base-image/git tooling dependency; the container never
+# feeds attacker-controlled Zip archives through perl's IO::Uncompress. Same
+# base-image-dependency, no-untrusted-input exposure profile as the entries
+# above. No fixed version available in Debian bookworm.
+CVE-2026-48959
