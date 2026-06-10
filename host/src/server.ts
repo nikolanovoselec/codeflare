@@ -374,7 +374,15 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
       res.end(JSON.stringify({ synced: false, reason: 'daemon-not-running' }));
       return;
     }
-    const INTERNAL_TIMEOUT_MS = 115_000; // just under the DO's 120s budget
+    // MUST stay strictly ABOVE the DO's drain budget (FINAL_SYNC_BUDGET_MS =
+    // 120_000 in src/container/container-metrics.ts). The DO calls this endpoint
+    // with AbortSignal.timeout(120s) and that abort is the authoritative
+    // ceiling. If this host loop gives up FIRST it returns 504 while rclone is
+    // still flushing, the DO records 'incomplete', and the session deletes with
+    // the last edits unsynced. The previous value (115_000, < 120s) inverted
+    // exactly that: every final bisync landing in the 115-120s band was lost -
+    // the root cause behind ~10 failed "raise the budget" fixes. Keep host > DO.
+    const INTERNAL_TIMEOUT_MS = 125_000;
     const POLL_MS = 500;
     // Two-phase completion detection lives in the pure evaluateFinalSync state
     // machine (final-sync.ts) so the syncing->success/failed discrimination is

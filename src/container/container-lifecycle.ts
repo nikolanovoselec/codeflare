@@ -78,6 +78,10 @@ export async function collectMetrics(host: LifecycleHost): Promise<void> {
 // the plain best-effort drainFinalSync; only the teardown path audits.
 const FINAL_SYNC_AUDIT_KEY = 'finalSyncAudit';
 type FinalSyncOutcome = 'completed' | 'incomplete' | 'errored';
+// Outcome plus the observable detail (HTTP status + the host's reason string) so
+// a non-completed final sync is queryable post-mortem. The budget-inversion 504
+// surfaces as { outcome:'incomplete', httpStatus:504, reason:'timeout' }.
+type FinalSyncResult = { outcome: FinalSyncOutcome; httpStatus?: number; reason?: string };
 
 // Teardown-path variant of drainFinalSync that RETURNS the outcome so destroy()
 // can audit it. Unlike drainFinalSync it does NOT self-guard on
@@ -86,7 +90,7 @@ type FinalSyncOutcome = 'completed' | 'incomplete' | 'errored';
 // silently drops the last edits on stop/delete. Attempt the drain regardless; a
 // genuinely-dead container makes port.fetch error/timeout, which is swallowed
 // and reported as 'errored' (still best-effort, still bounded by budgetMs).
-async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number): Promise<FinalSyncOutcome> {
+async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number): Promise<FinalSyncResult> {
   if (!host.ctx.container?.running) {
     // We still attempt: a not-running reading at the start is worth recording as
     // the likely transient the #516 fix exists to survive.
@@ -94,14 +98,18 @@ async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number): Pro
   }
   try {
     const port = host.ctx.container?.getTcpPort(8080);
-    if (!port) return 'errored';
+    if (!port) return { outcome: 'errored', reason: 'no-container-port' };
     const res = await port.fetch('http://localhost/internal/final-sync', {
       method: 'POST',
       signal: AbortSignal.timeout(budgetMs),
     });
-    return res.ok ? 'completed' : 'incomplete';
-  } catch {
-    return 'errored';
+    // The host reports its own reason in the body ({ synced, reason }); capture
+    // it for the audit so a 504/'timeout' or 'bisync-failed' is distinguishable.
+    let reason: string | undefined;
+    try { reason = ((await res.json()) as { reason?: string }).reason; } catch { /* body may be empty */ }
+    return { outcome: res.ok ? 'completed' : 'incomplete', httpStatus: res.status, reason };
+  } catch (err) {
+    return { outcome: 'errored', reason: toError(err).message };
   }
 }
 
@@ -109,9 +117,17 @@ async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number): Pro
 // outcome under FINAL_SYNC_AUDIT_KEY (same durable store SHUTDOWN_REQUESTED_KEY
 // uses, so it survives the destroy and is observable by a later incarnation /
 // tests) and log it (info on success, warn otherwise).
-async function recordFinalSyncAudit(host: LifecycleHost, outcome: FinalSyncOutcome): Promise<void> {
-  const event = { outcome, at: Date.now(), running: host.ctx.container?.running ?? false };
-  if (outcome === 'completed') {
+async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult, sessionId: string | null): Promise<void> {
+  // sessionId is captured by destroy() before the storage-clear nulls it, so a
+  // non-completed final sync stays correlatable to the deleted session in logs.
+  const event: {
+    outcome: FinalSyncOutcome; at: number; running: boolean;
+    sessionId?: string; httpStatus?: number; reason?: string;
+  } = { outcome: result.outcome, at: Date.now(), running: host.ctx.container?.running ?? false };
+  if (sessionId) event.sessionId = sessionId;
+  if (result.httpStatus !== undefined) event.httpStatus = result.httpStatus;
+  if (result.reason) event.reason = result.reason;
+  if (result.outcome === 'completed') {
     host.logger.info('Final sync audit (teardown)', event);
   } else {
     host.logger.warn('Final sync did NOT complete on teardown', event);
@@ -129,6 +145,9 @@ async function recordFinalSyncAudit(host: LifecycleHost, outcome: FinalSyncOutco
  */
 export async function destroy(host: LifecycleHost): Promise<void> {
   host.logger.info('Destroying container, clearing operational storage');
+  // Capture the session id BEFORE the storage-clear below nulls host._sessionId,
+  // so the final-sync audit (recorded after the drain) stays correlatable.
+  const auditSessionId = host._sessionId;
   // Persist the deliberate-stop marker and drop the metrics alarm BEFORE
   // clearing identifiers. If a DO eviction interrupts this teardown, the
   // reconstructed instance (which resets in-memory fields to 0) still reads the
@@ -197,8 +216,8 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // failure/timeout so we always fall through to stop. Emit a durable audit
   // event recording the outcome so a skipped/failed final sync on delete is
   // never silent (#516).
-  const syncOutcome = await drainFinalSyncAudited(host, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start)));
-  await recordFinalSyncAudit(host, syncOutcome);
+  const syncResult = await drainFinalSyncAudited(host, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start)));
+  await recordFinalSyncAudit(host, syncResult, auditSessionId);
 
   if (host.ctx.container?.running) {
     try {

@@ -123,7 +123,12 @@ describe('REQ-SESSION-011 AC2: final-sync endpoint wiring (structural)', () => {
     assert.ok(block.includes('504') && block.includes('timeout'));
     const m = block.match(/INTERNAL_TIMEOUT_MS\s*=\s*([\d_]+)/);
     assert.ok(m, 'handler must define INTERNAL_TIMEOUT_MS');
-    assert.ok(Number(m[1].replace(/_/g, '')) < 120_000, 'internal timeout must be under the DO 120s budget');
+    // Regression guard for the bisync-on-delete data loss. The host loop MUST
+    // give up AFTER the DO's 120s drain budget, never before: a host ceiling
+    // below the budget (the old 115_000) 504s while rclone is still flushing, the
+    // DO records 'incomplete', and the session deletes with the last edits lost.
+    // The DO's AbortSignal(120s) is the authoritative ceiling; keep host > DO.
+    assert.ok(Number(m[1].replace(/_/g, '')) > 120_000, 'internal timeout must EXCEED the DO 120s drain budget (host > DO), else final bisync 504s prematurely on delete');
   });
 });
 
