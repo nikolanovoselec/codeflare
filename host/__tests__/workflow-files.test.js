@@ -163,6 +163,13 @@ describe('shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automa
     assert.match(body, /npm view context-mode version/, 'context-mode job must check npm registry');
   });
 
+  test('AC2: Pi preseed deps (@gotgenes/pi-subagents + context-mode) are watched', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    assert.match(body, /^\s+pi-preseed:/m, 'bump-shadow-pins.yml must declare a `pi-preseed:` job');
+    assert.match(body, /npm view @gotgenes\/pi-subagents version/, 'pi-preseed job must check npm for @gotgenes/pi-subagents');
+    assert.match(body, /preseed\/agents\/pi\/package\.json/, 'pi-preseed job must read the pin from the Pi preseed package.json');
+  });
+
   test('AC2: graphify (graphifyy) PyPI package is watched', () => {
     const body = readWorkflow('bump-shadow-pins.yml');
     assert.match(body, /^\s+graphify:/m, 'bump-shadow-pins.yml must declare a `graphify:` job');
