@@ -78,6 +78,17 @@ jobs:
           echo "::error::Production deploys are only allowed from main. Got branch: ${{ github.ref }}"
           exit 1
 
+      # Scorecard DangerousWorkflowID (code-scanning alert #63) flags this
+      # workflow_run + head_sha checkout as a pwn-request vector. It is
+      # MITIGATED, not exploitable, and is deliberately left OPEN (not
+      # dismissed) so any future weakening of the guards re-surfaces the alert:
+      # the job `if:` above requires workflow_run.event == 'push' AND
+      # head_repository.full_name == github.repository, so only a post-merge
+      # push originating from THIS repo ever reaches here — head_sha is then
+      # always already-merged, maintainer-trusted code. Fork PRs fire the
+      # pull_request event (not push) and are filtered out before checkout.
+      # Scorecard scores the pattern 0 unconditionally because it cannot read
+      # the job `if:` guards. See the rationale at lines 54-64 (prior alert #34).
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           # On workflow_run: pin to the SHA whose PR Checks just ended
