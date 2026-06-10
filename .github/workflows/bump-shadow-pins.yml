@@ -8,6 +8,14 @@ name: Bump Shadow Pins
 # - graphify PyPI package graphifyy (plugin.json; Dockerfile reads the pin via jq,
 #   so no Dockerfile literal to bump)
 # - zoxide, yazi, lazygit, silverbullet (GitHub release binaries pinned in Dockerfile)
+# - consult-llm-mcp npm package (pinned `npm install -g` literal in Dockerfile)
+# - pi-preseed: EVERY dependency in preseed/agents/pi/package.json (the @juicesharp
+#   rpiv family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents, context-mode)
+#   — each is also a literal install spec in entrypoint.sh + baked into the seed
+#
+# NOT watched (deliberate): bun is pinned in the Dockerfile but bumped MANUALLY
+# after smoke-testing (context-mode autodetects Bun at runtime, so a breaking Bun
+# release silently regresses ctx_execute) — see the Dockerfile bun comment.
 
 on:
   schedule:
@@ -647,13 +655,17 @@ jobs:
           )"
 
   pi-preseed:
-    # @gotgenes/pi-subagents and context-mode are pinned in
-    # preseed/agents/pi/package.json AND (for @gotgenes/pi-subagents) as a literal
-    # install spec in entrypoint.sh's Pi settings `required` array, and both are
-    # baked into src/lib/agent-seed.generated.ts. Dependabot only sees the
-    # manifest, so it cannot keep the entrypoint literals / generated seed in
-    # sync. This job owns every copy and regenerates the seed. (Graphify is no
-    # longer an npm pin — it ships as the first-party graphify-native.ts extension.)
+    # EVERY dependency in preseed/agents/pi/package.json is pinned in more than the
+    # manifest: each version is mirrored as a literal `npm:<name>@<ver>` install spec
+    # in entrypoint.sh's Pi settings `required` array (and CONTEXT_MODE_PACKAGE in
+    # codeflare-pi.ts), and baked into src/lib/agent-seed.generated.ts. Dependabot
+    # only sees the manifest, so it would drift the entrypoint literals / generated
+    # seed out of sync. This job owns ALL Pi preseed pins (the @juicesharp rpiv
+    # family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents, context-mode):
+    # it diffs each dep against npm latest, applies name-anchored replacements across
+    # every copy, regenerates the lockfile + seed, and opens one PR per changed set.
+    # (Graphify is no longer an npm pin — it ships as the first-party
+    # graphify-native.ts extension.)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -666,33 +678,40 @@ jobs:
         with:
           node-version: 22
 
-      - name: Diff current pins against npm latest
+      - name: Diff every Pi preseed pin against npm latest
         id: ver
         run: |
           set -euo pipefail
-          PKG=preseed/agents/pi/package.json
-          SUB_CUR=$(jq -r '.dependencies["@gotgenes/pi-subagents"]' "$PKG")
-          CTX_CUR=$(jq -r '.dependencies["context-mode"]' "$PKG")
-          SUB_LAT=$(npm view @gotgenes/pi-subagents version)
-          CTX_LAT=$(npm view context-mode version)
-          {
-            echo "sub_cur=$SUB_CUR"
-            echo "sub_lat=$SUB_LAT"
-            echo "ctx_cur=$CTX_CUR"
-            echo "ctx_lat=$CTX_LAT"
-          } >> "$GITHUB_OUTPUT"
-          if [ "$SUB_CUR" = "$SUB_LAT" ] && [ "$CTX_CUR" = "$CTX_LAT" ]; then
+          # Build a JSON array of {name,cur,lat} for every dependency whose pin is
+          # behind npm latest. Empty array => nothing to do.
+          CHANGED=$(node <<'NODE'
+          const { execFileSync } = require('node:child_process');
+          const pkg = require('./preseed/agents/pi/package.json');
+          const changed = [];
+          for (const [name, cur] of Object.entries(pkg.dependencies || {})) {
+            const lat = execFileSync('npm', ['view', name, 'version'], { encoding: 'utf8' }).trim();
+            if (cur !== lat) changed.push({ name, cur, lat });
+          }
+          process.stdout.write(JSON.stringify(changed));
+          NODE
+          )
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+          if [ "$CHANGED" = "[]" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Both already latest, nothing to do."
+            echo "All Pi preseed pins already latest, nothing to do."
           else
-            echo "Bumping: subagents $SUB_CUR->$SUB_LAT, context-mode $CTX_CUR->$CTX_LAT"
+            echo "Changed set: $CHANGED"
           fi
 
-      - name: Skip if a branch for these versions already exists
+      - name: Skip if a branch for this change set already exists
         if: steps.ver.outputs.skip != 'true'
         id: branch
         run: |
-          BRANCH="bump/pi-preseed-s${{ steps.ver.outputs.sub_lat }}-c${{ steps.ver.outputs.ctx_lat }}"
+          set -euo pipefail
+          # Branch keyed on a hash of the exact changed set so a re-run with the same
+          # pending bumps dedupes to the open PR, but a new bump opens a fresh branch.
+          HASH=$(printf '%s' '${{ steps.ver.outputs.changed }}' | sha256sum | cut -c1-12)
+          BRANCH="bump/pi-preseed-$HASH"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -708,23 +727,25 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "${{ steps.branch.outputs.branch }}"
 
-          node <<'NODE'
+          CHANGED='${{ steps.ver.outputs.changed }}' node <<'NODE'
           const fs = require('node:fs');
-          const e = process.env;
-          // Targeted replacements only (never a bare version replaceAll) so an
-          // unrelated "0.2.2" elsewhere can never be rewritten.
+          const changed = JSON.parse(process.env.CHANGED);
+          // Name-anchored replacements only (never a bare version replaceAll) so an
+          // unrelated version string elsewhere can never be rewritten.
           function bump(s) {
-            return s
-              .replaceAll(`"@gotgenes/pi-subagents": "${e.SUB_CUR}"`, `"@gotgenes/pi-subagents": "${e.SUB_LAT}"`)
-              .replaceAll(`npm:@gotgenes/pi-subagents@${e.SUB_CUR}`, `npm:@gotgenes/pi-subagents@${e.SUB_LAT}`)
-              .replaceAll(`"context-mode": "${e.CTX_CUR}"`, `"context-mode": "${e.CTX_LAT}"`)
-              .replaceAll(`npm:context-mode@${e.CTX_CUR}`, `npm:context-mode@${e.CTX_LAT}`);
+            for (const { name, cur, lat } of changed) {
+              s = s
+                .replaceAll(`"${name}": "${cur}"`, `"${name}": "${lat}"`)
+                .replaceAll(`npm:${name}@${cur}`, `npm:${name}@${lat}`);
+            }
+            return s;
           }
           const files = [
             'preseed/agents/pi/package.json',
             'preseed/agents/pi/extensions/codeflare-pi.ts',
             'entrypoint.sh',
             'src/__tests__/lib/agent-seed-manifest.test.ts',
+            'host/__tests__/pi-settings-packages.test.js',
           ];
           for (const f of files) {
             const before = fs.readFileSync(f, 'utf-8');
@@ -744,45 +765,140 @@ jobs:
             echo "Nothing changed (replacements found nothing) - aborting."
             exit 1
           fi
-          git commit -m "chore(deps): bump pi preseed (subagents ${SUB_CUR}->${SUB_LAT}, context-mode ${CTX_CUR}->${CTX_LAT})"
+          MSG=$(CHANGED='${{ steps.ver.outputs.changed }}' node -e 'const c=JSON.parse(process.env.CHANGED);process.stdout.write(c.map(x=>`${x.name} ${x.cur}->${x.lat}`).join(", "))')
+          git commit -m "chore(deps): bump pi preseed ($MSG)"
           git push -u origin "${{ steps.branch.outputs.branch }}"
-        env:
-          SUB_CUR: ${{ steps.ver.outputs.sub_cur }}
-          SUB_LAT: ${{ steps.ver.outputs.sub_lat }}
-          CTX_CUR: ${{ steps.ver.outputs.ctx_cur }}
-          CTX_LAT: ${{ steps.ver.outputs.ctx_lat }}
 
       - name: Open PR
         if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SUB_CUR: ${{ steps.ver.outputs.sub_cur }}
-          SUB_LAT: ${{ steps.ver.outputs.sub_lat }}
-          CTX_CUR: ${{ steps.ver.outputs.ctx_cur }}
-          CTX_LAT: ${{ steps.ver.outputs.ctx_lat }}
         run: |
           set -euo pipefail
+          LIST=$(CHANGED='${{ steps.ver.outputs.changed }}' node -e 'const c=JSON.parse(process.env.CHANGED);process.stdout.write(c.map(x=>"- "+x.name+" "+x.cur+" -> "+x.lat).join("\n"))')
+          TITLE=$(CHANGED='${{ steps.ver.outputs.changed }}' node -e 'const c=JSON.parse(process.env.CHANGED);const f=c.map(x=>x.name+"@"+x.lat).join(", ");process.stdout.write(f.length<=80?f:c.length+" packages")')
           BODY=$(cat <<EOF
           Auto-generated bump of the Pi preseed npm pins:
-          - \`@gotgenes/pi-subagents\` \`$SUB_CUR\` -> \`$SUB_LAT\`
-          - \`context-mode\` \`$CTX_CUR\` -> \`$CTX_LAT\`
+          $LIST
 
-          These versions are pinned in more than the manifest (the entrypoint.sh Pi \`required\` install specs + the generated agent seed), so Dependabot can't keep them in sync - \`bump-shadow-pins.yml\` owns them.
+          Every dependency in \`preseed/agents/pi/package.json\` is pinned in more than the manifest (the entrypoint.sh Pi \`required\` install specs, \`CONTEXT_MODE_PACKAGE\` in codeflare-pi.ts, and the generated agent seed), so Dependabot can't keep them in sync - \`bump-shadow-pins.yml\` owns them.
 
-          Files updated by targeted string replace + lockfile + seed regenerate:
+          Files updated by name-anchored string replace + lockfile + seed regenerate:
           - \`preseed/agents/pi/package.json\` + \`package-lock.json\`
+          - \`preseed/agents/pi/extensions/codeflare-pi.ts\` (\`CONTEXT_MODE_PACKAGE\`, when context-mode bumps)
           - \`entrypoint.sh\` (Pi settings \`required\` install specs)
-          - \`src/__tests__/lib/agent-seed-manifest.test.ts\` (pinned-version assertions)
+          - \`src/__tests__/lib/agent-seed-manifest.test.ts\` + \`host/__tests__/pi-settings-packages.test.js\` (pinned-version assertions)
           - \`src/lib/agent-seed.generated.ts\` (regenerated)
 
           ## Test plan
           - [ ] CI green
-          - [ ] Review the \`@gotgenes/pi-subagents\` CHANGELOG for the bumped range - MAJOR bumps can change the subagents API
-          - [ ] Smoke test on integration: Pi loads subagents without error
+          - [ ] Review CHANGELOGs for the bumped packages - MAJOR bumps (esp. \`@gotgenes/pi-subagents\`) can change APIs
+          - [ ] Smoke test on integration: Pi loads all preseed extensions without error
           EOF
           )
           gh pr create \
             --base develop \
             --head "${{ steps.branch.outputs.branch }}" \
-            --title "chore(deps): bump pi preseed (subagents $SUB_LAT, context-mode $CTX_LAT)" \
+            --title "chore(deps): bump pi preseed ($TITLE)" \
+            --body "$BODY"
+
+  consult-llm-mcp:
+    # consult-llm-mcp is the MCP server Claude Code + Pi use for the consult-llm
+    # tool. It is pinned + pre-warmed as a global `npm install -g consult-llm-mcp@X`
+    # literal in the Dockerfile (so the runtime MCP config invokes the global bin
+    # with no per-session npx fetch). That Dockerfile literal is invisible to
+    # Dependabot, so this job bumps it weekly.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Diff Dockerfile pin against npm latest
+        id: ver
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep -oP 'consult-llm-mcp@\K[0-9][0-9.]*' Dockerfile | head -n1)
+          LATEST=$(npm view consult-llm-mcp version)
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already on $LATEST, nothing to do."
+          else
+            echo "Bumping $CURRENT -> $LATEST"
+          fi
+
+      - name: Skip if a branch for this version already exists
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        run: |
+          BRANCH="bump/consult-llm-mcp-${{ steps.ver.outputs.latest }}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply bump
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "${{ steps.branch.outputs.branch }}"
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const cur = process.env.CUR;
+          const lat = process.env.LAT;
+          const f = 'Dockerfile';
+          const before = fs.readFileSync(f, 'utf-8');
+          const after = before.replaceAll(`consult-llm-mcp@${cur}`, `consult-llm-mcp@${lat}`);
+          if (before !== after) { fs.writeFileSync(f, after); console.log(`updated ${f}`); }
+          NODE
+
+          git add Dockerfile
+          if git diff --cached --quiet; then
+            echo "Nothing changed (replacement found nothing) - aborting."
+            exit 1
+          fi
+          git commit -m "chore(deps): bump consult-llm-mcp $CUR -> $LAT"
+          git push -u origin "${{ steps.branch.outputs.branch }}"
+        env:
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+
+      - name: Open PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          BODY=$(cat <<EOF
+          Auto-generated bump of \`consult-llm-mcp\` from \`$CUR\` to \`$LAT\`.
+
+          The version is pinned as a \`npm install -g consult-llm-mcp@X\` literal in the \`Dockerfile\` (pre-warmed global install; the Claude Code + Pi MCP config invokes the global bin), so Dependabot can't see it - \`bump-shadow-pins.yml\` opens this PR weekly.
+
+          Files updated:
+          - \`Dockerfile\` (\`consult-llm-mcp@$CUR\` -> \`@$LAT\`)
+
+          ## Test plan
+          - [ ] CI green (Docker build installs the new version)
+          - [ ] Smoke test on integration: \`consult_llm\` responds on Claude + Pi
+          EOF
+          )
+          gh pr create \
+            --base develop \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --title "chore(deps): bump consult-llm-mcp $CUR -> $LAT" \
             --body "$BODY"

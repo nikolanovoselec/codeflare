@@ -192,7 +192,7 @@ Multi-agent support, preseed system, and session modes.
 5. Pi starts with context-mode ENABLED by default — its `ctx_*` tools and the bash-curl-redirect hook are active without an explicit `/ctx on`. The Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off`; `/ctx off` disables the context-mode package for the current running session and reloads resources, while the next Codeflare container start resets Pi back to enabled. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
 6. Custom-tier Claude Code users may receive context-mode's automatic context-window-reduction behavior: large tool output stays out of the conversation window unless the agent explicitly retrieves it, and commands that would flood the window are redirected to the equivalent helper tool.
 7. Downgrading away from Custom tier, switching away from Pro mode, or using Pi removes the Custom-tier-only behavior on the next reconcile so automatic context-mode redirection no longer fires.
-8. The Pi preseed installs four tool extensions in the settings `required` set — `@juicesharp/rpiv-ask-user-question` (the `ask_user_question` tool), `@juicesharp/rpiv-todo` (the `todo` tool), `pi-web-access` (`web_search`/`fetch_content`), and `pi-mcp-adapter` (the `mcp` proxy) — so they load in every Pi session independently of the context-mode toggle, each shipped with a skill documenting when to use which tool. The settings `packages` assembly is idempotent and identity-keyed, so it never duplicates a package and preserves any user-added packages/settings. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/package.json --> <!-- @impl: preseed/agents/pi/manifest.json -->
+8. The Pi preseed installs five tool extensions in the settings `required` set — `@juicesharp/rpiv-advisor` (the `advisor` escalate-to-a-stronger-model tool), `@juicesharp/rpiv-ask-user-question` (the `ask_user_question` tool), `@juicesharp/rpiv-todo` (the `todo` tool), `pi-web-access` (`web_search`/`fetch_content`), and `pi-mcp-adapter` (the `mcp` proxy) — so they load in every Pi session independently of the context-mode toggle, each shipped with a skill documenting when to use which tool. The `advisor` and `web_search`/`fetch_content` tools authenticate through Pi's own model registry / zero-config Exa MCP, so they require no per-user API keys. The settings `packages` assembly is idempotent and identity-keyed, so it never duplicates a package and preserves any user-added packages/settings. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/package.json --> <!-- @impl: preseed/agents/pi/manifest.json -->
 
 **Constraints:**
 
@@ -341,7 +341,8 @@ Multi-agent support, preseed system, and session modes.
 - Encryption follows the cryptographic contract in [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract).
 - The ciphertext carries a version prefix so future schemes can be added without breaking reads.
 - Plaintext values are transparently upgraded to encrypted on read when encryption is configured.
-- Propagation to the container env + MCP wiring live in [REQ-AGENT-031](#req-agent-031-llm-api-key-propagation-to-container).
+- Propagation to the container env + MCP wiring live in [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity).
+- Unavailable in enterprise mode: every method on `/api/llm-keys` returns 403 because models route through the managed AI Gateway BYOK, not per-user keys (see [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity) AC6).
 
 **Priority:** P1
 
@@ -672,6 +673,7 @@ None.
 **Constraints:**
 
 - Must comply with [CON-SEC-003](constraints.md#con-sec-003-credentials-encrypted-at-rest-when-encryption_key-configured)
+- Hidden in enterprise mode: the Settings "LLM API Keys" section is not rendered, matching the 403 backend gate (see [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity) AC6).
 
 **Priority:** P1
 
@@ -1024,8 +1026,8 @@ None.
 **Acceptance Criteria:**
 
 1. For readable PR metadata, PR-boundary review fires only for open PRs targeting `main` or `master`; the `gh pr create` metadata-lag exception is limited to AC6. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isEnforcedPr -->
-2. Local push detection recognises `git push`, `git -C <repo> push`, and command-local `cd <repo>` prefixes separated by `&&`, semicolon, or newline across Pi's normal Bash and context-mode shell surfaces. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::cwdFromBoundaryCommand -->
-3. GitHub CLI detection recognises `gh pr create`, `gh pr merge`, `gh pr update-branch`, `gh repo sync`, and protected-base `gh pr edit --base main|master` as boundary-shaped commands. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prEditBoundaryBase --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryTrigger --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (prEditBoundaryBase gh pr edit retarget across --base/--base=/-B and compound forms, undefined for non-main base / non-base edit / non-edit command; isPrBoundaryTrigger treats gh pr edit onto main/master as a boundary -> AC3) -->
+2. Local push detection recognises `git push`, `git -C <repo> push`, pushes to ssh/https remote URLs, and env-var-prefixed forms (e.g. `GIT_SSH_COMMAND='…' git push`), plus command-local `cd <repo>` prefixes separated by `&&`, semicolon, or newline across Pi's normal Bash and context-mode shell surfaces. Detection is a stateless start/separator-anchored regex over the raw command (not a shell tokenizer), so a heredoc body carrying markdown pipes or apostrophes can never desync it. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::cwdFromBoundaryCommand --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (isPrBoundaryTrigger robustness describe — heredoc body, ssh/https remote, env-var prefix with quoted value, batched compound, false-positive guards -> AC2/AC3) -->
+3. GitHub CLI detection recognises `gh pr create`, `gh pr merge`, `gh pr update-branch`, `gh repo sync`, and protected-base `gh pr edit --base main|master` as boundary-shaped commands — including a `gh pr create` whose `--body` carries a `$(cat <<EOF …)` heredoc, which the same stateless regex matches without tokenizing the body. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prEditBoundaryBase --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryTrigger --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (prEditBoundaryBase gh pr edit retarget across --base/--base=/-B and compound forms, undefined for non-main base / non-base edit / non-edit command; isPrBoundaryTrigger treats gh pr edit onto main/master as a boundary -> AC3) -->
 4. Metadata-only PR commands do not trigger review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand -->
 5. PRs into intermediate integration branches (`develop`, `staging`, etc.) do NOT trigger reviews; the case is deferred until the integration branch's own PR-to-`main` opens or syncs, where the cumulative review covers everything that landed. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isEnforcedPr -->
 6. During a `gh pr create` metadata-visibility race, Pi may infer a protected base (`main` or `master`, including quoted CLI values or the default when no base is supplied) and synthesize an open PR from local HEAD; non-protected bases remain ignored. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prCreateBoundaryBase --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::prForBoundaryCommand -->
@@ -1233,7 +1235,7 @@ None.
 2. An idle Pi session starts the next eligible durable review lane after prerequisite lanes complete. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick -->
 3. An idle Pi session finalizes completed durable reviews by acknowledging the exact head, saving the merged summary, and starting the autofix request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview -->
 4. Off-turn finalization does NOT claim the chat-summary marker; the next on-turn tick emits the visible merged summary. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::publishSummaryForCurrentPr -->
-5. Review-repo resolution for the reaper, the on-turn finalizers, and the footer progress row derives the repo from the boundary-command cwd / Pi session cwd plus an in-session remembered review repo — never the shared graphify active-cwd sentinel, which multiple agents write and which points at whatever repo acted last. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::resolveReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewRepoForCtx --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::liveReviewRow --> <!-- @test: src/__tests__/lib/review-state.test.ts (resolveReviewRepo precedence + never probes the sentinel path -> AC5) -->
+5. Review-repo resolution for the reaper, the on-turn finalizers, and the footer progress row derives the repo from the boundary-command cwd / Pi session cwd, then an in-session remembered review repo, then the in-memory active repo codeflare-pi tracks on every tool execution (the same signal the statusline uses) — never the shared graphify active-cwd sentinel, which multiple agents write and which points at whatever repo acted last. The in-memory active-repo fallback is what lets `/review-run` and the no-ctx reaper resolve a nested clone when the session cwd is a non-repo parent workspace and no review has run yet. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::resolveReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::recallActiveRepo --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewRepoForCtx --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::liveReviewRow --> <!-- @test: src/__tests__/lib/review-state.test.ts (resolveReviewRepo precedence incl. the active-repo fallback + never probes the sentinel path -> AC5) -->
 
 **Constraints:**
 
@@ -1885,35 +1887,45 @@ None.
 
 ---
 
-### REQ-AGENT-031: LLM API Key Propagation to Container
+### REQ-AGENT-031: consult-llm Key Isolation, Subscription Backend, and Multi-Agent Parity
 
 <!-- @impl: src/container/container-env.ts -->
 <!-- @impl: entrypoint.sh -->
+<!-- @impl: src/routes/llm-keys.ts -->
+<!-- @impl: web-ui/src/components/SettingsPanel.tsx -->
 <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md -->
-<!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars describe → OPENAI_API_KEY + GEMINI_API_KEY injection → AC1) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031 consult-llm invocation behaviour describe → AC4 provider dialog + AC5 latest-flagship model) -->
+<!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md -->
+<!-- @impl: preseed/agents/pi/manifest.json -->
+<!-- @impl: scripts/generate-agent-seed.mjs -->
+<!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars describe → AC1 CODEFLARE_-namespaced injection + bare-name regression + AC6 enterprise no-inject) -->
+<!-- @test: host/__tests__/entrypoint-consult-llm.test.js (entrypoint consult-llm configuration describe → AC2 scoped env mapping + AC3 codex-cli/API backend selection + AC4 Pi directTools + AC6 enterprise gate) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (consult-llm available to Claude and Pi only → AC4; REQ-AGENT-031 consult-llm invocation behaviour describe → AC5 five-choice model dialog + selectors) -->
+<!-- @test: src/__tests__/routes/llm-keys.test.ts (enterprise mode describe → AC6 403 on GET/PUT/DELETE) -->
 
-**Intent:** Stored LLM API keys must reach the container as environment variables and trigger the consult-llm MCP server wiring, so the in-container agent can call OpenAI or Gemini without re-authentication.
+**Intent:** Stored LLM API keys must reach the `consult-llm-mcp` MCP server WITHOUT leaking into the coding agents' general environment (where the latest Pi/opencode/antigravity auto-detect them as their own provider credentials and silently drain the user's API account), must prefer the user's subscription over per-call API billing, and must be available identically to Claude Code and Pi — while being entirely absent in enterprise mode, where models route through the managed AI Gateway BYOK.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Stored LLM API keys are propagated into the container environment at container start so in-container CLIs can call OpenAI or Gemini without re-authentication.
-2. When keys are present, the container entrypoint configures the `consult-llm-mcp` MCP server in `~/.claude.json`.
-3. Keys are NOT persisted in DO storage; they are read fresh from KV on each container start.
-4. When the user invokes the consult-llm skill without naming a provider, the agent shows an interactive provider-selection dialog (multi-select over the two configured providers, OpenAI and Google Gemini) before calling `consult_llm`; it never silently defaults to a provider. When the user names a provider explicitly, no dialog is shown. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md -->
-5. The agent always passes an explicit `model` to `consult_llm`, resolved live from the provider's model listing at call time (OpenAI `/v1/models`, Gemini `/v1beta/models`) to the provider's current latest flagship; it never relies on the MCP server's configured default model. An explicitly named model from the user overrides the flagship auto-pick. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md -->
+1. LLM provider keys are injected into the container ONLY under a `CODEFLARE_`-namespaced name (`CODEFLARE_OPENAI_API_KEY` / `CODEFLARE_GEMINI_API_KEY`); the bare `OPENAI_API_KEY` / `GEMINI_API_KEY` names NEVER appear in the container's global environment. Keys are read fresh from KV on each container start and are not persisted in DO storage. <!-- @impl: src/container/container-env.ts -->
+2. The entrypoint maps the namespaced keys back to the standard `OPENAI_API_KEY` / `GEMINI_API_KEY` names ONLY inside the `consult-llm-mcp` MCP server's scoped `env` block (in `~/.claude.json` and `~/.pi/agent/mcp.json`), never as a global export. <!-- @impl: entrypoint.sh -->
+3. Per provider the entrypoint prefers the subscription over the API key: OpenAI uses the Codex CLI backend (`CONSULT_LLM_OPENAI_BACKEND=codex-cli`, `CONSULT_LLM_CODEX_REASONING_EFFORT=high`) when the user is logged into Codex (`~/.codex/auth.json` present), passing the API key only as a fallback; otherwise it uses the API key. Gemini always uses the API key. When no provider is usable, no MCP server is written. <!-- @impl: entrypoint.sh -->
+4. The `consult-llm` tooling is available to Claude Code AND Pi only: Claude reads it from `~/.claude.json`; Pi reads `~/.pi/agent/mcp.json` with `directTools:["consult_llm"]` promoting it to a first-class tool, and is seeded a native Pi `consult-llm` skill. No other agent (codex/opencode/antigravity) receives the skill or the server. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/manifest.json -->
+5. When the user invokes the consult-llm skill without naming a model, the agent shows a single-select dialog (`AskUserQuestion` on Claude, `ask_user_question` on Pi) of four explicit choices plus the tool's automatic "Other" write-in (five total): latest Google/Gemini, latest OpenAI/GPT, both, and "list all available models". "Latest" is resolved by the server-side `"openai"` / `"gemini"` model selectors — the skill never hardcodes a flagship ID and never performs a live provider model-list fetch with the raw key. When the user names a specific model, no dialog is shown and that exact ID is passed. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md -->
+6. In enterprise mode the entire LLM-keys-and-consult-llm surface is unavailable: the keys are not injected (AC1 suppressed), the `/api/llm-keys` routes return 403 on every method, the Settings "LLM API Keys" section is hidden, and the entrypoint writes no consult-llm MCP config and removes any seeded `consult-llm` skill dirs for both Claude and Pi. <!-- @impl: src/container/container-env.ts --> <!-- @impl: src/routes/llm-keys.ts --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx --> <!-- @impl: entrypoint.sh -->
 
 **Constraints:**
 
 - The container reads keys at start and on restart; mid-session key changes take effect only after the next session start.
-- AC4 and AC5 are skill-directed agent behaviour; the consult-llm SKILL.md is the implementation surface and is verified by asserting its bundled-seed content (the provider-dialog mandate and the latest-flagship/never-server-default model directive).
+- AC5 is skill-directed agent behaviour; the consult-llm SKILL.md files (Claude + Pi) are the implementation surface and are verified by asserting their bundled-seed content (the five-choice dialog mandate, the `"openai"`/`"gemini"` selectors, and the absence of any provider model-list curl).
+- The consult-llm MCP config is wrapped in a shell function invoked with `|| echo WARNING` so a jq/IO failure can never abort the entrypoint before the init-complete flag (a crash-loop class bug).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** [Container-env test](../../src/__tests__/container/container-env.test.ts) (AC1) and [agent-seed manifest test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC4/AC5 consult-llm skill content).
+**Verification:** [Container-env test](../../src/__tests__/container/container-env.test.ts) (AC1/AC6), [entrypoint consult-llm host test](../../host/__tests__/entrypoint-consult-llm.test.js) (AC2/AC3/AC4/AC6), [agent-seed manifest test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC4/AC5), and [LLM keys route test](../../src/__tests__/routes/llm-keys.test.ts) (AC6 enterprise 403).
 
 **Status:** Implemented
 

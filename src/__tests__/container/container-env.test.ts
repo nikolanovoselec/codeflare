@@ -30,6 +30,10 @@ function baseState(): ContainerEnvState {
     _userEmail: 'user@example.com',
     // Field gated by REQ-SESSION-016 AC3 (added in this PR).
     _userTimezone: null,
+    // Enterprise route catalog defaults to [] in production (container/index.ts);
+    // the enterprise branch of buildEnvVars reads `.length`, so the fixture must
+    // carry the same empty-array default rather than leaving it undefined.
+    _routeCatalog: [],
   } as unknown as ContainerEnvState;
 }
 
@@ -63,6 +67,58 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     expect(vars.R2_BUCKET_NAME).toBe('codeflare-test');
     expect(vars.CONTAINER_AUTH_TOKEN).toBe('tok');
     expect(vars.SESSION_ID).toBe('sid-abcdef12');
+  });
+
+  // REQ-AGENT-031 AC1/AC2: provider keys reach the container ONLY under the
+  // CODEFLARE_ namespace, so coding agents (Pi, opencode, antigravity) cannot
+  // auto-detect them as their own credentials and silently bill the user's API
+  // account. entrypoint.sh maps them back to the bare names solely inside the
+  // consult-llm MCP server's scoped env block.
+  it('REQ-AGENT-031 AC1: emits CODEFLARE_OPENAI_API_KEY / CODEFLARE_GEMINI_API_KEY when keys are set', () => {
+    const state = baseState();
+    const s = state as unknown as { _openaiApiKey: string | null; _geminiApiKey: string | null };
+    s._openaiApiKey = 'sk-openai';
+    s._geminiApiKey = 'gm-gemini';
+    const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+    expect(vars.CODEFLARE_OPENAI_API_KEY).toBe('sk-openai');
+    expect(vars.CODEFLARE_GEMINI_API_KEY).toBe('gm-gemini');
+  });
+
+  // The whole point of the namespace: the bare provider env names must NEVER
+  // appear in the container's global env. That auto-detect was the drain that
+  // exhausted the user's OpenAI quota when Pi grabbed OPENAI_API_KEY.
+  it('REQ-AGENT-031 AC1 regression: never emits bare OPENAI_API_KEY / GEMINI_API_KEY into the global env', () => {
+    const state = baseState();
+    const s = state as unknown as { _openaiApiKey: string | null; _geminiApiKey: string | null };
+    s._openaiApiKey = 'sk-openai';
+    s._geminiApiKey = 'gm-gemini';
+    const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+    expect(vars.OPENAI_API_KEY).toBeUndefined();
+    expect(vars.GEMINI_API_KEY).toBeUndefined();
+  });
+
+  it('REQ-AGENT-031 AC1: omits the LLM keys entirely when unset', () => {
+    const state = baseState();
+    const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+    expect(vars.CODEFLARE_OPENAI_API_KEY).toBeUndefined();
+    expect(vars.CODEFLARE_GEMINI_API_KEY).toBeUndefined();
+  });
+
+  // REQ-AGENT-031 AC6: enterprise mode routes models through the AI Gateway BYOK;
+  // per-user LLM keys do not exist there, so NEITHER the namespaced nor the bare
+  // names are injected even when keys somehow remain in DO state.
+  it('REQ-AGENT-031 AC6: injects no LLM keys in enterprise mode', () => {
+    const state = baseState();
+    const s = state as unknown as { _openaiApiKey: string | null; _geminiApiKey: string | null };
+    s._openaiApiKey = 'sk-openai';
+    s._geminiApiKey = 'gm-gemini';
+    const enterpriseEnv = { ENTERPRISE_MODE: 'active' } as unknown as Env;
+    const vars = buildEnvVars(state, enterpriseEnv) as Record<string, string | undefined>;
+    expect(vars.CODEFLARE_OPENAI_API_KEY).toBeUndefined();
+    expect(vars.CODEFLARE_GEMINI_API_KEY).toBeUndefined();
+    expect(vars.OPENAI_API_KEY).toBeUndefined();
+    expect(vars.GEMINI_API_KEY).toBeUndefined();
+    expect(vars.ENTERPRISE_MODE).toBe('active');
   });
 
   // REQ-SEC-005 AC3: ENCRYPTION_KEY is forwarded from Worker -> DO state ->

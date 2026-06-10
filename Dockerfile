@@ -315,6 +315,21 @@ rm -rf /root/.npm
 EOF
 
 # ---------------------------------------------------------------------------
+# Pre-warm the consult-llm-mcp MCP server (used by Claude Code + Pi via the
+# consult-llm MCP config in entrypoint.sh). Installing it globally at build time
+# means the runtime MCP command invokes the global bin from /usr/local/bin with
+# no per-session `npx -y` registry fetch / first-call delay (same pattern as the
+# context-mode + agent-CLI globals). Pinned (not @latest) and shadow-tracked by
+# the `consult-llm-mcp` job in .github/workflows/bump-shadow-pins.yml, since a
+# Dockerfile `npm install -g` literal is invisible to Dependabot. In Enterprise
+# Mode the MCP config is not written (consult-llm is disabled), so this baked
+# binary is simply unused there — harmless.
+RUN npm install -g consult-llm-mcp@2.13.4 && \
+    command -v consult-llm-mcp >/dev/null || { echo "[Dockerfile] FATAL: consult-llm-mcp not on PATH after install" >&2; exit 1; } && \
+    npm cache clean --force && \
+    rm -rf /root/.npm
+
+# ---------------------------------------------------------------------------
 # Install graphify (Python knowledge-graph tool) globally via uv.
 # Implements REQ-AGENT-023.
 #

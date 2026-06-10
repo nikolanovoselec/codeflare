@@ -14,7 +14,7 @@ import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prBoundaryCommandBase, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
+import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -99,7 +99,7 @@ function cwdFromCommand(command: string): string | undefined {
 // graphify sentinel.
 function reviewRepoForCtx(ctx: any, commandCwd?: string): string | undefined {
   const repo = resolveReviewRepo(
-    { commandCwd, sessionCwd: ctx?.sessionManager?.getCwd?.(), sessionReviewRepo: recallReviewRepo(), processCwd: process.cwd() },
+    { commandCwd, sessionCwd: ctx?.sessionManager?.getCwd?.(), sessionReviewRepo: recallReviewRepo(), activeRepo: recallActiveRepo(), processCwd: process.cwd() },
     findGitRoot,
   );
   rememberReviewRepo(repo);
@@ -618,7 +618,7 @@ function autonomousReviewReaperTick(): void {
     // handlers. Use the in-session review repo remembered by reviewRepoForCtx (set when this session
     // armed/reconciled the review), falling back to pi's process dir. NOT the graphify active-cwd
     // sentinel — under concurrent agents it flaps to whatever repo acted last, misrouting finalize.
-    const repo = resolveReviewRepo({ sessionReviewRepo: recallReviewRepo(), processCwd: process.cwd() }, findGitRoot);
+    const repo = resolveReviewRepo({ sessionReviewRepo: recallReviewRepo(), activeRepo: recallActiveRepo(), processCwd: process.cwd() }, findGitRoot);
     if (!repo) return;
     const pending = loadPending(repo);
     if (!pending || !pending.head || pending.lanes.length === 0) return;

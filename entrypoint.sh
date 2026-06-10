@@ -1680,6 +1680,7 @@ const required = [
   'npm:context-mode@1.0.162',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx off never disables them.
+  'npm:@juicesharp/rpiv-advisor@1.19.1',
   'npm:@juicesharp/rpiv-ask-user-question@1.19.1',
   'npm:@juicesharp/rpiv-todo@1.19.1',
   'npm:pi-web-access@0.10.7',
@@ -1765,31 +1766,94 @@ echo "[entrypoint] Claude Code bypass permissions consent pre-accepted"
 # contract; see REQ-MEM-002 AC6). The hook script mkdir -p's it on first
 # fire - no boot-time provisioning needed.
 
-# Configure consult-llm-mcp MCP server when LLM API keys are present
-if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
-    # Build env object with only the keys that are set
-    LLM_ENV="{}"
-    if [ -n "${OPENAI_API_KEY:-}" ]; then
-        LLM_ENV=$(echo "$LLM_ENV" | jq --arg k "$OPENAI_API_KEY" '. + {"OPENAI_API_KEY": $k}')
-    fi
-    if [ -n "${GEMINI_API_KEY:-}" ]; then
-        LLM_ENV=$(echo "$LLM_ENV" | jq --arg k "$GEMINI_API_KEY" '. + {"GEMINI_API_KEY": $k}')
-    fi
-
-    LLM_MCP_CONFIG=$(jq -n --argjson env "$LLM_ENV" '{"mcpServers":{"consult-llm":{"command":"npx","args":["-y","consult-llm-mcp"],"env":$env}}}')
-    if [ -f "$USER_CLAUDE_JSON" ]; then
-        TMP_JSON=$(mktemp)
-        if jq --argjson mcp "$LLM_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
-            mv "$TMP_JSON" "$USER_CLAUDE_JSON"
+# ---------------------------------------------------------------------------
+# consult-llm-mcp MCP server (Claude Code + Pi).
+#
+# The provider keys reach this server ONLY: container-env.ts injects them as
+# CODEFLARE_OPENAI_API_KEY / CODEFLARE_GEMINI_API_KEY (never the bare
+# OPENAI_API_KEY / GEMINI_API_KEY), so the coding agents (Pi, opencode,
+# antigravity) cannot auto-detect them and silently bill the user's API account.
+# We map them back to the standard names ONLY inside this server's scoped `env`.
+#
+# Backend per provider (prefer the subscription, fall back to the API key):
+#   OpenAI - Codex CLI (subscription) when the user is logged into Codex
+#            (~/.codex/auth.json); the API key, if configured, is also passed as a
+#            fallback. Otherwise the API key.
+#   Gemini - API key (no consult-llm-compatible Gemini subscription CLI ships;
+#            gemini-cli was replaced by Antigravity per AD65, opencode's Google is
+#            Vertex/API-key only).
+#
+# Disabled entirely in Enterprise Mode (models route through the AI Gateway BYOK,
+# "LLM API Keys" is hidden, and any seeded consult-llm skill is removed).
+#
+# Wrapped in a function called with `|| echo WARNING` so a jq/IO failure can never
+# abort the entrypoint before the init-complete flag (would crash-loop the
+# container, the AD-class bug fixed for the enterprise block).
+_merge_consult_llm_mcp() {
+    # $1 target json, $2 config json, $3 human label
+    local target="$1" cfg="$2" label="$3" tmp
+    if [ -f "$target" ]; then
+        tmp=$(mktemp)
+        if jq --argjson mcp "$cfg" '. * $mcp' "$target" > "$tmp" 2>/dev/null; then
+            mv "$tmp" "$target"
         else
-            echo "[entrypoint] WARNING: Could not merge consult-llm MCP config (malformed .claude.json?)"
-            rm -f "$TMP_JSON"
+            echo "[entrypoint] WARNING: could not merge consult-llm MCP config into $target (malformed?)"
+            rm -f "$tmp"
+            return 0
         fi
     else
-        echo "$LLM_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
+        printf '%s\n' "$cfg" | jq '.' > "$target"
     fi
-    echo "[entrypoint] consult-llm MCP server configured for Claude Code"
-fi
+    echo "[entrypoint] consult-llm MCP server configured for $label"
+}
+
+configure_consult_llm() {
+    if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
+        # No per-user LLM keys in enterprise; ensure the skill is absent for all agents.
+        rm -rf "$USER_HOME/.claude/skills/consult-llm" "$USER_HOME/.pi/agent/skills/consult-llm" 2>/dev/null || true
+        echo "[entrypoint] Enterprise Mode: consult-llm disabled (no per-user LLM keys)"
+        return 0
+    fi
+
+    local env_obj="{}" ok=0
+    # OpenAI: Codex subscription if logged in (+ API key as fallback), else API key.
+    if [ -f "$USER_HOME/.codex/auth.json" ]; then
+        env_obj=$(printf '%s' "$env_obj" | jq -c '. + {"CONSULT_LLM_OPENAI_BACKEND":"codex-cli","CONSULT_LLM_CODEX_REASONING_EFFORT":"high"}')
+        ok=1
+        if [ -n "${CODEFLARE_OPENAI_API_KEY:-}" ]; then
+            env_obj=$(printf '%s' "$env_obj" | jq -c --arg k "$CODEFLARE_OPENAI_API_KEY" '. + {"OPENAI_API_KEY":$k}')
+        fi
+        echo "[entrypoint] consult-llm: OpenAI -> Codex CLI (subscription)"
+    elif [ -n "${CODEFLARE_OPENAI_API_KEY:-}" ]; then
+        env_obj=$(printf '%s' "$env_obj" | jq -c --arg k "$CODEFLARE_OPENAI_API_KEY" '. + {"OPENAI_API_KEY":$k}')
+        ok=1
+        echo "[entrypoint] consult-llm: OpenAI -> API key"
+    fi
+    # Gemini: API key.
+    if [ -n "${CODEFLARE_GEMINI_API_KEY:-}" ]; then
+        env_obj=$(printf '%s' "$env_obj" | jq -c --arg k "$CODEFLARE_GEMINI_API_KEY" '. + {"GEMINI_API_KEY":$k}')
+        ok=1
+        echo "[entrypoint] consult-llm: Gemini -> API key"
+    fi
+    [ "$ok" = "1" ] || { echo "[entrypoint] consult-llm: no usable provider; skipping"; return 0; }
+
+    # consult-llm-mcp is installed globally at image build (Dockerfile, pinned +
+    # shadow-tracked in bump-shadow-pins.yml), so the MCP server invokes the global
+    # bin directly from PATH — no per-session `npx -y` registry fetch / first-call
+    # delay. Mirrors the context-mode pre-warm pattern.
+    # Claude Code reads ~/.claude.json mcpServers.
+    _merge_consult_llm_mcp "$USER_CLAUDE_JSON" \
+        "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env}}}')" \
+        "Claude Code"
+
+    # Pi's pi-mcp-adapter reads ~/.pi/agent/mcp.json (same shape); directTools
+    # promotes consult_llm to a first-class Pi tool (not buried behind the proxy).
+    mkdir -p "$USER_HOME/.pi/agent"
+    _merge_consult_llm_mcp "$USER_HOME/.pi/agent/mcp.json" \
+        "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"directTools":["consult_llm"]}}}')" \
+        "Pi"
+}
+configure_consult_llm || echo "[entrypoint] WARNING: consult-llm configuration failed; continuing startup"
 
 # ---------------------------------------------------------------------------
 # Enterprise Mode agent routing. (Implements REQ-ENTERPRISE-004 / 005)

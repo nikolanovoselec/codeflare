@@ -7,7 +7,8 @@ import { z } from 'zod';
 import type { Env, LlmKeys } from '../types';
 import { getLlmKeysKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
-import { ValidationError } from '../lib/error-types';
+import { ValidationError, ForbiddenError } from '../lib/error-types';
+import { isEnterpriseMode } from '../lib/subscription';
 import { getAndDecrypt, encryptAndStore, getOrImportKey } from '../lib/kv-crypto';
 import { maskSecret, parseJsonBody } from '../lib/request-helpers';
 
@@ -69,6 +70,16 @@ async function validateGeminiKey(key: string): Promise<void> {
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 app.use('*', authMiddleware);
+
+// Per-user LLM API keys (and the consult-llm tooling they feed) are unavailable
+// in enterprise mode: models route through the managed AI Gateway BYOK, never
+// per-user provider keys. Reject every method up front.
+app.use('*', async (c, next) => {
+  if (isEnterpriseMode(c.env)) {
+    throw new ForbiddenError('LLM API keys are not available in enterprise mode');
+  }
+  await next();
+});
 
 /**
  * GET /api/llm-keys
