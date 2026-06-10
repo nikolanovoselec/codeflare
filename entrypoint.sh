@@ -1663,11 +1663,18 @@ const fs = require('fs');
 const path = process.argv[2];
 const required = [
   'npm:@gotgenes/pi-subagents@15.0.1',
+  // context-mode is now enabled by default for Pi (was disabled): its ctx_* tools
+  // and the bash-curl-redirect hook are active without an explicit `/ctx on`.
+  'npm:context-mode@1.0.162',
+  // Pi tool extensions, always enabled (in `required`) so they are available
+  // independently of the context-mode toggle — toggling /ctx off never disables them.
+  'npm:@juicesharp/rpiv-ask-user-question@1.19.1',
+  'npm:@juicesharp/rpiv-todo@1.19.1',
+  'npm:pi-web-access@0.10.7',
+  'npm:pi-mcp-adapter@2.9.0',
 ];
-const disabledPackageIds = new Set(['npm:context-mode']);
-const disabledPackages = [
-  { source: 'npm:context-mode@1.0.162', extensions: [], skills: [] },
-];
+const disabledPackageIds = new Set([]);
+const disabledPackages = [];
 // Migration: hard-remove the deprecated third-party graphify wrapper from existing settings.
 // graphify is now the first-party graphify-native.ts extension; loading both registers the same
 // tools (graphify_query/path/explain) and Pi refuses to start. Unlike disabled packages this is

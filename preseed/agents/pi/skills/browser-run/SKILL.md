@@ -11,9 +11,13 @@ Only available in Pro (advanced) sessions when a Cloudflare API token with the *
 
 ## When to use
 
-1. Try the built-in web fetch first.
-2. If it returns an error, a CAPTCHA/anti-bot page, an empty body, or obviously unrendered HTML, **fall back to Browser Run**.
-3. Public URLs only. Do not point Browser Run at internal hosts, `localhost`, private IPs, or anything requiring the user's session/credentials.
+Browser Run is the **last resort** — a real Chrome engine is the most expensive way to read a page. Reach for the cheaper tools first, and use Browser Run only when they genuinely can't read it:
+
+1. **Find pages on the web** → `web_search` (pi-web-access), not Browser Run.
+2. **Static / normal page** → `ctx_fetch_and_index` (context-mode, on by default; keeps bytes out of context) or `fetch_content` (pi-web-access). Plain HTTP, no JS — fast and cheap.
+3. **Raw HTTP / JSON API** → `curl`.
+4. **Use Browser Run ONLY when** the page is **JavaScript-only / a SPA** (content materializes after JS runs) or is **bot-protected / CAPTCHA / redirect-walled**, so the plain fetchers above return an error, an anti-bot page, or empty/unrendered HTML. Don't retry `curl` on a page you already know needs JS — go straight to Browser Run.
+5. Public URLs only. Never point Browser Run at internal hosts, `localhost`, private IPs, or anything requiring the user's session/credentials.
 
 ## Tools
 

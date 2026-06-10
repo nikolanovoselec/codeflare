@@ -325,20 +325,45 @@ export function durableReviewStatusSegments(input: {
     }));
 }
 
+// Elapsed wall-clock as M:SS (e.g. 78_000 -> "1:18"), for the leading review badge.
+export function formatReviewElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+// Compact token count for the footer (e.g. 950 -> "950", 2_120 -> "2.1k", 124_000 -> "124k").
+export function formatReviewTokens(n: number): string {
+  if (n < 1000) return String(n);
+  const k = n / 1000;
+  return k >= 100 ? `${Math.round(k)}k` : `${k.toFixed(1).replace(/\.0$/, "")}k`;
+}
+
 export function compactDurableReviewStatus(input: {
   head: string;
   lanes: string[];
   completed: string[];
   running: string[];
   style?: DurableReviewStatusStyle;
+  // Optional leading timer badge: "Review 1:18 · code | spec | docs".
+  elapsedMs?: number;
+  // Optional best-effort per-lane token totals, appended to each lane label.
+  laneTokens?: Record<string, number>;
 }): string {
   const styledLabel = (segment: DurableReviewStatusSegment): string => {
     if (segment.state === "completed") return input.style?.done?.(segment.label) ?? segment.label;
     if (segment.state === "running") return input.style?.running?.(segment.label) ?? segment.label;
     return input.style?.pending?.(segment.label) ?? segment.label;
   };
-  const parts = durableReviewStatusSegments(input).map(styledLabel);
-  return `Review ${parts.join(" | ")}`;
+  const parts = durableReviewStatusSegments(input).map((segment) => {
+    let label = styledLabel(segment);
+    const tokens = input.laneTokens?.[segment.lane];
+    if (typeof tokens === "number" && tokens > 0) label = `${label} ${formatReviewTokens(tokens)}`;
+    return label;
+  });
+  const badge = input.elapsedMs !== undefined ? `${formatReviewElapsed(input.elapsedMs)} · ` : "";
+  return `Review ${badge}${parts.join(" | ")}`;
 }
 
 export function stripExistingReviewSummary(text: string): string {
@@ -894,6 +919,21 @@ export function resolveReviewRepo(
     ?? fromDir(input.sessionCwd)
     ?? input.sessionReviewRepo
     ?? fromDir(input.processCwd);
+}
+
+// In-session memory of the repo THIS Pi session is reviewing, shared across
+// extensions (both review-enforcement and local-statusline import this module, so
+// they get the SAME instance). review-enforcement remembers it whenever a
+// ctx-bearing handler resolves the repo; the no-ctx reaper and the local-statusline
+// footer recall it. Without this, the footer (which only has the session cwd) shows
+// nothing and the on-turn summary emit cannot resolve a NESTED review clone whose
+// parent workspace is the session cwd — the "footer blank / summary never emits" bug.
+let rememberedReviewRepo: string | undefined;
+export function rememberReviewRepo(repo: string | undefined): void {
+  if (repo) rememberedReviewRepo = repo;
+}
+export function recallReviewRepo(): string | undefined {
+  return rememberedReviewRepo;
 }
 
 // Npm package source strings a durable review lane should load as additionalExtensionPaths.

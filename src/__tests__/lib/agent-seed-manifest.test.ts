@@ -237,6 +237,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // are emitted directly (not transformed from Claude), so the Pi manifest -> seed pipeline
     // must surface them.
     expect(skills.map((d) => d.key)).toContain('.pi/agent/skills/review/SKILL.md');
+    // The four npm tool-extension skills ship a "when to use which tool" guide; the
+    // manifest -> seed pipeline must surface each one.
+    for (const skill of ['rpiv-ask-user-question', 'rpiv-todo', 'pi-web-access', 'pi-mcp-adapter']) {
+      expect(skills.map((d) => d.key)).toContain(`.pi/agent/skills/${skill}/SKILL.md`);
+    }
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/codeflare-commands.ts');
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/local-statusline.ts');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');

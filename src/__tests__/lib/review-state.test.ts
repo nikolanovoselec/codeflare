@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -294,5 +294,60 @@ describe('REQ-AGENT-058 AC4: every suppressed reconcile gate names its own reaso
   it('each gate names a DISTINCT reason so the audit event identifies which gate fired', () => {
     const reasons = gates.map(([, input]) => shouldReconcileOpenPr(input).reason);
     expect(new Set(reasons).size).toBe(reasons.length);
+  });
+});
+
+/**
+ * Shared in-session review-repo memory. review-enforcement remembers the resolved repo and the
+ * no-ctx reaper + the local-statusline footer recall it — the single mechanism that fixes the blank
+ * footer, the missing live lane row, and the on-turn summary that never emits for a nested clone.
+ */
+describe('rememberReviewRepo / recallReviewRepo (shared in-session review-repo memory)', () => {
+  it('recall returns the last remembered repo so the no-ctx reaper + footer resolve the nested clone', () => {
+    rememberReviewRepo('/ws/ai-news-digest');
+    expect(recallReviewRepo()).toBe('/ws/ai-news-digest');
+  });
+
+  it('remembering undefined does NOT clobber a previously remembered repo (a failed resolve must not erase it)', () => {
+    rememberReviewRepo('/ws/ai-news-digest');
+    rememberReviewRepo(undefined);
+    expect(recallReviewRepo()).toBe('/ws/ai-news-digest');
+  });
+});
+
+describe('compactDurableReviewStatus timer + token badge (footer enhancement)', () => {
+  const base = { head: 'h', lanes: ['code-reviewer', 'spec-reviewer', 'doc-updater'], completed: [] as string[], running: ['code-reviewer'] };
+
+  it('renders the bare row with no badge when neither elapsedMs nor tokens are given (back-compat)', () => {
+    expect(compactDurableReviewStatus(base)).toBe('Review code | spec | docs');
+  });
+
+  it('prepends a leading M:SS timer badge when elapsedMs is given', () => {
+    expect(compactDurableReviewStatus({ ...base, elapsedMs: 78_000 })).toBe('Review 1:18 · code | spec | docs');
+  });
+
+  it('appends per-lane token totals to the matching lane label', () => {
+    const row = compactDurableReviewStatus({ ...base, completed: ['code-reviewer'], laneTokens: { 'code-reviewer': 2_120 } });
+    expect(row).toContain('code 2.1k');
+  });
+
+  it('omits a lane token figure when its count is absent or zero', () => {
+    expect(compactDurableReviewStatus({ ...base, laneTokens: { 'spec-reviewer': 0 } })).toBe('Review code | spec | docs');
+  });
+});
+
+describe('formatReviewElapsed / formatReviewTokens', () => {
+  it('formats elapsed as M:SS, zero-padding seconds', () => {
+    expect(formatReviewElapsed(0)).toBe('0:00');
+    expect(formatReviewElapsed(9_000)).toBe('0:09');
+    expect(formatReviewElapsed(78_000)).toBe('1:18');
+    expect(formatReviewElapsed(605_000)).toBe('10:05');
+  });
+
+  it('formats tokens compactly (raw < 1k, 1-decimal k, integer k for >= 100k)', () => {
+    expect(formatReviewTokens(950)).toBe('950');
+    expect(formatReviewTokens(2_000)).toBe('2k');
+    expect(formatReviewTokens(2_120)).toBe('2.1k');
+    expect(formatReviewTokens(124_000)).toBe('124k');
   });
 });
