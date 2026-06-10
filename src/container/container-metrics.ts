@@ -182,13 +182,29 @@ export async function updateKvStatus(
  * teardown hard-cap is the backstop). Mirrors the /health probe's port (8080).
  */
 export async function drainFinalSync(ctx: DurableObjectState, budgetMs: number): Promise<void> {
-  if (!ctx.container?.running) return;
+  if (!ctx.container) return;
+  if (!ctx.container.running) {
+    // Same rationale as the delete path (#516): running can read transiently
+    // false on a DO wake / deploy-roll while the container is alive, and
+    // skipping the drain there silently drops the last edits on idle/quota
+    // stop. Attempt anyway - a genuinely-dead container refuses the connection
+    // fast, which is swallowed below.
+    logger.warn('drainFinalSync: container reads not-running, attempting drain anyway (possible transient)', { budgetMs });
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budgetMs);
   try {
     const port = ctx.container.getTcpPort(8080);
+    // Raw port.fetch bypasses the DO's public fetch override (the only place
+    // the auth header is injected) and the in-container host 401s /internal/*
+    // without a Bearer token - the idle/quota-stop drain failed that way on
+    // every stop until this header was added. Unlike the delete path, storage
+    // is intact here, so read the token directly.
+    let authToken: string | null = null;
+    try { authToken = (await ctx.storage.get<string>('containerAuthToken')) ?? null; } catch { authToken = null; }
     const res = await port.fetch('http://localhost/internal/final-sync', {
       method: 'POST',
+      ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {}),
       signal: controller.signal,
     });
     if (res.ok) {

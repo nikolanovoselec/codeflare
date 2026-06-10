@@ -90,7 +90,7 @@ type FinalSyncResult = { outcome: FinalSyncOutcome; httpStatus?: number; reason?
 // silently drops the last edits on stop/delete. Attempt the drain regardless; a
 // genuinely-dead container makes port.fetch error/timeout, which is swallowed
 // and reported as 'errored' (still best-effort, still bounded by budgetMs).
-async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number): Promise<FinalSyncResult> {
+async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number, authToken: string | null): Promise<FinalSyncResult> {
   if (!host.ctx.container?.running) {
     // We still attempt: a not-running reading at the start is worth recording as
     // the likely transient the #516 fix exists to survive.
@@ -99,8 +99,17 @@ async function drainFinalSyncAudited(host: LifecycleHost, budgetMs: number): Pro
   try {
     const port = host.ctx.container?.getTcpPort(8080);
     if (!port) return { outcome: 'errored', reason: 'no-container-port' };
+    // The Authorization header is load-bearing: this raw port.fetch bypasses the
+    // DO's public fetch override (the only place the auth header is injected),
+    // and the in-container host 401s any /internal/* request without a Bearer
+    // token (auth-check.ts exempts only /health and /activity). Without it every
+    // teardown drain died at the auth gate in ~100ms - observed as 30 days of
+    // outcome:incomplete httpStatus:401 audits with zero successes, i.e. the
+    // actual bisync-on-delete data loss (the budget inversion fixed in #521 was
+    // real but unreachable behind this 401).
     const res = await port.fetch('http://localhost/internal/final-sync', {
       method: 'POST',
+      ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {}),
       signal: AbortSignal.timeout(budgetMs),
     });
     // The host reports its own reason in the body ({ synced, reason }); capture
@@ -148,6 +157,15 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // Capture the session id BEFORE the storage-clear below nulls host._sessionId,
   // so the final-sync audit (recorded after the drain) stays correlatable.
   const auditSessionId = host._sessionId;
+  // Capture the container auth token BEFORE the clear deletes it from storage
+  // and nulls the in-memory copy: the final-sync drain runs AFTER the clear and
+  // must authenticate against the in-container host or it 401s and the session
+  // deletes with the last edits unsynced. Storage fallback covers a DO that was
+  // re-created for this delete and never hydrated the in-memory field.
+  let auditAuthToken: string | null = host._containerAuthToken;
+  if (!auditAuthToken) {
+    try { auditAuthToken = (await host.ctx.storage.get<string>('containerAuthToken')) ?? null; } catch { auditAuthToken = null; }
+  }
   // Persist the deliberate-stop marker and drop the metrics alarm BEFORE
   // clearing identifiers. If a DO eviction interrupts this teardown, the
   // reconstructed instance (which resets in-memory fields to 0) still reads the
@@ -216,7 +234,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // failure/timeout so we always fall through to stop. Emit a durable audit
   // event recording the outcome so a skipped/failed final sync on delete is
   // never silent (#516).
-  const syncResult = await drainFinalSyncAudited(host, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start)));
+  const syncResult = await drainFinalSyncAudited(host, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start)), auditAuthToken);
   await recordFinalSyncAudit(host, syncResult, auditSessionId);
 
   if (host.ctx.container?.running) {

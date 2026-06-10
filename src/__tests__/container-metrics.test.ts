@@ -909,11 +909,11 @@ describe('Container final-sync drain / REQ-SESSION-011 (drain R2 sync before sto
       expect(testState.finalSyncCalls).toBe(1);
     });
 
-    it('is a no-op (no fetch) when the container is not running', async () => {
+    it('still attempts the drain when the container reads not-running (#516: the reading can be a transient on a DO wake/deploy-roll)', async () => {
       testState.containerRunning = false;
       const ctx = (containerInstance as unknown as CtxHost).ctx;
       await drainFinalSync(ctx, FINAL_SYNC_BUDGET_MS);
-      expect(testState.finalSyncCalls).toBe(0);
+      expect(testState.finalSyncCalls).toBe(1);
     });
 
     it('swallows a fetch error and resolves (best-effort, so caller still stops)', async () => {

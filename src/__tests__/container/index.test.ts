@@ -880,6 +880,41 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(order).toEqual(['finalsync', 'stop']);
     });
 
+    it('REQ-SESSION-011: the final-sync drain authenticates with the container token captured BEFORE the storage clear (401 regression)', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === 'containerAuthToken') return 'tok-teardown-456';
+        return null;
+      });
+      mockContainerRuntime.running = true;
+
+      // Capture the drain request init so the Authorization header is assertable.
+      // The raw port.fetch bypasses the DO fetch override that injects auth; pre-fix
+      // this request carried no header and the in-container host 401'd it on EVERY
+      // stop/delete (observed: 30 days of outcome:incomplete httpStatus:401 audits,
+      // zero successes) - the actual bisync-on-delete data loss.
+      let drainInit: RequestInit | undefined;
+      mockTcpPortFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (typeof url === 'string' && url.includes('/internal/final-sync')) {
+          drainInit = init;
+          // The drain fires AFTER the operational-storage clear (REQ-SESSION-009
+          // ordering), so a header here proves the token was captured pre-clear,
+          // not read late from already-wiped storage.
+          expect(mockStorage.delete).toHaveBeenCalledWith('containerAuthToken');
+        }
+        return new Response(JSON.stringify({ synced: true }), { status: 200 });
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      vi.spyOn(instance, 'stop' as any).mockImplementation(async () => {
+        mockContainerRuntime.running = false;
+      });
+
+      await instance.destroy();
+
+      expect((drainInit?.headers as Record<string, string> | undefined)?.Authorization).toBe('Bearer tok-teardown-456');
+    });
+
     it('REQ-SESSION-011: still stops when the final-sync drain fails (best-effort, no throw)', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
