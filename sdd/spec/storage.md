@@ -360,7 +360,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 <!-- @impl: src/lib/r2-seed.ts -->
 <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed -->
 <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedGettingStartedDocs describe → AC1 + retries on transient failure and succeeds on a later attempt + throws after exhausting retries → AC5) -->
-<!-- @test: src/__tests__/routes/storage-seed.test.ts (seed endpoint → AC2/AC3/AC4) -->
+<!-- @test: src/__tests__/routes/storage-seed.test.ts (seed endpoint → AC2/AC3) -->
+<!-- @test: src/__tests__/routes/rate-limits.test.ts (POST /seed/getting-started limiter, 3/min → AC4) -->
 <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (ensureBucketAndSeed → self-heals on an un-marked existing bucket, sets the gettingStartedSeeded marker, skips once marked, leaves the marker unset on failure → AC6) -->
 
 **Intent:** New users must find starter documentation in their storage on first use so they have immediate orientation material. Because a freshly created bucket is not always immediately writable on the R2 data plane, seeding must be self-healing rather than a single best-effort attempt at creation time.
@@ -386,7 +387,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** [Automated test](../../src/__tests__/lib/r2-seed.test.ts) (AC1/AC5); [seed endpoint test](../../src/__tests__/routes/storage-seed.test.ts) (AC2/AC3/AC4); [self-heal seeding](../../src/__tests__/routes/container-lifecycle-helpers.test.ts) (AC6)
+**Verification:** [Automated test](../../src/__tests__/lib/r2-seed.test.ts) (AC1/AC5); [seed endpoint test](../../src/__tests__/routes/storage-seed.test.ts) (AC2/AC3); [rate-limit test](../../src/__tests__/routes/rate-limits.test.ts) (AC4); [self-heal seeding](../../src/__tests__/routes/container-lifecycle-helpers.test.ts) (AC6)
 
 **Status:** Implemented
 

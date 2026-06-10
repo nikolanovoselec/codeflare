@@ -536,8 +536,8 @@ None.
 <!-- @impl: host/src/server.ts -->
 <!-- @impl: host/src/prewarm-config.ts -->
 <!-- @impl: entrypoint.sh -->
-<!-- @test: host/__tests__/prewarm-readiness.test.js (1013 reject + init-flag gate → AC2) -->
-<!-- @test: src/__tests__/container/index.test.ts (DO-side prewarm contract → AC1) -->
+<!-- @test: host/__tests__/prewarm-readiness.test.js (getPrewarmConfig: tab-1 pre-warm command extraction → AC1) -->
+<!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up 1013 retriable-reject gate → AC4) -->
 <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (REQ-SESSION-015 describe → guarded warm-up calls still reach init-flag write on failure + regression sentinel that unguarded form aborts before flag → Constraints fault-containment invariant) -->
 <!-- @test: host/__tests__/dockerfile-pi-warm.test.js (baked jiti cache layer + entrypoint /tmp/jiti symlink → AC5) -->
 
@@ -562,7 +562,7 @@ None.
 
 **Dependencies:** [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** [Automated test](../../host/__tests__/prewarm-readiness.test.js) (AC2); [DO-side prewarm contract](../../src/__tests__/container/index.test.ts) (AC1); [dockerfile-pi-warm.test.js](../../host/__tests__/dockerfile-pi-warm.test.js) (AC5 — baked cache layer, derived package list, empty-cache build guard, entrypoint symlink)
+**Verification:** [Automated test](../../host/__tests__/prewarm-readiness.test.js) (AC1); [container-warming-up gate](../../src/__tests__/routes/terminal-ws.test.ts) (AC4); [dockerfile-pi-warm.test.js](../../host/__tests__/dockerfile-pi-warm.test.js) (AC5 — baked cache layer, derived package list, empty-cache build guard, entrypoint symlink)
 
 **Status:** Implemented
 

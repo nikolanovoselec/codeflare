@@ -284,10 +284,15 @@ jobs:
           # other env), prune dangling layers, and clear the trivy export tmp.
           KEEP='${{ steps.docker-build.outputs.local_ref }}'
           docker builder prune -af || true
-          docker images --format '{{.Repository}}:{{.Tag}}' \
-            | grep -E -- '-container:' \
-            | grep -vxF "$KEEP" \
-            | xargs -r docker rmi -f || true
+          # Guard: an empty KEEP would make grep -vxF match nothing and delete the
+          # scan target too. Unreachable today (this step only runs after a build
+          # that wrote local_ref), but cheap insurance against a future regression.
+          if [ -n "$KEEP" ]; then
+            docker images --format '{{.Repository}}:{{.Tag}}' \
+              | grep -E -- '-container:' \
+              | grep -vxF "$KEEP" \
+              | xargs -r docker rmi -f || true
+          fi
           docker image prune -f || true
           rm -rf /tmp/trivy-* || true
           df -h / || true
