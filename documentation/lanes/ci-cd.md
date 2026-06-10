@@ -83,7 +83,7 @@ For the Pi preseed job, both `@gotgenes/pi-subagents` and context-mode live in `
 4. Apply worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default/saas=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB). All tiers default to 10 max instances; `MAX_INSTANCES` variable overrides if set
 5. Optionally generate `.cache-bust` for AI agent layer
 6. Build Docker image locally (base image pulled from `public.ecr.aws/docker/library/node:24-bookworm-slim` - AWS ECR Public mirror avoids Docker Hub anonymous pull rate limits on shared runners)
-7. Scan with Trivy (HIGH/CRITICAL severity, `.trivyignore` for exceptions)
+7. Scan with Trivy (HIGH/CRITICAL severity, `ignore-unfixed: true`; `.trivyignore` for fixable CVEs consciously accepted — see [Security §Container Image Scanning](security.md#container-image-scanning))
 8. Push image to Cloudflare registry via `wrangler containers push`, extract registry URI
 9. Patch `wrangler.toml` `image` field to registry URI (skips Docker rebuild on deploy)
 10. Deploy with `npx wrangler deploy` passing `--var` for runtime config

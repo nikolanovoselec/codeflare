@@ -513,6 +513,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 ### REQ-SEC-011: Container image scanned for CVEs before deploy
 
 <!-- @impl: .github/workflows/deploy.yml -->
+<!-- @impl: .github/workflows/deploy-dockerhub.yml -->
 <!-- @impl: .trivyignore -->
 <!-- @test: host/__tests__/workflow-files.test.js (container image pipeline describe → trivy scan job → AC1/AC2/AC3/AC4) -->
 
@@ -524,7 +525,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. Container images are scanned for HIGH and CRITICAL severity vulnerabilities in the deploy workflow.
 2. Known vulnerability exceptions are tracked in a project-level allowlist.
-3. The deploy pipeline fails if the scan finds unexcepted HIGH/CRITICAL vulnerabilities.
+3. The deploy pipeline fails if the scan finds a HIGH/CRITICAL vulnerability that has an available fix and is not suppressed in the project allowlist; unfixed CVEs (no upstream fix available) are excluded from the gate automatically.
 4. Scanning occurs after image build and before push to the container registry.
 
 **Constraints:**

@@ -91,6 +91,15 @@ describe('container image pipeline / REQ-OPS-002 (image built, scanned, pushed, 
     const path = join(repoRoot, '.trivyignore');
     assert.ok(existsSync(path), '.trivyignore must exist as the controlled allowlist');
   });
+
+  test('both deploy workflows gate Trivy on fixable CVEs only — ignore-unfixed (REQ-SEC-011 AC3)', () => {
+    for (const wf of ['deploy.yml', 'deploy-dockerhub.yml']) {
+      const body = readWorkflow(wf);
+      assert.match(body, /severity:\s*HIGH,CRITICAL/, `${wf}: Trivy gates on HIGH/CRITICAL severities`);
+      assert.match(body, /exit-code:\s*1/, `${wf}: Trivy fails the deploy on a gated finding`);
+      assert.match(body, /ignore-unfixed:\s*true/, `${wf}: unfixed CVEs (no available fix) are excluded from the gate`);
+    }
+  });
 });
 
 describe('PR Checks workflow / REQ-OPS-003 (test workflow runs on every PR + push to main/develop) / REQ-OPS-009 (dependency-review job in test.yml + scorecard.yml present) / REQ-OPS-019 (security-posture scanning workflows)', () => {
