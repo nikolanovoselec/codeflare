@@ -30,6 +30,10 @@ function baseState(): ContainerEnvState {
     _userEmail: 'user@example.com',
     // Field gated by REQ-SESSION-016 AC3 (added in this PR).
     _userTimezone: null,
+    // Enterprise route catalog defaults to [] in production (container/index.ts);
+    // the enterprise branch of buildEnvVars reads `.length`, so the fixture must
+    // carry the same empty-array default rather than leaving it undefined.
+    _routeCatalog: [],
   } as unknown as ContainerEnvState;
 }
 
