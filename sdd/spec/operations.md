@@ -227,7 +227,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. Watched Dockerfile binaries: zoxide, yazi, lazygit, silverbullet. Each has its own parallel job checking GitHub releases.
-2. Watched npm packages: context-mode (canonical version in plugin.json, echoed in entrypoint.sh fallback and hooks.json). Watched PyPI packages: graphifyy, whose canonical pin lives in `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` (read by the Dockerfile via `jq`, so there is no Dockerfile literal to bump); its job bumps both the `.version` and the `graphifyy@X.Y.Z` description string there.
+2. Watched npm packages: context-mode (canonical version in plugin.json, echoed in entrypoint.sh fallback and hooks.json); and the Pi preseed dependencies `@gotgenes/pi-subagents` and `context-mode`, pinned in `preseed/agents/pi/package.json` (+ `package-lock.json`, with `@gotgenes/pi-subagents` also a literal in entrypoint.sh), bumped together by the `pi-preseed` job. Watched PyPI packages: graphifyy, whose canonical pin lives in `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` (read by the Dockerfile via `jq`, so there is no Dockerfile literal to bump); its job bumps both the `.version` and the `graphifyy@X.Y.Z` description string there.
 3. SHA256 checksum is reset to a placeholder on Dockerfile bumps, causing Docker build failure until the operator verifies and updates the hash.
 4. A bump branch is skipped if one already exists for that version (deduplication guard).
 
