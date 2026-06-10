@@ -271,7 +271,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       ).rejects.toThrow();
     });
 
-    it('seeds docs when bucket is newly created', async () => {
+    it('REQ-STOR-009: seeds getting-started docs and sets the gettingStartedSeeded marker when newly created', async () => {
       mockCreateBucketIfNotExists.mockResolvedValue({ success: true, created: true });
 
       await ensureBucketAndSeed({
@@ -282,10 +282,34 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       });
 
       expect(mockSeedGettingStartedDocs).toHaveBeenCalled();
+      const prefs = await mockKV.get('user-prefs:test-bucket', 'json') as Record<string, unknown> | null;
+      expect(prefs).toMatchObject({ gettingStartedSeeded: true });
     });
 
-    it('does not seed docs when bucket already existed', async () => {
+    // The bug this fixes: a pre-existing bucket whose one-shot create-time docs seed
+    // failed (cold R2 data plane) was left without getting-started docs forever, since
+    // the create-only gate never re-fired. Self-heal now re-attempts until marked.
+    it('REQ-STOR-009: self-heals getting-started docs on a pre-existing bucket that was never marked seeded', async () => {
       mockCreateBucketIfNotExists.mockResolvedValue({ success: true, created: false });
+      // Existing prefs without the marker (e.g. a bucket from before this fix).
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'advanced' });
+
+      await ensureBucketAndSeed({
+        env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+        bucketName: 'test-bucket',
+        sessionMode: 'default',
+        logger: mockLogger as any,
+      });
+
+      expect(mockSeedGettingStartedDocs).toHaveBeenCalled();
+      // Marker is added without clobbering existing preferences.
+      const prefs = await mockKV.get('user-prefs:test-bucket', 'json') as Record<string, unknown> | null;
+      expect(prefs).toMatchObject({ sessionMode: 'advanced', gettingStartedSeeded: true });
+    });
+
+    it('REQ-STOR-009: does not re-seed getting-started docs once the gettingStartedSeeded marker is set', async () => {
+      mockCreateBucketIfNotExists.mockResolvedValue({ success: true, created: false });
+      mockKV._set('user-prefs:test-bucket', { gettingStartedSeeded: true });
 
       await ensureBucketAndSeed({
         env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
@@ -295,6 +319,25 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       });
 
       expect(mockSeedGettingStartedDocs).not.toHaveBeenCalled();
+    });
+
+    it('REQ-STOR-009: does not set the marker when the docs seed fails, so it retries next session', async () => {
+      mockCreateBucketIfNotExists.mockResolvedValue({ success: true, created: false });
+      mockSeedGettingStartedDocs.mockRejectedValue(new Error('bucket not yet writable'));
+
+      await expect(
+        ensureBucketAndSeed({
+          env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
+          bucketName: 'test-bucket',
+          sessionMode: 'default',
+          logger: mockLogger as any,
+        })
+      ).resolves.toBeDefined();
+
+      expect(mockSeedGettingStartedDocs).toHaveBeenCalled();
+      const prefs = await mockKV.get('user-prefs:test-bucket', 'json') as Record<string, unknown> | null;
+      expect(prefs).toBeNull();
+      expect(mockLogger.warn).toHaveBeenCalled();
     });
   });
 

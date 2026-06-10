@@ -6,10 +6,11 @@
  * these so existing importers (and the spec-anchored unit tests) keep resolving
  * them from './lifecycle'.
  */
-import type { Env, SessionMode, ContainerConfigPayload, R2ConnectionConfig } from '../../types';
+import type { Env, SessionMode, ContainerConfigPayload, R2ConnectionConfig, UserPreferences } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin } from '../../lib/r2-seed';
 import { getR2Config } from '../../lib/r2-config';
+import { getPreferencesKey } from '../../lib/kv-keys';
 import { ContainerError, toError, toErrorMessage } from '../../lib/error-types';
 import { BUCKET_NAME_SETTLE_DELAY_MS } from '../../lib/constants';
 import { SetBucketNameBodySchema } from '../../lib/container-config-schema';
@@ -136,22 +137,10 @@ export async function ensureBucketAndSeed(params: {
   }
   logger.info('Bucket ready', { bucketName, created: bucketResult.created });
 
-  // Seed starter docs only once, when the bucket is newly created.
+  // Seed agent configs once, when the bucket is newly created. Agent configs have
+  // additional reseed paths (the Recreate button, mode-change reconcile, and the
+  // REQ-AGENT-049 preseed-hash upgrade), so the create-time gate keeps them healthy.
   if (bucketResult.created) {
-    try {
-      const seedResult = await seedGettingStartedDocs(env, bucketName, r2Config.endpoint, { overwrite: false });
-      logger.info('Seeded initial getting-started docs', {
-        bucketName,
-        writtenCount: seedResult.written.length,
-        skippedCount: seedResult.skipped.length,
-      });
-    } catch (error) {
-      logger.warn('Failed to seed initial getting-started docs', {
-        bucketName,
-        error: toErrorMessage(error),
-      });
-    }
-
     try {
       const agentResult = await reconcileAgentConfigs(env, bucketName, r2Config.endpoint, sessionMode, {
         overwrite: false,
@@ -171,6 +160,36 @@ export async function ensureBucketAndSeed(params: {
         error: toErrorMessage(error),
       });
     }
+  }
+
+  // REQ-STOR-009: seed getting-started docs until one attempt succeeds — self-healing,
+  // NOT gated on first-creation. A freshly created bucket is not always immediately
+  // writable on the R2 data plane (see seedGettingStartedDocs), so the old create-only
+  // seed could fail, get swallowed, and leave docs permanently missing — the user then
+  // had to click "Recreate Docs & Examples" by hand. Unlike agent configs, getting-started
+  // docs have no other reseed path, so we re-attempt on every session start until the
+  // `gettingStartedSeeded` marker is set (mirrors REQ-AGENT-049's lastPreseedHash).
+  // overwrite:false keeps it idempotent and preserves user edits; once the marker is
+  // set, user deletions of the starter docs are respected.
+  try {
+    const preferencesKey = getPreferencesKey(bucketName);
+    const preferences = await env.KV.get<UserPreferences>(preferencesKey, 'json');
+    if (preferences?.gettingStartedSeeded !== true) {
+      const seedResult = await seedGettingStartedDocs(env, bucketName, r2Config.endpoint, { overwrite: false });
+      // Only mark after a successful seed, so a failed attempt retries next session.
+      await env.KV.put(preferencesKey, JSON.stringify({ ...preferences, gettingStartedSeeded: true }));
+      logger.info('Seeded getting-started docs', {
+        bucketName,
+        created: bucketResult.created === true,
+        writtenCount: seedResult.written.length,
+        skippedCount: seedResult.skipped.length,
+      });
+    }
+  } catch (error) {
+    logger.warn('Failed to seed getting-started docs; will retry next session', {
+      bucketName,
+      error: toErrorMessage(error),
+    });
   }
 
   // Always reseed the context-mode plugin subtree on every session start

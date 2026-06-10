@@ -251,6 +251,13 @@ export interface UserPreferences {
   userTimezone?: string;
   /** REQ-AGENT-049: hash of last applied preseed content, for auto-upgrade detection. */
   lastPreseedHash?: string;
+  /**
+   * REQ-STOR-009: set once getting-started docs have been confirmed seeded into
+   * the bucket. Until it is true, every session start re-attempts the (idempotent)
+   * seed, so a cold-bucket failure self-heals instead of leaving docs permanently
+   * missing. Once set, user deletions of the starter docs are respected.
+   */
+  gettingStartedSeeded?: boolean;
 }
 
 /**

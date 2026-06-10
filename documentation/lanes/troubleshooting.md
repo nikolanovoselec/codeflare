@@ -16,6 +16,10 @@ Diagnostic commands, common failure modes, and resolution steps.
 
 Frequently encountered problems grouped by symptom, with causes and resolution steps.
 
+### New User Has Preseed Configs but No "Docs & Examples"
+
+A newly provisioned user's R2 bucket contains the agent-config preseed files but the getting-started Docs & Examples are missing; clicking **Recreate Docs & Examples** in Settings creates them. Cause: getting-started docs were seeded only by the one-shot bucket-creation gate, and a freshly created bucket is not always immediately writable on the R2 data plane, so that single attempt could fail and be swallowed — leaving docs missing because the gate never re-fired (agent configs survived because they have other reseed paths: the Recreate button, mode-change reconcile, and the preseed-hash upgrade). Fixed via REQ-STOR-009 AC6: the seed now self-heals on every session start until a `gettingStartedSeeded` user-preference marker is set, so simply starting (or restarting) a session re-seeds the docs without the manual button. Verify in Workers logs by querying the worker for `Seeded getting-started docs` (success) or `Failed to seed getting-started docs; will retry next session` (transient failure that will retry).
+
 ### `/api/*` Returns HTML (SPA Swallow)
 
 API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/auth/*", "/api/*", "/public/*", "/health"]` in `[assets]` section of `wrangler.toml`.

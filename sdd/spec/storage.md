@@ -358,10 +358,12 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 <!-- @impl: src/routes/storage/seed.ts -->
 <!-- @impl: src/lib/r2-seed.ts -->
+<!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed -->
 <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedGettingStartedDocs describe → AC1 + retries on transient failure and succeeds on a later attempt + throws after exhausting retries → AC5) -->
 <!-- @test: src/__tests__/routes/storage-seed.test.ts (seed endpoint → AC2/AC3/AC4) -->
+<!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (ensureBucketAndSeed → self-heals on an un-marked existing bucket, sets the gettingStartedSeeded marker, skips once marked, leaves the marker unset on failure → AC6) -->
 
-**Intent:** New users must find starter documentation in their storage on first use so they have immediate orientation material.
+**Intent:** New users must find starter documentation in their storage on first use so they have immediate orientation material. Because a freshly created bucket is not always immediately writable on the R2 data plane, seeding must be self-healing rather than a single best-effort attempt at creation time.
 
 **Applies To:** User
 
@@ -372,11 +374,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. After a successful seed, the storage-stats cache is invalidated so the next poll returns fresh data.
 4. The seed endpoint is rate-limited at a low ceiling appropriate to its destructive-overwrite mode.
 5. The first-session seed retries on a transient failure (e.g. a freshly created bucket not yet writable on the S3 data plane, or R2 credentials still propagating right after setup) with bounded backoff, so a new bucket reliably ends up seeded rather than left empty until a manual re-seed; once retries are exhausted the failure surfaces to the caller.
+6. Getting-started doc seeding is self-healing and is not gated solely on first bucket creation: on session start, when a `gettingStartedSeeded` preference marker is not set, the idempotent seed is re-attempted. The marker is persisted only after a successful seed, so a one-time cold-bucket failure (whose throw is swallowed) recovers on a later session instead of leaving the bucket without docs until a manual re-seed. Once the marker is set, the user's deletion of starter docs is respected (no re-seed).
 
 **Constraints:**
 
 - Seeding is idempotent in non-overwrite mode: files that already exist at the target keys are skipped, never duplicated.
 - Tutorial source content is a build-time artifact; the spec governs *that* it ships, not where the source lives.
+- The self-healing seed must not clobber user edits: it runs in non-overwrite mode, and once the success marker is set it does not re-run.
 
 **Priority:** P1
 
