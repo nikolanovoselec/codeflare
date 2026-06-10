@@ -932,6 +932,49 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect((auditPut![1] as { outcome: string }).outcome).toBe('completed');
     });
 
+    // bisync-on-delete data loss: the host endpoint gave up at its ceiling and
+    // returned 504 while rclone was still flushing (the budget-inversion
+    // signature). The drain must record this as a non-completed, queryable
+    // outcome carrying the session id + http status/reason - never swallow it -
+    // and the session must still delete (data loss past the window is acceptable
+    // per the fix decision; a SILENT loss is not).
+    it('REQ-SESSION-011: a final-sync 504 is audited as "incomplete" with the session id + http status/reason, and the delete still proceeds', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+      mockContainerRuntime.running = true;
+
+      mockTcpPortFetch.mockImplementation(async (url: string) => {
+        if (typeof url === 'string' && url.includes('/internal/final-sync')) {
+          return new Response(JSON.stringify({ synced: false, reason: 'timeout' }), { status: 504 });
+        }
+        return new Response('', { status: 200 });
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      // The constructor loads _sessionId via blockConcurrencyWhile; the test mock
+      // does not await that init, so set the in-memory field directly (as the
+      // containerStartedAt test does). destroy() captures host._sessionId before
+      // the storage-clear nulls it.
+      (instance as any)._sessionId = 'sess123';
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockImplementation(async () => {
+        mockContainerRuntime.running = false;
+      });
+
+      await expect(instance.destroy()).resolves.toBeUndefined();
+      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
+
+      const auditPut = mockStorage.put.mock.calls.find((c) => c[0] === 'finalSyncAudit');
+      expect(auditPut).toBeDefined();
+      const event = auditPut![1] as { outcome: string; sessionId?: string; httpStatus?: number; reason?: string };
+      expect(event.outcome).toBe('incomplete'); // 504 is res.ok===false -> not completed
+      expect(event.sessionId).toBe('sess123'); // captured before the storage-clear nulls _sessionId
+      expect(event.httpStatus).toBe(504);
+      expect(event.reason).toBe('timeout');
+    });
+
     it('#516: persists outcome "errored" and still completes destroy when the drain rejects under a transient not-running reading', async () => {
       mockStorage.get.mockImplementation(async (key: string) => (key === 'bucketName' ? 'test-bucket' : null));
       mockContainerRuntime.running = false;
