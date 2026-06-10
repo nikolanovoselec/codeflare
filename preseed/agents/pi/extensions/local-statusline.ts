@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { compactDurableReviewStatus, recallReviewRepo } from "./review-job-helpers";
+import { activeRepoSentinelForDisplay, compactDurableReviewStatus, recallActiveRepo, recallReviewRepo } from "./review-job-helpers";
 
 const CACHE_TTL_MS = 1_000;
 
@@ -87,10 +87,33 @@ function laneTokensFromTranscript(transcriptPath: string): number | undefined {
   return total;
 }
 
+// Shared with codeflare-pi.ts (which owns the writes); read here only as the
+// guarded display-only last resort in repositoryLabel.
+const ACTIVE_REPO_SENTINEL = "/home/user/.cache/codeflare-hooks/graphify-active-cwd";
+
+function sentinelRepoForDisplay(ctx: ExtensionContext): string | undefined {
+  let content: string | undefined;
+  try {
+    content = readFileSync(ACTIVE_REPO_SENTINEL, "utf8");
+  } catch {
+    return undefined;
+  }
+  return activeRepoSentinelForDisplay({
+    sentinelContent: content,
+    sessionRoots: [ctx.sessionManager.getCwd(), ctx.cwd],
+    hasGitDir: (path) => existsSync(join(path, ".git")),
+  });
+}
+
 function repositoryLabel(ctx: ExtensionContext): string | undefined {
-  // Fall back to the remembered review repo so the repo:branch segment still shows when the
-  // session cwd is the parent workspace of a nested review clone (findGitRoot then misses).
-  const repo = findGitRoot(ctx.sessionManager.getCwd()) ?? findGitRoot(ctx.cwd) ?? recallReviewRepo();
+  // The cwd git roots miss whenever the session cwd is a non-repo parent
+  // workspace and the work happens in a nested repo via `git -C` / `cd repo &&`.
+  // Then: the repo codeflare-pi last resolved from a command (in-session memory),
+  // the remembered review repo (nested review clones), and finally the on-disk
+  // active-cwd sentinel under its inside-session-root guards. All display-only —
+  // review routing never reads these.
+  const repo = findGitRoot(ctx.sessionManager.getCwd()) ?? findGitRoot(ctx.cwd)
+    ?? recallActiveRepo() ?? recallReviewRepo() ?? sentinelRepoForDisplay(ctx);
   if (!repo) return undefined;
 
   const branch = gitOutput(repo, ["branch", "--show-current"])
@@ -225,7 +248,8 @@ export default function (pi: ExtensionAPI) {
             .filter(([key]) => key !== "codeflare-review")
             .map(([, value]) => value)
             .filter(Boolean);
-          const repo = findGitRoot(ctx.sessionManager.getCwd()) ?? findGitRoot(ctx.cwd) ?? recallReviewRepo();
+          const repo = findGitRoot(ctx.sessionManager.getCwd()) ?? findGitRoot(ctx.cwd)
+            ?? recallReviewRepo() ?? recallActiveRepo() ?? sentinelRepoForDisplay(ctx);
           const reviewRow = repo ? liveReviewRow(repo, theme) : undefined;
           if (reviewRow) statuses.push(reviewRow);
           const lines = [theme.fg("dim", truncateToWidth(cached.value, width))];

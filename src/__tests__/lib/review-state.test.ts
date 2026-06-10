@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -312,6 +312,87 @@ describe('rememberReviewRepo / recallReviewRepo (shared in-session review-repo m
     rememberReviewRepo('/ws/ai-news-digest');
     rememberReviewRepo(undefined);
     expect(recallReviewRepo()).toBe('/ws/ai-news-digest');
+  });
+});
+
+/**
+ * Shared in-session active-repo memory (display-only). codeflare-pi remembers the git root each
+ * time a command resolves one (git -C <repo>, cd <repo> && ..., clone); the footer recalls it so
+ * repo:branch renders when the session cwd is a non-repo parent workspace and the work happens
+ * in a nested repo via git -C (the footer was blank in exactly that session shape).
+ */
+describe('rememberActiveRepo / recallActiveRepo (shared in-session active-repo memory)', () => {
+  it('recall returns the last remembered repo so the footer resolves a nested working repo', () => {
+    rememberActiveRepo('/home/user/workspace/ai-news-digest');
+    expect(recallActiveRepo()).toBe('/home/user/workspace/ai-news-digest');
+  });
+
+  it('remembering undefined does NOT clobber a previously remembered repo', () => {
+    rememberActiveRepo('/home/user/workspace/ai-news-digest');
+    rememberActiveRepo(undefined);
+    expect(recallActiveRepo()).toBe('/home/user/workspace/ai-news-digest');
+  });
+
+  it('is a separate slot from the review-repo memory (working repo must not leak into review routing)', () => {
+    rememberReviewRepo('/ws/review-clone');
+    rememberActiveRepo('/home/user/workspace/ai-news-digest');
+    expect(recallReviewRepo()).toBe('/ws/review-clone');
+    expect(recallActiveRepo()).toBe('/home/user/workspace/ai-news-digest');
+  });
+});
+
+/**
+ * Guards for the on-disk graphify active-cwd sentinel as the footer's LAST display-only fallback.
+ * The sentinel is written by both Claude's hook and Pi's codeflare-pi, so under concurrent agents
+ * it flaps to whichever acted last — the inside-session-root guard is what stops an unrelated repo
+ * from hijacking this session's footer.
+ */
+describe('activeRepoSentinelForDisplay (guarded on-disk sentinel fallback)', () => {
+  const hasGit = (real: string[]) => (path: string) => real.includes(path);
+
+  it('accepts a git repo nested inside a session root', () => {
+    expect(activeRepoSentinelForDisplay({
+      sentinelContent: '/home/user/workspace/ai-news-digest\n',
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit(['/home/user/workspace/ai-news-digest']),
+    })).toBe('/home/user/workspace/ai-news-digest');
+  });
+
+  it('accepts the session root itself', () => {
+    expect(activeRepoSentinelForDisplay({
+      sentinelContent: '/home/user/workspace/repo\n',
+      sessionRoots: [undefined, '/home/user/workspace/repo'],
+      hasGitDir: hasGit(['/home/user/workspace/repo']),
+    })).toBe('/home/user/workspace/repo');
+  });
+
+  it('REJECTS a repo outside every session root (concurrent-agent hijack guard)', () => {
+    expect(activeRepoSentinelForDisplay({
+      sentinelContent: '/somewhere/else/other-repo\n',
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit(['/somewhere/else/other-repo']),
+    })).toBeUndefined();
+  });
+
+  it('REJECTS a sibling whose path merely string-prefixes the root (boundary match, not prefix match)', () => {
+    expect(activeRepoSentinelForDisplay({
+      sentinelContent: '/home/user/workspace-other/repo\n',
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit(['/home/user/workspace-other/repo']),
+    })).toBeUndefined();
+  });
+
+  it('REJECTS a path that is not a git repo (stale sentinel)', () => {
+    expect(activeRepoSentinelForDisplay({
+      sentinelContent: '/home/user/workspace/deleted-clone\n',
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit([]),
+    })).toBeUndefined();
+  });
+
+  it('returns undefined for missing or empty sentinel content', () => {
+    expect(activeRepoSentinelForDisplay({ sentinelContent: undefined, sessionRoots: ['/r'], hasGitDir: hasGit([]) })).toBeUndefined();
+    expect(activeRepoSentinelForDisplay({ sentinelContent: '  \n', sessionRoots: ['/r'], hasGitDir: hasGit([]) })).toBeUndefined();
   });
 });
 

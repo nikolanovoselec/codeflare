@@ -9,6 +9,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { cloneTargetPath, effectiveCwdForCommand, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
+import { rememberActiveRepo } from "./review-job-helpers";
 import { sddCommandDecision, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
 import { attributionBlockReason, localBuildBlockReason } from "./guard-helpers";
 
@@ -113,6 +114,9 @@ function updateActiveRepoFromPath(path: string): string | undefined {
   if (!repo) return undefined;
   ensureCacheDir();
   writeFileSync(ACTIVE_REPO_FILE, repo + "\n", "utf8");
+  // Also remember in-session (shared module state) so the local-statusline
+  // footer can render repo:branch without trusting the shared on-disk sentinel.
+  rememberActiveRepo(repo);
   return repo;
 }
 
