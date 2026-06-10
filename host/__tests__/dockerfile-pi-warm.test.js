@@ -1,15 +1,17 @@
 // Structural audit of the Pi startup warm-up (REQ-SESSION-015 startup-latency
 // hardening): the image must bake a warmed jiti transpile cache for the Pi
-// extension set, pin the pi CLI version, and the entrypoint must expose the
-// baked cache at jiti's tmpdir fallback path.
+// extension set, and the entrypoint must expose the baked cache at jiti's
+// tmpdir fallback path.
 //
 // Why this exists: the 6-package preseed bundle made every fresh container
 // cold-transpile ~9s of extension graph before Pi's first PTY output, pushing
 // the host pre-warm past its 20s hard cap (session startup 15s -> 30-35s).
 // The warm-up layer + boot symlink make the first launch warm (~4s, measured).
 //
-// Gut-check: removing the warm-up layer, unpinning pi back to @latest, or
-// dropping the entrypoint symlink each fails a test below.
+// Gut-check: removing the warm-up layer or dropping the entrypoint symlink
+// each fails a test below. (pi deliberately stays @latest — user policy is
+// that coding agents auto-update at deploy; the warm-up is self-consistent
+// because it runs with the pi installed in the same build.)
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -21,18 +23,7 @@ const repoRoot = resolve(__dirname, '../..');
 const dockerfile = readFileSync(resolve(repoRoot, 'Dockerfile'), 'utf8');
 const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
 
-describe('Pi startup warm-up: baked jiti cache + pinned pi version', () => {
-  it('pi CLI is version-pinned (never @latest): unpinned pi made image rebuilds irreproducible and startup regressions unbisectable', () => {
-    assert.ok(
-      !/@earendil-works\/pi-coding-agent@latest/.test(dockerfile),
-      'Dockerfile must NOT install @earendil-works/pi-coding-agent@latest'
-    );
-    assert.ok(
-      /@earendil-works\/pi-coding-agent@\d+\.\d+\.\d+/.test(dockerfile),
-      'Dockerfile must pin @earendil-works/pi-coding-agent to an exact version'
-    );
-  });
-
+describe('Pi startup warm-up: baked jiti cache', () => {
   it('warm-up layer transpiles the extension set with TMPDIR redirected and bakes /opt/codeflare/jiti-cache', () => {
     assert.ok(
       /TMPDIR=\/opt\/codeflare\/jiti-warm-tmp[^\n]*pi -p/.test(dockerfile),
