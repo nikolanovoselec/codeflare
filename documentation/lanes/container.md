@@ -44,6 +44,7 @@ AI CLI packages install with `@latest` -- each deploy pulls the newest versions 
 | `opencode-ai` | 1.2.15 | `opencode` command |
 | `@github/copilot` | 0.0.418 | `copilot` command. Post-install: non-linux-x64 prebuilds, `mxc-bin/arm64`, bundled `ripgrep/` (system `rg` used instead), and non-linux native modules (`clipboard`, `pvrecorder`, `sharp` node_modules) stripped to save ~200MB. |
 | `bun` | 1.3.14 (pinned) | JS/TS subprocess runtime. context-mode autodetects Bun for `ctx_execute` / `ctx_batch_execute`. Post-install: `node_modules/` (258MB of non-linux platform binaries) stripped; only the linux-x64 binary in `bin/` is retained. |
+| `consult-llm-mcp` | 2.13.4 (pinned) | `consult-llm-mcp` command — the LLM Consultation MCP server for Claude Code + Pi. Installed `-g` and verified on `PATH` at build time so the server starts without a runtime `npx` fetch. Pinned + shadow-pinned (the `consult-llm-mcp` job in `bump-shadow-pins.yml`) since the version is duplicated in `entrypoint.sh`. |
 
 ### Pi Extension npm Cache
 
@@ -52,6 +53,15 @@ Pi extensions (`@gotgenes/pi-subagents`, `context-mode`) are preinstalled at Doc
 ### V8 Compile Cache Warm-Up
 
 Node.js CLIs (codex, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (opencode, Antigravity/agy) are already natively compiled and do not need V8 cache warm-up. Claude Code ships as a native binary (v2.1.102+) and is verified at build time via `claude --version`.
+
+### Pi Extension Jiti Transpile Cache Warm-Up ([AD79](../decisions/README.md#ad79-image-baked-pi-extension-transpile-cache))
+
+`pi --version` does **not** load extensions, so the V8 warm-up above leaves Pi's TypeScript extension set cold. A dedicated build layer pre-transpiles the full Pi extension set (npm packages + local preseed extensions) into a baked jiti cache. Without it, every fresh container paid ~9s of cold jiti transpile before Pi's first PTY output, pushing the host's pre-warm past its 20s hard cap. Mechanics:
+
+- jiti caches transpiles under `$TMPDIR/jiti`, so the warm run redirects `TMPDIR` and moves the result to `/opt/codeflare/jiti-cache`; `entrypoint.sh` symlinks `/tmp/jiti` → there at boot (same pattern as the npm preseed symlink).
+- The cache is content-addressed (source hash), so entries baked here hit at runtime even though the R2 agent seed lands the extensions at a different path with fresh mtimes.
+- The package list is **derived** from the preseed `package.json`, so a version bump there warms the right set automatically.
+- The build fails if the cache comes out empty (`test -n "$(ls -A …)"`), so a Pi CLI change that breaks the warm-up is caught at build time, not as a silent startup regression in production.
 
 ### OpenCode Database Pre-Initialization
 
@@ -193,24 +203,30 @@ Claude Code runs directly via the official `@anthropic-ai/claude-code` npm packa
 
 ## LLM Consultation
 
-When `OPENAI_API_KEY` or `GEMINI_API_KEY` env vars are present, `entrypoint.sh` configures the `consult-llm-mcp` MCP server in `~/.claude.json`. This enables Claude Code to query external LLMs via the `consult_llm` MCP tool. Keys are stored in KV as `llm-keys:{bucketName}`, managed via `PUT /api/llm-keys`, and injected as container env vars during `setBucketName()`. Keys are NOT persisted in DO storage - read fresh from KV on each container start.
+When `CODEFLARE_OPENAI_API_KEY` or `CODEFLARE_GEMINI_API_KEY` env vars are present (or the user is logged into Codex), `entrypoint.sh` (`configure_consult_llm`) configures the `consult-llm-mcp` MCP server for **both** Claude Code (`~/.claude.json`) and Pi (`~/.pi/agent/mcp.json`, where `directTools: ["consult_llm"]` promotes the tool to a first-class Pi tool rather than burying it behind the `pi-mcp-adapter` proxy). Either agent then queries external LLMs via the `consult_llm` tool. The keys are injected under a `CODEFLARE_` namespace so the coding agents (Pi, opencode, antigravity) cannot auto-detect them as their own credentials, then mapped back to the bare `OPENAI_API_KEY`/`GEMINI_API_KEY` **only inside the server's scoped `env` block** — never the container's global env. Keys are stored in KV as `llm-keys:{bucketName}`, managed via `PUT /api/llm-keys`, injected during `setBucketName()`, and read fresh from KV on each container start (never persisted in DO storage). ([REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity))
+
+**Backend selection** (per provider; the server is written only when ≥1 provider is usable):
+
+| Provider | Backend |
+|----------|---------|
+| OpenAI | **Codex subscription** (`CONSULT_LLM_OPENAI_BACKEND=codex-cli`, `CONSULT_LLM_CODEX_REASONING_EFFORT=high`) when `~/.codex/auth.json` is present — routes through the user's Codex login, no API spend; otherwise the `CODEFLARE_OPENAI_API_KEY` (api backend). |
+| Gemini | `CODEFLARE_GEMINI_API_KEY` (api backend; no consult-llm-compatible Gemini *subscription* CLI ships, so Gemini is API-key only). |
 
 **Skill trigger phrases:** "discuss with llms", "consult llms", "ask llms", "get a second opinion", "ask ChatGPT", "consult Gemini", "ask GPT", "ask another AI".
 
-**Provider selection:** when the user does not name a provider, the skill shows an `AskUserQuestion` multi-select dialog to choose OpenAI and/or Gemini (queries run in parallel only if both are selected); naming a provider explicitly skips the dialog.
+**Model selection:** when the user names a specific model (e.g. `gpt-5.5`, `gemini-3.1-pro`), the skill passes that exact ID with no dialog. Otherwise it shows a single-select `AskUserQuestion` dialog (on Pi, the equivalent `ask_user_question`) with four options — the tool auto-adds an "Other" free-text choice for five total:
 
-**Model resolution** (latest flagship per family, resolved live):
+1. **Latest Google (Gemini)** → call with the selector `model: "gemini"`.
+2. **Latest OpenAI (GPT)** → call with the selector `model: "openai"`.
+3. **Both** → one call per provider, then synthesize across them.
+4. **List all available** → present the set `consult_llm` exposes (read from its `model` parameter), then call with the chosen exact ID.
+5. *(Other — added automatically)* → the exact model the user types, passed verbatim.
 
-| Provider | Resolved by |
-|----------|-------------|
-| OpenAI | live `GET /v1/models`, newest flagship GPT |
-| Google | live `GET /v1beta/models`, `gemini-pro-latest` flagship |
+The `"openai"`/`"gemini"` selectors are resolved to the current best flagship by the `consult_llm` server at call time, so "latest" never drifts to a stale pin and no live `GET /v1/models` lookup (which would require the isolated key in the agent's env) is performed.
 
-**Caveat - rolling alias volatility:** `gemini-pro-latest` is a rolling alias, not a pinned version. Google re-points it to whatever it considers the current Gemini Pro flagship, so the underlying model (and its behavior, context window, and pricing) can change without notice and without any change on our side. Treat it as "whatever Google ships as flagship today," not as a stable contract; pin an explicit dated version if a reproducible model is ever required.
+**Enterprise mode:** consult-llm is fully unavailable — no keys are injected, `/api/llm-keys` returns `403`, the "LLM API Keys" settings UI is hidden, and any seeded `consult-llm` skill dir (Claude + Pi) is removed at boot. Enterprise models route through the managed AI Gateway instead.
 
-The skill always passes an explicit `model` resolved live from the provider model list at call time, never the `consult_llm` server's static default (which drifts to old versions). A user-named model (e.g. `gpt-5.4`, `gemini flash`) overrides the auto-picked flagship.
-
-Skill definition: `preseed/agents/claude/skills/consult-llm/SKILL.md`.
+Skill definitions: `preseed/agents/claude/skills/consult-llm/SKILL.md` (Claude), `preseed/agents/pi/skills/consult-llm/SKILL.md` (Pi).
 
 ---
 

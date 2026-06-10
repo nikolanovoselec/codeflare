@@ -177,7 +177,7 @@ Multi-agent support, preseed system, and session modes.
 <!-- @impl: src/lib/agent-seed.generated.ts -->
 <!-- @impl: entrypoint.sh -->
 <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint-context-mode describe → mode-gated context-mode preseed + hooks → AC4/AC5/AC6) -->
-<!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly describe → context-mode enabled by default + 4 tool extensions in required + coexistence/idempotence/dedup → AC5/AC8) -->
+<!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly describe → context-mode enabled by default + 5 tool extensions in required + coexistence/idempotence/dedup → AC5/AC8) -->
 
 **Intent:** Pro mode must provide a significantly enhanced agent experience over Standard - more rules, skills, agent definitions, commands, hooks, and persistent memory. Pi sessions remain fully functional whether or not context-mode is active; context-mode is enabled by default for Pi, and its Custom-tier context-window-reduction behavior in Claude Code remains tier-gated.
 
