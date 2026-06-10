@@ -48,10 +48,10 @@ deployed on Recreate or new bucket creation.
 | SDD template scaffolding for `/sdd init` | No | Yes | Yes |
 | Known marketplaces plugin config | Yes | Yes | Yes |
 | context-mode helper package (`ctx_*` tools) | Enabled by default in Pi; `/ctx off` to disable for current session | Enabled by default in Pi; `/ctx off` to disable for current session | Enabled by default in Pi; `/ctx off` to disable for current session |
-| Pi tool extensions (`rpiv-ask-user-question`, `rpiv-todo`, `pi-web-access`, `pi-mcp-adapter`) | Yes (always-on `required`) | Yes (always-on `required`) | Yes (always-on `required`) |
+| Pi tool extensions (`@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `pi-web-access`, `pi-mcp-adapter`) | Yes (always-on `required`) | Yes (always-on `required`) | Yes (always-on `required`) |
 | context-mode plugin folder (Claude Code auto-routing hooks for context-window reduction) | No | No | Yes |
 
-The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Pi starts with context-mode **enabled** by default (its `ctx_*` tools and the bash-curl-redirect hook are active without `/ctx on`); the Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off` for per-session control. The next Codeflare container start resets Pi back to enabled. The four Pi tool extensions are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle.
+The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Pi starts with context-mode **enabled** by default (its `ctx_*` tools and the bash-curl-redirect hook are active without `/ctx on`); the Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off` for per-session control. The next Codeflare container start resets Pi back to enabled. The four Pi tool extensions are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. See [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) AC5 (context-mode enabled by default) and AC8 (the four extensions in the `required` set).
 
 **Storage**: `sessionMode?: 'default' | 'advanced'` in
 `UserPreferences` (KV). Undefined = `'default'`.

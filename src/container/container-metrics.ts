@@ -83,8 +83,12 @@ const NOT_RUNNING_CONFIRM_MS = 90_000;
 
 // Budget the DO gives the in-container final sync (drainFinalSync) to complete
 // before a stop (REQ-SESSION-011 AC4). 120s pairs with the 135s teardown
-// hard-cap in destroy() (120s sync + 15s for the actual stop), and with the
-// 115s internal poll cap in the host server's /internal/final-sync endpoint.
+// hard-cap in destroy() (120s sync + 15s for the actual stop). The host
+// server's /internal/final-sync poll cap (INTERNAL_TIMEOUT_MS, 125s) MUST stay
+// strictly ABOVE this budget so the DO's AbortSignal — not the host loop — is
+// the authoritative ceiling (see host/src/server.ts). Raising this budget
+// requires raising that host cap in lockstep; final-sync-endpoint.test.js guards
+// the host > DO ordering against a silent re-inversion.
 export const FINAL_SYNC_BUDGET_MS = 120_000;
 
 /**

@@ -118,7 +118,7 @@ A real-browser WebFetch fallback for advanced-mode agents, backed by Cloudflare 
 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-AGENT-007](agents.md#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** Manual / review — the extension is a Pi-runtime preseed artifact outside the Worker test suite; verified by review and by exercising the tools in an advanced Pi session.
+**Verification:** Partly automated — `src/__tests__/lib/agent-seed-manifest.test.ts` asserts the `browser-run` skill is present in the generated Pi seed (AC4, skill-presence). The extension's runtime tool behavior is a Pi-runtime preseed artifact outside the Worker test suite, verified by review and by exercising the tools in an advanced Pi session.
 
 **Status:** Partial
 

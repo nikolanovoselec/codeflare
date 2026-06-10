@@ -103,6 +103,10 @@ describe('REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behav
 // ---------------------------------------------------------------------------
 const server = readFileSync(resolve(repoRoot, 'host/src/server.ts'), 'utf8');
 const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
+// Read the DO drain budget from its source of truth so the host>DO ordering
+// guard below compares the two REAL constants — never a hardcoded comparator
+// that goes stale (and silently re-inverts) if the budget is later raised.
+const containerMetrics = readFileSync(resolve(repoRoot, 'src/container/container-metrics.ts'), 'utf8');
 
 describe('REQ-SESSION-011 AC2: final-sync endpoint wiring (structural)', () => {
   const idx = server.indexOf("'/internal/final-sync'");
@@ -123,12 +127,19 @@ describe('REQ-SESSION-011 AC2: final-sync endpoint wiring (structural)', () => {
     assert.ok(block.includes('504') && block.includes('timeout'));
     const m = block.match(/INTERNAL_TIMEOUT_MS\s*=\s*([\d_]+)/);
     assert.ok(m, 'handler must define INTERNAL_TIMEOUT_MS');
+    const bm = containerMetrics.match(/FINAL_SYNC_BUDGET_MS\s*=\s*([\d_]+)/);
+    assert.ok(bm, 'container-metrics must define FINAL_SYNC_BUDGET_MS');
+    const hostCap = Number(m[1].replace(/_/g, ''));
+    const doBudget = Number(bm[1].replace(/_/g, ''));
     // Regression guard for the bisync-on-delete data loss. The host loop MUST
-    // give up AFTER the DO's 120s drain budget, never before: a host ceiling
-    // below the budget (the old 115_000) 504s while rclone is still flushing, the
-    // DO records 'incomplete', and the session deletes with the last edits lost.
-    // The DO's AbortSignal(120s) is the authoritative ceiling; keep host > DO.
-    assert.ok(Number(m[1].replace(/_/g, '')) > 120_000, 'internal timeout must EXCEED the DO 120s drain budget (host > DO), else final bisync 504s prematurely on delete');
+    // give up AFTER the DO's drain budget, never before: a host ceiling below the
+    // budget (the old 115_000) 504s while rclone is still flushing, the DO records
+    // 'incomplete', and the session deletes with the last edits lost. The DO's
+    // AbortSignal(budget) is the authoritative ceiling; keep host > DO. Comparing
+    // the two REAL constants (not a literal 120_000) means raising the DO budget
+    // without raising the host cap in lockstep fails this test instead of silently
+    // re-inverting — the exact failure mode behind ~10 prior "raise the budget" fixes.
+    assert.ok(hostCap > doBudget, `host INTERNAL_TIMEOUT_MS (${hostCap}) must EXCEED the DO FINAL_SYNC_BUDGET_MS (${doBudget}) so the DO AbortSignal, not the host loop, is the ceiling; otherwise final bisync 504s prematurely on delete`);
   });
 });
 

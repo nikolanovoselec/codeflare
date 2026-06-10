@@ -932,13 +932,17 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect((auditPut![1] as { outcome: string }).outcome).toBe('completed');
     });
 
-    // bisync-on-delete data loss: the host endpoint gave up at its ceiling and
-    // returned 504 while rclone was still flushing (the budget-inversion
-    // signature). The drain must record this as a non-completed, queryable
-    // outcome carrying the session id + http status/reason - never swallow it -
-    // and the session must still delete (data loss past the window is acceptable
-    // per the fix decision; a SILENT loss is not).
-    it('REQ-SESSION-011: a final-sync 504 is audited as "incomplete" with the session id + http status/reason, and the delete still proceeds', async () => {
+    // Any non-OK final-sync HTTP response (res.ok === false) must be recorded as a
+    // non-completed, queryable audit outcome carrying the session id + http
+    // status/reason - never swallowed - and the session must still delete (data
+    // loss past the window is acceptable per the fix decision; a SILENT loss is
+    // not). Post budget-inversion fix a host *timeout* 504 no longer reaches the DO
+    // (the DO's AbortSignal at FINAL_SYNC_BUDGET_MS=120s fires before the host's
+    // 125s 504), so the authoritative ceiling path is the fetch *rejection* covered
+    // by the "errored" sibling test below; this case guards the reachable non-OK
+    // branch (e.g. a fast 503/non-2xx) and the body-capture plumbing. The 504 here
+    // is illustrative of the res.ok===false mapping, not the timeout race.
+    it('REQ-SESSION-011: a non-OK final-sync response is audited as "incomplete" with the session id + http status/reason, and the delete still proceeds', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         if (key === '_sessionId') return 'sess123';
@@ -975,10 +979,17 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(event.reason).toBe('timeout');
     });
 
-    it('#516: persists outcome "errored" and still completes destroy when the drain rejects under a transient not-running reading', async () => {
+    // This is the AUTHORITATIVE ceiling path post budget-inversion fix: when the
+    // sync runs past the DO's FINAL_SYNC_BUDGET_MS, the DO's AbortSignal.timeout
+    // aborts the fetch (an 'AbortError' rejection) before the host's 125s 504 can
+    // return - so the drain rejects, and that must audit as 'errored' (not a
+    // swallowed completion) while destroy still proceeds. Also covers a transient
+    // not-running reading where the port fetch simply fails.
+    it('#516: persists outcome "errored" and still completes destroy when the drain fetch is aborted/rejected (DO AbortSignal ceiling)', async () => {
       mockStorage.get.mockImplementation(async (key: string) => (key === 'bucketName' ? 'test-bucket' : null));
       mockContainerRuntime.running = false;
-      mockTcpPortFetch.mockRejectedValue(new Error('Connection refused'));
+      const abortErr = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
+      mockTcpPortFetch.mockRejectedValue(abortErr);
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await expect(instance.destroy()).resolves.toBeUndefined();
       const auditPut = mockStorage.put.mock.calls.find((c) => c[0] === 'finalSyncAudit');
