@@ -326,7 +326,15 @@ Browse endpoint validates prefix parameter against directory traversal (`..` rej
 
 ### Container Image Scanning ([REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy))
 
-Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (in `deploy.yml`).
+Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (in `deploy.yml`). The scan fails the deploy on any unsuppressed HIGH/CRITICAL finding.
+
+**Suppression policy (`.trivyignore`):** A CVE may be added to the allowlist only when all of:
+
+1. **No untrusted-input path** — the vulnerable code is never reached with attacker-controlled input in the container (typically outbound-only CLI tools, or base-image / git-tooling dependencies never invoked on hostile archives, JSON, XML, or MIME).
+2. **Impact is limited** — DoS only (CPU/memory exhaustion or panic), with no confidentiality or integrity impact in this container's context.
+3. **No remediation is currently applicable** — either no fixed version exists in the installed channel (e.g. Debian bookworm), or a fix exists upstream but the vendored tool or base image has not yet rebuilt against it.
+
+Every entry carries an inline comment recording the affected package, the impact, and which conditions apply. The allowlist is reviewed monthly and entries are removed once a fix reaches the image.
 
 ### Protected R2 Paths
 
