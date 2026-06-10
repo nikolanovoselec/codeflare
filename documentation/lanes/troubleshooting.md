@@ -18,7 +18,16 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 ### New User Has Preseed Configs but No "Docs & Examples"
 
-A newly provisioned user's R2 bucket contains the agent-config preseed files but the getting-started Docs & Examples are missing; clicking **Recreate Docs & Examples** in Settings creates them. Cause: getting-started docs were seeded only by the one-shot bucket-creation gate, and a freshly created bucket is not always immediately writable on the R2 data plane, so that single attempt could fail and be swallowed — leaving docs missing because the gate never re-fired (agent configs survived because they have other reseed paths: the Recreate button, mode-change reconcile, and the preseed-hash upgrade). Fixed via REQ-STOR-009 AC6: the seed now self-heals on every session start until a `gettingStartedSeeded` user-preference marker is set, so simply starting (or restarting) a session re-seeds the docs without the manual button. Verify in Workers logs by querying the worker for `Seeded getting-started docs` (success) or `Failed to seed getting-started docs; will retry next session` (transient failure that will retry).
+**Symptom:** A newly provisioned user's R2 bucket contains the agent-config preseed files, but the getting-started Docs & Examples are missing. Clicking **Recreate Docs & Examples** in Settings creates them.
+
+**Cause:** Getting-started docs were seeded only by the one-shot bucket-creation gate, and a freshly created bucket is not always immediately writable on the R2 data plane. That single attempt could fail and be swallowed, and because the create-only gate never re-fired, the docs stayed missing. Agent configs survived because they have other reseed paths (the Recreate button, mode-change reconcile, and the preseed-hash upgrade) that getting-started docs lacked.
+
+**Fix (REQ-STOR-009 AC6):** The seed now self-heals on every session start until a `gettingStartedSeeded` user-preference marker is set, so simply starting (or restarting) a session re-seeds the docs without the manual button.
+
+**Verify** in Workers logs by querying the worker for:
+
+- `Seeded getting-started docs` — the self-heal succeeded.
+- `Failed to seed getting-started docs; will retry next session` — a transient failure that will retry on the next session start.
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
