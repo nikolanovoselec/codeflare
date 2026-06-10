@@ -18,7 +18,7 @@ describe('drainFinalSync (idle/quota-stop path) container auth', () => {
   }
 
   it('sends the stored container token as a Bearer header on the drain request', async () => {
-    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ synced: true }), { status: 200 }));
+    const fetchSpy = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ synced: true }), { status: 200 }));
     await drainFinalSync(makeCtx('tok-idle-789', fetchSpy), 1_000);
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -27,7 +27,7 @@ describe('drainFinalSync (idle/quota-stop path) container auth', () => {
   });
 
   it('still drains (headerless) when no token is stored - best-effort, never blocks the stop', async () => {
-    const fetchSpy = vi.fn(async () => new Response(null, { status: 401 }));
+    const fetchSpy = vi.fn(async (_url: string, _init?: RequestInit) => new Response(null, { status: 401 }));
     await expect(drainFinalSync(makeCtx(undefined, fetchSpy), 1_000)).resolves.toBeUndefined();
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
