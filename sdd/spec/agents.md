@@ -1287,6 +1287,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts -->
 <!-- @impl: preseed/agents/pi/manifest.json -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-056 local statusline fake-footer render -> AC1/AC2/AC3/AC4/AC5) -->
+<!-- @test: src/__tests__/lib/review-state.test.ts (active-repo remember/recall + separate slot from review-repo memory + sentinel guard accept/reject including path-boundary workspace-other case -> AC2) -->
 
 **Intent:** Pi users need a compact footer in every session mode that shows session context without hiding extension-owned status rows such as PR-boundary review progress.
 
