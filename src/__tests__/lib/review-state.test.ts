@@ -209,16 +209,16 @@ describe('reviewBaselineContinuation (bug-A fix: offer on launch, autostart only
 });
 
 /**
- * reviewInSessionContinuation is the FULL autostart-vs-offer signal (Fable-5 F1/R3). boundaryActed
+ * reviewInSessionContinuation is the FULL autostart-vs-offer signal. boundaryActed
  * (a real push happened this session for this repo+branch) is the PRIMARY signal; the baseline
  * descendant check is the backstop for a reload that ate the boundary tool-event. A bare checkout sets
  * neither, so it OFFERS.
  */
-describe('reviewInSessionContinuation (F1/R3: boundaryActed primary, baseline backstop)', () => {
+describe('reviewInSessionContinuation (boundaryActed primary, baseline backstop)', () => {
   const descends = () => true;
   const unrelated = () => false;
 
-  it('autostarts when a boundary command ran this session, even with no/equal baseline (F1)', () => {
+  it('autostarts when a boundary command ran this session, even with no/equal baseline', () => {
     // No baseline (e.g. no open PR at launch, PR created mid-session) — boundaryActed alone autostarts.
     expect(reviewInSessionContinuation({ boundaryActed: true, baseline: undefined, head: 'h2', isAncestor: unrelated })).toBe(true);
     expect(reviewInSessionContinuation({ boundaryActed: true, baseline: 'h2', head: 'h2', isAncestor: unrelated })).toBe(true);
@@ -229,7 +229,7 @@ describe('reviewInSessionContinuation (F1/R3: boundaryActed primary, baseline ba
     expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h2', isAncestor: descends })).toBe(true);
   });
 
-  it('OFFERS an inherited head: no boundary command and head equals/does-not-descend baseline (R3 + bug-A)', () => {
+  it('OFFERS an inherited head: no boundary command and head equals/does-not-descend baseline', () => {
     // Bare checkout / fresh launch: no push this session, baseline === head (just-seeded) → offer.
     expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h1', isAncestor: descends })).toBe(false);
     expect(reviewInSessionContinuation({ boundaryActed: false, baseline: undefined, head: 'h1', isAncestor: descends })).toBe(false);

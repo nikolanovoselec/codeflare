@@ -49,17 +49,17 @@
  *   Rule of thumb: if a fact must survive a reload but reset per session → globalThis. If it must
  *   survive a process restart → disk. If losing it is harmless → module-local. Putting a fact in the
  *   wrong tier is how this subsystem has historically broken (offer-not-shown, autostart-vs-offer
- *   flips, footer dropping the repo). See the Fable-5 forensic review (2026-06-11) for the catalogue.
+ *   flips, footer dropping the repo).
  */
 
 import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
-import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
+import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
@@ -90,7 +90,7 @@ let lastReconcileCheckAt = 0;
 // process (a genuinely fresh `pi` launch), which is exactly the lifetime we want for "this session".
 //
 // reviewBaselineMemory: the per-session reconcile baseline = the head this session first observed on a
-// branch. Keyed by repo+BRANCH (see baselineKey) — repo-only keying was the R3 bug: advancing it on ack
+// branch. Keyed by repo+BRANCH (see baselineKey) — repo-only keying was the bug: advancing it on ack
 // then checking out a descendant branch made a mere checkout look like an in-session advance and autostart.
 const REVIEW_BASELINE_KEY = Symbol.for("codeflare.reviewSessionBaselineHead");
 function reviewBaselineMemory(): Map<string, string> {
@@ -100,14 +100,14 @@ function reviewBaselineMemory(): Map<string, string> {
 }
 // baselineKey scopes the per-session signals to repo+current-branch. A `git checkout` to another branch
 // produces a different key, so its inherited head starts fresh (baseline === head → OFFER), which is the
-// whole fix for R3. NUL-joined so a branch name can never collide with a repo path boundary.
+// whole point of the branch keying. NUL-joined so a branch name can never collide with a repo path boundary.
 function baselineKey(repo: string): string {
   return `${repo} ${currentBranch(repo) ?? ""}`;
 }
 // boundaryActedMemory: the PRIMARY autostart signal — the set of repo+branch keys for which a real
 // PR-boundary command (push / pr create / …) executed THIS session. Set in onToolEnd BEFORE any
 // window-creation guard (so a dropped window still records the fact), read by the reconcile to decide
-// AUTOSTART (we pushed) vs OFFER (inherited head, no boundary command ran this session). See F1/R3.
+// AUTOSTART (we pushed) vs OFFER (inherited head, no boundary command ran this session).
 const BOUNDARY_ACTED_KEY = Symbol.for("codeflare.reviewBoundaryActedThisSession");
 function boundaryActedMemory(): Set<string> {
   const g = globalThis as unknown as Record<symbol, Set<string> | undefined>;
@@ -120,7 +120,7 @@ function markBoundaryActed(repo: string): void {
 function boundaryActedThisSession(repo: string): boolean {
   return boundaryActedMemory().has(baselineKey(repo));
 }
-// offerSurfacedMemory: per-SESSION dedup for the missed-boundary offer (F4). The offer must re-surface
+// offerSurfacedMemory: per-SESSION dedup for the missed-boundary offer. The offer must re-surface
 // ONCE PER SESSION — a new `pi` started on a still-unchosen offer (the user quit without choosing) must
 // see it again — but must not spam every reconcile tick within a session. Process-scoped (resets per
 // process, survives reload) is exactly that lifetime. This replaced the old on-disk per-head-EVER marker,
@@ -197,11 +197,26 @@ function cwdFromCommand(command: string): string | undefined {
 // workspace — the on-turn summary-emit bug), then pi's process dir as a last resort. Never the
 // graphify sentinel.
 function reviewRepoForCtx(ctx: any, commandCwd?: string): string | undefined {
+  const sessionCwd = ctx?.sessionManager?.getCwd?.();
+  // A boundary command's cwd (`cd <dir>` / `git -C <dir>`) can be RELATIVE. Resolve it against the
+  // SESSION cwd (the shell's cwd when the command ran), NOT pi's process.cwd() — otherwise findGitRoot
+  // walks up from the wrong directory and binds the WRONG repo (the parent workspace for a nested
+  // clone), then poisons reviewRepo memory + prCache with a relative path whose meaning shifts with
+  // process.cwd(). codeflare-pi.ts resolves the active-repo sentinel the same way.
+  const resolvedCommandCwd = commandCwd && !isAbsolute(commandCwd)
+    ? resolve(sessionCwd || process.cwd(), commandCwd)
+    : commandCwd;
   const repo = resolveReviewRepo(
-    { commandCwd, sessionCwd: ctx?.sessionManager?.getCwd?.(), sessionReviewRepo: recallReviewRepo(), activeRepo: recallActiveRepo(), processCwd: process.cwd() },
+    { commandCwd: resolvedCommandCwd, sessionCwd, sessionReviewRepo: recallReviewRepo(), activeRepo: recallActiveRepo(), processCwd: process.cwd() },
     findGitRoot,
   );
-  rememberReviewRepo(repo);
+  // Only PIN this repo as "the repo under review" when it actually has an active review window.
+  // reviewRepoForCtx runs on every turn tick just to RESOLVE a repo; remembering unconditionally let a
+  // bare `cd` to an unrelated repo steal the slot, so the no-ctx reaper followed the user's cwd instead
+  // of the repo whose lanes are still running (its on-disk pending never reaped). The footer is
+  // unaffected: its repo:branch label resolves via recallActiveRepo first, and its review row only
+  // needs recallReviewRepo while a review is active — exactly when this still sets it.
+  if (repo && loadPending(repo)) rememberReviewRepo(repo);
   return repo;
 }
 
@@ -253,7 +268,7 @@ function prState(repo: string): PrState | undefined {
   }
 }
 
-// Cache-bypassing PR-state read for the merge gate (R1): the gate is the last line of defense, so it
+// Cache-bypassing PR-state read for the merge gate: the gate is the last line of defense, so it
 // must never decide on a head that the 60s prCache TTL has let go stale (a push after the cache was
 // warmed leaves `headRefOid` pointing at an already-acked older head while GitHub merges the newer
 // one). Dropping the entry forces a fresh `gh pr view` and re-warms the cache with the true head.
@@ -311,14 +326,14 @@ function acked(repo: string, head: string): boolean {
 // no longer advances the reconcile baseline. The autostart-vs-offer decision is driven by the
 // boundaryActedThisSession signal + the per-branch baseline SEED (set on first observation in the
 // reconcile), so the old "advance baseline to the acked head" step is both redundant and was a source
-// of R3 (a descendant-branch checkout reading a baseline advanced by a prior branch's ack).
+// of subtle autostart bugs (a descendant-branch checkout reading a baseline advanced by a prior branch's ack).
 function writeAck(repo: string, head: string): void {
   writeFileSync(ackPath(repo), `${head}\n`, "utf8");
 }
 
 // The "offered" dedup that used to live here as an on-disk per-head-EVER marker now lives in the
 // process-scoped offerSurfacedMemory (see the per-session memory block near the top). The disk marker
-// was removed deliberately (F4): it suppressed the merge-blocking offer forever, so a new session on a
+// was removed deliberately: it suppressed the merge-blocking offer forever, so a new session on a
 // still-unchosen PR saw nothing — the "nothing offered, no question, nothing" symptom. Being offered
 // still does NOT open the merge gate; only an explicit ack/skip (writeAck) does.
 
@@ -600,9 +615,24 @@ function textFromContent(content: unknown): string {
   return "";
 }
 
+// The path to this session's transcript file, captured whenever a ctx-bearing handler runs. The
+// idle reaper has NO ctx but still needs to read the user's messages — specifically to honour an
+// explicit "don't auto-fix, wait for my go" instruction before it fires an autofix turn off-turn.
+// Stored on globalThis for the usual reason: survive a reload, reset per process (this session).
+const SESSION_FILE_KEY = Symbol.for("codeflare.reviewSessionFilePath");
+function rememberSessionFile(ctx: any): void {
+  const file = ctx?.sessionManager?.getSessionFile?.();
+  if (typeof file === "string" && file) (globalThis as Record<symbol, unknown>)[SESSION_FILE_KEY] = file;
+}
+function recallSessionFile(): string | undefined {
+  const file = (globalThis as Record<symbol, unknown>)[SESSION_FILE_KEY];
+  return typeof file === "string" ? file : undefined;
+}
+
 function sessionUserMessages(ctx: any): string[] {
   try {
-    const file = ctx?.sessionManager?.getSessionFile?.();
+    // Fall back to the remembered path so this works ctx-free for the idle reaper.
+    const file = ctx?.sessionManager?.getSessionFile?.() ?? recallSessionFile();
     if (!file || !existsSync(file)) return [];
     return readFileSync(file, "utf8")
       .split(/\r?\n/)
@@ -862,6 +892,7 @@ export default function (pi: ExtensionAPI) {
   // the assertActive() stale-ctx flood entirely (review.md §10, Failure #7).
   const remember = (ctx: any): void => {
     installReviewNotifyFilter(ctx);
+    rememberSessionFile(ctx);
   };
 
   // Pending state may only be discarded when the PR has DEFINITIVELY moved on
@@ -938,13 +969,17 @@ export default function (pi: ExtensionAPI) {
     return typeof id === "string" ? id : undefined;
   }
 
+  // withStartArgs re-attaches the args captured at tool_execution_start (toolStartArgs, set per tool id)
+  // to the END event, because some end-event shapes drop the command text we need for boundary detection.
   function withStartArgs(event: any): any {
     const id = toolEventId(event);
     const cached = id ? toolStartArgs.get(id) : undefined;
-    if (commandText(event) || !cached) {
-      if (id && commandText(event)) toolStartArgs.delete(id);
-      return event;
-    }
+    // The start-args cache is CONSUME-ONCE — delete the entry as soon as we see ANY end event for
+    // this tool id, shell or not. The old code deleted only when the command text was non-empty, which
+    // leaked one entry per non-shell tool call (Read/Edit/Write/ctx) for the whole session — and a Write
+    // start event carries the entire file content, so a long session grew unbounded.
+    if (id) toolStartArgs.delete(id);
+    if (commandText(event) || !cached) return event;
     const current = event?.args || event?.input || event?.params || event?.arguments || {};
     const merged = { ...cached, ...current };
     const enriched = {
@@ -954,7 +989,6 @@ export default function (pi: ExtensionAPI) {
       params: { ...(event?.params || {}), ...merged },
       arguments: { ...(event?.arguments || {}), ...merged },
     };
-    if (id && commandText(enriched)) toolStartArgs.delete(id);
     return enriched;
   }
 
@@ -1082,7 +1116,11 @@ export default function (pi: ExtensionAPI) {
         head: state.head,
         rows: reviewSummaryRows(state),
         reviewComplete,
-        suppress: ctx ? reviewAutofixModeFromUserMessages(sessionUserMessages(ctx)) === "manual" : false,
+        // Honour an explicit "don't auto-fix" instruction even when finalize runs off-turn (no ctx):
+        // sessionUserMessages falls back to the remembered session-file path, so the idle reaper reads
+        // the same user messages an on-turn finalize would. Previously a no-ctx finalize defaulted to
+        // suppress:false and fired an autofix turn despite the user asking it to wait.
+        suppress: reviewAutofixModeFromUserMessages(sessionUserMessages(ctx)) === "manual",
         claim: () => {
           mkdirSync(dirname(marker), { recursive: true });
           try {
@@ -1206,7 +1244,17 @@ export default function (pi: ExtensionAPI) {
     const rawPrevious = loadPending(repo);
     if (rawPrevious?.head === head) return false;
     const reusablePrevious = reusablePendingReview(rawPrevious, head, (ancestor, current) => isAncestor(repo, ancestor, current));
-    if (rawPrevious && !reusablePrevious) clearPending(repo);
+    if (rawPrevious && !reusablePrevious) {
+      // A different (non-descendant) head's window is being superseded — a second push that rewrote
+      // history, or a switch to another PR branch in this repo. Don't silently drop it: stop its still-
+      // running lane children (they're reviewing an abandoned head and would otherwise pile up on the
+      // 1-vCPU container) and audit the supersede so the transition is reconstructable from disk. The
+      // abandoned head is recovered, if the user later returns to merge that PR, by the merge gate,
+      // which blocks the unacked head and points at /review-run.
+      abandonDurableReviewLanes(repo, rawPrevious.head);
+      appendReviewEvent(repo, { event: "review_superseded", head: rawPrevious.head, supersededBy: head });
+      clearPending(repo);
+    }
 
     const review = mergeLaneState(repo, head, reusablePrevious);
     if (review.lanes.length === 0) {
@@ -1273,7 +1321,7 @@ export default function (pi: ExtensionAPI) {
       reviewActive: durableJob?.status === "running",
       breakerOpen: head ? isBreakerOpen(resolvedRepo, head) : false,
     });
-    // F1: SEED the per-session, per-branch baseline as soon as we have a resolvable head — even on a
+    // SEED the per-session, per-branch baseline as soon as we have a resolvable head — even on a
     // non-reconcile outcome (e.g. the head is already acked at launch). The seed must happen BEFORE the
     // early return so that a LATER in-session descendant push on this branch is recognised as an advance
     // beyond the baseline rather than treated as a freshly-inherited head. `priorBaseline` (the value
@@ -1303,7 +1351,7 @@ export default function (pi: ExtensionAPI) {
     });
     const action = reconcileBoundaryAction({
       reconcile: decision.reconcile,
-      // F4: dedup the offer PER SESSION (process-scoped), not per-head-ever, so a new session on a
+      // Dedup the offer PER SESSION (process-scoped), not per-head-ever, so a new session on a
       // still-unchosen offer re-surfaces it.
       alreadyOffered: offerSurfacedThisSession(resolvedRepo, head),
       inSessionContinuation,
@@ -1340,11 +1388,11 @@ export default function (pi: ExtensionAPI) {
     if (isGhPrMerge(command)) {
       const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
       if (!repo || !isSddProject(repo)) return;
-      // R1: read PR state fresh (bypass the prCache) so a stale-acked head can't open the gate while
+      // Read PR state fresh (bypass the prCache) so a stale-acked head can't open the gate while
       // GitHub merges a newer, unreviewed head; resolveEnforcedHead then folds in local HEAD too.
       const pr = prStateFresh(repo);
       if (!pr) {
-        // F10: gh pr view is unreadable (transient). The gate is the last line of defense, so fail
+        // gh pr view is unreadable (transient). The gate is the last line of defense, so fail
         // CLOSED when a review is demonstrably in-flight/unacked for this repo rather than waving the
         // merge through. When nothing is pending we can't assert it's even an enforced PR — allow.
         const pendingHead = loadPending(repo)?.head;
@@ -1511,7 +1559,7 @@ export default function (pi: ExtensionAPI) {
 
     const pr = prForBoundaryCommand(repo, command, prState(repo));
     if (!isEnforcedPrForPush(pr)) return;
-    // F1/R3: a real PR-boundary command just ran for a confirmed enforced PR on this repo+branch.
+    // A real PR-boundary command just ran for a confirmed enforced PR on this repo+branch.
     // Record it NOW — before any of the window-creation guards below can bail — so that even if the
     // window is never created (head unresolved, dedup, a reload right after), the reconcile still knows
     // THIS session advanced this branch and will AUTOSTART rather than merely OFFER the missed head.

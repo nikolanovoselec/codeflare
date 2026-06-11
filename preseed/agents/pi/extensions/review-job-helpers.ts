@@ -913,7 +913,7 @@ export function reconcileBoundaryAction(input: ReconcileBoundaryInput): Reconcil
 // undefined or === head) was NOT pushed this session, so it returns false and the caller OFFERS.
 // Historical note: deriving this from the on-disk ack marker instead (a prior implementation) wrongly
 // treated ANY descendant-of-a-prior-ack head as continuation, so every bare Pi start auto-spawned
-// reviewers — the bug-A regression. The repo+branch baseline + boundaryActed design replaced it.
+// reviewers on every launch. The repo+branch baseline + boundaryActed design replaced it.
 export function reviewBaselineContinuation(
   baseline: string | undefined,
   head: string,
@@ -924,19 +924,19 @@ export function reviewBaselineContinuation(
 }
 
 // reviewInSessionContinuation is the FULL autostart-vs-offer signal for missed-boundary reconciliation
-// (REQ-AGENT-058, Fable-5 findings F1/R3). The reconcile AUTOSTARTS reviewers for a missed boundary only
+// (REQ-AGENT-058). The reconcile AUTOSTARTS reviewers for a missed boundary only
 // when THIS session is what advanced the head — never for a head merely inherited at launch (a fresh
 // clone, a relaunch, or a bare checkout), which instead OFFERS so reviewers are never silently spawned on
 // work the user did not do this session. Two independent signals, OR'd:
 //   • boundaryActed (PRIMARY): a real PR-boundary command (push / pr create / …) actually executed this
 //     session for this repo+branch. Recorded in onToolEnd BEFORE any window-creation guard, so even a
 //     dropped window (dedup, unresolved head, reload after the event fired) still leaves the fact for
-//     reconcile to autostart on. True exactly when we pushed — independent of head ancestry, so it fixes
-//     F1 (the no-PR-at-launch + in-session push case the baseline alone missed).
+//     reconcile to autostart on. True exactly when we pushed — independent of head ancestry, so it covers
+//     the no-PR-at-launch + in-session push case that the baseline signal alone missed.
 //   • baseline backstop (reviewBaselineContinuation): covers the reload-ate-the-tool-event case where
 //     boundaryActed was never recorded but the head still advanced beyond the session's branch baseline.
 // A bare checkout sets neither (no boundary command ran; the new branch's baseline equals its inherited
-// head), so it correctly OFFERS — fixing R3, where advancing a repo-keyed baseline on ack made a mere
+// head), so it correctly OFFERS — whereas advancing a repo-keyed baseline on ack made a mere
 // checkout of a descendant branch autostart.
 export function reviewInSessionContinuation(input: {
   boundaryActed: boolean;

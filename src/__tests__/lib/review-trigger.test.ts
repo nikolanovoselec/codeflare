@@ -59,12 +59,12 @@ describe('isPrBoundaryTrigger', () => {
 });
 
 /**
- * R2 (Fable-5 forensic review): the merge gate (isGhPrMerge) and head-resolution (isLocalGitPush)
+ * The merge gate (isGhPrMerge) and head-resolution (isLocalGitPush)
  * predicates must use the SAME env-prefix-tolerant anchored regexes as detection. The old weak
  * inline patterns (`gh\s+pr\s+merge`, `git(?:\s+-C\s+\S+)?\s+push`) let an env-prefixed command be
  * DETECTED as a boundary yet SKIP the gate (unreviewed merge) or take the wrong head branch.
  */
-describe('isGhPrMergeCommand / isGitPushOnlyCommand are env-prefix tolerant (R2)', () => {
+describe('isGhPrMergeCommand / isGitPushOnlyCommand are env-prefix tolerant', () => {
   it('matches gh pr merge with and without an env prefix', () => {
     expect(isGhPrMergeCommand('gh pr merge 501 --squash')).toBe(true);
     expect(isGhPrMergeCommand('GH_TOKEN=abc gh pr merge 501 --squash')).toBe(true);

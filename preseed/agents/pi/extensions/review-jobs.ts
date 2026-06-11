@@ -430,6 +430,24 @@ export function reapDurableReviewLanes(repo: string, head: string): void {
   }
 }
 
+// Force-stop every still-running detached lane child for a head whose review window is being
+// SUPERSEDED — a different, non-descendant head was pushed (history rewrite) or the branch/PR was
+// switched in the same repo. Without this, those orphaned `pi --mode json` children keep reviewing an
+// abandoned head and pile up on the 1-vCPU container. A child is signalled only when its pid is still
+// alive AND identity-matches its recorded start time, so a recycled pid's unrelated process group is
+// never killed. Each lane is recorded failed("superseded") so the reaper stops tracking it.
+export function abandonDurableReviewLanes(repo: string, head: string): void {
+  const job = readDurableReviewJob(repo, head);
+  if (!job) return;
+  for (const lane of job.lanes) {
+    const rec = job.laneState[lane];
+    if (!rec || rec.status !== "running") continue;
+    if (typeof rec.pid === "number" && isProcessAlive(rec.pid, rec.pidStart)) killLaneProcessGroup(rec.pid);
+    recordDurableReviewLane(job, { lane, status: "failed", startedAt: rec.startedAt, completedAt: now(), transcriptPath: rec.transcriptPath, error: "superseded by a newer head" });
+    appendReviewEvent(repo, { event: "lane_abandoned", head, lane });
+  }
+}
+
 export function startDurableReviewLanes(_runner: ReviewRunnerContext, jobInput: DurableReviewJobInput, requests: ReviewSpawnRequest[]): { job: DurableReviewJob; launched: string[] } {
   const job = ensureDurableReviewJob(jobInput);
   const launched: string[] = [];
