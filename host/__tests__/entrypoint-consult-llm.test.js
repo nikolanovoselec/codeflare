@@ -105,6 +105,8 @@ describe('entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, s
     assert.equal(claude.env.CONSULT_LLM_CODEX_REASONING_EFFORT, 'high');
     assert.ok(!('OPENAI_API_KEY' in claude.env), 'subscription path injects no API key');
     assert.ok(!('directTools' in claude), 'Claude server is not promoted via directTools');
+    // lifecycle is a pi-mcp-adapter concept; Claude Code does not use it.
+    assert.ok(!('lifecycle' in claude), 'Claude server carries no Pi-only lifecycle field');
   });
 
   // AC4: Pi gets the same server with directTools promoting consult_llm to first-class.
@@ -115,6 +117,8 @@ describe('entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, s
     assert.deepEqual(pi.args, []);
     assert.deepEqual(pi.directTools, ['consult_llm']);
     assert.equal(pi.env.CONSULT_LLM_OPENAI_BACKEND, 'codex-cli');
+    // keep-alive so pi-mcp-adapter reconnects instead of dropping to "0/1 ... cached" on idle.
+    assert.equal(pi.lifecycle, 'keep-alive', 'Pi consult-llm server is keep-alive');
   });
 
   // AC3: no Codex login => fall back to the API key (api backend, no codex env var).

@@ -398,7 +398,10 @@ export function reapDurableReviewLanes(repo: string, head: string): void {
   if (!job) return;
   for (const lane of job.lanes) {
     const rec = job.laneState[lane];
-    if (!rec || rec.status !== "running") continue;
+    // `failed` lanes are re-evaluated too, so the reaper can self-heal one its earlier tick
+    // (or a pre-retry-aware reaper) failed while a retry was still in flight.
+    if (!rec || (rec.status !== "running" && rec.status !== "failed")) continue;
+    const wasFailed = rec.status === "failed";
     const hasPid = typeof rec.pid === "number";
     const decision = reapLaneDecision({
       status: rec.status,
@@ -415,7 +418,7 @@ export function reapDurableReviewLanes(repo: string, head: string): void {
       mkdirSync(dirname(resultPath), { recursive: true });
       writeFileSync(resultPath, formatDurableReviewResult(job, lane, decision.finalText), "utf8");
       recordDurableReviewLane(job, { lane, status: "completed", startedAt: rec.startedAt, completedAt: now(), transcriptPath: rec.transcriptPath, resultPath });
-      appendReviewEvent(repo, { event: "lane_completed", head, lane, resultPath });
+      appendReviewEvent(repo, { event: wasFailed ? "lane_recovered" : "lane_completed", head, lane, resultPath });
       // Defensive: a completed lane's child is normally already gone; only signal if it
       // is still alive AND identity-matches, so we never SIGKILL a recycled pid's group.
       if (hasPid && isProcessAlive(rec.pid as number, rec.pidStart)) killLaneProcessGroup(rec.pid as number);

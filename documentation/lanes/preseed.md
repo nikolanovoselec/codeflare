@@ -142,6 +142,9 @@ agents that support skills). `consult-llm` is scoped to Claude + Pi
 only (both get the consult-llm MCP server — Claude via `~/.claude.json`,
 Pi via `~/.pi/agent/mcp.json` `directTools` — so the skill never
 references a tool the agent lacks); see [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity).
+The Pi server is configured `lifecycle: "keep-alive"` so pi-mcp-adapter
+reconnects it instead of dropping the MCP footer to `0/1 … cached` after the
+default idle timeout.
 
 **Rules** (core environment rules in both modes; the rest advanced-only) ([REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode),
 [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session)): Core environment rules (`cloudflare-environment`,
@@ -323,6 +326,15 @@ All preseed content is deployed via the manifest pipeline:
   ellipsis. Operators can diagnose background review progress without visible
   generic Agent tasks. Duplicate lane-result and summary announcements are
   suppressed for the same repo/head/lane result.
+
+  The disk-driven reaper that settles each lane is retry-aware: an attempt that
+  ends with `willRetry: true` (pi auto-retrying the same child after a transient
+  error such as a WebSocket drop) does not settle the lane, and that attempt's
+  error verdict is discarded so it cannot poison the retry — only a terminal
+  `agent_end` (`willRetry: false`) settles it. A lane an earlier reaper tick
+  already marked failed is self-healed back to completed (audit event
+  `lane_recovered`) if its transcript later shows a terminal clean usable
+  result, so a review that succeeded on retry is never left discarded.
 
   After the exact-head durable review job completes and every required lane has
   a result file, Pi publishes one merged chat summary with `## Review Summary`,

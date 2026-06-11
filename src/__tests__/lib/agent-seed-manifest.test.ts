@@ -789,6 +789,51 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       .toEqual({ action: 'none' });
   });
 
+  it('REQ-AGENT-054: durable lane orchestration is retry-aware (transient error + retry completes; a willRetry attempt-end never settles a lane; a failed lane self-heals)', () => {
+    // The exact field failure: a spec-reviewer lane hit a transient WebSocket error, pi
+    // auto-retried IN-PROCESS, and the retry produced a clean final report — but the old
+    // summarizer set agentEnded on the willRetry=true attempt-end and kept `errored` sticky,
+    // so the reaper failed the lane ~112s in (before the retry) and never recovered it.
+    const retried = [
+      JSON.stringify({ type: 'agent_start' }),
+      JSON.stringify({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'partial' }], stopReason: 'error', errorMessage: 'WebSocket error' } }),
+      JSON.stringify({ type: 'agent_end', willRetry: true }),
+      JSON.stringify({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: '## Findings\n[HIGH] real' }], stopReason: 'stop' } }),
+      JSON.stringify({ type: 'agent_end', willRetry: false }),
+    ];
+    // Retryable error then a clean final message → terminal, clean, usable (errored not sticky).
+    expect(summarizeLaneTranscript(retried)).toEqual({ agentEnded: true, finalText: '## Findings\n[HIGH] real', stopReason: 'stop', errored: false });
+
+    // Mid-retry snapshot (error + willRetry=true on disk, retry not done): nothing terminal, the
+    // failed attempt's verdict is discarded so it cannot prematurely fail the lane.
+    const midRetry = retried.slice(0, 3);
+    expect(summarizeLaneTranscript(midRetry)).toEqual({ agentEnded: false, finalText: '', stopReason: undefined, errored: false });
+    // While the child is still alive within budget, the reaper keeps it running (no premature fail).
+    expect(reapLaneDecision({ status: 'running', resultExists: false, transcript: summarizeLaneTranscript(midRetry), hasPid: true, pidAlive: true, startedAt: 0, now: 112_000, timeoutMs: 900_000 }))
+      .toEqual({ action: 'none' });
+    // Once the retry has flushed its terminal report, the reaper completes with the retry's text.
+    expect(reapLaneDecision({ status: 'running', resultExists: false, transcript: summarizeLaneTranscript(retried), hasPid: true, pidAlive: false, startedAt: 0, now: 200_000, timeoutMs: 900_000 }))
+      .toEqual({ action: 'complete', finalText: '## Findings\n[HIGH] real' });
+
+    // A TERMINAL agent_end (willRetry=false) that still errored stays a fail — never healed.
+    const terminalError = [
+      JSON.stringify({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: '' }], stopReason: 'error', errorMessage: 'gave up' } }),
+      JSON.stringify({ type: 'agent_end', willRetry: false }),
+    ];
+    expect(summarizeLaneTranscript(terminalError)).toEqual({ agentEnded: true, finalText: '', stopReason: 'error', errored: true });
+
+    // Self-heal: a lane an earlier (buggy/raced) reaper marked `failed`, whose transcript now
+    // holds a terminal clean usable result and has no result file, recovers to complete.
+    expect(reapLaneDecision({ status: 'failed', resultExists: false, transcript: summarizeLaneTranscript(retried), hasPid: true, pidAlive: false, startedAt: 0, now: 1000, timeoutMs: 900_000 }))
+      .toEqual({ action: 'complete', finalText: '## Findings\n[HIGH] real' });
+    // A genuinely-failed lane (no terminal usable result) is NOT resurrected.
+    expect(reapLaneDecision({ status: 'failed', resultExists: false, transcript: summarizeLaneTranscript(terminalError), hasPid: false, pidAlive: false, startedAt: 0, now: 1000, timeoutMs: 900_000 }))
+      .toEqual({ action: 'none' });
+    // A failed lane that already wrote a result file is left settled (no double-write).
+    expect(reapLaneDecision({ status: 'failed', resultExists: true, transcript: summarizeLaneTranscript(retried), hasPid: false, pidAlive: false, startedAt: 0, now: 1000, timeoutMs: 900_000 }))
+      .toEqual({ action: 'none' });
+  });
+
   it('REQ-AGENT-053: durable Pi review results derive structured severity state from findings', () => {
     const model = durableReviewResultModel(
       { repo: '/repo/codeflare', head: 'abc123456789', prNumber: 443 },

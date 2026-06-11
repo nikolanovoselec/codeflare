@@ -1849,8 +1849,11 @@ configure_consult_llm() {
     # Pi's pi-mcp-adapter reads ~/.pi/agent/mcp.json (same shape); directTools
     # promotes consult_llm to a first-class Pi tool (not buried behind the proxy).
     mkdir -p "$USER_HOME/.pi/agent"
+    # lifecycle:keep-alive — pi-mcp-adapter defaults a server with no lifecycle to "lazy", which
+    # closes the consult-llm process on idle (10-min timeout) and shows the footer as "0/1
+    # servers ... cached". keep-alive connects on startup and auto-reconnects if it drops.
     _merge_consult_llm_mcp "$USER_HOME/.pi/agent/mcp.json" \
-        "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"directTools":["consult_llm"]}}}')" \
+        "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"keep-alive","directTools":["consult_llm"]}}}')" \
         "Pi"
 }
 configure_consult_llm || echo "[entrypoint] WARNING: consult-llm configuration failed; continuing startup"

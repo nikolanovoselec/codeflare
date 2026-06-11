@@ -71,14 +71,28 @@ export function summarizeLaneTranscript(lines: string[]): LaneTranscriptSummary 
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    let event: { type?: string; message?: { role?: string; content?: unknown; stopReason?: string; errorMessage?: string } };
+    let event: { type?: string; willRetry?: boolean; message?: { role?: string; content?: unknown; stopReason?: string; errorMessage?: string } };
     try {
       event = JSON.parse(trimmed);
     } catch {
       // Partial flush of the last line, or a non-JSON banner — never fatal.
       continue;
     }
-    if (event?.type === "agent_end") agentEnded = true;
+    if (event?.type === "agent_end") {
+      // A retryable attempt end (`willRetry: true`) is NOT terminal: pi retries IN the same
+      // child process (e.g. after a transient WebSocket drop), so it must not settle the lane,
+      // and the failed attempt's verdict is discarded — errored/stopReason/finalText are judged
+      // per-attempt, never sticky across a retry, so an early error can't poison the retry that
+      // later succeeds. Only an `agent_end` WITHOUT a pending retry is the terminal lane end.
+      if (event.willRetry === true) {
+        errored = false;
+        stopReason = undefined;
+        finalText = "";
+      } else {
+        agentEnded = true;
+      }
+      continue;
+    }
     if (event?.type === "message_end" && event.message?.role === "assistant") {
       const content = event.message.content;
       const text = Array.isArray(content)
@@ -114,11 +128,20 @@ export type ReapLaneDecision =
   | { action: "fail"; reason: string; kill: boolean };
 
 export function reapLaneDecision(input: ReapLaneInput): ReapLaneDecision {
-  // Only running lanes are reapable; everything else is already settled.
   if (input.resultExists) return { action: "none" };
-  if (input.status !== "running") return { action: "none" };
   const t = input.transcript;
   const usable = t.finalText.trim().length > 0 && t.stopReason !== "error" && t.stopReason !== "aborted" && !t.errored;
+  // Self-heal: a lane an earlier reaper tick (or a pre-retry-aware reaper) marked `failed`
+  // whose retry later flushed a terminal, clean, usable result is recovered rather than left
+  // discarded — a good review must never stay lost. Gated on a TERMINAL agent_end with a
+  // usable result; a killed/timed-out/genuinely-errored lane has no such result and stays
+  // failed. (resultExists is checked above, so a failed lane that already has a file is left
+  // alone.)
+  if (input.status === "failed") {
+    return t.agentEnded && usable ? { action: "complete", finalText: t.finalText } : { action: "none" };
+  }
+  // Only running lanes are otherwise reapable; everything else is already settled.
+  if (input.status !== "running") return { action: "none" };
   // agent_end → the run finished; the child is already gone (or exiting), so the work is
   // complete and there is nothing live to kill (kill: false avoids signalling a possibly
   // reused pid). Checked FIRST so a child that finishes and exits in the same tick
