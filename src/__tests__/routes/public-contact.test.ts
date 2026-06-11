@@ -262,7 +262,7 @@ describe('Public contact route (REQ-LANDING-002)', () => {
 
     expect(res.status).toBe(200);
     const contentWrites = mockKV.put.mock.calls.filter(
-      ([key]: [string]) => !String(key).startsWith('contact-submit')
+      (call) => !String(call[0]).startsWith('contact-submit')
     );
     expect(contentWrites).toEqual([]);
   });
