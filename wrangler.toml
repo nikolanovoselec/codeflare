@@ -98,4 +98,6 @@ not_found_handling = "single-page-application"
 # Ensure control-plane routes pass through Worker logic first.
 # - "/" is needed for mode-aware redirect/landing logic
 # - "/api/*" and "/health" must never be swallowed by SPA asset fallback
-run_worker_first = ["/", "/auth/*", "/api/*", "/public/*", "/health"]
+# - "/landing/*" routes the prerendered landing documents (REQ-LANDING-001)
+#   through the Worker so they carry the same security headers as "/"
+run_worker_first = ["/", "/auth/*", "/api/*", "/public/*", "/health", "/landing/*"]

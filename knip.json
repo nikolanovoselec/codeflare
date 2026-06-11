@@ -1,6 +1,12 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "project": ["src/**/*.ts"],
-  "ignore": [],
-  "ignoreDependencies": ["cloudflare"]
+  "project": [
+    "src/**/*.ts"
+  ],
+  "ignore": [
+    "src/lib/contact-topics.ts"
+  ],
+  "ignoreDependencies": [
+    "cloudflare"
+  ]
 }
