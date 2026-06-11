@@ -1,0 +1,32 @@
+---
+/**
+ * FAQ as session prompts: native details/summary (fully functional without
+ * JS), prompt glyph + question, [+]/[−] state marker, answers as command
+ * output. Open is instant — a frequent, keyboard-reachable interaction
+ * gets no entrance theater (the answer content fades via @starting-style).
+ */
+import type { FaqItem } from '../content/site';
+
+interface Props {
+  items: FaqItem[];
+}
+
+const { items } = Astro.props;
+---
+
+<div class="faq-list reveal">
+  {
+    items.map((item) => (
+      <details>
+        <summary>
+          <span class="faq-glyph" aria-hidden="true">
+            ❯
+          </span>
+          <span class="faq-question">{item.question}</span>
+          <span class="faq-marker" aria-hidden="true" />
+        </summary>
+        <p>{item.answer}</p>
+      </details>
+    ))
+  }
+</div>

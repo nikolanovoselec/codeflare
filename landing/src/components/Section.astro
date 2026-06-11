@@ -1,0 +1,29 @@
+---
+/**
+ * Section shell: anchor id, prompt-path label, headline, optional lead.
+ * All landing sections render through this — content comes from
+ * src/content/site.ts, structure lives here. Leads are build-time trusted
+ * strings and may carry inline em/strong markup.
+ */
+import type { SectionPrompt } from '../content/site';
+import PromptLabel from './PromptLabel.astro';
+
+interface Props {
+  id: string;
+  prompt: SectionPrompt;
+  title: string;
+  lead?: string;
+  alt?: boolean;
+}
+
+const { id, prompt, title, lead, alt = false } = Astro.props;
+---
+
+<section id={id} class:list={[{ 'section-alt': alt }]}>
+  <div class="container">
+    <PromptLabel prompt={prompt} />
+    <h2 class="section-title reveal">{title}</h2>
+    {lead && <p class="section-lead reveal" set:html={lead} />}
+    <slot />
+  </div>
+</section>

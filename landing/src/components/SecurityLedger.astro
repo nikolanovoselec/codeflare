@@ -1,0 +1,31 @@
+---
+/**
+ * The six security guarantees as describe-style audit-ledger entries: state
+ * dot, mono title, kind tag, prose body, hairline separators. No cards, no
+ * icons — the register is an audit log, because that's what it is.
+ */
+import type { Card } from '../content/site';
+
+interface Props {
+  entries: Card[];
+}
+
+const { entries } = Astro.props;
+---
+
+<dl class="audit-ledger">
+  {
+    entries.map((entry) => (
+      <div class="audit-entry" data-print>
+        <dt>
+          <span class="audit-dot" aria-hidden="true">
+            ●
+          </span>
+          {entry.title}
+          {entry.tag && <span class="audit-tag">{entry.tag}</span>}
+        </dt>
+        <dd>{entry.body}</dd>
+      </div>
+    ))
+  }
+</dl>

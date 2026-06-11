@@ -1,0 +1,30 @@
+---
+/**
+ * Hero: the page opens already inside the session. Preflight assertions
+ * print first (the old stats, reframed as boot checks), then the prompt
+ * and headline — the flare line is ANSI reverse-video (solid dark glyphs
+ * on a gradient panel; the gradient never fills text), then the approved
+ * sub, bracket CTAs, and the fleet terminal.
+ */
+import { HERO } from '../content/site';
+import FleetTerminal from './FleetTerminal.astro';
+import PreflightLedger from './PreflightLedger.astro';
+---
+
+<header class="hero">
+  <div class="hero-glow" aria-hidden="true"></div>
+  <div class="container">
+    <PreflightLedger />
+    <h1>
+      <span class="hero-prompt" aria-hidden="true">❯</span>
+      {HERO.headline.plain}<br />
+      <span class="flare-block">{HERO.headline.flare}</span>
+    </h1>
+    <p class="hero-sub" set:html={HERO.sub} />
+    <div class="hero-cta">
+      <a class="btn btn-primary" href={HERO.primaryCta.href}>[ {HERO.primaryCta.label} ]</a>
+      <a class="btn btn-ghost" href={HERO.secondaryCta.href}>[ {HERO.secondaryCta.label} ]</a>
+    </div>
+    <FleetTerminal />
+  </div>
+</header>

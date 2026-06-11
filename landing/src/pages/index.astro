@@ -1,0 +1,103 @@
+---
+/**
+ * The governed session, top to bottom: chrome → preflight + hero + fleet →
+ * the shift (diff) → security (boundary + audit ledger) → zero-footprint
+ * (man page) → scaffolding (seed log) → your SDLC (git rail) → cost
+ * (attribution trace) → tenancy (plaque) → FAQ → contact → exit + destroy.
+ * Sections compose data from src/content/site.ts with one artifact each —
+ * deliberately different layout families, no repeated card grids.
+ */
+import BaseLayout from '../layouts/BaseLayout.astro';
+import SessionChrome from '../components/SessionChrome.astro';
+import StatusBar from '../components/StatusBar.astro';
+import Hero from '../components/Hero.astro';
+import Section from '../components/Section.astro';
+import DiffCompare from '../components/DiffCompare.astro';
+import BoundaryDiagram from '../components/BoundaryDiagram.astro';
+import SecurityLedger from '../components/SecurityLedger.astro';
+import ManPage from '../components/ManPage.astro';
+import SeedLog from '../components/SeedLog.astro';
+import PipelineRail from '../components/PipelineRail.astro';
+import CostTrace from '../components/CostTrace.astro';
+import TenancyPlaque from '../components/TenancyPlaque.astro';
+import FaqList from '../components/FaqList.astro';
+import ContactForm from '../components/ContactForm.astro';
+import SessionEnd from '../components/SessionEnd.astro';
+import Footer from '../components/Footer.astro';
+import {
+  COST,
+  CONTACT_FORM,
+  FAQ_ITEMS,
+  FAQ_SECTION,
+  PILLAR_SECTIONS,
+  SHIFT,
+  TENANCY,
+} from '../content/site';
+
+const security = PILLAR_SECTIONS.find((section) => section.id === 'security')!;
+const zeroFootprint = PILLAR_SECTIONS.find((section) => section.id === 'zero-footprint')!;
+const scaffolding = PILLAR_SECTIONS.find((section) => section.id === 'scaffolding')!;
+const sdlc = PILLAR_SECTIONS.find((section) => section.id === 'sdlc')!;
+---
+
+<BaseLayout>
+  <SessionChrome />
+  <main>
+    <Hero />
+
+    <Section id={SHIFT.id} prompt={SHIFT.prompt} title={SHIFT.title} lead={SHIFT.lead}>
+      <DiffCompare />
+    </Section>
+
+    <Section id={security.id} prompt={security.prompt} title={security.title} lead={security.lead} alt>
+      <BoundaryDiagram />
+      <SecurityLedger entries={security.cards ?? []} />
+      <p class="micro-cta">
+        <a href="#contact" data-topic="security-compliance">[ request the security &amp; compliance deep-dive → ]</a>
+      </p>
+    </Section>
+
+    <Section
+      id={zeroFootprint.id}
+      prompt={zeroFootprint.prompt}
+      title={zeroFootprint.title}
+      lead={zeroFootprint.lead}
+    >
+      <ManPage entries={zeroFootprint.cards ?? []} />
+    </Section>
+
+    <Section
+      id={scaffolding.id}
+      prompt={scaffolding.prompt}
+      title={scaffolding.title}
+      lead={scaffolding.lead}
+      alt
+    >
+      <SeedLog entries={scaffolding.cards ?? []} />
+    </Section>
+
+    <Section id={sdlc.id} prompt={sdlc.prompt} title={sdlc.title} lead={sdlc.lead}>
+      <PipelineRail entries={sdlc.cards ?? []} snippet={sdlc.snippet} />
+    </Section>
+
+    <Section id={COST.id} prompt={COST.prompt} title={COST.title} lead={COST.lead} alt>
+      <CostTrace />
+    </Section>
+
+    <Section id={TENANCY.id} prompt={TENANCY.prompt} title={TENANCY.title}>
+      <TenancyPlaque />
+    </Section>
+
+    <Section id={FAQ_SECTION.id} prompt={FAQ_SECTION.prompt} title={FAQ_SECTION.title} alt>
+      <FaqList items={FAQ_ITEMS} />
+    </Section>
+
+    <Section id={CONTACT_FORM.id} prompt={CONTACT_FORM.prompt} title={CONTACT_FORM.title}>
+      <ContactForm />
+    </Section>
+
+    <SessionEnd />
+  </main>
+  <Footer />
+  <StatusBar />
+</BaseLayout>

@@ -1,0 +1,34 @@
+---
+/**
+ * Your SDLC as a vertical git rail: four commit nodes anchor the four
+ * claims in pipeline order; the autonomous-review node expands into the
+ * approved review-pipeline snippet as its log output. Nodes activate
+ * discretely on inView (no scroll-scrubbing — cheap and jank-free).
+ */
+import type { Card } from '../content/site';
+import Snippet from './Snippet.astro';
+
+interface Props {
+  entries: Card[];
+  snippet?: { label: string; lines: import('../content/site').SnippetLine[] };
+  /** Index of the entry whose output is the snippet. */
+  snippetAt?: number;
+}
+
+const { entries, snippet, snippetAt = 1 } = Astro.props;
+---
+
+<div class="rail" id="sdlc-rail">
+  {
+    entries.map((entry, index) => (
+      <div class="rail-node" data-print>
+        <span class="rail-dot" aria-hidden="true" />
+        <div class="rail-content">
+          <p class="rail-title">{entry.title}</p>
+          <p class="rail-body">{entry.body}</p>
+          {snippet && index === snippetAt && <Snippet {...snippet} />}
+        </div>
+      </div>
+    ))
+  }
+</div>

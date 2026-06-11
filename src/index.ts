@@ -359,10 +359,15 @@ export default {
       }
     }
 
-    // Root behavior is mode-dependent:
-    // - SaaS mode: redirect active users to /app/, serve SPA (LoginPage) otherwise
+    // Root behavior is mode-dependent (REQ-LANDING-001):
+    // - SaaS mode: redirect active users to /app/; unauthenticated visitors
+    //   get the prerendered marketing landing (assets under /landing/)
     // - default mode: redirect / to /app/
-    // - onboarding mode: serve SPA (OnboardingLanding component handles the UI)
+    // - onboarding mode: unauthenticated visitors get the same landing
+    // If the landing build is absent, ASSETS not_found_handling falls back to
+    // the SPA index.html (LoginPage / OnboardingLanding) — graceful degrade.
+    let assetRequest = request;
+    const landingRequest = () => new Request(new URL('/landing/', url).toString(), request);
     if (path === '/') {
       const saasActive = isSaasModeActive(env.SAAS_MODE);
       if (saasActive) {
@@ -378,7 +383,8 @@ export default {
           // Authenticated but pending/blocked - redirect to subscribe page
           return redirectWithHeaders('/app/subscribe');
         } catch {
-          // Not authenticated - serve SPA (LoginPage)
+          // Not authenticated - serve the static landing
+          assetRequest = landingRequest();
         }
       } else if (!onboardingLandingActive) {
         return redirectWithHeaders('/app/');
@@ -387,14 +393,15 @@ export default {
           await authenticateRequest(request, env);
           return redirectWithHeaders('/app/');
         } catch {
-          // Unauthenticated - serve landing page
+          // Unauthenticated - serve the static landing
+          assetRequest = landingRequest();
         }
       }
     }
 
     // For all other routes, serve from static assets
     // With not_found_handling = "single-page-application", missing routes get index.html
-    const assetResponse = await env.ASSETS.fetch(request);
+    const assetResponse = await env.ASSETS.fetch(assetRequest);
     const secureResponse = new Response(assetResponse.body, assetResponse);
     for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
       secureResponse.headers.set(key, value);

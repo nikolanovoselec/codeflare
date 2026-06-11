@@ -1,0 +1,81 @@
+---
+/**
+ * The destroy finale: the page enacts its own threat model, then goes
+ * quiet. Static HTML renders the completed block; with JS the lines
+ * type/print on first view and the ambient glows power down. The status
+ * bar's destroyed state is scroll-derived (StatusBar), so scrolling back
+ * up always restores the running session — no sticky death, deep links
+ * land coherent.
+ */
+import { SESSION_END } from '../content/site';
+---
+
+<section id={SESSION_END.id} class="session-end">
+  <div class="container">
+    <p class="session-end-cmd t-cmd" data-finale>{SESSION_END.exit}</p>
+    {
+      SESSION_END.lines.map((line, index) => (
+        <p class:list={['session-end-line', index === SESSION_END.lines.length - 1 ? 't-warn' : 't-ok']} data-finale>
+          {line}
+        </p>
+      ))
+    }
+  </div>
+</section>
+
+<script>
+  import { inView, animate } from 'motion';
+
+  const EASE_IN_OUT_STRONG: [number, number, number, number] = [0.77, 0, 0.175, 1];
+  const section = document.querySelector<HTMLElement>('.session-end');
+  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (section && !prefersReduced) {
+    let played = false;
+    inView(
+      section,
+      () => {
+        if (played) {
+          return;
+        }
+        played = true;
+        const lines = [...section.querySelectorAll<HTMLElement>('[data-finale]')];
+        lines.forEach((line, index) => {
+          animate(
+            line,
+            { opacity: [0, 1], transform: ['translateY(4px)', 'translateY(0px)'] },
+            { duration: 0.18, ease: 'linear', delay: index * 0.4 }
+          );
+        });
+        // Power-down: ambient glows fade; chrome dots gray out. Reversal is
+        // scroll-derived via the html attribute, set while in view.
+        window.setTimeout(() => {
+          document.documentElement.dataset.powered = 'down';
+          animate(
+            document.querySelectorAll('.hero-glow'),
+            { opacity: 0 },
+            { duration: 0.8, ease: EASE_IN_OUT_STRONG }
+          );
+        }, lines.length * 400);
+      },
+      { amount: 0.6 }
+    );
+
+    // Scrolling back above the finale restores the powered state.
+    const restore = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting && entry.boundingClientRect.top > 0) {
+            delete document.documentElement.dataset.powered;
+            const glows = document.querySelectorAll<HTMLElement>('.hero-glow');
+            for (const glow of glows) {
+              glow.style.opacity = '';
+            }
+          }
+        }
+      },
+      { threshold: 0 }
+    );
+    restore.observe(section);
+  }
+</script>

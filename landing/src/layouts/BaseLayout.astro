@@ -1,0 +1,108 @@
+---
+// Fonts are imported by tokens.css (the single design control panel),
+// which global.css pulls in first.
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+  canonical?: string;
+}
+
+// REQ-LANDING-003: the landing page carries the canonical external metadata
+// for the enterprise positioning. og.png is served from the SPA asset root.
+const {
+  title = 'Codeflare — The Enterprise Agentic Coding Engine',
+  description = 'This is not a coding assistant. Codeflare is the enterprise agentic coding engine: autonomous agents that build, review, test, and ship — inside your cloud boundary, governed, attributed, and encrypted.',
+  canonical = 'https://codeflare.ch/',
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Codeflare" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content="https://codeflare.ch/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Codeflare — the enterprise agentic coding engine." />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content="https://codeflare.ch/og.png" />
+    <meta name="twitter:image:alt" content="Codeflare — the enterprise agentic coding engine." />
+  </head>
+  <body>
+    <slot />
+    <script is:inline>
+      // Pre-paint flip: hidden initial animation states only ever apply
+      // under html[data-js], so no-JS visitors, crawlers, and headless
+      // renderers always see the complete page. Must run before first paint.
+      document.documentElement.dataset.js = 'true';
+    </script>
+    <script>
+      // Entrance wiring for the session grammar: .reveal sections and
+      // [data-print] ledger lines print on first view. Content is visible
+      // by default; JS applies the hidden state and immediately animates —
+      // never a CSS opacity:0 default.
+      import { inView, animate, stagger } from 'motion';
+
+      const EASE_OUT_STRONG: [number, number, number, number] = [0.23, 1, 0.32, 1];
+      const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (!prefersReduced && 'IntersectionObserver' in window) {
+        for (const el of document.querySelectorAll<HTMLElement>('.reveal')) {
+          inView(
+            el,
+            () => {
+              animate(
+                el,
+                { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] },
+                { duration: 0.4, ease: EASE_OUT_STRONG }
+              );
+            },
+            { margin: '-60px' }
+          );
+        }
+
+        // Ledger-stagger: sibling [data-print] lines print at 50ms intervals.
+        const printGroups = new Map<HTMLElement, HTMLElement[]>();
+        for (const el of document.querySelectorAll<HTMLElement>('[data-print]')) {
+          const parent = el.parentElement;
+          if (parent) {
+            const group = printGroups.get(parent) ?? [];
+            group.push(el);
+            printGroups.set(parent, group);
+          }
+        }
+        for (const [parent, group] of printGroups) {
+          inView(
+            parent,
+            () => {
+              animate(
+                group,
+                { opacity: [0, 1], transform: ['translateY(4px)', 'translateY(0px)'] },
+                { duration: 0.18, ease: EASE_OUT_STRONG, delay: stagger(0.05) }
+              );
+            },
+            { margin: '-80px' }
+          );
+        }
+      }
+    </script>
+  </body>
+</html>

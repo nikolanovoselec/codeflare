@@ -1,0 +1,180 @@
+---
+/**
+ * Fixed bottom tmux-style status bar. Every segment is a pure function of
+ * scroll position (status-bar-state + session-clock + scrollspy), so deep
+ * links land coherent and the destroy finale reverses when the visitor
+ * scrolls back up. The session count rolls per-digit (odometer). Hidden on
+ * short viewports (CSS) so fixed UI never eats a small screen. aria-hidden:
+ * it mirrors information already in the page.
+ */
+import { HERO, SESSION_MINUTES } from '../content/site';
+import { sessionClock } from '../scripts/session-clock';
+import { statusBarState } from '../scripts/status-bar-state';
+
+// Static first paint: session just booted (scroll position 0).
+const initialSegments = statusBarState({
+  sectionPath: HERO.bar,
+  clock: sessionClock(0, SESSION_MINUTES),
+  sessions: 1,
+  destroyed: false,
+});
+---
+
+<div class="statusbar" id="statusbar" aria-hidden="true">
+  {initialSegments.map((segment) => <span class="statusbar-seg">{segment}</span>)}
+</div>
+
+<script>
+  import { scroll } from 'motion';
+  import {
+    HERO,
+    SESSION_MINUTES,
+    SHIFT,
+    PILLAR_SECTIONS,
+    COST,
+    TENANCY,
+    FAQ_SECTION,
+    CONTACT_FORM,
+    SESSION_END,
+  } from '../content/site';
+  import { sessionClock } from '../scripts/session-clock';
+  import { statusBarState } from '../scripts/status-bar-state';
+  import { activeSection } from '../scripts/scrollspy';
+  import { odometerSteps } from '../scripts/odometer';
+
+  const bar = document.getElementById('statusbar');
+  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (bar) {
+    const sections: Array<{ id: string; bar: string }> = [
+      { id: 'hero', bar: HERO.bar },
+      { id: SHIFT.id, bar: SHIFT.prompt.bar },
+      ...PILLAR_SECTIONS.map((s) => ({ id: s.id, bar: s.prompt.bar })),
+      { id: COST.id, bar: COST.prompt.bar },
+      { id: TENANCY.id, bar: TENANCY.prompt.bar },
+      { id: FAQ_SECTION.id, bar: FAQ_SECTION.prompt.bar },
+      { id: CONTACT_FORM.id, bar: CONTACT_FORM.prompt.bar },
+      { id: SESSION_END.id, bar: SESSION_END.bar },
+    ];
+
+    const state = {
+      ratios: {} as Record<string, number>,
+      sessions: 1,
+      renderedSessions: 1,
+      gwRequests: undefined as number | undefined,
+      progress: 0,
+    };
+
+    /** Per-digit odometer roll (hud-tick); falls back to a plain swap. */
+    const rollSessions = (el: HTMLElement, prev: number, next: number) => {
+      const steps = odometerSteps(prev, next);
+      if (steps.length === 0 || prefersReduced) {
+        el.textContent = String(next);
+        return;
+      }
+      const width = Math.max(String(prev).length, String(next).length);
+      const prevDigits = String(prev).padStart(width, '0');
+      const nextDigits = String(next).padStart(width, '0');
+      el.replaceChildren(
+        ...Array.from({ length: width }, (_, column) => {
+          const col = document.createElement('span');
+          col.className = 'odo-col';
+          if (!steps.some((step) => step.column === column)) {
+            col.textContent = nextDigits[column];
+            return col;
+          }
+          const roll = document.createElement('span');
+          roll.className = 'odo-roll';
+          for (const glyph of [prevDigits[column], nextDigits[column]]) {
+            const digit = document.createElement('span');
+            digit.textContent = glyph;
+            roll.append(digit);
+          }
+          col.append(roll);
+          requestAnimationFrame(() => roll.classList.add('odo-rolling'));
+          roll.addEventListener('transitionend', () => {
+            col.textContent = nextDigits[column];
+          });
+          return col;
+        })
+      );
+    };
+
+    const render = () => {
+      const ids = sections.map((s) => s.id);
+      const active = activeSection(ids, state.ratios) ?? 'hero';
+      const section = sections.find((s) => s.id === active) ?? sections[0];
+      const destroyed = active === SESSION_END.id;
+      const sessions = destroyed ? 0 : state.sessions;
+
+      const segments = statusBarState({
+        sectionPath: section.bar,
+        // The clock freezes under reduced motion; the path still updates
+        // (navigation state, not motion).
+        clock: sessionClock(prefersReduced ? 0 : state.progress, SESSION_MINUTES),
+        sessions,
+        gwRequests: state.gwRequests,
+        destroyed,
+      });
+
+      bar.replaceChildren(
+        ...segments.map((segment, index) => {
+          const span = document.createElement('span');
+          span.className = 'statusbar-seg';
+          // The sessions segment hosts the odometer number.
+          if (index === 2) {
+            const odo = document.createElement('span');
+            odo.className = 'odo';
+            odo.textContent = String(state.renderedSessions);
+            span.append(odo, document.createTextNode(segment.replace(/^\d+/, '')));
+            rollSessions(odo, state.renderedSessions, sessions);
+            state.renderedSessions = sessions;
+          } else {
+            span.textContent = segment;
+          }
+          return span;
+        })
+      );
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = entry.target.id === 'hero-terminal' ? 'hero' : entry.target.id;
+          state.ratios[id] = entry.intersectionRatio;
+        }
+        render();
+      },
+      { threshold: [0, 0.2, 0.4, 0.6] }
+    );
+    for (const section of sections) {
+      const el = document.getElementById(section.id === 'hero' ? 'hero-terminal' : section.id);
+      if (el) {
+        observer.observe(el);
+      }
+    }
+
+    // Session clock from page scroll progress (ScrollTimeline-backed where
+    // supported), throttled to ~10Hz textContent updates.
+    let lastTick = 0;
+    scroll((progress: number) => {
+      const now = performance.now();
+      if (now - lastTick < 100) {
+        return;
+      }
+      lastTick = now;
+      state.progress = progress;
+      render();
+    });
+
+    // Scene events from the fleet terminal (split, gateway counter).
+    window.addEventListener('cf-sessions', ((event: CustomEvent<number>) => {
+      state.sessions = event.detail;
+      render();
+    }) as EventListener);
+    window.addEventListener('cf-gateway', ((event: CustomEvent<number>) => {
+      state.gwRequests = event.detail;
+      render();
+    }) as EventListener);
+  }
+</script>

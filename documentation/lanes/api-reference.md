@@ -138,6 +138,8 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | GET | `/public/onboarding-config` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence), [REQ-AUTH-006](../../sdd/spec/authentication.md#req-auth-006-user-email-normalized) | Turnstile site key + onboarding status |
 | GET | `/public/tiers` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Public tier config (no session mode info) |
 | POST | `/public/waitlist` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Waitlist signup with Turnstile (rate-limited 1/day by IP) |
+| GET | `/public/contact-config` | none | [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline) | Turnstile site key for the landing contact form (SaaS or onboarding mode) |
+| POST | `/public/contact` | none | [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Demo-request submission: Turnstile-verified, relayed to admins as email, never persisted (rate-limited 5/min) |
 
 ### Setup
 
@@ -472,7 +474,11 @@ Keys are stored in KV as `llm-keys:{bucketName}` and scoped per user (derived fr
 
 ### Public (Onboarding)
 
-GET `/public/onboarding-config`, POST `/public/waitlist` (rate limited)
+GET `/public/onboarding-config`, POST `/public/waitlist` (rate limited; onboarding mode only)
+
+### Public (Landing)
+
+GET `/public/contact-config`, POST `/public/contact` (rate limited; SaaS or onboarding mode — the landing page surface)
 
 ### Health
 
