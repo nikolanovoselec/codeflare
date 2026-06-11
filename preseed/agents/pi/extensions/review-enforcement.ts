@@ -37,7 +37,19 @@ let lastReconcileCheckAt = 0;
 // must offer, not auto-start. Only a head that later advances beyond this baseline is treated
 // as in-session continuation (a dropped on-tool-end push) and auto-starts. Process-scoped so a
 // fresh `pi` launch always re-baselines and offers — restoring the offer-on-start behavior.
-const reviewSessionBaselineHead = new Map<string, string>();
+// REQ-AGENT-058: the per-session reconcile baseline (the head this session first observed /
+// last acked) lives on globalThis — Pi 0.79.1's createJiti(moduleCache:false) re-instantiates
+// this module on reload, and a module-local Map would silently reset mid-session, losing the
+// in-session-push signal so review OFFERS a head it should AUTOSTART. Keyed by repo.
+const REVIEW_BASELINE_KEY = Symbol.for("codeflare.reviewSessionBaselineHead");
+function reviewBaselineMemory(): Map<string, string> {
+  const g = globalThis as unknown as Record<symbol, Map<string, string> | undefined>;
+  if (!g[REVIEW_BASELINE_KEY]) g[REVIEW_BASELINE_KEY] = new Map<string, string>();
+  return g[REVIEW_BASELINE_KEY]!;
+}
+function rememberReviewBaseline(repo: string, head: string): void {
+  if (repo && head) reviewBaselineMemory().set(repo, head);
+}
 
 type PrState = {
   state?: string;
@@ -198,6 +210,11 @@ function acked(repo: string, head: string): boolean {
 
 function writeAck(repo: string, head: string): void {
   writeFileSync(ackPath(repo), `${head}\n`, "utf8");
+  // REQ-AGENT-058: the acked head becomes this session's reconcile baseline, so a later
+  // in-session push to a descendant is recognised as an in-session continuation and AUTOSTARTS
+  // (not merely offered). globalThis-backed, so it survives a mid-session module reload. A fresh
+  // process has no in-session ack → baseline unset → an inherited head still OFFERS (no regression).
+  rememberReviewBaseline(repo, head);
 }
 
 // "Offered" marker (REQ-AGENT-058 revised). A missed boundary surfaced by reconciliation
@@ -728,6 +745,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerMessageRenderer("pr-boundary-review-summary", () => new Text("", 0, 0));
   pi.registerMessageRenderer("codeflare-review-summary-v2", () => new Text("", 0, 0));
   pi.registerMessageRenderer("codeflare-review-summary-v3", (message: any) => new Markdown(String(message.content || ""), 0, 0, getMarkdownTheme()));
+  pi.registerMessageRenderer("codeflare-review-offered", (message: any) => new Markdown(String(message.content || ""), 0, 0, getMarkdownTheme()));
 
   const installReviewNotifyFilter = (ctx: any): void => {
     const ui = ctx?.ui;
@@ -1180,8 +1198,8 @@ export default function (pi: ExtensionAPI) {
     // push, so it OFFERS; only a head that later ADVANCES beyond the baseline auto-starts. This
     // restores the offer-on-launch behavior — keying off the on-disk ack instead made every launch
     // whose head descended from a prior ack auto-start, which is the regression being fixed.
-    const baseline = reviewSessionBaselineHead.get(resolvedRepo);
-    if (baseline === undefined) reviewSessionBaselineHead.set(resolvedRepo, head);
+    const baseline = reviewBaselineMemory().get(resolvedRepo);
+    if (baseline === undefined) reviewBaselineMemory().set(resolvedRepo, head);
     const inSessionContinuation = reviewBaselineContinuation(baseline, head, (a, b) => isAncestor(resolvedRepo, a, b));
     const action = reconcileBoundaryAction({
       reconcile: decision.reconcile,
@@ -1195,6 +1213,19 @@ export default function (pi: ExtensionAPI) {
     writeOffered(resolvedRepo, head);
     appendReviewEvent(resolvedRepo, { event: "boundary_offered", head, reason: decision.reason });
     ctx.ui.notify(`PR-boundary review available for ${basename(resolvedRepo)} at ${head.slice(0, 12)} (missed boundary). Run /review-run to start the required reviewers, or /review-skip to skip and ack this HEAD. Merge stays blocked until you choose.`, "warning");
+    // REQ-AGENT-058: a merge-blocking offer must be durable in the chat transcript, not only a
+    // transient toast — emit a chat-visible message so the user still sees it if the toast is missed.
+    // writeOffered above already dedupes the offer branch per head, so this fires once per head.
+    try {
+      pi.sendMessage({
+        customType: "codeflare-review-offered",
+        content: `**PR-boundary review available** for \`${basename(resolvedRepo)}\` at \`${head.slice(0, 12)}\` (missed boundary).\n\nRun \`/review-run\` to start the required reviewers, or \`/review-skip\` to skip and ack this HEAD. Merge stays blocked until you choose.`,
+        display: true,
+        details: { repo: resolvedRepo, head, reason: decision.reason },
+      });
+    } catch {
+      // The toast above already surfaced the offer; the chat message is best-effort.
+    }
     return false;
   }
 
@@ -1366,7 +1397,10 @@ export default function (pi: ExtensionAPI) {
     const pr = prForBoundaryCommand(repo, command, prState(repo));
     if (!isEnforcedPrForPush(pr)) return;
     const head = reviewCandidateHead(repo, pr, command);
-    if (!head) return;
+    // REQ-AGENT-058: from here the PR is a confirmed enforced boundary, so a silent bail is a
+    // genuine near-miss. Audit it (reconciliation still backstops the start) so a future miss is
+    // diagnosable instead of invisible. Healthy skips (acked/breaker/pending) are not audited.
+    if (!head) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "no_resolvable_head" }); return; }
     if (consumeBypass()) {
       acknowledgeBypass(repo, head, ctx);
       return;
@@ -1374,7 +1408,7 @@ export default function (pi: ExtensionAPI) {
     if (acked(repo, head)) return;
     if (isBreakerOpen(repo, head)) return; // breaker already gave up on this exact head; push a new commit to retry
     if (loadPending(repo)?.head === head) return; // a window for this head already exists
-    if (!shouldProcessPrBoundaryToolEnd(toolEventId(event), true)) return;
+    if (!shouldProcessPrBoundaryToolEnd(toolEventId(event), true)) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "dedupe_skipped", head }); return; }
     await ensureReviewWindow({ repo, pr, head, ctx, trigger: "initial PR-boundary trigger", command });
   };
 

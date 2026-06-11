@@ -306,7 +306,14 @@ All preseed content is deployed via the manifest pipeline:
   `local-statusline.ts`. The same pattern backs the `gh pr view` result cache
   (`Symbol.for("codeflare.prCache")`), with an asymmetric TTL (60 s for OPEN
   PRs, 10 s for negative/missing) keyed on repo + branch so a checkout
-  invalidates promptly. When `/review-run` cannot resolve the active repo it
+  invalidates promptly, and the per-session reconcile baseline
+  (`Symbol.for("codeflare.reviewSessionBaselineHead")`) — the head this session
+  first observed, advanced to every head it acks. That baseline is what lets a
+  missed boundary recover correctly: a later in-session push to a descendant of
+  a just-reviewed head **auto-starts** review, while a head inherited by a
+  genuinely fresh launch/clone (no in-session ack) is **offered once** — durably,
+  via a `codeflare-review-offered` chat message as well as a transient toast —
+  and stays merge-blocking until the user runs `/review-run` or `/review-skip`. When `/review-run` cannot resolve the active repo it
   reports the Pi session cwd and tells the user to run a command inside the
   target repo first (so it becomes the active repo) and retry. On the
   `git push` / `gh pr create` boundary path specifically, enforcement fails
