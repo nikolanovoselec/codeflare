@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, prBoundaryCommandBase, prEditBoundaryBase, prEnforcedForPush, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, mergeCommandTarget, prBoundaryCommandBase, prEditBoundaryBase, prEnforcedForPush, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * isPrBoundaryTrigger is the single "should this command start a review?" predicate.
@@ -76,6 +76,14 @@ describe('isGhPrMergeCommand / isGitPushOnlyCommand are env-prefix tolerant', ()
     expect(isGhPrMergeCommand('gh pr view 501')).toBe(false);
     expect(isGhPrMergeCommand('echo gh pr merge')).toBe(false);
   });
+  it('matches gh pr merge behind a command wrapper (timeout/env/command/nice) — P2', () => {
+    expect(isGhPrMergeCommand('timeout 60 gh pr merge 501 --squash')).toBe(true);
+    expect(isGhPrMergeCommand('timeout --signal=KILL 60 gh pr merge')).toBe(true);
+    expect(isGhPrMergeCommand('env gh pr merge --admin')).toBe(true);
+    expect(isGhPrMergeCommand('command gh pr merge')).toBe(true);
+    expect(isGhPrMergeCommand('nice -n 10 gh pr merge')).toBe(true);
+    expect(isGhPrMergeCommand('GH_TOKEN=x timeout 30 gh pr merge 7')).toBe(true);
+  });
   it('matches git push with env prefix / global opts', () => {
     expect(isGitPushOnlyCommand('git push origin develop')).toBe(true);
     expect(isGitPushOnlyCommand("GIT_SSH_COMMAND='ssh -i k' git push")).toBe(true);
@@ -84,6 +92,35 @@ describe('isGhPrMergeCommand / isGitPushOnlyCommand are env-prefix tolerant', ()
   it('does not match gh repo sync or non-push git', () => {
     expect(isGitPushOnlyCommand('gh repo sync')).toBe(false);
     expect(isGitPushOnlyCommand('git status')).toBe(false);
+  });
+});
+
+describe('mergeCommandTarget (which PR a gh-pr-merge command targets — P1/P3)', () => {
+  it('extracts a numeric PR selector', () => {
+    expect(mergeCommandTarget('gh pr merge 42 --squash')).toEqual({ prNumber: 42, auto: false });
+  });
+  it('extracts a PR number from a /pull/<n> URL', () => {
+    expect(mergeCommandTarget('gh pr merge https://github.com/o/r/pull/42 --merge')).toEqual({ prNumber: 42, auto: false });
+  });
+  it('treats a non-numeric positional as a branch selector', () => {
+    expect(mergeCommandTarget('gh pr merge feature/login --rebase')).toEqual({ prBranch: 'feature/login', auto: false });
+  });
+  it('captures --repo and -R slugs', () => {
+    expect(mergeCommandTarget('gh pr merge 7 --repo owner/repo')).toEqual({ prNumber: 7, repoSlug: 'owner/repo', auto: false });
+    expect(mergeCommandTarget('gh pr merge --repo=owner/repo 9')).toEqual({ prNumber: 9, repoSlug: 'owner/repo', auto: false });
+  });
+  it('flags --auto', () => {
+    expect(mergeCommandTarget('gh pr merge --auto --squash 3')).toEqual({ prNumber: 3, auto: true });
+  });
+  it('no selector for a bare current-branch merge', () => {
+    expect(mergeCommandTarget('gh pr merge --squash')).toEqual({ auto: false });
+  });
+  it('does not mistake a value-bearing flag value for the selector', () => {
+    // --body's value "42" must NOT be read as PR #42.
+    expect(mergeCommandTarget('gh pr merge --body 42 --squash')).toEqual({ auto: false });
+  });
+  it('reads the target through a command wrapper', () => {
+    expect(mergeCommandTarget('timeout 60 gh pr merge 88 --merge')).toEqual({ prNumber: 88, auto: false });
   });
 });
 

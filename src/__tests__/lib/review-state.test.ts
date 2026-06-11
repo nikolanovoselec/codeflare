@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -471,5 +471,59 @@ describe('formatReviewElapsed / formatReviewTokens', () => {
     expect(formatReviewTokens(2_000)).toBe('2k');
     expect(formatReviewTokens(2_120)).toBe('2.1k');
     expect(formatReviewTokens(124_000)).toBe('124k');
+  });
+});
+
+describe('mergeGateDecision (the gh-pr-merge last-line-of-defense)', () => {
+  const base: MergeGateInput = {
+    prReadable: true, prExists: true, prEnforced: true, prMalformed: false,
+    enforcedHead: 'h1', headAcked: false, candidates: [], bypassPresent: false,
+  };
+
+  it('blocks an enforced PR whose head is not acked', () => {
+    expect(mergeGateDecision(base)).toEqual({ action: 'block', head: 'h1', reason: 'head_not_acked' });
+  });
+
+  it('allows an enforced PR whose head is acked', () => {
+    expect(mergeGateDecision({ ...base, headAcked: true })).toEqual({ action: 'allow' });
+  });
+
+  it('allows a readable non-enforced PR (base not protected / closed) even with the head unacked', () => {
+    expect(mergeGateDecision({ ...base, prEnforced: false })).toEqual({ action: 'allow' });
+  });
+
+  it('allows when gh is readable but there is genuinely no PR', () => {
+    expect(mergeGateDecision({ ...base, prExists: false, prEnforced: false })).toEqual({ action: 'allow' });
+  });
+
+  it('fails CLOSED on a transient gh failure when a review is pending unacked (R2)', () => {
+    const d = mergeGateDecision({ ...base, prReadable: false, prEnforced: false, enforcedHead: '', candidates: [{ head: 'p1', acked: false }] });
+    expect(d).toEqual({ action: 'block', head: 'p1', reason: 'pr_state_unreadable_review_pending' });
+  });
+
+  it('allows on a transient gh failure when NOTHING is pending (no basis to block)', () => {
+    expect(mergeGateDecision({ ...base, prReadable: false, prEnforced: false, enforcedHead: '', candidates: [] })).toEqual({ action: 'allow' });
+  });
+
+  it('does not fail closed on a transient failure when the only pending candidate is already acked', () => {
+    expect(mergeGateDecision({ ...base, prReadable: false, prEnforced: false, enforcedHead: '', candidates: [{ head: 'p1', acked: true }] })).toEqual({ action: 'allow' });
+  });
+
+  it('fails CLOSED on a readable-but-malformed PR (OPEN, empty base/oid) with a pending review (R1)', () => {
+    const d = mergeGateDecision({ ...base, prMalformed: true, prEnforced: false, enforcedHead: '', candidates: [{ head: 'p1', acked: false }] });
+    expect(d).toEqual({ action: 'block', head: 'p1', reason: 'pr_state_malformed_review_pending' });
+  });
+
+  it('uses a latched-breaker / outstanding-offer head as a fail-closed candidate (R2, no pending.json)', () => {
+    const d = mergeGateDecision({ ...base, prReadable: false, prEnforced: false, enforcedHead: '', candidates: [{ head: 'breaker1', acked: false }] });
+    expect(d).toEqual({ action: 'block', head: 'breaker1', reason: 'pr_state_unreadable_review_pending' });
+  });
+
+  it('converts any would-be block into a bypass when the user-only sentinel is present', () => {
+    expect(mergeGateDecision({ ...base, bypassPresent: true })).toEqual({ action: 'bypass', head: 'h1' });
+  });
+
+  it('does not consume a bypass when the merge would be allowed anyway', () => {
+    expect(mergeGateDecision({ ...base, headAcked: true, bypassPresent: true })).toEqual({ action: 'allow' });
   });
 });

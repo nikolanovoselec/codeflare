@@ -57,8 +57,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
+import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -273,6 +273,32 @@ function prCache(): Map<string, PrCacheEntry> {
   return g[PR_CACHE_KEY]!;
 }
 
+// Only ever interpolate sanitized selectors/slugs into the gh shell string. PR numbers, branch names,
+// and owner/repo slugs all match this class; anything else is dropped (the query falls back to the cwd
+// branch) so a crafted merge argument can't inject shell.
+const safeGhArg = (s?: string): string | undefined => (s && /^[\w./#-]+$/.test(s) ? s : undefined);
+
+// Distinguish a genuine "no PR" (gh exits 1: no pull request for this branch/selector) from a transient
+// gh FAILURE (auth/network/rate-limit/timeout, exit 2/4/signal). Both collapsed to `undefined` before,
+// so neither the push path nor the merge gate could tell "allow, there is no PR" from "fail closed, gh
+// is down" (P4). `failed:true` = transient (never cache, fail-closed-eligible); `failed:false` +
+// `pr:undefined` = real absence (cacheable negative, allow). An optional selector/repoSlug targets a
+// specific PR (the one a `gh pr merge` command named) instead of the cwd branch (P1).
+type PrStateResult = { pr: PrState | undefined; failed: boolean };
+function prStateResultFor(repo: string, selector?: string, repoSlug?: string): PrStateResult {
+  const sel = safeGhArg(selector) ? ` ${safeGhArg(selector)}` : "";
+  const rep = safeGhArg(repoSlug) ? ` --repo ${safeGhArg(repoSlug)}` : "";
+  try {
+    const out = shell(`gh pr view${sel}${rep} --json number,state,baseRefName,headRefOid,headRefName,isDraft 2>/dev/null`, repo);
+    return { pr: out ? JSON.parse(out) as PrState : undefined, failed: false };
+  } catch (e) {
+    // execFileSync surfaces gh's exit code on `.status`. Exit 1 = "no pull requests found" (genuine
+    // absence, not a failure); any other exit (2 auth, 4 no-token, timeout signal) is transient.
+    const status = (e as { status?: number } | undefined)?.status;
+    return { pr: undefined, failed: status !== 1 };
+  }
+}
+
 function prState(repo: string): PrState | undefined {
   const branch = currentBranch(repo) ?? "";
   const cache = prCache();
@@ -281,24 +307,49 @@ function prState(repo: string): PrState | undefined {
     const ttl = hit.pr?.state === "OPEN" ? 60000 : 10000; // 60s OPEN, 10s negative
     if (Date.now() - hit.at < ttl) return hit.pr;
   }
-  try {
-    const out = shell("gh pr view --json number,state,baseRefName,headRefOid,headRefName,isDraft 2>/dev/null", repo);
-    const pr = out ? JSON.parse(out) as PrState : undefined;
-    cache.set(repo, { branch, pr, at: Date.now() });
-    return pr;
-  } catch {
-    cache.delete(repo);
-    return undefined;
-  }
+  const res = prStateResultFor(repo);
+  if (res.failed) { cache.delete(repo); return undefined; } // transient: never cache, re-query next call
+  cache.set(repo, { branch, pr: res.pr, at: Date.now() });
+  return res.pr;
 }
 
-// Cache-bypassing PR-state read for the merge gate: the gate is the last line of defense, so it
-// must never decide on a head that the 60s prCache TTL has let go stale (a push after the cache was
-// warmed leaves `headRefOid` pointing at an already-acked older head while GitHub merges the newer
-// one). Dropping the entry forces a fresh `gh pr view` and re-warms the cache with the true head.
+// Cache-bypassing PR-state read for the merge gate: the gate is the last line of defense, so it must
+// never decide on a head that the 60s prCache TTL has let go stale (a push after the cache was warmed
+// leaves `headRefOid` pointing at an already-acked older head while GitHub merges the newer one).
+// Returns the full result so the gate distinguishes unreadable (fail closed) from no-PR (allow), and
+// can target the specific PR the merge command named. Only the cwd-branch read touches the cache.
+function prStateFreshResult(repo: string, selector?: string, repoSlug?: string): PrStateResult {
+  if (!selector && !repoSlug) prCache().delete(repo);
+  return prStateResultFor(repo, selector, repoSlug);
+}
 function prStateFresh(repo: string): PrState | undefined {
-  prCache().delete(repo);
-  return prState(repo);
+  return prStateFreshResult(repo).pr;
+}
+
+// Every locally-known unacked head that independently REQUIRES review even when the target PR itself is
+// unreadable or malformed — so the merge gate can fail closed on a transient gh failure (R2). The
+// pending head is the obvious one, but two merge-blocking states carry NO pending.json: a latched
+// breaker (review gave up but the head is still unreviewed) and an outstanding session offer.
+function gateCandidates(repo: string): Array<{ head: string; acked: boolean }> {
+  const seen = new Set<string>();
+  const out: Array<{ head: string; acked: boolean }> = [];
+  const add = (head: string | undefined): void => {
+    if (head && !seen.has(head)) { seen.add(head); out.push({ head, acked: acked(repo, head) }); }
+  };
+  add(loadPending(repo)?.head);
+  try { add(readFileSync(breakerPath(repo), "utf8").trim()); } catch { /* no breaker latched */ }
+  // offerSurfacedMemory keys are `${repo}<NUL>${head}` — the separator below is a real   byte
+  // (it may render as a blank); see baselineKey's note. Match it exactly to recover the offer heads.
+  const prefix = `${repo} `;
+  for (const k of offerSurfacedMemory()) if (k.startsWith(prefix)) add(k.slice(prefix.length));
+  return out;
+}
+
+// Peek at the user-only bypass sentinel WITHOUT consuming it (consumeBypass deletes it). The gate
+// decides on the peek, then consumes only when it actually bypasses, so a peek for an allow-anyway
+// merge never burns the one-shot sentinel.
+function bypassPending(): boolean {
+  return existsSync(REVIEW_BYPASS);
 }
 
 function localHead(repo: string): string | undefined {
@@ -1432,31 +1483,44 @@ export default function (pi: ExtensionAPI) {
     if (isGhPrMerge(command)) {
       const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
       if (!repo || !isSddProject(repo)) return;
-      // Read PR state fresh (bypass the prCache) so a stale-acked head can't open the gate while
-      // GitHub merges a newer, unreviewed head; resolveEnforcedHead then folds in local HEAD too.
-      const pr = prStateFresh(repo);
-      if (!pr) {
-        // gh pr view is unreadable (transient). The gate is the last line of defense, so fail
-        // CLOSED when a review is demonstrably in-flight/unacked for this repo rather than waving the
-        // merge through. When nothing is pending we can't assert it's even an enforced PR — allow.
-        const pendingHead = loadPending(repo)?.head;
-        if (pendingHead && !acked(repo, pendingHead)) {
-          appendReviewEvent(repo, { event: "merge_blocked", head: pendingHead, reason: "pr_state_unreadable_review_pending" });
-          return { block: true, reason: `PR-boundary review state for ${basename(repo)} is temporarily unreadable (gh pr view failed) and a review is pending. Retry the merge, run /review-run, or use the user-only ${REVIEW_BYPASS} bypass.` };
+      // P1: gate the PR the command actually TARGETS (number / URL / branch / --repo), not just the cwd
+      // branch — `gh pr merge 42` from a clean checkout must be checked against PR 42. Read fresh (bypass
+      // the prCache) so a stale-acked head can't open the gate while GitHub merges a newer unreviewed one,
+      // and keep the full result so we can tell unreadable (fail closed) from no-PR (allow) — P4/R1.
+      const target = mergeCommandTarget(command);
+      const selector = target.prNumber !== undefined ? String(target.prNumber) : target.prBranch;
+      const res = prStateFreshResult(repo, selector, target.repoSlug);
+      const pr = res.pr;
+      const enforced = isEnforcedPr(pr);
+      const head = enforced ? resolveEnforcedHead(repo, pr) : "";
+      // P3: `--auto` arms a server-side merge that completes once checks pass and never re-hits this gate
+      // for the head that actually merges. Block it on an enforced unacked PR (review hasn't happened);
+      // warn-but-allow on an acked one (a LATER push could still merge unreviewed — audited, not silent).
+      if (target.auto && enforced) {
+        if (!acked(repo, head)) {
+          appendReviewEvent(repo, { event: "merge_blocked", head, reason: "auto_merge_bypasses_review" });
+          return { block: true, reason: `--auto would let ${basename(repo)} #${pr?.number ?? "?"} merge server-side after checks WITHOUT this PR-boundary review (head ${head.slice(0, 12)} unreviewed). Review then merge without --auto, run /review-run, or use the user-only ${REVIEW_BYPASS} bypass.` };
         }
-        return;
+        appendReviewEvent(repo, { event: "auto_merge_armed_after_ack", head });
+        ctx.ui.notify(`--auto armed on ${basename(repo)} #${pr?.number ?? "?"} (head ${head.slice(0, 12)} is reviewed). A push AFTER this would merge server-side without re-review — re-check before pushing again.`, "warning");
       }
-      if (!isEnforcedPr(pr)) return;
-      const head = resolveEnforcedHead(repo, pr);
-      if (consumeBypass()) {
-        acknowledgeBypass(repo, head, ctx);
-        return;
-      }
-      if (!acked(repo, head)) {
-        appendReviewEvent(repo, { event: "merge_blocked", head, reason: "head_not_acked" });
-        return { block: true, reason: `PR-boundary review required before merge for ${basename(repo)} at ${head.slice(0, 12)}. Complete required reviewers, run /review-run, or use the user-only ${REVIEW_BYPASS} bypass.` };
-      }
-      return;
+      const decision = mergeGateDecision({
+        prReadable: !res.failed,
+        prExists: Boolean(pr),
+        prEnforced: enforced,
+        prMalformed: Boolean(pr && pr.state === "OPEN" && (!pr.baseRefName || !pr.headRefOid)),
+        enforcedHead: head,
+        headAcked: head ? acked(repo, head) : false,
+        candidates: gateCandidates(repo),
+        bypassPresent: bypassPending(),
+      });
+      if (decision.action === "allow") return;
+      if (decision.action === "bypass") { consumeBypass(); acknowledgeBypass(repo, decision.head, ctx); return; }
+      appendReviewEvent(repo, { event: "merge_blocked", head: decision.head, reason: decision.reason });
+      const why = decision.reason === "head_not_acked"
+        ? `PR-boundary review required before merge for ${basename(repo)} at ${decision.head.slice(0, 12)}.`
+        : `PR-boundary review state for ${basename(repo)} is unreadable (${decision.reason}) while a review is pending for ${decision.head.slice(0, 12)}.`;
+      return { block: true, reason: `${why} Complete required reviewers, run /review-run, or use the user-only ${REVIEW_BYPASS} bypass.` };
     }
     // No doc-updater-after-spec-reviewer ordering gate: the lanes run in parallel
     // (REQ-AGENT-040 AC4/AC5, AD78), so onAgentStart only enforces the merge gate.
@@ -1587,6 +1651,26 @@ export default function (pi: ExtensionAPI) {
     }
 
     const command = commandText(event);
+    // P2/P3 retroactive truth-layer: the pre-merge gate (onAgentStart) can be slipped by a wrapper the
+    // boundary anchor doesn't cover (`bash -c '…'`, `xargs … gh pr merge`) or by `--auto` merging
+    // server-side later. This is the backstop Claude relies on wholesale: after ANY gh-pr-merge-shaped
+    // command actually ran, if the PR is now MERGED while its head was never acked, raise a loud, durable
+    // alert. It cannot un-merge, but it turns a SILENT unreviewed merge into a recorded, visible one (the
+    // never-silent principle). The loose word match may also fire on a mention (`grep 'gh pr merge'`),
+    // but then nothing merged so state!=MERGED and no alert — a harmless extra `gh pr view`.
+    if (/\bgh\b[^\n;&|]*\bpr\b[^\n;&|]*\bmerge\b/.test(command)) {
+      const mergeRepo = reviewRepoForCtx(ctx, cwdFromCommand(command));
+      if (mergeRepo && isSddProject(mergeRepo)) {
+        const t = mergeCommandTarget(command);
+        const sel = t.prNumber !== undefined ? String(t.prNumber) : t.prBranch;
+        const merged = prStateResultFor(mergeRepo, sel, t.repoSlug).pr;
+        const mh = merged?.headRefOid || "";
+        if (merged?.state === "MERGED" && mh && !acked(mergeRepo, mh) && !ignoreAlreadyLogged(mergeRepo, mh, "merge_completed_unreviewed")) {
+          appendReviewEvent(mergeRepo, { event: "merge_completed_unreviewed", head: mh, prNumber: merged.number });
+          ctx.ui.notify(`${basename(mergeRepo)} #${merged.number ?? "?"} was MERGED without completing PR-boundary review (head ${mh.slice(0, 12)} never acked) — the gate was bypassed (wrapper or --auto). Review the merged change and follow up.`, "error");
+        }
+      }
+    }
     if (!isPrBoundaryTrigger(command)) {
       // PR-URL fallback (REQ-AGENT-058 AC5): a `gh pr create` can print the new PR URL even when
       // its command text was not recognized as a boundary trigger (compound `&&`, here-doc body,

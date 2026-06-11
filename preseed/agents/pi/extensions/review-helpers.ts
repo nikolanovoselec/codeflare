@@ -178,8 +178,14 @@ function isBoundaryWords(words: ShellCommand): boolean {
 // ONLY for cwdFromBoundaryCommand (cd / git -C extraction), now here-doc-safe via
 // stripHeredocs.
 // ---------------------------------------------------------------------------
-// Start-of-string OR a shell separator (\n ; & |), optional whitespace, optional `VAR=val ` prefixes.
-const BOUNDARY_ANCHOR = String.raw`(?:^|[\n;&|])[ \t]*(?:[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)[ \t]+)*`;
+// Start-of-string OR a shell separator (\n ; & |), optional whitespace, optional `VAR=val ` prefixes,
+// then optional command wrappers (`env`, `command`, `nice [-n N]`, `timeout [-flags] DURATION`). The
+// wrapper class is load-bearing for the MERGE gate especially: agents routinely emit `timeout 60 gh pr
+// merge …` / `env gh pr merge …`, and unlike detection (where the gh-pr-view reconcile backstops a
+// missed boundary) the gate has no second chance — a wrapper that slips past it is an unreviewed merge.
+// `bash -c '…'` / `xargs … gh pr merge` (gh inside quotes) is NOT covered here by design; the post-merge
+// retroactive "MERGED while unacked" audit in review-enforcement is the truth-layer backstop for those.
+const BOUNDARY_ANCHOR = String.raw`(?:^|[\n;&|])[ \t]*(?:[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)[ \t]+)*(?:(?:env|command|nice(?:[ \t]+-n[ \t]*\S+)?|timeout(?:[ \t]+-\S+)*[ \t]+\S+)[ \t]+)*`;
 // The matched verb must end at a separator / whitespace / quote / end-of-string (a whole word).
 const BOUNDARY_TAIL = String.raw`(?=[ \t"';&|]|$)`;
 // git global options that can sit between `git` and the `push` subcommand (e.g. `git -C /repo push`).
@@ -297,6 +303,41 @@ export function isGhPrMergeCommand(command: string): boolean {
 }
 export function isGitPushOnlyCommand(command: string): boolean {
   return RE_GIT_PUSH.test(command);
+}
+
+// Which PR a `gh pr merge` command actually targets, so the merge gate can check THAT PR rather than
+// blindly evaluating the current branch's PR (P1). `gh pr merge 42`, a PR URL, a branch name, or
+// `--repo owner/repo` all select something other than the cwd branch; without this the gate both
+// FALSE-ALLOWS (`gh pr merge <other-unreviewed-PR>` sails through when the current branch is clean) and
+// FALSE-BLOCKS (merging an unrelated ready PR by number from a no-PR checkout). Also surfaces `--auto`,
+// which arms a server-side merge that completes after checks pass and never re-consults this gate (P3).
+const RE_GH_PR_MERGE_ARGS = new RegExp(BOUNDARY_ANCHOR + String.raw`gh[ \t]+pr[ \t]+merge\b([^\n;&|]*)`);
+const stripQuotes = (s: string): string => s.replace(/^["']|["']$/g, "");
+export type MergeCommandTarget = { prNumber?: number; prBranch?: string; repoSlug?: string; auto: boolean };
+export function mergeCommandTarget(command: string): MergeCommandTarget {
+  const result: MergeCommandTarget = { auto: false };
+  const m = RE_GH_PR_MERGE_ARGS.exec(command);
+  if (!m) return result;
+  const toks = m[1].trim().split(/[ \t]+/).filter(Boolean);
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t === "--auto") { result.auto = true; continue; }
+    if (t === "--repo" || t === "-R") { const v = toks[++i]; if (v) result.repoSlug = stripQuotes(v); continue; }
+    if (t.startsWith("--repo=")) { result.repoSlug = stripQuotes(t.slice(7)); continue; }
+    if (t.startsWith("-")) {
+      // Skip the VALUE of known value-bearing flags so it is not mistaken for the PR selector.
+      if (/^(-b|--body|--body-file|-t|--subject|--match-head-commit|--author)$/.test(t)) i++;
+      continue;
+    }
+    // First positional token is the PR selector: a number, a /pull/<n> URL, or a branch name.
+    if (result.prNumber === undefined && result.prBranch === undefined) {
+      const url = /\/pull\/(\d+)/.exec(t);
+      if (url) result.prNumber = Number(url[1]);
+      else if (/^\d+$/.test(t)) result.prNumber = Number(t);
+      else result.prBranch = stripQuotes(t);
+    }
+  }
+  return result;
 }
 
 export function commandTextFromEvent(event: any): string {

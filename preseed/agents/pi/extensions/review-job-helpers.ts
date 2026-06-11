@@ -948,6 +948,53 @@ export function reviewInSessionContinuation(input: {
   return reviewBaselineContinuation(input.baseline, input.head, input.isAncestor);
 }
 
+// Pure decision for the `gh pr merge` gate — the LAST line of defense, so it must fail in the safe
+// (block) direction whenever review is demonstrably required and the PR state can't be trusted. The
+// caller feeds the state for the PR the merge command actually targets (so `gh pr merge 42` is gated
+// against PR 42, not the cwd branch — P1) plus every locally-known unacked merge-blocking head. Returns
+// one of: allow / bypass (a user-only sentinel was present, consume it + ack) / block (with an audit
+// reason code). The reason codes feed the durable `merge_blocked` audit event.
+//
+//   prReadable  — `gh pr view` for the target succeeded (false = transient gh failure: auth/network/
+//                 rate-limit/timeout; NOT "no PR", which is prReadable:true + prExists:false).
+//   prMalformed — readable + OPEN but base or headRefOid missing (the transient-parse edge the push
+//                 path fails OPEN for; here we fail CLOSED if review is pending — R1).
+//   prEnforced  — OPEN + base main/master + headRefOid present.
+//   candidates  — locally-known unacked heads that each independently require review even when the PR
+//                 itself is unreadable/malformed: the pending head, a latched-breaker head, an
+//                 outstanding-offer head (R2 — breaker/offer states deliberately have no pending.json).
+export type MergeGateInput = {
+  prReadable: boolean;
+  prExists: boolean;
+  prEnforced: boolean;
+  prMalformed: boolean;
+  enforcedHead: string;
+  headAcked: boolean;
+  candidates: Array<{ head: string; acked: boolean }>;
+  bypassPresent: boolean;
+};
+export type MergeGateDecision =
+  | { action: "allow" }
+  | { action: "bypass"; head: string }
+  | { action: "block"; head: string; reason: string };
+export function mergeGateDecision(input: MergeGateInput): MergeGateDecision {
+  const firstUnacked = input.candidates.find((c) => c.head && !c.acked)?.head;
+  let block: { head: string; reason: string } | undefined;
+  if (!input.prReadable) {
+    // gh is down — block only if a review is demonstrably pending for an unacked head; with nothing
+    // pending we cannot even assert this is an enforced PR, so we allow (no basis to block).
+    if (firstUnacked) block = { head: firstUnacked, reason: "pr_state_unreadable_review_pending" };
+  } else if (input.prMalformed) {
+    if (firstUnacked) block = { head: firstUnacked, reason: "pr_state_malformed_review_pending" };
+  } else if (input.prEnforced) {
+    if (!input.headAcked) block = { head: input.enforcedHead, reason: "head_not_acked" };
+  }
+  // readable + (no PR OR not enforced: base not protected / closed / draft-by-policy) -> allow.
+  if (!block) return { action: "allow" };
+  if (input.bypassPresent) return { action: "bypass", head: block.head };
+  return { action: "block", head: block.head, reason: block.reason };
+}
+
 // Resolve which repo a review handler should act on, WITHOUT consulting the shared graphify
 // active-cwd sentinel. That sentinel (/home/user/.cache/codeflare-hooks/graphify-active-cwd) is a
 // single-active-repo file written by BOTH Claude's graphify-active-repo.sh hook AND Pi's
