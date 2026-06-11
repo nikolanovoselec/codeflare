@@ -294,6 +294,24 @@ All preseed content is deployed via the manifest pipeline:
   active repo from those commands, and requires durable review-job completion
   for SDD PRs targeting `main`/`master`.
 
+  Cross-extension repo state (the session's active repo and the repo under
+  review) is stored on `globalThis` via `Symbol.for("codeflare.activeRepo")`
+  and `Symbol.for("codeflare.reviewRepo")`, because Pi 0.79.1's extension
+  loader (`createJiti` with `moduleCache:false`) gives each extension its own
+  instance of every imported module — a module-level variable written by
+  `codeflare-pi.ts` is not visible to `review-enforcement.ts` or
+  `local-statusline.ts`. The same pattern backs the `gh pr view` result cache
+  (`Symbol.for("codeflare.prCache")`), with an asymmetric TTL (60 s for OPEN
+  PRs, 10 s for negative/missing) keyed on repo + branch so a checkout
+  invalidates promptly. When `/review-run` cannot resolve the active repo it
+  reports the Pi session cwd and tells the user to run a command inside the
+  target repo first (so it becomes the active repo) and retry. On the
+  `git push` / `gh pr create` boundary path specifically, enforcement fails
+  open if `gh pr view` returns an OPEN PR with an empty `baseRefName` (a
+  transient `gh`/`jq` parsing edge) — the PR is treated as targeting
+  `main`/`master` rather than silently skipping review; the merge gate and the
+  autonomous reconcile tick keep the stricter non-empty-base check.
+
   The durable runner in `review-jobs.ts` writes job state under
   `.git/codeflare-review-jobs/<head>/` and public findings under
   `.git/sdd-review-results/<head>/`. Each result file uses a common
@@ -579,7 +597,7 @@ All tiers append tool guidance (pointing at `mcp__graphify__query_graph`, `mcp__
 
 ### Post-clone graph triage ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage))
 
-In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing. If no repo graph exists, the agent asks the user which graph action to take before doing any graph work: Full repo AST-only, Full repo semantic, or no graph action. Claude's clone hook injects a directive that tells the agent to compare `graphify-out/graph.json` `built_at_commit` with `git rev-parse HEAD`; Pi performs that freshness comparison natively in its lifecycle extension. Fresh graphs produce an information message only. Stale or unknown graphs ask the user before any update, offering existing-graph-as-is, Full repo AST-only update, or Full repo semantic refresh. The AST-only update uses the bounded upstream-update wrapper only after the user chooses it. Full semantic build/refresh records clone-time intent only: after corpus detection, the graphify skill must show actual uncached file/subagent counts and get confirmation before dispatching semantic subagents. Pi mirrors the same behavior through native lifecycle events and suppresses clone triage inside durable PR-boundary review lanes.
+In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing. If no repo graph exists, the agent asks the user which graph action to take before doing any graph work: Full repo AST-only, Full repo semantic, or no graph action. Claude's clone hook injects a directive that tells the agent to compare `graphify-out/graph.json` `built_at_commit` with `git rev-parse HEAD`; Pi performs that freshness comparison natively in its lifecycle extension. Fresh graphs produce an information message only. A stale graph (built at a commit other than `git HEAD`) makes the directive open with an explicit STALE warning before presenting choices; an unknown-freshness graph asks without the stale flag. Both offer existing-graph-as-is, Full repo AST-only update, or Full repo semantic refresh, and freshness plus on-disk existence are resolved at clone-event time via `exists`/`freshness` callbacks. The AST-only update uses the bounded upstream-update wrapper only after the user chooses it. Full semantic build/refresh records clone-time intent only: after corpus detection, the graphify skill must show actual uncached file/subagent counts and get confirmation before dispatching semantic subagents. Pi mirrors the same behavior through native lifecycle events and suppresses clone triage inside durable PR-boundary review lanes. Clone detection is scoped to shell-only command text — Bash `.command` fields, `ctx_execute` blocks with `language: "shell"`, and `ctx_batch_execute` `.commands[].command` entries; non-shell `ctx_execute` bodies are excluded so a source literal containing `git clone` cannot trigger the prompt. The detection regex also tolerates a leading env-var prefix (`BROWSER="" gh repo clone`, `GIT_TERMINAL_PROMPT=0 git clone`, `env BROWSER="" gh repo clone`).
 
 ### Pi native graphify tools ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
 

@@ -399,8 +399,14 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       repo: '/repo',
       hasGraph: true,
       mode: 'existing-graph',
+      freshness: 'unknown',
       choices: ['use existing graph as-is', 'Full repo AST-only update', 'Full repo semantic refresh'],
     });
+    // FIX 3: a stale graph carries freshness 'stale' and renders an explicit STALE lead.
+    const staleAction = graphifyCloneAction('/repo', true, 'stale');
+    expect(staleAction.freshness).toBe('stale');
+    expect(renderGraphifyCloneDirective(staleAction)).toContain('STALE');
+    expect(renderGraphifyCloneDirective(staleAction)).not.toContain('an existing graphify graph was found');
     expect(graphifyPromptMarker('/home/user/workspace/r', 'session-1')).toBe('/tmp/codeflare-graphify-prompted-session-1_home_user_workspace_r');
     expect(isFailedGraphifyToolExecution({ status: 'error' })).toBe(true);
     expect(isFailedGraphifyToolExecution({ isError: false })).toBe(false);
@@ -416,6 +422,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       failed: false,
       findGitRoot: (path) => `${path}/.git-root`,
       hasGraph: (repo) => repo.endsWith('.git-root'),
+      exists: () => true,
     });
     expect(decision).toEqual({
       repo: '/home/user/workspace/r/.git-root',
@@ -424,6 +431,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         repo: '/home/user/workspace/r/.git-root',
         hasGraph: true,
         mode: 'existing-graph',
+        freshness: 'unknown',
         choices: ['use existing graph as-is', 'Full repo AST-only update', 'Full repo semantic refresh'],
       },
     });
@@ -434,7 +442,34 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       failed: true,
       findGitRoot: () => undefined,
       hasGraph: () => false,
+      exists: () => true,
     })).toBeUndefined();
+    // FIX 3: a parsed-but-bogus destination that is not on disk yields no prompt.
+    expect(graphifyClonePromptDecision({
+      command: 'git clone https://github.com/o/r.git ,',
+      cwd: '/home/user/workspace',
+      sessionId: 'session-1',
+      failed: false,
+      findGitRoot: () => '/home/user/workspace/r',
+      hasGraph: () => false,
+      exists: () => false,
+    })).toBeUndefined();
+    // FIX 3: env-var-prefixed clone forms resolve their destination via ENV_PREFIX.
+    expect(cloneTargetPath('BROWSER="" gh repo clone o/r', '/home/user/workspace')).toBe('/home/user/workspace/r');
+    expect(cloneTargetPath('GIT_TERMINAL_PROMPT=0 git clone https://github.com/o/r.git', '/home/user/workspace')).toBe('/home/user/workspace/r');
+    expect(cloneTargetPath('env BROWSER="" gh repo clone o/r', '/home/user/workspace')).toBe('/home/user/workspace/r');
+    // FIX 3: a stale existing graph threads freshness through the decision action.
+    const staleDecision = graphifyClonePromptDecision({
+      command: 'git clone https://github.com/o/r.git',
+      cwd: '/home/user/workspace',
+      sessionId: 'session-1',
+      failed: false,
+      findGitRoot: () => '/home/user/workspace/r',
+      hasGraph: () => true,
+      exists: () => true,
+      freshness: () => 'stale',
+    });
+    expect(staleDecision?.action.freshness).toBe('stale');
   });
 
   it('REQ-AGENT-036: Pi review enforcement ignores failed PR-boundary tool results and tolerates GitHub PR-head lag', () => {
@@ -521,6 +556,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(cwdFromBoundaryCommand(batchedDependabotCommand)).toBe('/home/user/workspace/codeflare');
     expect(commandTextFromEvent({ toolCall: { input: { command: batchedDependabotCommand } } })).toBe(batchedDependabotCommand);
     expect(commandTextFromEvent({ input: { command: 'git status' }, toolCall: { arguments: { command: batchedDependabotCommand } } })).toBe(batchedDependabotCommand);
+    // FIX 2: commandTextFromEvent is shell-only. ctx_execute code counts only when language is
+    // "shell"; a non-shell body is ignored so a source literal can't false-fire the boundary, the
+    // legacy .script shape yields nothing, and a ctx_batch surfaces its boundary command.
+    expect(commandTextFromEvent({ input: { language: 'shell', code: 'gh pr create --base main' } })).toBe('gh pr create --base main');
+    expect(commandTextFromEvent({ input: { language: 'javascript', code: "const cmd = 'git push origin main'" } })).toBe('');
+    expect(commandTextFromEvent({ input: { script: 'git push origin develop' } })).toBe('');
+    expect(commandTextFromEvent({ input: { commands: [{ command: 'ls' }, { command: 'git push origin develop' }] } })).toBe('git push origin develop');
     expect(isPrBoundaryCommand('rg -n "gh pr create --base main" preseed/agents/pi/extensions/review-enforcement.ts')).toBe(false);
     expect(isPrBoundaryCommand("printf '%s' 'git push origin develop'")).toBe(false);
     expect(isPrBoundaryCommand('gh pr edit 12 --base develop')).toBe(false);
