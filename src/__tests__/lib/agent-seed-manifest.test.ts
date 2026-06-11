@@ -1060,6 +1060,16 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const divergent = '## Findings\nHIGH risk because a separate [LOW] item is tagged elsewhere';
     expect(extractReviewFindings('code-reviewer', divergent)).toHaveLength(0);
     expect(countReviewSeverities(divergent)).toEqual({ critical: 0, high: 0, medium: 0, low: 0 });
+
+    // Empty-title lockstep: a decorated label with no inline title (`**CRITICAL**` alone) is COUNTED by the
+    // counter, so the extractor must surface it too — with a placeholder title — rather than silently drop a
+    // counted severity. A line-wide `(.+?)` title group would fail to match the bare label (0 findings) while
+    // the counter reports 1, re-opening the drift in the under-count direction.
+    const bareLabel = ['## Findings', '**CRITICAL**', 'File: `src/parser.ts:88`', 'Issue: Unbounded recursion.', 'Fix: add a depth guard.'].join('\n');
+    const bareFindings = extractReviewFindings('code-reviewer', bareLabel);
+    expect(bareFindings).toHaveLength(1);
+    expect(bareFindings[0]).toMatchObject({ severity: 'CRITICAL', title: '(untitled)', file: 'src/parser.ts:88' });
+    expect(countReviewSeverities(bareLabel)).toEqual({ critical: 1, high: 0, medium: 0, low: 0 });
   });
 
   it('REQ-AGENT-059: hidden autofix requests send one follow-up only for actionable findings and only after marker claim', () => {

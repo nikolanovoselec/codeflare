@@ -505,11 +505,13 @@ function findingHeaderMatches(body: string): RegExpMatchArray[] {
   // Use the SAME anchored decoration rule as countReviewSeverities: the decoration must wrap the LEADING
   // severity word ([HIGH] / **HIGH** / HIGH:), not merely appear somewhere on the line. A line-wide test
   // diverges from the counter on a line like "HIGH risk because [LOW] elsewhere" (counter 0, extractor 1),
-  // re-opening the phantom-finding-vs-zero-count gap this is meant to close. Groups (identical shape to the
-  // counter so the two can never drift): 1=open, 2=severity, 3=close, 4=title. A bare-prose leading
-  // severity word ("Critical to the design…") has a space — not ]/**/: — after it, so it simply fails to
-  // match and is never a finding.
-  const header = /^\s*(?:[-*]\s*|\d+\.\s*)?(\[|\*\*)?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)(\]|\*\*|:)\s*(.+?)\s*$/i;
+  // re-opening the phantom-finding-vs-zero-count gap this is meant to close. This regex is BYTE-IDENTICAL
+  // to the counter's (group 4 = (.*) so it also matches an empty title), so the match/no-match decision can
+  // never drift. Groups: 1=open, 2=severity, 3=close, 4=title. A bare-prose leading severity word
+  // ("Critical to the design…") has a space — not ]/**/: — after it, so it simply fails to match and is
+  // never a finding. A bare decorated label with no inline title ([HIGH] alone) is counted by the counter,
+  // so it is surfaced here too — extractReviewFindings gives it a placeholder title rather than drop it.
+  const header = /^\s*(?:[-*]\s*|\d+\.\s*)?(\[|\*\*)?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)(\]|\*\*|:)(.*)$/i;
   let inFence = false;
   let offset = 0;
   for (const line of body.split("\n")) {
@@ -549,7 +551,7 @@ export function extractReviewFindings(lane: string, text: string): ReviewFinding
     return {
       lane,
       severity,
-      title: cleanReviewText(match[4]),
+      title: cleanReviewText(match[4]) || "(untitled)",
       file,
       issue,
       fix,
