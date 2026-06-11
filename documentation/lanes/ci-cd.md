@@ -78,7 +78,7 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 ### Deploy Workflow Detail
 
 1. Install dependencies (cached via `actions/cache`)
-2. Build frontend, run backend + frontend tests, generate Workers runtime types (`wrangler types`), typecheck both
+2. Build frontend, then build landing page (`landing/` → `web-ui/dist/landing/`; order matters — the web-ui build wipes `dist/`), run backend + frontend + landing tests, generate Workers runtime types (`wrangler types`), typecheck both
 3. Resolve/create KV namespace, patch `wrangler.toml` with KV ID
 4. Apply worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default/saas=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB). All tiers default to 10 max instances; `MAX_INSTANCES` variable overrides if set
 5. Optionally generate `.cache-bust` for AI agent layer
@@ -93,7 +93,7 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 ### Test Workflow Detail
 
 Two parallel jobs:
-- **test**: Lint (oxlint), build frontend, run backend tests, host hook tests (`node --test`), frontend tests, generate Workers runtime types (`wrangler types`), typecheck both, dead code check (knip), `npm audit --audit-level=high --omit=dev` for backend and frontend
+- **test**: Lint (oxlint), build frontend, run backend tests, host hook tests (`node --test`), frontend tests, landing tests (`cd landing && npm test` — Container-API render + unit tests), generate Workers runtime types (`wrangler types`), typecheck both, dead code check (knip), `npm audit --audit-level=high --omit=dev` for backend and frontend
 - **dependency-review**: Runs `actions/dependency-review-action` on PRs - blocks merging if new dependencies introduce known vulnerabilities
 
 ### E2E Workflow Detail
