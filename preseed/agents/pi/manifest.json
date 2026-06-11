@@ -222,5 +222,290 @@
       "default",
       "advanced"
     ]
+  },
+  "skills/impeccable/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/adapt.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/animate.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/audit.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/bolder.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/brand.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/clarify.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/codex.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/colorize.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/craft.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/critique.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/delight.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/distill.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/document.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/extract.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/harden.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/init.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/interaction-design.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/layout.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/live.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/onboard.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/optimize.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/overdrive.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/polish.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/product.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/quieter.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/shape.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/reference/typeset.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/command-metadata.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/context-signals.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/context.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/critique-storage.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detect-csp.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detect.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/browser/injected/index.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/cli/main.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/detect-antipatterns-browser.js": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/detect-antipatterns.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/engines/browser/detect-url.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/engines/regex/detect-text.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/engines/static-html/css-cascade.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/engines/static-html/detect-html.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/engines/visual/screenshot-contrast.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/findings.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/node/file-system.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/profile/profiler.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/registry/antipatterns.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/rules/checks.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/shared/color.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/shared/constants.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/detector/shared/page.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/design-parser.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/impeccable-paths.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/is-generated.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/modern-screenshot.umd.js": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/palette.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/pin.mjs": {
+    "modes": [
+      "advanced"
+    ]
   }
 }

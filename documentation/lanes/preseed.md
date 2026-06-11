@@ -136,7 +136,17 @@ enforcement family (advanced-only):
 `doc-enforce` + `doc-enforce-lanes` + `doc-enforce-shape` +
 `doc-enforce-truth`, `tdd-enforce`. Git-workflow family:
 `ci-monitoring`, `git-review-pipeline` (advanced-only),
-`pr-workflow`, `deploy-credentials`. Preseeded to
+`pr-workflow`, `deploy-credentials`. Design family (UI/frontend
+work): `emil-design-eng` and `design-taste-frontend` (prose-only,
+adapted to every agent), plus `impeccable` (the 23-sub-command
+design skill + its ~57-file offline detector, minus the localhost
+`live` browser tooling that has no browser in codeflare). impeccable
+is scoped to Claude + Pi only — Claude gets the trimmed tree in
+`~/.claude/skills/impeccable/`, and Pi gets a DEDICATED copy under
+`~/.pi/agent/skills/impeccable/` (paths re-pointed, `.mjs` scripts
+emitted verbatim) rather than the prose-transformed lane, so its
+detector scripts are never mangled by the Claude->Pi text adaptation.
+Preseeded to
 `~/.claude/skills/<name>/SKILL.md` (and adapted equivalents for
 agents that support skills). `consult-llm` is scoped to Claude + Pi
 only (both get the consult-llm MCP server — Claude via `~/.claude.json`,
@@ -233,7 +243,10 @@ All preseed content is deployed via the manifest pipeline:
   skills), vault-operations, vault-note-capture, spec-enforce,
   spec-enforce-ac, spec-enforce-truth, doc-enforce, doc-enforce-lanes,
   doc-enforce-shape, doc-enforce-truth, tdd-enforce,
-  git-review-pipeline, graphify, browser-run (advanced only, Claude Code only)
+  git-review-pipeline, graphify, browser-run (advanced only, Claude Code only),
+  emil-design-eng, design-taste-frontend (design prose, all agents),
+  impeccable (design skill + offline detector, advanced only, Claude + Pi
+  only — Pi gets a dedicated verbatim copy, not the prose-transformed lane)
 - `plugins/`: known_marketplaces.json (default+advanced),
   codeflare-memory plugin (advanced only: plugin.json,
   memory-capture.sh, memory-capture-block.sh, memory-agent-prompt.md,
