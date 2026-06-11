@@ -481,19 +481,27 @@ function persistReviewResult(state: PendingReview, lane: string, result: unknown
   return path;
 }
 
-// Keep only the current head's results under .git/sdd-review-results/ so old PR HEADs do
-// not accumulate across a long-lived branch. Best-effort; never throws.
+// Prune the durable per-head artifacts for SUPERSEDED ancestors of keepHead — the lane RESULTS under
+// .git/sdd-review-results/<head>/ AND the larger job dirs (full --mode json transcripts, prompts) under
+// .git/codeflare-review-jobs/<head>/. Two guards make the recursive rmSync safe:
+//   1. SHA-shape: every dir here is named by a commit head, so a future non-SHA artifact is never deleted.
+//   2. ANCESTOR-of-keepHead: only heads on keepHead's OWN line of history are pruned. A dir for a head
+//      that is NOT an ancestor of keepHead is a SIBLING PR branch's review (completed but not yet
+//      finalized) — deleting it would force that branch to re-review (R4), so it is LEFT ALONE. keepHead
+//      itself is always kept. The dominant growth case (many sequential heads on one long-lived branch,
+//      each an ancestor of the next) IS pruned; a force-pushed/orphaned head git can't resolve is kept
+//      (the safe direction — a small bounded leak rather than a wrong delete). Best-effort; never throws.
 function pruneReviewResults(repo: string, keepHead: string): void {
-  try {
-    const base = join(repo, ".git", "sdd-review-results");
-    for (const entry of readdirSync(base)) {
-      // Only ever rmSync SHA-shaped sibling dirs: every result dir under here is named by a commit
-      // head, so this is a no-op restriction today — but it means a future non-SHA artifact dropped
-      // into this dir can never be silently recursive-deleted by the prune. Defensive guard on a
-      // destructive op; the keepHead dir (the current head) is always preserved.
-      if (entry !== keepHead && /^[0-9a-f]{7,40}$/.test(entry)) rmSync(join(base, entry), { recursive: true, force: true });
-    }
-  } catch { /* best effort: dir may not exist yet */ }
+  for (const sub of ["sdd-review-results", "codeflare-review-jobs"]) {
+    try {
+      const base = join(repo, ".git", sub);
+      for (const entry of readdirSync(base)) {
+        if (entry === keepHead || !/^[0-9a-f]{7,40}$/.test(entry)) continue;
+        if (!isAncestor(repo, entry, keepHead)) continue; // sibling branch / unresolvable head: keep
+        rmSync(join(base, entry), { recursive: true, force: true });
+      }
+    } catch { /* best effort: dir may not exist yet */ }
+  }
 }
 
 function loadPending(repo: string): PendingReview | undefined {
@@ -1007,6 +1015,10 @@ export default function (pi: ExtensionAPI) {
     const head = reviewCandidateHead(state.repo, currentPr);
     if (!head || head === state.head || !isAncestor(state.repo, state.head, head)) return false;
     appendReviewEvent(state.repo, { event: "review_superseded", head: state.head, reason: `${reason}; rolled forward to ${head.slice(0, 12)}`, lanes: state.lanes });
+    // Roll-forward builds the new window directly (not via ensureReviewWindow), so it must ALSO kill the
+    // old head's still-running lane children here (R3) — otherwise an in-session descendant advance leaks
+    // them. Only `running` lanes are touched; the completed ones' results are reused by mergeLaneState below.
+    abandonDurableReviewLanes(state.repo, state.head);
 
     const review = mergeLaneState(state.repo, head, state);
     if (review.lanes.length === 0) {
@@ -1328,16 +1340,24 @@ export default function (pi: ExtensionAPI) {
     const rawPrevious = loadPending(repo);
     if (rawPrevious?.head === head) return false;
     const reusablePrevious = reusablePendingReview(rawPrevious, head, (ancestor, current) => isAncestor(repo, ancestor, current));
-    if (rawPrevious && !reusablePrevious) {
-      // A different (non-descendant) head's window is being superseded — a second push that rewrote
-      // history, or a switch to another PR branch in this repo. Don't silently drop it: stop its still-
-      // running lane children (they're reviewing an abandoned head and would otherwise pile up on the
-      // 1-vCPU container) and audit the supersede so the transition is reconstructable from disk. The
-      // abandoned head is recovered, if the user later returns to merge that PR, by the merge gate,
-      // which blocks the unacked head and points at /review-run.
+    if (rawPrevious && rawPrevious.head !== head) {
+      // The window is moving to a new head, so the PREVIOUS head's still-running lane children are
+      // reviewing a now-superseded head and must be killed (R3). Otherwise a fix-push cascade piles up to
+      // ~3N detached `pi --mode json` children on the 1-vCPU box, and a hung old-head child escapes the
+      // review budget forever — its job is never reaped again because reaping is keyed to the CURRENT
+      // pending head. This fires for BOTH a descendant roll-forward (reusable: the completed lanes' result
+      // files are kept and reused by mergeLaneState; abandonDurableReviewLanes only touches `running`
+      // lanes, so only the still-incomplete ones — which the new window re-spawns anyway — are killed) and
+      // a non-descendant supersede. Previously the kill fired only on the non-descendant branch, so the
+      // far more common descendant fix-push leaked the prior head's reviewer processes.
       abandonDurableReviewLanes(repo, rawPrevious.head);
-      appendReviewEvent(repo, { event: "review_superseded", head: rawPrevious.head, supersededBy: head });
-      clearPending(repo);
+      if (!reusablePrevious) {
+        // Non-descendant supersede (history rewrite, or a switch to a different PR branch): the old window
+        // is not reused, so audit the supersede and drop it. The abandoned head stays recoverable via the
+        // merge gate (blocks the unacked head, points at /review-run) if the user returns to that PR.
+        appendReviewEvent(repo, { event: "review_superseded", head: rawPrevious.head, supersededBy: head });
+        clearPending(repo);
+      }
     }
 
     const review = mergeLaneState(repo, head, reusablePrevious);
@@ -1732,6 +1752,12 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_end", async (_event, ctx) => {
     if (!isActiveRun()) return;
     remember(ctx);
+    // P9: withStartArgs consumes a tool's start-args on its matching end event, but a tool call that
+    // never emits any end event (user ESC/abort, tool crash) would leave its entry — for a Write that is
+    // the entire file content — stranded forever. agent_end is a turn boundary: every tool that ran this
+    // turn has settled, so any remaining start-args are orphans. Drop them all (sibling extension
+    // codeflare-pi.ts clears its own maps here for the same reason).
+    toolStartArgs.clear();
     const state = hydratePending(ctx);
     if (!state) {
       // No persisted review window: a real open, enforced PR with an unacked head and no
