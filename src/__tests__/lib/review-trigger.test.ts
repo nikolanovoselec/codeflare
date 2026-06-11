@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPrBoundaryTrigger, isPrBoundaryCommand, prBoundaryCommandBase, prEditBoundaryBase, prEnforcedForPush, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, prBoundaryCommandBase, prEditBoundaryBase, prEnforcedForPush, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * isPrBoundaryTrigger is the single "should this command start a review?" predicate.
@@ -55,6 +55,35 @@ describe('isPrBoundaryTrigger', () => {
     expect(isPrBoundaryTrigger('git status')).toBe(false);
     expect(isPrBoundaryTrigger('git commit -m "wip"')).toBe(false);
     expect(isPrBoundaryTrigger('ls -la')).toBe(false);
+  });
+});
+
+/**
+ * R2 (Fable-5 forensic review): the merge gate (isGhPrMerge) and head-resolution (isLocalGitPush)
+ * predicates must use the SAME env-prefix-tolerant anchored regexes as detection. The old weak
+ * inline patterns (`gh\s+pr\s+merge`, `git(?:\s+-C\s+\S+)?\s+push`) let an env-prefixed command be
+ * DETECTED as a boundary yet SKIP the gate (unreviewed merge) or take the wrong head branch.
+ */
+describe('isGhPrMergeCommand / isGitPushOnlyCommand are env-prefix tolerant (R2)', () => {
+  it('matches gh pr merge with and without an env prefix', () => {
+    expect(isGhPrMergeCommand('gh pr merge 501 --squash')).toBe(true);
+    expect(isGhPrMergeCommand('GH_TOKEN=abc gh pr merge 501 --squash')).toBe(true);
+    expect(isGhPrMergeCommand('GH_PAGER= gh pr merge --admin')).toBe(true);
+    expect(isGhPrMergeCommand('cd /repo && gh pr merge')).toBe(true);
+  });
+  it('does not match non-merge gh commands', () => {
+    expect(isGhPrMergeCommand('gh pr create --base main')).toBe(false);
+    expect(isGhPrMergeCommand('gh pr view 501')).toBe(false);
+    expect(isGhPrMergeCommand('echo gh pr merge')).toBe(false);
+  });
+  it('matches git push with env prefix / global opts', () => {
+    expect(isGitPushOnlyCommand('git push origin develop')).toBe(true);
+    expect(isGitPushOnlyCommand("GIT_SSH_COMMAND='ssh -i k' git push")).toBe(true);
+    expect(isGitPushOnlyCommand('git -C /repo push')).toBe(true);
+  });
+  it('does not match gh repo sync or non-push git', () => {
+    expect(isGitPushOnlyCommand('gh repo sync')).toBe(false);
+    expect(isGitPushOnlyCommand('git status')).toBe(false);
   });
 });
 

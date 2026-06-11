@@ -289,6 +289,16 @@ export function isPrBoundaryTrigger(command: string): boolean {
   return RE_GIT_PUSH.test(command) || RE_GH_REPO_SYNC.test(command) || RE_GH_PR_UPDATE_BRANCH.test(command);
 }
 
+// The merge gate and head-resolution predicates MUST share the same env-prefix-tolerant
+// anchored regexes as detection, or a command detection recognises (e.g. `GH_TOKEN=x gh pr
+// merge`, `GIT_SSH_COMMAND='…' git push`) slips past the gate / takes the wrong head branch.
+export function isGhPrMergeCommand(command: string): boolean {
+  return RE_GH_PR_MERGE.test(command);
+}
+export function isGitPushOnlyCommand(command: string): boolean {
+  return RE_GIT_PUSH.test(command);
+}
+
 export function commandTextFromEvent(event: any): string {
   const inputs = [event?.input, event?.params, event?.args, event?.arguments, event?.toolCall?.arguments, event?.toolCall?.input, event?.toolCall?.params];
   const commands: string[] = [];

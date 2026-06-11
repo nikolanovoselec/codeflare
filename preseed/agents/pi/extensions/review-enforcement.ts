@@ -13,7 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
@@ -124,7 +124,9 @@ function commandText(event: any): string {
 
 
 function isGhPrMerge(command: string): boolean {
-  return /(^|[;&|\n]\s*)gh\s+pr\s+merge\b/.test(command);
+  // Same env-prefix-tolerant anchored regex as detection (review-helpers RE_GH_PR_MERGE), so the
+  // merge gate can never be skipped by a form detection recognises, e.g. `GH_TOKEN=x gh pr merge`.
+  return isGhPrMergeCommand(command);
 }
 
 function isSddProject(repo: string): boolean {
@@ -162,6 +164,15 @@ function prState(repo: string): PrState | undefined {
     cache.delete(repo);
     return undefined;
   }
+}
+
+// Cache-bypassing PR-state read for the merge gate (R1): the gate is the last line of defense, so it
+// must never decide on a head that the 60s prCache TTL has let go stale (a push after the cache was
+// warmed leaves `headRefOid` pointing at an already-acked older head while GitHub merges the newer
+// one). Dropping the entry forces a fresh `gh pr view` and re-warms the cache with the true head.
+function prStateFresh(repo: string): PrState | undefined {
+  prCache().delete(repo);
+  return prState(repo);
 }
 
 function localHead(repo: string): string | undefined {
@@ -366,7 +377,9 @@ function previousRemoteHead(repo: string, currentHead: string): string | undefin
 }
 
 function isLocalGitPushCommand(command: string): boolean {
-  return /(^|[;&|\n]\s*)git(?:\s+-C\s+\S+)?\s+push\b/.test(command);
+  // Same env-prefix/global-opts-tolerant anchored regex as detection (review-helpers RE_GIT_PUSH),
+  // so head resolution takes the local-HEAD branch for forms like `GIT_SSH_COMMAND='…' git push`.
+  return isGitPushOnlyCommand(command);
 }
 
 function isGitPushCommand(command: string): boolean {
@@ -1238,16 +1251,29 @@ export default function (pi: ExtensionAPI) {
     if (isGhPrMerge(command)) {
       const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
       if (!repo || !isSddProject(repo)) return;
-      const pr = prState(repo);
+      // R1: read PR state fresh (bypass the prCache) so a stale-acked head can't open the gate while
+      // GitHub merges a newer, unreviewed head; resolveEnforcedHead then folds in local HEAD too.
+      const pr = prStateFresh(repo);
+      if (!pr) {
+        // F10: gh pr view is unreadable (transient). The gate is the last line of defense, so fail
+        // CLOSED when a review is demonstrably in-flight/unacked for this repo rather than waving the
+        // merge through. When nothing is pending we can't assert it's even an enforced PR — allow.
+        const pendingHead = loadPending(repo)?.head;
+        if (pendingHead && !acked(repo, pendingHead)) {
+          appendReviewEvent(repo, { event: "merge_blocked", head: pendingHead, reason: "pr_state_unreadable_review_pending" });
+          return { block: true, reason: `PR-boundary review state for ${basename(repo)} is temporarily unreadable (gh pr view failed) and a review is pending. Retry the merge, run /review-run, or use the user-only ${REVIEW_BYPASS} bypass.` };
+        }
+        return;
+      }
       if (!isEnforcedPr(pr)) return;
-      const head = pr.headRefOid;
+      const head = resolveEnforcedHead(repo, pr);
       if (consumeBypass()) {
         acknowledgeBypass(repo, head, ctx);
         return;
       }
       if (!acked(repo, head)) {
         appendReviewEvent(repo, { event: "merge_blocked", head, reason: "head_not_acked" });
-        return { block: true, reason: `PR-boundary review required before merge for ${basename(repo)} at ${head.slice(0, 12)}. Complete required reviewers or use the user-only ${REVIEW_BYPASS} bypass.` };
+        return { block: true, reason: `PR-boundary review required before merge for ${basename(repo)} at ${head.slice(0, 12)}. Complete required reviewers, run /review-run, or use the user-only ${REVIEW_BYPASS} bypass.` };
       }
       return;
     }
