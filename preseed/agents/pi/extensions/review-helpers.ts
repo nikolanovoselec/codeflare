@@ -191,6 +191,15 @@ const BOUNDARY_TAIL = String.raw`(?=[ \t"';&|]|$)`;
 // git global options that can sit between `git` and the `push` subcommand (e.g. `git -C /repo push`).
 const GIT_GLOBAL_OPTS = String.raw`(?:-C[ \t]*\S+[ \t]+|-c[ \t]+\S+[ \t]+|--git-dir[= \t]\S+[ \t]+|--work-tree[= \t]\S+[ \t]+)*`;
 const RE_GIT_PUSH = new RegExp(BOUNDARY_ANCHOR + String.raw`git[ \t]+` + GIT_GLOBAL_OPTS + String.raw`push` + BOUNDARY_TAIL);
+// A `git push` that cannot ADVANCE a PR head — a dry run (`--dry-run`/`-n`) or a branch DELETE
+// (`--delete`/`-d`) — is not a PR boundary. Excluded so a credential-probe dry-run or a branch teardown
+// doesn't arm review on an inherited unacked head (which would wrongly AUTOSTART where the design says
+// OFFER — finding from the third deep review). `--tags` is deliberately NOT excluded: `git push origin
+// main --tags` advances a head too, and the reconcile gh-pr-view backstop covers a rare tags-only push.
+const RE_GIT_PUSH_NONADVANCING = new RegExp(BOUNDARY_ANCHOR + String.raw`git[ \t]+` + GIT_GLOBAL_OPTS + String.raw`push\b[^\n;&|]*?[ \t](?:--dry-run|--delete|-n|-d)(?![\w-])`);
+function isAdvancingGitPush(command: string): boolean {
+  return RE_GIT_PUSH.test(command) && !RE_GIT_PUSH_NONADVANCING.test(command);
+}
 const RE_GH_REPO_SYNC = new RegExp(BOUNDARY_ANCHOR + String.raw`gh[ \t]+repo[ \t]+sync` + BOUNDARY_TAIL);
 const RE_GH_PR_UPDATE_BRANCH = new RegExp(BOUNDARY_ANCHOR + String.raw`gh[ \t]+pr[ \t]+update-branch` + BOUNDARY_TAIL);
 const RE_GH_PR_CREATE = new RegExp(BOUNDARY_ANCHOR + String.raw`gh[ \t]+pr[ \t]+create` + BOUNDARY_TAIL);
@@ -274,7 +283,7 @@ export function prEnforcedForPush(pr: { headRefOid?: string | null; state?: stri
 // old word-matcher's breadth.
 export function isPrBoundaryCommand(command: string): boolean {
   return (
-    RE_GIT_PUSH.test(command) ||
+    isAdvancingGitPush(command) ||
     RE_GH_REPO_SYNC.test(command) ||
     RE_GH_PR_UPDATE_BRANCH.test(command) ||
     RE_GH_PR_CREATE.test(command) ||
@@ -292,7 +301,7 @@ export function isPrBoundaryCommand(command: string): boolean {
 export function isPrBoundaryTrigger(command: string): boolean {
   if (prCreateBoundaryBase(command)) return true;
   if (prEditBoundaryBase(command)) return true;
-  return RE_GIT_PUSH.test(command) || RE_GH_REPO_SYNC.test(command) || RE_GH_PR_UPDATE_BRANCH.test(command);
+  return isAdvancingGitPush(command) || RE_GH_REPO_SYNC.test(command) || RE_GH_PR_UPDATE_BRANCH.test(command);
 }
 
 // The merge gate and head-resolution predicates MUST share the same env-prefix-tolerant
@@ -302,7 +311,7 @@ export function isGhPrMergeCommand(command: string): boolean {
   return RE_GH_PR_MERGE.test(command);
 }
 export function isGitPushOnlyCommand(command: string): boolean {
-  return RE_GIT_PUSH.test(command);
+  return isAdvancingGitPush(command);
 }
 
 // Which PR a `gh pr merge` command actually targets, so the merge gate can check THAT PR rather than
@@ -318,7 +327,10 @@ export function mergeCommandTarget(command: string): MergeCommandTarget {
   const result: MergeCommandTarget = { auto: false };
   const m = RE_GH_PR_MERGE_ARGS.exec(command);
   if (!m) return result;
-  const toks = m[1].trim().split(/[ \t]+/).filter(Boolean);
+  // Tokenize with the quote-aware splitter, NOT a raw whitespace split: a quoted multi-word
+  // value (`gh pr merge -t "fix the gateway" 42`) must stay one token, else the value's tail
+  // ("gateway") is read as the PR selector and the gate is pointed at the wrong PR (fail open).
+  const toks = shellWords(m[1]);
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i];
     if (t === "--auto") { result.auto = true; continue; }
@@ -477,13 +489,12 @@ export function reusablePendingReview<T extends { head: string }>(previous: T | 
 export function selectReviewBase(params: {
   previous?: { head: string; reviewBase?: string; lanes: string[]; completed: string[] };
   lastAck?: string;
-  previousRemoteHead?: string;
 }): string | undefined {
   const priorIncomplete = params.previous?.lanes.some((lane) => !params.previous?.completed.includes(lane));
   if (priorIncomplete) return params.previous?.reviewBase;
-  // A remote-tracking reflog entry is only an optimization hint, not proof that
-  // everything before it was reviewed. If no explicit ack or completed previous
-  // review exists, return undefined so the next review covers the full PR diff.
+  // Without an explicit ack or a completed previous review proving the earlier PR contents were
+  // already covered, return undefined so the next review covers the full PR diff (REQ-AGENT-055 AC5).
+  // (A remote-tracking reflog hint was deliberately removed — it was never proof of prior review.)
   return params.previous?.head || params.lastAck;
 }
 

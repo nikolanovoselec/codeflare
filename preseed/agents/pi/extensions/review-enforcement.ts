@@ -59,7 +59,7 @@ import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-a
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
-import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
+import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
@@ -140,8 +140,26 @@ function boundaryActedThisSession(repo: string): boolean {
 // auto-started on work this session never did. A genuine in-session follow-up push re-marks it (onToolEnd
 // runs before the window guards), and an in-session descendant push is still caught by the branch-keyed
 // baseline backstop, so nothing legitimate degrades to an offer.
-function clearBoundaryActed(repo: string): void {
-  boundaryActedMemory().delete(boundaryActedKey(repo, currentBranch(repo) ?? ""));
+function clearBoundaryActed(repo: string, branch?: string): void {
+  boundaryActedMemory().delete(boundaryActedKey(repo, branch ?? currentBranch(repo) ?? ""));
+}
+// ackedBranchMemory: per-SESSION record of which repo+branch were ACKED this session. Once a branch is
+// acked, the baseline backstop (reviewBaselineContinuation) must STOP auto-starting descendants of the
+// session baseline — a later descendant is either an in-session push (caught by boundaryActed, the strong
+// signal) or a head FETCHED from a remote actor (a CI bot / a concurrent Claude) which must OFFER, not be
+// re-reviewed (R7). Without this, a `git pull` of a remote descendant AFTER an in-session ack wrongly
+// auto-started a duplicate review. globalThis-scoped (survives a /ctx reload, resets per OS process).
+const ACKED_BRANCH_KEY = Symbol.for("codeflare.reviewAckedBranchThisSession");
+function ackedBranchMemory(): Set<string> {
+  const g = globalThis as unknown as Record<symbol, Set<string> | undefined>;
+  if (!g[ACKED_BRANCH_KEY]) g[ACKED_BRANCH_KEY] = new Set<string>();
+  return g[ACKED_BRANCH_KEY]!;
+}
+function markBranchAcked(repo: string, branch: string | undefined): void {
+  if (repo) ackedBranchMemory().add(boundaryActedKey(repo, branch ?? currentBranch(repo) ?? ""));
+}
+function branchAckedThisSession(repo: string): boolean {
+  return ackedBranchMemory().has(boundaryActedKey(repo, currentBranch(repo) ?? ""));
 }
 // offerSurfacedMemory: per-SESSION dedup for the missed-boundary offer. The offer must re-surface
 // ONCE PER SESSION — a new `pi` started on a still-unchosen offer (the user quit without choosing) must
@@ -193,6 +211,9 @@ type PendingReview = {
   repo: string;
   prNumber?: number;
   baseRefName: string;
+  /** The PR HEAD branch (pr.headRefName). Persisted so writeAck can clear/mark the boundary signal
+   *  for the RIGHT branch even when an off-turn reaper finalizes while another branch is checked out. */
+  headBranch?: string;
   head: string;
   reviewBase?: string;
   lanes: string[];
@@ -307,13 +328,23 @@ function prStateResultFor(repo: string, selector?: string, repoSlug?: string): P
   const sel = safeGhArg(selector) ? ` ${safeGhArg(selector)}` : "";
   const rep = safeGhArg(repoSlug) ? ` --repo ${safeGhArg(repoSlug)}` : "";
   try {
-    const out = shell(`gh pr view${sel}${rep} --json number,state,baseRefName,headRefOid,headRefName,isDraft 2>/dev/null`, repo);
+    // Do NOT redirect stderr here: the catch below must read gh's error TEXT to tell a genuine
+    // "no such PR" from a transient outage. On success execFileSync returns only stdout, so gh's
+    // success-path stderr (deprecation warnings etc.) is dropped harmlessly.
+    const out = shell(`gh pr view${sel}${rep} --json number,state,baseRefName,headRefOid,headRefName,isDraft`, repo);
     return { pr: out ? JSON.parse(out) as PrState : undefined, failed: false };
   } catch (e) {
-    // execFileSync surfaces gh's exit code on `.status`. Exit 1 = "no pull requests found" (genuine
-    // absence, not a failure); any other exit (2 auth, 4 no-token, timeout signal) is transient.
-    const status = (e as { status?: number } | undefined)?.status;
-    return { pr: undefined, failed: status !== 1 };
+    // gh exits 1 for ALMOST EVERYTHING (verified in-container): a genuine "no pull requests found",
+    // a non-existent PR/repo (GraphQL "Could not resolve…"), AND every realistic transient — DNS
+    // failure, 401/403, 404, rate-limit. So the exit code ALONE cannot tell absence from outage; the
+    // old `status !== 1` test left the fail-closed machinery unreachable for the common flakes, i.e.
+    // the merge gate failed OPEN during any GitHub blip. Classify by the error TEXT: a definitive
+    // GitHub "not found" response is genuine absence (allow); anything else with a non-zero exit is a
+    // transient we could not read → `failed:true` → callers fail CLOSED. Default is fail-closed.
+    const err = `${(e as { stderr?: unknown })?.stderr ?? ""}\n${(e as { message?: unknown })?.message ?? ""}`;
+    const genuineAbsence = /no (open )?pull requests? found/i.test(err)
+      || /could not resolve to a (pull ?request|repository)/i.test(err);
+    return { pr: undefined, failed: !genuineAbsence };
   }
 }
 
@@ -434,15 +465,20 @@ function acked(repo: string, head: string): boolean {
 // reconcile), so the old "advance baseline to the acked head" step is both redundant and was a source
 // of subtle autostart bugs (a descendant-branch checkout reading a baseline advanced by a prior branch's ack).
 function writeAck(repo: string, head: string): void {
-  writeFileSync(ackPath(repo), `${head}\n`, "utf8");
+  safeWriteText(ackPath(repo), `${head}\n`);
   // Once a head is acked it is the only one that still matters for this branch, so drop every OTHER
   // head's lane-result directory under .git/sdd-review-results/. Without this, each new PR HEAD on a
   // long-lived branch leaves its result dir behind forever. writeAck is the single choke point every
   // finalize/skip path funnels through, so pruning here keeps exactly the current head and nothing else.
   pruneReviewResults(repo, head);
-  // R7: acking spends this branch's "this session pushed" signal — a later head reaching this branch
-  // from a remote actor must OFFER, not auto-start. A genuine in-session follow-up push re-marks it.
-  clearBoundaryActed(repo);
+  // R7: acking spends this branch's "this session pushed" signal AND records that this branch was acked
+  // this session (so the baseline backstop stops auto-starting descendants — only an explicit boundaryActed
+  // does, post-ack). Key BOTH by the pending PR's branch, which is still on disk here (clearPending runs
+  // after writeAck in every finalize path), so an OFF-TURN reaper finalizing while another branch is
+  // checked out clears/marks the RIGHT branch — not currentBranch-at-finalize-time (the finding-9 miss).
+  const ackBranch = loadPending(repo)?.headBranch ?? currentBranch(repo);
+  clearBoundaryActed(repo, ackBranch);
+  markBranchAcked(repo, ackBranch);
 }
 
 // The "offered" dedup that used to live here as an on-disk per-head-EVER marker now lives in the
@@ -464,7 +500,7 @@ function incrementBlockCount(repo: string): number {
   let count = 0;
   try { count = Number.parseInt(readFileSync(path, "utf8").trim(), 10) || 0; } catch { count = 0; }
   count += 1;
-  writeFileSync(path, String(count), "utf8");
+  safeWriteText(path, String(count));
   return count;
 }
 
@@ -479,7 +515,7 @@ function isBreakerOpen(repo: string, head: string): boolean {
 }
 
 function openBreaker(repo: string, head: string): void {
-  writeFileSync(breakerPath(repo), `${head}\n`, "utf8");
+  safeWriteText(breakerPath(repo), `${head}\n`);
 }
 
 function clearBreaker(repo: string): void {
@@ -540,20 +576,20 @@ function pruneReviewResults(repo: string, keepHead: string): void {
 
 function loadPending(repo: string): PendingReview | undefined {
   try {
-    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; head?: string; reviewBase?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean; spawnedIds?: Record<string, string>; fallbackLanes?: string[]; requestedAt?: Record<string, number>; reviewStartedAt?: number; spawnedAt?: number };
+    const state = JSON.parse(readFileSync(pendingPath(repo), "utf8")) as { prNumber?: number; baseRefName?: string; headBranch?: string; head?: string; reviewBase?: string; lanes?: string[]; completed?: string[]; docPromptSent?: boolean; spawned?: boolean; spawnedIds?: Record<string, string>; fallbackLanes?: string[]; requestedAt?: Record<string, number>; reviewStartedAt?: number; spawnedAt?: number };
     if (!state.head || !state.baseRefName || !Array.isArray(state.lanes)) return undefined;
     const completed = new Set([
       ...(state.completed || []),
       ...completedDurableReviewLanes(repo, state.head, state.lanes),
     ]);
-    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, head: state.head, reviewBase: state.reviewBase, lanes: state.lanes, completed, docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds || {}, fallbackLanes: new Set(state.fallbackLanes || []), requestedAt: state.requestedAt || {}, reviewStartedAt: state.reviewStartedAt || state.spawnedAt || Date.now(), spawnedAt: state.spawnedAt };
+    return { repo, prNumber: state.prNumber, baseRefName: state.baseRefName, headBranch: state.headBranch, head: state.head, reviewBase: state.reviewBase, lanes: state.lanes, completed, docPromptSent: Boolean(state.docPromptSent), spawned: Boolean(state.spawned), spawnedIds: state.spawnedIds || {}, fallbackLanes: new Set(state.fallbackLanes || []), requestedAt: state.requestedAt || {}, reviewStartedAt: state.reviewStartedAt || state.spawnedAt || Date.now(), spawnedAt: state.spawnedAt };
   } catch {
     return undefined;
   }
 }
 
 function savePending(pending: PendingReview): void {
-  writeFileSync(pendingPath(pending.repo), JSON.stringify({ prNumber: pending.prNumber, baseRefName: pending.baseRefName, head: pending.head, reviewBase: pending.reviewBase, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent, spawned: pending.spawned, spawnedIds: pending.spawnedIds, fallbackLanes: [...pending.fallbackLanes], requestedAt: pending.requestedAt, reviewStartedAt: pending.reviewStartedAt, spawnedAt: pending.spawnedAt }) + "\n", "utf8");
+  safeWriteText(pendingPath(pending.repo), JSON.stringify({ prNumber: pending.prNumber, baseRefName: pending.baseRefName, head: pending.head, headBranch: pending.headBranch, reviewBase: pending.reviewBase, lanes: pending.lanes, completed: [...pending.completed], docPromptSent: pending.docPromptSent, spawned: pending.spawned, spawnedIds: pending.spawnedIds, fallbackLanes: [...pending.fallbackLanes], requestedAt: pending.requestedAt, reviewStartedAt: pending.reviewStartedAt, spawnedAt: pending.spawnedAt }) + "\n");
 }
 
 function isAncestor(repo: string, ancestor: string, current: string): boolean {
@@ -584,15 +620,23 @@ function currentBranch(repo: string): string | undefined {
   }
 }
 
-function previousRemoteHead(repo: string, currentHead: string): string | undefined {
-  const branch = currentBranch(repo);
-  if (!branch) return undefined;
+// Normalize a repo reference (a remote URL, OWNER/REPO, or HOST/OWNER/REPO) to lowercase OWNER/REPO.
+function normalizeRepoSlug(slug: string): string {
+  const parts = slug.replace(/\.git$/i, "").split("/").filter(Boolean);
+  return parts.slice(-2).join("/").toLowerCase();
+}
+// True when a `gh pr merge --repo <slug>` names a DIFFERENT repository than the cwd repo's origin.
+// The per-repo ack/breaker state under .git/ belongs to the cwd repo; a foreign target's head can
+// never be acked here, so both the merge gate and the retroactive audit must skip it (else a
+// legitimate foreign merge false-BLOCKS and false-ALARMS). Unresolvable origin → false (gate
+// normally; never skip enforcement when we cannot prove the target is foreign).
+function isForeignRepoTarget(repo: string, targetSlug: string): boolean {
+  let origin: string | undefined;
   try {
-    const out = execFileSync("git", ["reflog", "show", "--format=%H", `refs/remotes/origin/${branch}`, "-n", "4"], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-    return out.split("\n").map((line) => line.trim()).find((head) => head && head !== currentHead && isAncestor(repo, head, currentHead));
-  } catch {
-    return undefined;
-  }
+    const m = shell("git remote get-url origin", repo).match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?\/?$/);
+    origin = m ? normalizeRepoSlug(m[1]) : undefined;
+  } catch { origin = undefined; }
+  return origin ? normalizeRepoSlug(targetSlug) !== origin : false;
 }
 
 function isLocalGitPushCommand(command: string): boolean {
@@ -996,6 +1040,9 @@ export default function (pi: ExtensionAPI) {
   const isActiveRun = (): boolean => (globalThis as { __codeflareReviewEnforcementRun?: symbol }).__codeflareReviewEnforcementRun === runToken;
   let pending: PendingReview | undefined;
   const toolStartArgs = new Map<string, any>();
+  // Per-turn dedup for the merge gate, which is wired to both tool_call and tool_execution_start — see
+  // the once-gate in onAgentStart. Cleared at agent_end (turn boundary) alongside toolStartArgs.
+  const mergeGatedToolIds = new Set<string>();
   const shouldProcessPrBoundaryToolEnd = createReadyOnceTracker();
 
   pi.registerMessageRenderer("pr-boundary-review-result", () => new Text("", 0, 0));
@@ -1036,6 +1083,12 @@ export default function (pi: ExtensionAPI) {
   // indeterminate "unknown" (gh query failed) must preserve state and retry, so
   // a transient failure can never silently drop the review gate without an ack.
   const discardStale = (state: PendingReview, ctx: any): void => {
+    // Kill this head's still-running lane children BEFORE dropping the pending record. After
+    // clearPending the head is unreachable to the reaper (reaping is keyed to the live pending
+    // head), so any detached `pi --mode json` lane still running would orphan forever on the
+    // 1-vCPU box — the same pileup the supersede/roll-forward paths kill. A force-push or a
+    // PR retarget/close is exactly when this fires. Only `running` lanes are touched.
+    abandonDurableReviewLanes(state.repo, state.head);
     appendReviewEvent(state.repo, { event: "review_superseded", head: state.head, reason: "open PR no longer points at this head", lanes: state.lanes });
     clearPending(state.repo);
     pending = undefined;
@@ -1086,6 +1139,7 @@ export default function (pi: ExtensionAPI) {
       repo: state.repo,
       prNumber: currentPr.number,
       baseRefName: currentPr.baseRefName,
+      headBranch: currentPr.headRefName,
       head,
       reviewBase: validBase,
       lanes: review.lanes,
@@ -1418,7 +1472,6 @@ export default function (pi: ExtensionAPI) {
     const reviewBase = selectReviewBase({
       previous: reusablePrevious ? { ...reusablePrevious, completed: [...reusablePrevious.completed] } : undefined,
       lastAck: lastAckHead(repo) || undefined,
-      previousRemoteHead: command && isLocalGitPushCommand(command) ? previousRemoteHead(repo, head) : undefined,
     });
     const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
     resetBlockCount(repo);
@@ -1430,7 +1483,7 @@ export default function (pi: ExtensionAPI) {
     // concrete label ("main", the only base this path ever fires for). The diff is anchored by the SHA
     // reviewBase, not this label, so the substitution can't mis-scope the review even if the base was master.
     const persistedBase = pr.baseRefName || "main";
-    pending = { repo, prNumber: pr.number, baseRefName: persistedBase, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set(), requestedAt: {}, reviewStartedAt: Date.now() };
+    pending = { repo, prNumber: pr.number, baseRefName: persistedBase, headBranch: pr.headRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set(), requestedAt: {}, reviewStartedAt: Date.now() };
     const initialLanes = durableReviewInitialLanes(pending.lanes);
     savePending(pending);
     updateReviewStatus(pending, ctx);
@@ -1507,6 +1560,9 @@ export default function (pi: ExtensionAPI) {
       baseline: priorBaseline,
       head,
       isAncestor: (a, b) => isAncestor(resolvedRepo, a, b),
+      // Suppress the baseline backstop once this branch was acked this session — a fetched remote
+      // descendant must OFFER, not auto-start (R7); an in-session push still autostarts via boundaryActed.
+      ackedThisSession: branchAckedThisSession(resolvedRepo),
     });
     const action = reconcileBoundaryAction({
       reconcile: decision.reconcile,
@@ -1545,6 +1601,13 @@ export default function (pi: ExtensionAPI) {
     // commandText() pulls the command from bash (input.command) or, when context-mode is on,
     // the ctx_* tools (code/commands). Gate on the command itself, never the tool name.
     if (isGhPrMerge(command)) {
+      // The gate is wired to BOTH tool_call and tool_execution_start (belt-and-suspenders on which event
+      // Pi 0.79.1 honors the veto for — the same pattern codeflare-pi's clone gate uses). Evaluate ONCE
+      // per tool id: the first event blocks, the second is deduped, so one merge command does not pay two
+      // cache-bypassed `gh pr view` calls or write a duplicate merge_blocked audit row.
+      const gateId = toolEventId(event);
+      if (gateId && mergeGatedToolIds.has(gateId)) return;
+      if (gateId) mergeGatedToolIds.add(gateId);
       const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
       if (!repo || !isSddProject(repo)) return;
       // P1: gate the PR the command actually TARGETS (number / URL / branch / --repo), not just the cwd
@@ -1552,6 +1615,10 @@ export default function (pi: ExtensionAPI) {
       // the prCache) so a stale-acked head can't open the gate while GitHub merges a newer unreviewed one,
       // and keep the full result so we can tell unreadable (fail closed) from no-PR (allow) — P4/R1.
       const target = mergeCommandTarget(command);
+      // A `gh pr merge --repo OTHER/REPO` run from inside THIS SDD repo targets a DIFFERENT repository.
+      // Its head can never be acked in this repo's state, so gating would falsely BLOCK a legitimate
+      // foreign merge; skip enforcement for a foreign target (the foreign repo's own enforcement owns it).
+      if (target.repoSlug && isForeignRepoTarget(repo, target.repoSlug)) return;
       const selector = target.prNumber !== undefined ? String(target.prNumber) : target.prBranch;
       const res = prStateFreshResult(repo, selector, target.repoSlug);
       const pr = res.pr;
@@ -1731,6 +1798,9 @@ export default function (pi: ExtensionAPI) {
       const mergeRepo = reviewRepoForCtx(ctx, cwdFromCommand(command));
       if (mergeRepo && isSddProject(mergeRepo)) {
         const t = mergeCommandTarget(command);
+        // Foreign-repo merge (--repo OTHER/REPO): not our ack state — mirror the pre-merge gate's
+        // foreign-target skip, else a legitimate merge of another repo's PR false-alarms here.
+        if (t.repoSlug && isForeignRepoTarget(mergeRepo, t.repoSlug)) return;
         const sel = t.prNumber !== undefined ? String(t.prNumber) : t.prBranch;
         const merged = prStateResultFor(mergeRepo, sel, t.repoSlug).pr;
         const mh = merged?.headRefOid || "";
@@ -1825,6 +1895,7 @@ export default function (pi: ExtensionAPI) {
     // turn has settled, so any remaining start-args are orphans. Drop them all (sibling extension
     // codeflare-pi.ts clears its own maps here for the same reason).
     toolStartArgs.clear();
+    mergeGatedToolIds.clear();
     const state = hydratePending(ctx);
     if (!state) {
       // No persisted review window: a real open, enforced PR with an unacked head and no

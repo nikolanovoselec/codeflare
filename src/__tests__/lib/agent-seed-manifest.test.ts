@@ -1032,6 +1032,29 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(merged.findings).toHaveLength(3);
   });
 
+  it('REQ-AGENT-053: the finding extractor ignores a BARE-PROSE severity word, matching the counter', () => {
+    // The counter requires a decorated label ([HIGH]/**HIGH**/HIGH:); the extractor must do the same, or
+    // the merged summary lists a phantom finding the count table reports as 0 (and autofix can chase it).
+    const prose = [
+      '## Findings',
+      '',
+      'Critical to the design is keeping the cache bounded.',
+      'High-level summary: the change is low risk.',
+      'Medium-term we should revisit this.',
+      '',
+      '- [HIGH] Unbounded cache growth',
+      'File: `src/cache.ts:12`',
+      'Issue: entries are never evicted.',
+      'Fix: add an LRU bound.',
+    ].join('\n');
+    // Only the decorated [HIGH] line is a finding; the three bare-prose sentences are not.
+    const findings = extractReviewFindings('code-reviewer', prose);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ severity: 'HIGH', title: 'Unbounded cache growth' });
+    // The extractor and the counter agree: one HIGH, zero phantom CRITICAL/MEDIUM.
+    expect(countReviewSeverities(prose)).toEqual({ critical: 0, high: 1, medium: 0, low: 0 });
+  });
+
   it('REQ-AGENT-059: hidden autofix requests send one follow-up only for actionable findings and only after marker claim', () => {
     const sent: Array<{ message: unknown; options: unknown }> = [];
     const sender = { sendMessage: (message: unknown, options: unknown) => sent.push({ message, options }) };

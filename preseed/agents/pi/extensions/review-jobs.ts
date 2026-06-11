@@ -99,7 +99,7 @@ function safeWriteJson(path: string, value: unknown): void {
 // Atomic text write (tmp + rename), for files whose bare EXISTENCE is a cross-process signal. The
 // distinct tmp name (pid+timestamp) is never mistaken for the real file, and the rename makes the file
 // appear complete-or-not — never half-written — to another process reading it concurrently.
-function safeWriteText(path: string, content: string): void {
+export function safeWriteText(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmp, content, "utf8");
@@ -468,20 +468,29 @@ const SPAWN_LOCK_STALE_MS = 30_000;
 // never wedge reviews permanently; a genuinely-live holder makes the other session skip spawning THIS
 // tick — the 20s reaper retries, so no lane is lost. The lock file lives inside the (kept) current-head
 // job dir and is removed on release.
+function claimSpawnLock(lock: string): number | undefined {
+  // Stamp our pid INTO the lock at claim time so releaseSpawnLock can prove ownership before unlinking.
+  try { const fd = openSync(lock, "wx"); try { writeFileSync(fd, String(process.pid)); } catch { /* stamp best-effort */ } return fd; } catch { return undefined; }
+}
 function acquireSpawnLock(repo: string, head: string): number | undefined {
   const lock = join(reviewJobDir(repo, head), ".spawn.lock");
   mkdirSync(dirname(lock), { recursive: true });
-  try { return openSync(lock, "wx"); } catch { /* held by another process */ }
+  const first = claimSpawnLock(lock);
+  if (first !== undefined) return first;
   let stale = true;
   try { stale = now() - statSync(lock).mtimeMs > SPAWN_LOCK_STALE_MS; } catch { /* vanished: treat as free */ }
   if (!stale) return undefined; // a concurrent spawn is genuinely in flight; skip this tick
   try { unlinkSync(lock); } catch { /* raced with the holder releasing it */ }
-  try { return openSync(lock, "wx"); } catch { return undefined; }
+  return claimSpawnLock(lock);
 }
 function releaseSpawnLock(repo: string, head: string, fd: number | undefined): void {
   if (fd === undefined) return;
   try { closeSync(fd); } catch { /* already closed */ }
-  try { unlinkSync(join(reviewJobDir(repo, head), ".spawn.lock")); } catch { /* already gone */ }
+  // Only remove the lock if WE still own it. If a peer reclaimed it after our stale TTL expired, the file
+  // now holds the peer's pid and a blind unlink would delete that LIVE lock — letting a third spawner in
+  // and cascading the double-spawn the lock exists to prevent (third-review finding). Pid-match → ours.
+  const lock = join(reviewJobDir(repo, head), ".spawn.lock");
+  try { if (readFileSync(lock, "utf8").trim() === String(process.pid)) unlinkSync(lock); } catch { /* gone or unreadable: nothing to release */ }
 }
 
 export function startDurableReviewLanes(_runner: ReviewRunnerContext, jobInput: DurableReviewJobInput, requests: ReviewSpawnRequest[]): { job: DurableReviewJob; launched: string[] } {
@@ -491,7 +500,10 @@ export function startDurableReviewLanes(_runner: ReviewRunnerContext, jobInput: 
   const launched: string[] = [];
   try {
     for (const request of requests) {
-      const current = job.laneState[request.lane] ?? readLane(job.repo, job.head, request.lane);
+      // Read the lane FRESH from disk under the lock — `job` was snapshotted before acquireSpawnLock, so
+      // its laneState can be stale (a peer that held the lock first may have just recorded "running").
+      // Trusting the pre-lock snapshot is the TOCTOU the lock was meant to close (P11 / third-review finding).
+      const current = readLane(job.repo, job.head, request.lane) ?? job.laneState[request.lane];
       if (current?.status === "completed") continue;
       // A lane with a still-alive child is already running — don't double-spawn. A
       // "running" record whose child is dead (no result) is a stale orphan; respawn it.

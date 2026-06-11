@@ -236,6 +236,18 @@ describe('reviewInSessionContinuation (boundaryActed primary, baseline backstop)
     // Cross-branch checkout to an unrelated descendant: not boundary-acted, does not descend → offer.
     expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h9', isAncestor: unrelated })).toBe(false);
   });
+
+  it('suppresses the baseline backstop once the branch was acked this session (offers a fetched remote head)', () => {
+    // After an in-session ack, a descendant of the session baseline reached WITHOUT a boundary command is
+    // a remote-actor head fetched via `git pull` (a CI bot / concurrent Claude) — it must OFFER, not
+    // auto-start a duplicate review. Without the ackedThisSession suppression the baseline backstop fired.
+    expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h3', isAncestor: descends, ackedThisSession: true })).toBe(false);
+    // A genuine in-session push after the ack still autostarts: boundaryActed is the strong signal and is
+    // checked BEFORE the suppression, so ackedThisSession never blocks a real push.
+    expect(reviewInSessionContinuation({ boundaryActed: true, baseline: 'h1', head: 'h3', isAncestor: descends, ackedThisSession: true })).toBe(true);
+    // Before any ack this session, the backstop still works (the reload-ate-the-tool-event case).
+    expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h3', isAncestor: descends, ackedThisSession: false })).toBe(true);
+  });
 });
 
 /**

@@ -56,6 +56,19 @@ describe('isPrBoundaryTrigger', () => {
     expect(isPrBoundaryTrigger('git commit -m "wip"')).toBe(false);
     expect(isPrBoundaryTrigger('ls -la')).toBe(false);
   });
+
+  it('does NOT treat a dry-run / branch-delete push as a boundary (it cannot advance a PR head)', () => {
+    // A credential-probe dry run or a branch teardown must not arm review on an inherited unacked head
+    // (that would wrongly AUTOSTART where the design says OFFER).
+    expect(isPrBoundaryTrigger('git push --dry-run')).toBe(false);
+    expect(isPrBoundaryTrigger('git push -n origin main')).toBe(false);
+    expect(isPrBoundaryTrigger('git push origin --delete oldbranch')).toBe(false);
+    expect(isGitPushOnlyCommand('git push -d origin oldbranch')).toBe(false);
+    // But a real push — including a branch+tags push or a force push — is still a boundary.
+    expect(isPrBoundaryTrigger('git push origin main')).toBe(true);
+    expect(isPrBoundaryTrigger('git push origin main --tags')).toBe(true);
+    expect(isPrBoundaryTrigger('git push --force origin main')).toBe(true);
+  });
 });
 
 /**
@@ -127,6 +140,15 @@ describe('mergeCommandTarget (which PR a gh-pr-merge command targets — P1/P3)'
     // trailing positional is still the PR number.
     expect(mergeCommandTarget('gh pr merge -A me@example.com 7')).toEqual({ prNumber: 7, auto: false });
     expect(mergeCommandTarget('gh pr merge --author-email me@example.com --merge')).toEqual({ auto: false });
+  });
+  it('keeps a QUOTED multi-word flag value as one token (does not split it into a phantom selector)', () => {
+    // A raw whitespace split would read the tail of `'fix the gateway'` ("gateway") as the PR selector
+    // and point the merge gate at the WRONG PR (fail open). The quote-aware tokenizer keeps it one token,
+    // so the trailing positional is the real selector.
+    expect(mergeCommandTarget("gh pr merge -t 'fix the gateway' 42 --squash")).toEqual({ prNumber: 42, auto: false });
+    expect(mergeCommandTarget('gh pr merge --subject "a b c" 7')).toEqual({ prNumber: 7, auto: false });
+    // A quoted body value before a branch selector likewise stays intact.
+    expect(mergeCommandTarget("gh pr merge -b 'msg here' feature/x")).toEqual({ prBranch: 'feature/x', auto: false });
   });
   it('reads the target through a command wrapper', () => {
     expect(mergeCommandTarget('timeout 60 gh pr merge 88 --merge')).toEqual({ prNumber: 88, auto: false });

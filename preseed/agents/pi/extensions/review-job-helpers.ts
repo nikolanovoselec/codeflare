@@ -514,7 +514,15 @@ function findingHeaderMatches(body: string): RegExpMatchArray[] {
     if (!inFence) {
       header.lastIndex = 0;
       const match = header.exec(line);
-      if (match && !isSeverityCountLine(match[2])) {
+      // Require the severity word to be DECORATED as a label ([HIGH] / **HIGH** / HIGH:), exactly as
+      // countReviewSeverities does. Without this the extractor matches bare prose ("Critical to the
+      // design is…") that the COUNTER ignores, so the merged summary lists a phantom CRITICAL the
+      // count table reports as 0 — and autofix can chase it. (P5 was applied to the counter but not
+      // here; this closes the gap so the finding list and the counts stay in lockstep.)
+      const decorated = !!match && (/\[(?:BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\]/i.test(line)
+        || /\*\*(?:BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\*\*/i.test(line)
+        || /(?:^|\s)(?:BLOCKING|CRITICAL|HIGH|MEDIUM|LOW):/i.test(line));
+      if (match && decorated && !isSeverityCountLine(match[2])) {
         match.index = offset + (match.index || 0);
         matches.push(match);
       }
@@ -953,8 +961,15 @@ export function reviewInSessionContinuation(input: {
   baseline: string | undefined;
   head: string;
   isAncestor: (ancestor: string, current: string) => boolean;
+  ackedThisSession?: boolean;
 }): boolean {
   if (input.boundaryActed) return true;
+  // Once this branch has been ACKED this session, the baseline backstop is SUPPRESSED: a further
+  // descendant of the session baseline is either an in-session push (already covered by boundaryActed
+  // above) or a remote-actor head FETCHED via `git pull`, which must OFFER, not auto-start a duplicate
+  // review (R7). The backstop only covers the pre-first-ack window, where a dropped boundary tool-event
+  // is the plausible reason boundaryActed is missing despite an in-session advance.
+  if (input.ackedThisSession) return false;
   return reviewBaselineContinuation(input.baseline, input.head, input.isAncestor);
 }
 
@@ -1047,8 +1062,9 @@ export function resolveReviewRepo(
 // extension gets a SEPARATE instance of this module — a module-local `let`
 // written by codeflare-pi.ts is invisible to review-enforcement.ts and
 // local-statusline.ts. globalThis[Symbol.for(...)] is the only cross-extension
-// channel (the codebase already uses it for __codeflareReviewLaneDepth and
-// __codeflareReviewEnforcementRun). reviewRepo = the repo THIS session is
+// channel (the codebase uses it for Symbol.for("codeflare.activeRepo") /
+// Symbol.for("codeflare.reviewRepo"), the prCache, and the autostart signals).
+// reviewRepo = the repo THIS session is
 // reviewing (review-enforcement remembers it whenever a ctx-bearing handler
 // resolves the repo; the no-ctx reaper and the footer recall it). activeRepo =
 // the repo the USER is working in (codeflare-pi remembers it on every command

@@ -136,10 +136,6 @@ function hasGraph(repo: string): boolean {
   return existsSync(join(repo, "graphify-out", "graph.json"));
 }
 
-function reviewLaneActive(): boolean {
-  return ((globalThis as { __codeflareReviewLaneDepth?: number }).__codeflareReviewLaneDepth ?? 0) > 0;
-}
-
 type GraphFreshness = {
   graphPath: string;
   status: "fresh" | "stale" | "unknown";
@@ -562,10 +558,6 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_start", (_event, ctx) => {
-    // Durable PR-boundary review lanes load this extension in-process for the build-blocker and
-    // other guards, but must not re-run the per-repo global-graph merge (redundant; the main
-    // session already merged it). The lane runner sets this depth counter around the session.
-    if (reviewLaneActive()) return;
     const repo = activeRepo(ctx);
     if (repo) maybeMergeGlobalGraph(repo);
     const summary = repo ? graphSummary(repo) : undefined;
@@ -640,7 +632,10 @@ export default function (pi: ExtensionAPI) {
     const cwd = ctx.sessionManager.getCwd();
     const id = toolEventId(event);
     const targetWasAlreadyCloned = id ? cloneTargetHadGit.get(id) === true : false;
-    const shouldHandleClone = shouldHandleClonePrompt(cloneCmd, targetWasAlreadyCloned, (globalThis as { __codeflareReviewLaneDepth?: number }).__codeflareReviewLaneDepth ?? 0);
+    // Lane depth is 0 here: detached PR-boundary review lanes (AD76) run as separate `pi --mode json`
+    // processes that load review-lane-guards.ts, not this extension in-process, so there is no in-process
+    // lane to suppress. The depth param is retained on shouldHandleClonePrompt for its own unit tests.
+    const shouldHandleClone = shouldHandleClonePrompt(cloneCmd, targetWasAlreadyCloned, 0);
     const decision = shouldHandleClone
       ? graphifyClonePromptDecision({
         command: cloneCmd,
@@ -656,7 +651,7 @@ export default function (pi: ExtensionAPI) {
       : undefined;
     const repo = updateActiveRepoFromPath(decision?.repo ?? (command ? effectivePathForCommand(command, cwd) : cwd));
 
-    if (repo && hasGraph(repo) && !reviewLaneActive()) maybeMergeGlobalGraph(repo);
+    if (repo && hasGraph(repo)) maybeMergeGlobalGraph(repo);
 
     if (decision && !existsSync(decision.marker)) {
       writeFileSync(decision.marker, "1", "utf8");
