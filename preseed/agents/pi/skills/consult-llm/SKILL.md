@@ -18,10 +18,20 @@ The server picks the backend automatically — for OpenAI it uses your **Codex s
 1. **Latest Google (Gemini)** — call with the selector `model: "gemini"`.
 2. **Latest OpenAI (GPT)** — call with the selector `model: "openai"`.
 3. **Both** — call once per provider (`"gemini"` and `"openai"`) and synthesize across them.
-4. **List all available models** — present the OpenAI and Gemini models `consult_llm` exposes (read the supported set from the `consult_llm` tool's `model` parameter), then ask which one to use and call with that exact model ID.
+4. **List all available models** — show the **concrete** model IDs this server actually supports (see **Listing concrete models** below), then let the user pick an exact one. Do **not** present the provider selectors as the model list.
 5. *(Other — added automatically)* the user types the **exact model** they want → pass it verbatim.
 
 **Never hardcode a model ID for "latest."** The selectors `"openai"` / `"gemini"` are resolved to the current best flagship by the server at call time — that is the correct way to get "the latest" and avoids drifting to a stale pin.
+
+### Listing concrete models
+
+The `consult_llm` `model` parameter documents only provider **selectors** (`gemini`, `openai`, …) — never present that selector list as "all available models." This server (v2.13.x) has **no** model-list tool and **no** concrete `enum` in its schema (the concrete IDs were deliberately replaced by selectors); it writes the real, per-session list to its **startup log** instead. To list models:
+
+1. Read the **latest** `AVAILABLE MODELS:` block (equivalently the `CONFIGURATION` → `allowedModels` line) from `~/.local/state/consult-llm-mcp/mcp.log`. (If a future server version exposes a concrete `enum` on `model` or a list-models tool, prefer that.)
+2. Keep only **Gemini** (`gemini-*`) and **OpenAI** (`gpt-*`) IDs — this deployment configures only those two providers; ignore any `anthropic`/`deepseek`/`minimax` entries and never surface them.
+3. Print the IDs grouped under **Gemini** and **OpenAI** in chat, then ask one compact follow-up — **Latest Gemini** (`model: "gemini"`), **Latest OpenAI** (`model: "openai"`), **Both**, or the automatic **Other** free-text to type an exact ID — and call `consult_llm` with the chosen exact ID (a selector only for "latest").
+
+If the log can't be read, say exact model discovery is unavailable this session and offer only the **Gemini** and **OpenAI** selectors, clearly labelled as selectors (not models).
 
 ## Step 2 — Build the prompt and call
 

@@ -1749,6 +1749,28 @@ describe('REQ-AGENT-031 consult-llm invocation behaviour (5-choice model dialog 
     }
   });
 
+  // AC5 regression (consult-llm "List models" bug): the old skill told the agent to
+  // "read the supported set from the consult_llm tool's model parameter" — but that
+  // parameter only documents provider SELECTORS (gemini/openai/...), so the agent
+  // presented selectors as "all available models". The fix reads concrete IDs from the
+  // server startup log, scopes to Gemini + OpenAI, and never labels selectors as models.
+  it('AC5: "list all" reads concrete model IDs from the server log, never presents selectors as models', () => {
+    for (const key of ['.claude/skills/consult-llm/SKILL.md', '.pi/agent/skills/consult-llm/SKILL.md']) {
+      const body = consultLlmSkill(key);
+      // The broken instruction is gone.
+      expect(body, key).not.toMatch(/read the supported set from the .?consult_llm.? tool's .?model.? parameter/i);
+      // The authoritative concrete-ID source is the server startup log.
+      expect(body, key).toContain('AVAILABLE MODELS');
+      expect(body, key).toContain('mcp.log');
+      // Selectors must never be presented as the model list.
+      expect(body.toLowerCase(), key).toContain('never present that selector list');
+      // Scoped to Gemini + OpenAI; the other provider families are excluded, not surfaced.
+      expect(body, key).toMatch(/gemini-\*/);
+      expect(body, key).toMatch(/gpt-\*/);
+      expect(body.toLowerCase(), key).toContain('ignore any');
+    }
+  });
+
   // AC4: the Pi skill mirrors the Claude one but drives Pi's ask_user_question tool.
   it('AC4: Pi skill mirrors the dialog using ask_user_question (not AskUserQuestion)', () => {
     const body = consultLlmSkill('.pi/agent/skills/consult-llm/SKILL.md');
