@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
+import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -913,13 +913,23 @@ let activeReviewFinalize: ((state: PendingReview) => void) | undefined;
 // to the on-turn driver so the breaker still bounds them. Best-effort and self-clearing:
 // it must never throw.
 function autonomousReviewReaperTick(): void {
+  // P6: reap EVERY repo this session armed/reconciled a review for, not just the last-pinned slot, so two
+  // repos with concurrent pending reviews both finalize without the user returning to each. The timer has
+  // no event ctx, so it relies on the in-session review-repo memory (set by reviewRepoForCtx); NOT the
+  // graphify active-cwd sentinel (it flaps under concurrent agents). Fall back to the single resolved repo
+  // when nothing is remembered yet (first tick, or a process restart in a non-repo parent cwd).
+  const remembered = recallReviewRepos();
+  const repos = remembered.length > 0
+    ? remembered
+    : (() => {
+        const r = resolveReviewRepo({ sessionReviewRepo: recallReviewRepo(), activeRepo: recallActiveRepo(), processCwd: process.cwd() }, findGitRoot);
+        return r ? [r] : [];
+      })();
+  for (const repo of repos) reapOneReviewRepo(repo);
+}
+
+function reapOneReviewRepo(repo: string): void {
   try {
-    // The timer has no event ctx, so it cannot use ctx.sessionManager.getCwd() like the on-turn
-    // handlers. Use the in-session review repo remembered by reviewRepoForCtx (set when this session
-    // armed/reconciled the review), falling back to pi's process dir. NOT the graphify active-cwd
-    // sentinel — under concurrent agents it flaps to whatever repo acted last, misrouting finalize.
-    const repo = resolveReviewRepo({ sessionReviewRepo: recallReviewRepo(), activeRepo: recallActiveRepo(), processCwd: process.cwd() }, findGitRoot);
-    if (!repo) return;
     const pending = loadPending(repo);
     if (!pending || !pending.head || pending.lanes.length === 0) return;
     reapDurableReviewLanes(pending.repo, pending.head);
@@ -962,7 +972,7 @@ function autonomousReviewReaperTick(): void {
       lanes: pending.lanes,
     }, requests);
   } catch {
-    // Never throw from the autonomous timer — a transient fs/spawn error must not crash pi.
+    // Never throw — one repo's transient fs/spawn error must not skip the other repos or crash the timer.
   }
 }
 
@@ -1638,6 +1648,11 @@ export default function (pi: ExtensionAPI) {
       clearPending(repo);
       clearBreaker(repo);
       writeAck(repo, head);
+      // R8: also drop the in-memory window and the rendered status row (mirroring acknowledgeBypass).
+      // Without this the dead review row keeps rendering and pendingSameRepo suppresses reconciliation
+      // for the repo until the next agent_end self-heals — a stale, confusing UI after an explicit skip.
+      pending = undefined;
+      clearReviewStatus(ctx);
       appendReviewEvent(repo, { event: "review_skipped", head, reason: "user /review-skip" });
       ctx.ui.notify(`PR-boundary review skipped for ${basename(repo)} at ${head.slice(0, 12)}; merge gate opened (head acked).`, "warning");
     },
@@ -1744,12 +1759,27 @@ export default function (pi: ExtensionAPI) {
     const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
     if (!repo || !isSddProject(repo)) return;
 
-    const pr = prForBoundaryCommand(repo, command, prState(repo));
-    if (!isEnforcedPrForPush(pr)) return;
+    // Use the failure-distinguishing read so a gh OUTAGE during the push isn't mistaken for "no PR" (P4).
+    const prRes = prStateResultFor(repo);
+    const pr = prForBoundaryCommand(repo, command, prRes.pr);
+    if (!isEnforcedPrForPush(pr)) {
+      // P4: gh was unreadable (transient), not a confirmed absence — a real boundary command still ran.
+      // Record that this session pushed this branch (so reconciliation AUTOSTARTS once gh recovers rather
+      // than degrading to an offer) and audit the near-miss, so the outage window is never a silent skip.
+      if (prRes.failed) {
+        markBoundaryActed(repo);
+        appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "pr_state_unreadable" });
+      }
+      return;
+    }
     // A real PR-boundary command just ran for a confirmed enforced PR on this repo+branch.
     // Record it NOW — before any of the window-creation guards below can bail — so that even if the
     // window is never created (head unresolved, dedup, a reload right after), the reconcile still knows
     // THIS session advanced this branch and will AUTOSTART rather than merely OFFER the missed head.
+    // P8: a push to a DRAFT PR does not arm review — symmetric with reconcile (shouldReconcileOpenPr
+    // excludes drafts). When the PR is marked ready-for-review its head is still unacked, so reconcile
+    // catches it then; and a draft can't be merged on GitHub meanwhile, so the gate never matters.
+    if (pr.isDraft) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "draft_pr", head: pr.headRefOid || "" }); return; }
     // Key the mark by the PUSHED PR's branch (pr.headRefName), not currentBranch-at-tool-end — a
     // `git push A && git checkout B` would otherwise attribute the push to B and risk auto-starting B's
     // inherited head (R6). Falls back to currentBranch when there is no PR branch yet (push-before-PR).

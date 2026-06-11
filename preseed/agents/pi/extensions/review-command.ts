@@ -13,7 +13,9 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { computeReviewState } from "./review-jobs";
 
 function shell(command: string, cwd: string): string {
-  return execFileSync("bash", ["-lc", command], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  // P7: bound every shell-out (every other module passes a 5s timeout). /review-status' `gh pr view`
+  // can otherwise hang the command handler indefinitely on a stalled network call.
+  return execFileSync("bash", ["-lc", command], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 5000 }).trim();
 }
 
 function findGitRoot(startDir: string): string | undefined {
@@ -159,7 +161,9 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("review-status", {
     description: "Show PR-boundary review enforcement state for the current repo",
     handler: (_args, ctx) => {
-      const repo = activeRepo(process.cwd());
+      // P7: resolve from the Pi SESSION cwd, not pi's process.cwd() — consistent with every other
+      // handler. process.cwd() reports the wrong repo once the session has cd'ed elsewhere.
+      const repo = activeRepo(ctx?.sessionManager?.getCwd?.() ?? process.cwd());
       if (!repo) {
         ctx.ui.notify("/review-status: not inside a git repository.", "warning");
         return;

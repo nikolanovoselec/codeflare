@@ -411,10 +411,18 @@ export function countReviewSeverities(text: string): ReviewSeverityCounts {
       continue;
     }
     if (inFence) continue;
-    const match = line.match(/^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:\*\*)?\[?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\]?\b(.*)$/i);
+    // A severity word counts only when DECORATED as a finding label — bracketed [HIGH], bolded
+    // **HIGH**, or colon-trailed HIGH: — never as a bare prose adjective. Without this, a lane writing
+    // "High-level summary:" or "Critical to the design is…" mints a phantom HIGH/CRITICAL that flips the
+    // merged verdict to block and fires a needless autofix turn (P5). Tally lines (HIGH: 2 (…)) match via
+    // the colon but are filtered out by isSeverityCountLine below, so the honest count is preserved.
+    const match = line.match(/^\s*(?:[-*]\s*|\d+\.\s*)?(\[|\*\*)?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)(\]|\*\*|:)(.*)$/i);
     if (!match) continue;
-    if (isSeverityCountLine(match[2])) continue;
-    const severity = match[1].toUpperCase();
+    const open = match[1]; const close = match[3];
+    const decorated = (open === "[" && close === "]") || (open === "**" && close === "**") || close === ":";
+    if (!decorated) continue;
+    if (isSeverityCountLine(match[4])) continue;
+    const severity = match[2].toUpperCase();
     if (severity === "BLOCKING" || severity === "CRITICAL") counts.critical += 1;
     else if (severity === "HIGH") counts.high += 1;
     else if (severity === "MEDIUM") counts.medium += 1;
@@ -883,15 +891,17 @@ export function shouldReconcileOpenPr(input: OpenPrReconcileInput): OpenPrReconc
 // shouldReconcileOpenPr decides WHETHER a head is reconcilable; this decides what the
 // reconciler DOES with it. The locked design is: an in-session push still AUTO-STARTS the
 // review exactly like the onToolEnd boundary path, and only a fresh clone/checkout of a repo
-// with a pre-existing open PR is OFFERED (notify + persist the offered marker) so the user
-// runs /review-run or /review-skip. `inSessionContinuation` is the caller's verdict that this
-// head is continuous work on a branch we have ALREADY reviewed (the new head descends from a
-// previously-acked head), which means the onToolEnd auto-start was MISSED (compound `&&`,
-// here-doc, `gh pr edit`, or a reload between the command and its event) rather than this being
-// a fresh clone — so we auto-start to honour the design. A fresh clone has no prior ack on this
-// repo, so it falls through to OFFER, and `git clone` never auto-spawns an unstoppable review.
-// Offer is once-per-head (the marker is head-keyed, so a new commit re-offers). Pure: no fs, no
-// notify — the caller performs the side effects keyed off the returned action.
+// with a pre-existing open PR is OFFERED (a durable chat message + toast) so the user runs
+// /review-run or /review-skip. `inSessionContinuation` is the caller's verdict that THIS session
+// advanced the head (a boundary command ran this session, or the head descends from this session's
+// branch baseline), which means the onToolEnd auto-start was MISSED (compound `&&`, here-doc, `gh pr
+// edit`, or a reload between the command and its event) rather than this being a fresh clone — so we
+// auto-start to honour the design. A head merely inherited at launch has neither signal, so it falls
+// through to OFFER, and `git clone` never auto-spawns an unstoppable review. The offer is deduped via
+// `alreadyOffered` — the caller passes offerSurfacedThisSession, a PER-SESSION (process-scoped) marker,
+// NOT an on-disk per-head-ever marker (that on-disk marker was removed: it suppressed the offer forever,
+// so a relaunched session saw nothing). A new `pi` re-surfaces a still-unchosen offer exactly once. Pure:
+// no fs, no notify — the caller performs the side effects keyed off the returned action.
 export type ReconcileBoundaryInput = { reconcile: boolean; alreadyOffered: boolean; inSessionContinuation: boolean };
 export type ReconcileBoundaryAction = "autostart" | "offer" | "noop";
 
@@ -1047,14 +1057,25 @@ export function resolveReviewRepo(
 const ACTIVE_REPO_KEY = Symbol.for("codeflare.activeRepo");
 const REVIEW_REPO_KEY = Symbol.for("codeflare.reviewRepo");
 
-type CodeflareRepoMemory = { [ACTIVE_REPO_KEY]?: string; [REVIEW_REPO_KEY]?: string };
+// REVIEW_REPO_KEY is the LAST-pinned review repo (used by the footer and single-repo callers).
+// REVIEW_REPOS_KEY accumulates the SET of every repo this session armed/reconciled a review for, so the
+// no-ctx reaper can finalize ALL of them, not just the last one (P6) — otherwise a second repo's review
+// hangs unfinalized until the user returns to it.
+const REVIEW_REPOS_KEY = Symbol.for("codeflare.reviewRepos");
+type CodeflareRepoMemory = { [ACTIVE_REPO_KEY]?: string; [REVIEW_REPO_KEY]?: string; [REVIEW_REPOS_KEY]?: Set<string> };
 const repoMemory = globalThis as unknown as CodeflareRepoMemory;
 
 export function rememberReviewRepo(repo: string | undefined): void {
-  if (repo) repoMemory[REVIEW_REPO_KEY] = repo;
+  if (!repo) return;
+  repoMemory[REVIEW_REPO_KEY] = repo;
+  if (!repoMemory[REVIEW_REPOS_KEY]) repoMemory[REVIEW_REPOS_KEY] = new Set<string>();
+  repoMemory[REVIEW_REPOS_KEY]!.add(repo);
 }
 export function recallReviewRepo(): string | undefined {
   return repoMemory[REVIEW_REPO_KEY];
+}
+export function recallReviewRepos(): string[] {
+  return repoMemory[REVIEW_REPOS_KEY] ? [...repoMemory[REVIEW_REPOS_KEY]!] : [];
 }
 
 export function rememberActiveRepo(repo: string | undefined): void {
