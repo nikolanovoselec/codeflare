@@ -335,6 +335,31 @@ flowchart TD
     B2 --> C1
 ```
 
+### Contact Relay Data Flow ([REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline))
+
+The landing demo-request form relays to operators without persisting any submission content — the only KV write on the path is the rate-limiter counter, keeping the landing's "not stored" promise literally true.
+
+```mermaid
+flowchart TD
+    A["Landing form<br/>(contact-controller.ts)"]
+    B["POST /public/contact<br/>(Worker public router)"]
+    F["KV rate-limiter<br/>(contact-submit, 5/min/IP)"]
+    C["Turnstile verify<br/>(challenges.cloudflare.com)"]
+    D["Resend relay<br/>(api.resend.com/emails)"]
+    E["Admin inboxes<br/>(reply-to: submitter)"]
+
+    A -->|JSON body + turnstileToken| B
+    B --> F
+    F -->|over limit| G["429"]
+    F -->|pass| C
+    C -->|fail| H["400 VALIDATION_ERROR"]
+    C -->|success| D
+    D -->|non-2xx| I["502 CONTACT_EMAIL_FAILED"]
+    D -->|HTML-escaped email| E
+```
+
+Both secrets (`TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`) must be present and at least one admin recipient must exist, else the endpoint returns `503`. Every user-controlled field is HTML-escaped before rendering into the email body, and the reply-to / subject are CR/LF-stripped to prevent header injection. The same flow backs `POST /public/waitlist` (onboarding-only) with a single-email envelope.
+
 ### Enterprise LLM Routing
 
 Applies only when `ENTERPRISE_MODE=active`. The Container DO wires outbound-HTTPS interception before starting the container; from that point every HTTPS connection the container makes to the LLM provider host (`api.openai.com`) is transparently TLS-terminated by the `LlmInterceptor` WorkerEntrypoint and re-issued to the customer's AI Gateway REST API. The container never sees the gateway credentials.

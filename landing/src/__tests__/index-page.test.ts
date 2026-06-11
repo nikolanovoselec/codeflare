@@ -216,7 +216,9 @@ describe('landing page metadata (REQ-LANDING-003)', () => {
     expect(html).toContain('name="twitter:card"');
     expect(html).toContain('content="summary_large_image"');
     expect(html).toContain('name="twitter:title"');
+    expect(html).toContain('name="twitter:description"');
     expect(html).toContain('name="twitter:image"');
+    expect(html).toContain('name="twitter:image:alt"');
   });
 
   it('sets the canonical URL to the served root, not the /landing asset path', () => {

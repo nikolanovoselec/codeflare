@@ -179,6 +179,22 @@ describe('createRateLimiter / REQ-SEC-007 AC1 (factory keyed by bucketName with 
         expect(res.status).toBe(200);
       }
     });
+
+    it('denies (429) when KV is not available and failClosed is set (CF-003)', async () => {
+      const app = createTestApp(
+        {
+          windowMs: 60000,
+          maxRequests: 5,
+          failClosed: true,
+        },
+        false // KV not available
+      );
+
+      const res = await app.request('/test');
+      expect(res.status).toBe(429);
+      expect(res.headers.get('Retry-After')).toBe('60');
+      expect(res.headers.get('X-RateLimit-Remaining')).toBe('0');
+    });
   });
 
   describe('IP-based rate limiting', () => {

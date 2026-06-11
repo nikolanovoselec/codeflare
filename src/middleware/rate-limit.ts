@@ -29,9 +29,10 @@ export interface RateLimitConfig {
  * Create a rate limiting middleware for Hono
  *
  * Uses Cloudflare KV to track request counts per user/IP.
- * If KV is not available, rate limiting is skipped.
+ * If KV is not available, rate limiting is skipped — unless `failClosed` is
+ * set, in which case the request is denied (security-critical endpoints).
  * If a KV operation fails, falls back to in-memory rate limiting
- * via the shared rate-limit-core module.
+ * via the shared rate-limit-core module (or denies, when `failClosed`).
  *
  * @example
  * ```typescript
@@ -67,6 +68,16 @@ export function createRateLimiter(config: RateLimitConfig): MiddlewareHandler<{ 
 
     const kv = c.env.KV;
     if (!kv) {
+      // CF-003: failClosed limiters (security-critical, unauthenticated surfaces)
+      // deny when the KV binding is unavailable rather than waving traffic
+      // through — matching the `failClosed` contract ("deny when KV is
+      // unavailable"). General limiters fail open and skip rate limiting.
+      if (config.failClosed) {
+        c.header('Retry-After', '60');
+        c.header('X-RateLimit-Limit', config.maxRequests.toString());
+        c.header('X-RateLimit-Remaining', '0');
+        throw new RateLimitError('Rate limiting is temporarily unavailable. Please try again later.');
+      }
       // Skip rate limiting if KV not available
       return next();
     }

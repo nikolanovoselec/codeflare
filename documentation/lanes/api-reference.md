@@ -510,6 +510,7 @@ Responses:
 - `200` — `{ "success": true }` on accepted submission.
 - `400` — `VALIDATION_ERROR`: malformed body, a field failing the constraints above, **or** a failed Turnstile verification (`CAPTCHA verification failed`).
 - `429` — rate limit exceeded (5/min).
+- `502` — `CONTACT_EMAIL_FAILED`: the Resend outbound relay returned a non-2xx response (retryable).
 - `503` — `CONTACT_NOT_CONFIGURED` / `CONTACT_NO_ADMIN_RECIPIENT`: Turnstile/Resend secrets absent or no admin recipient configured (same degradation contract as the waitlist).
 - `404` — neither SaaS nor onboarding mode is active.
 
