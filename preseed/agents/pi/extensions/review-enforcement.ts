@@ -100,9 +100,12 @@ function reviewBaselineMemory(): Map<string, string> {
 }
 // baselineKey scopes the per-session signals to repo+current-branch. A `git checkout` to another branch
 // produces a different key, so its inherited head starts fresh (baseline === head → OFFER), which is the
-// whole point of the branch keying. The space separator is collision-safe because git refnames cannot
-// contain whitespace, so the branch is always the final space-delimited token and no other (repo, branch)
-// pair can collapse to the same string. These keys are opaque equality keys, never parsed back apart.
+// whole point of the branch keying. The fields are joined with a NUL (\u0000) byte — which can appear in
+// neither a filesystem path nor a git refname — so no other (repo, branch) pair can ever collapse to the
+// same key string. These keys are opaque equality keys, never parsed back apart. NOTE: many editors and
+// file viewers render the NUL as blank or a space, so the separator LOOKS like a space in the source — it
+// is a real \u0000. Every key builder in this module (baselineKey, the offer keys, the ignore-dedup key)
+// uses the same NUL separator for the same reason; don't "fix" one to a literal space.
 function baselineKey(repo: string): string {
   return `${repo} ${currentBranch(repo) ?? ""}`;
 }
