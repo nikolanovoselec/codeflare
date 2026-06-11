@@ -1167,10 +1167,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi requests a fix pass only after every required exact-head result file exists and at least one legitimate `MEDIUM`/`HIGH`/`CRITICAL` finding remains. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestReviewAutofix --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::requestReviewAutofixForRows -->
-2. Partial lane result sets never trigger a fix request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestReviewAutofix --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewAckReady -->
+1. Pi requests a fix pass only after every required exact-head result file exists and at least one legitimate `MEDIUM`/`HIGH`/`CRITICAL` finding remains. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::requestReviewAutofixForRows -->
+2. Partial lane result sets never trigger a fix request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewAckReady -->
 3. When a live session transcript is available, a wait/do-not-auto-fix directive makes Pi present findings without requesting a fix pass. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAutofixModeFromUserMessages -->
-4. Idle finalization without live context keeps the default automatic fix behavior. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestReviewAutofix -->
+4. Idle finalization without live context keeps the default automatic fix behavior. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement -->
 
 **Constraints:**
 
@@ -1226,7 +1226,7 @@ None.
 
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-061 idle reaper helper test covers AC2 gating; AC1 runtime reaping + AC3/AC4 off-turn finalization have integration smoke coverage) -->
-<!-- coverage-gap: AC1's no-turn finished-lane reaping path is driven by a reload-safe `setInterval`; it is runtime-smoke-tested with detached lanes, with no dedicated automated test in the Workers vitest pool. AC4's off-turn summary deferral (no-ctx finalize persists summary.md but leaves the chat announcement unclaimed for the next on-turn emit) is the same off-turn `setInterval`/`pi.sendMessage` integration glue, verified by inspection and runtime smoke rather than a Workers-pool unit test. -->
+<!-- coverage-gap: AC1's no-turn finished-lane reaping path is driven by a reload-safe `setInterval`; it is runtime-smoke-tested with detached lanes, with no dedicated automated test in the Workers vitest pool. AC4's off-turn summary deferral (no-ctx finalize arms a durable nonce-verified delivery announcement, which the next on-turn tick delivers and verifies — full contract in REQ-AGENT-062) is the same off-turn `setInterval`/`pi.sendMessage` integration glue, verified by inspection and runtime smoke rather than a Workers-pool unit test. -->
 
 **Intent:** Pi must advance and finalize durable review jobs even when the user does not submit another prompt.
 
@@ -1237,7 +1237,7 @@ None.
 1. An idle Pi session with no user turn still reaps finished durable review lanes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick -->
 2. An idle Pi session starts the next eligible durable review lane after prerequisite lanes complete. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick -->
 3. An idle Pi session finalizes completed durable reviews by acknowledging the exact head, saving the merged summary, and starting the autofix request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview -->
-4. Off-turn finalization does NOT claim the chat-summary marker; the next on-turn tick emits the visible merged summary. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::publishSummaryForCurrentPr -->
+4. Off-turn finalization arms a durable, nonce-verified delivery announcement instead of emitting a fire-and-forget message; the next on-turn tick delivers and verifies the merged summary (full delivery contract in [REQ-AGENT-062](#req-agent-062-pi-pr-boundary-review-result-delivery)). <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::drainReviewAnnouncements -->
 5. Review-repo resolution for the reaper, the on-turn finalizers, and the footer progress row derives the repo from the boundary-command cwd / Pi session cwd, then an in-session remembered review repo, then the in-memory active repo codeflare-pi tracks on every tool execution (the same signal the statusline uses) — never the shared graphify active-cwd sentinel, which multiple agents write and which points at whatever repo acted last. Both the active-repo and review-repo slots live on `globalThis` under `Symbol.for` keys (`codeflare.activeRepo`, `codeflare.reviewRepo`) because Pi 0.79.1's loader (`createJiti(moduleCache:false)`) gives each extension its own module instance, making `globalThis` the only cross-extension channel; a module-local variable written by `codeflare-pi.ts` is invisible to `review-enforcement.ts` and `local-statusline.ts`. The in-memory active-repo fallback is what lets `/review-run` and the no-ctx reaper resolve a nested clone when the session cwd is a non-repo parent workspace and no review has run yet. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::resolveReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::recallActiveRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::rememberActiveRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::rememberReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewRepoForCtx --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::liveReviewRow --> <!-- @test: src/__tests__/lib/review-state.test.ts (resolveReviewRepo precedence incl. the active-repo fallback + never probes the sentinel path -> AC5) -->
 
 **Constraints:**
@@ -1249,6 +1249,40 @@ None.
 **Dependencies:** [REQ-AGENT-054](#req-agent-054-pi-durable-review-lane-failure-handling), [REQ-AGENT-059](#req-agent-059-pi-durable-review-fix-loop)
 
 **Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1/AC2); [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (AC5 — resolveReviewRepo precedence + sentinel-independence)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-062: Pi PR-Boundary Review Result Delivery
+
+<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
+<!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
+<!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-062 delivery announcement nonce/retry/reconcile/arm helpers -> AC1/AC2/AC3/AC5) -->
+<!-- coverage-gap: the live wiring — sessionContainsNonce's transcript scan, the emit/reconcile drain on each lifecycle tick, the /review-results command, and the persistent results-ready status (AC4) — is off-turn `setInterval`/`pi.sendMessage` integration glue verified by inspection + a bundled-jiti load-check + a post-deploy live smoke test, not a Workers-pool unit test. The pure decision/record helpers (AC1/AC2/AC3/AC5) are unit-tested. -->
+
+**Intent:** A completed PR-boundary review must reliably DELIVER its merged summary back into the main Pi session, not just ack the head and write `summary.md` to disk. `pi.sendMessage` persists a custom message into the session transcript only when the live agent session emits a `message_end` event, so an off-turn finalize (the idle reaper has no live session loop) or a stale post-reload sender silently no-ops. Delivery is therefore a SECOND, separately-tracked durable phase: a send is never assumed delivered — it is proven against the transcript, retried, observable, and has a manual fallback, so a review's findings are never acked-and-lost. Review execution and lane finalization live in [REQ-AGENT-054](#req-agent-054-pi-durable-review-lane-failure-handling)/[REQ-AGENT-061](#req-agent-061-pi-idle-durable-review-reaper); summary formatting in [REQ-AGENT-053](#req-agent-053-pi-durable-review-status-and-result-formatting).
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Review delivery is two-phase: finalizing a completed review (acking the head, saving `summary.md`) arms a durable per-`(head, kind)` delivery announcement in `pending` instead of emitting a fire-and-forget message. The summary announcement is always armed; the autofix announcement only when actionable findings remain. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::armReviewAnnouncements --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::ensureReviewAnnouncementPending --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (delivery announcements arm pending; visible never re-armed; failed re-armed -> AC1) -->
+2. A delivery announcement is marked `visible` (delivered) ONLY when its unique nonce is found in the session transcript — never on a bare `sendMessage` return. Each summary/autofix message embeds its nonce, which persists into the transcript line iff the message actually reached the live session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sessionContainsNonce --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::announcementReconcileDecision --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAnnouncementNonce --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (nonce determinism/uniqueness; reconcile nonce->visible; autofix request carries the nonce -> AC2) -->
+3. Pending or unverified announcements are (re)attempted on every live lifecycle tick (`session_start` / `turn_start` / `turn_end` / `resources_discover` / `agent_end`), bounded by a retry delay and an attempt cap. Once the cap is exhausted without the nonce ever appearing, the announcement is marked `failed` and the user is notified to run `/review-results`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::drainReviewAnnouncements --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldAttemptAnnouncement --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::announcementReconcileDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (shouldAttemptAnnouncement retry/cap; reconcile under-cap keep vs cap+window failed -> AC3) -->
+4. While a completed review's summary announcement is not yet `visible`, a persistent `results ready (not shown) — /review-results` footer status is shown and cleared only on delivery; the `/review-results` command displays the persisted `summary.md` on demand (the guaranteed fallback when automatic delivery never lands) and marks the announcement delivered. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::refreshDeliveryStatus -->
+5. A delivered (`visible`) announcement is never re-emitted (no duplicate summary), and a superseded head's undelivered announcements are retired so the new head never re-emits stale results. The `sendMessage` dedupe patch binds the CURRENT live sender (never a reload-surviving stale sender that returns cleanly but writes nothing), so delivery always targets the active session. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::ensureReviewAnnouncementPending --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::abandonReviewAnnouncements --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::installReviewMessageDedupe --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (visible not re-armed; superseded head retired to failed -> AC5) -->
+
+**Constraints:**
+
+None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-061](#req-agent-061-pi-idle-durable-review-reaper), [REQ-AGENT-059](#req-agent-059-pi-durable-review-fix-loop), [REQ-AGENT-053](#req-agent-053-pi-durable-review-status-and-result-formatting)
+
+**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1/AC2/AC3/AC5 — nonce, retry/reconcile decisions, announcement-record lifecycle). The live transcript-scan delivery, per-tick emit/reconcile drain, `/review-results` command, and results-ready status (AC4) are verified by inspection plus a bundled-jiti load-check and a post-deploy live smoke test (the repo's runtime-coverage convention; the Workers vitest pool cannot drive a live Pi session).
 
 **Status:** Implemented
 

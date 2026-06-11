@@ -393,6 +393,22 @@ All preseed content is deployed via the manifest pipeline:
   remain the durable evidence store. Implements
   [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-and-result-formatting).
 
+  Delivering that summary back into the live session is a separate, durable phase.
+  The review can finalize off-turn (the idle reaper has no live session loop), where
+  `pi.sendMessage` silently no-ops — a custom message only persists into the session
+  transcript when the live session emits its `message_end` event. So finalizing arms
+  a per-`(head, kind)` delivery announcement on disk under
+  `.git/codeflare-review-jobs/<head>/announcements/` rather than firing a one-shot
+  message: each summary/autofix message embeds a nonce and is marked delivered ONLY
+  when that nonce is later found in the session transcript — a `sendMessage` return is
+  never assumed delivered. Pending or unverified announcements are retried on every
+  live lifecycle tick (bounded by a retry delay and an attempt cap, then marked failed
+  with a notice). A completed review whose summary is not yet delivered shows a
+  persistent `results ready (not shown) — /review-results` footer status, and the
+  `/review-results` command displays the persisted summary on demand — the guaranteed
+  fallback if automatic delivery never lands. Implements
+  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery).
+
   Partial lane results, including any missing, failed, timed-out, or still-running
   lane, cannot trigger autofix. If legitimate MEDIUM/HIGH/CRITICAL findings remain
   after the complete exact-head summary, Pi then requests a fix-and-push pass,
@@ -810,6 +826,7 @@ To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-
 - [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop) - Pi Durable Review Fix Loop
 - [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface) - Pi Durable Review Lane Tool Surface
 - [REQ-AGENT-061](../../sdd/spec/agents.md#req-agent-061-pi-idle-durable-review-reaper) - Pi Idle Durable Review Reaper
+- [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery) - Pi PR-Boundary Review Result Delivery
 - [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement) - Pi PR-Boundary Review Window Advancement
 - [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) - Pi Local Statusline Footer
 - [REQ-AGENT-057](../../sdd/spec/agents.md#req-agent-057-pi-review-status-command) - Pi Review-Status Command

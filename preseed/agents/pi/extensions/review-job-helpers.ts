@@ -178,6 +178,84 @@ export function durableReviewMessageKey(input: {
   return [input.customType, input.repo || "", input.head || "", input.lane || "summary", input.path || ""].join("\u0000");
 }
 
+// --- Review-result delivery announcements (two-phase: execution done != delivery done) ---
+// The durable review engine acks a head and writes summary.md, but pushing the summary BACK into
+// the live session is unreliable: pi.sendMessage only persists a custom message to the session
+// transcript when the agent session emits a `message_end` (role:"custom") event, which never fires
+// from the off-turn setInterval reaper (no live session loop) nor from a stale-bound sender after a
+// reload. The old code created a one-shot `<lane>.sent` marker BEFORE sending and trusted the send,
+// so a silent no-op permanently suppressed every retry. These helpers drive a small durable state
+// machine instead — pending -> attempted -> visible|failed — whose ONLY proof of delivery is the
+// announcement's nonce appearing in the session transcript (scannable plain text, written iff the
+// message actually persisted). Pure decision logic lives here; the disk records live in
+// review-jobs.ts and the wiring/transcript-scan in review-enforcement.ts.
+export type ReviewAnnouncementKind = "summary" | "autofix";
+export type ReviewAnnouncementStatus = "pending" | "attempted" | "visible" | "failed";
+
+export type ReviewAnnouncement = {
+  kind: ReviewAnnouncementKind;
+  repo: string;
+  head: string;
+  status: ReviewAnnouncementStatus;
+  attempts: number;
+  nonce: string;
+  createdAt: number;
+  lastAttemptAt?: number;
+  deliveredAt?: number;
+  lastError?: string;
+};
+
+// Deterministic, transcript-scannable delivery token. Caller passes the time stamp (Date.now in the
+// extension) so this stays pure/testable. No spaces; embeds kind+head so distinct announcements can
+// never collide, and the stamp distinguishes a re-created announcement from its predecessor.
+export function reviewAnnouncementNonce(kind: ReviewAnnouncementKind, head: string, stamp: number): string {
+  return `cf-review-${kind}:${head.slice(0, 12)}:${stamp}`;
+}
+
+export type AnnouncementAttemptInput = {
+  status: ReviewAnnouncementStatus;
+  attempts: number;
+  lastAttemptAt?: number;
+  now: number;
+  maxAttempts: number;
+  retryDelayMs: number;
+};
+
+// Should emitPendingAnnouncements (re)send this announcement on this tick? `pending` sends once;
+// `attempted` re-sends only after the retry delay AND while under the attempt cap; terminal states
+// (`visible`/`failed`) never send. This is the SOLE owner of retry/backoff timing.
+export function shouldAttemptAnnouncement(input: AnnouncementAttemptInput): boolean {
+  if (input.status === "visible" || input.status === "failed") return false;
+  if (input.status === "pending") return true;
+  if (input.attempts >= input.maxAttempts) return false;
+  return input.now - (input.lastAttemptAt ?? 0) >= input.retryDelayMs;
+}
+
+export type AnnouncementReconcileInput = {
+  status: ReviewAnnouncementStatus;
+  attempts: number;
+  lastAttemptAt?: number;
+  nonceFound: boolean;
+  now: number;
+  maxAttempts: number;
+  retryDelayMs: number;
+};
+
+export type AnnouncementReconcileDecision = "visible" | "failed" | "keep";
+
+// Post-send verdict from observing whether the nonce is now in the session transcript. Proof of
+// delivery wins outright. An `attempted` announcement that has burned its attempt cap AND given the
+// final attempt its full retry window without ever appearing is `failed` (the user is told to run
+// /review-results); anything still in flight is `keep` (emit retries it per shouldAttemptAnnouncement).
+export function announcementReconcileDecision(input: AnnouncementReconcileInput): AnnouncementReconcileDecision {
+  if (input.nonceFound) return "visible";
+  if (input.status === "failed") return "failed";
+  if (input.status === "attempted" && input.attempts >= input.maxAttempts) {
+    return input.now - (input.lastAttemptAt ?? 0) >= input.retryDelayMs ? "failed" : "keep";
+  }
+  return "keep";
+}
+
 export type ReviewSeverityCounts = {
   critical: number;
   high: number;
@@ -235,7 +313,7 @@ export type ReviewAutofixMessage = {
   customType: "codeflare-review-autofix-request";
   content: string;
   display: false;
-  details: { repo: string; head: string };
+  details: { repo: string; head: string; nonce?: string };
 };
 
 export type ReviewAutofixOptions = {
@@ -283,30 +361,34 @@ export function reviewAutofixModeFromUserMessages(messages: string[]): ReviewAut
   return mode;
 }
 
-export function reviewAutofixRequest(repo: string, head: string): ReviewAutofixRequest {
+export function reviewAutofixRequest(repo: string, head: string, nonce?: string): ReviewAutofixRequest {
+  const lines = [
+    `Fix legitimate PR-boundary review findings for ${basename(repo)} at ${head}.`,
+    "Use the merged review summary immediately above as the actionable finding list; do not fix from partial lane results.",
+    "Before editing, committing, or pushing, verify the review job for this exact head is complete and every required lane has a result file.",
+    "If any required review lane is still running, pending, missing, or unknown, do not edit, commit, or push; wait for the final merged review summary.",
+    "If the user has explicitly said not to automatically fix/implement this round, or to wait for GO/approval, do not edit, commit, or push; present the findings and wait for their command.",
+    "Otherwise, fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
+    "A finding's age is never a reason to skip it: fix every legitimate finding whether it is newly introduced or pre-existing, in this diff or adjacent. Do not exclude, defer, or ask about a legitimate finding because it pre-dates this change — legitimacy is the only criterion.",
+    "Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.",
+    "Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
+  ];
+  // A delivery nonce (when supplied) rides in a trailing HTML comment so it lands verbatim in the
+  // persisted transcript line — the announcement state machine proves delivery by finding it there.
+  if (nonce) lines.push(`<!-- cf-review-delivery ${nonce} -->`);
   return {
     message: {
       customType: "codeflare-review-autofix-request",
-      content: [
-        `Fix legitimate PR-boundary review findings for ${basename(repo)} at ${head}.`,
-        "Use the merged review summary immediately above as the actionable finding list; do not fix from partial lane results.",
-        "Before editing, committing, or pushing, verify the review job for this exact head is complete and every required lane has a result file.",
-        "If any required review lane is still running, pending, missing, or unknown, do not edit, commit, or push; wait for the final merged review summary.",
-        "If the user has explicitly said not to automatically fix/implement this round, or to wait for GO/approval, do not edit, commit, or push; present the findings and wait for their command.",
-        "Otherwise, fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
-        "A finding's age is never a reason to skip it: fix every legitimate finding whether it is newly introduced or pre-existing, in this diff or adjacent. Do not exclude, defer, or ask about a legitimate finding because it pre-dates this change — legitimacy is the only criterion.",
-        "Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.",
-        "Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
-      ].join("\n"),
+      content: lines.join("\n"),
       display: false,
-      details: { repo, head },
+      details: nonce ? { repo, head, nonce } : { repo, head },
     },
     options: { triggerTurn: true, deliverAs: "followUp" },
   };
 }
 
-export function sendReviewAutofixRequest(sender: ReviewAutofixSender, repo: string, head: string): void {
-  const request = reviewAutofixRequest(repo, head);
+export function sendReviewAutofixRequest(sender: ReviewAutofixSender, repo: string, head: string, nonce?: string): void {
+  const request = reviewAutofixRequest(repo, head, nonce);
   sender.sendMessage(request.message, request.options);
 }
 
@@ -317,13 +399,14 @@ export function requestReviewAutofixForRows(input: {
   rows: ReviewAutofixRow[];
   reviewComplete: boolean;
   suppress?: boolean;
+  nonce?: string;
   claim: () => boolean;
 }): boolean {
   if (!input.reviewComplete) return false;
   if (input.suppress) return false;
   if (!input.rows.some((row) => actionableReviewCount(row.counts) > 0)) return false;
   if (!input.claim()) return false;
-  sendReviewAutofixRequest(input.sender, input.repo, input.head);
+  sendReviewAutofixRequest(input.sender, input.repo, input.head, input.nonce);
   return true;
 }
 

@@ -1,9 +1,12 @@
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as pathJoin } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, sendReviewAutofixRequest, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewAutofixRequest, sendReviewAutofixRequest, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { abandonReviewAnnouncements, ensureReviewAnnouncementPending, readReviewAnnouncement, reviewAnnouncementPath, writeReviewAnnouncement } from '../../../preseed/agents/pi/extensions/review-jobs';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
@@ -1151,6 +1154,80 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewAutofixModeFromUserMessages(['do not auto fix next round', 'review summary arrived'])).toBe('manual');
     expect(reviewAutofixModeFromUserMessages(['do not automatically implement', 'GO, implement findings'])).toBe('auto');
     expect(reviewAutofixModeFromUserMessages(['ordinary review discussion'])).toBe('unset');
+  });
+
+  it('REQ-AGENT-062: announcement nonce is deterministic and transcript-scannable, and never collides across kind/stamp', () => {
+    expect(reviewAnnouncementNonce('summary', 'abcdef1234567890', 1700)).toBe('cf-review-summary:abcdef123456:1700');
+    expect(reviewAnnouncementNonce('autofix', 'abcdef1234567890', 1700)).toBe('cf-review-autofix:abcdef123456:1700');
+    expect(reviewAnnouncementNonce('summary', 'h', 1)).not.toBe(reviewAnnouncementNonce('autofix', 'h', 1));
+    expect(reviewAnnouncementNonce('summary', 'h', 1)).not.toBe(reviewAnnouncementNonce('summary', 'h', 2));
+  });
+
+  it('REQ-AGENT-062: shouldAttemptAnnouncement sends pending once, retries attempted only past the delay and under the cap, never terminal', () => {
+    const base = { attempts: 0, lastAttemptAt: undefined as number | undefined, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000 };
+    expect(shouldAttemptAnnouncement({ ...base, status: 'pending' })).toBe(true);
+    expect(shouldAttemptAnnouncement({ ...base, status: 'visible' })).toBe(false);
+    expect(shouldAttemptAnnouncement({ ...base, status: 'failed' })).toBe(false);
+    // attempted, within the retry delay → wait (do not double-send before verification can run)
+    expect(shouldAttemptAnnouncement({ status: 'attempted', attempts: 1, lastAttemptAt: 90_000, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000 })).toBe(false);
+    // attempted, past the retry delay AND under the cap → retry
+    expect(shouldAttemptAnnouncement({ status: 'attempted', attempts: 1, lastAttemptAt: 50_000, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000 })).toBe(true);
+    // attempted, at the cap → never again
+    expect(shouldAttemptAnnouncement({ status: 'attempted', attempts: 3, lastAttemptAt: 0, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000 })).toBe(false);
+  });
+
+  it('REQ-AGENT-062: announcementReconcileDecision proves delivery by the transcript nonce, fails only after the cap+window, else keeps retrying', () => {
+    const base = { attempts: 1, lastAttemptAt: 50_000, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000 };
+    // nonce in the transcript → delivered, regardless of prior status
+    expect(announcementReconcileDecision({ ...base, status: 'attempted', nonceFound: true })).toBe('visible');
+    expect(announcementReconcileDecision({ ...base, status: 'pending', nonceFound: true })).toBe('visible');
+    // attempted, nonce absent, under the cap → keep (emit retries it)
+    expect(announcementReconcileDecision({ ...base, status: 'attempted', nonceFound: false })).toBe('keep');
+    // attempted, nonce absent, at the cap with the final window elapsed → failed (→ /review-results notice)
+    expect(announcementReconcileDecision({ status: 'attempted', attempts: 3, lastAttemptAt: 50_000, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false })).toBe('failed');
+    // attempted, nonce absent, at the cap but still within the final window → keep (let the last send land)
+    expect(announcementReconcileDecision({ status: 'attempted', attempts: 3, lastAttemptAt: 95_000, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false })).toBe('keep');
+    // pending (never attempted) → nothing to reconcile yet
+    expect(announcementReconcileDecision({ ...base, status: 'pending', nonceFound: false })).toBe('keep');
+  });
+
+  it('REQ-AGENT-062: the autofix request carries the delivery nonce only when supplied (so the SM can verify it landed)', () => {
+    const withNonce = reviewAutofixRequest('/repo', 'deadbeef', 'cf-review-autofix:deadbeef:9');
+    expect(withNonce.message.content).toContain('cf-review-autofix:deadbeef:9');
+    expect(withNonce.message.details).toEqual({ repo: '/repo', head: 'deadbeef', nonce: 'cf-review-autofix:deadbeef:9' });
+    const withoutNonce = reviewAutofixRequest('/repo', 'deadbeef');
+    expect(withoutNonce.message.content).not.toContain('cf-review-delivery');
+    expect(withoutNonce.message.details).toEqual({ repo: '/repo', head: 'deadbeef' });
+  });
+
+  it('REQ-AGENT-062: delivery announcements arm pending, never re-arm a delivered one, re-arm a failed one, and retire a superseded head', () => {
+    const dir = mkdtempSync(pathJoin(tmpdir(), 'cf-review-ann-'));
+    try {
+      const head = 'abc123def456';
+      // off-turn finalize arms a PENDING summary announcement (not visible) — delivery is now durable
+      const armed = ensureReviewAnnouncementPending(dir, head, 'summary', reviewAnnouncementNonce('summary', head, 1700), 1700);
+      expect(armed).toMatchObject({ kind: 'summary', head, status: 'pending', attempts: 0 });
+      expect(existsSync(reviewAnnouncementPath(dir, head, 'summary'))).toBe(true);
+      expect(readReviewAnnouncement(dir, head, 'summary')?.status).toBe('pending');
+
+      // a delivered (visible) record is NEVER re-armed → no duplicate summary on a later finalize
+      writeReviewAnnouncement({ ...armed, status: 'visible', deliveredAt: 1800 });
+      const afterVisible = ensureReviewAnnouncementPending(dir, head, 'summary', reviewAnnouncementNonce('summary', head, 9999), 9999);
+      expect(afterVisible.status).toBe('visible');
+      expect(afterVisible.nonce).toBe(armed.nonce);
+
+      // a previously-failed record IS re-armed with a fresh nonce (give delivery another full shot)
+      writeReviewAnnouncement({ ...armed, status: 'failed', lastError: 'nonce not found' });
+      const reArmed = ensureReviewAnnouncementPending(dir, head, 'summary', reviewAnnouncementNonce('summary', head, 2200), 2200);
+      expect(reArmed.status).toBe('pending');
+      expect(reArmed.nonce).toBe(reviewAnnouncementNonce('summary', head, 2200));
+
+      // a superseded head's not-yet-delivered announcement is retired so the new head never re-emits it
+      abandonReviewAnnouncements(dir, head);
+      expect(readReviewAnnouncement(dir, head, 'summary')?.status).toBe('failed');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('REQ-AGENT-059: durable Pi review severity helpers identify actionable findings for the fix loop', () => {
