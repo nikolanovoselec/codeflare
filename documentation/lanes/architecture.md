@@ -358,7 +358,7 @@ flowchart TD
     D -->|HTML-escaped email| E
 ```
 
-Both secrets (`TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`) must be present and at least one admin recipient must exist, else the endpoint returns `503`. Every user-controlled field is HTML-escaped before rendering into the email body, and the reply-to / subject are CR/LF-stripped to prevent header injection. The same flow backs `POST /public/waitlist` (onboarding-only) with a single-email envelope.
+Both secrets (`TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`) must be present and at least one admin recipient must exist, else the endpoint returns `503`. Every user-controlled field is HTML-escaped before rendering into the email body, and the reply-to address and the name interpolated into the subject are CR/LF-stripped to prevent header injection (the topic field is constrained by Zod enum validation). The same flow backs `POST /public/waitlist` (onboarding-only) with a single-email envelope.
 
 ### Enterprise LLM Routing
 
