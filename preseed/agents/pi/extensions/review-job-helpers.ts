@@ -902,15 +902,18 @@ export function reconcileBoundaryAction(input: ReconcileBoundaryInput): Reconcil
   return "offer";
 }
 
-// In-session continuation = the enforced head ADVANCED during THIS Pi session, i.e. it
-// differs from and descends from the head observed when this session first reconciled
-// (the in-memory baseline, captured at session start). That is the only signal of an
-// in-session push whose on-tool-end auto-start was dropped (so reconciliation should
-// auto-start). A head present at session start (baseline undefined, or baseline === head)
-// was NOT pushed during this session — it is a fresh launch/clone/checkout and must OFFER,
-// never auto-start. Deriving continuation from the on-disk ack marker instead (the prior
-// implementation) wrongly treated ANY descendant-of-a-prior-ack head as continuation, so
-// every bare Pi start auto-spawned reviewers — the regression this restores to offering.
+// reviewBaselineContinuation is the BACKSTOP signal for missed-boundary autostart: "the current head
+// advanced beyond the head this session first saw on this branch" (a strict descendant of `baseline`).
+// It exists to catch the one case the primary signal (boundaryActed, in review-enforcement) misses — a
+// jiti reload that ate the boundary tool-event, so onToolEnd never ran to record the push, yet the head
+// clearly moved forward from where the session started. It is NOT sufficient alone: a bare `git checkout`
+// of a pre-existing descendant branch also "descends from baseline", which is why review-enforcement keys
+// the baseline by repo+BRANCH (a checkout changes the branch → its baseline is the inherited head →
+// baseline === head → returns false → OFFER, never autostart). A head present at session start (baseline
+// undefined or === head) was NOT pushed this session, so it returns false and the caller OFFERS.
+// Historical note: deriving this from the on-disk ack marker instead (a prior implementation) wrongly
+// treated ANY descendant-of-a-prior-ack head as continuation, so every bare Pi start auto-spawned
+// reviewers — the bug-A regression. The repo+branch baseline + boundaryActed design replaced it.
 export function reviewBaselineContinuation(
   baseline: string | undefined,
   head: string,
@@ -918,6 +921,31 @@ export function reviewBaselineContinuation(
 ): boolean {
   if (!baseline || !head || baseline === head) return false;
   return isAncestor(baseline, head);
+}
+
+// reviewInSessionContinuation is the FULL autostart-vs-offer signal for missed-boundary reconciliation
+// (REQ-AGENT-058, Fable-5 findings F1/R3). The reconcile AUTOSTARTS reviewers for a missed boundary only
+// when THIS session is what advanced the head — never for a head merely inherited at launch (a fresh
+// clone, a relaunch, or a bare checkout), which instead OFFERS so reviewers are never silently spawned on
+// work the user did not do this session. Two independent signals, OR'd:
+//   • boundaryActed (PRIMARY): a real PR-boundary command (push / pr create / …) actually executed this
+//     session for this repo+branch. Recorded in onToolEnd BEFORE any window-creation guard, so even a
+//     dropped window (dedup, unresolved head, reload after the event fired) still leaves the fact for
+//     reconcile to autostart on. True exactly when we pushed — independent of head ancestry, so it fixes
+//     F1 (the no-PR-at-launch + in-session push case the baseline alone missed).
+//   • baseline backstop (reviewBaselineContinuation): covers the reload-ate-the-tool-event case where
+//     boundaryActed was never recorded but the head still advanced beyond the session's branch baseline.
+// A bare checkout sets neither (no boundary command ran; the new branch's baseline equals its inherited
+// head), so it correctly OFFERS — fixing R3, where advancing a repo-keyed baseline on ack made a mere
+// checkout of a descendant branch autostart.
+export function reviewInSessionContinuation(input: {
+  boundaryActed: boolean;
+  baseline: string | undefined;
+  head: string;
+  isAncestor: (ancestor: string, current: string) => boolean;
+}): boolean {
+  if (input.boundaryActed) return true;
+  return reviewBaselineContinuation(input.baseline, input.head, input.isAncestor);
 }
 
 // Resolve which repo a review handler should act on, WITHOUT consulting the shared graphify

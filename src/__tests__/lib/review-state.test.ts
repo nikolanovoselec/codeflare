@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -205,6 +205,36 @@ describe('reviewBaselineContinuation (bug-A fix: offer on launch, autostart only
 
   it('returns false for an empty head regardless of baseline', () => {
     expect(reviewBaselineContinuation('basehead', '', descends)).toBe(false);
+  });
+});
+
+/**
+ * reviewInSessionContinuation is the FULL autostart-vs-offer signal (Fable-5 F1/R3). boundaryActed
+ * (a real push happened this session for this repo+branch) is the PRIMARY signal; the baseline
+ * descendant check is the backstop for a reload that ate the boundary tool-event. A bare checkout sets
+ * neither, so it OFFERS.
+ */
+describe('reviewInSessionContinuation (F1/R3: boundaryActed primary, baseline backstop)', () => {
+  const descends = () => true;
+  const unrelated = () => false;
+
+  it('autostarts when a boundary command ran this session, even with no/equal baseline (F1)', () => {
+    // No baseline (e.g. no open PR at launch, PR created mid-session) — boundaryActed alone autostarts.
+    expect(reviewInSessionContinuation({ boundaryActed: true, baseline: undefined, head: 'h2', isAncestor: unrelated })).toBe(true);
+    expect(reviewInSessionContinuation({ boundaryActed: true, baseline: 'h2', head: 'h2', isAncestor: unrelated })).toBe(true);
+  });
+
+  it('autostarts via the baseline backstop when boundaryActed was missed but the head advanced', () => {
+    // Reload ate the tool-event: boundaryActed false, but head descends from the session branch baseline.
+    expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h2', isAncestor: descends })).toBe(true);
+  });
+
+  it('OFFERS an inherited head: no boundary command and head equals/does-not-descend baseline (R3 + bug-A)', () => {
+    // Bare checkout / fresh launch: no push this session, baseline === head (just-seeded) → offer.
+    expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h1', isAncestor: descends })).toBe(false);
+    expect(reviewInSessionContinuation({ boundaryActed: false, baseline: undefined, head: 'h1', isAncestor: descends })).toBe(false);
+    // Cross-branch checkout to an unrelated descendant: not boundary-acted, does not descend → offer.
+    expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h9', isAncestor: unrelated })).toBe(false);
   });
 });
 
