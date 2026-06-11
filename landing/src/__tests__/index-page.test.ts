@@ -13,10 +13,20 @@ import {
 } from '../content/site';
 
 let html: string;
+/** Rendered HTML with Astro's entity escaping undone, for raw-copy assertions. */
+let text: string;
+
+function decodeEntities(rendered: string): string {
+  return rendered
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
 
 beforeAll(async () => {
   const container = await AstroContainer.create();
   html = await container.renderToString(IndexPage);
+  text = decodeEntities(html);
 });
 
 describe('landing page (REQ-LANDING-001)', () => {
@@ -43,7 +53,7 @@ describe('landing page (REQ-LANDING-001)', () => {
   it('renders every card of every pillar section', () => {
     for (const section of PILLAR_SECTIONS) {
       for (const card of section.cards ?? []) {
-        expect(html).toContain(card.title);
+        expect(text).toContain(card.title);
       }
     }
   });
@@ -64,7 +74,7 @@ describe('landing page (REQ-LANDING-001)', () => {
 
   it('renders every FAQ question', () => {
     for (const item of FAQ_ITEMS) {
-      expect(html).toContain(item.question);
+      expect(text).toContain(item.question);
     }
   });
 
