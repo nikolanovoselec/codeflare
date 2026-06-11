@@ -397,8 +397,9 @@ All preseed content is deployed via the manifest pipeline:
   The review can finalize off-turn (the idle reaper has no live session loop), where
   `pi.sendMessage` silently no-ops — a custom message only persists into the session
   transcript when the live session emits its `message_end` event. So finalizing arms
-  a per-`(head, kind)` delivery announcement on disk under
-  `.git/codeflare-review-jobs/<head>/announcements/` rather than firing a one-shot
+  a per-`(head, kind)` durable announcement record on disk under
+  `.git/codeflare-review-jobs/<head>/announcements/` (`summary.json` and `autofix.json`)
+  rather than firing a one-shot
   message: each summary/autofix message embeds a nonce and is marked delivered ONLY
   when that nonce is later found in the session transcript — a `sendMessage` return is
   never assumed delivered. Pending or unverified announcements are retried on every

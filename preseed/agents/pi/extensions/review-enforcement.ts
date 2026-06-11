@@ -59,7 +59,7 @@ import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-a
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { actionableReviewCount, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
-import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
+import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, readDurableReviewJob, readReviewAnnouncement, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
@@ -832,7 +832,10 @@ function sessionContainsNonce(ctx: any, nonce: string): boolean {
   try {
     const file = ctx?.sessionManager?.getSessionFile?.() ?? recallSessionFile();
     if (!file || !existsSync(file)) return false;
-    return readFileSync(file, "utf8").includes(nonce);
+    // Match the full delivery sentinel, not the bare nonce: the autofix-request CONTENT is a prompt the
+    // agent could quote the nonce back from, which would falsely mark the announcement delivered. The
+    // sentinel form only lands in the JSONL when our custom message actually persisted.
+    return readFileSync(file, "utf8").includes(`<!-- cf-review-delivery ${nonce} -->`);
   } catch {
     return false;
   }
@@ -1305,6 +1308,11 @@ export default function (pi: ExtensionAPI) {
         );
         return { sent: true };
       }
+      // Unlike the summary (which merely displays and tolerates a duplicate), the autofix message
+      // TRIGGERS a real fix/commit/push turn. That only runs in a LIVE session, and off-turn the
+      // trigger no-ops — so firing off-turn would burn nothing useful AND, with the one-shot marker
+      // below, permanently block the next real fire. Skip off-turn; stay pending for the next live tick.
+      if (!ctx?.sessionManager) return { sent: false };
       const resultLanes = completedDurableReviewLanes(state.repo, state.head, state.lanes);
       const fired = requestReviewAutofixForRows({
         sender: pi,
@@ -1317,11 +1325,22 @@ export default function (pi: ExtensionAPI) {
         // same messages an on-turn send would. Suppressed → not sent → the announcement stays pending.
         suppress: reviewAutofixModeFromUserMessages(sessionUserMessages(ctx)) === "manual",
         nonce: record.nonce,
-        claim: () => true, // dedupe/gating is the announcement state machine's job, not a one-shot marker
+        // Durable one-shot guard: an autofix turn must fire AT MOST ONCE per head even if the delivery
+        // nonce hasn't surfaced before the next drain tick (30s) — otherwise a re-send triggers a second
+        // fix/commit/push turn = duplicate commits. The marker doubles as the `autofix.requested` flag
+        // computeReviewState reads for /review-status. A failed claim → fired:false → stays pending,
+        // and the next tick reconciles to visible once the triggered turn's message persists the nonce.
+        claim: () => {
+          const marker = join(reviewJobDir(state.repo, state.head), "autofix.requested");
+          mkdirSync(dirname(marker), { recursive: true });
+          try { closeSync(openSync(marker, "wx")); return true; } catch { return false; }
+        },
       });
       return { sent: fired };
     } catch (error) {
-      return { sent: true, error: String((error as { message?: string })?.message || error) };
+      // A throw means nothing was enqueued — report sent:false so it is never mistaken for a delivery,
+      // but carry the error so the drain loop still counts it as an attempt and escalates honestly.
+      return { sent: false, error: String((error as { message?: string })?.message || error) };
     }
   }
 
@@ -1349,7 +1368,10 @@ export default function (pi: ExtensionAPI) {
       }
       if (!shouldAttemptAnnouncement({ status: record.status, attempts: record.attempts, lastAttemptAt: record.lastAttemptAt, now, maxAttempts: ANNOUNCE_MAX_ATTEMPTS, retryDelayMs: ANNOUNCE_RETRY_MS })) continue;
       const { sent, error } = sendAnnouncement(record, state, ctx);
-      if (!sent) continue; // autofix suppressed/not-actionable this tick — leave pending for later
+      // sent:false with NO error = intentional skip (autofix suppressed / off-turn / already claimed):
+      // leave pending without burning an attempt. sent:false WITH an error = a send that threw: count it
+      // so a persistently failing send still escalates to `failed` after the cap.
+      if (!sent && !error) continue;
       writeReviewAnnouncement({ ...record, status: "attempted", attempts: record.attempts + 1, lastAttemptAt: now, lastError: error });
       appendReviewEvent(repo, { event: `${kind}_announcement_attempted`, head, nonce: record.nonce, attempt: record.attempts + 1 });
     }
@@ -1386,8 +1408,10 @@ export default function (pi: ExtensionAPI) {
   }
 
   // Arm the durable delivery intents for a completed review: the summary always, the autofix only when
-  // there are actionable findings. Idempotent (ensureReviewAnnouncementPending never re-arms a delivered
-  // record), so it is safe to call on every finalize and on an already-acked head's recovery path.
+  // there are actionable findings. Idempotent for a pending/attempted/visible record (never re-arms a
+  // delivered one), so it is safe on every finalize and on an already-acked head's recovery path. A
+  // `failed` record IS re-armed on purpose: that is the self-heal when an off-turn tick exhausted the
+  // retries with no live session — the next live tick redelivers with real context.
   function armReviewAnnouncements(state: PendingReview): void {
     const stamp = Date.now();
     ensureReviewAnnouncementPending(state.repo, state.head, "summary", reviewAnnouncementNonce("summary", state.head, stamp), stamp);
