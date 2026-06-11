@@ -1069,7 +1069,6 @@ export default function (pi: ExtensionAPI) {
   pi.registerMessageRenderer("pr-boundary-review-summary", () => new Text("", 0, 0));
   pi.registerMessageRenderer("codeflare-review-summary-v2", () => new Text("", 0, 0));
   pi.registerMessageRenderer("codeflare-review-summary-v3", (message: any) => new Markdown(String(message.content || ""), 0, 0, getMarkdownTheme()));
-  pi.registerMessageRenderer("codeflare-review-offered", (message: any) => new Markdown(String(message.content || ""), 0, 0, getMarkdownTheme()));
 
   const installReviewNotifyFilter = (ctx: any): void => {
     const ui = ctx?.ui;
@@ -1662,20 +1661,12 @@ export default function (pi: ExtensionAPI) {
     }
     markOfferSurfaced(resolvedRepo, head);
     appendReviewEvent(resolvedRepo, { event: "boundary_offered", head, reason: decision.reason });
+    // The offer surfaces ONLY as a passive toast — deliberately NOT a chat/transcript message.
+    // markOfferSurfaced above dedupes it per head FOR THIS SESSION (a new session re-surfaces it).
+    // A chat-visible custom message is agent-readable: the agent reads the offer's "Run /review-run …"
+    // text as an instruction and spirals into trying to act on it after a clone-only request. The
+    // merge gate (the gh pr merge block) is the durable enforcement; this toast is just a heads-up.
     ctx.ui.notify(`PR-boundary review available for ${basename(resolvedRepo)} at ${head.slice(0, 12)} (missed boundary). Run /review-run to start the required reviewers, or /review-skip to skip and ack this HEAD. Merge stays blocked until you choose.`, "warning");
-    // REQ-AGENT-058: a merge-blocking offer must be durable in the chat transcript, not only a
-    // transient toast — emit a chat-visible message so the user still sees it if the toast scrolled away.
-    // markOfferSurfaced above dedupes this per head FOR THIS SESSION (a new session re-surfaces it).
-    try {
-      pi.sendMessage({
-        customType: "codeflare-review-offered",
-        content: `**PR-boundary review available** for \`${basename(resolvedRepo)}\` at \`${head.slice(0, 12)}\` (missed boundary).\n\nRun \`/review-run\` to start the required reviewers, or \`/review-skip\` to skip and ack this HEAD. Merge stays blocked until you choose.`,
-        display: true,
-        details: { repo: resolvedRepo, head, reason: decision.reason },
-      });
-    } catch {
-      // The toast above already surfaced the offer; the chat message is best-effort.
-    }
     return false;
   }
 

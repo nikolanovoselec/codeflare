@@ -318,8 +318,10 @@ All preseed content is deployed via the manifest pipeline:
   advance even if a module reload ate the tool-event. A head matching **either**
   signal auto-starts; a head matching **neither** — inherited by a fresh
   launch/clone or reached by a bare `git checkout` of another branch — is
-  **offered once**, durably, via a `codeflare-review-offered` chat message as
-  well as a transient toast, and stays merge-blocking until the user runs
+  **offered once** as a passive `ctx.ui.notify` toast only — never as a
+  chat/transcript message (a chat-visible offer is agent-readable, so the agent
+  reads "Run /review-run …" as an instruction and spirals into acting on it after
+  a clone-only request) — and stays merge-blocking until the user runs
   `/review-run` or `/review-skip`. The offer is deduped per session
   (`Symbol.for("codeflare.reviewOfferSurfacedThisSession")`), so a relaunch on a
   still-unchosen offer re-surfaces it exactly once rather than suppressing it
