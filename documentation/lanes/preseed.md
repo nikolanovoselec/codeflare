@@ -142,7 +142,7 @@ agents that support skills). `consult-llm` is scoped to Claude + Pi
 only (both get the consult-llm MCP server — Claude via `~/.claude.json`,
 Pi via `~/.pi/agent/mcp.json` `directTools` — so the skill never
 references a tool the agent lacks); see [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity).
-The Pi server is configured `lifecycle: "keep-alive"` so pi-mcp-adapter
+Pi's `mcp.json` entry sets `lifecycle: "keep-alive"` so pi-mcp-adapter
 reconnects it instead of dropping the MCP footer to `0/1 … cached` after the
 default idle timeout.
 
@@ -331,7 +331,8 @@ All preseed content is deployed via the manifest pipeline:
   ends with `willRetry: true` (pi auto-retrying the same child after a transient
   error such as a WebSocket drop) does not settle the lane, and that attempt's
   error verdict is discarded so it cannot poison the retry — only a terminal
-  `agent_end` (`willRetry: false`) settles it. A lane an earlier reaper tick
+  `agent_end` (any end without `willRetry: true`; a clean finish omits the
+  field) settles it. A lane an earlier reaper tick
   already marked failed is self-healed back to completed (audit event
   `lane_recovered`) if its transcript later shows a terminal clean usable
   result, so a review that succeeded on retry is never left discarded.
