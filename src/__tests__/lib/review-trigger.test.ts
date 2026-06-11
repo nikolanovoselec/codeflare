@@ -119,6 +119,15 @@ describe('mergeCommandTarget (which PR a gh-pr-merge command targets — P1/P3)'
     // --body's value "42" must NOT be read as PR #42.
     expect(mergeCommandTarget('gh pr merge --body 42 --squash')).toEqual({ auto: false });
   });
+  it('skips the value of the short value-bearing flags -F / -A / --author-email', () => {
+    // The skip-list must cover the real `gh pr merge` value flags, not a phantom one.
+    // -F (--body-file) takes a filename; the following "7" is the real PR selector.
+    expect(mergeCommandTarget('gh pr merge -F note.txt 7 --squash')).toEqual({ prNumber: 7, auto: false });
+    // -A / --author-email take an email; it must NOT be read as a branch selector, and a
+    // trailing positional is still the PR number.
+    expect(mergeCommandTarget('gh pr merge -A me@example.com 7')).toEqual({ prNumber: 7, auto: false });
+    expect(mergeCommandTarget('gh pr merge --author-email me@example.com --merge')).toEqual({ auto: false });
+  });
   it('reads the target through a command wrapper', () => {
     expect(mergeCommandTarget('timeout 60 gh pr merge 88 --merge')).toEqual({ prNumber: 88, auto: false });
   });

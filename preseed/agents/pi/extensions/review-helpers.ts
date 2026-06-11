@@ -325,8 +325,16 @@ export function mergeCommandTarget(command: string): MergeCommandTarget {
     if (t === "--repo" || t === "-R") { const v = toks[++i]; if (v) result.repoSlug = stripQuotes(v); continue; }
     if (t.startsWith("--repo=")) { result.repoSlug = stripQuotes(t.slice(7)); continue; }
     if (t.startsWith("-")) {
-      // Skip the VALUE of known value-bearing flags so it is not mistaken for the PR selector.
-      if (/^(-b|--body|--body-file|-t|--subject|--match-head-commit|--author)$/.test(t)) i++;
+      // Skip the VALUE of known value-bearing `gh pr merge` flags so the value is not
+      // mistaken for the PR selector. This MUST be an exact allowlist of the flags that
+      // actually take a value (`gh pr merge --help`): -A/--author-email, -b/--body,
+      // -F/--body-file, -t/--subject, --match-head-commit. (-R/--repo is consumed above.)
+      // A blanket "skip the next token after any -flag" would be WRONG — boolean flags
+      // (--squash, --merge, --rebase, --admin, --delete-branch, --auto) take no value and
+      // would wrongly swallow the PR selector. Both short and long forms are listed because
+      // only the space-separated form reaches here; the --flag=value form starts with `-`
+      // and is swallowed whole by this same branch.
+      if (/^(-A|--author-email|-b|--body|-F|--body-file|-t|--subject|--match-head-commit)$/.test(t)) i++;
       continue;
     }
     // First positional token is the PR selector: a number, a /pull/<n> URL, or a branch name.
