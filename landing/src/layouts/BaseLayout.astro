@@ -1,0 +1,74 @@
+---
+// Fonts are imported by tokens.css (the single design control panel),
+// which global.css pulls in first.
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+  canonical?: string;
+}
+
+// REQ-LANDING-003: the landing page carries the canonical external metadata
+// for the enterprise positioning. og.png is served from the SPA asset root.
+const {
+  title = 'Codeflare — The Enterprise Agentic Coding Engine',
+  description = 'This is not a coding assistant. Codeflare is the enterprise agentic coding engine: autonomous agents that build, review, test, and ship — inside your cloud boundary, governed, attributed, and encrypted.',
+  canonical = 'https://codeflare.ch/',
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Codeflare" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content="https://codeflare.ch/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Codeflare — the enterprise agentic coding engine." />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content="https://codeflare.ch/og.png" />
+    <meta name="twitter:image:alt" content="Codeflare — the enterprise agentic coding engine." />
+  </head>
+  <body>
+    <slot />
+    <script>
+      // Scroll-reveal: progressive enhancement only; .reveal elements render
+      // fully visible without JS via the reduced-motion fallback in CSS.
+      const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const targets = document.querySelectorAll('.reveal');
+      if (prefersReduced || !('IntersectionObserver' in window)) {
+        targets.forEach((el) => el.classList.add('visible'));
+      } else {
+        const io = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                entry.target.classList.add('visible');
+                io.unobserve(entry.target);
+              }
+            }
+          },
+          { threshold: 0.15 }
+        );
+        targets.forEach((el) => io.observe(el));
+      }
+    </script>
+  </body>
+</html>

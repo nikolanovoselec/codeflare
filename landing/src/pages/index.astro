@@ -1,0 +1,63 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Nav from '../components/Nav.astro';
+import Hero from '../components/Hero.astro';
+import Section from '../components/Section.astro';
+import ComparisonGrid from '../components/ComparisonGrid.astro';
+import FeatureGrid from '../components/FeatureGrid.astro';
+import Snippet from '../components/Snippet.astro';
+import CostLayers from '../components/CostLayers.astro';
+import FaqList from '../components/FaqList.astro';
+import ContactForm from '../components/ContactForm.astro';
+import Footer from '../components/Footer.astro';
+import {
+  COST,
+  CONTACT_FORM,
+  FAQ_ITEMS,
+  FAQ_SECTION,
+  PILLAR_SECTIONS,
+  SHIFT,
+  TENANCY,
+} from '../content/site';
+---
+
+<BaseLayout>
+  <Nav />
+  <main>
+    <Hero />
+
+    <Section id={SHIFT.id} eyebrow={SHIFT.eyebrow} title={SHIFT.title} lead={SHIFT.lead}>
+      <ComparisonGrid assistant={SHIFT.assistant} engine={SHIFT.engine} />
+    </Section>
+
+    {
+      PILLAR_SECTIONS.map((section) => (
+        <Section
+          id={section.id}
+          eyebrow={section.eyebrow}
+          title={section.title}
+          lead={section.lead}
+          alt={section.alt}
+        >
+          {section.cards && <FeatureGrid cards={section.cards} />}
+          {section.snippet && <Snippet {...section.snippet} />}
+        </Section>
+      ))
+    }
+
+    <Section id={COST.id} eyebrow={COST.eyebrow} title={COST.title} lead={COST.lead} alt>
+      <CostLayers layers={COST.layers} />
+    </Section>
+
+    <Section id={TENANCY.id} eyebrow={TENANCY.eyebrow} title={TENANCY.title} lead={TENANCY.lead} />
+
+    <Section id={FAQ_SECTION.id} eyebrow={FAQ_SECTION.eyebrow} title={FAQ_SECTION.title} alt>
+      <FaqList items={FAQ_ITEMS} />
+    </Section>
+
+    <Section id={CONTACT_FORM.id} eyebrow={CONTACT_FORM.eyebrow} title={CONTACT_FORM.title}>
+      <ContactForm />
+    </Section>
+  </main>
+  <Footer />
+</BaseLayout>

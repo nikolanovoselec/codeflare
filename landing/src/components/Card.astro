@@ -1,0 +1,12 @@
+---
+import type { Card } from '../content/site';
+
+type Props = Card;
+
+const { title, body } = Astro.props;
+---
+
+<div class="card reveal">
+  <h3>{title}</h3>
+  <p>{body}</p>
+</div>

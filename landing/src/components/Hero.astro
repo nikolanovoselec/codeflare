@@ -1,0 +1,19 @@
+---
+import { HERO, STATS } from '../content/site';
+import TerminalDemo from './TerminalDemo.astro';
+import StatsStrip from './StatsStrip.astro';
+---
+
+<header class="hero">
+  <div class="container">
+    <span class="eyebrow">{HERO.eyebrow}</span>
+    <h1>{HERO.headline.plain}<br /><span class="flare">{HERO.headline.flare}</span></h1>
+    <p class="hero-sub" set:html={HERO.sub} />
+    <div class="hero-cta">
+      <a class="btn btn-primary" href={HERO.primaryCta.href}>{HERO.primaryCta.label}</a>
+      <a class="btn btn-ghost" href={HERO.secondaryCta.href}>{HERO.secondaryCta.label}</a>
+    </div>
+    <TerminalDemo />
+    <StatsStrip stats={STATS} />
+  </div>
+</header>

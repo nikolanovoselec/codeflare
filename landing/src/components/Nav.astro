@@ -1,0 +1,38 @@
+---
+/**
+ * Fixed top navigation. Links come from content data; the brand mark is the
+ * product's code-bracket glyph (web-ui/public/favicon.svg) inlined with the
+ * flare gradient so the nav renders without an extra request.
+ */
+import { NAV_LINKS } from '../content/site';
+import { APP_LINKS } from '../config';
+---
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="nav-brand" href="/">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M12.89,3L14.85,3.4L11.11,21L9.15,20.6L12.89,3M19.59,12L16,8.41V5.58L22.42,12L16,18.41V15.58L19.59,12M1.58,12L8,5.58V8.41L4.41,12L8,15.58V18.41L1.58,12Z"
+          fill="url(#brand-flare)"
+        />
+        <defs>
+          <linearGradient id="brand-flare" x1="0" y1="0" x2="24" y2="24">
+            {/* Stop colors come from tokens.css via the brand-stop-* classes */}
+            <stop offset="0%" class="brand-stop-1" />
+            <stop offset="50%" class="brand-stop-2" />
+            <stop offset="100%" class="brand-stop-3" />
+          </linearGradient>
+        </defs>
+      </svg>
+      codeflare
+    </a>
+    <div class="nav-links">
+      {NAV_LINKS.map((link) => <a href={link.href}>{link.label}</a>)}
+    </div>
+    <div class="nav-cta">
+      <a class="btn btn-ghost" href={APP_LINKS.signIn}>Sign in</a>
+      <a class="btn btn-primary" href="#contact">Book a demo</a>
+    </div>
+  </div>
+</nav>

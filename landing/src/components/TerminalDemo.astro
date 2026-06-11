@@ -1,0 +1,100 @@
+---
+/**
+ * Hero terminal demo. The complete transcript renders as static HTML so
+ * crawlers and no-JS / reduced-motion visitors read the whole session; the
+ * script replays it using the unit-tested player (scripts/terminal-player).
+ * Line metadata travels via data attributes so the DOM is the single source
+ * the player reads back.
+ */
+import { TERMINAL_TRANSCRIPT, TERMINAL_WINDOW } from '../content/site';
+---
+
+<div class="terminal tt-armed" id="hero-terminal">
+  <div class="terminal-bar">
+    <div class="terminal-dots"><span></span><span></span><span></span></div>
+    <span class="terminal-title">{TERMINAL_WINDOW.title}</span>
+    <span class="terminal-badge">{TERMINAL_WINDOW.badge}</span>
+  </div>
+  <div class="terminal-body" aria-label="Demo of an autonomous Codeflare coding session">
+    {
+      TERMINAL_TRANSCRIPT.map((line) => (
+        <span data-tt={line.kind} data-wait={line.waitMs} class={`t-${line.tone}`}>
+          {line.text}
+        </span>
+      ))
+    }
+  </div>
+</div>
+
+<script>
+  import {
+    playTranscript,
+    DEFAULT_TIMINGS,
+    type PlayerAdapter,
+    type TerminalLine,
+  } from '../scripts/terminal-player';
+
+  const LOOP_PAUSE_MS = 6000;
+
+  const terminal = document.getElementById('hero-terminal');
+  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (terminal && !prefersReduced) {
+    const elements = [...terminal.querySelectorAll<HTMLElement>('[data-tt]')];
+    const originals = elements.map((el) => el.textContent ?? '');
+    const lines: TerminalLine[] = elements.map((el, i) => ({
+      kind: (el.dataset.tt ?? 'line') as TerminalLine['kind'],
+      text: originals[i],
+      waitMs: Number(el.dataset.wait ?? 0) || undefined,
+    }));
+
+    let hovered = false;
+    terminal.addEventListener('mouseenter', () => {
+      hovered = true;
+    });
+    terminal.addEventListener('mouseleave', () => {
+      hovered = false;
+    });
+
+    const adapter: PlayerAdapter = {
+      write: (i, text) => {
+        elements[i].textContent = text;
+      },
+      reveal: (i) => {
+        elements[i].classList.add('tt-visible');
+      },
+      setCursor: (i, visible) => {
+        elements[i].classList.toggle('tt-cursor', visible);
+      },
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      isPaused: () => hovered,
+      now: () => Date.now(),
+    };
+
+    const resetPass = () => {
+      for (const [i, el] of elements.entries()) {
+        el.classList.remove('tt-visible', 'tt-cursor');
+        el.textContent = originals[i];
+      }
+    };
+
+    const loop = async () => {
+      for (;;) {
+        resetPass();
+        await playTranscript(lines, adapter, DEFAULT_TIMINGS);
+        await adapter.sleep(LOOP_PAUSE_MS);
+      }
+    };
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          io.disconnect();
+          void loop();
+        }
+      },
+      { threshold: 0.3 }
+    );
+    io.observe(terminal);
+  }
+</script>

@@ -1,0 +1,26 @@
+---
+/**
+ * Section shell: anchor id, gradient eyebrow, headline, optional lead.
+ * All landing sections render through this — content comes from
+ * src/content/site.ts, structure lives here. Leads are build-time trusted
+ * strings and may carry inline em/strong markup.
+ */
+interface Props {
+  id: string;
+  eyebrow: string;
+  title: string;
+  lead?: string;
+  alt?: boolean;
+}
+
+const { id, eyebrow, title, lead, alt = false } = Astro.props;
+---
+
+<section id={id} class:list={[{ 'section-alt': alt }]}>
+  <div class="container">
+    <span class="eyebrow reveal">{eyebrow}</span>
+    <h2 class="section-title reveal">{title}</h2>
+    {lead && <p class="section-lead reveal" set:html={lead} />}
+    <slot />
+  </div>
+</section>

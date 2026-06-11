@@ -1,0 +1,69 @@
+/* ==========================================================================
+   Codeflare Landing — Design Tokens (THE control panel)
+
+   Every design decision lives in this file: fonts, colors, gradients,
+   layout constants. global.css and the components reference tokens only —
+   change a value here and it propagates everywhere. The only non-token
+   color allowed elsewhere is pure black in shadows.
+
+   *-rgb twins exist for alpha compositing: rgb(var(--x-rgb) / 0.5).
+   ========================================================================== */
+
+/* Fonts — to swap a font: change the package import AND the family token. */
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+
+:root {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Backgrounds — one step deeper than the app (zinc-950) for cinematic contrast */
+  --bg-base: #050507;
+  --bg-base-rgb: 5 5 7;
+  --bg-surface: #0d0d12;
+  --bg-elevated: #131318;
+  --bg-terminal: #0a0a0f;
+
+  /* Borders */
+  --border-subtle: #1f1f26;
+  --border-default: #2c2c35;
+
+  /* Text — mirrors the app's zinc ramp */
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --text-dimmed: #52525b;
+  --white-rgb: 255 255 255;
+
+  /* Functional accent — the product blue, kept for links and UI */
+  --accent: #3b82f6;
+  --accent-hover: #2f6fe0;
+
+  /* The flare — display headlines, key glows, highlights */
+  --flare-orange: #ff6b35;
+  --flare-orange-rgb: 255 107 53;
+  --flare-pink: #f43f7c;
+  --flare-pink-rgb: 244 63 124;
+  --flare-violet: #8b5cf6;
+  --flare-violet-rgb: 139 92 246;
+  --flare-gradient: linear-gradient(100deg, var(--flare-orange) 0%, var(--flare-pink) 48%, var(--flare-violet) 100%);
+
+  /* Semantic / terminal output */
+  --term-green: #34d399;
+  --term-yellow: #fbbf24;
+  --term-cyan: #67e8f9;
+  --term-dim: #6b6b76;
+  --status-error: #f87171;
+
+  /* Terminal window chrome (macOS traffic lights) */
+  --dot-red: #ff5f57;
+  --dot-yellow: #febc2e;
+  --dot-green: #28c840;
+
+  /* Derived */
+  --selection-bg: rgb(var(--flare-pink-rgb) / 0.35);
+
+  /* Layout */
+  --max-width: 72rem;
+  --nav-height: 4rem;
+}

@@ -1,0 +1,130 @@
+---
+/**
+ * Demo-request form. Markup from content data; submission logic lives in the
+ * unit-tested controller (scripts/contact-controller). This script is DOM
+ * glue only: Turnstile widget lifecycle + status rendering.
+ */
+import { CONTACT_FORM } from '../content/site';
+---
+
+<div class="contact-grid">
+  <div class="contact-aside reveal">
+    {CONTACT_FORM.aside.map((paragraph, i) => <p class:list={[{ 'aside-note': i > 0 }]}>{paragraph}</p>)}
+  </div>
+  <form class="contact-form reveal" id="contact-form" novalidate>
+    <div class="form-row">
+      <div class="field">
+        <label for="cf-name">Name</label>
+        <input id="cf-name" name="name" type="text" required maxlength="100" autocomplete="name" />
+      </div>
+      <div class="field">
+        <label for="cf-email">Work email</label>
+        <input id="cf-email" name="email" type="email" required maxlength="254" autocomplete="email" />
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label for="cf-company">Company</label>
+        <input id="cf-company" name="company" type="text" maxlength="200" autocomplete="organization" />
+      </div>
+      <div class="field">
+        <label for="cf-topic">Topic</label>
+        <select id="cf-topic" name="topic" required>
+          {CONTACT_FORM.topics.map((topic) => <option value={topic.value}>{topic.label}</option>)}
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label for="cf-message">Message</label>
+      <textarea id="cf-message" name="message" required minlength="10" maxlength="4000"></textarea>
+    </div>
+    <div id="cf-turnstile"></div>
+    <p class="form-status" id="cf-status" role="status"></p>
+    <div>
+      <button class="btn btn-primary" type="submit" id="cf-submit">Send message</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  import { buildContactPayload, submitContact } from '../scripts/contact-controller';
+  import { ENDPOINTS } from '../config';
+
+  interface TurnstileApi {
+    render: (selector: string, options: Record<string, unknown>) => string;
+    reset: (id: string) => void;
+  }
+
+  const form = document.getElementById('contact-form') as HTMLFormElement | null;
+  const statusEl = document.getElementById('cf-status');
+  const submitBtn = document.getElementById('cf-submit') as HTMLButtonElement | null;
+
+  let turnstileToken = '';
+  let widgetId: string | null = null;
+
+  const turnstileApi = (): TurnstileApi | undefined =>
+    (window as unknown as { turnstile?: TurnstileApi }).turnstile;
+
+  function setStatus(state: 'success' | 'error' | '', message: string) {
+    if (!statusEl) return;
+    statusEl.dataset.state = state;
+    statusEl.textContent = message;
+  }
+
+  async function initTurnstile(): Promise<void> {
+    try {
+      const res = await fetch(ENDPOINTS.contactConfig);
+      if (!res.ok) return;
+      const { turnstileSiteKey } = (await res.json()) as { turnstileSiteKey: string | null };
+      if (!turnstileSiteKey) return;
+
+      await new Promise<void>((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+        script.async = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error('turnstile script failed to load'));
+        document.head.appendChild(script);
+      });
+
+      const turnstile = turnstileApi();
+      if (!turnstile) return;
+      widgetId = turnstile.render('#cf-turnstile', {
+        sitekey: turnstileSiteKey,
+        theme: 'dark',
+        callback: (token: string) => {
+          turnstileToken = token;
+        },
+        'expired-callback': () => {
+          turnstileToken = '';
+        },
+      });
+    } catch {
+      // Widget stays absent; the backend rejects unverified submissions.
+    }
+  }
+
+  if (form) {
+    void initTurnstile();
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+
+      if (submitBtn) submitBtn.disabled = true;
+      setStatus('', 'Sending…');
+
+      const result = await submitContact(buildContactPayload(new FormData(form), turnstileToken));
+
+      if (result.ok) form.reset();
+      setStatus(result.ok ? 'success' : 'error', result.message);
+
+      if (submitBtn) submitBtn.disabled = false;
+      const turnstile = turnstileApi();
+      if (turnstile && widgetId) {
+        turnstile.reset(widgetId);
+        turnstileToken = '';
+      }
+    });
+  }
+</script>

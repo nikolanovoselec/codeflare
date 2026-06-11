@@ -1,0 +1,25 @@
+---
+import type { ComparisonColumn } from '../content/site';
+
+interface Props {
+  assistant: ComparisonColumn;
+  engine: ComparisonColumn;
+}
+
+const { assistant, engine } = Astro.props;
+---
+
+<div class="shift-grid reveal">
+  <div class="shift-col assistant">
+    <h3>{assistant.title}</h3>
+    <ul>
+      {assistant.points.map((point) => <li>{point}</li>)}
+    </ul>
+  </div>
+  <div class="shift-col engine">
+    <h3>{engine.title}</h3>
+    <ul>
+      {engine.points.map((point) => <li>{point}</li>)}
+    </ul>
+  </div>
+</div>
