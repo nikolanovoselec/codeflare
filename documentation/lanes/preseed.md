@@ -142,9 +142,9 @@ agents that support skills). `consult-llm` is scoped to Claude + Pi
 only (both get the consult-llm MCP server — Claude via `~/.claude.json`,
 Pi via `~/.pi/agent/mcp.json` `directTools` — so the skill never
 references a tool the agent lacks); see [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity).
-Pi's `mcp.json` entry sets `lifecycle: "keep-alive"` so pi-mcp-adapter
-reconnects it instead of dropping the MCP footer to `0/1 … cached` after the
-default idle timeout.
+That same Pi `~/.pi/agent/mcp.json` entry also sets `lifecycle: "keep-alive"`
+so pi-mcp-adapter reconnects it instead of dropping the MCP footer to
+`0/1 … cached` after the default idle timeout.
 
 **Rules** (core environment rules in both modes; the rest advanced-only) ([REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode),
 [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session)): Core environment rules (`cloudflare-environment`,
