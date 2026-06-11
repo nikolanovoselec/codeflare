@@ -20,6 +20,8 @@ export interface PlayerAdapter {
   sleep(ms: number): Promise<void>;
   isPaused(): boolean;
   now(): number;
+  /** Optional: fired once per line, after the line has fully settled. */
+  onLineCommit?(index: number): void;
 }
 
 export interface PlayerTimings {
@@ -75,5 +77,7 @@ export async function playTranscript(
     } else {
       await adapter.sleep(timings.lineMs);
     }
+
+    adapter.onLineCommit?.(index);
   }
 }

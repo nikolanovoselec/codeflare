@@ -48,26 +48,60 @@ const {
   </head>
   <body>
     <slot />
+    <script is:inline>
+      // Pre-paint flip: hidden initial animation states only ever apply
+      // under html[data-js], so no-JS visitors, crawlers, and headless
+      // renderers always see the complete page. Must run before first paint.
+      document.documentElement.dataset.js = 'true';
+    </script>
     <script>
-      // Scroll-reveal: progressive enhancement only; .reveal elements render
-      // fully visible without JS via the reduced-motion fallback in CSS.
+      // Entrance wiring for the session grammar: .reveal sections and
+      // [data-print] ledger lines print on first view. Content is visible
+      // by default; JS applies the hidden state and immediately animates —
+      // never a CSS opacity:0 default.
+      import { inView, animate, stagger } from 'motion';
+
+      const EASE_OUT_STRONG: [number, number, number, number] = [0.23, 1, 0.32, 1];
       const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      const targets = document.querySelectorAll('.reveal');
-      if (prefersReduced || !('IntersectionObserver' in window)) {
-        targets.forEach((el) => el.classList.add('visible'));
-      } else {
-        const io = new IntersectionObserver(
-          (entries) => {
-            for (const entry of entries) {
-              if (entry.isIntersecting) {
-                entry.target.classList.add('visible');
-                io.unobserve(entry.target);
-              }
-            }
-          },
-          { threshold: 0.15 }
-        );
-        targets.forEach((el) => io.observe(el));
+
+      if (!prefersReduced && 'IntersectionObserver' in window) {
+        for (const el of document.querySelectorAll<HTMLElement>('.reveal')) {
+          inView(
+            el,
+            () => {
+              animate(
+                el,
+                { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] },
+                { duration: 0.4, ease: EASE_OUT_STRONG }
+              );
+            },
+            { margin: '-60px' }
+          );
+        }
+
+        // Ledger-stagger: sibling [data-print] lines print at 50ms intervals.
+        const printGroups = new Map<HTMLElement, HTMLElement[]>();
+        for (const el of document.querySelectorAll<HTMLElement>('[data-print]')) {
+          const parent = el.parentElement;
+          if (parent) {
+            const group = printGroups.get(parent) ?? [];
+            group.push(el);
+            printGroups.set(parent, group);
+          }
+        }
+        for (const [parent, group] of printGroups) {
+          inView(
+            parent,
+            () => {
+              animate(
+                group,
+                { opacity: [0, 1], transform: ['translateY(4px)', 'translateY(0px)'] },
+                { duration: 0.18, ease: EASE_OUT_STRONG, delay: stagger(0.05) }
+              );
+            },
+            { margin: '-80px' }
+          );
+        }
       }
     </script>
   </body>

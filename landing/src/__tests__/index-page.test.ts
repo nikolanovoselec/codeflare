@@ -3,12 +3,21 @@ import { experimental_AstroContainer as AstroContainer } from 'astro/container';
 import IndexPage from '../pages/index.astro';
 import PrivacyPage from '../pages/privacy.astro';
 import {
+  BOUNDARY,
   CONTACT_FORM,
+  COST,
   FAQ_ITEMS,
+  FAQ_SECTION,
+  FLEET_PANES,
   HERO,
+  MAN_PAGE,
   NAV_LINKS,
   PILLAR_SECTIONS,
+  REQUEST_COUNT,
+  SESSION_END,
+  SHIFT,
   STATS,
+  TENANCY,
   TERMINAL_TRANSCRIPT,
 } from '../content/site';
 
@@ -30,9 +39,10 @@ beforeAll(async () => {
 });
 
 describe('landing page (REQ-LANDING-001)', () => {
-  it('renders the hero headline and positioning eyebrow', () => {
+  it('renders the hero headline with the reverse-video flare block (no gradient text)', () => {
     expect(html).toContain('coding assistant.');
-    expect(html).toContain('The Enterprise Agentic Coding Engine');
+    expect(html).toContain('flare-block');
+    expect(text).toContain(HERO.motd);
   });
 
   it('renders every content section with its anchor id', () => {
@@ -41,6 +51,7 @@ describe('landing page (REQ-LANDING-001)', () => {
     }
     expect(html).toContain('id="contact"');
     expect(html).toContain('id="faq"');
+    expect(html).toContain(`id="${SESSION_END.id}"`);
   });
 
   it('has a rendered target section for every nav anchor', () => {
@@ -57,15 +68,25 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(html).toContain('data-open="false"');
   });
 
-  it('renders every card of every pillar section', () => {
+  it('renders a prompt-path label with readout for every section (eyebrows are gone)', () => {
+    const sections = [SHIFT, ...PILLAR_SECTIONS, COST, TENANCY, FAQ_SECTION, CONTACT_FORM];
+    for (const section of sections) {
+      expect(text).toContain(section.prompt.line);
+      expect(text).toContain(section.prompt.readout);
+    }
+    expect(html).not.toContain('class="eyebrow');
+  });
+
+  it('renders every pillar claim inside its artifact (ledger, man page, seed log, rail)', () => {
     for (const section of PILLAR_SECTIONS) {
       for (const card of section.cards ?? []) {
         expect(text).toContain(card.title);
+        expect(text).toContain(card.body.slice(0, 60));
       }
     }
   });
 
-  it('renders the full terminal transcript statically for no-JS visitors', () => {
+  it('renders the full hero transcript statically for no-JS visitors', () => {
     for (const line of TERMINAL_TRANSCRIPT) {
       expect(html).toContain(`data-tt="${line.kind}"`);
     }
@@ -73,10 +94,70 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(lineCount).toBe(TERMINAL_TRANSCRIPT.length);
   });
 
-  it('renders all stats strip entries', () => {
-    for (const stat of STATS) {
-      expect(html).toContain(stat.value);
+  it('renders all fleet panes complete in static DOM (split needs no JS to be read)', () => {
+    for (const pane of FLEET_PANES) {
+      expect(text).toContain(pane.title);
+      for (const line of pane.lines) {
+        expect(text).toContain(line.text.trim());
+      }
     }
+    const fleetLines = (html.match(/data-fleet=/g) ?? []).length;
+    expect(fleetLines).toBe(FLEET_PANES.reduce((sum, pane) => sum + pane.lines.length, 0));
+  });
+
+  it('renders the four boot assertions as the preflight ledger', () => {
+    for (const stat of STATS) {
+      expect(text).toContain(stat.key);
+      expect(text).toContain(stat.label);
+    }
+    expect(html).not.toContain('class="stats');
+  });
+
+  it('renders the diff with every assistant/engine pair', () => {
+    for (const point of SHIFT.assistant.points) {
+      expect(text).toContain(point);
+    }
+    for (const point of SHIFT.engine.points) {
+      expect(text).toContain(point);
+    }
+    const delCount = (html.match(/diff-del/g) ?? []).length;
+    expect(delCount).toBe(SHIFT.assistant.points.length);
+  });
+
+  it('renders the boundary diagram with its prose twin and precise callouts', () => {
+    expect(text).toContain('ephemeral container');
+    expect(text).toContain(BOUNDARY.proseTwin.slice(0, 60));
+    for (const callout of BOUNDARY.callouts) {
+      expect(text).toContain(callout);
+    }
+  });
+
+  it('renders the man page with the device row', () => {
+    expect(text).toContain(MAN_PAGE.header);
+    expect(text).toContain(MAN_PAGE.synopsis);
+    for (const device of MAN_PAGE.devices) {
+      expect(html).toContain(`device-${device}`);
+    }
+  });
+
+  it('keeps every rendered count tied to the copy (count integrity)', () => {
+    // The gateway request count appears in the transcript AND the cost reprise.
+    const occurrences = (text.match(new RegExp(`${REQUEST_COUNT} requests`, 'g')) ?? []).length;
+    expect(occurrences).toBeGreaterThanOrEqual(2);
+    expect(text).toContain(COST.reprise);
+  });
+
+  it('renders the destroy finale statically', () => {
+    expect(text).toContain(SESSION_END.exit);
+    for (const line of SESSION_END.lines) {
+      expect(text).toContain(line);
+    }
+  });
+
+  it('renders the status bar with the booted session state', () => {
+    expect(html).toContain('id="statusbar"');
+    expect(text).toContain('1 session · 1 engineer');
+    expect(text).toContain('container:running');
   });
 
   it('renders every FAQ question', () => {
@@ -94,6 +175,10 @@ describe('landing page (REQ-LANDING-001)', () => {
     for (const topic of CONTACT_FORM.topics) {
       expect(html).toContain(`value="${topic.value}"`);
     }
+  });
+
+  it('offers the security-brief micro-conversion preselecting the form topic', () => {
+    expect(html).toContain('data-topic="security-compliance"');
   });
 
   it('links sign-in to the app and demo CTA to the contact section', () => {

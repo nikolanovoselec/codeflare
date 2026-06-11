@@ -10,13 +10,28 @@ Strict separation of concerns — each layer changes independently:
 
 | Layer | Location | Rule |
 |---|---|---|
-| Design tokens | `src/styles/tokens.css` | THE control panel: every font, color, gradient, layout constant. No raw values anywhere else. |
+| Design tokens | `src/styles/tokens.css` | THE control panel: every font, color, gradient, easing, duration, layout constant. No raw values anywhere else. |
 | Structure styles | `src/styles/global.css` | Layout/structure only; resolves through tokens. |
-| Content | `src/content/site.ts` | All copy, typed. Components never carry their own text. |
+| Content | `src/content/site.ts` | All copy, typed, plus the count-integrity constants every rendered quantity derives from. Components never carry their own text. |
 | Integration config | `src/config.ts` | Every Worker endpoint / app link the page touches. |
-| Logic | `src/scripts/*.ts` | Pure, unit-tested modules (terminal player, contact controller). |
-| Components | `src/components/*.astro` | Markup-only structure rendering content data. |
+| Logic | `src/scripts/*.ts` | Pure, unit-tested modules (terminal player + line commits, fleet scheduler, scene script, FLIP math, odometer, session clock, status-bar state, diff builder, scrollspy, contact controller). |
+| Components | `src/components/*.astro` | Markup + thin DOM adapters rendering content data through the tested modules. |
 | Pages | `src/pages/*.astro` | Composition. |
+
+## The governed-session UI
+
+The page renders as one continuous terminal session (design contract in
+`PRODUCT.md` / `DESIGN.md`): fixed session chrome (`SessionChrome`) and
+tmux-style status bar (`StatusBar`, scroll-derived and reversible), prompt-path
+labels as section grammar (`PromptLabel`), and one bespoke artifact per section
+(`DiffCompare`, `BoundaryDiagram` + `SecurityLedger`, `ManPage`, `SeedLog`,
+`PipelineRail`, `CostTrace`, `TenancyPlaque`, `SessionEnd`). The signature
+moment: the hero terminal (`FleetTerminal`) plays an autonomous session and, on
+the CI-green transcript line, FLIP-splits into a four-pane working fleet —
+a native scroll-snap row on phones. Animation is Motion (vanilla);
+`transform`/`opacity`/`clip-path` only. The complete page renders statically:
+hidden animation states only apply under a pre-paint `html[data-js]` flip, and
+`prefers-reduced-motion` gets the full static session.
 
 ## Build & serving
 
@@ -36,6 +51,10 @@ in-SPA pages. Build order matters: web-ui first (it wipes `dist/`), landing seco
 ## Tests
 
 `npm test` (vitest, CI-run): Container-API render tests for the composed page
-and metadata (REQ-LANDING-003), plus unit tests for the player and contact
-controller. No JS framework ships to the browser — the only scripts are the
-two tested modules plus thin DOM adapters in components.
+and metadata (REQ-LANDING-003) including count-integrity assertions (rendered
+quantities must equal the `site.ts` constants), plus unit tests for every
+behavior module (player + line commits, fleet scheduler, scene script, FLIP
+math, odometer, session clock, status-bar state, diff builder, scrollspy,
+contact controller) — all using injected adapters / fake clocks. No JS
+framework ships to the browser: Motion (vanilla) plus the tested modules and
+thin DOM adapters in components.

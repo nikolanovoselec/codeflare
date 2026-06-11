@@ -63,7 +63,28 @@
   /* Derived */
   --selection-bg: rgb(var(--flare-pink-rgb) / 0.35);
 
+  /* Diff artifact semantic aliases */
+  --diff-add: var(--term-green);
+  --diff-del: var(--status-error);
+
+  /* Motion — easing (Emil Kowalski curves: built-in CSS easings are too weak) */
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+
+  /* Motion — durations */
+  --dur-press: 120ms;
+  --dur-print: 180ms;
+  --dur-stamp: 140ms;
+  --dur-decode: 200ms;
+  --dur-split: 480ms;
+  --dur-powerdown: 800ms;
+  --caret-blink: 1.06s;
+  --type-on-char-ms: 24ms;
+
   /* Layout */
   --max-width: 72rem;
   --nav-height: 4rem;
+  --chrome-h: 2.75rem;
+  --statusbar-h: 1.75rem;
+  --pane-radius: 10px;
 }

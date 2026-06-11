@@ -12,7 +12,8 @@
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "astro": "^6.4.6"
+    "astro": "^6.4.6",
+    "motion": "^12.40.0"
   },
   "devDependencies": {
     "vitest": "^4.1.8"

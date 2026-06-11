@@ -1,20 +1,21 @@
 ---
 /**
- * Fixed top navigation. Links come from content data; the brand mark is the
- * product's code-bracket glyph (web-ui/public/favicon.svg) inlined with the
- * flare gradient so the nav renders without an extra request.
- *
- * Mobile-first: below the nav breakpoint the link list becomes a slide-down
- * panel behind an accessible toggle button (aria-expanded / aria-controls);
- * the panel closes on link selection.
+ * Fixed top window chrome: the page IS the terminal window, so the old nav
+ * bar becomes the session's title bar — traffic lights, session title, nav
+ * links, CTAs. Below the nav breakpoint the links live in a slide-down mono
+ * panel behind an accessible toggle (aria-expanded / aria-controls); the
+ * panel closes on link selection. The brand glyph is the product's
+ * code-bracket mark inlined with the flare gradient (tokens via classes).
+ * During the destroy finale the traffic lights gray out (scroll-derived,
+ * reversible — see SessionEnd).
  */
-import { NAV_LINKS } from '../content/site';
+import { NAV_LINKS, TERMINAL_WINDOW } from '../content/site';
 import { APP_LINKS } from '../config';
 ---
 
-<nav class="nav" data-open="false">
-  <div class="nav-inner">
-    <a class="nav-brand" href="/">
+<nav class="chrome" data-open="false" aria-label="Session">
+  <div class="chrome-inner">
+    <a class="chrome-brand" href="/">
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path
           d="M12.89,3L14.85,3.4L11.11,21L9.15,20.6L12.89,3M19.59,12L16,8.41V5.58L22.42,12L16,18.41V15.58L19.59,12M1.58,12L8,5.58V8.41L4.41,12L8,15.58V18.41L1.58,12Z"
@@ -31,6 +32,8 @@ import { APP_LINKS } from '../config';
       </svg>
       codeflare
     </a>
+    <span class="chrome-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+    <span class="chrome-title" aria-hidden="true">{TERMINAL_WINDOW.title}</span>
     <div class="nav-links" id="nav-links">
       {NAV_LINKS.map((link) => <a href={link.href}>{link.label}</a>)}
     </div>
@@ -44,23 +47,24 @@ import { APP_LINKS } from '../config';
         aria-controls="nav-links"
         aria-expanded="false"
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path class="icon-menu" d="M3 6h18M3 12h18M3 18h18" />
-          <path class="icon-close" d="M5 5l14 14M19 5L5 19" />
-        </svg>
+        <span aria-hidden="true">[menu]</span>
       </button>
     </div>
   </div>
 </nav>
 
 <script>
-  const nav = document.querySelector<HTMLElement>('.nav');
+  const nav = document.querySelector<HTMLElement>('.chrome');
   const toggle = document.querySelector<HTMLButtonElement>('.nav-toggle');
 
   if (nav && toggle) {
+    const label = toggle.querySelector('span');
     const setOpen = (open: boolean) => {
       nav.dataset.open = String(open);
       toggle.setAttribute('aria-expanded', String(open));
+      if (label) {
+        label.textContent = open ? '[close]' : '[menu]';
+      }
     };
 
     toggle.addEventListener('click', () => setOpen(nav.dataset.open !== 'true'));

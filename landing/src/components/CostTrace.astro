@@ -1,0 +1,36 @@
+---
+/**
+ * Cost governance as an attribution trace: one request followed down the
+ * stack. Three ledger entries (environment / inference / agent-consumption)
+ * with dim trace lines showing metadata accruing between them; the reprise
+ * readout ties back to the hero transcript's request count (equality is
+ * unit-tested — count integrity).
+ */
+import { COST } from '../content/site';
+---
+
+<div class="cost-trace">
+  <p class="cost-reprise" data-print>{COST.reprise}</p>
+  {
+    COST.layers.map((layer) => (
+      <div class="cost-layer" data-print>
+        <p class="cost-key">{layer.name}</p>
+        <div class="cost-detail">
+          <p class="cost-body">{layer.body}</p>
+          {layer.trace === 'chips' && layer.chips ? (
+            <p class="cost-trace-line" aria-hidden="true">
+              +{' '}
+              {layer.chips.map((chip) => (
+                <span class="cost-chip">{chip}</span>
+              ))}
+            </p>
+          ) : (
+            <p class="cost-trace-line" aria-hidden="true">
+              {layer.trace}
+            </p>
+          )}
+        </div>
+      </div>
+    ))
+  }
+</div>

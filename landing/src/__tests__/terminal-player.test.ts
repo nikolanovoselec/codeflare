@@ -116,4 +116,39 @@ describe('terminal-player', () => {
     expect(pausePolls).toHaveLength(3);
     expect(events.filter((e) => e.op === 'reveal')).toHaveLength(1);
   });
+
+  it('commits each line exactly once, in order, after the line has settled', async () => {
+    const lines: TerminalLine[] = [
+      { kind: 'cmd', text: 'go' },
+      { kind: 'spin', text: '✻ working' },
+      { kind: 'line', text: 'done' },
+    ];
+    const { adapter, events } = createRecordingAdapter();
+    const commits: number[] = [];
+    adapter.onLineCommit = (index) => {
+      commits.push(index);
+      events.push({ op: 'commit', index });
+    };
+
+    await playTranscript(lines, adapter, TIMINGS);
+
+    expect(commits).toEqual([0, 1, 2]);
+    // A cmd line commits only after its final character was written
+    const lastCmdWrite = events.findIndex((e) => e.op === 'write' && e.text === 'go');
+    const firstCommit = events.findIndex((e) => e.op === 'commit');
+    expect(firstCommit).toBeGreaterThan(lastCmdWrite);
+    // A spin line commits only after it settled on the original text
+    const settle = events.findIndex((e) => e.op === 'write' && e.text === '✻ working');
+    const secondCommit = events.findIndex((e) => e.op === 'commit' && e.index === 1);
+    expect(secondCommit).toBeGreaterThan(settle);
+  });
+
+  it('plays unchanged when the adapter provides no commit hook', async () => {
+    const lines: TerminalLine[] = [{ kind: 'line', text: 'no hook' }];
+    const { adapter, events } = createRecordingAdapter();
+
+    await playTranscript(lines, adapter, TIMINGS);
+
+    expect(events.filter((e) => e.op === 'reveal')).toHaveLength(1);
+  });
 });

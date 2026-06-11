@@ -41,7 +41,7 @@ import { CONTACT_FORM } from '../content/site';
     <div id="cf-turnstile"></div>
     <p class="form-status" id="cf-status" role="status"></p>
     <div>
-      <button class="btn btn-primary" type="submit" id="cf-submit">Send message</button>
+      <button class="btn btn-primary" type="submit" id="cf-submit">[ Send message ]</button>
     </div>
   </form>
 </div>
@@ -106,6 +106,16 @@ import { CONTACT_FORM } from '../content/site';
 
   if (form) {
     void initTurnstile();
+
+    // Micro-conversion links elsewhere on the page (e.g. "request the
+    // security brief") preselect their topic before jumping to the form.
+    const topicSelect = document.getElementById('cf-topic') as HTMLSelectElement | null;
+    document.addEventListener('click', (event) => {
+      const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[data-topic]');
+      if (link && topicSelect) {
+        topicSelect.value = link.dataset.topic ?? topicSelect.value;
+      }
+    });
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
