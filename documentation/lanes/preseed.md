@@ -347,8 +347,11 @@ All preseed content is deployed via the manifest pipeline:
   reduced to thin wiring. The decision evaluates the PR the merge command **actually
   targets**, not just the cwd branch: `mergeCommandTarget` (`review-helpers.ts`)
   pulls a PR number, a `/pull/N` URL, a branch, or a `--repo`/`-R` slug out of the
-  command (skipping value-flag arguments) so `gh pr merge 123` is gated against PR
-  123. It fails CLOSED when that PR is readable-but-malformed (OPEN with an empty
+  command (the args are tokenized quote-aware, so a quoted multi-word flag value is
+  never mistaken for the selector, and value-flag arguments are skipped) so `gh pr
+  merge 123` is gated against PR 123, while a `gh pr merge --repo OTHER/REPO` naming a
+  foreign repository is skipped by both the gate and the retroactive audit (the gate
+  governs only this SDD repo's PRs). It fails CLOSED when that PR is readable-but-malformed (OPEN with an empty
   `baseRefName`/`headRefOid`) or when `gh` is transiently unreadable while any
   unacked merge-blocking head exists (a pending review, a latched circuit breaker,
   or an outstanding offer), and it blocks `--auto` on an enforced unacked PR (which

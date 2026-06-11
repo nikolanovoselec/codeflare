@@ -502,7 +502,14 @@ function reviewField(block: string, field: string): string | undefined {
 
 function findingHeaderMatches(body: string): RegExpMatchArray[] {
   const matches: RegExpMatchArray[] = [];
-  const header = /^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:\*\*)?\[?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\]?\s*(?:\*\*)?\s*(.+?)\s*$/gim;
+  // Use the SAME anchored decoration rule as countReviewSeverities: the decoration must wrap the LEADING
+  // severity word ([HIGH] / **HIGH** / HIGH:), not merely appear somewhere on the line. A line-wide test
+  // diverges from the counter on a line like "HIGH risk because [LOW] elsewhere" (counter 0, extractor 1),
+  // re-opening the phantom-finding-vs-zero-count gap this is meant to close. Groups (identical shape to the
+  // counter so the two can never drift): 1=open, 2=severity, 3=close, 4=title. A bare-prose leading
+  // severity word ("Critical to the design…") has a space — not ]/**/: — after it, so it simply fails to
+  // match and is never a finding.
+  const header = /^\s*(?:[-*]\s*|\d+\.\s*)?(\[|\*\*)?(BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)(\]|\*\*|:)\s*(.+?)\s*$/i;
   let inFence = false;
   let offset = 0;
   for (const line of body.split("\n")) {
@@ -512,19 +519,14 @@ function findingHeaderMatches(body: string): RegExpMatchArray[] {
       continue;
     }
     if (!inFence) {
-      header.lastIndex = 0;
-      const match = header.exec(line);
-      // Require the severity word to be DECORATED as a label ([HIGH] / **HIGH** / HIGH:), exactly as
-      // countReviewSeverities does. Without this the extractor matches bare prose ("Critical to the
-      // design is…") that the COUNTER ignores, so the merged summary lists a phantom CRITICAL the
-      // count table reports as 0 — and autofix can chase it. (P5 was applied to the counter but not
-      // here; this closes the gap so the finding list and the counts stay in lockstep.)
-      const decorated = !!match && (/\[(?:BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\]/i.test(line)
-        || /\*\*(?:BLOCKING|CRITICAL|HIGH|MEDIUM|LOW)\*\*/i.test(line)
-        || /(?:^|\s)(?:BLOCKING|CRITICAL|HIGH|MEDIUM|LOW):/i.test(line));
-      if (match && decorated && !isSeverityCountLine(match[2])) {
-        match.index = offset + (match.index || 0);
-        matches.push(match);
+      const match = line.match(header);
+      if (match) {
+        const open = match[1]; const close = match[3];
+        const decorated = (open === "[" && close === "]") || (open === "**" && close === "**") || close === ":";
+        if (decorated && !isSeverityCountLine(match[4])) {
+          match.index = offset + (match.index || 0);
+          matches.push(match);
+        }
       }
     }
     offset += line.length + 1;
@@ -537,7 +539,7 @@ export function extractReviewFindings(lane: string, text: string): ReviewFinding
   if (!body || /^No findings\.?$/i.test(body)) return [];
   const matches = findingHeaderMatches(body);
   return matches.map((match, index) => {
-    const severity = match[1].toUpperCase() === "BLOCKING" ? "CRITICAL" : match[1].toUpperCase() as ReviewFindingSeverity;
+    const severity = match[2].toUpperCase() === "BLOCKING" ? "CRITICAL" : match[2].toUpperCase() as ReviewFindingSeverity;
     const start = match.index || 0;
     const end = matches[index + 1]?.index ?? body.length;
     const block = body.slice(start, end).trim();
@@ -547,7 +549,7 @@ export function extractReviewFindings(lane: string, text: string): ReviewFinding
     return {
       lane,
       severity,
-      title: cleanReviewText(match[2]),
+      title: cleanReviewText(match[4]),
       file,
       issue,
       fix,

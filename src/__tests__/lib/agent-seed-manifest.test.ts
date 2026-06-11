@@ -1053,6 +1053,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(findings[0]).toMatchObject({ severity: 'HIGH', title: 'Unbounded cache growth' });
     // The extractor and the counter agree: one HIGH, zero phantom CRITICAL/MEDIUM.
     expect(countReviewSeverities(prose)).toEqual({ critical: 0, high: 1, medium: 0, low: 0 });
+
+    // Decoration must be ANCHORED to the LEADING severity word, not merely present somewhere on the line.
+    // A leading bare severity word with a DECORATED label elsewhere on the same line is NOT a finding —
+    // a line-wide decoration test would wrongly emit one here while the counter stays 0 (the lockstep gap).
+    const divergent = '## Findings\nHIGH risk because a separate [LOW] item is tagged elsewhere';
+    expect(extractReviewFindings('code-reviewer', divergent)).toHaveLength(0);
+    expect(countReviewSeverities(divergent)).toEqual({ critical: 0, high: 0, medium: 0, low: 0 });
   });
 
   it('REQ-AGENT-059: hidden autofix requests send one follow-up only for actionable findings and only after marker claim', () => {
@@ -1204,21 +1211,19 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       completed: ['code-reviewer'],
     };
     expect(reusablePendingReview(previous, 'new-head', (ancestor, current) => ancestor === 'old-head' && current === 'new-head')).toBe(previous);
-    expect(selectReviewBase({ previous, lastAck: 'last-ack', previousRemoteHead: 'remote-prev' })).toBe('first-unreviewed-base');
+    expect(selectReviewBase({ previous, lastAck: 'last-ack' })).toBe('first-unreviewed-base');
     expect(selectReviewBase({
       previous: { ...previous, reviewBase: undefined },
       lastAck: 'last-ack',
-      previousRemoteHead: 'remote-prev',
     })).toBeUndefined();
     expect(selectReviewBase({
       previous: { ...previous, completed: ['code-reviewer', 'spec-reviewer'] },
       lastAck: 'last-ack',
-      previousRemoteHead: 'remote-prev',
     })).toBe('old-head');
     expect(reusablePendingReview(previous, 'rebased-head', () => false)).toBeUndefined();
-    // A remote-tracking reflog entry alone is not evidence that the prior PR contents were reviewed.
-    // Without an ack or completed previous review, keep reviewBase undefined so the next review covers the full PR diff.
-    expect(selectReviewBase({ previous: undefined, lastAck: undefined, previousRemoteHead: 'remote-prev' })).toBeUndefined();
+    // Without an ack or a completed previous review proving the prior PR contents were already
+    // covered, keep reviewBase undefined so the next review covers the full PR diff (REQ-AGENT-055 AC5).
+    expect(selectReviewBase({ previous: undefined, lastAck: undefined })).toBeUndefined();
   });
 
   it('REQ-AGENT-023: Pi native runtime assets expose first-party graphify-native tools (no MCP, no third-party wrapper)', () => {
