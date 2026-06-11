@@ -13,7 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prBoundaryCommandBase, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryTrigger, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewMessageKey, durableReviewRecommendation, formatMergedReviewSummary, requestReviewAutofixForRows, reviewAutofixModeFromUserMessages, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewSeverityCounts } from "./review-job-helpers";
 import { appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, startDurableReviewLanes } from "./review-jobs";
 
@@ -168,10 +168,12 @@ function isEnforcedPr(pr: PrState | undefined): pr is Required<Pick<PrState, "he
 // whose OPEN PR returned an EMPTY baseRefName (transient gh/jq edge) fails OPEN to
 // enforcement — over-review rather than silently let an unreviewed PR-to-main slip on a
 // parsing hiccup. Used ONLY on the actual-command onToolEnd boundary path (a user push/
-// create just happened). The merge gate and the autonomous reconcile tick keep the strict
-// isEnforcedPr, so an empty base can never auto-open the gate or auto-start a non-main PR.
+// create just happened); there an empty base DOES arm review (the deliberate over-review).
+// The merge gate and the autonomous reconcile tick keep the strict isEnforcedPr, so an empty
+// base can never auto-open the merge gate or auto-start a review via the reconcile tick. Logic
+// lives in review-helpers.ts::prEnforcedForPush (pure, unit-tested); this wraps it as a guard.
 function isEnforcedPrForPush(pr: PrState | undefined): pr is Required<Pick<PrState, "headRefOid" | "state">> & PrState {
-  return Boolean(pr?.headRefOid && pr.state === "OPEN" && (pr.baseRefName === "main" || pr.baseRefName === "master" || !pr.baseRefName));
+  return prEnforcedForPush(pr);
 }
 
 function ackPath(repo: string): string {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPrBoundaryTrigger, isPrBoundaryCommand, prBoundaryCommandBase, prEditBoundaryBase, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { isPrBoundaryTrigger, isPrBoundaryCommand, prBoundaryCommandBase, prEditBoundaryBase, prEnforcedForPush, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * isPrBoundaryTrigger is the single "should this command start a review?" predicate.
@@ -227,5 +227,32 @@ describe('enforcedHeadDecision (REQ-AGENT-058 AC3)', () => {
 
   it('trusts the reported PR head when there is no local checkout', () => {
     expect(enforcedHeadDecision({ ...lagging, local: '', localDescendsFromPrHead: false, localPushed: false })).toBe('prHead');
+  });
+});
+
+/**
+ * prEnforcedForPush is the push-path-only enforcement gate (REQ-AGENT-036 AC1). The load-bearing
+ * property is the fail-open on an empty/absent baseRefName (a transient gh/jq parse edge must
+ * over-review, never silently skip a PR-to-main) WITHOUT widening to a genuinely non-protected
+ * base. Gut the `|| !pr.baseRefName` and the empty/absent cases fail; widen to any base and the
+ * develop case fails; drop the OPEN/headRefOid guards and those cases fail.
+ */
+describe('prEnforcedForPush (push-path fail-open enforcement gate)', () => {
+  it('enforces an OPEN PR with a head OID targeting main or master', () => {
+    expect(prEnforcedForPush({ headRefOid: 'a1b2c3d', state: 'OPEN', baseRefName: 'main' })).toBe(true);
+    expect(prEnforcedForPush({ headRefOid: 'a1b2c3d', state: 'OPEN', baseRefName: 'master' })).toBe(true);
+  });
+
+  it('fails OPEN when baseRefName is empty or absent (transient gh/jq parse edge)', () => {
+    expect(prEnforcedForPush({ headRefOid: 'a1b2c3d', state: 'OPEN', baseRefName: '' })).toBe(true);
+    expect(prEnforcedForPush({ headRefOid: 'a1b2c3d', state: 'OPEN' })).toBe(true);
+  });
+
+  it('does NOT enforce a non-protected base, a non-OPEN PR, or a PR with no head OID', () => {
+    expect(prEnforcedForPush({ headRefOid: 'a1b2c3d', state: 'OPEN', baseRefName: 'develop' })).toBe(false);
+    expect(prEnforcedForPush({ headRefOid: 'a1b2c3d', state: 'MERGED', baseRefName: 'main' })).toBe(false);
+    expect(prEnforcedForPush({ headRefOid: 'a1b2c3d', state: 'CLOSED', baseRefName: 'main' })).toBe(false);
+    expect(prEnforcedForPush({ state: 'OPEN', baseRefName: 'main' })).toBe(false);
+    expect(prEnforcedForPush(undefined)).toBe(false);
   });
 });

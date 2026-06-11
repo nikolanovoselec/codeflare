@@ -253,6 +253,15 @@ export function prBoundaryCommandBase(command: string, knownBase?: string): stri
   return prCreateBoundaryBase(command, knownBase) || prEditBoundaryBase(command);
 }
 
+// Pure push-path enforcement gate (git-push-review-reminder.sh:253-254): an OPEN PR with a
+// head OID targeting main/master — OR an empty baseRefName (transient gh/jq parse edge), which
+// fails OPEN so a real push never silently skips review on a parsing hiccup. This is the
+// push-path-only widening; the strict main/master gate used by the merge gate and the reconcile
+// tick lives in review-enforcement.ts::isEnforcedPr. Pure so the fail-open is unit-testable.
+export function prEnforcedForPush(pr: { headRefOid?: string | null; state?: string; baseRefName?: string } | undefined): boolean {
+  return Boolean(pr?.headRefOid && pr.state === "OPEN" && (pr.baseRefName === "main" || pr.baseRefName === "master" || !pr.baseRefName));
+}
+
 // Low-level matcher used to pluck a boundary command out of a tool event
 // (commandTextFromEvent). Broader than the trigger predicate: it also matches
 // `gh pr merge` (the merge gate) and a `gh pr create` at any base, mirroring the
