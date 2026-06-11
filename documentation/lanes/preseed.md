@@ -140,7 +140,9 @@ enforcement family (advanced-only):
 work): `emil-design-eng` and `design-taste-frontend` (prose-only,
 adapted to every agent), plus `impeccable` (the 23-sub-command
 design skill + its ~57-file offline detector, minus the localhost
-`live` browser tooling that has no browser in codeflare). impeccable
+`live` browser SERVER scripts that have no browser in codeflare —
+`reference/live.md` and the `live` sub-command listing are retained
+but `live` is inert without a dev server). impeccable
 is scoped to Claude + Pi only — Claude gets the trimmed tree in
 `~/.claude/skills/impeccable/`, and Pi gets a DEDICATED copy under
 `~/.pi/agent/skills/impeccable/` (paths re-pointed, `.mjs` scripts
