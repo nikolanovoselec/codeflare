@@ -338,6 +338,28 @@ All preseed content is deployed via the manifest pipeline:
   gate reads PR state cache-bypassed and **fails closed** (blocks the merge) when
   `gh pr view` is unreadable while an unacked review is pending for the local head.
 
+  The merge gate is **report-only and defended in depth** ([AD80](../decisions/README.md#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)).
+  It blocks a merge until the reviewed head is **acked** — i.e. until the required
+  reviewers RAN — never on findings severity; the review lanes only report, they
+  never veto, so a clean merge is gated on coverage existing, not on a verdict. The
+  blocking logic is a pure, unit-tested decision (`mergeGateDecision` in
+  `review-job-helpers.ts`: allow / bypass / block) with the `onAgentStart` handler
+  reduced to thin wiring. The decision evaluates the PR the merge command **actually
+  targets**, not just the cwd branch: `mergeCommandTarget` (`review-helpers.ts`)
+  pulls a PR number, a `/pull/N` URL, a branch, or a `--repo`/`-R` slug out of the
+  command (skipping value-flag arguments) so `gh pr merge 123` is gated against PR
+  123. It fails CLOSED when that PR is readable-but-malformed (OPEN with an empty
+  `baseRefName`/`headRefOid`) or when `gh` is transiently unreadable while any
+  unacked merge-blocking head exists (a pending review, a latched circuit breaker,
+  or an outstanding offer), and it blocks `--auto` on an enforced unacked PR (which
+  would otherwise merge server-side after checks without re-consulting the gate).
+  Because the `onAgentStart` pre-block cannot intercept every wrapper form (`bash -c`,
+  `xargs`, or a server-side `--auto` that completes later), a **retroactive backstop**
+  in `onToolEnd` emits a durable `merge_completed_unreviewed` audit event plus a toast
+  whenever a PR is observed MERGED while its head was never acked — so an evasion is
+  always recorded even when it could not be stopped. The pre-block is the primary
+  defense; the retroactive audit is the truth layer behind it.
+
   The durable runner in `review-jobs.ts` writes job state under
   `.git/codeflare-review-jobs/<head>/` and public findings under
   `.git/sdd-review-results/<head>/`. Each result file uses a common

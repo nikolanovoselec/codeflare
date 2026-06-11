@@ -1528,6 +1528,34 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 
 ---
 
+### AD80: Pi PR-boundary merge gate is report-only and defended in depth
+
+**Category:** Architecture
+
+**Status:** Accepted (2026-06-11)
+
+**Context:** A Fable-5 deep review of the Pi PR-boundary review subsystem found the merge gate (the `onAgentStart`/`tool_call` interceptor that blocks `gh pr merge` until the reviewed head is acked) was the weakest-covered layer, and raised two questions that are genuinely product decisions rather than defects. (1) **What does "reviewed" mean for the gate?** `durableReviewAckReady` opens the gate once all required lanes have *produced a result*, regardless of severity — three lane reports that each contain CRITICAL findings still ack the head and let the merge proceed. (2) **How strong should the interception be?** The Pi gate is a hard pre-block (it returns `{block: true}` and the merge tool never runs), unlike Claude, whose enforcement is retroactive (a PostToolUse directive + a Stop-hook turn-block with a 5-strike fail-open) — the merge command actually executes and Claude reacts after, leaning entirely on a `gh pr view`-at-turn-end truth layer.
+
+**Decision:** (1) **Report-only semantics.** The gate blocks until the required reviewers have *run* (their head is acked), NOT until their findings are *addressed*. The lanes are advisory (AD78): they surface findings; acting on them is the user's call. "Merge blocked until review" means "until review *ran*", and `/review-skip` is the explicit user override. (2) **Defense in depth.** Pi keeps its hard pre-block — strengthened so it evaluates the PR the merge command actually targets (`mergeCommandTarget` → a specific number/URL/branch/`--repo`, not just the cwd branch), fails *closed* on a readable-but-malformed PR or a transient `gh` failure while any unacked review (pending, latched-breaker, or outstanding-offer head) exists, and recognises `--auto` and wrapper-prefixed (`timeout`/`env`/`command`/`nice`) forms. On TOP of the pre-block, Pi now also runs Claude's retroactive model as a backstop: after any `gh pr merge`-shaped command runs, if the PR is observed MERGED while its head was never acked, it emits a loud, durable `merge_completed_unreviewed` audit + toast. The pre-block stops the common cases; the retroactive layer catches what no anchor can (`bash -c '…'`, `xargs`, server-side `--auto`). The whole gate decision is the pure, unit-tested `mergeGateDecision`. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergeGateDecision --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::mergeCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::onAgentStart -->
+
+**Rationale:** Verdict-gating (blocking the merge until CRITICAL/HIGH findings clear) would make the gate authoritative over a process that is deliberately advisory, would need an override path and a severity contract, and would diverge from Claude's engine — keeping both engines "reviewers ran, not findings fixed" keeps them coherent. Defense in depth is the right answer to "the regex is the gate" for merges: detection has the reconcile backstop, but a single missed merge is unreviewed, so the gate needs both a stronger pre-block AND a retroactive truth layer rather than an ever-more-baroque pre-block regex.
+
+**Alternatives considered:**
+
+- **Block the merge on unaddressed CRITICAL/HIGH (rejected):** stronger, but makes the gate authoritative over advisory lanes, needs a spec + tests + an override path, and diverges from Claude. Revisit if findings are routinely ignored.
+- **Pre-block only, no retroactive layer (rejected):** leaves `bash -c`/`xargs`/`--auto` as silent unreviewed-merge holes.
+- **Match `gh pr merge` anywhere in the command for the gate (rejected):** over-blocks on mentions (`grep 'gh pr merge'`); the wrapper-word anchor plus the retroactive audit covers the realistic forms without the false-block tax.
+
+**Consequences:**
+
+- The merge gate's correctness is pinned by `mergeGateDecision` unit tests; the inline handler is thin wiring.
+- An unreviewed merge that bypasses the pre-block is no longer silent — it leaves a durable audit and a visible toast.
+- A reviewed head with unaddressed CRITICAL findings can still be merged; the findings are surfaced, not enforced. If that proves too weak, AD80 is the place to revisit.
+
+**Related:** [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery), [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers).
+
+---
+
 ## Related Documentation
 
 - [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
