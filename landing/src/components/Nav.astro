@@ -3,12 +3,16 @@
  * Fixed top navigation. Links come from content data; the brand mark is the
  * product's code-bracket glyph (web-ui/public/favicon.svg) inlined with the
  * flare gradient so the nav renders without an extra request.
+ *
+ * Mobile-first: below the nav breakpoint the link list becomes a slide-down
+ * panel behind an accessible toggle button (aria-expanded / aria-controls);
+ * the panel closes on link selection.
  */
 import { NAV_LINKS } from '../content/site';
 import { APP_LINKS } from '../config';
 ---
 
-<nav class="nav">
+<nav class="nav" data-open="false">
   <div class="nav-inner">
     <a class="nav-brand" href="/">
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -27,12 +31,43 @@ import { APP_LINKS } from '../config';
       </svg>
       codeflare
     </a>
-    <div class="nav-links">
+    <div class="nav-links" id="nav-links">
       {NAV_LINKS.map((link) => <a href={link.href}>{link.label}</a>)}
     </div>
     <div class="nav-cta">
       <a class="btn btn-ghost" href={APP_LINKS.signIn}>Sign in</a>
       <a class="btn btn-primary" href="#contact">Book a demo</a>
+      <button
+        class="nav-toggle"
+        type="button"
+        aria-label="Toggle navigation menu"
+        aria-controls="nav-links"
+        aria-expanded="false"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path class="icon-menu" d="M3 6h18M3 12h18M3 18h18" />
+          <path class="icon-close" d="M5 5l14 14M19 5L5 19" />
+        </svg>
+      </button>
     </div>
   </div>
 </nav>
+
+<script>
+  const nav = document.querySelector<HTMLElement>('.nav');
+  const toggle = document.querySelector<HTMLButtonElement>('.nav-toggle');
+
+  if (nav && toggle) {
+    const setOpen = (open: boolean) => {
+      nav.dataset.open = String(open);
+      toggle.setAttribute('aria-expanded', String(open));
+    };
+
+    toggle.addEventListener('click', () => setOpen(nav.dataset.open !== 'true'));
+
+    // Close the panel when a section link is chosen
+    for (const link of nav.querySelectorAll('.nav-links a')) {
+      link.addEventListener('click', () => setOpen(false));
+    }
+  }
+</script>

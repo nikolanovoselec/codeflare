@@ -50,6 +50,13 @@ describe('landing page (REQ-LANDING-001)', () => {
     }
   });
 
+  it('renders an accessible mobile menu toggle wired to the nav link panel', () => {
+    expect(html).toContain('aria-controls="nav-links"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('id="nav-links"');
+    expect(html).toContain('data-open="false"');
+  });
+
   it('renders every card of every pillar section', () => {
     for (const section of PILLAR_SECTIONS) {
       for (const card of section.cards ?? []) {

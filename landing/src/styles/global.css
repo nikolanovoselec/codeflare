@@ -228,8 +228,73 @@ section {
   font-size: 0.8125rem;
 }
 
+/* Mobile menu toggle — hidden on desktop, where the link row is inline */
+.nav-toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  padding: 0.45rem;
+  cursor: pointer;
+}
+
+.nav-toggle svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: block;
+}
+
+.nav-toggle path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.nav-toggle .icon-close,
+.nav[data-open='true'] .nav-toggle .icon-menu {
+  display: none;
+}
+
+.nav[data-open='true'] .nav-toggle .icon-close {
+  display: block;
+}
+
 @media (max-width: 860px) {
+  .nav-toggle {
+    display: inline-flex;
+  }
+
+  /* Link row becomes a slide-down panel under the bar */
   .nav-links {
+    display: none;
+    position: absolute;
+    top: var(--nav-height);
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    background: rgb(var(--bg-base-rgb) / 0.97);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 0.5rem 0;
+  }
+
+  .nav[data-open='true'] .nav-links {
+    display: flex;
+  }
+
+  .nav-links a {
+    padding: 0.875rem 1.5rem;
+  }
+}
+
+/* Tight screens: the primary CTA carries the conversion, ghost yields */
+@media (max-width: 420px) {
+  .nav-cta .btn-ghost {
     display: none;
   }
 }
