@@ -433,7 +433,11 @@ function pruneReviewResults(repo: string, keepHead: string): void {
   try {
     const base = join(repo, ".git", "sdd-review-results");
     for (const entry of readdirSync(base)) {
-      if (entry !== keepHead) rmSync(join(base, entry), { recursive: true, force: true });
+      // Only ever rmSync SHA-shaped sibling dirs: every result dir under here is named by a commit
+      // head, so this is a no-op restriction today — but it means a future non-SHA artifact dropped
+      // into this dir can never be silently recursive-deleted by the prune. Defensive guard on a
+      // destructive op; the keepHead dir (the current head) is always preserved.
+      if (entry !== keepHead && /^[0-9a-f]{7,40}$/.test(entry)) rmSync(join(base, entry), { recursive: true, force: true });
     }
   } catch { /* best effort: dir may not exist yet */ }
 }

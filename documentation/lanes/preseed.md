@@ -310,8 +310,8 @@ All preseed content is deployed via the manifest pipeline:
   boundary **auto-starts** review or merely **offers** it. The PRIMARY signal is
   `Symbol.for("codeflare.reviewBoundaryActedThisSession")` — the set of
   repo+branch keys for which a real boundary command (push / `gh pr create`) ran
-  this session, recorded in `onToolEnd` before any window guard so a dropped
-  window still proves this session pushed. The BACKSTOP is the per-session,
+  this session, recorded in `onToolEnd` before any window-creation guard so a
+  dropped window still proves this session pushed. The BACKSTOP is the per-session,
   per-branch baseline `Symbol.for("codeflare.reviewSessionBaselineHead")` — the
   head this session first observed on a branch (seeded once, deliberately NOT
   advanced on ack), so a later in-session push to a descendant still reads as an
@@ -329,8 +329,11 @@ All preseed content is deployed via the manifest pipeline:
   boundary path specifically, enforcement fails open if `gh pr view` returns an
   OPEN PR with an empty `baseRefName` (a transient `gh`/`jq` parsing edge) — the
   PR is treated as targeting `main`/`master` rather than silently skipping
-  review, and the review window persists a concrete `main` base label (an empty
-  one would make the pending record unreadable on reload); the autonomous
+  review, and the review window persists `"main"` as a concrete base-label
+  fallback so the pending record stays readable on reload (an empty label makes
+  `loadPending` reject the row). That label is coarse — a `master`-based PR still
+  records `"main"` — but harmless, because the review's diff scope is anchored by
+  the SHA `reviewBase`, never by this branch label. The autonomous
   reconcile tick keeps the stricter non-empty-base check, and the `gh pr merge`
   gate reads PR state cache-bypassed and **fails closed** (blocks the merge) when
   `gh pr view` is unreadable while an unacked review is pending for the local head.
