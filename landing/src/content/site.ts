@@ -141,7 +141,7 @@ export const TERMINAL_TRANSCRIPT: TranscriptLine[] = [
   { kind: 'line', tone: 'ok', text: '✓ CI green · PR #214 ready for human judgment', waitMs: 900 },
   { kind: 'line', tone: 'dim', text: `  llm traffic: ${REQUEST_COUNT} requests → your AI Gateway`, waitMs: 700 },
   { kind: 'line', tone: 'dim', text: '  attributed: n.engineer@corp · team:payments · dept:engineering' },
-  { kind: 'line', tone: 'dim', text: '  routing: payments → approved models · rate limits enforced' },
+  { kind: 'line', tone: 'dim', text: '  routing: payments → approved models · rate limits enforced · failover armed' },
   { kind: 'line', tone: 'warn', text: '✓ container destroyed · zero residue', waitMs: 600 },
 ];
 
@@ -281,6 +281,14 @@ export const PILLAR_SECTIONS: PillarSection[] = [
         body:
           'Workspace storage, credentials, and vault data are encrypted at rest (AES-256-GCM), with ' +
           'customer-provided key options. Data in transit is TLS end to end.',
+      },
+      {
+        title: 'Agents browse through isolated browsers',
+        tag: '[web]',
+        body:
+          'When an agent needs the web — docs, dashboards, issue trackers — pages render in ' +
+          'remote isolated browser instances, never inside the session container. The agent reads ' +
+          'the rendered result; untrusted web content never executes in your environment.',
       },
       {
         title: 'Data loss prevention by design',
@@ -478,7 +486,9 @@ export const COST = {
       body:
         'Every LLM request flows through your AI Gateway carrying metadata — so inference cost is ' +
         'visible per user, per team, per department, per group, at whatever granularity you ' +
-        'configure. Dynamic routing steers each group to its approved models; rate limits hold the line.',
+        'configure. Dynamic routing steers each group to its approved models, rate limits hold ' +
+        'the line, and when a provider degrades, smart routing fails over to an approved ' +
+        'alternative model automatically — sessions ride through outages.',
       trace: 'chips',
       chips: ['user:n.engineer', 'team:payments', 'dept:engineering'],
     },
@@ -529,8 +539,8 @@ export const FAQ_ITEMS: FaqItem[] = [
     answer:
       'They don’t — not directly. All model traffic is intercepted at the platform layer and routed ' +
       'through your AI Gateway with your keys. You choose the approved models per group, set rate ' +
-      'limits, and see attributed spend per user, team, or department. Provider credentials never ' +
-      'enter the container.',
+      'limits, and see attributed spend per user, team, or department. Provider outages fail over ' +
+      'to an approved alternative model automatically. Provider credentials never enter the container.',
   },
   {
     question: 'How does authentication work with our IdP?',
@@ -565,6 +575,15 @@ export const FAQ_ITEMS: FaqItem[] = [
     answer:
       'No — it works through it. Agents use your git hosting, your CI, your deploy pipelines, and ' +
       'your branch protections. The autonomous review pipeline adds gates; it doesn’t remove any.',
+  },
+  {
+    question: 'How much of this is proprietary?',
+    answer:
+      'As little as possible — Codeflare is built on industry standards rather than reinventing ' +
+      'them: SAML/OIDC identity, zero-trust access in front of every surface, S3-compatible object ' +
+      'storage, plain git and your existing CI, the Model Context Protocol for agent tooling, and ' +
+      'a standard AI Gateway for model traffic. The engine’s value is governed orchestration on ' +
+      'top of proven primitives, not a parallel proprietary stack.',
   },
 ];
 
