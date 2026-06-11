@@ -119,11 +119,29 @@ function boundaryActedMemory(): Set<string> {
   if (!g[BOUNDARY_ACTED_KEY]) g[BOUNDARY_ACTED_KEY] = new Set<string>();
   return g[BOUNDARY_ACTED_KEY]!;
 }
-function markBoundaryActed(repo: string): void {
-  if (repo) boundaryActedMemory().add(baselineKey(repo));
+// boundaryActedKey: repo+branch key for the "this session pushed" signal, built with the SAME NUL
+// separator as baselineKey (via String.fromCharCode(0), so this source line carries no embedded NUL).
+// The MARK (onToolEnd) is keyed by the PUSHED PR's branch and the READ (reconcile) by the CURRENT
+// branch. In the normal flow they are the same branch; `git push A && git checkout B` makes them differ,
+// and keying the mark by the pushed branch — NOT currentBranch-at-tool-end, which is already B — is what
+// stops B's merely-inherited head from being wrongly auto-started (R6).
+function boundaryActedKey(repo: string, branch: string | undefined): string {
+  return `${repo}${String.fromCharCode(0)}${branch ?? ""}`;
+}
+function markBoundaryActed(repo: string, branch?: string): void {
+  if (repo) boundaryActedMemory().add(boundaryActedKey(repo, branch ?? currentBranch(repo) ?? ""));
 }
 function boundaryActedThisSession(repo: string): boolean {
-  return boundaryActedMemory().has(baselineKey(repo));
+  return boundaryActedMemory().has(boundaryActedKey(repo, currentBranch(repo) ?? ""));
+}
+// clearBoundaryActed (R7): a completed/acked review spends the "this session pushed" signal for that
+// branch. Clearing it means a LATER unacked head reaching this branch from a REMOTE actor (a CI bot, or
+// a concurrent Claude in another container — explicitly supported) is treated as inherited → OFFER, not
+// auto-started on work this session never did. A genuine in-session follow-up push re-marks it (onToolEnd
+// runs before the window guards), and an in-session descendant push is still caught by the branch-keyed
+// baseline backstop, so nothing legitimate degrades to an offer.
+function clearBoundaryActed(repo: string): void {
+  boundaryActedMemory().delete(boundaryActedKey(repo, currentBranch(repo) ?? ""));
 }
 // offerSurfacedMemory: per-SESSION dedup for the missed-boundary offer. The offer must re-surface
 // ONCE PER SESSION — a new `pi` started on a still-unchosen offer (the user quit without choosing) must
@@ -352,6 +370,19 @@ function bypassPending(): boolean {
   return existsSync(REVIEW_BYPASS);
 }
 
+// A durable job whose every lane is failed/abandoned (a superseded head's leftover) is NOT a live review
+// window. Counting it as one makes shouldReconcileOpenPr noop forever when the user later checks that
+// branch out again — head unacked, no pending, breaker closed, but hasReviewJob true — so the stuck PR
+// never re-enters the offer/autostart decision and there is NO offer, toast, or audited near-miss (R9,
+// the silent-skip). A job with ANY running or completed lane still counts as a real, in-flight window.
+function durableJobIsActiveWindow(job: ReturnType<typeof readDurableReviewJob>): boolean {
+  if (!job) return false;
+  return job.lanes.some((lane) => {
+    const status = job.laneState[lane]?.status;
+    return status === "running" || status === "completed";
+  });
+}
+
 function localHead(repo: string): string | undefined {
   try {
     return shell("git rev-parse HEAD", repo);
@@ -409,6 +440,9 @@ function writeAck(repo: string, head: string): void {
   // long-lived branch leaves its result dir behind forever. writeAck is the single choke point every
   // finalize/skip path funnels through, so pruning here keeps exactly the current head and nothing else.
   pruneReviewResults(repo, head);
+  // R7: acking spends this branch's "this session pushed" signal — a later head reaching this branch
+  // from a remote actor must OFFER, not auto-start. A genuine in-session follow-up push re-marks it.
+  clearBoundaryActed(repo);
 }
 
 // The "offered" dedup that used to live here as an on-disk per-head-EVER marker now lives in the
@@ -1428,7 +1462,7 @@ export default function (pi: ExtensionAPI) {
       enforced,
       head,
       acked: head ? acked(resolvedRepo, head) : false,
-      hasReviewJob: (loadPending(resolvedRepo)?.head === head) || Boolean(durableJob),
+      hasReviewJob: (loadPending(resolvedRepo)?.head === head) || durableJobIsActiveWindow(durableJob),
       reviewActive: durableJob?.status === "running",
       breakerOpen: head ? isBreakerOpen(resolvedRepo, head) : false,
     });
@@ -1716,7 +1750,10 @@ export default function (pi: ExtensionAPI) {
     // Record it NOW — before any of the window-creation guards below can bail — so that even if the
     // window is never created (head unresolved, dedup, a reload right after), the reconcile still knows
     // THIS session advanced this branch and will AUTOSTART rather than merely OFFER the missed head.
-    markBoundaryActed(repo);
+    // Key the mark by the PUSHED PR's branch (pr.headRefName), not currentBranch-at-tool-end — a
+    // `git push A && git checkout B` would otherwise attribute the push to B and risk auto-starting B's
+    // inherited head (R6). Falls back to currentBranch when there is no PR branch yet (push-before-PR).
+    markBoundaryActed(repo, pr.headRefName);
     const head = reviewCandidateHead(repo, pr, command);
     // REQ-AGENT-058: from here the PR is a confirmed enforced boundary, so a silent bail is a
     // genuine near-miss. Audit it (reconciliation still backstops the start) so a future miss is
