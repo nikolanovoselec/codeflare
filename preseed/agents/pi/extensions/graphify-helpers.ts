@@ -2,14 +2,16 @@ export type GraphifyCloneAction = {
   repo: string;
   hasGraph: boolean;
   mode: "existing-graph" | "missing-graph";
+  freshness?: "fresh" | "stale" | "unknown";
   choices: string[];
 };
 
-export function graphifyCloneAction(repo: string, hasGraph: boolean): GraphifyCloneAction {
+export function graphifyCloneAction(repo: string, hasGraph: boolean, freshness?: "fresh" | "stale" | "unknown"): GraphifyCloneAction {
   return {
     repo,
     hasGraph,
     mode: hasGraph ? "existing-graph" : "missing-graph",
+    freshness: hasGraph ? (freshness ?? "unknown") : undefined,
     choices: hasGraph
       ? ["use existing graph as-is", "Full repo AST-only update", "Full repo semantic refresh"]
       : ["Full repo AST-only build", "Full repo semantic build", "skip"],
@@ -18,8 +20,11 @@ export function graphifyCloneAction(repo: string, hasGraph: boolean): GraphifyCl
 
 export function renderGraphifyCloneDirective(action: GraphifyCloneAction): string {
   if (action.mode === "existing-graph") {
+    const lead = action.freshness === "stale"
+      ? `Repository cloned at ${action.repo}; the existing graphify graph at ${action.repo}/graphify-out/graph.json is STALE (built at a commit other than git HEAD) and should be refreshed.`
+      : `Repository cloned at ${action.repo} and an existing graphify graph was found at ${action.repo}/graphify-out/graph.json.`;
     return [
-      `Repository cloned at ${action.repo} and an existing graphify graph was found at ${action.repo}/graphify-out/graph.json.`,
+      lead,
       "Graph layout: repo graphs live under each checked-out repo's graphify-out/ directory; the Vault graph is /home/user/Vault/graphify-out/graph.json; the merged global graph is /home/user/.graphify/global-graph.json. There is no /home/user/workspace/graphify-out graph.",
       "Check freshness by comparing graph.json built_at_commit to git HEAD.",
       "Do not update the graph automatically. If the graph is stale or freshness is unknown, ask the user which graph action to take before running any graph update:",
@@ -53,6 +58,13 @@ export function graphifyPromptMarker(repo: string, sessionId = "default"): strin
   return `/tmp/codeflare-graphify-prompted-${safe}`;
 }
 
+// Zero-or-more leading `VAR=value ` assignments (quoted or bare), plus an optional `env `
+// wrapper, before the verb — mirrors review-helpers BOUNDARY_ANCHOR so `BROWSER="" gh repo
+// clone`, `GIT_TERMINAL_PROMPT=0 git clone`, and `env BROWSER="" gh repo clone` all match.
+// Shared by isGitClone (codeflare-pi.ts) and cloneTargetPath so the prefix is consumed
+// BEFORE destination parsing.
+export const ENV_PREFIX = String.raw`(?:env[ \t]+)?(?:[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)[ \t]+)*`;
+
 export function effectiveCwdForCommand(command: string, cwd: string): string {
   const match = command.match(/(?:^|[;&|\n]\s*)cd\s+([^;&|\n]+)\s*&&/);
   if (!match) return cwd;
@@ -82,7 +94,7 @@ export function cloneTargetPath(command: string, cwd: string, output?: string): 
   const outputTarget = cloneTargetPathFromOutput(output, cwd);
   if (outputTarget) return outputTarget;
   const effectiveCwd = effectiveCwdForCommand(command, cwd);
-  const match = command.match(/(?:^|[;&|\n]\s*)(?:cd\s+[^;&|\n]+\s*&&\s*)?(?:git\s+clone|gh\s+repo\s+clone)\s+(.+?)(?:[;&|\n]|$)/);
+  const match = command.match(new RegExp(String.raw`(?:^|[;&|\n]\s*)(?:cd\s+[^;&|\n]+\s*&&\s*)?` + ENV_PREFIX + String.raw`(?:git\s+clone|gh\s+repo\s+clone)\s+(.+?)(?:[;&|\n]|$)`));
   if (!match) return undefined;
   const tokens = shellWords(match[1]);
   const positional: string[] = [];
@@ -123,15 +135,20 @@ export function graphifyClonePromptDecision(options: {
   output?: string;
   findGitRoot: (path: string) => string | undefined;
   hasGraph: (repo: string) => boolean;
+  exists: (path: string) => boolean;
+  freshness?: (repo: string) => "fresh" | "stale" | "unknown";
 }): GraphifyClonePromptDecision | undefined {
   if (options.failed) return undefined;
   const clonedPath = cloneTargetPath(options.command, options.cwd, options.output);
   if (!clonedPath) return undefined;
-  const repo = options.findGitRoot(clonedPath) ?? clonedPath;
+  if (!options.exists(clonedPath)) return undefined;          // target must exist on disk
+  const repo = options.findGitRoot(clonedPath);
+  if (!repo) return undefined;                                // must be a real git work-tree (no `?? clonedPath` fallback)
+  const freshness = options.hasGraph(repo) ? (options.freshness?.(repo) ?? "unknown") : undefined;
   return {
     repo,
     marker: graphifyPromptMarker(repo, options.sessionId),
-    action: graphifyCloneAction(repo, options.hasGraph(repo)),
+    action: graphifyCloneAction(repo, options.hasGraph(repo), freshness),
   };
 }
 

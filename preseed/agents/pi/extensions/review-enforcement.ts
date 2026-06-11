@@ -119,11 +119,35 @@ function isSddProject(repo: string): boolean {
   return existsSync(join(repo, "sdd", "README.md"));
 }
 
+// gh pr view shells out on every boundary/reconcile/footer tick (many per turn). Cache it
+// per-repo with an asymmetric TTL (60s OPEN / 10s negative), keyed on repo+branch so a
+// checkout invalidates — faithful to git-push-review-reminder.sh's .git/sdd-pr-cache.
+// Transient gh failures are NEVER cached (delete + re-query next call). Backed by globalThis
+// because the boundary handler, no-ctx reaper, and statusline are separate jiti instances
+// (moduleCache:false) that must share one cache.
+const PR_CACHE_KEY = Symbol.for("codeflare.prCache");
+type PrCacheEntry = { branch: string; pr: PrState | undefined; at: number };
+function prCache(): Map<string, PrCacheEntry> {
+  const g = globalThis as unknown as { [PR_CACHE_KEY]?: Map<string, PrCacheEntry> };
+  if (!g[PR_CACHE_KEY]) g[PR_CACHE_KEY] = new Map();
+  return g[PR_CACHE_KEY]!;
+}
+
 function prState(repo: string): PrState | undefined {
+  const branch = currentBranch(repo) ?? "";
+  const cache = prCache();
+  const hit = cache.get(repo);
+  if (hit && hit.branch === branch) {
+    const ttl = hit.pr?.state === "OPEN" ? 60000 : 10000; // 60s OPEN, 10s negative
+    if (Date.now() - hit.at < ttl) return hit.pr;
+  }
   try {
     const out = shell("gh pr view --json number,state,baseRefName,headRefOid,headRefName,isDraft 2>/dev/null", repo);
-    return out ? JSON.parse(out) as PrState : undefined;
+    const pr = out ? JSON.parse(out) as PrState : undefined;
+    cache.set(repo, { branch, pr, at: Date.now() });
+    return pr;
   } catch {
+    cache.delete(repo);
     return undefined;
   }
 }
@@ -138,6 +162,16 @@ function localHead(repo: string): string | undefined {
 
 function isEnforcedPr(pr: PrState | undefined): pr is Required<Pick<PrState, "headRefOid" | "baseRefName" | "state">> & PrState {
   return Boolean(pr?.headRefOid && pr.state === "OPEN" && (pr.baseRefName === "main" || pr.baseRefName === "master"));
+}
+
+// Push-path fail-open variant (git-push-review-reminder.sh:253-254): a real `git push`
+// whose OPEN PR returned an EMPTY baseRefName (transient gh/jq edge) fails OPEN to
+// enforcement — over-review rather than silently let an unreviewed PR-to-main slip on a
+// parsing hiccup. Used ONLY on the actual-command onToolEnd boundary path (a user push/
+// create just happened). The merge gate and the autonomous reconcile tick keep the strict
+// isEnforcedPr, so an empty base can never auto-open the gate or auto-start a non-main PR.
+function isEnforcedPrForPush(pr: PrState | undefined): pr is Required<Pick<PrState, "headRefOid" | "state">> & PrState {
+  return Boolean(pr?.headRefOid && pr.state === "OPEN" && (pr.baseRefName === "main" || pr.baseRefName === "master" || !pr.baseRefName));
 }
 
 function ackPath(repo: string): string {
@@ -1208,7 +1242,12 @@ export default function (pi: ExtensionAPI) {
     description: "Start the PR-boundary reviewers for the current enforced PR head",
     handler: async (_args: string, ctx: any) => {
       const repo = resolveCommandRepo(ctx);
-      if (!repo || !isSddProject(repo)) { ctx.ui.notify("/review-run: not inside an SDD repository.", "warning"); return; }
+      if (!repo) {
+        const cwd = ctx?.sessionManager?.getCwd?.() ?? process.cwd();
+        ctx.ui.notify(`/review-run: could not resolve the active repo. Pi session cwd is ${cwd}; the SDD repo may be nested — work in it (so it becomes the active repo) and retry.`, "warning");
+        return;
+      }
+      if (!isSddProject(repo)) { ctx.ui.notify(`/review-run: ${repo} is not an SDD repository (no sdd/README.md).`, "warning"); return; }
       const pr = prState(repo);
       if (!isEnforcedPr(pr)) { ctx.ui.notify("/review-run: no open PR to main/master for this repo — nothing to review.", "warning"); return; }
       const head = resolveEnforcedHead(repo, pr);
@@ -1224,7 +1263,12 @@ export default function (pi: ExtensionAPI) {
     description: "Skip the PR-boundary review and ack the current enforced PR head",
     handler: (_args: string, ctx: any) => {
       const repo = resolveCommandRepo(ctx);
-      if (!repo || !isSddProject(repo)) { ctx.ui.notify("/review-skip: not inside an SDD repository.", "warning"); return; }
+      if (!repo) {
+        const cwd = ctx?.sessionManager?.getCwd?.() ?? process.cwd();
+        ctx.ui.notify(`/review-skip: could not resolve the active repo. Pi session cwd is ${cwd}; the SDD repo may be nested — work in it and retry.`, "warning");
+        return;
+      }
+      if (!isSddProject(repo)) { ctx.ui.notify(`/review-skip: ${repo} is not an SDD repository (no sdd/README.md).`, "warning"); return; }
       const pr = prState(repo);
       const head = isEnforcedPr(pr) ? resolveEnforcedHead(repo, pr) : (localHead(repo) || "");
       if (!head) { ctx.ui.notify("/review-skip: could not resolve the current head.", "warning"); return; }
@@ -1318,7 +1362,7 @@ export default function (pi: ExtensionAPI) {
     if (!repo || !isSddProject(repo)) return;
 
     const pr = prForBoundaryCommand(repo, command, prState(repo));
-    if (!isEnforcedPr(pr)) return;
+    if (!isEnforcedPrForPush(pr)) return;
     const head = reviewCandidateHead(repo, pr, command);
     if (!head) return;
     if (consumeBypass()) {

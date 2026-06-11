@@ -8,7 +8,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { cloneTargetPath, effectiveCwdForCommand, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
+import { cloneTargetPath, effectiveCwdForCommand, ENV_PREFIX, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
 import { rememberActiveRepo } from "./review-job-helpers";
 import { sddCommandDecision, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
 import { attributionBlockReason, localBuildBlockReason } from "./guard-helpers";
@@ -237,6 +237,20 @@ function commandText(event: any): string {
   return "";
 }
 
+// Shell-only command text for CLONE detection (git-push-review-reminder.sh:74-84): Bash
+// `.command`; ctx_execute `.code` only when language === "shell"; ctx_batch_execute
+// `.commands[].command`. Prevents a JS/TS/python ctx_execute body whose source contains a
+// clone-looking string literal from false-firing the clone prompt (Issue 2B). Deliberately
+// NARROWER than commandText() above — the attribution / build-block / active-repo callers
+// still need any command text, so only the clone branch uses this.
+function shellCommandText(event: any): string {
+  const input = event?.input ?? event?.params ?? event?.args ?? {};
+  if (typeof input.command === "string") return input.command;
+  if (input.language === "shell" && typeof input.code === "string") return input.code;
+  if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => (cmd && typeof cmd.command === "string" ? cmd.command : "")).join("\n");
+  return "";
+}
+
 function resultText(event: any): string {
   const content = event?.content;
   if (Array.isArray(content)) {
@@ -323,7 +337,8 @@ function fallbackGraphifyToolResult(event: any, ctx: ExtensionContext): { conten
 }
 
 function isGitClone(command: string): boolean {
-  return /(^|[;&|\n]\s*)git\s+clone\b/.test(command) || /(^|[;&|\n]\s*)gh\s+repo\s+clone\b/.test(command);
+  return new RegExp(String.raw`(^|[;&|\n]\s*)` + ENV_PREFIX + String.raw`git\s+clone\b`).test(command)
+    || new RegExp(String.raw`(^|[;&|\n]\s*)` + ENV_PREFIX + String.raw`gh\s+repo\s+clone\b`).test(command);
 }
 
 export function shouldHandleClonePrompt(command: string, targetWasAlreadyCloned: boolean, reviewLaneDepth: number): boolean {
@@ -585,8 +600,9 @@ export default function (pi: ExtensionAPI) {
     // and `git -C ...` forms into the active-repo sentinel before graph-first gating fires.
     if (command) {
       const id = toolEventId(event);
-      if (id && isGitClone(command) && !cloneTargetHadGit.has(id)) {
-        const target = cloneTargetPath(command, ctx.sessionManager.getCwd());
+      const cloneCmd = shellCommandText(event);
+      if (id && isGitClone(cloneCmd) && !cloneTargetHadGit.has(id)) {
+        const target = cloneTargetPath(cloneCmd, ctx.sessionManager.getCwd());
         if (target) cloneTargetHadGit.set(id, existsSync(join(target, ".git")));
       }
       try {
@@ -620,19 +636,22 @@ export default function (pi: ExtensionAPI) {
 
   const onToolEnd = (event: any, ctx: any) => {
     const command = commandText(event);
+    const cloneCmd = shellCommandText(event);
     const cwd = ctx.sessionManager.getCwd();
     const id = toolEventId(event);
     const targetWasAlreadyCloned = id ? cloneTargetHadGit.get(id) === true : false;
-    const shouldHandleClone = shouldHandleClonePrompt(command, targetWasAlreadyCloned, (globalThis as { __codeflareReviewLaneDepth?: number }).__codeflareReviewLaneDepth ?? 0);
+    const shouldHandleClone = shouldHandleClonePrompt(cloneCmd, targetWasAlreadyCloned, (globalThis as { __codeflareReviewLaneDepth?: number }).__codeflareReviewLaneDepth ?? 0);
     const decision = shouldHandleClone
       ? graphifyClonePromptDecision({
-        command,
+        command: cloneCmd,
         cwd,
         sessionId: String(ctx.sessionManager?.getSessionId?.() ?? process.ppid),
         failed: isFailedToolExecution(event),
         output: resultText(event),
         findGitRoot,
         hasGraph,
+        exists: existsSync,
+        freshness: (repo: string) => graphFreshness(repo).status,
       })
       : undefined;
     const repo = updateActiveRepoFromPath(decision?.repo ?? (command ? effectivePathForCommand(command, cwd) : cwd));

@@ -933,35 +933,37 @@ export function resolveReviewRepo(
     ?? fromDir(input.processCwd);
 }
 
-// In-session memory of the repo THIS Pi session is reviewing, shared across
-// extensions (both review-enforcement and local-statusline import this module, so
-// they get the SAME instance). review-enforcement remembers it whenever a
-// ctx-bearing handler resolves the repo; the no-ctx reaper and the local-statusline
-// footer recall it. Without this, the footer (which only has the session cwd) shows
-// nothing and the on-turn summary emit cannot resolve a NESTED review clone whose
-// parent workspace is the session cwd — the "footer blank / summary never emits" bug.
-let rememberedReviewRepo: string | undefined;
+// In-session memory of the repos this Pi session is tracking, shared across
+// extensions via globalThis. Under Pi 0.79.1's extension loader
+// (createJiti(import.meta.url, { moduleCache:false }) per extension), each
+// extension gets a SEPARATE instance of this module — a module-local `let`
+// written by codeflare-pi.ts is invisible to review-enforcement.ts and
+// local-statusline.ts. globalThis[Symbol.for(...)] is the only cross-extension
+// channel (the codebase already uses it for __codeflareReviewLaneDepth and
+// __codeflareReviewEnforcementRun). reviewRepo = the repo THIS session is
+// reviewing (review-enforcement remembers it whenever a ctx-bearing handler
+// resolves the repo; the no-ctx reaper and the footer recall it). activeRepo =
+// the repo the USER is working in (codeflare-pi remembers it on every command
+// that resolves a git root). Display + the activeRepo rung of resolveReviewRepo
+// read these; review ROUTING precedence stays in resolveReviewRepo unchanged.
+const ACTIVE_REPO_KEY = Symbol.for("codeflare.activeRepo");
+const REVIEW_REPO_KEY = Symbol.for("codeflare.reviewRepo");
+
+type CodeflareRepoMemory = { [ACTIVE_REPO_KEY]?: string; [REVIEW_REPO_KEY]?: string };
+const repoMemory = globalThis as unknown as CodeflareRepoMemory;
+
 export function rememberReviewRepo(repo: string | undefined): void {
-  if (repo) rememberedReviewRepo = repo;
+  if (repo) repoMemory[REVIEW_REPO_KEY] = repo;
 }
 export function recallReviewRepo(): string | undefined {
-  return rememberedReviewRepo;
+  return repoMemory[REVIEW_REPO_KEY];
 }
 
-// In-session memory of the repo the USER is working in, shared the same way
-// (codeflare-pi remembers it every time it resolves a git root from a command —
-// `git -C <repo>`, `cd <repo> && …`, clone — when it updates the graphify
-// active-cwd sentinel; the local-statusline footer recalls it). Display-only:
-// review ROUTING must never read this (resolveReviewRepo stays on its explicit
-// precedence chain) because it tracks whatever repo the last command touched.
-// Without it the footer shows no repo:branch when the session cwd is a non-repo
-// parent workspace and work happens in a nested repo via `git -C`.
-let rememberedActiveRepo: string | undefined;
 export function rememberActiveRepo(repo: string | undefined): void {
-  if (repo) rememberedActiveRepo = repo;
+  if (repo) repoMemory[ACTIVE_REPO_KEY] = repo;
 }
 export function recallActiveRepo(): string | undefined {
-  return rememberedActiveRepo;
+  return repoMemory[ACTIVE_REPO_KEY];
 }
 
 // Last-resort display-only fallback for the footer's repo:branch segment: the

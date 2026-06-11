@@ -285,10 +285,17 @@ export function commandTextFromEvent(event: any): string {
   const commands: string[] = [];
   for (const input of inputs) {
     if (!input || typeof input !== "object") continue;
+    // Shell-only gate, faithful to git-push-review-reminder.sh:74-84: Bash carries
+    // `.command`; ctx_execute carries `.code` ONLY when language === "shell" (a JS/TS/
+    // python ctx_execute body must NEVER feed the boundary regex — the issue #2B class
+    // of false-fire); ctx_batch_execute carries `.commands[].command`. The dropped
+    // `.script` / bare-string `commands[]` shapes are not real Pi shell shapes — a
+    // legacy `.script` now yields "" by design (regression-pinned in tests).
     if (typeof input.command === "string") commands.push(input.command);
-    if (typeof input.code === "string") commands.push(input.code);
-    if (typeof input.script === "string") commands.push(input.script);
-    if (Array.isArray(input.commands)) commands.push(...input.commands.map((cmd: any) => String(cmd?.command || cmd?.code || cmd || "")));
+    if (input.language === "shell" && typeof input.code === "string") commands.push(input.code);
+    if (Array.isArray(input.commands)) {
+      commands.push(...input.commands.map((cmd: any) => (cmd && typeof cmd.command === "string" ? cmd.command : "")));
+    }
   }
   return commands.find(isPrBoundaryCommand) || commands.find((command) => command.trim()) || "";
 }
