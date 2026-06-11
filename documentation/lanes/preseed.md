@@ -306,21 +306,34 @@ All preseed content is deployed via the manifest pipeline:
   `local-statusline.ts`. The same pattern backs the `gh pr view` result cache
   (`Symbol.for("codeflare.prCache")`), with an asymmetric TTL (60 s for OPEN
   PRs, 10 s for negative/missing) keyed on repo + branch so a checkout
-  invalidates promptly, and the per-session reconcile baseline
-  (`Symbol.for("codeflare.reviewSessionBaselineHead")`) — the head this session
-  first observed, advanced to every head it acks. That baseline is what lets a
-  missed boundary recover correctly: a later in-session push to a descendant of
-  a just-reviewed head **auto-starts** review, while a head inherited by a
-  genuinely fresh launch/clone (no in-session ack) is **offered once** — durably,
-  via a `codeflare-review-offered` chat message as well as a transient toast —
-  and stays merge-blocking until the user runs `/review-run` or `/review-skip`. When `/review-run` cannot resolve the active repo it
-  reports the Pi session cwd and tells the user to run a command inside the
-  target repo first (so it becomes the active repo) and retry. On the
-  `git push` / `gh pr create` boundary path specifically, enforcement fails
-  open if `gh pr view` returns an OPEN PR with an empty `baseRefName` (a
-  transient `gh`/`jq` parsing edge) — the PR is treated as targeting
-  `main`/`master` rather than silently skipping review; the merge gate and the
-  autonomous reconcile tick keep the stricter non-empty-base check.
+  invalidates promptly, and two per-session signals that decide whether a missed
+  boundary **auto-starts** review or merely **offers** it. The PRIMARY signal is
+  `Symbol.for("codeflare.reviewBoundaryActedThisSession")` — the set of
+  repo+branch keys for which a real boundary command (push / `gh pr create`) ran
+  this session, recorded in `onToolEnd` before any window guard so a dropped
+  window still proves this session pushed. The BACKSTOP is the per-session,
+  per-branch baseline `Symbol.for("codeflare.reviewSessionBaselineHead")` — the
+  head this session first observed on a branch (seeded once, deliberately NOT
+  advanced on ack), so a later in-session push to a descendant still reads as an
+  advance even if a module reload ate the tool-event. A head matching **either**
+  signal auto-starts; a head matching **neither** — inherited by a fresh
+  launch/clone or reached by a bare `git checkout` of another branch — is
+  **offered once**, durably, via a `codeflare-review-offered` chat message as
+  well as a transient toast, and stays merge-blocking until the user runs
+  `/review-run` or `/review-skip`. The offer is deduped per session
+  (`Symbol.for("codeflare.reviewOfferSurfacedThisSession")`), so a relaunch on a
+  still-unchosen offer re-surfaces it exactly once rather than suppressing it
+  forever. When `/review-run` cannot resolve the active repo it reports the Pi
+  session cwd and tells the user to run a command inside the target repo first
+  (so it becomes the active repo) and retry. On the `git push` / `gh pr create`
+  boundary path specifically, enforcement fails open if `gh pr view` returns an
+  OPEN PR with an empty `baseRefName` (a transient `gh`/`jq` parsing edge) — the
+  PR is treated as targeting `main`/`master` rather than silently skipping
+  review, and the review window persists a concrete `main` base label (an empty
+  one would make the pending record unreadable on reload); the autonomous
+  reconcile tick keeps the stricter non-empty-base check, and the `gh pr merge`
+  gate reads PR state cache-bypassed and **fails closed** (blocks the merge) when
+  `gh pr view` is unreadable while an unacked review is pending for the local head.
 
   The durable runner in `review-jobs.ts` writes job state under
   `.git/codeflare-review-jobs/<head>/` and public findings under

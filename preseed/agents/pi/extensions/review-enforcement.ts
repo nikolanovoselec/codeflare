@@ -100,7 +100,9 @@ function reviewBaselineMemory(): Map<string, string> {
 }
 // baselineKey scopes the per-session signals to repo+current-branch. A `git checkout` to another branch
 // produces a different key, so its inherited head starts fresh (baseline === head → OFFER), which is the
-// whole point of the branch keying. NUL-joined so a branch name can never collide with a repo path boundary.
+// whole point of the branch keying. The space separator is collision-safe because git refnames cannot
+// contain whitespace, so the branch is always the final space-delimited token and no other (repo, branch)
+// pair can collapse to the same string. These keys are opaque equality keys, never parsed back apart.
 function baselineKey(repo: string): string {
   return `${repo} ${currentBranch(repo) ?? ""}`;
 }
@@ -136,6 +138,25 @@ function offerSurfacedThisSession(repo: string, head: string): boolean {
 }
 function markOfferSurfaced(repo: string, head: string): void {
   offerSurfacedMemory().add(`${repo} ${head}`);
+}
+// reviewIgnoreLoggedMemory: per-session dedup for the "boundary candidate ignored" near-miss audit
+// line. The reconcile tick runs every 20s; while a head sits behind a latched breaker (or has no
+// resolvable enforced head) that SAME reason would otherwise be appended to the event log on every
+// tick, burying the real signal under hundreds of identical rows. Keyed by repo+head+reason so each
+// distinct near-miss is recorded ONCE per session; globalThis-backed so a reload doesn't reset the
+// dedup and re-spam, and reset per process so a genuinely fresh launch logs the current state again.
+const IGNORE_LOGGED_KEY = Symbol.for("codeflare.reviewIgnoreLoggedThisSession");
+function reviewIgnoreLoggedMemory(): Set<string> {
+  const g = globalThis as unknown as Record<symbol, Set<string> | undefined>;
+  if (!g[IGNORE_LOGGED_KEY]) g[IGNORE_LOGGED_KEY] = new Set<string>();
+  return g[IGNORE_LOGGED_KEY]!;
+}
+function ignoreAlreadyLogged(repo: string, head: string, reason: string): boolean {
+  const mem = reviewIgnoreLoggedMemory();
+  const k = `${repo} ${head} ${reason}`;
+  if (mem.has(k)) return true;
+  mem.add(k);
+  return false;
 }
 
 type PrState = {
@@ -329,6 +350,11 @@ function acked(repo: string, head: string): boolean {
 // of subtle autostart bugs (a descendant-branch checkout reading a baseline advanced by a prior branch's ack).
 function writeAck(repo: string, head: string): void {
   writeFileSync(ackPath(repo), `${head}\n`, "utf8");
+  // Once a head is acked it is the only one that still matters for this branch, so drop every OTHER
+  // head's lane-result directory under .git/sdd-review-results/. Without this, each new PR HEAD on a
+  // long-lived branch leaves its result dir behind forever. writeAck is the single choke point every
+  // finalize/skip path funnels through, so pruning here keeps exactly the current head and nothing else.
+  pruneReviewResults(repo, head);
 }
 
 // The "offered" dedup that used to live here as an on-disk per-head-EVER marker now lives in the
@@ -1275,7 +1301,14 @@ export default function (pi: ExtensionAPI) {
     const validBase = reviewBase && isAncestor(repo, reviewBase, head) ? reviewBase : undefined;
     resetBlockCount(repo);
     clearBreaker(repo); // new head under review: drop any stale breaker latch from a prior head
-    pending = { repo, prNumber: pr.number, baseRefName: pr.baseRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set(), requestedAt: {}, reviewStartedAt: Date.now() };
+    // The push fail-open path (isEnforcedPrForPush) arms review even when gh returned an EMPTY
+    // baseRefName on a transient parsing hiccup. Persisting "" here would be self-defeating: loadPending
+    // rejects any row with a falsy baseRefName, so the pending review could never be re-read from disk —
+    // the reaper couldn't finalize it and the merge gate couldn't see the pending head. Fall back to a
+    // concrete label ("main", the only base this path ever fires for). The diff is anchored by the SHA
+    // reviewBase, not this label, so the substitution can't mis-scope the review even if the base was master.
+    const persistedBase = pr.baseRefName || "main";
+    pending = { repo, prNumber: pr.number, baseRefName: persistedBase, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set(), requestedAt: {}, reviewStartedAt: Date.now() };
     const initialLanes = durableReviewInitialLanes(pending.lanes);
     savePending(pending);
     updateReviewStatus(pending, ctx);
@@ -1331,9 +1364,13 @@ export default function (pi: ExtensionAPI) {
     const priorBaseline = reviewBaselineMemory().get(bkey);
     if (head && priorBaseline === undefined) reviewBaselineMemory().set(bkey, head);
     if (!decision.reconcile) {
-      // Log only genuine near-misses, not healthy outcomes (window exists / acked / not a PR).
+      // Log only genuine near-misses, not healthy outcomes (window exists / acked / not a PR), and
+      // only ONCE per (repo, head, reason) this session — otherwise the 20s reconcile tick re-appends
+      // the same latched-breaker row indefinitely and drowns the event log.
       if (decision.reason === "review breaker open for head" || decision.reason === "no resolvable enforced head") {
-        appendReviewEvent(resolvedRepo, { event: "boundary_candidate_ignored", head, reason: decision.reason });
+        if (!ignoreAlreadyLogged(resolvedRepo, head, decision.reason)) {
+          appendReviewEvent(resolvedRepo, { event: "boundary_candidate_ignored", head, reason: decision.reason });
+        }
       }
       return false;
     }
@@ -1419,6 +1456,11 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.on("session_start", (_event: any, ctx: any) => {
+    // A mid-session `/ctx on|off` reload re-runs activate() and installs a fresh runToken, but the OLD
+    // module instance's session_start listener stays registered and also fires. Only the latest-activated
+    // instance (which owns the live reaper timer + state) may act; a stale instance running reconcile or
+    // roll-forward here would double-spawn lanes. Every other handler already guards on this — match them.
+    if (!isActiveRun()) return;
     remember(ctx);
     const state = hydratePending(ctx);
     if (state && reviewHeadStatus(state) === "advanced") { void rollForwardAdvancedReview(state, ctx, "session_start detected advanced PR head"); return; }
