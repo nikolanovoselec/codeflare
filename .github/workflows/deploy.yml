@@ -119,6 +119,14 @@ jobs:
           key: webui-${{ hashFiles('web-ui/package-lock.json') }}
           restore-keys: webui-
 
+      - name: Cache landing node_modules
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        id: cache-landing
+        with:
+          path: landing/node_modules
+          key: landing-${{ hashFiles('landing/package-lock.json') }}
+          restore-keys: landing-
+
       - name: Install root dependencies
         if: steps.cache-root.outputs.cache-hit != 'true'
         run: npm ci
@@ -128,9 +136,20 @@ jobs:
         run: npm ci
         working-directory: web-ui
 
+      - name: Install landing dependencies
+        if: steps.cache-landing.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: landing
+
       - name: Build frontend
         run: npm run build
         working-directory: web-ui
+
+      # Landing builds AFTER web-ui: its output lands inside web-ui/dist/landing,
+      # which the web-ui build would otherwise wipe (REQ-LANDING-001).
+      - name: Build landing page
+        run: npm run build
+        working-directory: landing
 
       - name: Run backend tests
         # Same known @cloudflare/vitest-pool-workers teardown-crash guard as the
@@ -158,6 +177,11 @@ jobs:
       - name: Run frontend tests
         run: npm test
         working-directory: web-ui
+
+      - name: Run landing tests
+        # Keep in sync with test.yml: Container-API render + unit tests
+        run: npm test
+        working-directory: landing
 
       - name: Generate Workers runtime types
         run: npx wrangler types

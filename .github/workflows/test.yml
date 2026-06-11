@@ -59,6 +59,13 @@ jobs:
           path: host/node_modules
           key: host-${{ hashFiles('host/package-lock.json') }}
 
+      - name: Cache landing node_modules
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        id: cache-landing
+        with:
+          path: landing/node_modules
+          key: landing-${{ hashFiles('landing/package-lock.json') }}
+
       - name: Install root dependencies
         if: steps.cache-root.outputs.cache-hit != 'true'
         run: npm ci
@@ -148,6 +155,16 @@ jobs:
       - name: Run frontend tests
         run: npm test
         working-directory: web-ui
+
+      - name: Install landing dependencies
+        if: steps.cache-landing.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: landing
+
+      - name: Run landing tests
+        # Container-API render tests + pure-logic unit tests (landing/README.md)
+        run: npm test
+        working-directory: landing
 
       - name: Generate Workers runtime types
         run: npx wrangler types
