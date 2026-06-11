@@ -39,12 +39,18 @@ const waitlistRateLimiter = createRateLimiter({
   windowMs: 60_000,
   maxRequests: 5,
   keyPrefix: 'waitlist-submit',
+  // Defense-in-depth on an unauthenticated surface: if the rate-limit KV binding
+  // is absent, reject rather than wave traffic through.
+  failClosed: true,
 });
 
 const contactRateLimiter = createRateLimiter({
   windowMs: 60_000,
   maxRequests: 5,
   keyPrefix: 'contact-submit',
+  // Contact triggers an outbound email relay (Resend) — fail closed if the
+  // rate-limit KV binding is absent so a misconfig can't enable an email flood.
+  failClosed: true,
 });
 
 /**

@@ -48,12 +48,6 @@ const {
   </head>
   <body>
     <slot />
-    <script is:inline>
-      // Pre-paint flip: hidden initial animation states only ever apply
-      // under html[data-js], so no-JS visitors, crawlers, and headless
-      // renderers always see the complete page. Must run before first paint.
-      document.documentElement.dataset.js = 'true';
-    </script>
     <script>
       // Entrance wiring for the session grammar: .reveal sections and
       // [data-print] ledger lines print on first view. Content is visible

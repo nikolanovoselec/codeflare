@@ -478,7 +478,40 @@ GET `/public/onboarding-config`, POST `/public/waitlist` (rate limited; onboardi
 
 ### Public (Landing)
 
-GET `/public/contact-config`, POST `/public/contact` (rate limited; SaaS or onboarding mode — the landing page surface)
+The landing contact surface ([REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline)). Both endpoints are gated on SaaS **or** onboarding mode and return `404` in default/enterprise mode.
+
+#### GET `/public/contact-config`
+
+Exposes only the public Turnstile site key for the landing form widget.
+
+```json
+{ "turnstileSiteKey": "0x4AAA..." }
+```
+
+`turnstileSiteKey` is `null` when no site key is configured.
+
+#### POST `/public/contact`
+
+Demo-request submission: Turnstile-verified, relayed to all admin users as email (reply-to set to the submitter), and **never persisted** — the only KV writes on this path are rate-limiter bookkeeping. Rate-limited to **5 requests/minute per client IP** (`contact-submit` bucket).
+
+Request body (JSON):
+
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `name` | string | required, 1–100 chars |
+| `email` | string | required, valid email, ≤254 chars |
+| `company` | string | optional, ≤200 chars (omitted from payload when blank) |
+| `topic` | string | required, one of the shared `CONTACT_TOPICS` enum (`src/lib/contact-topics.ts`) |
+| `message` | string | required, 10–4000 chars |
+| `turnstileToken` | string | required (Turnstile widget token) |
+
+Responses:
+
+- `200` — `{ "success": true }` on accepted submission.
+- `400` — `VALIDATION_ERROR`: malformed body, a field failing the constraints above, **or** a failed Turnstile verification (`CAPTCHA verification failed`).
+- `429` — rate limit exceeded (5/min).
+- `503` — `CONTACT_NOT_CONFIGURED` / `CONTACT_NO_ADMIN_RECIPIENT`: Turnstile/Resend secrets absent or no admin recipient configured (same degradation contract as the waitlist).
+- `404` — neither SaaS nor onboarding mode is active.
 
 ### Health
 

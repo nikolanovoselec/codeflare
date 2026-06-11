@@ -66,7 +66,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 <!-- @impl: src/lib/contact-topics.ts -->
 <!-- @impl: landing/src/scripts/contact-controller.ts -->
 <!-- @test: src/__tests__/routes/public-contact.test.ts (REQ-LANDING-002 describe -> AC1 validation + AC2 mode gating + AC3 turnstile + AC4 email relay/escaping + AC5 no persistence + AC6 contact-config + waitlist-gate regression) -->
-<!-- @test: landing/src/__tests__/contact-controller.test.ts (payload building + submission outcomes) -->
+<!-- @test: landing/src/__tests__/contact-controller.test.ts (REQ-LANDING-002 describe -> client payload building + submission outcomes) -->
+<!-- @test: landing/src/__tests__/index-page.test.ts (privacy page (REQ-LANDING-002) describe -> AC5 no-storage disclosure renders) -->
 ### REQ-LANDING-002: Demo-request contact pipeline
 
 **Intent:** Enterprise prospects submit demo requests from the landing page through an abuse-protected endpoint that relays to the operators without storing personal data, keeping the landing's privacy promise ("not stored") literally true.

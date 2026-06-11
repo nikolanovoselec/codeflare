@@ -6,7 +6,8 @@
    The page is one governed terminal session: fixed window chrome on top,
    tmux-style status bar below, prompt-path labels as section grammar, and
    one bespoke artifact per section. Hidden initial animation states only
-   apply under html[data-js] so no-JS/headless renderers see everything.
+   apply under @media (scripting: enabled) so no-JS/headless renderers (and
+   any client where the strict landing CSP blocks scripts) see everything.
    ========================================================================== */
 
 @import './tokens.css';
@@ -662,9 +663,14 @@ html[data-powered='down'] .chrome-dots span {
 }
 
 /* Hidden until the player reveals it — but only when JS actually runs.
-   No-JS, crawlers, and reduced-motion always read the full transcript. */
-html[data-js] .terminal.tt-armed [data-tt]:not(.tt-visible) {
-  display: none;
+   No-JS, crawlers, and reduced-motion always read the full transcript.
+   Gated on `scripting: enabled` (a CSS media feature) rather than a pre-paint
+   `html[data-js]` flip set by an inline script — the worker's strict landing
+   CSP (no nonce/unsafe-inline) would block that inline script. */
+@media (scripting: enabled) {
+  .terminal.tt-armed [data-tt]:not(.tt-visible) {
+    display: none;
+  }
 }
 
 .terminal-body .t-cmd { color: var(--text-primary); }
@@ -720,8 +726,10 @@ html[data-js] .terminal.tt-armed [data-tt]:not(.tt-visible) {
 }
 
 /* JS collapses the satellites until the transcript commits CI-green */
-html[data-js] .fleet[data-split='false'] .fleet-satellites {
-  display: none;
+@media (scripting: enabled) {
+  .fleet[data-split='false'] .fleet-satellites {
+    display: none;
+  }
 }
 
 /* Satellite session pane */
@@ -765,8 +773,10 @@ html[data-js] .fleet[data-split='false'] .fleet-satellites {
   white-space: pre-wrap;
 }
 
-html[data-js] .fleet [data-fleet]:not(.tt-visible) {
-  visibility: hidden;
+@media (scripting: enabled) {
+  .fleet [data-fleet]:not(.tt-visible) {
+    visibility: hidden;
+  }
 }
 
 .session-pane-body .t-cmd { color: var(--text-primary); }
@@ -1626,22 +1636,27 @@ html[data-js] .fleet [data-fleet]:not(.tt-visible) {
   will-change: opacity, transform;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-
+/* Reduced-motion + scripting: revert the JS hide states so the transcript and
+   fleet read statically. Gated on `scripting: enabled` to exactly match the hide
+   gate above — only un-hide what scripting hid; no-JS users were never hidden. */
+@media (prefers-reduced-motion: reduce) and (scripting: enabled) {
   /* Terminals show their complete transcripts, statically */
-  html[data-js] .terminal.tt-armed [data-tt]:not(.tt-visible) {
+  .terminal.tt-armed [data-tt]:not(.tt-visible) {
     display: block;
   }
 
-  html[data-js] .fleet[data-split='false'] .fleet-satellites {
+  .fleet[data-split='false'] .fleet-satellites {
     display: grid;
   }
 
-  html[data-js] .fleet [data-fleet]:not(.tt-visible) {
+  .fleet [data-fleet]:not(.tt-visible) {
     visibility: visible;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
   }
 
   .tt-cursor::after,
