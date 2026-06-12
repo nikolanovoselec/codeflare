@@ -1143,12 +1143,6 @@ svg {
     transform: scaleX(1);
   }
 
-  /* Cards: keep the lift, add a faint flare edge-glow on hover. */
-  .card:hover {
-    border-color: var(--accent-line);
-    box-shadow: 0 14px 36px -18px rgb(var(--accent-rgb) / 0.3);
-  }
-
   /* The "see the deep-dive" arrow nudges forward on hover. */
   .micro-cta a::after {
     display: inline-block;
@@ -1835,7 +1829,6 @@ svg {
    panels stay near-opaque for prose AA; the showcase artifacts lean glassier and
    carry the backdrop blur. Stat tiles, flow nodes, and form inputs keep solid
    fills — their muted small labels / input text need full opaque contrast. */
-.flare-on .card,
 .flare-on .agent-chips span,
 .flare-on .contact-form {
   background: var(--glass-panel);
