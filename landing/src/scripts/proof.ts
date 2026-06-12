@@ -38,6 +38,11 @@ const visible = new WeakSet<HTMLElement>();
 function rollOnce(list: HTMLElement): void {
   const children = Array.from(list.children) as HTMLElement[];
   if (children.length < 3) return;
+  // Re-entrancy guard: one cycle spans two PHASE_MS timeouts, so skip a tick
+  // that lands mid-cycle (e.g. a burst of throttled timers after a background
+  // tab foregrounds) rather than freezing then unfreezing the height twice.
+  if (list.dataset.rolling === '1') return;
+  list.dataset.rolling = '1';
 
   const first = children[0];
   const startHeight = list.getBoundingClientRect().height;
@@ -58,6 +63,7 @@ function rollOnce(list: HTMLElement): void {
     window.setTimeout(() => {
       first.classList.remove('roll-anim');
       list.style.height = '';
+      delete list.dataset.rolling;
     }, PHASE_MS);
   }, PHASE_MS);
 }
