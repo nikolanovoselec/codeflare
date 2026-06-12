@@ -51,33 +51,34 @@ Success: the visitor says "how was this made?" — then books a demo.
 ## Brand Personality
 
 Engineered, sovereign, inevitable. The voice of a platform that already works — calm
-declarative claims backed by demonstration, never hype adjectives. The terminal is the
-brand's native medium: the page should feel like watching a fleet of agents work, not
-like reading about one. Cinematic dark; the flare gradient is energy under control.
+declarative claims backed by demonstration, never hype adjectives. Cinematic dark, calm
+and spare: a single terminal demo shows the engine working, and the rest of the page
+speaks in confident prose. The flare gradient is energy under control, used once.
 
 ## Anti-references
 
 - "AI coding assistant" landing pages: autocomplete GIFs, IDE screenshots, per-seat
   pricing tables. Codeflare is explicitly *not* a coding assistant.
-- SaaS template grammar: tracked-uppercase eyebrow over every section, identical
-  icon-card grids, big-number stat strips, gradient headline text. (The page must pass
-  the Impeccable detector and ban list.)
+- SaaS template grammar: an uppercase eyebrow over every section, identical icon-card
+  grids in every section, flashy gradient-number stat strips, full gradient headlines.
+  (A single restrained metric band and one brand-flare word are fine; templated
+  repetition and chaos are not. The page must pass the Impeccable detector and ban list.)
 - Public pricing. Enterprise contact only — like graymatter.ch/contact.
 - Kiro.dev / CodeConductor visual clichés already saturating the agentic-tools category.
 
 ## Design Principles
 
-1. **Show the engine, don't describe it.** Every pillar earns a working demonstration
-   (terminal transcripts, pipeline output, attribution ledgers) before a paragraph.
+1. **Show the engine once, then speak plainly.** A single legible terminal demo proves
+   real agentic capability up front; the rest of the page makes calm, specific claims.
 2. **One engineer, many agents.** The 10× operating model — parallel autonomous
-   sessions under one person's judgment — is the image the page must burn in.
+   sessions under one person's judgment — is the idea the page must land.
 3. **Structural trust.** Security claims are architecture ("the environment ceases to
    exist"), never policy promises. Copy and visuals show boundaries, not badges.
-4. **Motion with intent.** Choreography demonstrates product behavior (sessions
-   spawning, traffic routing, containers destructing). No decorative reflexes; full
-   prefers-reduced-motion fallbacks; content never gated behind animation.
-5. **Terminal-native typography.** Monospace display is register-justified (the product
-   IS a terminal); body type stays invisible and readable.
+4. **Motion with intent, used sparingly.** A quiet scroll-reveal and nothing more;
+   content is never gated behind animation; full prefers-reduced-motion fallback.
+5. **Sans prose, mono for proof.** All copy is set in a clean sans; monospace is
+   reserved for the single terminal demo and the code snippet, where it signals real
+   engineering. Generous whitespace; one accent, locked.
 
 ## Accessibility & Inclusion
 

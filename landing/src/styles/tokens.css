@@ -1,15 +1,11 @@
 /* ==========================================================================
-   Codeflare Landing — Design Tokens (THE control panel)
+   Codeflare Landing — Design Tokens (the single control panel)
 
-   Every design decision lives in this file: fonts, colors, gradients,
-   layout constants. global.css and the components reference tokens only —
-   change a value here and it propagates everywhere. The only non-token
-   color allowed elsewhere is pure black in shadows.
-
-   *-rgb twins exist for alpha compositing: rgb(var(--x-rgb) / 0.5).
+   One accent, locked. Sans (Inter) carries all prose; mono (JetBrains) is
+   reserved for the one terminal demo and inline code. Change a value here
+   and it propagates through global.css and every component.
    ========================================================================== */
 
-/* Fonts — to swap a font: change the package import AND the family token. */
 @import '@fontsource-variable/inter';
 @import '@fontsource-variable/jetbrains-mono';
 
@@ -17,74 +13,66 @@
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  /* Backgrounds — one step deeper than the app (zinc-950) for cinematic contrast */
-  --bg-base: #050507;
-  --bg-base-rgb: 5 5 7;
-  --bg-surface: #0d0d12;
-  --bg-elevated: #131318;
-  --bg-terminal: #0a0a0f;
+  /* Surfaces — warm near-black with clear elevation steps */
+  --bg-base: #0a0a0c;
+  --bg-base-rgb: 10 10 12;
+  --bg-surface: #101015;
+  --bg-elevated: #16161d;
+  --bg-terminal: #0c0c11;
 
-  /* Borders */
-  --border-subtle: #1f1f26;
-  --border-default: #2c2c35;
+  /* Hairlines */
+  --border-subtle: #1c1c22;
+  --border-default: #2a2a33;
+  --border-strong: #3a3a45;
 
-  /* Text — mirrors the app's zinc ramp */
-  --text-primary: #fafafa;
-  --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
-  --text-dimmed: #52525b;
+  /* Text ramp */
+  --text-primary: #f6f6f7;
+  --text-secondary: #adadb6;
+  --text-muted: #7b7b86;
+  --text-dimmed: #565660;
   --white-rgb: 255 255 255;
 
-  /* Functional accent — the product blue, kept for links and UI */
-  --accent: #3b82f6;
-  --accent-hover: #2f6fe0;
+  /* The one accent — a warm coral, locked across the whole page */
+  --accent: #ff5c3c;
+  --accent-rgb: 255 92 60;
+  --accent-hover: #ff734f;
+  --accent-soft: rgb(var(--accent-rgb) / 0.12);
+  --accent-line: rgb(var(--accent-rgb) / 0.32);
 
-  /* The flare — display headlines, key glows, highlights */
-  --flare-orange: #ff6b35;
-  --flare-orange-rgb: 255 107 53;
-  --flare-pink: #f43f7c;
-  --flare-pink-rgb: 244 63 124;
-  --flare-violet: #8b5cf6;
-  --flare-violet-rgb: 139 92 246;
-  --flare-gradient: linear-gradient(100deg, var(--flare-orange) 0%, var(--flare-pink) 48%, var(--flare-violet) 100%);
+  /* Brand flare gradient — used ONLY on the single hero accent word */
+  --flare-gradient: linear-gradient(96deg, #ff8a3d 0%, #ff5c3c 52%, #ff3f7c 100%);
 
-  /* Semantic / terminal output */
-  --term-green: #34d399;
-  --term-yellow: #fbbf24;
+  /* Terminal output tones (mono demo only) */
+  --term-green: #4ade80;
   --term-cyan: #67e8f9;
   --term-dim: #6b6b76;
-  --status-error: #f87171;
+  --term-warn: #fbbf24;
 
-  /* Terminal window chrome (macOS traffic lights) */
-  --dot-red: #ff5f57;
-  --dot-yellow: #febc2e;
-  --dot-green: #28c840;
+  /* Selection */
+  --selection-bg: rgb(var(--accent-rgb) / 0.28);
 
-  /* Derived */
-  --selection-bg: rgb(var(--flare-pink-rgb) / 0.35);
+  /* Fluid type scale (clamped, mobile-first) */
+  --fs-display: clamp(2.5rem, 1.6rem + 4.4vw, 4.5rem);
+  --fs-h2: clamp(1.75rem, 1.3rem + 2.1vw, 2.6rem);
+  --fs-h3: clamp(1.15rem, 1.05rem + 0.5vw, 1.35rem);
+  --fs-lead: clamp(1.05rem, 0.98rem + 0.4vw, 1.2rem);
+  --fs-body: 1rem;
+  --fs-small: 0.875rem;
+  --fs-mono: 0.8125rem;
+  --fs-kicker: 0.75rem;
 
-  /* Diff artifact semantic aliases */
-  --diff-add: var(--term-green);
-  --diff-del: var(--status-error);
-
-  /* Motion — easing (Emil Kowalski curves: built-in CSS easings are too weak) */
-  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
-
-  /* Motion — durations */
-  --dur-press: 120ms;
-  --dur-print: 180ms;
-  --dur-stamp: 140ms;
-  --dur-decode: 200ms;
-  --dur-split: 480ms;
-  --dur-powerdown: 800ms;
-  --caret-blink: 1.06s;
-  --type-on-char-ms: 24ms;
+  /* Spacing rhythm */
+  --section-y: clamp(4.5rem, 3rem + 7vw, 8rem);
+  --gap: clamp(1rem, 0.6rem + 1.5vw, 1.75rem);
 
   /* Layout */
   --max-width: 72rem;
+  --measure: 60ch;
   --nav-height: 4rem;
-  --chrome-h: 2.75rem;
-  --statusbar-h: 1.75rem;
-  --pane-radius: 10px;
+  --radius: 14px;
+  --radius-sm: 10px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --dur: 0.5s;
 }

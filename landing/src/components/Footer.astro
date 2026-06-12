@@ -1,16 +1,14 @@
 ---
-import { APP_LINKS } from '../config';
+import { FOOTER } from '../content/site';
+const year = new Date().getFullYear();
 ---
 
-<footer class="footer">
-  <div class="container footer-inner">
-    <span class="footer-caret"
-      >© 2026 Codeflare. Built on Cloudflare. No trackers, no analytics, no third-party requests.</span
-    >
-    <div class="footer-links">
-      <a href={APP_LINKS.signIn}>Sign in</a>
-      <a href="#contact">Contact</a>
-      <a href={APP_LINKS.privacy}>Privacy</a>
-    </div>
+<footer class="site-footer">
+  <div class="container">
+    <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span>codeflare</a>
+    <ul class="footer-links">
+      {FOOTER.links.map((link) => <li><a href={link.href}>{link.label}</a></li>)}
+    </ul>
+    <p class="footer-copy">© {year} Codeflare. {FOOTER.tagline}</p>
   </div>
 </footer>

@@ -119,7 +119,7 @@ The `containerStartedAt` fallback is critical: if a user opens a terminal but ne
 
 **Directory:** `landing/`
 
-The public enterprise marketing site ([REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving)). Builds to static HTML in `web-ui/dist/landing/` (base path `/landing`), so the existing `[assets]` binding serves it with no extra deployment. The Worker rewrites unauthenticated `GET /` to `/landing/` in SaaS and onboarding modes; default mode keeps the `/app/` redirect, and a missing landing build falls back to the SPA via `not_found_handling`. Layered internally: design tokens (`src/styles/tokens.css`) → structure CSS → typed content (`src/content/site.ts`) → markup-only components → pages; browser logic ships as two unit-tested modules (`terminal-player.ts`, `contact-controller.ts`) with thin DOM adapters. See `landing/README.md`.
+The public enterprise marketing site ([REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving)). Builds to static HTML in `web-ui/dist/landing/` (base path `/landing`), so the existing `[assets]` binding serves it with no extra deployment. The Worker rewrites unauthenticated `GET /` to `/landing/` in SaaS and onboarding modes; default mode keeps the `/app/` redirect, and a missing landing build falls back to the SPA via `not_found_handling`. Layered internally: design tokens (`src/styles/tokens.css`) → global CSS → typed content (`src/content/site.ts`) → markup components → pages. The hero terminal renders statically (no JS); the only browser logic is the unit-tested contact controller (`contact-controller.ts`) with a thin DOM adapter. See `landing/README.md`.
 
 ### Frontend (SolidJS + xterm.js)
 

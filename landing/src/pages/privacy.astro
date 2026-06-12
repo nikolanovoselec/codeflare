@@ -4,26 +4,34 @@ import Footer from '../components/Footer.astro';
 ---
 
 <BaseLayout
-  title="Privacy — Codeflare"
+  title="Privacy · Codeflare"
   description="Privacy policy for codeflare.ch: what the contact form collects, how it is processed, and what is never stored."
   canonical="https://codeflare.ch/landing/privacy/"
 >
-  <main class="prose">
+  <nav class="site-nav">
     <div class="container">
-      <a class="back-link" href="/">← codeflare.ch</a>
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span>codeflare</a>
+      <div class="nav-right">
+        <a class="btn btn-ghost btn-sm" href="/">Back to home</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <article class="prose">
       <h1>Privacy</h1>
       <p>
         This site is the public face of Codeflare. It sets no cookies, runs no analytics, and makes
-        no third-party requests — with one exception described below.
+        no third-party requests, with one exception described below.
       </p>
 
       <h2>Contact form</h2>
       <p>
         When you submit the contact form, the data you enter (name, email address, optional company
-        name, topic, and message) together with your IP address is relayed <strong>as an email</strong> to the
-        Codeflare team and used solely to respond to your inquiry. Submissions are
-        <strong>not stored</strong> by this site — no database, no log of message contents. The email itself is
-        retained like ordinary business correspondence.
+        name, topic, and message) together with your IP address is relayed <strong>as an email</strong>
+        to the Codeflare team and used solely to respond to your inquiry. Submissions are
+        <strong>not stored</strong> by this site: no database, no log of message contents. The email
+        itself is retained like ordinary business correspondence.
       </p>
 
       <h2>Cloudflare Turnstile</h2>
@@ -41,7 +49,7 @@ import Footer from '../components/Footer.astro';
 
       <h2>Contact</h2>
       <p>For any privacy question or request, use the contact form on the home page.</p>
-    </div>
+    </article>
   </main>
   <Footer />
 </BaseLayout>

@@ -31,7 +31,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 <!-- @impl: landing/src/pages/index.astro -->
 <!-- @impl: wrangler.toml -->
 <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001 its -> AC1 SaaS-unauth landing rewrite + AC2 onboarding-unauth landing rewrite + AC3 default-mode redirect) -->
-<!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-001 describe -> AC4 sections/nav/terminal/preflight/form render) -->
+<!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-001 describe -> AC4 hero/terminal/nav/stat-band/sections/FAQ/form render) -->
 ### REQ-LANDING-001: Mode-aware public landing serving
 
 **Intent:** Unauthenticated visitors to the deployment root in SaaS or onboarding mode see the enterprise marketing landing page — positioning Codeflare as the enterprise agentic coding engine — while authenticated users and default-mode deployments keep their existing app entry flow.
@@ -43,7 +43,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 1. An unauthenticated GET `/` in SaaS mode is served the prerendered landing app (the asset request is rewritten to `/landing/`).
 2. An unauthenticated GET `/` in onboarding mode is served the same landing app.
 3. In default mode, GET `/` redirects to `/app/` and the landing is never served.
-4. The landing renders the full enterprise narrative statically (no JS required): hero with terminal demo transcript and fleet panes, preflight boot assertions, all pillar sections with anchor ids matching the nav links, FAQ, and the contact form.
+4. The landing renders the full enterprise narrative statically (no JS required): a hero with a single legible terminal demo, a stat band, all content sections with anchor ids matching the nav links, FAQ, and the contact form.
 
 **Constraints:**
 

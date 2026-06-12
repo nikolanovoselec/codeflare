@@ -1,30 +1,37 @@
 ---
 /**
- * Hero: the page opens already inside the session. Preflight assertions
- * print first (the old stats, reframed as boot checks), then the prompt
- * and headline — the flare line is ANSI reverse-video (solid dark glyphs
- * on a gradient panel; the gradient never fills text), then the approved
- * sub, bracket CTAs, and the fleet terminal.
+ * Hero: positioning line, the headline, a short sub, two CTAs, and one
+ * legible static terminal showing a real Codeflare session (feature built,
+ * tested, reviewed, shipped through the pipeline, container destroyed).
  */
-import { HERO } from '../content/site';
-import FleetTerminal from './FleetTerminal.astro';
-import PreflightLedger from './PreflightLedger.astro';
+import { HERO, TERMINAL } from '../content/site';
 ---
 
 <header class="hero">
   <div class="hero-glow" aria-hidden="true"></div>
   <div class="container">
-    <PreflightLedger />
+    <p class="kicker">{HERO.kicker}</p>
     <h1>
-      <span class="hero-prompt" aria-hidden="true">❯</span>
       {HERO.headline.plain}<br />
-      <span class="flare-block">{HERO.headline.flare}</span>
+      <span class="flare">{HERO.headline.flare}</span>
     </h1>
-    <p class="hero-sub" set:html={HERO.sub} />
+    <p class="hero-sub">{HERO.sub}</p>
     <div class="hero-cta">
-      <a class="btn btn-primary" href={HERO.primaryCta.href}>[ {HERO.primaryCta.label} ]</a>
-      <a class="btn btn-ghost" href={HERO.secondaryCta.href}>[ {HERO.secondaryCta.label} ]</a>
+      <a class="btn btn-primary" href={HERO.primaryCta.href}>{HERO.primaryCta.label}</a>
+      <a class="btn btn-ghost" href={HERO.secondaryCta.href}>{HERO.secondaryCta.label}</a>
     </div>
-    <FleetTerminal />
+
+    <div class="hero-terminal reveal">
+      <div class="terminal">
+        <div class="terminal-bar">
+          <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="terminal-title">{TERMINAL.title}</span>
+        </div>
+        <div class="terminal-body">
+          {TERMINAL.lines.map((line) => <span class={`t-line t-${line.tone}`}>{line.text}</span>)}
+          <span class="t-line t-cmd"><span class="t-caret" aria-hidden="true"></span></span>
+        </div>
+      </div>
+    </div>
   </div>
 </header>

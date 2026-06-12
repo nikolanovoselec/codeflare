@@ -21,7 +21,7 @@ export interface SubmitResult {
   message: string;
 }
 
-export const SUCCESS_MESSAGE = "Thank you for reaching out. We'll get back to you within 1–2 business days.";
+export const SUCCESS_MESSAGE = "Thank you for reaching out. We'll get back to you within 1-2 business days.";
 const GENERIC_ERROR = 'Something went wrong. Please try again in a moment.';
 const NETWORK_ERROR = 'Network error. Please check your connection and try again.';
 
