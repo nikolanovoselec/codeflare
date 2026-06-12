@@ -1848,10 +1848,23 @@ export default function (pi: ExtensionAPI) {
   pi.on("turn_start", onUiRefresh);
   pi.on("turn_end", onUiRefresh);
 
-  pi.on("tool_call", onAgentStart);
-  pi.on("tool_execution_start", (event: any, ctx: any) => {
+  // Seed toolStartArgs from BOTH tool_call and tool_execution_start (keyed by tool id). The command is
+  // recovered at tool_result via withStartArgs; if ONLY tool_execution_start seeded the cache and that
+  // event is lost (reload / turn boundary / different id shape), the push command would be gone by
+  // tool_result and the PR-boundary fast-path (onToolEnd) would silently skip the push (observed: a
+  // `git push` to an open enforced PR that never created a review window). tool_call carries the same
+  // args, so capturing there too closes that hole. tool_execution_start still seeds afterward, so it
+  // keeps overriding with the final mutated input on the common path where it does fire.
+  const rememberToolStartArgs = (event: any): void => {
     const id = toolEventId(event);
     if (id) toolStartArgs.set(id, event?.args || event?.input || event?.params || event?.arguments || {});
+  };
+  pi.on("tool_call", (event: any, ctx: any) => {
+    rememberToolStartArgs(event);
+    return onAgentStart(event, ctx);
+  });
+  pi.on("tool_execution_start", (event: any, ctx: any) => {
+    rememberToolStartArgs(event);
     return onAgentStart(event, ctx);
   });
 
@@ -1898,6 +1911,18 @@ export default function (pi: ExtensionAPI) {
     }
 
     const command = commandText(event);
+    // Never-silent: a successful bash result that arrives with no recoverable command text is the
+    // command-loss path (neither tool_call nor tool_execution_start seeded args for this id). With the
+    // tool_call seeding above this is rare, but when it still happens the boundary fast-path below would
+    // skip a possible push SILENTLY. Record a diagnosable near-miss (deduped per repo) so the reconcile
+    // backstop is the only thing that has to catch it, and the miss is no longer invisible.
+    if (!command && toolName === "bash") {
+      const lostRepo = reviewRepoForCtx(ctx, undefined);
+      if (lostRepo && isSddProject(lostRepo) && !ignoreAlreadyLogged(lostRepo, "", "missing_command_text_after_success")) {
+        appendReviewEvent(lostRepo, { event: "boundary_tool_end_ignored", reason: "missing_command_text_after_success" });
+      }
+      return;
+    }
     // P2/P3 retroactive truth-layer: the pre-merge gate (onAgentStart) can be slipped by a wrapper the
     // boundary anchor doesn't cover (`bash -c '…'`, `xargs … gh pr merge`) or by `--auto` merging
     // server-side later. This is the backstop Claude relies on wholesale: after ANY gh-pr-merge-shaped
@@ -1940,8 +1965,10 @@ export default function (pi: ExtensionAPI) {
     const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
     if (!repo || !isSddProject(repo)) return;
 
-    // Use the failure-distinguishing read so a gh OUTAGE during the push isn't mistaken for "no PR" (P4).
-    const prRes = prStateResultFor(repo);
+    // Use the failure-distinguishing FRESH read (invalidates the prCache entry first) so a push that
+    // landed within the 60s prCache TTL is decided against the new head, not a stale pre-push cache —
+    // P4 failure distinction is preserved because prStateFreshResult delegates to prStateResultFor.
+    const prRes = prStateFreshResult(repo);
     const pr = prForBoundaryCommand(repo, command, prRes.pr);
     if (!isEnforcedPrForPush(pr)) {
       // P4: gh was unreadable (transient), not a confirmed absence — a real boundary command still ran.
