@@ -665,38 +665,6 @@ svg {
 }
 
 /* --------------------------------------------------------------------------
-   Point list (divided rows — pipeline)
-   -------------------------------------------------------------------------- */
-.point-list {
-  display: grid;
-}
-
-.point-item {
-  padding-block: clamp(1.1rem, 3vw, 1.5rem);
-  border-top: 1px solid var(--border-subtle);
-}
-
-.point-item:first-child {
-  padding-top: 0;
-  border-top: none;
-}
-
-.point-item:last-child {
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.point-item h3 {
-  font-size: var(--fs-h3);
-  margin-bottom: 0.35rem;
-}
-
-.point-item p {
-  font-size: 0.95rem;
-  color: var(--text-secondary);
-  max-width: var(--measure);
-}
-
-/* --------------------------------------------------------------------------
    Split layout (copy + aside artifact)
    -------------------------------------------------------------------------- */
 .split {
@@ -706,13 +674,12 @@ svg {
   align-items: center;
 }
 
-/* Grid children holding a scrollable mono block (code-block / terminal / flow /
-   review board) MUST be allowed to shrink below their content's min-content
-   width. Without min-width:0 a `white-space:pre` line forces the 1fr track wider
-   than the viewport, blowing out the page horizontally on mobile (the pipeline
+/* Grid children holding a scrollable mono block (terminal / flow / review board)
+   MUST be allowed to shrink below their content's min-content width. Without
+   min-width:0 a `white-space:pre` line forces the 1fr track wider than the
+   viewport, blowing out the page horizontally on mobile (the old pipeline mono
    snippet did exactly this). With it, overflow-x:auto scrolls the block locally. */
 .split > *,
-.point-list,
 .split-aside {
   min-width: 0;
 }
@@ -782,54 +749,6 @@ svg {
   white-space: nowrap;
   background: var(--bg-terminal);
   padding: 0 0.4rem;
-}
-
-/* --------------------------------------------------------------------------
-   Code block (static review-pipeline snippet)
-   -------------------------------------------------------------------------- */
-.code-block {
-  background: var(--bg-terminal);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
-  padding: 1.2rem 1.35rem;
-  font-family: var(--font-mono);
-  font-size: var(--fs-mono);
-  line-height: 1.9;
-  overflow-x: auto;
-}
-
-.code-block .cl {
-  display: block;
-  white-space: pre;
-  color: var(--text-secondary);
-}
-
-.code-block .cl-head {
-  color: var(--text-muted);
-}
-
-.code-block .cl-ok::before {
-  content: '✓ ';
-  color: var(--term-green);
-}
-
-.code-block .cl-ok strong {
-  color: var(--text-primary);
-}
-
-.code-block .cl-warn::before {
-  content: '! ';
-  color: var(--term-warn);
-}
-
-.code-block .cl-warn strong {
-  color: var(--text-primary);
-}
-
-/* The method section's self-healing enforcement trace sits below the pillars */
-.method-trace {
-  margin-top: clamp(2rem, 5vw, 3rem);
-  max-width: 46rem;
 }
 
 /* --------------------------------------------------------------------------
@@ -1765,7 +1684,6 @@ svg {
   background: var(--glass-elevated);
 }
 
-.flare-on .code-block,
 .flare-on .flow,
 .flare-on .hero .terminal,
 .flare-on .gate,
@@ -1774,7 +1692,6 @@ svg {
   background: var(--glass-artifact);
 }
 
-.flare-on .code-block,
 .flare-on .flow,
 .flare-on .hero .terminal,
 .flare-on .contact-form,

@@ -9,14 +9,20 @@
  * scrolls into view, which is the only thing that arms the CSS keyframes. The
  * sequence plays once, then the element is unobserved.
  *
- * Reduced motion / no IntersectionObserver: `.is-live` is added immediately and
- * the global reduced-motion rules collapse every animation to its end state, so
- * the artifact simply appears in its resolved form with no motion.
+ * Reduced motion: do nothing. The default (no `.is-live`) markup is already the
+ * resolved state, so leaving it untouched is the correct motionless result.
+ * Arming the sequence here would be wrong: the reduced-motion CSS collapses each
+ * animation's duration but not its delay or `backwards` fill, so an armed row
+ * would render invisible during its delay window and then snap in (a flash).
+ *
+ * No IntersectionObserver (old browser, not reduced): arm everything at once.
  */
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const artifacts = Array.from(document.querySelectorAll<HTMLElement>('[data-proof]'));
 
-if (reduced || !('IntersectionObserver' in window)) {
+if (reduced) {
+  // Static markup is already the resolved artifact; no motion to arm.
+} else if (!('IntersectionObserver' in window)) {
   for (const el of artifacts) el.classList.add('is-live');
 } else {
   const io = new IntersectionObserver(
