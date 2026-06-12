@@ -285,6 +285,18 @@ describe('resolveReviewRepo (review-repo resolution detached from the graphify s
     expect(resolveReviewRepo({ activeRepo: '/ws/ai-news-digest/src', processCwd: '/pi/proc' }, gitRootOf)).toBe('/ws/ai-news-digest');
   });
 
+  it('resolves the nested clone for /review-status when the session cwd is a non-repo parent workspace', () => {
+    // The /review-status nested-workspace bug: the Pi session cwd is the parentless workspace
+    // (/home/user/workspace, no .git) while the user worked in a nested clone via `cd repo && ...`.
+    // /review-status now passes exactly this shape to resolveReviewRepo, so the in-memory active
+    // repo (codeflare-pi tracks it per tool execution) resolves the nested clone instead of warning
+    // "not inside a git repository" — and it beats processCwd, which would resolve the wrong repo.
+    expect(resolveReviewRepo(
+      { sessionCwd: '/home/user/workspace', sessionReviewRepo: undefined, activeRepo: '/ws/ai-news-digest/src', processCwd: '/pi/proc' },
+      gitRootOf,
+    )).toBe('/ws/ai-news-digest');
+  });
+
   it('prefers a remembered sessionReviewRepo over the active repo', () => {
     expect(resolveReviewRepo({ sessionReviewRepo: '/ws/ai-news-digest', activeRepo: '/pi/proc' }, gitRootOf)).toBe('/ws/ai-news-digest');
   });

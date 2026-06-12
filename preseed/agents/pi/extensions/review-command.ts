@@ -11,6 +11,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { computeReviewState } from "./review-jobs";
+import { activeRepoSentinelForDisplay, recallActiveRepo, recallReviewRepo, resolveReviewRepo } from "./review-job-helpers";
 
 function shell(command: string, cwd: string): string {
   // P7: bound every shell-out (every other module passes a 5s timeout). /review-status' `gh pr view`
@@ -87,10 +88,42 @@ async function dispatchReview(pi: ExtensionAPI, args: string, ctx: ExtensionComm
 
 type PrView = { number?: number; state?: string; baseRefName?: string; headRefOid?: string };
 
-function activeRepo(startDir: string): string | undefined {
-  // Resolve from the caller's own cwd, never the shared graphify active-cwd sentinel (which flaps
-  // to whichever agent acted last under concurrent Claude+Pi). See resolveReviewRepo() rationale.
-  return findGitRoot(startDir);
+// Shared with codeflare-pi.ts (which owns the writes); read here only as the
+// guarded, display-only last resort in reviewStatusRepo (mirrors local-statusline).
+const ACTIVE_REPO_SENTINEL = "/home/user/.cache/codeflare-hooks/graphify-active-cwd";
+
+// Resolve the repo /review-status should report on. /review-status used to resolve ONLY from the
+// session cwd, so it warned "not inside a git repository" whenever the Pi session cwd was a
+// non-repo parent workspace and the user worked in a nested clone via `cd repo && ...` /
+// `git -C repo`. It now uses the SAME shared resolver the rest of the review system uses
+// (resolveReviewRepo: session cwd -> in-session review repo -> in-memory active repo -> process
+// cwd; in-memory recall only, never the flap-prone sentinel for routing). Because /review-status
+// is strictly read-only, it then falls back to the guarded on-disk sentinel for DISPLAY — the
+// identical last resort the statusline footer uses (activeRepoSentinelForDisplay, guarded so a
+// repo another agent touched elsewhere can never hijack this session's status).
+function reviewStatusRepo(ctx: ExtensionCommandContext): string | undefined {
+  const sessionCwd = ctx?.sessionManager?.getCwd?.();
+  const resolved = resolveReviewRepo(
+    {
+      sessionCwd,
+      sessionReviewRepo: recallReviewRepo(),
+      activeRepo: recallActiveRepo(),
+      processCwd: process.cwd(),
+    },
+    findGitRoot,
+  );
+  if (resolved) return resolved;
+  let sentinelContent: string | undefined;
+  try {
+    sentinelContent = readFileSync(ACTIVE_REPO_SENTINEL, "utf8");
+  } catch {
+    return undefined;
+  }
+  return activeRepoSentinelForDisplay({
+    sentinelContent,
+    sessionRoots: [sessionCwd, (ctx as { cwd?: string }).cwd],
+    hasGitDir: (path) => existsSync(join(path, ".git")),
+  });
 }
 
 function prView(repo: string): PrView | undefined {
@@ -161,9 +194,9 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("review-status", {
     description: "Show PR-boundary review enforcement state for the current repo",
     handler: (_args, ctx) => {
-      // P7: resolve from the Pi SESSION cwd, not pi's process.cwd() — consistent with every other
-      // handler. process.cwd() reports the wrong repo once the session has cd'ed elsewhere.
-      const repo = activeRepo(ctx?.sessionManager?.getCwd?.() ?? process.cwd());
+      // Resolve through the shared review resolver (+ guarded display sentinel) so a nested-clone
+      // session whose cwd is a non-repo parent workspace still reports the right repo.
+      const repo = reviewStatusRepo(ctx);
       if (!repo) {
         ctx.ui.notify("/review-status: not inside a git repository.", "warning");
         return;
