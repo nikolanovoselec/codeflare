@@ -47,13 +47,17 @@ const {
     <meta name="twitter:image:alt" content="Codeflare: the enterprise agentic coding engine." />
   </head>
   <body>
+    <!-- Page-wide flare-fluid signature: the WebGL canvas is injected here and a
+         readability veil sits above it, behind all content (desktop + fine
+         pointer only; splash.ts adds html.flare-on once it mounts). -->
+    <div class="flare-field" data-flare-fluid aria-hidden="true"></div>
     <slot />
     <script>
       // Hero accent-word scramble (perpetual four-phase idle loop; reduced-motion safe).
       import '../scripts/scramble';
     </script>
     <script>
-      // Hero flare-fluid signature (WebGL; desktop pointers only, reduced-motion safe).
+      // Page-wide flare-fluid signature (WebGL; desktop pointers only, reduced-motion safe).
       import '../scripts/splash';
     </script>
     <script>
@@ -102,27 +106,31 @@ const {
         }
       }
 
-      // Depth seam on the sticky nav once scrolled past the hero top (a colour /
-      // shadow change only, no movement, so it is fine under reduced motion).
+      // Two scroll-linked, movement-free state toggles (safe under reduced motion):
+      //  - the sticky nav gains a depth seam once scrolled past the hero top;
+      //  - the page-wide flare veil deepens once the hero scrolls away, so the
+      //    fluid stays vivid behind the hero and recedes to a calm, legible wash
+      //    behind the text-dense sections below.
       const nav = document.querySelector('.site-nav');
-      if (nav) {
-        let ticking = false;
-        const syncNav = () => {
-          nav.classList.toggle('is-scrolled', window.scrollY > 12);
-          ticking = false;
-        };
-        window.addEventListener(
-          'scroll',
-          () => {
-            if (!ticking) {
-              ticking = true;
-              requestAnimationFrame(syncNav);
-            }
-          },
-          { passive: true }
-        );
-        syncNav();
-      }
+      const root = document.documentElement;
+      let ticking = false;
+      const syncScroll = () => {
+        const y = window.scrollY;
+        if (nav) nav.classList.toggle('is-scrolled', y > 12);
+        root.classList.toggle('flare-scrolled', y > window.innerHeight * 0.7);
+        ticking = false;
+      };
+      window.addEventListener(
+        'scroll',
+        () => {
+          if (!ticking) {
+            ticking = true;
+            requestAnimationFrame(syncScroll);
+          }
+        },
+        { passive: true }
+      );
+      syncScroll();
     </script>
   </body>
 </html>

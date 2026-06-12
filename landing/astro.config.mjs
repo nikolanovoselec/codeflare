@@ -12,4 +12,16 @@ export default defineConfig({
   build: {
     assets: '_astro',
   },
+  // The Worker serves landing documents under a strict CSP with no
+  // 'unsafe-inline' and no script/style nonces (src/index.ts). Astro otherwise
+  // inlines any bundled script (and small font/asset) below ~4 KB straight into
+  // the HTML, which that CSP then refuses to execute — silently killing the
+  // hero scramble and the contact controller, and blocking the inlined font.
+  // assetsInlineLimit: 0 forces every script, font, and asset out to an
+  // external /landing/_astro/* file served from 'self', which the CSP allows.
+  vite: {
+    build: {
+      assetsInlineLimit: 0,
+    },
+  },
 });

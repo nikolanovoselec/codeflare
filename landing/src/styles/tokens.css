@@ -18,8 +18,20 @@
   --bg-base-rgb: 10 10 12;
   --bg-surface: #101015;
   --bg-elevated: #16161d;
+  --bg-elevated-rgb: 22 22 29;
+  --bg-surface-rgb: 16 16 21;
   --bg-terminal: #0c0c11;
   --bg-terminal-rgb: 12 12 17;
+
+  /* Glass surfaces — translucent panels that float over the page-wide flare
+     fluid (desktop only; activated by html.flare-on). Dense-text panels stay
+     near-opaque so prose keeps AA contrast and the fluid only whispers through;
+     the showcase artifacts (terminal, code, diagram, form) lean glassier and
+     carry the backdrop blur that makes the frosted look intentional. */
+  --glass-panel: rgb(var(--bg-surface-rgb) / 0.86);
+  --glass-elevated: rgb(var(--bg-elevated-rgb) / 0.86);
+  --glass-artifact: rgb(var(--bg-terminal-rgb) / 0.8);
+  --glass-blur: blur(12px) saturate(120%);
 
   /* Hairlines */
   --border-subtle: #1c1c22;

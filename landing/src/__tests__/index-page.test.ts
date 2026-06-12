@@ -51,7 +51,8 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(html).toContain(`href="${HERO.secondaryCta.href}"`);
     // The flare word carries the scramble hook (the effect itself is client-only).
     expect(html).toContain('data-scramble');
-    // The hero hosts the flare-fluid mount point (the canvas is injected client-side).
+    // The page hosts the flare-fluid mount point (a fixed full-page layer; the
+    // canvas is injected client-side on desktop).
     expect(html).toContain('data-flare-fluid');
   });
 

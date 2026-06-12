@@ -1,13 +1,16 @@
 /**
- * Hero flare-fluid signature: a cursor-reactive WebGL fluid simulation pinned to
- * the Codeflare flare palette, mounted behind the hero only (the page's single
- * "drenched" moment per the brand register; the rest of the page stays calm and
- * legible). It is paused whenever the hero scrolls out of view or the tab is
- * hidden, so it never burns the GPU off-screen.
+ * Page-wide flare-fluid signature: a cursor-reactive WebGL fluid simulation
+ * pinned to the Codeflare flare palette, mounted in a fixed full-viewport layer
+ * behind every section. It reacts to the cursor anywhere on the page (the
+ * pointer listeners are bound to window) and behaves like a fixed background.
+ * It is vivid behind the hero and recedes to a calm, legible wash behind the
+ * text-dense sections below (a scroll-linked veil plus near-opaque glass panels;
+ * see global.css). Paused while the tab is hidden so it never burns the GPU.
  *
  * Gated to desktop pointers and disabled under prefers-reduced-motion. Pure
  * progressive enhancement: with no JS, on touch devices, or under reduced
- * motion, no canvas is created and the hero renders from its static markup.
+ * motion, no canvas is created, html.flare-on is never set, and the page renders
+ * from its static markup with solid (non-glass) panels.
  */
 import { createSplashSimulation, type SplashConfig } from '../lib/splash-cursor-logic';
 
@@ -28,11 +31,6 @@ const FLARE_CONFIG: SplashConfig = {
   BACK_COLOR: { r: 0.039, g: 0.039, b: 0.047 },
   TRANSPARENT: true,
 };
-
-function isHeroVisible(el: HTMLElement): boolean {
-  const r = el.getBoundingClientRect();
-  return r.bottom > 0 && r.top < window.innerHeight;
-}
 
 function initFlareFluid(): void {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -56,24 +54,15 @@ function initFlareFluid(): void {
   }
   sim.start();
 
-  // The fluid only lives in the hero: pause it once the hero leaves the viewport.
-  if ('IntersectionObserver' in window) {
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) sim.resume();
-          else sim.pause();
-        }
-      },
-      { threshold: 0 },
-    );
-    io.observe(host);
-  }
+  // Switch the page onto its glass surfaces only now that the fluid is actually
+  // live: the veil and the translucent panels key off html.flare-on, so a
+  // no-WebGL / reduced-motion / touch visitor keeps the solid default styles.
+  document.documentElement.classList.add('flare-on');
 
   // Pause on a hidden tab so a backgrounded page does no GPU work.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) sim.pause();
-    else if (isHeroVisible(host)) sim.resume();
+    else sim.resume();
   });
 }
 

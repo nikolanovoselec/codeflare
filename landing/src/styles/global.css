@@ -288,34 +288,6 @@ svg {
   z-index: 0;
 }
 
-/* Flare-fluid signature host: a WebGL canvas is injected here on desktop. Masked
-   so the fluid dissolves into the section below — it is a hero-only moment. */
-.hero-fluid {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  -webkit-mask-image: linear-gradient(to bottom, #000 52%, transparent 90%);
-  mask-image: linear-gradient(to bottom, #000 52%, transparent 90%);
-}
-
-.flare-fluid-canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-/* Readability scrim, applied ONLY when the fluid canvas is actually present
-   (desktop + motion): darkens the upper-left prose zone so text stays >=4.5:1
-   over the live fluid, while it reads vivid in the open areas. */
-.hero-fluid:has(.flare-fluid-canvas)::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(130% 95% at 22% 26%, rgb(10 10 12 / 0.62), transparent 58%);
-  pointer-events: none;
-}
-
 .hero .container {
   position: relative;
   z-index: 1;
@@ -364,15 +336,6 @@ svg {
 
 .hero-terminal {
   margin-top: clamp(2.75rem, 6vw, 4.25rem);
-}
-
-/* The one deliberate glass panel: the hero terminal floats over the fluid as a
-   "session window", letting the flare animate faintly beneath it. Glass is used
-   here and nowhere else (rare and purposeful, never a page-wide default). */
-.hero .terminal {
-  background: rgb(var(--bg-terminal-rgb) / 0.72);
-  backdrop-filter: blur(18px) saturate(125%);
-  -webkit-backdrop-filter: blur(18px) saturate(125%);
 }
 
 /* --------------------------------------------------------------------------
@@ -1267,6 +1230,98 @@ svg {
 }
 
 /* --------------------------------------------------------------------------
+   Page-wide flare-fluid field + glass surfaces
+
+   A fixed full-viewport WebGL canvas (injected by splash.ts into .flare-field)
+   sits behind every section as a cursor-reactive background, with a readability
+   veil above it. All of this activates only once the fluid is actually live:
+   splash.ts sets html.flare-on, so touch / no-WebGL / reduced-motion visitors
+   keep the solid default surfaces and never see a darkened, empty field.
+   -------------------------------------------------------------------------- */
+.flare-field {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.flare-fluid-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Readability veil over the fluid: light over the hero (the drenched moment),
+   deepening to a near-solid wash once the hero scrolls away, so the text-dense
+   sections below stay legible while the hero stays vivid. */
+.flare-on .flare-field::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgb(var(--bg-base-rgb) / 0.62);
+  opacity: 0.34;
+  transition: opacity 0.55s var(--ease-out);
+}
+
+.flare-on.flare-scrolled .flare-field::after {
+  opacity: 1;
+}
+
+/* Lift the content above the fixed field (the sticky nav already sits higher). */
+.flare-on main,
+.flare-on .site-footer {
+  position: relative;
+  z-index: 1;
+}
+
+/* Local scrim behind the hero headline: the veil is light over the hero, so the
+   prose zone gets its own darkening to hold >=4.5:1 over the live fluid, while
+   the fluid stays vivid toward the open lower-right. */
+.flare-on .hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(125% 92% at 26% 34%, rgb(var(--bg-base-rgb) / 0.74), transparent 62%);
+  pointer-events: none;
+}
+
+/* Sections turn transparent so the single fluid field shows continuously; the
+   alt band keeps only its hairlines for rhythm (no opaque fill to block it). */
+.flare-on .section--alt {
+  background: transparent;
+}
+
+/* Content panels become translucent "glass" floating on the fluid. Dense-text
+   panels stay near-opaque for prose AA; the showcase artifacts lean glassier and
+   carry the backdrop blur. Stat tiles, flow nodes, and form inputs keep solid
+   fills — their muted small labels / input text need full opaque contrast. */
+.flare-on .card,
+.flare-on .compare-col.is-old,
+.flare-on .agent-chips span,
+.flare-on .contact-form {
+  background: var(--glass-panel);
+}
+
+.flare-on .compare-col.is-new {
+  background: var(--glass-elevated);
+}
+
+.flare-on .code-block,
+.flare-on .flow,
+.flare-on .hero .terminal {
+  background: var(--glass-artifact);
+}
+
+.flare-on .code-block,
+.flare-on .flow,
+.flare-on .hero .terminal,
+.flare-on .contact-form {
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+/* --------------------------------------------------------------------------
    Reduced motion
    -------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
@@ -1285,8 +1340,9 @@ svg {
     opacity: 0.6;
   }
   /* The flare fluid is motion: never render it under reduced-motion (the script
-     also skips creating the canvas; this is belt-and-suspenders). */
-  .hero-fluid {
+     also skips creating the canvas and never sets html.flare-on; this is
+     belt-and-suspenders). */
+  .flare-field {
     display: none;
   }
 }

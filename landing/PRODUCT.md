@@ -59,8 +59,8 @@ Engineered, sovereign, inevitable. The voice of a platform that already works �
 declarative claims backed by demonstration, never hype adjectives. Cinematic dark, calm
 and spare: a single terminal demo shows the engine working, and the rest of the page
 speaks in confident prose. The flare is energy under control: a cursor-reactive fluid
-drenches the hero and a single gradient accent word carries the name, then the page
-settles into calm prose.
+runs page-wide — drenching the hero, then veiled to a calm wash beneath the prose
+below — and a single gradient accent word carries the name.
 
 ## Anti-references
 
@@ -83,7 +83,8 @@ settles into calm prose.
    exist"), never policy promises. Copy and visuals show boundaries, not badges.
 4. **Motion with intent.** A quiet scroll-reveal, the perpetual scramble on the single
    hero accent word (the Codeflare ScrambleText effect), and a cursor-reactive flare-fluid
-   drenching the hero (the one bold moment; desktop only, dissolved into the page below).
+   running page-wide behind the content (vivid in the hero, veiled to a calm, legible wash
+   below; desktop only, with content panels floating over it as translucent glass).
    A few restrained micro-interactions add life and nothing more: staggered grid reveals,
    a primary-CTA hover lift, nav-link underlines, a card edge-glow, and a depth seam on the
    nav once scrolled. All fast, GPU-friendly, hover gated to fine pointers. Content is never
@@ -96,6 +97,6 @@ settles into calm prose.
 
 - WCAG 2.1 AA: body text ≥4.5:1 against backgrounds, large text ≥3:1.
 - `prefers-reduced-motion: reduce` honored everywhere: static transcript, the hero accent
-  word stays static (no scramble), the hero flare-fluid is off, no parallax, crossfades only.
+  word stays static (no scramble), the flare-fluid is off (solid surfaces), no parallax, crossfades only.
 - All content readable with JavaScript disabled (transcripts render statically).
 - Keyboard-navigable nav and FAQ; visible focus states; mobile-first responsive.
