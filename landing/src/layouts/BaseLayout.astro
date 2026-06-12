@@ -53,6 +53,10 @@ const {
       import '../scripts/scramble';
     </script>
     <script>
+      // Hero flare-fluid signature (WebGL; desktop pointers only, reduced-motion safe).
+      import '../scripts/splash';
+    </script>
+    <script>
       // Entrance wiring: .reveal elements fade up on first view. Content is
       // visible by default; JS applies the hidden state and immediately
       // animates, never a CSS opacity:0 default (no-JS and reduced-motion
@@ -76,6 +80,48 @@ const {
             { margin: '-60px' }
           );
         }
+
+        // Grids cascade their children in (a short stagger) instead of fading as
+        // one block. Children are hidden synchronously on enter, then animated.
+        for (const grid of document.querySelectorAll<HTMLElement>('[data-stagger]')) {
+          const items = Array.from(grid.children) as HTMLElement[];
+          inView(
+            grid,
+            () => {
+              for (const item of items) item.style.opacity = '0';
+              items.forEach((item, i) => {
+                animate(
+                  item,
+                  { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] },
+                  { duration: 0.4, ease: EASE_OUT_STRONG, delay: i * 0.06 }
+                );
+              });
+            },
+            { margin: '-60px' }
+          );
+        }
+      }
+
+      // Depth seam on the sticky nav once scrolled past the hero top (a colour /
+      // shadow change only, no movement, so it is fine under reduced motion).
+      const nav = document.querySelector('.site-nav');
+      if (nav) {
+        let ticking = false;
+        const syncNav = () => {
+          nav.classList.toggle('is-scrolled', window.scrollY > 12);
+          ticking = false;
+        };
+        window.addEventListener(
+          'scroll',
+          () => {
+            if (!ticking) {
+              ticking = true;
+              requestAnimationFrame(syncNav);
+            }
+          },
+          { passive: true }
+        );
+        syncNav();
       }
     </script>
   </body>

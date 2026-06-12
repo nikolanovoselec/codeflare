@@ -58,7 +58,9 @@ Success: the visitor says "how was this made?" — then books a demo.
 Engineered, sovereign, inevitable. The voice of a platform that already works — calm
 declarative claims backed by demonstration, never hype adjectives. Cinematic dark, calm
 and spare: a single terminal demo shows the engine working, and the rest of the page
-speaks in confident prose. The flare gradient is energy under control, used once.
+speaks in confident prose. The flare is energy under control: a cursor-reactive fluid
+drenches the hero and a single gradient accent word carries the name, then the page
+settles into calm prose.
 
 ## Anti-references
 
@@ -79,10 +81,13 @@ speaks in confident prose. The flare gradient is energy under control, used once
    sessions under one person's judgment — is the idea the page must land.
 3. **Structural trust.** Security claims are architecture ("the environment ceases to
    exist"), never policy promises. Copy and visuals show boundaries, not badges.
-4. **Motion with intent, used sparingly.** A quiet scroll-reveal plus one perpetual
-   scramble on the single hero accent word (the Codeflare ScrambleText effect); nothing
-   else moves. Content is never gated behind animation; full prefers-reduced-motion
-   fallback stops both.
+4. **Motion with intent.** A quiet scroll-reveal, the perpetual scramble on the single
+   hero accent word (the Codeflare ScrambleText effect), and a cursor-reactive flare-fluid
+   drenching the hero (the one bold moment; desktop only, dissolved into the page below).
+   A few restrained micro-interactions add life and nothing more: staggered grid reveals,
+   a primary-CTA hover lift, nav-link underlines, a card edge-glow, and a depth seam on the
+   nav once scrolled. All fast, GPU-friendly, hover gated to fine pointers. Content is never
+   gated behind animation; the full prefers-reduced-motion fallback stops all movement.
 5. **Sans prose, mono for proof.** All copy is set in a clean sans; monospace is
    reserved for the single terminal demo and the code snippet, where it signals real
    engineering. Generous whitespace; one accent, locked.
@@ -91,6 +96,6 @@ speaks in confident prose. The flare gradient is energy under control, used once
 
 - WCAG 2.1 AA: body text ≥4.5:1 against backgrounds, large text ≥3:1.
 - `prefers-reduced-motion: reduce` honored everywhere: static transcript, the hero accent
-  word stays static (no scramble), no parallax, crossfades only.
+  word stays static (no scramble), the hero flare-fluid is off, no parallax, crossfades only.
 - All content readable with JavaScript disabled (transcripts render statically).
 - Keyboard-navigable nav and FAQ; visible focus states; mobile-first responsive.

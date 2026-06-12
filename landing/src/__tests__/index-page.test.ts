@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
 import IndexPage from '../pages/index.astro';
 import PrivacyPage from '../pages/privacy.astro';
+import { APP_LINKS } from '../config';
 import {
   AGENTS,
   BROWSER,
@@ -50,6 +51,13 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(html).toContain(`href="${HERO.secondaryCta.href}"`);
     // The flare word carries the scramble hook (the effect itself is client-only).
     expect(html).toContain('data-scramble');
+    // The hero hosts the flare-fluid mount point (the canvas is injected client-side).
+    expect(html).toContain('data-flare-fluid');
+  });
+
+  it('exposes a launch path into the app (Sign in -> /app/)', () => {
+    expect(html).toContain(`href="${APP_LINKS.signIn}"`);
+    expect(html).toContain('Sign in');
   });
 
   it('renders the one terminal demo statically (legible with no JS)', () => {

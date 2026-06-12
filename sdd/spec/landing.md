@@ -51,7 +51,8 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 - If the landing build is absent from assets, SPA `not_found_handling` falls back to the legacy in-SPA pages (LoginPage / OnboardingLanding) — deploys without the landing build degrade gracefully, never 404.
 - `/landing/*` is listed in `run_worker_first` so landing documents carry the same security headers as `/`.
 - The landing build outputs to `web-ui/dist/landing/` and must build after web-ui (which wipes `dist/`).
-- Client JS is enhancement-only: the hero accent word's scramble effect and the scroll-reveal fades are gated on `prefers-reduced-motion` and absent without JS; the full narrative still renders statically.
+- Client JS is enhancement-only: the hero accent-word scramble, the hero flare-fluid signature (a WebGL fluid simulation, desktop/fine-pointer only, paused off-screen), and the scroll-reveal fades are all gated on `prefers-reduced-motion` and absent without JS; the full narrative still renders statically. The fluid is hero-only and never sits under dense prose.
+- The nav and footer expose a Sign in action linking to the app entry (`/app/`, the `APP_LINKS.signIn` constant); the existing auth wall handles unauthenticated visitors, so no new authentication behavior is introduced.
 
 **Priority:** P1
 
