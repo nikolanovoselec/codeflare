@@ -1188,6 +1188,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(announcementReconcileDecision({ ...base, status: 'pending', nonceFound: false })).toBe('keep');
   });
 
+  it('REQ-AGENT-062: announcementReconcileDecision age backstop escalates a never-attempted (idle-deferred) summary so /review-results stays reachable', () => {
+    const base = { attempts: 0, now: 700_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false, maxAgeMs: 600_000 };
+    // pending forever (idle-gated send never fired → 0 attempts), older than maxAgeMs → failed (age backstop)
+    expect(announcementReconcileDecision({ ...base, status: 'pending', createdAt: 0 })).toBe('failed');
+    // same record still within maxAgeMs → keep (don't penalise a normal in-flight wait for the next idle tick)
+    expect(announcementReconcileDecision({ ...base, status: 'pending', createdAt: 200_000 })).toBe('keep');
+    // proof of delivery still wins over age (nonce found on the very tick it would have aged out)
+    expect(announcementReconcileDecision({ ...base, status: 'pending', createdAt: 0, nonceFound: true })).toBe('visible');
+    // no maxAgeMs/createdAt supplied → age branch inert, behaves exactly as before
+    expect(announcementReconcileDecision({ status: 'pending', attempts: 0, now: 700_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false })).toBe('keep');
+  });
+
   it('REQ-AGENT-062: the autofix request carries the delivery nonce only when supplied (so the SM can verify it landed)', () => {
     const withNonce = reviewAutofixRequest('/repo', 'deadbeef', 'cf-review-autofix:deadbeef:9');
     expect(withNonce.message.content).toContain('cf-review-autofix:deadbeef:9');

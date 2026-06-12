@@ -1264,6 +1264,11 @@ export default function (pi: ExtensionAPI) {
   // Pure decisions live in review-job-helpers.ts; durable records in review-jobs.ts. ---
   const ANNOUNCE_MAX_ATTEMPTS = 3;
   const ANNOUNCE_RETRY_MS = 30_000;
+  // Age backstop for the idle-gated summary: it defers (no attempt burned) while the agent streams, so
+  // a record that never observes an idle tick would otherwise retry forever without ever escalating.
+  // Generous enough that no normal turn-to-idle gap trips it (idle ticks deliver in seconds), but it
+  // bounds the pathological case so the /review-results fallback stays reachable (REQ-AGENT-062 AC3/AC6).
+  const ANNOUNCE_MAX_AGE_MS = 600_000;
 
   function completedStateFromDurableJob(repo: string, head: string): PendingReview | undefined {
     const job = readDurableReviewJob(repo, head);
@@ -1312,7 +1317,11 @@ export default function (pi: ExtensionAPI) {
         // (agent-readable mid-reasoning, the REQ-AGENT-058 AC7 hazard); when streaming we stay pending and
         // the next idle tick (agent_end / turn_end / session_start) delivers it.
         let idle = true;
-        try { idle = pi.isIdle ? pi.isIdle() : true; } catch { idle = false; }
+        // A THROW (runtime tearing down → assertActive) is reported as a failed attempt, NOT a silent
+        // defer: it burns an attempt so a persistently-throwing isIdle still escalates to /review-results
+        // rather than stranding the summary forever. A clean `false` (genuinely streaming) defers without
+        // burning an attempt — the age backstop, not the attempt cap, escalates that case.
+        try { idle = pi.isIdle ? pi.isIdle() : true; } catch { return { sent: false, error: "isIdle threw — runtime inactive" }; }
         if (!idle) return { sent: false };
         const content = summaryDeliveryContent(state, record.nonce);
         pi.sendMessage({ customType: "codeflare-review-summary-v3", content, display: true, details: { repo: state.repo, head: state.head, nonce: record.nonce, summary: content } });
@@ -1364,7 +1373,7 @@ export default function (pi: ExtensionAPI) {
       const record = readReviewAnnouncement(repo, head, kind);
       if (!record || record.status === "visible" || record.status === "failed") continue;
       const nonceFound = sessionContainsNonce(ctx, record.nonce);
-      const verdict = announcementReconcileDecision({ status: record.status, attempts: record.attempts, lastAttemptAt: record.lastAttemptAt, nonceFound, now, maxAttempts: ANNOUNCE_MAX_ATTEMPTS, retryDelayMs: ANNOUNCE_RETRY_MS });
+      const verdict = announcementReconcileDecision({ status: record.status, attempts: record.attempts, lastAttemptAt: record.lastAttemptAt, nonceFound, now, maxAttempts: ANNOUNCE_MAX_ATTEMPTS, retryDelayMs: ANNOUNCE_RETRY_MS, createdAt: record.createdAt, maxAgeMs: ANNOUNCE_MAX_AGE_MS });
       if (verdict === "visible") {
         writeReviewAnnouncement({ ...record, status: "visible", deliveredAt: now });
         appendReviewEvent(repo, { event: `${kind}_announcement_visible`, head, nonce: record.nonce });

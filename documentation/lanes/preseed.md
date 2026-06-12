@@ -450,13 +450,18 @@ All preseed content is deployed via the manifest pipeline:
   fallback if automatic delivery never lands. The summary itself is sent with a plain
   `pi.sendMessage` (no `triggerTurn`/`deliverAs`) — the same synchronous append path
   `/review-results` uses, which persists the nonce-bearing content AND displays it in one
-  step — gated on `pi.isIdle()` so it never steers into a streaming turn; when the agent is
-  mid-turn the summary waits for the next idle tick (`agent_end` / `turn_end` /
-  `session_start`). That makes the nonce-verify/retry phase a backstop rather than the
-  primary delivery path: the earlier `triggerTurn`/`followUp` send routed through agent-core
-  queues whose custom-message persistence depended on a live loop, so off-turn or post-reload
-  it no-op'd and the summary never surfaced. The autofix request still uses
-  `triggerTurn`/`followUp` because it intentionally triggers a fix/commit/push turn. Implements
+  step — gated on `pi.isIdle()` so it is never taken during a streaming turn: mid-stream the
+  plain send would steer the summary into the running turn, where the agent reads it
+  mid-reasoning (the agent-readable-message hazard REQ-AGENT-058 AC7 guards against for the
+  missed-boundary offer). When the agent is mid-turn `sendAnnouncement` returns
+  `{ sent: false }` and the per-tick drain loop re-attempts on the next idle lifecycle event
+  (`agent_end` / `turn_end` / `session_start`); a summary still undelivered past a maximum age
+  escalates to the `/review-results` fallback so it can never strand silently. That makes the
+  nonce-verify/retry phase a backstop rather than the primary delivery path: the earlier
+  `triggerTurn`/`followUp` send routed through agent-core queues whose custom-message
+  persistence depended on a live loop, so off-turn or post-reload it no-op'd and the summary
+  never surfaced. The autofix request still uses `triggerTurn`/`followUp` because it
+  intentionally triggers a fix/commit/push turn. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery).
 
   Partial lane results, including any missing, failed, timed-out, or still-running
