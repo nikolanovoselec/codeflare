@@ -666,7 +666,7 @@ predicates) and the pipe-alternated MCP matcher
 This keeps attribution blocking and push detection effective whether
 context-mode is active or not. Implements
 [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC3,
-[REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1+AC2,
+[REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1+AC2+AC8,
 and [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1+AC2+AC4-AC7.
 Hooks registered in settings.json, scripts delivered via plugin.
 
@@ -811,6 +811,8 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 ### Resetting Review-Spawn Checkpoints
 
 The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn `git push` / `gh pr create` / protected-base `gh pr edit` reminder path. Pi native enforcement covers the wider local command set (`git push`, `git -C <repo> push`, command-local `cd <repo>` prefixes separated by `&&`, semicolon, or newline, `gh pr create`, protected-base `gh pr edit`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`) and ignores metadata-only PR commands. Passive lifecycle events such as opening a repo, switching branches, reloading Pi, or ending a normal assistant turn do not create a review window solely because the current branch already has an open protected-base PR. All surfaces enforce only when the open PR targets `main` or `master`. PRs into intermediate branches (`develop`, `staging`) are silently deferred until that branch's own PR-to-`main` opens.
+
+On Pi's boundary fast path, the push command's start-args are captured on BOTH the `tool_call` and `tool_execution_start` events (keyed by the same tool id), so a boundary push is still recovered at `tool_result` when `tool_execution_start` is lost across a Pi reload or turn boundary. This closes a prior silent miss: when only `tool_execution_start` seeded the cache and that event dropped, the command arrived empty, was not recognised as a boundary, and `onToolEnd` returned without creating a review window or recording anything. If a successful `bash` result still arrives with no recoverable command, Pi now writes a deduped `boundary_tool_end_ignored: missing_command_text_after_success` row to the repo's review-event log (`.git/codeflare-review-events.jsonl`) instead of returning silently, so the reconcile backstop remains the catch-all but the miss is diagnosable rather than invisible. Implements [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC8.
 
 The Claude hook and Pi native enforcement both track the most recently acknowledged PR HEAD SHA in `.git/sdd-last-ack-pr-head`. Claude advances that checkpoint only after every required lane has a current-head Agent spawn with a `completed</status>` marker. A recent in-flight Claude lane suppresses re-summon noise only; it does not satisfy final acknowledgement.
 
