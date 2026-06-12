@@ -120,16 +120,16 @@ const {
         root.classList.toggle('flare-scrolled', y > window.innerHeight * 0.7);
         ticking = false;
       };
-      window.addEventListener(
-        'scroll',
-        () => {
-          if (!ticking) {
-            ticking = true;
-            requestAnimationFrame(syncScroll);
-          }
-        },
-        { passive: true }
-      );
+      const requestSync = () => {
+        if (!ticking) {
+          ticking = true;
+          requestAnimationFrame(syncScroll);
+        }
+      };
+      // Resize is included so the innerHeight-relative veil threshold is
+      // recomputed on viewport / orientation change, not only on the next scroll.
+      window.addEventListener('scroll', requestSync, { passive: true });
+      window.addEventListener('resize', requestSync, { passive: true });
       syncScroll();
     </script>
   </body>

@@ -28,9 +28,9 @@
      near-opaque so prose keeps AA contrast and the fluid only whispers through;
      the showcase artifacts (terminal, code, diagram, form) lean glassier and
      carry the backdrop blur that makes the frosted look intentional. */
-  --glass-panel: rgb(var(--bg-surface-rgb) / 0.86);
-  --glass-elevated: rgb(var(--bg-elevated-rgb) / 0.86);
-  --glass-artifact: rgb(var(--bg-terminal-rgb) / 0.8);
+  --glass-panel: rgb(var(--bg-surface-rgb) / 0.92);
+  --glass-elevated: rgb(var(--bg-elevated-rgb) / 0.92);
+  --glass-artifact: rgb(var(--bg-terminal-rgb) / 0.9);
   --glass-blur: blur(12px) saturate(120%);
 
   /* Hairlines */

@@ -1258,8 +1258,8 @@ svg {
   content: '';
   position: absolute;
   inset: 0;
-  background: rgb(var(--bg-base-rgb) / 0.62);
-  opacity: 0.34;
+  background: rgb(var(--bg-base-rgb) / 0.66);
+  opacity: 0.4;
   transition: opacity 0.55s var(--ease-out);
 }
 
@@ -1282,7 +1282,12 @@ svg {
   position: absolute;
   inset: 0;
   z-index: 0;
-  background: radial-gradient(125% 92% at 26% 34%, rgb(var(--bg-base-rgb) / 0.74), transparent 62%);
+  background: radial-gradient(
+    135% 100% at 24% 32%,
+    rgb(var(--bg-base-rgb) / 0.82),
+    rgb(var(--bg-base-rgb) / 0.45) 50%,
+    transparent 72%
+  );
   pointer-events: none;
 }
 

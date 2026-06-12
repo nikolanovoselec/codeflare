@@ -14,7 +14,7 @@ Strict separation of concerns; each layer changes independently:
 | Global styles | `src/styles/global.css` | Layout and component styles; resolves through tokens. Mobile-first. |
 | Content | `src/content/site.ts` | All copy, typed. Components never carry their own text. |
 | Integration config | `src/config.ts` | Every Worker endpoint / app link the page touches. |
-| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; `scramble.ts` (hero accent-word effect); and `splash.ts` + the `splash-*` / `webgl-utils` fluid set (the page-wide flare-fluid; sets `html.flare-on` to switch the page onto its glass surfaces). All but the contact controller are presentational and desktop/reduced-motion gated. |
+| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; `scramble.ts` (hero accent-word effect); and `splash.ts` + the `splash-*` / `webgl-utils` fluid set (the page-wide flare-fluid; sets `html.flare-on` to switch the page onto its glass surfaces, paused while the tab is hidden). All but the contact controller are presentational and desktop/reduced-motion gated. |
 | Components | `src/components/*.astro` | `Hero`, `ContactForm`, `Footer`. Markup rendering content data. |
 | Pages | `src/pages/*.astro` | `index.astro` (composition), `privacy.astro`. |
 
