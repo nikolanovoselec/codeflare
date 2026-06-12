@@ -18,12 +18,6 @@ export interface Cta {
 export interface Card {
   title: string;
   body: string;
-  tag?: string;
-}
-
-export interface CostLayer {
-  name: string;
-  body: string;
 }
 
 export interface FaqItem {
@@ -117,18 +111,14 @@ export interface FeatureTerminal {
   /** Short commands the live prompt line types then deletes in a loop
    *  (feature-terminals.ts), staggered so the four are never in sync. */
   loop?: string[];
-  /** This terminal's prompt just blinks (the one idle cursor among the four). */
-  idle?: boolean;
 }
 
 export const NAV_LINKS: NavLink[] = [
   { label: 'The shift', href: '#shift' },
   { label: 'Method', href: '#method' },
   { label: 'Security', href: '#security' },
-  { label: 'Operations', href: '#operations' },
   { label: 'Pipeline', href: '#pipeline' },
   { label: 'Cost', href: '#cost' },
-  { label: 'FAQ', href: '#faq' },
 ];
 
 export const AGENTS = ['claude-code', 'codex', 'copilot', 'pi', 'antigravity', 'opencode'];
@@ -199,7 +189,7 @@ export const FEATURE_TERMINALS: FeatureTerminal[] = [
       { tone: 'ok', text: '✓ 41 calls · every token attributed' },
     ],
     foot: 'guardrails on · DLP on egress · your keys',
-    idle: true,
+    loop: ['tail egress.log', 'audit 41 calls', 'list approved models'],
   },
   {
     title: 'codeflare · session',
@@ -241,13 +231,12 @@ export const SHIFT = {
   title: 'Decades of SDLC. One generational leap.',
   lead:
     'Coding assistants made typing faster. Codeflare changes what an engineer <em>is</em>: ' +
-    'agents build, test, govern, and ship; the engineer specifies, steers, and judges. ' +
+    'the engineer specifies, steers, and judges; agents do everything else. ' +
     'Four moments from inside the boundary.',
 };
 
 export const METHOD = {
   id: 'method',
-  kicker: 'The method',
   title: 'Spec-driven development, enforced.',
   lead:
     'Codeflare does not just let agents write code. Every change is governed by a ' +
@@ -262,18 +251,11 @@ export const METHOD = {
         'knowledge graph of your code, decisions, and docs. You approve the intent before a line is written.',
     },
     {
-      title: 'Compliance is enforced, not hoped for',
+      title: 'Enforcement is a loop',
       body:
         'At every PR boundary the spec and TDD enforcers check the diff against its ' +
-        'requirements and reject test theater. Drift from the plan is a blocking finding, ' +
-        'not a polite suggestion the agent is free to ignore.',
-    },
-    {
-      title: 'A self-healing loop',
-      body:
-        'Findings route straight back to the agent, which corrects to the spec and ' +
-        're-verifies against the codebase and the documentation. Nothing merges until what ' +
-        'was built matches what was specified.',
+        'requirements and reject test theater. Findings route straight back to the agent, ' +
+        'which corrects and re-verifies; nothing merges until what was built matches what was specified.',
     },
   ] satisfies Card[],
   // The self-healing loop made concrete: a drift caught at the PR boundary and
@@ -285,8 +267,7 @@ export const METHOD = {
     criterion: `${SPINE.ac}: duplicate payment requests stay idempotent`,
     pr: SPINE.pr,
     caption:
-      'Drift is a blocking finding. The agent is corrected and re-verified. ' +
-      'Specification, implementation and documentation aligned, enforced not hoped for.',
+      'Drift is a blocking finding: caught, corrected, and re-verified before a human ever looks.',
     steps: [
       { actor: 'spec-enforce', state: 'fail', text: 'AC3 is not covered by a test' },
       { actor: 'tdd-enforce', state: 'fail', text: 'an assertion-free test is rejected as theater' },
@@ -307,8 +288,7 @@ export const SECURITY = {
   microCta: 'Request the security and compliance deep-dive',
   // The boundary as one proof artifact: the approved paths (pass) and the paths
   // the architecture makes impossible (deny), in the same gate grammar as the
-  // enforcement gate and egress strip, so security reads as one coherent receipt
-  // instead of a weak diagram plus a loose denied-list.
+  // enforcement gate and egress strip, so security reads as one coherent receipt.
   boundary: {
     title: 'boundary · one session',
     rows: [
@@ -319,9 +299,7 @@ export const SECURITY = {
       { actor: 'lateral move', state: 'deny', label: 'impossible', text: 'nothing to escalate into, nowhere to go' },
       { actor: 'exfiltration', state: 'deny', label: 'none', text: 'source never touches the endpoint device' },
     ] satisfies BoundaryRow[],
-    caption:
-      'One session, drawn in full: three approved paths, three the architecture makes ' +
-      'impossible. The boundary is yours, and it holds by construction.',
+    caption: 'The boundary is yours, and it holds by construction.',
   },
 };
 
@@ -341,9 +319,7 @@ export const EGRESS = {
     },
     { actor: 'route', state: 'pass', label: 'approved', text: 'sent to an approved model, every token attributed' },
   ] satisfies EgressRow[],
-  caption:
-    'One model call, inspected: guardrails pass, DLP redacts one PAN, the route is approved. ' +
-    'Nothing leaves the boundary unseen.',
+  caption: 'Nothing leaves the boundary unseen.',
 };
 
 export const GITHUB_URL = 'https://github.com/nikolanovoselec/codeflare';
@@ -357,8 +333,7 @@ export const DOGFOOD = {
   title: 'Codeflare built this page.',
   lead:
     'This landing page is a requirement in the Codeflare specification, built and shipped by ' +
-    'Codeflare under the same enforcement shown above. The annotations that link the spec to ' +
-    'its code and its tests are invisible in the rendered docs and load-bearing in the pipeline.',
+    'Codeflare under the same enforcement shown above. The anchors below are real.',
   terminalTitle: 'REQ-LANDING-001 · sdd/spec/landing.md',
   lines: [
     { tone: 'cmd', text: 'grep "@impl|@test" REQ-LANDING-001' },
@@ -373,41 +348,26 @@ export const DOGFOOD = {
 
 export const OPERATIONS = {
   id: 'operations',
-  kicker: 'Operations',
   title: 'Not just code. The systems behind it.',
   lead:
-    'The same governed agents that ship code can operate the infrastructure it runs on. ' +
-    'Through zero-trust, policy-scoped tunnels, a session reaches only the internal systems ' +
-    'its policy allows, to orchestrate environments, patch servers, and carry migrations through.',
+    'The same governed agents that ship code can operate the infrastructure it runs on: ' +
+    'orchestrate environments, patch fleets, carry migrations through, drive incident response.',
   cards: [
     {
       title: 'Policy-scoped zero-trust tunnels',
-      tag: 'access',
       body:
         'Agents reach internal hosts, databases, and control planes through tunnels gated by ' +
         'Cloudflare Access policy. A session sees only what its group is entitled to, never the ' +
         'flat network: no standing VPN to over-grant, no credentials living in the container.',
     },
     {
-      title: 'Operate, not only author',
-      tag: 'scope',
-      body:
-        'Orchestrate infrastructure, patch fleets, run migrations and runbooks, drive incident ' +
-        'response. The agent does the work inside the boundary; the same review pipeline and human ' +
-        'triage gate the change before anything lands.',
-    },
-    {
       title: 'Every action attributed',
-      tag: 'audit',
       body:
         'Each connection and command flows through the same audited, attributed path as model ' +
         'traffic. Who reached what, when, and under which policy is written to your logs, in your ' +
         'tenancy. No unsigned access, no shadow operations.',
     },
   ] satisfies Card[],
-  closing:
-    'Same boundary, same attribution, same human triage gate. The engine operates the systems, ' +
-    'it does not only author the code.',
 };
 
 export const BROWSER = {
@@ -440,7 +400,6 @@ export const BROWSER = {
 
 export const PLATFORM = {
   id: 'platform',
-  kicker: 'The platform',
   title: 'Agents arrive equipped, not naive.',
   lead:
     'Every session is seeded with enterprise scaffolding the moment it starts, so agents ' +
@@ -475,47 +434,25 @@ export const PLATFORM = {
 
 export const CONTEXT = {
   id: 'context',
-  kicker: 'Context',
   title: 'The open web, rendered clean.',
   lead:
     'Agents pull in external content through isolated browsers. JavaScript-heavy pages and ' +
     'interactive, gated content resolve to their real text, distilled into structured markdown ' +
-    'built for agent ingestion rather than raw HTML noise.',
-  cards: [
-    {
-      title: 'Browser-isolated retrieval',
-      tag: 'render',
-      body:
-        'Pages load in a throwaway isolated browser that runs their JavaScript and interactive ' +
-        'steps, so single-page apps, dynamic dashboards, and login-gated docs resolve to their ' +
-        'real content. The remote page never touches the agent container or your network directly.',
-    },
-    {
-      title: 'Distilled to structured markdown',
-      tag: 'distill',
-      body:
-        'The rendered page is reduced to clean markdown: headings, tables, code, and links kept, ' +
-        'chrome and scripts stripped. Token-efficient context an agent can reason over, not a wall ' +
-        'of markup.',
-    },
-    {
-      title: 'Straight into the agent',
-      tag: 'ingest',
-      body:
-        'The result lands in the session context or the knowledge graph, so retrieved pages become ' +
-        'durable, queryable knowledge. What the agent reasons over is signal, kept inside your boundary.',
-    },
-  ] satisfies Card[],
-  // Browser isolation as a peer-level proof artifact, not buried card prose: the
-  // open web crosses an isolation boundary the remote page never breaches, then
-  // resolves to agent-ready markdown. Reuses the boundary-flow node idiom.
-  pipe: [
-    { label: 'source URL', sub: 'the open web', accent: false, edge: 'fetch' },
-    { label: 'Isolated browser', sub: 'runs JS, resolves gated content', accent: true, edge: 'distill' },
-    { label: 'Structured markdown', sub: 'into the agent and the graph', accent: false, edge: '' },
-  ],
-  pipeNote:
-    'The page renders inside a throwaway isolated browser and never touches the agent container or your network.',
+    'built for agent ingestion.',
+  // One real fetch from the spine run shown as a proof terminal: the open web
+  // crosses an isolation boundary the remote page never breaches, then resolves
+  // to agent-ready markdown. The page's native proof grammar, not a diagram.
+  terminal: {
+    title: 'codeflare · web',
+    lines: [
+      { tone: 'cmd', text: 'agent → docs.vendor.com/idempotency-keys' },
+      { tone: 'agent', text: '✻ rendered in a throwaway browser · isolated' },
+      { tone: 'ok', text: '✓ JS run · login gate resolved · real text' },
+      { tone: 'deny', text: '✕ scripts, chrome, trackers · never cross' },
+      { tone: 'ok', text: '✓ 1.9 MB page → 12 kB markdown · into the graph' },
+    ] satisfies TranscriptLine[],
+    foot: 'throwaway per fetch · never your network · never the container',
+  },
 };
 
 export const PIPELINE = {
@@ -524,26 +461,6 @@ export const PIPELINE = {
   lead:
     'No shadow toolchain. Agents work through your git, your CI, and your branch protections, ' +
     'subject to the same gates as your engineers. Humans own intent and the merge.',
-  cards: [
-    {
-      title: 'Native git and CI/CD',
-      body:
-        'Agents push branches, open PRs, and wait on your GitHub Actions like any engineer. ' +
-        'Nothing merges without CI green and your branch protections satisfied.',
-    },
-    {
-      title: 'Deep review at every PR boundary',
-      body:
-        'Each pull request fires /review --deep: six specialist agents check code, security, ' +
-        'spec, tests, docs, and end-to-end behavior, filing and fixing findings before a human looks.',
-    },
-    {
-      title: 'Humans own the judgment',
-      body:
-        'Agents prepare the work; people make the call. Every change lands in a human triage ' +
-        'queue with the full review trail attached, and the merge is always yours.',
-    },
-  ] satisfies Card[],
   // The PR-boundary review as a board: six specialist agents reviewing one diff
   // in parallel, two of them catching and re-proving a finding, all converging
   // on a single human triage gate. Makes "one engineer, many agents" literal.
@@ -559,13 +476,12 @@ export const PIPELINE = {
   ] satisfies ReviewLane[],
   verdict: {
     title: 'PR #207 ready for human triage',
-    note: 'CI green, the full review trail attached, the merge owned by a human.',
+    note: 'CI green · the full review trail attached.',
   },
 };
 
 export const COST = {
   id: 'cost',
-  kicker: 'Cost',
   title: 'No unattributed dollar in the system.',
   lead:
     'From the infrastructure minute to the inference token to what each agent consumes, ' +
@@ -593,37 +509,35 @@ export const COST = {
       { label: 'unattributed', value: '$0.00', accent: true },
     ] satisfies LedgerTotal[],
   },
-  layers: [
+  cards: [
     {
-      name: 'environment',
+      title: 'Environment',
       body:
-        'Serverless pay-per-use in your tenancy: containers exist only while sessions run and ' +
-        'hibernate to zero when idle. The bill lands in your cloud account as line items.',
+        'Serverless pay-per-use in your tenancy: containers exist only while sessions run, ' +
+        'hibernate to zero when idle, and land in your cloud account as line items.',
     },
     {
-      name: 'inference',
+      title: 'Inference',
       body:
-        'Every request flows through your AI Gateway, where guardrails and DLP apply and ' +
-        'metadata makes inference cost visible per user, team, and department. Dynamic routing ' +
-        'steers each group to its approved models, and smart routing fails over when a provider degrades.',
+        'Every request flows through your AI Gateway, where cost is visible per user, team, and ' +
+        'department. Each group is routed to its approved models, with failover when a provider degrades.',
     },
     {
-      name: 'agent consumption',
+      title: 'Agent tools',
       body:
-        'Interception sits below the container, so the CLI tools cannot bypass it. Every token ' +
-        'any agent consumes is part of the same attributed stream. No shadow AI spend.',
+        'Interception sits below the container, so CLI tools cannot bypass it. Every token any ' +
+        'agent consumes joins the same attributed stream. No shadow AI spend.',
     },
-  ] satisfies CostLayer[],
+  ] satisfies Card[],
 };
 
 export const TENANCY = {
   id: 'tenancy',
   title: 'Runs where your data lives.',
   lead:
-    'Codeflare deploys into <strong>your own Cloudflare account</strong>: your tenancy, your ' +
-    'keys, your data plane, your audit trail. No vendor in the data path. A guided wizard takes ' +
-    'a fresh account to a running engine.',
-  checklist: [
+    'Codeflare deploys into <strong>your own Cloudflare account</strong>, with no vendor in the ' +
+    'data path. A guided wizard takes a fresh account to a running engine.',
+  manifest: [
     { label: 'Identity', note: 'your IdP' },
     { label: 'Storage', note: 'your R2, your keys' },
     { label: 'AI Gateway', note: 'guardrails, DLP, your rates' },
@@ -708,7 +622,6 @@ export const CONTACT_FORM = {
 };
 
 export const FOOTER = {
-  tagline: 'The enterprise agentic coding engine.',
   links: [
     { label: 'Book a demo', href: '#contact' },
     { label: 'FAQ', href: '#faq' },

@@ -4,7 +4,7 @@
  * whole page. A single pull request (the spine, REQ-PAY-014 / AC3 / PR #207)
  * is followed from intent to merge, and the proof artifacts are camera angles
  * on it: the hero terminal opens it, the enforcement gate catches it drifting,
- * the boundary + egress strip show where its traffic may go, the context pipe
+ * the boundary + egress strip show where its traffic may go, the context terminal
  * shows how it reads the web safely, the review board judges it in parallel,
  * and the cost ledger is its bill closing on zero unattributed. Governance
  * carries the page; the platform capability lands afterwards as the payoff the
@@ -35,7 +35,6 @@ import {
   FAQ_ITEMS,
   CONTACT_FORM,
   DOGFOOD,
-  GITHUB_URL,
 } from '../content/site';
 ---
 
@@ -47,7 +46,6 @@ import {
         <ul class="nav-links">
           {NAV_LINKS.map((link) => <li><a href={link.href}>{link.label}</a></li>)}
         </ul>
-        <a class="nav-github" href={GITHUB_URL} target="_blank" rel="noopener" aria-label="Codeflare on GitHub">GitHub</a>
         <a class="btn btn-ghost btn-sm nav-signin" href={APP_LINKS.signIn}>Sign in</a>
       </div>
     </div>
@@ -82,13 +80,14 @@ import {
              boundary. Static markup is the resolved state; data-proof replays the
              fail -> correct -> pass sequence once on scroll-in. The only place an
              agent visibly fails, which is the point. -->
-        <div class="gate reveal" data-proof>
-          <div class="gate-head">
+        <div class="terminal gate reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
             <span class="gate-req">{METHOD.gate.req}</span>
             <span class="gate-crit">{METHOD.gate.criterion}</span>
             <span class="gate-pr">{METHOD.gate.pr}</span>
           </div>
-          <div class="gate-steps">
+          <div class="gate-steps" data-roll>
             {
               METHOD.gate.steps.map((step, i) => (
                 <div class:list={['gate-step', `is-${step.state}`]} style={`--i:${i}`}>
@@ -130,13 +129,13 @@ import {
         </div>
         <!-- Boundary: the approved paths and the paths the architecture makes
              impossible, in one gate (the same grammar as the enforcement gate
-             and the egress strip), so security reads as one coherent receipt
-             rather than a diagram plus a loose denied-list. -->
-        <div class="gate boundary reveal" data-proof>
-          <div class="gate-head">
+             and the egress strip), so security reads as one coherent receipt. -->
+        <div class="terminal gate boundary reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
             <span class="gate-req">{SECURITY.boundary.title}</span>
           </div>
-          <div class="gate-steps">
+          <div class="gate-steps" data-roll>
             {
               SECURITY.boundary.rows.map((row, i) => (
                 <div class:list={['gate-step', `is-${row.state}`]} style={`--i:${i}`}>
@@ -152,12 +151,13 @@ import {
         <!-- Egress-inspection strip: one outbound model call inspected at the
              boundary. The DLP redaction is the one amber beat; data-proof
              replays the rows once on scroll-in. -->
-        <div class="gate egress reveal" data-proof>
-          <div class="gate-head">
+        <div class="terminal gate egress reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
             <span class="gate-req">egress</span>
             <span class="gate-crit">{EGRESS.call}</span>
           </div>
-          <div class="gate-steps">
+          <div class="gate-steps" data-roll>
             {
               EGRESS.rows.map((row, i) => (
                 <div class:list={['gate-step', `is-${row.state}`]} style={`--i:${i}`}>
@@ -181,7 +181,7 @@ import {
           <h2>{OPERATIONS.title}</h2>
           <p class="lead">{OPERATIONS.lead}</p>
         </div>
-        <div class="feature-grid feature-grid--3" data-stagger>
+        <div class="feature-grid feature-grid--2" data-stagger>
           {
             OPERATIONS.cards.map((card) => (
               <div class="feature-col">
@@ -191,45 +191,28 @@ import {
             ))
           }
         </div>
-        <p class="section-coda reveal">{OPERATIONS.closing}</p>
       </div>
     </section>
 
-    <!-- Station 3, Context: the open web, rendered clean, never trusted. The
-         isolation pipe is a peer-level proof artifact above the detail cards. -->
+    <!-- Station 3, Context: the open web, rendered clean, never trusted. One
+         real fetch from the spine run shown as a proof terminal. -->
     <section id={CONTEXT.id} class="section">
       <div class="container">
         <div class="section-head reveal">
           <h2>{CONTEXT.title}</h2>
           <p class="lead">{CONTEXT.lead}</p>
         </div>
-        <div class="context-pipe reveal">
-          <div class="flow" data-proof>
-            {
-              CONTEXT.pipe.map((node, i) => (
-                <Fragment>
-                  <div class:list={['flow-node', { 'is-accent': node.accent }]} style={`--i:${i}`}>
-                    {node.label}
-                    <small>{node.sub}</small>
-                  </div>
-                  {i < CONTEXT.pipe.length - 1 && (
-                    <div class="flow-arrow" style={`--i:${i}`}>{node.edge && <span>{node.edge}</span>}</div>
-                  )}
-                </Fragment>
-              ))
-            }
+        <div class="terminal feature-terminal context-terminal reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="terminal-title">{CONTEXT.terminal.title}</span>
           </div>
-          <p class="pipe-note">{CONTEXT.pipeNote}</p>
-        </div>
-        <div class="feature-grid feature-grid--3" data-stagger>
-          {
-            CONTEXT.cards.map((card) => (
-              <div class="feature-col">
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </div>
-            ))
-          }
+          <div class="terminal-body">
+            {CONTEXT.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
+          </div>
+          <div class="terminal-foot tf-static">
+            <span class="tf-seg">{CONTEXT.terminal.foot}</span>
+          </div>
         </div>
       </div>
     </section>
@@ -245,13 +228,14 @@ import {
           <p class="lead">{PIPELINE.lead}</p>
         </div>
 
-        <div class="review-board reveal" data-proof>
-          <div class="board-pr">
+        <div class="terminal review-board reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
             <span class="board-pr-id">{SPINE.pr} · {SPINE.service}</span>
             <span class="board-pr-trigger">{PIPELINE.trigger}</span>
           </div>
           <div class="board-dispatch" aria-hidden="true">{PIPELINE.dispatch}</div>
-          <div class="board-lanes">
+          <div class="board-lanes" data-roll>
             {
               PIPELINE.lanes.map((lane, i) => (
                 <div class:list={['board-lane', `is-${lane.result}`]} style={`--i:${i}`}>
@@ -273,17 +257,6 @@ import {
             <span class="verdict-note">{PIPELINE.verdict.note}</span>
           </div>
         </div>
-
-        <div class="feature-grid feature-grid--3" data-stagger>
-          {
-            PIPELINE.cards.map((card) => (
-              <div class="feature-col">
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </div>
-            ))
-          }
-        </div>
       </div>
     </section>
 
@@ -292,15 +265,15 @@ import {
     <section id={COST.id} class="section">
       <div class="container">
         <div class="section-head reveal">
-          <p class="kicker">{COST.kicker}</p>
           <h2>{COST.title}</h2>
           <p class="lead">{COST.lead}</p>
         </div>
         <!-- Attribution ledger: every line carries an owner; the last total
              reads zero unattributed. The rows are a sample of the run; the
              totals cover all of it (the sample note reconciles the two). -->
-        <div class="ledger reveal" data-proof>
-          <div class="ledger-meta">
+        <div class="terminal ledger reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
             <span class="ledger-meta-id">{COST.ledger.meta}</span>
             <span class="ledger-meta-sample">{COST.ledger.sample}</span>
           </div>
@@ -312,7 +285,7 @@ import {
             <span class="lc-route">{COST.ledger.columns[4]}</span>
             <span class="lc-cost">{COST.ledger.columns[5]}</span>
           </div>
-          <div class="ledger-rows">
+          <div class="ledger-rows" data-roll>
             {
               COST.ledger.rows.map((row, i) => (
                 <div class="ledger-row" style={`--i:${i}`}>
@@ -338,12 +311,12 @@ import {
           </div>
         </div>
 
-        <div class="layers reveal">
+        <div class="feature-grid feature-grid--3" data-stagger>
           {
-            COST.layers.map((layer) => (
-              <div class="layer">
-                <div class="layer-name">{layer.name}</div>
-                <p class="layer-body">{layer.body}</p>
+            COST.cards.map((card) => (
+              <div class="feature-col">
+                <h3>{card.title}</h3>
+                <p>{card.body}</p>
               </div>
             ))
           }
@@ -361,16 +334,16 @@ import {
             <p class="lead" set:html={TENANCY.lead} />
           </div>
           <div class="split-aside reveal">
-            <ul class="checklist checklist--mono">
+            <dl class="manifest">
               {
-                TENANCY.checklist.map((item) => (
-                  <li>
-                    {item.label}
-                    <span>{item.note}</span>
-                  </li>
+                TENANCY.manifest.map((item) => (
+                  <div class="manifest-row">
+                    <dt>{item.label}</dt>
+                    <dd>{item.note}</dd>
+                  </div>
                 ))
               }
-            </ul>
+            </dl>
           </div>
         </div>
       </div>
@@ -455,7 +428,11 @@ import {
             <span class="terminal-title">{DOGFOOD.terminalTitle}</span>
           </div>
           <div class="terminal-body">
-            {DOGFOOD.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
+            <span class={`t-line t-${DOGFOOD.lines[0].tone}`} style="--i:0">{DOGFOOD.lines[0].text}</span>
+            <div data-roll>
+              {DOGFOOD.lines.slice(1, -1).map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i + 1}`}>{line.text}</span>)}
+            </div>
+            <span class={`t-line t-${DOGFOOD.lines[DOGFOOD.lines.length - 1].tone}`} style={`--i:${DOGFOOD.lines.length - 1}`}>{DOGFOOD.lines[DOGFOOD.lines.length - 1].text}</span>
           </div>
         </div>
         <p class="micro-cta dogfood-cta reveal">

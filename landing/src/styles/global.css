@@ -116,7 +116,7 @@ svg {
 
 .section-head {
   max-width: 44rem;
-  margin-bottom: clamp(2.25rem, 5vw, 3.5rem);
+  margin-bottom: clamp(1.75rem, 3vw, 2.5rem);
 }
 
 .kicker {
@@ -354,7 +354,7 @@ svg {
 }
 
 .hero-terminal {
-  margin-top: clamp(2.75rem, 6vw, 4.25rem);
+  margin-top: clamp(2rem, 5vw, 3rem);
 }
 
 /* Spine strip under the terminal: the run named once, as a quiet TOC. The IDs
@@ -389,7 +389,7 @@ svg {
 .hero-spine-step {
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  color: var(--text-dimmed);
+  color: var(--text-muted);
 }
 
 /* --------------------------------------------------------------------------
@@ -403,13 +403,24 @@ svg {
   box-shadow: 0 30px 60px -30px rgb(0 0 0 / 0.7);
 }
 
+/* The five wide lower artifacts share the terminal chrome but take a lighter
+   shadow so they do not stack hero-grade depth down the page. */
+.gate,
+.review-board,
+.ledger {
+  box-shadow: 0 18px 40px -28px rgb(0 0 0 / 0.6);
+}
+
 .terminal-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.6rem;
   padding: 0.7rem 1rem;
   border-bottom: 1px solid var(--border-subtle);
   background: rgb(var(--white-rgb) / 0.015);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
 }
 
 .terminal-dots {
@@ -556,7 +567,7 @@ svg {
 }
 
 .tf-note {
-  color: var(--text-dimmed);
+  color: var(--text-muted);
 }
 
 /* The occasional compaction beat: the reasoning segment swaps to a coral
@@ -633,12 +644,15 @@ svg {
 }
 
 .feature-col h3 {
-  font-size: var(--fs-h3);
-  margin-bottom: 0.45rem;
+  font-size: var(--fs-body);
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.011em;
+  margin-bottom: 0.5rem;
 }
 
 .feature-col p {
-  font-size: 0.95rem;
+  font-size: var(--fs-body);
   color: var(--text-secondary);
 }
 
@@ -696,147 +710,37 @@ svg {
 }
 
 /* --------------------------------------------------------------------------
-   Boundary flow diagram (architecture, not a screenshot)
+   Tenancy manifest: a bare hairline mono key/value record (keys recede, the
+   "yours" column carries the weight), echoing the proof-artifact grammar above.
    -------------------------------------------------------------------------- */
-.flow {
-  display: grid;
-  gap: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  padding: clamp(1.5rem, 4vw, 2.25rem);
-  background: var(--bg-terminal);
-}
-
-.flow-node {
-  text-align: center;
-  padding: 0.85rem 1rem;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: 0.9rem;
-  font-weight: 550;
-}
-
-.flow-node small {
-  display: block;
+.manifest {
+  margin: 0;
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  font-weight: 400;
-  color: var(--text-muted);
-  margin-top: 0.2rem;
 }
 
-.flow-node.is-accent {
-  border-color: var(--accent-line);
-  box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.1);
-}
-
-.flow-arrow {
-  justify-self: center;
-  width: 1px;
-  height: 1.7rem;
-  background: var(--border-strong);
-  position: relative;
-}
-
-.flow-arrow span {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  color: var(--text-dimmed);
-  white-space: nowrap;
-  background: var(--bg-terminal);
-  padding: 0 0.4rem;
-}
-
-/* --------------------------------------------------------------------------
-   Cost layers
-   -------------------------------------------------------------------------- */
-.layers {
+.manifest-row {
   display: grid;
-  gap: 0;
-}
-
-.layer {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.5rem 2rem;
-  padding-block: clamp(1.5rem, 4vw, 2rem);
+  grid-template-columns: 7rem 1fr;
+  gap: 1rem;
+  align-items: baseline;
+  padding-block: 0.9rem;
   border-top: 1px solid var(--border-subtle);
 }
 
-.layer:last-child {
+.manifest-row:last-child {
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.layer-name {
-  font-family: var(--font-mono);
+.manifest dt {
   font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--accent);
-}
-
-.layer-body {
-  color: var(--text-secondary);
-  font-size: 0.97rem;
-  max-width: var(--measure);
-}
-
-@media (min-width: 760px) {
-  .layer {
-    grid-template-columns: 14rem 1fr;
-  }
-}
-
-/* --------------------------------------------------------------------------
-   Checklist (tenancy)
-   -------------------------------------------------------------------------- */
-.checklist {
-  list-style: none;
-  padding: 0;
-  display: grid;
-  gap: 0.85rem;
-  margin-top: 0.5rem;
-}
-
-.checklist li {
-  position: relative;
-  padding-left: 1.7rem;
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.checklist li::before {
-  content: '✓';
-  position: absolute;
-  left: 0;
-  color: var(--accent);
-}
-
-.checklist li span {
-  display: block;
-  font-weight: 400;
+  letter-spacing: 0.02em;
   color: var(--text-muted);
+}
+
+.manifest dd {
+  margin: 0;
   font-size: var(--fs-small);
-  margin-top: 0.1rem;
-}
-
-/* Tenancy manifest: set in mono so the trust close echoes the instrument
-   grammar of the proof artifacts above it. */
-.checklist--mono li {
-  font-family: var(--font-mono);
-  font-size: 0.92rem;
-  letter-spacing: -0.01em;
-}
-
-.checklist--mono li span {
-  font-family: var(--font-mono);
-  letter-spacing: 0;
+  color: var(--text-primary);
 }
 
 /* --------------------------------------------------------------------------
@@ -982,7 +886,7 @@ svg {
 
 .field input::placeholder,
 .field textarea::placeholder {
-  color: var(--text-dimmed);
+  color: var(--text-muted);
 }
 
 .form-status {
@@ -1042,6 +946,12 @@ svg {
 .site-footer .container {
   display: flex;
   flex-direction: column;
+  gap: 2rem;
+}
+
+.footer-top {
+  display: flex;
+  flex-direction: column;
   gap: 1.25rem;
 }
 
@@ -1062,13 +972,62 @@ svg {
   color: var(--text-primary);
 }
 
+/* The "built with" close, modelled on the graymatter footer: a GitHub mark +
+   repo link, and beneath it one quiet centered line whose product name
+   perpetually scrambles. */
+.footer-built {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  text-align: center;
+}
+
+.footer-gh {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.footer-gh:hover {
+  color: var(--text-primary);
+}
+
 .footer-copy {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 0;
   font-size: var(--fs-small);
-  color: var(--text-dimmed);
+  color: var(--text-muted);
+}
+
+.footer-built-label {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.7rem;
+}
+
+.footer-codeflare {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+/* Neutralise the hero scramble word's coral gradient in the footer: the
+   scrambling name here stays understated mono, in the muted line colour. */
+.footer-codeflare.scramble-word,
+.footer-codeflare .scramble-word {
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: var(--text-secondary);
 }
 
 @media (min-width: 760px) {
-  .site-footer .container {
+  .footer-top {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
@@ -1194,33 +1153,37 @@ svg {
   }
 }
 
-@keyframes proof-glow {
-  45% {
-    box-shadow:
-      inset 0 0 0 1px rgb(var(--accent-rgb) / 0.45),
-      0 0 24px -6px rgb(var(--accent-rgb) / 0.5);
-  }
-}
-
-/* ---- Method: self-healing enforcement gate ---- */
-.gate {
-  margin-top: clamp(2rem, 5vw, 3rem);
-  max-width: 48rem;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
-  background: var(--bg-terminal);
+/* Line-roll loop (proof.ts): the top row of a [data-roll] list slides out and
+   re-enters at the bottom. The rolled child transitions; the list height is
+   frozen by JS during a cycle so nothing jumps. */
+[data-roll] > .roll-anim {
   overflow: hidden;
+  transition:
+    height 0.42s var(--ease-out),
+    opacity 0.42s var(--ease-out),
+    transform 0.42s var(--ease-out);
+}
+[data-roll] > .roll-up {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+[data-roll] > .roll-down {
+  opacity: 0;
+  transform: translateY(8px);
 }
 
-.gate-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.3rem 0.9rem;
-  padding: 0.85rem 1.1rem;
-  border-bottom: 1px solid var(--border-subtle);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
+/* Once an artifact is rolling, its one-shot entrance keyframes must not replay
+   on DOM re-insertion (they are backwards-filled and would flash rows invisible). */
+.is-rolling .gate-step,
+.is-rolling .board-lane,
+.is-rolling .ledger-row,
+.terminal.is-rolling .t-line {
+  animation: none;
+}
+
+/* ---- Method: self-healing enforcement gate (shares .terminal chrome) ---- */
+.gate {
+  margin-top: clamp(1.25rem, 3vw, 2rem);
 }
 
 .gate-req {
@@ -1322,6 +1285,14 @@ svg {
   }
 }
 
+/* The gates fill the wider container on large screens (like the board/ledger);
+   the actor/state columns breathe so the 1fr text column gets more room. */
+@media (min-width: 980px) {
+  .gate-step {
+    grid-template-columns: 11rem 7.5rem 1fr;
+  }
+}
+
 .gate.is-live .gate-step {
   animation: proof-row 0.5s var(--ease-out) backwards;
   animation-delay: calc(var(--i) * 0.18s);
@@ -1352,7 +1323,7 @@ svg {
 }
 
 .gate.egress {
-  margin-top: clamp(2rem, 5vw, 3rem);
+  margin-top: clamp(1.25rem, 3vw, 2rem);
 }
 
 .gate-step.is-redact .gate-actor,
@@ -1374,7 +1345,7 @@ svg {
   list-style: none;
   counter-reset: clause;
   padding: 0;
-  margin-top: clamp(2rem, 5vw, 3rem);
+  margin-top: clamp(1.5rem, 3vw, 2.25rem);
   display: grid;
   gap: clamp(1.5rem, 4vw, 2.25rem);
   max-width: var(--measure);
@@ -1407,89 +1378,15 @@ svg {
   color: var(--text-secondary);
 }
 
-/* Mono coda line closing a station (Operations) without a fresh artifact. */
-.section-coda {
-  margin-top: clamp(1.75rem, 4vw, 2.5rem);
-  max-width: var(--measure);
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  line-height: 1.7;
-  color: var(--text-muted);
+/* ---- Context: browser-isolation proof terminal (peer-level proof artifact) ---- */
+.context-terminal {
+  max-width: 56rem;
 }
 
-/* ---- Context: browser-isolation pipe (peer-level proof artifact) ---- */
-.context-pipe {
-  max-width: 34rem;
-  margin: 0 auto clamp(2.5rem, 5vw, 3.5rem);
-}
-
-.pipe-note {
-  margin: 1rem auto 0;
-  max-width: 30rem;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  line-height: 1.7;
-  color: var(--text-muted);
-}
-
-/* ---- Security: boundary data-path proof + denied paths ---- */
-.flow.is-live .flow-node {
-  animation: proof-row 0.5s var(--ease-out) backwards;
-  animation-delay: calc(var(--i) * 0.16s);
-}
-.flow.is-live .flow-arrow {
-  animation: proof-row 0.4s var(--ease-out) backwards;
-  animation-delay: calc(var(--i) * 0.16s + 0.08s);
-}
-.flow.is-live .flow-node.is-accent {
-  animation:
-    proof-row 0.5s var(--ease-out) backwards,
-    proof-glow 1.1s var(--ease-out) 0.7s;
-}
-
-.denied-list {
-  list-style: none;
-  padding: 0;
-  margin-top: 1rem;
-  display: grid;
-  gap: 0.5rem;
-}
-
-.denied-list li {
-  position: relative;
-  padding-left: 1.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.denied-list li::before {
-  content: '✕';
-  position: absolute;
-  left: 0;
-  color: var(--accent);
-  font-size: 0.8rem;
-  line-height: 1.4;
-}
-
-/* ---- Pipeline: parallel review board ---- */
+/* ---- Pipeline: parallel review board (shares .terminal chrome) ---- */
 .review-board {
   margin-top: clamp(1.25rem, 3vw, 1.75rem);
-  margin-bottom: clamp(2.5rem, 5vw, 3.5rem);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
-  background: var(--bg-terminal);
-  overflow: hidden;
-}
-
-.board-pr {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.3rem 0.9rem;
-  padding: 0.85rem 1.1rem;
-  border-bottom: 1px solid var(--border-subtle);
-  font-family: var(--font-mono);
+  margin-bottom: 0;
 }
 
 .board-pr-id {
@@ -1512,7 +1409,7 @@ svg {
   font-size: 0.64rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--text-dimmed);
+  color: var(--text-muted);
 }
 
 .board-lane {
@@ -1623,27 +1520,14 @@ svg {
   animation-delay: 0.92s;
 }
 
-/* ---- Cost: attribution ledger ---- */
+/* ---- Cost: attribution ledger (shares .terminal chrome) ---- */
 .ledger {
-  margin-bottom: clamp(2.5rem, 5vw, 3.5rem);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius);
-  background: var(--bg-terminal);
-  overflow: hidden;
+  margin-bottom: clamp(1.75rem, 4vw, 2.5rem);
   font-family: var(--font-mono);
 }
 
 /* Run identity: binds the ledger to the spine PR and reconciles the sample
    rows with the full-run totals. */
-.ledger-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.3rem 0.9rem;
-  padding: 0.85rem 1.1rem;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
 .ledger-meta-id {
   color: var(--text-primary);
   font-weight: 600;
@@ -1779,20 +1663,13 @@ svg {
   height: 100%;
 }
 
-/* Readability veil over the fluid: light over the hero (the drenched moment),
-   deepening to a near-solid wash once the hero scrolls away, so the text-dense
-   sections below stay legible while the hero stays vivid. */
+/* Readability veil over the fluid: one calm, constant wash page-wide, so the
+   hero renders on the same background treatment as every text-dense section. */
 .flare-on .flare-field::after {
   content: '';
   position: absolute;
   inset: 0;
   background: rgb(var(--bg-base-rgb) / 0.72);
-  opacity: 0.4;
-  transition: opacity 0.45s var(--ease-out);
-}
-
-.flare-on.flare-scrolled .flare-field::after {
-  opacity: 1;
 }
 
 /* Lift the content above the fixed field (the sticky nav already sits higher). */
@@ -1800,23 +1677,6 @@ svg {
 .flare-on .site-footer {
   position: relative;
   z-index: 1;
-}
-
-/* Local scrim behind the hero headline: the veil is light over the hero, so the
-   prose zone gets its own darkening to hold >=4.5:1 over the live fluid, while
-   the fluid stays vivid toward the open lower-right. */
-.flare-on .hero::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: radial-gradient(
-    140% 108% at 24% 34%,
-    rgb(var(--bg-base-rgb) / 0.85),
-    rgb(var(--bg-base-rgb) / 0.55) 55%,
-    transparent 80%
-  );
-  pointer-events: none;
 }
 
 /* Sections turn transparent so the single fluid field shows continuously; the
@@ -1827,14 +1687,13 @@ svg {
 
 /* Content panels become translucent "glass" floating on the fluid. Dense-text
    panels stay near-opaque for prose AA; the showcase artifacts lean glassier and
-   carry the backdrop blur. Stat tiles, flow nodes, and form inputs keep solid
+   carry the backdrop blur. Stat tiles and form inputs keep solid
    fills — their muted small labels / input text need full opaque contrast. */
 .flare-on .agent-chips span,
 .flare-on .contact-form {
   background: var(--glass-panel);
 }
 
-.flare-on .flow,
 .flare-on .hero .terminal,
 .flare-on .feature-terminal,
 .flare-on .gate,
@@ -1843,7 +1702,6 @@ svg {
   background: var(--glass-artifact);
 }
 
-.flare-on .flow,
 .flare-on .hero .terminal,
 .flare-on .feature-terminal,
 .flare-on .contact-form,
@@ -1881,30 +1739,12 @@ svg {
 }
 
 /* --------------------------------------------------------------------------
-   Polish additions: GitHub nav link, dogfood proof terminal, live prompt
+   Polish additions: dogfood proof terminal, live prompt
    -------------------------------------------------------------------------- */
-.nav-github {
-  display: none;
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-  transition: color 0.18s var(--ease-out);
-}
-
-.nav-github:hover {
-  color: var(--text-primary);
-}
-
-@media (min-width: 760px) {
-  .nav-github {
-    display: inline-flex;
-    align-items: center;
-  }
-}
-
 /* The dogfood terminal is a contained window (not full container width), so its
    short annotation lines fill it instead of leaving dead space on the right. */
 .dogfood-terminal {
-  max-width: 44rem;
+  max-width: 56rem;
 }
 
 .dogfood-cta {

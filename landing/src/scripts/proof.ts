@@ -9,6 +9,12 @@
  * scrolls into view, which is the only thing that arms the CSS keyframes. The
  * sequence plays once, then the element is unobserved.
  *
+ * Some lower artifacts additionally carry a [data-roll] list: once armed, the
+ * top row slides out and re-enters at the bottom on a slow loop, so the artifact
+ * reads as a live feed. The loop pauses when its artifact is off-screen or the
+ * tab is hidden. Pinned chrome (titlebars, verdict, totals) never moves, so the
+ * resolved claim stays on screen.
+ *
  * Reduced motion: do nothing. The default (no `.is-live`) markup is already the
  * resolved state, so leaving it untouched is the correct motionless result.
  * Arming the sequence here would be wrong: the reduced-motion CSS collapses each
@@ -20,21 +26,95 @@
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const artifacts = Array.from(document.querySelectorAll<HTMLElement>('[data-proof]'));
 
+const ROLL_FIRST_MS = 3000;
+const ROLL_EVERY_MS = 2600;
+const PHASE_MS = 420;
+
+/** Track which rolling artifacts are currently on-screen, so ticks pause off-screen. */
+const visible = new WeakSet<HTMLElement>();
+
+/** One slow line-roll cycle on a [data-roll] list: the top child slides out and
+ *  re-enters at the bottom, with the list height frozen so nothing jumps. */
+function rollOnce(list: HTMLElement): void {
+  const children = Array.from(list.children) as HTMLElement[];
+  if (children.length < 3) return;
+
+  const first = children[0];
+  const startHeight = list.getBoundingClientRect().height;
+  // Freeze the list height so removing the top row does not collapse the box.
+  list.style.height = `${startHeight}px`;
+
+  first.classList.add('roll-anim', 'roll-up');
+  window.setTimeout(() => {
+    // Move the faded-out top row to the bottom, primed to roll back down.
+    list.appendChild(first);
+    first.classList.remove('roll-up');
+    first.classList.add('roll-down');
+    // Force a reflow so the roll-down transition runs from its start state.
+    void first.getBoundingClientRect();
+    first.classList.remove('roll-down');
+    const endHeight = list.getBoundingClientRect().height;
+    list.style.height = `${endHeight}px`;
+    window.setTimeout(() => {
+      first.classList.remove('roll-anim');
+      list.style.height = '';
+    }, PHASE_MS);
+  }, PHASE_MS);
+}
+
+/** Begin the slow roll loop on an armed artifact's [data-roll] lists. */
+function startRoll(el: HTMLElement): void {
+  const lists = Array.from(el.querySelectorAll<HTMLElement>('[data-roll]')).filter(
+    (list) => list.children.length >= 3
+  );
+  if (lists.length === 0) return;
+
+  el.classList.add('is-rolling');
+
+  const tick = () => {
+    if (document.hidden || !visible.has(el)) return;
+    for (const list of lists) rollOnce(list);
+  };
+
+  window.setTimeout(() => {
+    tick();
+    window.setInterval(tick, ROLL_EVERY_MS);
+  }, ROLL_FIRST_MS);
+}
+
 if (reduced) {
   // Static markup is already the resolved artifact; no motion to arm.
 } else if (!('IntersectionObserver' in window)) {
-  for (const el of artifacts) el.classList.add('is-live');
+  for (const el of artifacts) {
+    el.classList.add('is-live');
+    visible.add(el);
+    startRoll(el);
+  }
 } else {
-  const io = new IntersectionObserver(
+  // Arms the one-shot reveal the first time an artifact scrolls in.
+  const armObserver = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
         if (entry.isIntersecting) {
           entry.target.classList.add('is-live');
-          io.unobserve(entry.target);
+          startRoll(entry.target as HTMLElement);
+          armObserver.unobserve(entry.target);
         }
       }
     },
     { rootMargin: '-80px 0px -80px 0px' }
   );
-  for (const el of artifacts) io.observe(el);
+
+  // Tracks on-screen state so the roll loop pauses when the artifact leaves view.
+  const visibleObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) visible.add(entry.target as HTMLElement);
+      else visible.delete(entry.target as HTMLElement);
+    }
+  });
+
+  for (const el of artifacts) {
+    armObserver.observe(el);
+    if (el.querySelector('[data-roll]')) visibleObserver.observe(el);
+  }
 }

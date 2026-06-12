@@ -67,9 +67,9 @@ Engineered, sovereign, inevitable. The voice of a platform that already works �
 declarative claims backed by demonstration, never hype adjectives. Cinematic dark, calm
 and spare: a single terminal demo shows the engine working, and the rest of the page
 speaks in confident prose. The flare is energy under control: a cursor- and
-scroll-reactive fluid runs page-wide — drenching the hero, then veiled to a calm wash
-beneath the prose below — driven by the cursor on desktop and by page scroll on touch,
-and a single gradient accent word carries the name.
+scroll-reactive fluid runs page-wide beneath one calm, constant veil — driven by the
+cursor on desktop and by page scroll on touch, and a single gradient accent word carries
+the name.
 
 ## Anti-references
 
@@ -101,8 +101,8 @@ and a single gradient accent word carries the name.
    exist"), never policy promises. Copy and visuals show boundaries, not badges.
 4. **Motion with intent.** A quiet scroll-reveal, the perpetual scramble on the single
    hero accent word (the Codeflare ScrambleText effect), and a cursor- and scroll-reactive
-   flare-fluid running page-wide behind the content (vivid in the hero, veiled to a calm,
-   legible wash below; the cursor drives it on desktop and page scroll drives it on touch,
+   flare-fluid running page-wide behind the content (one calm, legible wash page-wide;
+   the cursor drives it on desktop and page scroll drives it on touch,
    with content panels floating over it as translucent glass).
    A few restrained micro-interactions add life and nothing more: staggered grid reveals,
    one-shot proof-artifact sequences armed on scroll-in (a drift caught then corrected, the

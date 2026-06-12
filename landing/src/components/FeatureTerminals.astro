@@ -35,7 +35,7 @@ import { FEATURE_TERMINALS } from '../content/site';
             </span>
           ))}
           <span class="t-line t-cmd" style={`--i:${ft.lines.length}`}>
-            <span class="ft-typed" data-ft-typed>{ft.idle ? '' : (ft.loop?.[0] ?? '')}</span>
+            <span class="ft-typed" data-ft-typed>{ft.loop?.[0] ?? ''}</span>
             <span class="t-caret" aria-hidden="true" />
           </span>
         </div>

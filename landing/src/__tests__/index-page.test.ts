@@ -147,7 +147,6 @@ describe('landing page (REQ-LANDING-001)', () => {
     // The gate caption states the enforcement refrain in plain words, and the
     // three pillars render as numbered clauses of a control (not a card grid).
     expect(text).toContain(METHOD.gate.caption.slice(0, 40));
-    expect(text).toContain('Specification, implementation and documentation aligned');
     expect(html).toContain('method-clauses');
   });
 
@@ -209,8 +208,6 @@ describe('landing page (REQ-LANDING-001)', () => {
       expect(text).toContain(card.title);
       expect(text).toContain(card.body.slice(0, 40));
     }
-    // The coda ties operations back to the same governed boundary as model traffic.
-    expect(text).toContain(OPERATIONS.closing.slice(0, 40));
   });
 
   it('renders the context section: browser-isolated web ingestion to agent-ready markdown', () => {
@@ -220,17 +217,13 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(text).toContain('isolated browser');
     expect(text).toContain('markdown');
     expect(text).toContain('ingestion');
-    for (const card of CONTEXT.cards) {
-      expect(text).toContain(card.title);
-      expect(text).toContain(card.body.slice(0, 40));
+    // The isolation proof terminal is a peer-level proof artifact: each line plus
+    // the load-bearing guarantee that the remote page never touches the container.
+    expect(html).toContain('context-terminal');
+    for (const line of CONTEXT.terminal.lines) {
+      expect(text).toContain(line.text);
     }
-    // The isolation pipe is a peer-level proof artifact: each node plus the
-    // load-bearing guarantee that the remote page never touches the container.
-    expect(html).toContain('context-pipe');
-    for (const node of CONTEXT.pipe) {
-      expect(text).toContain(node.label);
-    }
-    expect(text).toContain(CONTEXT.pipeNote.slice(0, 40));
+    expect(text).toContain(CONTEXT.terminal.foot);
   });
 
   it('renders the browser, platform, pipeline, cost, and tenancy sections', () => {
@@ -242,8 +235,8 @@ describe('landing page (REQ-LANDING-001)', () => {
     for (const agent of AGENTS) {
       expect(html).toContain(agent);
     }
-    for (const layer of COST.layers) {
-      expect(text).toContain(layer.body.slice(0, 40));
+    for (const card of COST.cards) {
+      expect(text).toContain(card.body.slice(0, 40));
     }
     // The attribution ledger: every line carries an owner, and the closing
     // total reads zero unattributed (the load-bearing cost claim). The ledger is
