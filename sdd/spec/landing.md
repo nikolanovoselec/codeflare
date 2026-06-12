@@ -35,7 +35,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 <!-- @impl: landing/src/scripts/proof.ts -->
 <!-- @impl: wrangler.toml -->
 <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001 its -> AC1 SaaS-unauth landing rewrite + AC2 onboarding-unauth landing rewrite + AC3 default-mode redirect) -->
-<!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-001 describe -> AC4 hero/terminal (governed-run transcript: warn-tone drift + deny-tone egress + alignment refrain)/spine strip/nav/stat-band channel caps + governance anchor/method self-healing enforcement gate (is-fail/is-pass) + numbered clauses/security boundary denied-list + egress-inspection strip (is-redact DLP)/operations coda/context browser-isolation pipe/parallel review board + dispatch/cost ledger + run reconciliation/FAQ/form/launch render) -->
+<!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-001 describe -> AC4 hero/terminal (governed-run transcript: t-warn drift + t-deny egress + alignment refrain)/spine strip/nav/stat band channel cap + governance anchor/method self-healing enforcement gate (is-fail/is-pass) + numbered clauses/security boundary denied-list + egress-inspection strip (is-redact DLP)/operations section/context browser-isolated ingestion/parallel review board + dispatch/cost ledger + run reconciliation/FAQ/form/launch path Sign in) -->
 ### REQ-LANDING-001: Mode-aware public landing serving
 
 **Intent:** Unauthenticated visitors to the deployment root in SaaS or onboarding mode see the enterprise marketing landing page — positioning Codeflare as the enterprise agentic coding engine — while authenticated users and default-mode deployments keep their existing app entry flow.
@@ -56,7 +56,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 - `/landing/*` is listed in `run_worker_first` so landing documents carry the same security headers as `/`.
 - The landing build outputs to `web-ui/dist/landing/` and must build after web-ui (which wipes `dist/`).
 - Client JS is enhancement-only: the hero accent-word scramble, the page-wide flare-fluid signature (a fixed full-page WebGL layer driven by the cursor on desktop and by page scroll on touch, paused on a hidden tab, veiled to stay legible behind text), the one-shot proof-artifact sequences armed on scroll-in (the self-healing enforcement gate, the boundary data-path, the egress-inspection strip, the browser-isolation context pipe, the parallel review board, the cost attribution ledger; each artifact ships its resolved final state in the markup so content is never gated), and the scroll-reveal fades are all gated on `prefers-reduced-motion` and absent without JS; the full narrative renders statically.
-- The proof artifacts are bound to one spine run (`REQ-PAY-014` / `AC3` / `PR #207`, user `a.chen`, team `payments`), sourced once in `site.ts` so the IDs cannot drift between the hero transcript, the enforcement gate, the review board, and the cost ledger.
+- The proof artifacts are bound to one spine run (`REQ-PAY-014` / `AC3` / `PR #207`, user `a.chen`, team `payments`), sourced once in `site.ts` so the IDs cannot drift between the hero transcript, the enforcement gate, the egress-inspection strip, the review board, and the cost ledger. The boundary data-path and the browser-isolation context pipe are structural diagrams rendered alongside them, not ID-keyed to the spine.
 
 **Priority:** P1
 

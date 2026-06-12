@@ -26,8 +26,11 @@ reserved for ONE legible terminal demo (the hero) and two static code snippets
 engineering. A single locked accent, generous whitespace, hairline borders, one
 corner-radius scale. Each section uses a distinct layout family (stat band,
 two-column compare, and a set of mono "proof artifacts" that show the engine
-working rather than describing it, all bound to one spine PR (`REQ-PAY-014` /
-`PR #207`, sourced once in `site.ts`) so they read as camera angles on one run:
+working rather than describing it. The enforcement gate, egress-inspection strip,
+review board, and cost ledger are keyed to one spine PR (`REQ-PAY-014` /
+`PR #207`, sourced once in `site.ts`) so their IDs cannot drift; the boundary
+data-path and the isolation pipe are structural diagrams that read alongside
+them, so the set reads as camera angles on one run:
 a spec-driven-development "method" section whose self-healing enforcement gate
 visibly fails and then corrects a drift, with the three pillars as numbered
 clauses; security cards + a boundary data-path flow that also names what it makes

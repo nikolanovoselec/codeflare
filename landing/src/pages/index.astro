@@ -130,8 +130,8 @@ import {
         <p class="gate-caption reveal">{METHOD.gate.caption}</p>
         <ol class="method-clauses" data-stagger>
           {
-            METHOD.pillars.map((card, i) => (
-              <li style={`--i:${i}`}>
+            METHOD.pillars.map((card) => (
+              <li>
                 <h3>{card.title}</h3>
                 <p>{card.body}</p>
               </li>

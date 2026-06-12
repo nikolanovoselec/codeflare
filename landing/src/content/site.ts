@@ -133,7 +133,6 @@ export const HERO = {
 export const SPINE = {
   req: 'REQ-PAY-014',
   ac: 'AC3',
-  criterion: 'AC3: duplicate payment requests stay idempotent',
   pr: 'PR #207',
   user: 'a.chen',
   team: 'payments',
@@ -232,7 +231,7 @@ export const METHOD = {
   // showing the agent fail, then the platform catch and fix it.
   gate: {
     req: SPINE.req,
-    criterion: SPINE.criterion,
+    criterion: `${SPINE.ac}: duplicate payment requests stay idempotent`,
     pr: SPINE.pr,
     caption:
       'Drift is a blocking finding. The agent is corrected and re-verified. ' +
