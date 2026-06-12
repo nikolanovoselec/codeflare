@@ -10,6 +10,7 @@ import {
   COST,
   FAQ_ITEMS,
   HERO,
+  CONTEXT,
   METHOD,
   NAV_LINKS,
   OPERATIONS,
@@ -131,6 +132,20 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(text).toContain('zero-trust');
     expect(text).toContain('tunnels');
     for (const card of OPERATIONS.cards) {
+      expect(text).toContain(card.title);
+      expect(text).toContain(card.body.slice(0, 40));
+    }
+  });
+
+  it('renders the context section: browser-isolated web ingestion to agent-ready markdown', () => {
+    expect(html).toContain('id="context"');
+    expect(text).toContain(CONTEXT.kicker);
+    expect(text).toContain(CONTEXT.title);
+    // The load-bearing capability: isolated-browser rendering distilled to markdown.
+    expect(text).toContain('isolated browser');
+    expect(text).toContain('markdown');
+    expect(text).toContain('ingestion');
+    for (const card of CONTEXT.cards) {
       expect(text).toContain(card.title);
       expect(text).toContain(card.body.slice(0, 40));
     }

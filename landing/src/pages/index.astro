@@ -21,6 +21,7 @@ import {
   OPERATIONS,
   BROWSER,
   PLATFORM,
+  CONTEXT,
   PIPELINE,
   COST,
   TENANCY,
@@ -226,6 +227,30 @@ import {
         </div>
         <div class="agent-chips reveal" aria-label="Supported coding agents">
           {AGENTS.map((agent) => <span>{agent}</span>)}
+        </div>
+      </div>
+    </section>
+
+    <!-- Context: agents read the open web through browser isolation, distilled to
+         agent-ready markdown. Plain section (follows the plain Platform section;
+         Pipeline resumes the alternating band). -->
+    <section id={CONTEXT.id} class="section">
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="kicker">{CONTEXT.kicker}</p>
+          <h2>{CONTEXT.title}</h2>
+          <p class="lead">{CONTEXT.lead}</p>
+        </div>
+        <div class="card-grid card-grid--3" data-stagger>
+          {
+            CONTEXT.cards.map((card) => (
+              <div class="card">
+                <span class="card-tag">{card.tag}</span>
+                <h3>{card.title}</h3>
+                <p>{card.body}</p>
+              </div>
+            ))
+          }
         </div>
       </div>
     </section>

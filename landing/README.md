@@ -27,7 +27,8 @@ engineering. A single locked accent, generous whitespace, hairline borders, one
 corner-radius scale. Each section uses a distinct layout family (stat band,
 two-column compare, a spec-driven-development "method" section with pillar cards +
 an enforcement trace, security cards + a boundary data-path flow diagram, an
-operations section on policy-scoped infrastructure access, feature columns, point
+operations section on policy-scoped infrastructure access, a context section on
+browser-isolated web ingestion to agent-ready markdown, feature columns, point
 list + code block, cost layers, tenancy checklist, FAQ accordion).
 The full page renders statically with no JS. The motion: a quiet scroll-reveal, a
 scramble on the single hero accent word (the Codeflare ScrambleText effect, ported

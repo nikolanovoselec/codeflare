@@ -325,6 +325,41 @@ export const PLATFORM = {
   ] satisfies Card[],
 };
 
+export const CONTEXT = {
+  id: 'context',
+  kicker: 'Context',
+  title: 'The open web, rendered clean.',
+  lead:
+    'Agents pull in external content through isolated browsers. JavaScript-heavy pages and ' +
+    'interactive, gated content resolve to their real text, distilled into structured markdown ' +
+    'built for agent ingestion rather than raw HTML noise.',
+  cards: [
+    {
+      title: 'Browser-isolated retrieval',
+      tag: 'render',
+      body:
+        'Pages load in a throwaway isolated browser that runs their JavaScript and interactive ' +
+        'steps, so single-page apps, dynamic dashboards, and login-gated docs resolve to their ' +
+        'real content. The remote page never touches the agent container or your network directly.',
+    },
+    {
+      title: 'Distilled to structured markdown',
+      tag: 'distill',
+      body:
+        'The rendered page is reduced to clean markdown: headings, tables, code, and links kept, ' +
+        'chrome and scripts stripped. Token-efficient context an agent can reason over, not a wall ' +
+        'of markup.',
+    },
+    {
+      title: 'Straight into the agent',
+      tag: 'ingest',
+      body:
+        'The result lands in the session context or the knowledge graph, so retrieved pages become ' +
+        'durable, queryable knowledge. What the agent reasons over is signal, kept inside your boundary.',
+    },
+  ] satisfies Card[],
+};
+
 export const PIPELINE = {
   id: 'pipeline',
   title: 'Agents become citizens of your pipeline.',

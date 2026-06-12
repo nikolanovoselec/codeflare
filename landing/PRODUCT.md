@@ -33,7 +33,10 @@ load-bearing selling point (verbatim from the founder):
   governed; data loss prevention; enterprise IAM integration; everything encrypted at rest;
   compliance guarantees.
 - **Scaffolding that superpowers coding agents** (highest focus): enterprise tooling,
-  30+ skills, specialist subagents, knowledge-graph memory, data persistence, MCP tooling.
+  30+ skills, specialist subagents, knowledge-graph memory, data persistence, MCP tooling,
+  and browser-isolated web ingestion (agents read the open web through isolated browsers
+  that render heavy JavaScript and gated content, distilled into structured markdown built
+  for agent ingestion rather than raw HTML).
 - **Spec-driven development, enforced** (highest focus): work begins as requirements with
   acceptance criteria; Codeflare both develops under SDD and *enforces* SDD + TDD compliance
   at every PR boundary — a self-healing loop that gives autonomous agents no room to drift
