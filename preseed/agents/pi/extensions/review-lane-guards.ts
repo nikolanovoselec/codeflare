@@ -46,8 +46,16 @@ export function reviewScopeBlockReason(command: string, scope: ReviewScope): str
   if (/\bgh\s+pr\s+diff\b/.test(command)) {
     return `Full-PR diff is blocked in incremental review mode — review only the window (${windowCmd}), not the whole PR.`;
   }
-  if (/\bgit\s+diff\b/.test(command) && /\borigin\//.test(command) && /\.\.\./.test(command)) {
-    return `Full-PR diff is blocked in incremental review mode — review only the window (${windowCmd}), not the full PR diff against ${scope.baseRef ?? "the base branch"}.`;
+  // A `git diff` that ranges (two- OR three-dot) against the base branch — `origin/<ref>`,
+  // the base ref itself, or main/master/develop — is a full-PR diff. The window form ranges
+  // between the acked base SHA and the head SHA, so it never matches these branch endpoints
+  // (and a bare SHA range like `<base>..<head>` stays allowed). `\.\.` catches both `..` and `...`.
+  if (/\bgit\s+diff\b/.test(command)) {
+    const baseRef = scope.baseRef ? scope.baseRef.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : "";
+    const fullPrRange = new RegExp(`\\b(?:origin/[^\\s.]+|${baseRef ? `${baseRef}|` : ""}main|master|develop)\\.\\.`);
+    if (fullPrRange.test(command)) {
+      return `Full-PR diff is blocked in incremental review mode — review only the window (${windowCmd}), not the full PR diff against ${scope.baseRef ?? "the base branch"}.`;
+    }
   }
   return undefined;
 }

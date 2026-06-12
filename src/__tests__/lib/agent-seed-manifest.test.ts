@@ -1990,9 +1990,13 @@ describe('Incremental review scope confinement / REQ-AGENT-040 AC8 (reviewer def
     expect(reviewScopeBlockReason('gh pr diff', {})).toBeUndefined();
   });
 
-  it('REQ-AGENT-060 AC8: with an acked base, full-PR diff commands are blocked', () => {
+  it('REQ-AGENT-060 AC8: with an acked base, full-PR diff commands are blocked (three-dot, two-dot, non-origin base, gh pr diff)', () => {
     expect(reviewScopeBlockReason('git diff origin/main...HEAD', scope)).toMatch(/incremental review mode/);
+    expect(reviewScopeBlockReason('git diff origin/main..HEAD', scope)).toMatch(/incremental review mode/);     // two-dot form
     expect(reviewScopeBlockReason('git diff origin/develop...HEAD', { ...scope, baseRef: 'develop' })).toMatch(/incremental review mode/);
+    expect(reviewScopeBlockReason('git diff main...HEAD', scope)).toMatch(/incremental review mode/);           // no origin/ prefix
+    expect(reviewScopeBlockReason('git diff develop..HEAD', scope)).toMatch(/incremental review mode/);          // bare base branch, two-dot
+    expect(reviewScopeBlockReason('git diff feature/x...HEAD', { ...scope, baseRef: 'feature/x' })).toMatch(/incremental review mode/); // arbitrary base ref
     expect(reviewScopeBlockReason('gh pr diff', scope)).toMatch(/incremental review mode/);
     expect(reviewScopeBlockReason('gh pr diff 207', scope)).toMatch(/incremental review mode/);
   });

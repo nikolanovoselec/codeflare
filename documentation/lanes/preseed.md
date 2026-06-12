@@ -402,6 +402,28 @@ All preseed content is deployed via the manifest pipeline:
   `lane_recovered`) if its transcript later shows a terminal clean usable
   result, so a review that succeeded on retry is never left discarded.
 
+  After the first acknowledged review, subsequent re-reviews are scoped to the
+  incremental window between the last acked clean head and the current head
+  (`last-acked-head..current-head`), not the full PR diff, so a re-review
+  inspects only the new commits instead of re-flagging the whole PR each round.
+  `spawnDurableLane` carries that window into each durable lane subprocess by
+  exporting `CODEFLARE_REVIEW_BASE` (last acked head), `CODEFLARE_REVIEW_HEAD`
+  (current head), and `CODEFLARE_REVIEW_BASE_REF` (base branch ref) when a prior
+  clean head was acked; on a first review none are set and the lane reviews the
+  full PR diff. The scope limitation deliberately lives in the dispatch runtime,
+  never in the shared reviewer agent definitions or enforce skills (which Claude
+  and other CLIs also inherit): those are scope-agnostic, reviewing exactly the
+  window the caller provides and defaulting to the full change set only when no
+  window is given. The `reviewScopeBlockReason` guard (`review-lane-guards.ts`)
+  makes the window binding: when `CODEFLARE_REVIEW_BASE` is set it blocks full-PR
+  diff commands (`gh pr diff`; a `git diff` ranging against `origin/<ref>...`)
+  while allowing the window forms (`git diff <base> <head>`, `--name-only`,
+  `-- <path>`). Implements
+  [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
+  AC8 and
+  [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface)
+  AC8.
+
   After the exact-head durable review job completes and every required lane has
   a result file, Pi publishes one merged chat summary with `## Review Summary`,
   `## Findings`, and `## Finding Details` sections. That chat summary aggregates
