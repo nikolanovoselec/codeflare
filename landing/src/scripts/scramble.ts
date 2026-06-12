@@ -78,7 +78,7 @@ function setupElement(el: HTMLElement): void {
   const parts = full.split(/(\s+)/);
   el.textContent = '';
 
-  const words: HTMLElement[] = [];
+  const words: { span: HTMLElement; text: string }[] = [];
   for (const part of parts) {
     if (part === '') continue;
     if (/^\s+$/.test(part)) {
@@ -88,28 +88,45 @@ function setupElement(el: HTMLElement): void {
       span.className = 'scramble-word';
       span.textContent = part;
       el.appendChild(span);
-      words.push(span);
+      words.push({ span, text: part });
     }
   }
 
-  // Lock each word's natural width, then start the loops. Fixed widths mean the
-  // churning glyphs can never push the line to rewrap. Measure only after the
-  // webfont has loaded, or the locked widths would be wrong once Inter swaps in.
-  const lockAndRun = () => {
-    for (const span of words) {
-      span.style.width = `${span.getBoundingClientRect().width.toFixed(2)}px`;
+  // Measure each word's natural width at the CURRENT font size and lock it, so
+  // the churning glyphs can never push the line to rewrap. The hero font size is
+  // fluid (a vw-based clamp), so this must re-run on resize/rotation or the
+  // locked px widths would clip or misalign at the new size.
+  const lockWidths = () => {
+    for (const { span, text } of words) {
+      span.style.width = '';
+      span.textContent = text;
     }
-    for (const span of words) {
-      animateWord(span, span.textContent ?? '');
+    for (const { span } of words) {
+      span.style.width = `${span.getBoundingClientRect().width.toFixed(2)}px`;
     }
   };
 
+  const start = () => {
+    lockWidths();
+    for (const { span, text } of words) {
+      animateWord(span, text);
+    }
+  };
+
+  // Measure only after the webfont has loaded, or the widths would be wrong once
+  // Inter swaps in over the fallback font.
   const fonts = (document as Document & { fonts?: { ready: Promise<unknown> } }).fonts;
   if (fonts?.ready) {
-    fonts.ready.then(() => requestAnimationFrame(lockAndRun));
+    fonts.ready.then(() => requestAnimationFrame(start));
   } else {
-    requestAnimationFrame(lockAndRun);
+    requestAnimationFrame(start);
   }
+
+  let resizeTimer = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => requestAnimationFrame(lockWidths), 150);
+  });
 }
 
 function initScramble(): void {
