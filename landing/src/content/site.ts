@@ -49,6 +49,16 @@ export interface EgressRow {
   text: string;
 }
 
+/** A row in the security boundary artifact: an approved path (pass, green) or a
+ *  path the architecture makes impossible (deny, coral). Same gate grammar as
+ *  the enforcement gate and egress strip, so security reads as one receipt. */
+export interface BoundaryRow {
+  actor: string;
+  state: 'pass' | 'deny';
+  label: string;
+  text: string;
+}
+
 /** A lane in the parallel review board (pipeline section proof artifact). */
 export interface ReviewLane {
   agent: string;
@@ -104,6 +114,11 @@ export interface FeatureTerminal {
   title: string;
   lines: TranscriptLine[];
   foot: string;
+  /** Short commands the live prompt line types then deletes in a loop
+   *  (feature-terminals.ts), staggered so the four are never in sync. */
+  loop?: string[];
+  /** This terminal's prompt just blinks (the one idle cursor among the four). */
+  idle?: boolean;
 }
 
 export const NAV_LINKS: NavLink[] = [
@@ -147,17 +162,16 @@ export const SPINE = {
 export const TERMINAL = {
   title: `codeflare · ${SPINE.service}`,
   lines: [
-    { tone: 'cmd', text: `/sdd implement ${SPINE.req} · AC: 3` },
-    { tone: 'agent', text: '✻ ephemeral container in your tenancy, gone on exit' },
-    { tone: 'agent', text: '✻ tests first: 9 cases, then the implementation' },
-    { tone: 'warn', text: '⚠ spec-enforce: AC3 uncovered, drift is a blocking finding' },
-    { tone: 'agent', text: '✻ agent corrects to the plan, writes the missing case' },
-    { tone: 'ok', text: '✓ re-verified: AC3 covered, 10 of 10 green, zero drift' },
-    { tone: 'agent', text: '✻ PR boundary: /review --deep, 6 agents in parallel' },
-    { tone: 'deny', text: '✕ direct provider call denied, rerouted to your AI Gateway' },
-    { tone: 'dim', text: '  41 model calls: DLP on egress, every token attributed' },
+    { tone: 'cmd', text: `/sdd implement ${SPINE.req}` },
+    { tone: 'agent', text: '✻ ephemeral container · your tenancy' },
+    { tone: 'agent', text: '✻ tests first, then the code' },
+    { tone: 'warn', text: '⚠ drift is a blocking finding' },
+    { tone: 'agent', text: '✻ agent corrects · re-verified 10/10' },
+    { tone: 'cmd', text: '/review --deep · 6 agents' },
+    { tone: 'deny', text: '✕ direct provider call denied' },
+    { tone: 'dim', text: '  → your AI Gateway · DLP on egress' },
     { tone: 'ok', text: '✓ specification, implementation and documentation aligned' },
-    { tone: 'ok', text: `✓ ${SPINE.pr} ready for triage, CI green, the merge is yours` },
+    { tone: 'ok', text: `✓ ${SPINE.pr} ready · CI green · you merge` },
   ] satisfies TranscriptLine[],
   foot: {
     ctx: 'context 18%',
@@ -185,6 +199,7 @@ export const FEATURE_TERMINALS: FeatureTerminal[] = [
       { tone: 'ok', text: '✓ 41 calls · every token attributed' },
     ],
     foot: 'guardrails on · DLP on egress · your keys',
+    idle: true,
   },
   {
     title: 'codeflare · session',
@@ -195,6 +210,7 @@ export const FEATURE_TERMINALS: FeatureTerminal[] = [
       { tone: 'ok', text: '✓ destroyed on exit · 0 standing infra' },
     ],
     foot: 'a browser · your IdP · zero footprint',
+    loop: ['open session', 'attach pty', 'exit'],
   },
   {
     title: `codeflare · ${SPINE.pr}`,
@@ -205,6 +221,7 @@ export const FEATURE_TERMINALS: FeatureTerminal[] = [
       { tone: 'ok', text: "✓ CI green · the merge is a human's" },
     ],
     foot: 'code · security · spec · tests · docs · e2e',
+    loop: ['/review --deep', 'gh pr view 207', 'merge'],
   },
   {
     title: 'codeflare · spec',
@@ -215,6 +232,7 @@ export const FEATURE_TERMINALS: FeatureTerminal[] = [
       { tone: 'ok', text: '✓ 10 of 10 green · zero drift' },
     ],
     foot: 'spec · tests · docs, aligned and enforced',
+    loop: ['/sdd status', 'run AC tests', 'check drift'],
   },
 ];
 
@@ -281,63 +299,31 @@ export const METHOD = {
 
 export const SECURITY = {
   id: 'security',
-  kicker: 'Security',
   title: 'Zero trust is the architecture, not a policy.',
   lead:
     'Autonomous agents are only safe inside structural boundaries. Codeflare makes the ' +
-    'dangerous behaviors impossible to express, not merely discouraged.',
-  cards: [
-    {
-      title: 'Isolated ephemeral containers',
-      tag: 'structural',
-      body:
-        'Every session is its own container, born on demand and destroyed after use. Nothing ' +
-        'to escalate into and nowhere to move laterally: the environment ceases to exist.',
-    },
-    {
-      title: 'Identity-gated, your IdP',
-      tag: 'identity',
-      body:
-        'Every request authenticates through Cloudflare Access against Entra ID, Okta, or any ' +
-        'SAML/OIDC source you run. No VPNs, instant offboarding by group membership.',
-    },
-    {
-      title: 'Egress governed below the agent',
-      tag: 'guardrails + DLP',
-      body:
-        'LLM traffic is intercepted beneath the container and routed through your AI Gateway, ' +
-        'where guardrails, DLP, and rate controls apply. Agents physically cannot reach ' +
-        'unapproved endpoints, and provider credentials never enter the container.',
-    },
-    {
-      title: 'Code never touches the device',
-      tag: 'data',
-      body:
-        'Source exists only inside the container and your storage boundary. The endpoint ' +
-        'exfiltration surface enterprises spend millions managing simply is not there.',
-    },
-  ] satisfies Card[],
+    'dangerous paths impossible to express, not merely discouraged: one session, ' +
+    'everything it may do, and everything it cannot.',
   microCta: 'Request the security and compliance deep-dive',
+  // The boundary as one proof artifact: the approved paths (pass) and the paths
+  // the architecture makes impossible (deny), in the same gate grammar as the
+  // enforcement gate and egress strip, so security reads as one coherent receipt
+  // instead of a weak diagram plus a loose denied-list.
+  boundary: {
+    title: 'boundary · one session',
+    rows: [
+      { actor: 'identity', state: 'pass', label: 'authenticated', text: 'your IdP · Entra, Okta, any OIDC' },
+      { actor: 'container', state: 'pass', label: 'isolated', text: 'your tenancy · destroyed on exit' },
+      { actor: 'egress', state: 'pass', label: 'inspected', text: 'your AI Gateway · guardrails · DLP' },
+      { actor: 'direct call', state: 'deny', label: 'denied', text: 'no provider endpoint outside the gateway' },
+      { actor: 'lateral move', state: 'deny', label: 'impossible', text: 'nothing to escalate into, nowhere to go' },
+      { actor: 'exfiltration', state: 'deny', label: 'none', text: 'source never touches the endpoint device' },
+    ] satisfies BoundaryRow[],
+    caption:
+      'One session, drawn in full: three approved paths, three the architecture makes ' +
+      'impossible. The boundary is yours, and it holds by construction.',
+  },
 };
-
-/** Boundary data-path diagram nodes (browser → access → container → gateway). */
-export const BOUNDARY_FLOW = [
-  { label: 'Browser', sub: 'zero footprint', accent: false, edge: 'TLS' },
-  { label: 'Cloudflare Access', sub: 'your IdP', accent: false, edge: 'authenticated' },
-  { label: 'Ephemeral container', sub: 'your tenancy · destroyed on exit', accent: true, edge: 'intercepted' },
-  { label: 'Your AI Gateway', sub: 'guardrails · DLP · approved models', accent: false, edge: '' },
-];
-
-/** What the boundary makes structurally impossible, not merely discouraged.
- *  Rendered as denied chips beside the data-path so the negative space of the
- *  architecture is as visible as the approved path. */
-export const BOUNDARY_BLOCKED = [
-  'Direct provider call: denied',
-  'Lateral move to a peer session: impossible',
-  'Source code on the endpoint device: none',
-  'Reach to an unapproved endpoint: blocked',
-  'Privilege escalation: nothing to escalate into',
-];
 
 /** Egress-inspection strip: one outbound model call inspected at the boundary,
  *  turning DLP and guardrails into auditable evidence rather than asserted
@@ -358,6 +344,31 @@ export const EGRESS = {
   caption:
     'One model call, inspected: guardrails pass, DLP redacts one PAN, the route is approved. ' +
     'Nothing leaves the boundary unseen.',
+};
+
+export const GITHUB_URL = 'https://github.com/nikolanovoselec/codeflare';
+
+/** Dogfooding proof: this very page is REQ-LANDING-001, built by Codeflare under
+ *  its own spec / test / review enforcement. The @impl and @test anchors are
+ *  real (they live in sdd/spec/landing.md) and load-bearing in the pipeline, so
+ *  this is the most credible artifact on the page: it is literally true. */
+export const DOGFOOD = {
+  id: 'dogfood',
+  title: 'Codeflare built this page.',
+  lead:
+    'This landing page is a requirement in the Codeflare specification, built and shipped by ' +
+    'Codeflare under the same enforcement shown above. The annotations that link the spec to ' +
+    'its code and its tests are invisible in the rendered docs and load-bearing in the pipeline.',
+  terminalTitle: 'REQ-LANDING-001 · sdd/spec/landing.md',
+  lines: [
+    { tone: 'cmd', text: 'grep "@impl|@test" REQ-LANDING-001' },
+    { tone: 'dim', text: '@impl landing/src/pages/index.astro' },
+    { tone: 'dim', text: '@impl landing/src/components/FeatureTerminals.astro' },
+    { tone: 'dim', text: '@impl landing/src/scripts/agentfoot.ts' },
+    { tone: 'dim', text: '@test landing/src/__tests__/index-page.test.ts' },
+    { tone: 'ok', text: '✓ implemented · enforced at every PR boundary' },
+  ] satisfies TranscriptLine[],
+  cta: { label: 'See it on GitHub', href: GITHUB_URL },
 };
 
 export const OPERATIONS = {

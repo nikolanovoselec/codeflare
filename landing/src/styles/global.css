@@ -297,6 +297,21 @@ svg {
   z-index: 1;
 }
 
+/* Desktop: headline copy and the terminal sit side by side, so the terminal is
+   a natural ~half-width window (the short transcript fills it) instead of a wide
+   box with dead space on the right. Mobile stacks: copy, then terminal below. */
+@media (min-width: 980px) {
+  .hero .container {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.02fr);
+    align-items: center;
+    gap: clamp(2.5rem, 5vw, 4.5rem);
+  }
+  .hero-terminal {
+    margin-top: 0;
+  }
+}
+
 .hero h1 {
   font-size: var(--fs-display);
   max-width: 18ch;
@@ -694,14 +709,20 @@ svg {
     grid-template-columns: repeat(3, 1fr);
     gap: clamp(1.5rem, 4vw, 3rem);
   }
-  .feature-grid--3 .feature-col {
+  .feature-grid--2 {
+    grid-template-columns: repeat(2, 1fr);
+    gap: clamp(1.5rem, 4vw, 3.5rem);
+  }
+  .feature-grid--3 .feature-col,
+  .feature-grid--2 .feature-col {
     border-top: none;
     border-bottom: none;
     border-left: 1px solid var(--border-subtle);
     padding-block: 0;
     padding-left: clamp(1.25rem, 3vw, 2rem);
   }
-  .feature-grid--3 .feature-col:first-child {
+  .feature-grid--3 .feature-col:first-child,
+  .feature-grid--2 .feature-col:first-child {
     border-left: none;
     padding-left: 0;
   }
@@ -1348,6 +1369,16 @@ svg {
   border-color: rgb(74 222 128 / 0.34);
 }
 
+/* Security boundary: the paths the architecture makes impossible, coral like a
+   caught drift, so the negative space reads as deliberate, not an error. */
+.gate-step.is-deny .gate-actor,
+.gate-step.is-deny .gate-state {
+  color: var(--accent);
+}
+.gate-step.is-deny .gate-state {
+  border-color: var(--accent-line);
+}
+
 @media (min-width: 620px) {
   .gate-step {
     grid-template-columns: 8.5rem 6.5rem 1fr;
@@ -1916,4 +1947,41 @@ svg {
   .flare-field {
     display: none;
   }
+}
+
+/* --------------------------------------------------------------------------
+   Polish additions: GitHub nav link, dogfood proof terminal, live prompt
+   -------------------------------------------------------------------------- */
+.nav-github {
+  display: none;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  transition: color 0.18s var(--ease-out);
+}
+
+.nav-github:hover {
+  color: var(--text-primary);
+}
+
+@media (min-width: 760px) {
+  .nav-github {
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+/* The dogfood terminal is a contained window (not full container width), so its
+   short annotation lines fill it instead of leaving dead space on the right. */
+.dogfood-terminal {
+  max-width: 44rem;
+}
+
+.dogfood-cta {
+  margin-top: 1.35rem;
+}
+
+/* Feature-terminal live prompt: the typed command inherits the command colour;
+   the caret sits right after it. The type/delete loop is feature-terminals.ts. */
+.ft-typed {
+  color: var(--text-primary);
 }

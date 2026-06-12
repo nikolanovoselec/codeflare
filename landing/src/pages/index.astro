@@ -23,8 +23,6 @@ import {
   SHIFT,
   METHOD,
   SECURITY,
-  BOUNDARY_FLOW,
-  BOUNDARY_BLOCKED,
   EGRESS,
   OPERATIONS,
   BROWSER,
@@ -36,6 +34,8 @@ import {
   FAQ_SECTION,
   FAQ_ITEMS,
   CONTACT_FORM,
+  DOGFOOD,
+  GITHUB_URL,
 } from '../content/site';
 ---
 
@@ -47,6 +47,7 @@ import {
         <ul class="nav-links">
           {NAV_LINKS.map((link) => <li><a href={link.href}>{link.label}</a></li>)}
         </ul>
+        <a class="nav-github" href={GITHUB_URL} target="_blank" rel="noopener" aria-label="Codeflare on GitHub">GitHub</a>
         <a class="btn btn-ghost btn-sm nav-signin" href={APP_LINKS.signIn}>Sign in</a>
       </div>
     </div>
@@ -74,7 +75,6 @@ import {
     <section id={METHOD.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
-          <p class="kicker">{METHOD.kicker}</p>
           <h2>{METHOD.title}</h2>
           <p class="lead">{METHOD.lead}</p>
         </div>
@@ -121,53 +121,37 @@ import {
          strip below turns DLP and guardrails into auditable evidence. -->
     <section id={SECURITY.id} class="section">
       <div class="container">
-        <div class="split">
-          <div class="section-head reveal" style="margin-bottom:0">
-            <p class="kicker">{SECURITY.kicker}</p>
-            <h2>{SECURITY.title}</h2>
-            <p class="lead">{SECURITY.lead}</p>
-            <p class="micro-cta">
-              <a href="#contact" data-topic="security-compliance">{SECURITY.microCta}</a>
-            </p>
+        <div class="section-head reveal">
+          <h2>{SECURITY.title}</h2>
+          <p class="lead">{SECURITY.lead}</p>
+          <p class="micro-cta">
+            <a href="#contact" data-topic="security-compliance">{SECURITY.microCta}</a>
+          </p>
+        </div>
+        <!-- Boundary: the approved paths and the paths the architecture makes
+             impossible, in one gate (the same grammar as the enforcement gate
+             and the egress strip), so security reads as one coherent receipt
+             rather than a diagram plus a loose denied-list. -->
+        <div class="gate boundary reveal" data-proof>
+          <div class="gate-head">
+            <span class="gate-req">{SECURITY.boundary.title}</span>
           </div>
-          <div class="split-aside reveal">
-            <!-- Boundary data-path: the approved route lights stage by stage on
-                 scroll-in (data-proof); the denied paths name what the
-                 architecture makes impossible, not merely discouraged. -->
-            <div class="flow" data-proof>
-              {
-                BOUNDARY_FLOW.map((node, i) => (
-                  <Fragment>
-                    <div class:list={['flow-node', { 'is-accent': node.accent }]} style={`--i:${i}`}>
-                      {node.label}
-                      <small>{node.sub}</small>
-                    </div>
-                    {i < BOUNDARY_FLOW.length - 1 && (
-                      <div class="flow-arrow" style={`--i:${i}`}>{node.edge && <span>{node.edge}</span>}</div>
-                    )}
-                  </Fragment>
-                ))
-              }
-            </div>
-            <ul class="denied-list" aria-label="What the boundary makes impossible">
-              {BOUNDARY_BLOCKED.map((item) => <li>{item}</li>)}
-            </ul>
+          <div class="gate-steps">
+            {
+              SECURITY.boundary.rows.map((row, i) => (
+                <div class:list={['gate-step', `is-${row.state}`]} style={`--i:${i}`}>
+                  <span class="gate-actor">{row.actor}</span>
+                  <span class="gate-state">{row.label}</span>
+                  <span class="gate-text">{row.text}</span>
+                </div>
+              ))
+            }
           </div>
         </div>
-        <div class="card-grid card-grid--2" data-stagger>
-          {
-            SECURITY.cards.map((card) => (
-              <div class="card">
-                <span class="card-tag">{card.tag}</span>
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </div>
-            ))
-          }
-        </div>
+        <p class="gate-caption reveal">{SECURITY.boundary.caption}</p>
         <!-- Egress-inspection strip: one outbound model call inspected at the
-             boundary. Structural twin of the gate; the DLP redaction is the one
-             amber beat. data-proof replays the rows once on scroll-in. -->
+             boundary. The DLP redaction is the one amber beat; data-proof
+             replays the rows once on scroll-in. -->
         <div class="gate egress reveal" data-proof>
           <div class="gate-head">
             <span class="gate-req">egress</span>
@@ -194,15 +178,13 @@ import {
     <section id={OPERATIONS.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
-          <p class="kicker">{OPERATIONS.kicker}</p>
           <h2>{OPERATIONS.title}</h2>
           <p class="lead">{OPERATIONS.lead}</p>
         </div>
-        <div class="card-grid card-grid--3" data-stagger>
+        <div class="feature-grid feature-grid--3" data-stagger>
           {
             OPERATIONS.cards.map((card) => (
-              <div class="card">
-                <span class="card-tag">{card.tag}</span>
+              <div class="feature-col">
                 <h3>{card.title}</h3>
                 <p>{card.body}</p>
               </div>
@@ -218,7 +200,6 @@ import {
     <section id={CONTEXT.id} class="section">
       <div class="container">
         <div class="section-head reveal">
-          <p class="kicker">{CONTEXT.kicker}</p>
           <h2>{CONTEXT.title}</h2>
           <p class="lead">{CONTEXT.lead}</p>
         </div>
@@ -240,11 +221,10 @@ import {
           </div>
           <p class="pipe-note">{CONTEXT.pipeNote}</p>
         </div>
-        <div class="card-grid card-grid--3" data-stagger>
+        <div class="feature-grid feature-grid--3" data-stagger>
           {
             CONTEXT.cards.map((card) => (
-              <div class="card">
-                <span class="card-tag">{card.tag}</span>
+              <div class="feature-col">
                 <h3>{card.title}</h3>
                 <p>{card.body}</p>
               </div>
@@ -401,14 +381,13 @@ import {
     <section id={PLATFORM.id} class="section">
       <div class="container">
         <div class="section-head reveal">
-          <p class="kicker">{PLATFORM.kicker}</p>
           <h2>{PLATFORM.title}</h2>
           <p class="lead">{PLATFORM.lead}</p>
         </div>
-        <div class="card-grid card-grid--2" data-stagger>
+        <div class="feature-grid feature-grid--2" data-stagger>
           {
             PLATFORM.cards.map((card) => (
-              <div class="card">
+              <div class="feature-col">
                 <h3>{card.title}</h3>
                 <p>{card.body}</p>
               </div>
@@ -461,8 +440,32 @@ import {
       </div>
     </section>
 
+    <!-- Dogfood: this very page is a Codeflare-governed requirement. The proof
+         is real (the @impl / @test anchors live in sdd/spec/landing.md), and it
+         leads straight into the contact CTA as the closing argument. -->
+    <section id={DOGFOOD.id} class="section section--alt">
+      <div class="container">
+        <div class="section-head reveal">
+          <h2>{DOGFOOD.title}</h2>
+          <p class="lead">{DOGFOOD.lead}</p>
+        </div>
+        <div class="terminal dogfood-terminal reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="terminal-title">{DOGFOOD.terminalTitle}</span>
+          </div>
+          <div class="terminal-body">
+            {DOGFOOD.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
+          </div>
+        </div>
+        <p class="micro-cta dogfood-cta reveal">
+          <a href={DOGFOOD.cta.href} target="_blank" rel="noopener">{DOGFOOD.cta.label}</a>
+        </p>
+      </div>
+    </section>
+
     <!-- Contact -->
-    <section id={CONTACT_FORM.id} class="section section--alt">
+    <section id={CONTACT_FORM.id} class="section">
       <div class="container">
         <div class="section-head reveal">
           <h2>{CONTACT_FORM.title}</h2>

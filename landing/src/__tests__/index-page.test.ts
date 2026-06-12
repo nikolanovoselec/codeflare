@@ -5,10 +5,11 @@ import PrivacyPage from '../pages/privacy.astro';
 import { APP_LINKS } from '../config';
 import {
   AGENTS,
-  BOUNDARY_BLOCKED,
   BROWSER,
   CONTACT_FORM,
   COST,
+  DOGFOOD,
+  GITHUB_URL,
   EGRESS,
   FAQ_ITEMS,
   FEATURE_TERMINALS,
@@ -125,7 +126,6 @@ describe('landing page (REQ-LANDING-001)', () => {
 
   it('renders the method section: spec-driven development as a standout with the self-healing trace', () => {
     expect(html).toContain('id="method"');
-    expect(text).toContain(METHOD.kicker);
     expect(text).toContain(METHOD.title);
     for (const pillar of METHOD.pillars) {
       expect(text).toContain(pillar.title);
@@ -151,23 +151,38 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(html).toContain('method-clauses');
   });
 
-  it('renders the security cards and the boundary flow diagram', () => {
-    for (const card of SECURITY.cards) {
-      expect(text).toContain(card.title);
-      expect(text).toContain(card.body.slice(0, 50));
-    }
-    expect(text).toContain('Ephemeral container');
-    // The gateway is named explicitly as the AI Gateway, with its controls.
-    expect(text).toContain('Your AI Gateway');
-    expect(text).toContain('guardrails');
-    expect(text).toContain('DLP');
+  it('renders the security boundary as one gate: approved and impossible paths, plus the egress strip', () => {
+    expect(html).toContain('id="security"');
+    expect(text).toContain(SECURITY.title);
     expect(html).toContain('data-topic="security-compliance"');
-    // The boundary also names what it makes structurally impossible, not just
-    // the approved path (the negative space competitors never show).
-    expect(html).toContain('denied-list');
-    for (const denied of BOUNDARY_BLOCKED) {
-      expect(text).toContain(denied);
+    // The boundary is one coherent gate (no diagram plus a loose denied-list):
+    // every row renders its actor, state label, and text, with at least one
+    // approved path and one the architecture makes impossible.
+    expect(html).toContain('gate boundary');
+    expect(text).toContain(SECURITY.boundary.title);
+    for (const row of SECURITY.boundary.rows) {
+      expect(text).toContain(row.actor);
+      expect(text).toContain(row.label);
+      expect(text).toContain(row.text);
     }
+    expect(SECURITY.boundary.rows.some((r) => r.state === 'pass')).toBe(true);
+    expect(SECURITY.boundary.rows.some((r) => r.state === 'deny')).toBe(true);
+    expect(html).toContain('is-deny');
+    expect(text).toContain(SECURITY.boundary.caption.slice(0, 40));
+    // The AI Gateway is named as the egress control.
+    expect(text).toContain('your AI Gateway');
+  });
+
+  it('renders the dogfood proof: this page as REQ-LANDING-001 with real anchors and a GitHub link', () => {
+    expect(html).toContain('id="dogfood"');
+    expect(text).toContain(DOGFOOD.title);
+    expect(text).toContain(DOGFOOD.terminalTitle);
+    for (const line of DOGFOOD.lines) {
+      expect(text).toContain(line.text);
+    }
+    // The CTA and the nav/footer link out to the public repo.
+    expect(html).toContain(`href="${GITHUB_URL}"`);
+    expect(text).toContain(DOGFOOD.cta.label);
   });
 
   it('renders the egress-inspection strip: one model call with guardrails pass, a DLP redaction, and an approved route', () => {
@@ -186,7 +201,6 @@ describe('landing page (REQ-LANDING-001)', () => {
 
   it('renders the operations section: infrastructure beyond code via zero-trust tunnels', () => {
     expect(html).toContain('id="operations"');
-    expect(text).toContain(OPERATIONS.kicker);
     expect(text).toContain(OPERATIONS.title);
     // The load-bearing capability: policy-scoped zero-trust tunnels to internal systems.
     expect(text).toContain('zero-trust');
@@ -201,7 +215,6 @@ describe('landing page (REQ-LANDING-001)', () => {
 
   it('renders the context section: browser-isolated web ingestion to agent-ready markdown', () => {
     expect(html).toContain('id="context"');
-    expect(text).toContain(CONTEXT.kicker);
     expect(text).toContain(CONTEXT.title);
     // The load-bearing capability: isolated-browser rendering distilled to markdown.
     expect(text).toContain('isolated browser');

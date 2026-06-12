@@ -1,5 +1,5 @@
 ---
-import { FOOTER } from '../content/site';
+import { FOOTER, GITHUB_URL } from '../content/site';
 import { APP_LINKS } from '../config';
 const year = new Date().getFullYear();
 ---
@@ -9,6 +9,7 @@ const year = new Date().getFullYear();
     <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span>codeflare</a>
     <ul class="footer-links">
       <li><a href={APP_LINKS.signIn}>Sign in</a></li>
+      <li><a href={GITHUB_URL} target="_blank" rel="noopener">GitHub</a></li>
       {FOOTER.links.map((link) => <li><a href={link.href}>{link.label}</a></li>)}
     </ul>
     <p class="footer-copy">© {year} Codeflare. {FOOTER.tagline}</p>

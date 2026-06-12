@@ -15,7 +15,11 @@ import { FEATURE_TERMINALS } from '../content/site';
 <div class="feature-terminals">
   {
     FEATURE_TERMINALS.map((ft) => (
-      <div class="terminal feature-terminal" data-proof>
+      <div
+        class="terminal feature-terminal"
+        data-proof
+        data-ft-loop={ft.loop ? JSON.stringify(ft.loop) : undefined}
+      >
         <div class="terminal-bar">
           <span class="terminal-dots" aria-hidden="true">
             <span />
@@ -31,6 +35,7 @@ import { FEATURE_TERMINALS } from '../content/site';
             </span>
           ))}
           <span class="t-line t-cmd" style={`--i:${ft.lines.length}`}>
+            <span class="ft-typed" data-ft-typed>{ft.idle ? '' : (ft.loop?.[0] ?? '')}</span>
             <span class="t-caret" aria-hidden="true" />
           </span>
         </div>
