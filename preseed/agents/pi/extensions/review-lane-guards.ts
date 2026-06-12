@@ -35,9 +35,10 @@ type ReviewScope = { base?: string; head?: string; baseRef?: string };
  * CODEFLARE_REVIEW_BASE names it — the lane must review ONLY base..head, never the
  * full PR diff. The shared agent/skill prompts already instruct this; this guard makes
  * it binding so a reviewer cannot fall back to a full-PR diff and re-review the whole
- * PR every round. Allows the window forms (`git diff <base> <head>`, `--name-only`,
- * `-- <path>`); blocks the full-PR forms (`gh pr diff`, and a `git diff` that ranges
- * against `origin/<ref>...` with a three-dot merge-base). With no base set (first
+ * PR every round. Allows the window forms (`git diff <base> <head>`, a bare
+ * `<base>..<head>` SHA range, `--name-only`, `-- <path>`); blocks the full-PR forms
+ * (`gh pr diff`, and a `git diff` ranging two- or three-dot against the base branch —
+ * `origin/<ref>`, the base ref, or main/master/develop). With no base set (first
  * review), nothing is blocked.
  */
 export function reviewScopeBlockReason(command: string, scope: ReviewScope): string | undefined {
