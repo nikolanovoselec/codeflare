@@ -279,10 +279,13 @@ export function createSplashSimulation(canvas: HTMLCanvasElement, config: Splash
   }
 
   function clickSplat(pointer: any) {
+    // Tamed from the original x10 burst: a click adds a brighter pop than a move
+    // splat, but capped so the dye never approaches white — text composited over
+    // the page-wide fluid keeps its AA contrast even directly under a click.
     const color = generateColor();
-    color.r *= 10.0;
-    color.g *= 10.0;
-    color.b *= 10.0;
+    color.r *= 4.0;
+    color.g *= 4.0;
+    color.b *= 4.0;
     let dx = 10 * (Math.random() - 0.5);
     let dy = 30 * (Math.random() - 0.5);
     splat(pointer.texcoordX, pointer.texcoordY, dx, dy, color);

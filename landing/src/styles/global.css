@@ -1258,9 +1258,9 @@ svg {
   content: '';
   position: absolute;
   inset: 0;
-  background: rgb(var(--bg-base-rgb) / 0.66);
+  background: rgb(var(--bg-base-rgb) / 0.72);
   opacity: 0.4;
-  transition: opacity 0.55s var(--ease-out);
+  transition: opacity 0.45s var(--ease-out);
 }
 
 .flare-on.flare-scrolled .flare-field::after {
@@ -1283,10 +1283,10 @@ svg {
   inset: 0;
   z-index: 0;
   background: radial-gradient(
-    135% 100% at 24% 32%,
-    rgb(var(--bg-base-rgb) / 0.82),
-    rgb(var(--bg-base-rgb) / 0.45) 50%,
-    transparent 72%
+    140% 108% at 24% 34%,
+    rgb(var(--bg-base-rgb) / 0.85),
+    rgb(var(--bg-base-rgb) / 0.55) 55%,
+    transparent 80%
   );
   pointer-events: none;
 }

@@ -41,7 +41,9 @@
   /* Text ramp */
   --text-primary: #f6f6f7;
   --text-secondary: #adadb6;
-  --text-muted: #7b7b86;
+  /* Muted lifted from #7b7b86 so small labels clear AA (4.5:1) on the solid
+     surfaces and still pass over the near-opaque glass panels. */
+  --text-muted: #8a8a94;
   --text-dimmed: #565660;
   --white-rgb: 255 255 255;
 
@@ -58,7 +60,9 @@
   /* Terminal output tones (mono demo only) */
   --term-green: #4ade80;
   --term-cyan: #67e8f9;
-  --term-dim: #6b6b76;
+  /* Lifted from #6b6b76, which was below AA (3.6:1) on the terminal even before
+     the fluid; now clears 4.5:1 on the solid terminal and the glass terminal. */
+  --term-dim: #85858f;
   --term-warn: #fbbf24;
 
   /* Selection */
