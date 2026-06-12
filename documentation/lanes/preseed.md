@@ -447,7 +447,16 @@ All preseed content is deployed via the manifest pipeline:
   with a notice). A completed review whose summary is not yet delivered shows a
   persistent `results ready (not shown) — /review-results` footer status, and the
   `/review-results` command displays the persisted summary on demand — the guaranteed
-  fallback if automatic delivery never lands. Implements
+  fallback if automatic delivery never lands. The summary itself is sent with a plain
+  `pi.sendMessage` (no `triggerTurn`/`deliverAs`) — the same synchronous append path
+  `/review-results` uses, which persists the nonce-bearing content AND displays it in one
+  step — gated on `pi.isIdle()` so it never steers into a streaming turn; when the agent is
+  mid-turn the summary waits for the next idle tick (`agent_end` / `turn_end` /
+  `session_start`). That makes the nonce-verify/retry phase a backstop rather than the
+  primary delivery path: the earlier `triggerTurn`/`followUp` send routed through agent-core
+  queues whose custom-message persistence depended on a live loop, so off-turn or post-reload
+  it no-op'd and the summary never surfaced. The autofix request still uses
+  `triggerTurn`/`followUp` because it intentionally triggers a fix/commit/push turn. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery).
 
   Partial lane results, including any missing, failed, timed-out, or still-running

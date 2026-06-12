@@ -1300,11 +1300,22 @@ export default function (pi: ExtensionAPI) {
       if (record.kind === "summary") {
         const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
         try { mkdirSync(dirname(summaryPath), { recursive: true }); writeFileSync(summaryPath, `${reviewSummaryMarkdown(state)}\n`, "utf8"); } catch { /* persisted copy best-effort; chat copy is authoritative */ }
+        // Deliver the (display-only) summary the SAME way /review-results does: a plain pi.sendMessage
+        // with NO options. That takes Pi's append path (appendCustomMessageEntry), which SYNCHRONOUSLY
+        // writes the nonce-bearing content into the session transcript AND displays it in one step — so
+        // the nonce reliably lands and the next reconcile proves delivery. The old `{ triggerTurn:true,
+        // deliverAs:"followUp" }` instead routed the message through _runAgentPrompt / agent.followUp /
+        // agent.steer, whose custom-message persistence is exactly what the nonce-verify loop had to
+        // paper over: off-turn or post-reload that send no-op'd, the nonce never landed, and the summary
+        // looped attempted→failed without ever surfacing. Gate on isIdle so the append path is only taken
+        // when no turn is streaming — mid-stream it would STEER the summary into the running turn
+        // (agent-readable mid-reasoning, the REQ-AGENT-058 AC7 hazard); when streaming we stay pending and
+        // the next idle tick (agent_end / turn_end / session_start) delivers it.
+        let idle = true;
+        try { idle = pi.isIdle ? pi.isIdle() : true; } catch { idle = false; }
+        if (!idle) return { sent: false };
         const content = summaryDeliveryContent(state, record.nonce);
-        pi.sendMessage(
-          { customType: "codeflare-review-summary-v3", content, display: true, details: { repo: state.repo, head: state.head, nonce: record.nonce, summary: content } },
-          { triggerTurn: true, deliverAs: "followUp" },
-        );
+        pi.sendMessage({ customType: "codeflare-review-summary-v3", content, display: true, details: { repo: state.repo, head: state.head, nonce: record.nonce, summary: content } });
         return { sent: true };
       }
       // Unlike the summary (which merely displays and tolerates a duplicate), the autofix message
