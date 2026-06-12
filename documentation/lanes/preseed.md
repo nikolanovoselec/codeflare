@@ -416,9 +416,10 @@ All preseed content is deployed via the manifest pipeline:
   window the caller provides and defaulting to the full change set only when no
   window is given. The `reviewScopeBlockReason` guard (`review-lane-guards.ts`)
   makes the window binding: when `CODEFLARE_REVIEW_BASE` is set it blocks full-PR
-  diff commands (`gh pr diff`; a `git diff` ranging against `origin/<ref>...`)
-  while allowing the window forms (`git diff <base> <head>`, `--name-only`,
-  `-- <path>`). Implements
+  diff commands (`gh pr diff`; a `git diff` ranging two- or three-dot against the
+  base branch — `origin/<ref>`, the base ref itself, or `main`/`master`/`develop`)
+  while allowing the window forms (`git diff <base> <head>`, a bare `<base>..<head>`
+  SHA range, `--name-only`, `-- <path>`). Implements
   [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
   AC8 and
   [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface)
