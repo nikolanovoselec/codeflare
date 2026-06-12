@@ -12,6 +12,7 @@ import {
   HERO,
   METHOD,
   NAV_LINKS,
+  OPERATIONS,
   PLATFORM,
   PIPELINE,
   SECURITY,
@@ -120,6 +121,19 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(text).toContain('guardrails');
     expect(text).toContain('DLP');
     expect(html).toContain('data-topic="security-compliance"');
+  });
+
+  it('renders the operations section: infrastructure beyond code via zero-trust tunnels', () => {
+    expect(html).toContain('id="operations"');
+    expect(text).toContain(OPERATIONS.kicker);
+    expect(text).toContain(OPERATIONS.title);
+    // The load-bearing capability: policy-scoped zero-trust tunnels to internal systems.
+    expect(text).toContain('zero-trust');
+    expect(text).toContain('tunnels');
+    for (const card of OPERATIONS.cards) {
+      expect(text).toContain(card.title);
+      expect(text).toContain(card.body.slice(0, 40));
+    }
   });
 
   it('renders the browser, platform, pipeline, cost, and tenancy sections', () => {

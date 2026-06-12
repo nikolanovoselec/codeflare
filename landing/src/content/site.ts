@@ -64,6 +64,7 @@ export const NAV_LINKS: NavLink[] = [
   { label: 'The shift', href: '#shift' },
   { label: 'Method', href: '#method' },
   { label: 'Security', href: '#security' },
+  { label: 'Operations', href: '#operations' },
   { label: 'Pipeline', href: '#pipeline' },
   { label: 'Cost', href: '#cost' },
   { label: 'FAQ', href: '#faq' },
@@ -224,6 +225,42 @@ export const BOUNDARY_FLOW = [
   { label: 'Ephemeral container', sub: 'your tenancy · destroyed on exit', accent: true, edge: 'intercepted' },
   { label: 'Your AI Gateway', sub: 'guardrails · DLP · approved models', accent: false, edge: '' },
 ];
+
+export const OPERATIONS = {
+  id: 'operations',
+  kicker: 'Operations',
+  title: 'Not just code. The systems behind it.',
+  lead:
+    'The same governed agents that ship code can operate the infrastructure it runs on. ' +
+    'Through zero-trust, policy-scoped tunnels, a session reaches only the internal systems ' +
+    'its policy allows, to orchestrate environments, patch servers, and carry migrations through.',
+  cards: [
+    {
+      title: 'Policy-scoped zero-trust tunnels',
+      tag: 'access',
+      body:
+        'Agents reach internal hosts, databases, and control planes through tunnels gated by ' +
+        'Cloudflare Access policy. A session sees only what its group is entitled to, never the ' +
+        'flat network: no standing VPN to over-grant, no credentials living in the container.',
+    },
+    {
+      title: 'Operate, not only author',
+      tag: 'scope',
+      body:
+        'Orchestrate infrastructure, patch fleets, run migrations and runbooks, drive incident ' +
+        'response. The agent does the work inside the boundary; the same review pipeline and human ' +
+        'triage gate the change before anything lands.',
+    },
+    {
+      title: 'Every action attributed',
+      tag: 'audit',
+      body:
+        'Each connection and command flows through the same audited, attributed path as model ' +
+        'traffic. Who reached what, when, and under which policy is written to your logs, in your ' +
+        'tenancy. No unsigned access, no shadow operations.',
+    },
+  ] satisfies Card[],
+};
 
 export const BROWSER = {
   id: 'browser',

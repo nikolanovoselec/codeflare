@@ -18,6 +18,7 @@ import {
   METHOD,
   SECURITY,
   BOUNDARY_FLOW,
+  OPERATIONS,
   BROWSER,
   PLATFORM,
   PIPELINE,
@@ -150,6 +151,28 @@ import {
         <div class="card-grid card-grid--2" data-stagger>
           {
             SECURITY.cards.map((card) => (
+              <div class="card">
+                <span class="card-tag">{card.tag}</span>
+                <h3>{card.title}</h3>
+                <p>{card.body}</p>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- Operations: the same governed agents, beyond code into infrastructure -->
+    <section id={OPERATIONS.id} class="section section--alt">
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="kicker">{OPERATIONS.kicker}</p>
+          <h2>{OPERATIONS.title}</h2>
+          <p class="lead">{OPERATIONS.lead}</p>
+        </div>
+        <div class="card-grid card-grid--3" data-stagger>
+          {
+            OPERATIONS.cards.map((card) => (
               <div class="card">
                 <span class="card-tag">{card.tag}</span>
                 <h3>{card.title}</h3>

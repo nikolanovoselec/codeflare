@@ -41,6 +41,11 @@ load-bearing selling point (verbatim from the founder):
 - **Integration into existing CI/CD workflows** (highest focus): agents are citizens of
   the customer's pipeline — branches, PRs, CI gates, a /review --deep 6-agent review at PR
   boundaries, human triage owning the merge.
+- **Beyond code, into operations** (highest focus): the same governed agents reach internal
+  infrastructure through zero-trust, policy-scoped tunnels (Cloudflare Access policy gating
+  what each session can reach) — orchestrating environments, patching servers, carrying
+  migrations, driving incident response. Codeflare operates the systems, not just authors the
+  code; every connection is attributed in the customer's own logs, no standing VPN.
 - **Total cost control and visibility**: environment cost plus inference cost through
   dynamic routing, cost and rate limiting — all the way down to each coding agent's
   consumption inside each CLI tool; attributed per user / team / department / group via
