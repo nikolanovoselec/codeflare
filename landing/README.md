@@ -14,7 +14,7 @@ Strict separation of concerns; each layer changes independently:
 | Global styles | `src/styles/global.css` | Layout and component styles; resolves through tokens. Mobile-first. |
 | Content | `src/content/site.ts` | All copy, typed. Components never carry their own text. |
 | Integration config | `src/config.ts` | Every Worker endpoint / app link the page touches. |
-| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; `scramble.ts` (hero accent-word effect); `splash.ts` + the `splash-*` / `webgl-utils` fluid set (the page-wide flare-fluid; sets `html.flare-on` to switch the page onto its glass surfaces, paused while the tab is hidden — reduced-motion, no-fine-pointer, and no-WebGL visitors never set it and keep the solid surfaces); and `proof.ts` (arms the body's proof artifacts: adds `.is-live` to each `[data-proof]` once on scroll-in to play a one-shot reveal sequence; the markup renders the resolved state by default, so it is fully legible with no JS, and reduced-motion visitors keep that static state). All but the contact controller are presentational and desktop/reduced-motion gated. |
+| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; `scramble.ts` (hero accent-word effect); `splash.ts` + the `splash-*` / `webgl-utils` fluid set (the page-wide flare-fluid; sets `html.flare-on` to switch the page onto its glass surfaces, paused while the tab is hidden — desktop pointers drive it with the cursor, touch devices from page scroll, and reduced-motion or no-WebGL visitors never set it and keep the solid surfaces); and `proof.ts` (arms the body's proof artifacts: adds `.is-live` to each `[data-proof]` once on scroll-in to play a one-shot reveal sequence; the markup renders the resolved state by default, so it is fully legible with no JS, and reduced-motion visitors keep that static state). All but the contact controller are presentational and reduced-motion gated. |
 | Components | `src/components/*.astro` | `Hero`, `ContactForm`, `Footer`. Markup rendering content data. |
 | Pages | `src/pages/*.astro` | `index.astro` (composition), `privacy.astro`. |
 
@@ -38,12 +38,14 @@ The full page renders statically with no JS (every proof artifact ships its
 resolved final state in the markup). The motion: a quiet scroll-reveal, a
 scramble on the single hero accent word (the Codeflare ScrambleText effect, ported
 to vanilla DOM), one-shot proof-artifact reveal sequences armed on scroll-in
-(`proof.ts`), and a cursor-reactive WebGL flare-fluid behind the whole page (a
-fixed full-page layer: vivid behind the hero, then veiled by a scroll-linked wash
-to a calm, legible background beneath the text-dense sections below; desktop/fine-
-pointer only, paused on a hidden tab). When the fluid is live (desktop) the content
-panels become translucent glass floating over it; touch / no-JS / reduced-motion
-visitors keep solid surfaces. All of it collapses under `prefers-reduced-motion`.
+(`proof.ts`), and a WebGL flare-fluid behind the whole page (a fixed full-page
+layer: vivid behind the hero, then veiled by a scroll-linked wash to a calm,
+legible background beneath the text-dense sections below; paused on a hidden tab).
+Desktop pointers drive it with the cursor; touch devices have no cursor, so the
+fluid is driven by page scroll (a virtual pointer sweeps a gentle path across the
+canvas as the page moves). When the fluid is live the content panels become
+translucent glass floating over it; no-JS / no-WebGL / reduced-motion visitors
+keep solid surfaces. All of it collapses under `prefers-reduced-motion`.
 Product brief and voice in `PRODUCT.md`.
 
 ## Build & serving

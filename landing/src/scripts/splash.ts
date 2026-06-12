@@ -7,10 +7,13 @@
  * text-dense sections below (a scroll-linked veil plus near-opaque glass panels;
  * see global.css). Paused while the tab is hidden so it never burns the GPU.
  *
- * Gated to desktop pointers and disabled under prefers-reduced-motion. Pure
- * progressive enhancement: with no JS, on touch devices, or under reduced
- * motion, no canvas is created, html.flare-on is never set, and the page renders
- * from its static markup with solid (non-glass) panels.
+ * Runs on both desktop and touch devices, disabled only under
+ * prefers-reduced-motion. Desktop fine pointers drive the fluid with the cursor;
+ * touch devices have no cursor, so the fluid is driven by page scroll (a virtual
+ * pointer sweeps a gentle path across the canvas as the page moves). Pure
+ * progressive enhancement: with no JS, no WebGL, or under reduced motion, no
+ * canvas is created, html.flare-on is never set, and the page renders from its
+ * static markup with solid (non-glass) panels.
  */
 import { createSplashSimulation, type SplashConfig } from '../lib/splash-cursor-logic';
 
@@ -34,10 +37,10 @@ const FLARE_CONFIG: SplashConfig = {
 
 function initFlareFluid(): void {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  // Cursor effect: desktop (fine) pointers only. Coarse / touch pointers skip it
-  // entirely so mobile stays clean, fast, and scroll-friendly.
+  // Disabled only under reduced motion. Desktop fine pointers drive the fluid
+  // with the cursor; touch devices (coarse pointers) drive it from scroll below.
+  if (reduced) return;
   const finePointer = window.matchMedia('(pointer: fine)').matches;
-  if (reduced || !finePointer) return;
 
   const host = document.querySelector<HTMLElement>('[data-flare-fluid]');
   if (!host) return;
@@ -58,6 +61,32 @@ function initFlareFluid(): void {
   // live: the veil and the translucent panels key off html.flare-on, so a
   // no-WebGL / reduced-motion / touch visitor keeps the solid default styles.
   document.documentElement.classList.add('flare-on');
+
+  // Touch devices have no cursor, so drive the fluid from page scroll: a virtual
+  // pointer sweeps a gentle Lissajous path across the canvas as the page moves,
+  // so the flare lives and streams while reading. rAF-throttled; the first call
+  // only primes the pointer (no splat).
+  if (!finePointer) {
+    let queued = false;
+    const sweep = () => {
+      queued = false;
+      const y = window.scrollY;
+      const xFrac = 0.5 + 0.32 * Math.sin(y / 320);
+      const yFrac = 0.5 + 0.3 * Math.cos(y / 240);
+      sim.pointerMove(xFrac, yFrac);
+    };
+    sweep(); // prime
+    sim.pointerMove(0.62, 0.46); // one seed splat so the hero shows flare on load
+    window.addEventListener(
+      'scroll',
+      () => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(sweep);
+      },
+      { passive: true }
+    );
+  }
 
   // Pause on a hidden tab so a backgrounded page does no GPU work.
   document.addEventListener('visibilitychange', () => {

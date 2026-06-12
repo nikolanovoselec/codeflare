@@ -38,6 +38,13 @@ interface SplashSimulation {
   pause(): void;
   /** Resume the render loop after a pause */
   resume(): void;
+  /**
+   * Drive the scroll pointer to a canvas-fraction position (x and y in 0..1).
+   * The first call primes the pointer without splatting; subsequent calls splat
+   * a trail toward the new point. Used on touch devices (no cursor) to make the
+   * fluid live and stream as the page scrolls.
+   */
+  pointerMove(xFrac: number, yFrac: number): void;
   /** Stop and clean up */
   destroy(): void;
 }
@@ -61,6 +68,12 @@ export function createSplashSimulation(canvas: HTMLCanvasElement, config: Splash
   }
 
   const pointers = [new (pointerPrototype as any)()];
+  // A second pointer driven by page scroll on touch devices (which have no
+  // cursor). Kept separate from pointers[0] so a touch-drag and a scroll never
+  // fight over one pointer; applyInputs()/updateColors() iterate all pointers.
+  const scrollPointer = new (pointerPrototype as any)();
+  pointers.push(scrollPointer);
+  let scrollPointerPrimed = false;
 
   const glResult = getWebGLContext(canvas);
   if (!glResult) return null;
@@ -414,6 +427,21 @@ export function createSplashSimulation(canvas: HTMLCanvasElement, config: Splash
       isPaused = false;
       lastUpdateTime = Date.now();
       updateFrame();
+    },
+    pointerMove(xFrac: number, yFrac: number) {
+      const posX = xFrac * canvas.width;
+      const posY = yFrac * canvas.height;
+      if (!scrollPointerPrimed) {
+        // Seed position so the first real move does not splat one giant delta.
+        scrollPointer.color = generateColor();
+        scrollPointer.texcoordX = xFrac;
+        scrollPointer.texcoordY = 1.0 - yFrac;
+        scrollPointer.prevTexcoordX = scrollPointer.texcoordX;
+        scrollPointer.prevTexcoordY = scrollPointer.texcoordY;
+        scrollPointerPrimed = true;
+        return;
+      }
+      updatePointerMoveData(scrollPointer, posX, posY, scrollPointer.color);
     },
     destroy() {
       isActive = false;

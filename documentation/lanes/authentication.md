@@ -202,6 +202,7 @@ SaaS mode uses a layered middleware stack on every request to protected routes (
 - Setup complete, default mode -> `/` redirects to `/app/`
 - Setup complete, onboarding mode -> authenticated users to `/app/`, unauthenticated to public landing
 - Setup complete, SaaS mode -> `/` shows login page with "Sign in with GitHub" button
+- Unauthenticated marketing-landing visitors who click Sign in go to `/login` (`APP_LINKS.signIn` in `landing/src/config.ts`), the SPA provider chooser (GitHub, Google, OIDC, one-time-pin). `/app/` is not used as the Sign-in link target because the SPA guard redirects an unauthenticated request back to `/` before the login UI renders.
 
 ---
 

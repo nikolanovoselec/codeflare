@@ -54,7 +54,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 - If the landing build is absent from assets, SPA `not_found_handling` falls back to the legacy in-SPA pages (LoginPage / OnboardingLanding) — deploys without the landing build degrade gracefully, never 404.
 - `/landing/*` is listed in `run_worker_first` so landing documents carry the same security headers as `/`.
 - The landing build outputs to `web-ui/dist/landing/` and must build after web-ui (which wipes `dist/`).
-- Client JS is enhancement-only: the hero accent-word scramble, the page-wide flare-fluid signature (a fixed full-page WebGL layer; desktop/fine-pointer only, paused on a hidden tab, veiled to stay legible behind text), the one-shot proof-artifact sequences armed on scroll-in (the self-healing enforcement gate, the parallel review board, the cost attribution ledger; each artifact ships its resolved final state in the markup so content is never gated), and the scroll-reveal fades are all gated on `prefers-reduced-motion` and absent without JS; the full narrative renders statically.
+- Client JS is enhancement-only: the hero accent-word scramble, the page-wide flare-fluid signature (a fixed full-page WebGL layer driven by the cursor on desktop and by page scroll on touch, paused on a hidden tab, veiled to stay legible behind text), the one-shot proof-artifact sequences armed on scroll-in (the self-healing enforcement gate, the parallel review board, the cost attribution ledger; each artifact ships its resolved final state in the markup so content is never gated), and the scroll-reveal fades are all gated on `prefers-reduced-motion` and absent without JS; the full narrative renders statically.
 
 **Priority:** P1
 

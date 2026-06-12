@@ -59,7 +59,7 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(html).toContain('data-flare-fluid');
   });
 
-  it('exposes a launch path into the app (Sign in -> /app/)', () => {
+  it('exposes a launch path into the app (Sign in -> /login)', () => {
     expect(html).toContain(`href="${APP_LINKS.signIn}"`);
     expect(html).toContain('Sign in');
   });
