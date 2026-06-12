@@ -29,9 +29,12 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 <!-- @impl: src/index.ts -->
 <!-- @impl: landing/src/pages/index.astro -->
+<!-- @impl: landing/src/scripts/scramble.ts -->
+<!-- @impl: landing/src/scripts/splash.ts -->
+<!-- @impl: landing/src/lib/splash-cursor-logic.ts -->
 <!-- @impl: wrangler.toml -->
 <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001 its -> AC1 SaaS-unauth landing rewrite + AC2 onboarding-unauth landing rewrite + AC3 default-mode redirect) -->
-<!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-001 describe -> AC4 hero/terminal/nav/stat-band/method/sections/FAQ/form render) -->
+<!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-001 describe -> AC4 hero/terminal/nav/stat-band/method/sections/FAQ/form/launch render) -->
 ### REQ-LANDING-001: Mode-aware public landing serving
 
 **Intent:** Unauthenticated visitors to the deployment root in SaaS or onboarding mode see the enterprise marketing landing page — positioning Codeflare as the enterprise agentic coding engine — while authenticated users and default-mode deployments keep their existing app entry flow.
@@ -43,16 +46,15 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 1. An unauthenticated GET `/` in SaaS mode is served the prerendered landing app (the asset request is rewritten to `/landing/`).
 2. An unauthenticated GET `/` in onboarding mode is served the same landing app.
 3. In default mode, GET `/` redirects to `/app/` and the landing is never served.
-4. The landing renders the full enterprise narrative statically (no JS required): a hero with a single legible terminal demo, a stat band, a spec-driven-development "method" section presenting SDD/TDD enforcement, all content sections with anchor ids matching the nav links, FAQ, and the contact form.
+4. The landing renders the full enterprise narrative statically (no JS required): a hero with a single legible terminal demo, a stat band, a spec-driven-development "method" section presenting SDD/TDD enforcement, all content sections with anchor ids matching the nav links, FAQ, the contact form, and a Sign in action (nav and footer) linking to the app entry (`/app/`).
 
 **Constraints:**
 
-- Authenticated-user behavior at `/` is unchanged: active users redirect to `/app/`, pending/blocked SaaS users to `/app/subscribe`.
+- Authenticated-user behavior at `/` is unchanged: active users redirect to `/app/`, pending/blocked SaaS users to `/app/subscribe`. The landing's Sign in link (`/app/`, `APP_LINKS.signIn`) reuses this same auth wall, introducing no new authentication behavior.
 - If the landing build is absent from assets, SPA `not_found_handling` falls back to the legacy in-SPA pages (LoginPage / OnboardingLanding) — deploys without the landing build degrade gracefully, never 404.
 - `/landing/*` is listed in `run_worker_first` so landing documents carry the same security headers as `/`.
 - The landing build outputs to `web-ui/dist/landing/` and must build after web-ui (which wipes `dist/`).
-- Client JS is enhancement-only: the hero accent-word scramble, the hero flare-fluid signature (a WebGL fluid simulation, desktop/fine-pointer only, paused off-screen), and the scroll-reveal fades are all gated on `prefers-reduced-motion` and absent without JS; the full narrative still renders statically. The fluid is hero-only and never sits under dense prose.
-- The nav and footer expose a Sign in action linking to the app entry (`/app/`, the `APP_LINKS.signIn` constant); the existing auth wall handles unauthenticated visitors, so no new authentication behavior is introduced.
+- Client JS is enhancement-only: the hero accent-word scramble, the hero flare-fluid signature (desktop/fine-pointer only, paused off-screen), and the scroll-reveal fades are all gated on `prefers-reduced-motion` and absent without JS; the full narrative renders statically.
 
 **Priority:** P1
 
