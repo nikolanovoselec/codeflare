@@ -14,7 +14,7 @@ Strict separation of concerns; each layer changes independently:
 | Global styles | `src/styles/global.css` | Layout and component styles; resolves through tokens. Mobile-first. |
 | Content | `src/content/site.ts` | All copy, typed. Components never carry their own text. |
 | Integration config | `src/config.ts` | Every Worker endpoint / app link the page touches. |
-| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; `scramble.ts` (hero accent-word effect); and `splash.ts` + the `splash-*` / `webgl-utils` fluid set (the page-wide flare-fluid; sets `html.flare-on` to switch the page onto its glass surfaces, paused while the tab is hidden — reduced-motion, no-fine-pointer, and no-WebGL visitors never set it and keep the solid surfaces). All but the contact controller are presentational and desktop/reduced-motion gated. |
+| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; `scramble.ts` (hero accent-word effect); `splash.ts` + the `splash-*` / `webgl-utils` fluid set (the page-wide flare-fluid; sets `html.flare-on` to switch the page onto its glass surfaces, paused while the tab is hidden — reduced-motion, no-fine-pointer, and no-WebGL visitors never set it and keep the solid surfaces); and `proof.ts` (arms the body's proof artifacts: adds `.is-live` to each `[data-proof]` once on scroll-in to play a one-shot reveal sequence; the markup renders the resolved state by default, so it is fully legible with no JS, and reduced-motion visitors keep that static state). All but the contact controller are presentational and desktop/reduced-motion gated. |
 | Components | `src/components/*.astro` | `Hero`, `ContactForm`, `Footer`. Markup rendering content data. |
 | Pages | `src/pages/*.astro` | `index.astro` (composition), `privacy.astro`. |
 
@@ -25,14 +25,20 @@ reserved for ONE legible terminal demo (the hero) and two static code snippets
 (the review pipeline and the spec/TDD enforcement trace), where it signals real
 engineering. A single locked accent, generous whitespace, hairline borders, one
 corner-radius scale. Each section uses a distinct layout family (stat band,
-two-column compare, a spec-driven-development "method" section with pillar cards +
-an enforcement trace, security cards + a boundary data-path flow diagram, an
-operations section on policy-scoped infrastructure access, a context section on
-browser-isolated web ingestion to agent-ready markdown, feature columns, point
-list + code block, cost layers, tenancy checklist, FAQ accordion).
-The full page renders statically with no JS. The motion: a quiet scroll-reveal, a
+two-column compare, and a set of mono "proof artifacts" that show the engine
+working rather than describing it: a spec-driven-development "method" section
+whose self-healing enforcement gate visibly fails and then corrects a drift,
+security cards + a boundary data-path flow that also names what it makes
+impossible, an operations section on policy-scoped infrastructure access, a
+context section on browser-isolated web ingestion to agent-ready markdown, a
+parallel review board of six reviewer lanes converging on one human triage gate,
+a cost attribution ledger that closes on zero unattributed, feature columns,
+cost layers, tenancy checklist, FAQ accordion).
+The full page renders statically with no JS (every proof artifact ships its
+resolved final state in the markup). The motion: a quiet scroll-reveal, a
 scramble on the single hero accent word (the Codeflare ScrambleText effect, ported
-to vanilla DOM), and a cursor-reactive WebGL flare-fluid behind the whole page (a
+to vanilla DOM), one-shot proof-artifact reveal sequences armed on scroll-in
+(`proof.ts`), and a cursor-reactive WebGL flare-fluid behind the whole page (a
 fixed full-page layer: vivid behind the hero, then veiled by a scroll-linked wash
 to a calm, legible background beneath the text-dense sections below; desktop/fine-
 pointer only, paused on a hidden tab). When the fluid is live (desktop) the content

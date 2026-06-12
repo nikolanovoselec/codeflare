@@ -18,6 +18,7 @@ import {
   METHOD,
   SECURITY,
   BOUNDARY_FLOW,
+  BOUNDARY_BLOCKED,
   OPERATIONS,
   BROWSER,
   PLATFORM,
@@ -101,20 +102,28 @@ import {
             ))
           }
         </div>
-        <div class="code-block method-trace reveal">
-          {
-            METHOD.trace.map((line) => (
-              <span
-                class:list={[
-                  'cl',
-                  { 'cl-head': line.kind === 'head', 'cl-ok': line.kind === 'ok', 'cl-warn': line.kind === 'warn' },
-                ]}
-              >
-                {line.strong && <strong>{line.strong}</strong>}
-                {line.text}
-              </span>
-            ))
-          }
+        <!-- Self-healing enforcement gate: a drift caught and corrected at the PR
+             boundary. Static markup is the resolved state; data-proof replays the
+             fail -> correct -> pass sequence once on scroll-in. -->
+        <div class="gate reveal" data-proof>
+          <div class="gate-head">
+            <span class="gate-req">{METHOD.gate.req}</span>
+            <span class="gate-crit">{METHOD.gate.criterion}</span>
+            <span class="gate-pr">{METHOD.gate.pr}</span>
+          </div>
+          <div class="gate-steps">
+            {
+              METHOD.gate.steps.map((step, i) => (
+                <div class:list={['gate-step', `is-${step.state}`]} style={`--i:${i}`}>
+                  <span class="gate-actor">{step.actor}</span>
+                  <span class="gate-state">
+                    {step.state === 'fail' ? 'failed' : step.state === 'work' ? 'correcting' : 'passed'}
+                  </span>
+                  <span class="gate-text">{step.text}</span>
+                </div>
+              ))
+            }
+          </div>
         </div>
       </div>
     </section>
@@ -132,21 +141,27 @@ import {
             </p>
           </div>
           <div class="split-aside reveal">
-            <div class="flow">
+            <!-- Boundary data-path: the approved route lights stage by stage on
+                 scroll-in (data-proof), and the denied paths name what the
+                 architecture makes impossible, not merely discouraged. -->
+            <div class="flow" data-proof>
               {
                 BOUNDARY_FLOW.map((node, i) => (
                   <Fragment>
-                    <div class:list={['flow-node', { 'is-accent': node.accent }]}>
+                    <div class:list={['flow-node', { 'is-accent': node.accent }]} style={`--i:${i}`}>
                       {node.label}
                       <small>{node.sub}</small>
                     </div>
                     {i < BOUNDARY_FLOW.length - 1 && (
-                      <div class="flow-arrow">{node.edge && <span>{node.edge}</span>}</div>
+                      <div class="flow-arrow" style={`--i:${i}`}>{node.edge && <span>{node.edge}</span>}</div>
                     )}
                   </Fragment>
                 ))
               }
             </div>
+            <ul class="denied-list" aria-label="What the boundary makes impossible">
+              {BOUNDARY_BLOCKED.map((item) => <li>{item}</li>)}
+            </ul>
           </div>
         </div>
         <div class="card-grid card-grid--2" data-stagger>
@@ -262,29 +277,47 @@ import {
           <h2>{PIPELINE.title}</h2>
           <p class="lead">{PIPELINE.lead}</p>
         </div>
-        <div class="split">
-          <div class="point-list reveal">
+
+        <!-- Parallel review board: six specialist agents on one diff at once,
+             two catching a finding and re-proving it, converging on one human
+             triage gate. data-proof streams the lanes in on scroll-in. -->
+        <div class="review-board reveal" data-proof>
+          <div class="board-pr">
+            <span class="board-pr-id">PR #207 · payments-service</span>
+            <span class="board-pr-trigger">{PIPELINE.trigger}</span>
+          </div>
+          <div class="board-lanes">
             {
-              PIPELINE.cards.map((card) => (
-                <div class="point-item">
-                  <h3>{card.title}</h3>
-                  <p>{card.body}</p>
+              PIPELINE.lanes.map((lane, i) => (
+                <div class:list={['board-lane', `is-${lane.result}`]} style={`--i:${i}`}>
+                  <span class="lane-agent">{lane.agent}</span>
+                  <span class="lane-track" aria-hidden="true">
+                    <span class="lane-step">queued</span>
+                    <span class="lane-step">running</span>
+                    {lane.result === 'finding' && <span class="lane-step is-finding">finding</span>}
+                    {lane.result === 'finding' && <span class="lane-step is-fixed">fixed</span>}
+                    <span class="lane-step is-verified">verified</span>
+                  </span>
+                  <span class="lane-note">{lane.note}</span>
                 </div>
               ))
             }
           </div>
-          <div class="split-aside reveal">
-            <div class="code-block">
-              {
-                PIPELINE.snippet.map((line) => (
-                  <span class:list={['cl', { 'cl-head': line.kind === 'head', 'cl-ok': line.kind === 'ok' }]}>
-                    {line.strong && <strong>{line.strong}</strong>}
-                    {line.text}
-                  </span>
-                ))
-              }
-            </div>
+          <div class="board-verdict">
+            <span class="verdict-title">{PIPELINE.verdict.title}</span>
+            <span class="verdict-note">{PIPELINE.verdict.note}</span>
           </div>
+        </div>
+
+        <div class="feature-grid feature-grid--3" data-stagger>
+          {
+            PIPELINE.cards.map((card) => (
+              <div class="feature-col">
+                <h3>{card.title}</h3>
+                <p>{card.body}</p>
+              </div>
+            ))
+          }
         </div>
       </div>
     </section>
@@ -297,6 +330,43 @@ import {
           <h2>{COST.title}</h2>
           <p class="lead">{COST.lead}</p>
         </div>
+        <!-- Attribution ledger: every line carries an owner; the last total
+             reads zero unattributed. data-proof streams the rows + totals in. -->
+        <div class="ledger reveal" data-proof>
+          <div class="ledger-head" aria-hidden="true">
+            <span class="lc-time">{COST.ledger.columns[0]}</span>
+            <span class="lc-user">{COST.ledger.columns[1]}</span>
+            <span class="lc-team">{COST.ledger.columns[2]}</span>
+            <span class="lc-agent">{COST.ledger.columns[3]}</span>
+            <span class="lc-route">{COST.ledger.columns[4]}</span>
+            <span class="lc-cost">{COST.ledger.columns[5]}</span>
+          </div>
+          <div class="ledger-rows">
+            {
+              COST.ledger.rows.map((row, i) => (
+                <div class="ledger-row" style={`--i:${i}`}>
+                  <span class="lc-time">{row.time}</span>
+                  <span class="lc-user">{row.user}</span>
+                  <span class="lc-team">{row.team}</span>
+                  <span class="lc-agent">{row.agent}</span>
+                  <span class="lc-route">{row.route}</span>
+                  <span class="lc-cost">{row.cost}</span>
+                </div>
+              ))
+            }
+          </div>
+          <div class="ledger-totals">
+            {
+              COST.ledger.totals.map((total) => (
+                <div class:list={['ledger-total', { 'is-accent': total.accent }]}>
+                  <span class="total-label">{total.label}</span>
+                  <span class="total-value">{total.value}</span>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+
         <div class="layers reveal">
           {
             COST.layers.map((layer) => (

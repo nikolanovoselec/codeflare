@@ -83,8 +83,13 @@ below — and a single gradient accent word carries the name.
 
 ## Design Principles
 
-1. **Show the engine once, then speak plainly.** A single legible terminal demo proves
-   real agentic capability up front; the rest of the page makes calm, specific claims.
+1. **Show the engine working, then speak plainly.** A single legible terminal demo proves
+   real agentic capability up front; a few mono proof artifacts (the self-healing
+   enforcement gate that visibly fails then corrects, the parallel review board of six
+   reviewer lanes, the cost attribution ledger closing on zero unattributed, the boundary
+   data-path) turn the load-bearing claims into evidence rather than feature cards. The
+   prose between them stays calm and specific. Showing the agent fail and be corrected is
+   the move neither competitor dares; it is what makes the autonomy credible.
 2. **One engineer, many agents.** The 10× operating model — parallel autonomous
    sessions under one person's judgment — is the idea the page must land.
 3. **Structural trust.** Security claims are architecture ("the environment ceases to
@@ -94,9 +99,12 @@ below — and a single gradient accent word carries the name.
    running page-wide behind the content (vivid in the hero, veiled to a calm, legible wash
    below; desktop only, with content panels floating over it as translucent glass).
    A few restrained micro-interactions add life and nothing more: staggered grid reveals,
-   a primary-CTA hover lift, nav-link underlines, a card edge-glow, and a depth seam on the
-   nav once scrolled. All fast, GPU-friendly, hover gated to fine pointers. Content is never
-   gated behind animation; the full prefers-reduced-motion fallback stops all movement.
+   one-shot proof-artifact sequences armed on scroll-in (a drift caught then corrected, the
+   review lanes streaming in, the ledger rows settling), a primary-CTA hover lift, nav-link
+   underlines, a card edge-glow, and a depth seam on the nav once scrolled. All fast,
+   GPU-friendly, hover gated to fine pointers. Content is never gated behind animation;
+   every proof artifact ships its resolved final state in the markup, and the full
+   prefers-reduced-motion fallback stops all movement.
 5. **Sans prose, mono for proof.** All copy is set in a clean sans; monospace is
    reserved for the single terminal demo and the code snippet, where it signals real
    engineering. Generous whitespace; one accent, locked.

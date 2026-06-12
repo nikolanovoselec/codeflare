@@ -17,8 +17,13 @@ export const ENDPOINTS = {
 
 /** Links into the Codeflare app (served by the same Worker). */
 export const APP_LINKS = {
-  /** Authenticated entry point; the auth wall handles unauthenticated visitors. */
-  signIn: '/app/',
+  /**
+   * Sign-in entry point: the SPA /login route, which renders the provider
+   * chooser (GitHub, Google, OIDC, one-time-pin) and starts the OAuth flow.
+   * NOT /app/ — that path bounces an unauthenticated visitor back to the
+   * marketing landing (SPA guard redirects to /), so it never reaches login.
+   */
+  signIn: '/login',
   /** Privacy policy page (static, served from the landing build). */
   privacy: '/landing/privacy/',
 } as const;

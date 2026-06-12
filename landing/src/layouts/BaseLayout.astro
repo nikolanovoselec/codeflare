@@ -61,6 +61,13 @@ const {
       import '../scripts/splash';
     </script>
     <script>
+      // Proof artifacts (enforcement loop, review board, boundary path, ledger):
+      // plays each one's CSS sequence once when it scrolls into view. Content is
+      // fully legible without it (static final state); reduced-motion shows the
+      // final state instantly.
+      import '../scripts/proof';
+    </script>
+    <script>
       // Entrance wiring: .reveal elements fade up on first view. Content is
       // visible by default; JS applies the hidden state and immediately
       // animates, never a CSS opacity:0 default (no-JS and reduced-motion
@@ -71,15 +78,25 @@ const {
       const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
       if (!prefersReduced && 'IntersectionObserver' in window) {
+        // Each element reveals exactly once. Motion's inView re-fires its
+        // callback every time an element re-enters the viewport; without this
+        // guard, scrolling up then down re-ran the entrance (blank to visible),
+        // which read as a flash on mobile. The WeakSet makes the reveal one-shot
+        // and we disconnect the observer after it fires.
+        const revealed = new WeakSet<HTMLElement>();
+
         for (const el of document.querySelectorAll<HTMLElement>('.reveal')) {
-          inView(
+          const stop = inView(
             el,
             () => {
+              if (revealed.has(el)) return;
+              revealed.add(el);
               animate(
                 el,
                 { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] },
                 { duration: 0.4, ease: EASE_OUT_STRONG }
               );
+              stop?.();
             },
             { margin: '-60px' }
           );
@@ -87,11 +104,14 @@ const {
 
         // Grids cascade their children in (a short stagger) instead of fading as
         // one block. Children are hidden synchronously on enter, then animated.
+        // Also one-shot, for the same reason.
         for (const grid of document.querySelectorAll<HTMLElement>('[data-stagger]')) {
           const items = Array.from(grid.children) as HTMLElement[];
-          inView(
+          const stop = inView(
             grid,
             () => {
+              if (revealed.has(grid)) return;
+              revealed.add(grid);
               for (const item of items) item.style.opacity = '0';
               items.forEach((item, i) => {
                 animate(
@@ -100,6 +120,7 @@ const {
                   { duration: 0.4, ease: EASE_OUT_STRONG, delay: i * 0.06 }
                 );
               });
+              stop?.();
             },
             { margin: '-60px' }
           );

@@ -42,11 +42,38 @@ export interface FaqItem {
   answer: string;
 }
 
-/** A line in a static code snippet (review pipeline, enforcement trace). */
-export interface SnippetLine {
-  kind: 'head' | 'ok' | 'warn';
-  strong?: string;
+/** A row in the self-healing enforcement gate (method section proof artifact). */
+export interface GateStep {
+  actor: string;
+  /** fail = drift caught (coral), work = agent correcting (cyan), pass = green. */
+  state: 'fail' | 'work' | 'pass';
   text: string;
+}
+
+/** A lane in the parallel review board (pipeline section proof artifact). */
+export interface ReviewLane {
+  agent: string;
+  /** clean = verified straight through; finding = caught, fixed, re-proven. */
+  result: 'clean' | 'finding';
+  note: string;
+}
+
+/** A row in the cost attribution ledger (cost section proof artifact). */
+export interface LedgerRow {
+  time: string;
+  user: string;
+  team: string;
+  agent: string;
+  route: string;
+  cost: string;
+}
+
+/** A grouped total in the cost ledger footer. */
+export interface LedgerTotal {
+  label: string;
+  value: string;
+  /** The "unattributed $0.00" line is accented as the load-bearing claim. */
+  accent?: boolean;
 }
 
 export interface TopicOption {
@@ -167,14 +194,22 @@ export const METHOD = {
         'was built matches what was specified.',
     },
   ] satisfies Card[],
-  // A drift caught and corrected: the self-healing loop made concrete.
-  trace: [
-    { kind: 'head', text: 'PR #207 · spec + TDD enforcement' },
-    { kind: 'warn', strong: 'spec-enforce', text: ' REQ-PAY-014 AC3 not covered by a test' },
-    { kind: 'warn', strong: 'tdd-enforce', text: ' 1 assertion-free test rejected as theater' },
-    { kind: 'ok', strong: 'agent', text: ' corrected to plan · AC3 now verified' },
-    { kind: 'ok', strong: 'merge', text: ' allowed · zero deviations from the spec' },
-  ] satisfies SnippetLine[],
+  // The self-healing loop made concrete: a drift caught at the PR boundary and
+  // corrected before a human looks. Rendered as a sequenced enforcement gate
+  // (proof artifact), not a flat log. This is the move neither competitor dares:
+  // showing the agent fail, then the platform catch and fix it.
+  gate: {
+    req: 'REQ-PAY-014',
+    criterion: 'AC3: duplicate payment requests stay idempotent',
+    pr: 'PR #207',
+    steps: [
+      { actor: 'spec-enforce', state: 'fail', text: 'AC3 is not covered by a test' },
+      { actor: 'tdd-enforce', state: 'fail', text: 'an assertion-free test is rejected as theater' },
+      { actor: 'agent', state: 'work', text: 'corrects to the plan, writes the missing case' },
+      { actor: 'reverify', state: 'pass', text: 'AC3 now verified, 10 of 10 green' },
+      { actor: 'merge', state: 'pass', text: 'allowed, zero deviations from the spec' },
+    ] satisfies GateStep[],
+  },
 };
 
 export const SECURITY = {
@@ -224,6 +259,16 @@ export const BOUNDARY_FLOW = [
   { label: 'Cloudflare Access', sub: 'your IdP', accent: false, edge: 'authenticated' },
   { label: 'Ephemeral container', sub: 'your tenancy · destroyed on exit', accent: true, edge: 'intercepted' },
   { label: 'Your AI Gateway', sub: 'guardrails · DLP · approved models', accent: false, edge: '' },
+];
+
+/** What the boundary makes structurally impossible, not merely discouraged.
+ *  Rendered as denied chips beside the data-path so the negative space of the
+ *  architecture is as visible as the approved path. */
+export const BOUNDARY_BLOCKED = [
+  'Direct provider call: denied',
+  'Lateral move to a peer session: impossible',
+  'Source code on the endpoint device: none',
+  'Reach to an unapproved endpoint: blocked',
 ];
 
 export const OPERATIONS = {
@@ -386,16 +431,22 @@ export const PIPELINE = {
         'queue with the full review trail attached, and the merge is always yours.',
     },
   ] satisfies Card[],
-  snippet: [
-    { kind: 'head', text: 'on pull_request → /review --deep' },
-    { kind: 'ok', strong: 'code-reviewer', text: ' 2 findings, both fixed in-session' },
-    { kind: 'ok', strong: 'security-reviewer', text: ' no injection, no secret exposure' },
-    { kind: 'ok', strong: 'spec-reviewer', text: ' REQ-PAY-014 acceptance criteria verified' },
-    { kind: 'ok', strong: 'tdd-enforce', text: ' tests fail when the impl is broken' },
-    { kind: 'ok', strong: 'doc-updater', text: ' api-reference.md updated in the same commit' },
-    { kind: 'ok', strong: 'deep-reviewer', text: ' behavior matches the spec, end to end' },
-    { kind: 'ok', strong: 'CI green', text: ' ready for human triage' },
-  ] satisfies SnippetLine[],
+  // The PR-boundary review as a board: six specialist agents reviewing one diff
+  // in parallel, two of them catching and re-proving a finding, all converging
+  // on a single human triage gate. Makes "one engineer, many agents" literal.
+  trigger: 'on pull_request → /review --deep',
+  lanes: [
+    { agent: 'code-reviewer', result: 'finding', note: '2 findings, both fixed in-session' },
+    { agent: 'security-reviewer', result: 'clean', note: 'no injection, no secret exposure' },
+    { agent: 'spec-reviewer', result: 'clean', note: 'REQ-PAY-014 acceptance criteria verified' },
+    { agent: 'tdd-enforce', result: 'finding', note: 'test theater rejected, then re-proven' },
+    { agent: 'doc-updater', result: 'clean', note: 'api-reference.md updated in the same commit' },
+    { agent: 'deep-reviewer', result: 'clean', note: 'behavior matches the spec, end to end' },
+  ] satisfies ReviewLane[],
+  verdict: {
+    title: 'PR #207 ready for human triage',
+    note: 'CI green, the full review trail attached, the merge owned by a human.',
+  },
 };
 
 export const COST = {
@@ -405,6 +456,23 @@ export const COST = {
   lead:
     'From the infrastructure minute to the inference token to what each agent consumes, ' +
     'visibility and control at every layer, in your own cloud account.',
+  // The attribution claim made concrete: an audited ledger where every line
+  // carries an owner, and the last total reads zero unattributed.
+  ledger: {
+    columns: ['time', 'user', 'team', 'agent', 'route', 'cost'],
+    rows: [
+      { time: '09:41:03', user: 'a.chen', team: 'payments', agent: 'spec-enforce', route: 'gateway / openai', cost: '$0.08' },
+      { time: '09:41:11', user: 'a.chen', team: 'payments', agent: 'code-reviewer', route: 'gateway / anthropic', cost: '$0.21' },
+      { time: '09:41:19', user: 'a.chen', team: 'payments', agent: 'container', route: 'cf-containers', cost: '$0.03' },
+      { time: '09:41:25', user: 'a.chen', team: 'payments', agent: 'browser-fetch', route: 'isolated-render', cost: '$0.01' },
+    ] satisfies LedgerRow[],
+    totals: [
+      { label: 'environment', value: '$0.34' },
+      { label: 'inference', value: '$2.81' },
+      { label: 'agent tools', value: '$0.46' },
+      { label: 'unattributed', value: '$0.00', accent: true },
+    ] satisfies LedgerTotal[],
+  },
   layers: [
     {
       name: 'environment',

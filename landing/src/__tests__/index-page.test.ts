@@ -5,6 +5,7 @@ import PrivacyPage from '../pages/privacy.astro';
 import { APP_LINKS } from '../config';
 import {
   AGENTS,
+  BOUNDARY_BLOCKED,
   BROWSER,
   CONTACT_FORM,
   COST,
@@ -104,11 +105,19 @@ describe('landing page (REQ-LANDING-001)', () => {
       expect(text).toContain(pillar.title);
       expect(text).toContain(pillar.body.slice(0, 40));
     }
-    // The enforcement trace renders a flagged drift (warn) and its correction (ok).
-    expect(html).toContain('cl-warn');
-    for (const line of METHOD.trace) {
-      if (line.strong) expect(html).toContain(line.strong);
+    // The self-healing enforcement gate renders the requirement plus a real
+    // drift caught and corrected (not an all-green log): every step, with at
+    // least one failed enforcer and a passing resolution.
+    expect(html).toContain('data-proof');
+    expect(text).toContain(METHOD.gate.req);
+    expect(text).toContain(METHOD.gate.criterion);
+    for (const step of METHOD.gate.steps) {
+      expect(text).toContain(step.actor);
+      expect(text).toContain(step.text);
     }
+    expect(METHOD.gate.steps.some((s) => s.state === 'fail')).toBe(true);
+    expect(html).toContain('is-fail');
+    expect(html).toContain('is-pass');
   });
 
   it('renders the security cards and the boundary flow diagram', () => {
@@ -122,6 +131,12 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(text).toContain('guardrails');
     expect(text).toContain('DLP');
     expect(html).toContain('data-topic="security-compliance"');
+    // The boundary also names what it makes structurally impossible, not just
+    // the approved path (the negative space competitors never show).
+    expect(html).toContain('denied-list');
+    for (const denied of BOUNDARY_BLOCKED) {
+      expect(text).toContain(denied);
+    }
   });
 
   it('renders the operations section: infrastructure beyond code via zero-trust tunnels', () => {
@@ -163,13 +178,30 @@ describe('landing page (REQ-LANDING-001)', () => {
     for (const layer of COST.layers) {
       expect(text).toContain(layer.body.slice(0, 40));
     }
+    // The attribution ledger: every line carries an owner, and the closing
+    // total reads zero unattributed (the load-bearing cost claim).
+    expect(html).toContain('ledger-totals');
+    for (const row of COST.ledger.rows) {
+      expect(text).toContain(row.agent);
+    }
+    const unattributed = COST.ledger.totals.find((t) => t.label === 'unattributed');
+    expect(unattributed).toBeDefined();
+    expect(unattributed?.accent).toBe(true);
+    expect(text).toContain(unattributed!.value);
   });
 
-  it('renders the review-pipeline code snippet', () => {
-    expect(html).toContain('class="code-block"');
-    expect(text).toContain('on pull_request');
-    expect(html).toContain('code-reviewer');
-    expect(html).toContain('spec-reviewer');
+  it('renders the parallel review board: every reviewer lane, a caught finding, and the human triage verdict', () => {
+    expect(html).toContain('review-board');
+    expect(text).toContain(PIPELINE.trigger);
+    for (const lane of PIPELINE.lanes) {
+      expect(html).toContain(lane.agent);
+      expect(text).toContain(lane.note);
+    }
+    // The board shows findings caught and re-proven, not only clean lanes.
+    expect(PIPELINE.lanes.some((l) => l.result === 'finding')).toBe(true);
+    expect(html).toContain('is-finding');
+    expect(text).toContain(PIPELINE.verdict.title);
+    expect(text).toContain(PIPELINE.verdict.note);
   });
 
   it('renders every FAQ question', () => {
