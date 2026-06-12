@@ -167,6 +167,8 @@ This catch fires on every PR-boundary review (and on `/sdd clean`), so a `/sdd i
 
 ### Step 0d: Diff classification
 
+Determine the diff window first. If the task hands you an explicit window — a `<base>..<head>` range, an instruction such as "review ONLY the incremental diff from `<base>` to `<head>`", or `CODEFLARE_REVIEW_BASE` / `CODEFLARE_REVIEW_HEAD` in the environment — classify exactly that window (`git diff "<base>" "<head>"`) and nothing wider. Otherwise default to the full change set:
+
 ```bash
 git diff origin/main...HEAD 2>/dev/null || git diff HEAD~1..HEAD 2>/dev/null || git diff
 ```

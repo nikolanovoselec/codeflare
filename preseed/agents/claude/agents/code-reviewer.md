@@ -52,7 +52,7 @@ When invoked:
    ```
    Emit the notice and stop without writing any review report. Same gate shape as `spec-reviewer`, `doc-updater`, `git-push-review-reminder.sh`, and `enforce-review-spawn.sh`.
 
-1. **Gather the full diff** — Resolve the diff source from the PR base when a PR exists, falling back to upstream-aware syntax otherwise:
+1. **Establish the review scope, then gather that diff** — Your scope is an input, not a policy you set here. If the task hands you an explicit diff window — a `<base>..<head>` range, an instruction such as "review ONLY the incremental diff from `<base>` to `<head>`", or `CODEFLARE_REVIEW_BASE` / `CODEFLARE_REVIEW_HEAD` in the environment — review exactly that window and nothing wider; do not widen it back out to the full PR. Gather it with `git diff --name-only "<base>" "<head>"` to list files, then `git diff "<base>" "<head>" -- <path>` per file. When no window is given, default to the full change set, resolving the diff source from the PR base when a PR exists and falling back to upstream-aware syntax otherwise:
    ```bash
    PR_BASE=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null)
    if [ -n "$PR_BASE" ]; then
@@ -65,7 +65,7 @@ When invoked:
        || git diff
    fi
    ```
-   The PR-base-aware path matters because feature branches typically PR into `develop`, not `main` — diffing against `origin/main` would show too much (every commit on `develop` you don't have locally). Always prefer `gh pr view --json baseRefName` first; the fallback chain handles non-PR contexts. Always read the actual diff lines — never substitute `git log --oneline` (subjects only) for the real diff.
+   The PR-base-aware default matters because feature branches typically PR into `develop`, not `main` — diffing against `origin/main` would show too much (every commit on `develop` you don't have locally). Always prefer `gh pr view --json baseRefName` first; the fallback chain handles non-PR contexts. Always read the actual diff lines — never substitute `git log --oneline` (subjects only) for the real diff.
 2. **Understand scope** — Identify which files changed, what feature/fix they relate to, and how they connect.
 3. **Read surrounding code** — Don't review changes in isolation. Read the full file and understand imports, dependencies, and call sites.
 4. **Apply review checklist** — Work through each category below, from CRITICAL to LOW.

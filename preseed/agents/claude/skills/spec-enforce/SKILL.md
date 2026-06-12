@@ -10,7 +10,7 @@ This skill is the spine for SDD spec enforcement. It runs the 20-row execution m
 
 ## Inputs
 
-- `diff`: git diff against base (PR-boundary triggers) OR full-tree view (scope=all)
+- `diff`: the review window the caller hands you — an incremental `<base>..<head>` range on a re-review, the base...HEAD diff on a first PR-boundary review, or the full-tree view on `scope=all`. Enforce exactly the window provided; never widen a provided incremental window back out to the full PR diff. The "Git diff syntax" section below is only the **default** used when no window is provided.
 - `scope`: `all` | `diff` (default `diff`)
 - `mode`: `interactive` | `auto` | `unleashed` (read from `sdd/spec/config.yml` when nested layout exists, else `sdd/config.yml` on flat layout)
 - `layout`: `nested` | `flat` (auto-detected via `test -d sdd/spec`)
@@ -289,6 +289,8 @@ Cross-cutting commits count for whichever agents own touched lanes. Next push af
 | Truly ambiguous content | Mark Partial with Notes, log to `.review-needed.md`. |
 
 ## Git diff syntax
+
+Default scope only. When the caller provides an explicit `<base>..<head>` window (a re-review's incremental range, or `CODEFLARE_REVIEW_BASE` / `CODEFLARE_REVIEW_HEAD` in the environment), run `git diff "<base>" "<head>"` against that window instead and do not widen it. With no window provided, default to the full change set:
 
 ```bash
 git diff origin/main...HEAD

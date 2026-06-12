@@ -418,7 +418,22 @@ function spawnDurableLane(jobInput: DurableReviewJobInput, request: ReviewSpawnR
       cwd: repo,
       detached: true,
       stdio: ["ignore", out, err],
-      env: { ...process.env, BROWSER: "" },
+      // When a prior clean head was acked, jobInput.reviewBase names it: this lane
+      // must review ONLY reviewBase..head, never the full PR diff. The lane prompt
+      // already says so; these vars let review-lane-guards.ts make it binding (block
+      // full-PR diff commands). On a first review (no acked base) they are absent, so
+      // the lane defaults to the full PR diff.
+      env: {
+        ...process.env,
+        BROWSER: "",
+        ...(jobInput.reviewBase
+          ? {
+              CODEFLARE_REVIEW_BASE: jobInput.reviewBase,
+              CODEFLARE_REVIEW_HEAD: head,
+              CODEFLARE_REVIEW_BASE_REF: jobInput.baseRefName,
+            }
+          : {}),
+      },
     });
     // An async spawn failure (e.g. ENOENT) would otherwise be an unhandled error
     // event; record it so the reaper/state machine sees a failed lane, not a hang.

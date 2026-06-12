@@ -1057,7 +1057,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
-<!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes describes -> AC1/AC2/AC3 shared helper + lane mapping + conservative fallback to all-three-lanes) + host/__tests__/enforce-review-spawn.test.js (agent-spawn enforcement describe -> AC4/AC5/AC6/AC7; lane gating describe -> AC1/AC2/AC3) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi review helper behavior tests -> AC4 initial all-lane scheduling + AC5 doc-updater parallel dispatch) -->
+<!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes describes -> AC1/AC2/AC3 shared helper + lane mapping + conservative fallback to all-three-lanes) + host/__tests__/enforce-review-spawn.test.js (agent-spawn enforcement describe -> AC4/AC5/AC6/AC7; lane gating describe -> AC1/AC2/AC3) + src/__tests__/lib/agent-seed-manifest.test.ts (Pi review helper behavior tests -> AC4 initial all-lane scheduling + AC5 doc-updater parallel dispatch; seeded reviewer defs scope-agnostic -> AC8) -->
 
 **Intent:** Once a PR-boundary trigger fires ([REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)), a shared lane classifier picks the minimal correct set of review agents from the diff so the in-turn nudge and turn-end gate agree, and a fix-push cascade can advance the ack pointer without losing review coverage.
 
@@ -1072,6 +1072,8 @@ None.
 5. `doc-updater` dispatches in parallel with `spec-reviewer`, not after it: every required lane is eligible immediately, since the reviewers report findings to a triage file and the main session applies fixes — no shared-write race. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewEligibleLanes -->
 6. Review agents are dispatched with `run_in_background: true` so the main session stays interactive; the turn-end gate suppresses re-summoning per lane, so a slow in-flight lane never masks demand for other lanes nor satisfies acknowledgement without current-head completion. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_in_flight --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::all_required_lanes_completed_for_current_head --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (suppresses an in-flight lane without masking missing peer lanes + does not ack while current-head lanes are still in flight) -->
 7. In-flight suppression is bounded by transcript recency: an uncompleted spawn that falls behind the transcript tail is treated as orphaned, demanded again, and cannot suppress its lane indefinitely. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_in_flight --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (re-demands an orphaned in-flight lane after the transcript recency bound) -->
+8. After the first acknowledged review, a follow-up review is dispatched scoped to the incremental window (last-acked clean head -> current head), and the reviewer agent definitions and enforce skills are scope-agnostic: they review exactly the window the caller provides, default to the full change set only when no window is given, and never widen a provided incremental window back to the full PR diff -- so a re-review inspects only the new commits instead of re-reviewing the entire PR each round. The scope limitation lives in the dispatch/runtime, never baked into the shared agent or skill definitions (which other CLIs inherit). <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::docUpdaterPrompt --> <!-- @impl: preseed/agents/claude/agents/code-reviewer.md --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md --> <!-- @impl: preseed/agents/claude/skills/spec-enforce/SKILL.md --> <!-- @impl: preseed/agents/claude/skills/doc-enforce/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (seeded reviewer defs are scope-agnostic: honor an explicit window, keep the full-diff default -> AC8) -->
+
 **Constraints:**
 
 - The agent must not push to the PR branch or start a second review wave while any required review lane is in flight. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_in_flight -->
@@ -1191,7 +1193,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-lane-guards.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (lane extension-source selection -> AC6; lane guard blocking -> AC7) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (lane extension-source selection -> AC6; lane guard blocking -> AC7; incremental-scope guard (reviewScopeBlockReason) -> AC8) -->
 <!-- coverage-gap: AC1-AC5's detached child-process lane execution is a runtime behaviour verified by an integration smoke test, with no dedicated automated test in the Workers vitest pool (which cannot spawn pi). -->
 
 **Intent:** Pi durable review lanes need enough bounded inspection capability to review diffs without loading recursive review enforcement or running local builds.
@@ -1207,6 +1209,7 @@ None.
 5. Durable review lanes expose graphify inspection tools. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane -->
 6. Settings-enabled context-mode may add `ctx_search` to durable review lanes. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::laneExtensionSources -->
 7. Durable review lane guards block local build, test, lint, and dev-server commands. <!-- @impl: preseed/agents/pi/extensions/review-lane-guards.ts::reviewLaneBlockReason -->
+8. When a prior clean head was acknowledged (an incremental re-review), durable review lanes are confined to the incremental window: `spawnDurableLane` exports `CODEFLARE_REVIEW_BASE` / `CODEFLARE_REVIEW_HEAD` / `CODEFLARE_REVIEW_BASE_REF`, and the lane guard blocks full-PR diff commands (`gh pr diff`; a `git diff` ranging against `origin/<ref>...`) so a re-review cannot re-scan the whole PR. The first review (no acked base) exports no scope and reviews the full PR diff. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @impl: preseed/agents/pi/extensions/review-lane-guards.ts::reviewScopeBlockReason --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (reviewScopeBlockReason: no base allows all; acked base blocks gh pr diff + origin/<ref>... full diff; window forms allowed -> AC8) -->
 
 **Constraints:**
 

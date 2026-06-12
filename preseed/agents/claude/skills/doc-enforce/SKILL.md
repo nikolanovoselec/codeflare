@@ -10,7 +10,7 @@ This skill is the spine for SDD documentation enforcement. It runs the 15-row ex
 
 ## Inputs
 
-- `diff`: git diff against base (PR-boundary triggers) OR full-tree view (scope=all)
+- `diff`: the review window the caller hands you — an incremental `<base>..<head>` range on a re-review, the base...HEAD diff on a first PR-boundary review, or the full-tree view on `scope=all`. Enforce exactly the window provided; never widen a provided incremental window back out to the full PR diff. (The diff-scoped passes operate on this window; the always-on whole-tree consistency passes still walk `documentation/` in full, as their Status note says.)
 - `scope`: `all` | `diff` (default `diff`)
 - `mode`: `interactive` | `auto` | `unleashed` (read from `sdd/spec/config.yml` when nested layout exists, else `sdd/config.yml` on flat layout)
 - `layout`: `nested` | `flat` (auto-detected via `test -d documentation/lanes`)

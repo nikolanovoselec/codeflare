@@ -28,10 +28,42 @@ export function reviewLaneBlockReason(command: string): string | undefined {
   });
 }
 
+type ReviewScope = { base?: string; head?: string; baseRef?: string };
+
+/**
+ * When a review lane runs in incremental mode — a prior clean head was acked, so
+ * CODEFLARE_REVIEW_BASE names it — the lane must review ONLY base..head, never the
+ * full PR diff. The shared agent/skill prompts already instruct this; this guard makes
+ * it binding so a reviewer cannot fall back to a full-PR diff and re-review the whole
+ * PR every round. Allows the window forms (`git diff <base> <head>`, `--name-only`,
+ * `-- <path>`); blocks the full-PR forms (`gh pr diff`, and a `git diff` that ranges
+ * against `origin/<ref>...` with a three-dot merge-base). With no base set (first
+ * review), nothing is blocked.
+ */
+export function reviewScopeBlockReason(command: string, scope: ReviewScope): string | undefined {
+  if (!scope.base) return undefined;
+  const windowCmd = `git diff ${scope.base} ${scope.head ?? "HEAD"}`;
+  if (/\bgh\s+pr\s+diff\b/.test(command)) {
+    return `Full-PR diff is blocked in incremental review mode — review only the window (${windowCmd}), not the whole PR.`;
+  }
+  if (/\bgit\s+diff\b/.test(command) && /\borigin\//.test(command) && /\.\.\./.test(command)) {
+    return `Full-PR diff is blocked in incremental review mode — review only the window (${windowCmd}), not the full PR diff against ${scope.baseRef ?? "the base branch"}.`;
+  }
+  return undefined;
+}
+
+function scopeFromEnv(): ReviewScope {
+  return {
+    base: process.env.CODEFLARE_REVIEW_BASE || undefined,
+    head: process.env.CODEFLARE_REVIEW_HEAD || undefined,
+    baseRef: process.env.CODEFLARE_REVIEW_BASE_REF || undefined,
+  };
+}
+
 function guardTool(event: unknown): { block: true; reason: string } | undefined {
   const command = commandTextFromEvent(event);
   if (!command) return undefined;
-  const reason = reviewLaneBlockReason(command);
+  const reason = reviewLaneBlockReason(command) ?? reviewScopeBlockReason(command, scopeFromEnv());
   return reason ? { block: true, reason } : undefined;
 }
 

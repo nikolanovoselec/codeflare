@@ -6,7 +6,7 @@ import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, comman
 import { actionableReviewCount, allDurableReviewLanesComplete, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewAutofixRequest, sendReviewAutofixRequest, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
-import { reviewLaneBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
+import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 import localStatuslineExtension from '../../../preseed/agents/pi/extensions/local-statusline';
@@ -1978,6 +1978,42 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
     } finally {
       if (hadSentinel) writeFileSync(LOCAL_BUILD_BYPASS, '', 'utf8');
       else rmSync(LOCAL_BUILD_BYPASS, { force: true });
+    }
+  });
+});
+
+describe('Incremental review scope confinement / REQ-AGENT-040 AC8 (reviewer defs + enforce skills scope-agnostic) + REQ-AGENT-060 AC8 (lane guard enforces the incremental window)', () => {
+  const scope = { base: 'abc1234', head: 'def5678', baseRef: 'main' };
+
+  it('REQ-AGENT-060 AC8: with no acked base (first review) the scope guard blocks nothing — full PR is the intended scope', () => {
+    expect(reviewScopeBlockReason('git diff origin/main...HEAD', {})).toBeUndefined();
+    expect(reviewScopeBlockReason('gh pr diff', {})).toBeUndefined();
+  });
+
+  it('REQ-AGENT-060 AC8: with an acked base, full-PR diff commands are blocked', () => {
+    expect(reviewScopeBlockReason('git diff origin/main...HEAD', scope)).toMatch(/incremental review mode/);
+    expect(reviewScopeBlockReason('git diff origin/develop...HEAD', { ...scope, baseRef: 'develop' })).toMatch(/incremental review mode/);
+    expect(reviewScopeBlockReason('gh pr diff', scope)).toMatch(/incremental review mode/);
+    expect(reviewScopeBlockReason('gh pr diff 207', scope)).toMatch(/incremental review mode/);
+  });
+
+  it('REQ-AGENT-060 AC8: the incremental-window commands and ordinary inspection are allowed', () => {
+    expect(reviewScopeBlockReason('git diff abc1234 def5678', scope)).toBeUndefined();
+    expect(reviewScopeBlockReason('git diff --name-only abc1234 def5678', scope)).toBeUndefined();
+    expect(reviewScopeBlockReason('git diff abc1234 def5678 -- src/index.ts', scope)).toBeUndefined();
+    expect(reviewScopeBlockReason('git diff abc1234..def5678', scope)).toBeUndefined();
+    expect(reviewScopeBlockReason('git status', scope)).toBeUndefined();
+    expect(reviewScopeBlockReason('cat src/index.ts', scope)).toBeUndefined();
+  });
+
+  it('REQ-AGENT-040 AC8: the seeded reviewer agent defs are scope-agnostic (honor an explicit window, keep the full-diff default)', () => {
+    for (const suffix of ['agents/code-reviewer.md', 'agents/spec-reviewer.md', 'agents/doc-updater.md']) {
+      const docs = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.endsWith(suffix));
+      expect(docs.length, `expected at least one seeded ${suffix}`).toBeGreaterThan(0);
+      for (const doc of docs) {
+        expect(doc.content, `${doc.key} should honor an explicit incremental window`).toMatch(/nothing wider/);
+        expect(doc.content, `${doc.key} should keep the full-diff default`).toMatch(/origin\/main\.\.\.HEAD|full change set/i);
+      }
     }
   });
 });
