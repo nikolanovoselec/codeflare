@@ -1,9 +1,14 @@
 ---
 /**
- * The Codeflare enterprise landing page. Sections compose typed content from
- * src/content/site.ts; each section uses a distinct layout family. One
- * terminal (the hero), one diagram (the security boundary), one code block
- * (the review pipeline). Calm, sans prose, mobile-first.
+ * The Codeflare enterprise landing page: one governed run threaded across the
+ * whole page. A single pull request (the spine, REQ-PAY-014 / AC3 / PR #207)
+ * is followed from intent to merge, and the proof artifacts are camera angles
+ * on it: the hero terminal opens it, the enforcement gate catches it drifting,
+ * the boundary + egress strip show where its traffic may go, the context pipe
+ * shows how it reads the web safely, the review board judges it in parallel,
+ * and the cost ledger is its bill closing on zero unattributed. Governance
+ * carries the page; the platform capability lands afterwards as the payoff the
+ * boundary makes safe. Calm, sans prose, mono for proof, mobile-first.
  */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Hero from '../components/Hero.astro';
@@ -13,12 +18,14 @@ import { APP_LINKS } from '../config';
 import {
   NAV_LINKS,
   AGENTS,
+  SPINE,
   STATS,
   SHIFT,
   METHOD,
   SECURITY,
   BOUNDARY_FLOW,
   BOUNDARY_BLOCKED,
+  EGRESS,
   OPERATIONS,
   BROWSER,
   PLATFORM,
@@ -48,13 +55,15 @@ import {
   <main id="top">
     <Hero />
 
-    <!-- Stat band -->
+    <!-- Stat band: the run in four instrument readings; the AI Gateway 100%
+         leads and carries the one coral governance tick. -->
     <section class="section section--alt">
       <div class="container">
         <div class="stats" data-stagger>
           {
             STATS.map((stat) => (
-              <div class="stat">
+              <div class:list={['stat', { 'is-anchor': stat.anchor }]}>
+                <span class="stat-cap">{stat.cap}</span>
                 <div class="stat-value">{stat.value}</div>
                 <p class="stat-label">{stat.label}</p>
               </div>
@@ -84,7 +93,9 @@ import {
       </div>
     </section>
 
-    <!-- The method: spec-driven development, enforced -->
+    <!-- Station 1, Method: spec-driven development, enforced. The gate (the
+         receipt) precedes the prose, and the three pillars read as numbered
+         clauses of a control, not a feature-card grid. -->
     <section id={METHOD.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
@@ -92,19 +103,10 @@ import {
           <h2>{METHOD.title}</h2>
           <p class="lead">{METHOD.lead}</p>
         </div>
-        <div class="card-grid card-grid--3" data-stagger>
-          {
-            METHOD.pillars.map((card) => (
-              <div class="card">
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </div>
-            ))
-          }
-        </div>
         <!-- Self-healing enforcement gate: a drift caught and corrected at the PR
              boundary. Static markup is the resolved state; data-proof replays the
-             fail -> correct -> pass sequence once on scroll-in. -->
+             fail -> correct -> pass sequence once on scroll-in. The only place an
+             agent visibly fails, which is the point. -->
         <div class="gate reveal" data-proof>
           <div class="gate-head">
             <span class="gate-req">{METHOD.gate.req}</span>
@@ -125,10 +127,23 @@ import {
             }
           </div>
         </div>
+        <p class="gate-caption reveal">{METHOD.gate.caption}</p>
+        <ol class="method-clauses" data-stagger>
+          {
+            METHOD.pillars.map((card, i) => (
+              <li style={`--i:${i}`}>
+                <h3>{card.title}</h3>
+                <p>{card.body}</p>
+              </li>
+            ))
+          }
+        </ol>
       </div>
     </section>
 
-    <!-- Security -->
+    <!-- Station 2, Security: zero trust is the architecture. The boundary
+         data-path and the denied paths beside it carry equal weight; the egress
+         strip below turns DLP and guardrails into auditable evidence. -->
     <section id={SECURITY.id} class="section">
       <div class="container">
         <div class="split">
@@ -142,7 +157,7 @@ import {
           </div>
           <div class="split-aside reveal">
             <!-- Boundary data-path: the approved route lights stage by stage on
-                 scroll-in (data-proof), and the denied paths name what the
+                 scroll-in (data-proof); the denied paths name what the
                  architecture makes impossible, not merely discouraged. -->
             <div class="flow" data-proof>
               {
@@ -175,13 +190,33 @@ import {
             ))
           }
         </div>
+        <!-- Egress-inspection strip: one outbound model call inspected at the
+             boundary. Structural twin of the gate; the DLP redaction is the one
+             amber beat. data-proof replays the rows once on scroll-in. -->
+        <div class="gate egress reveal" data-proof>
+          <div class="gate-head">
+            <span class="gate-req">egress</span>
+            <span class="gate-crit">{EGRESS.call}</span>
+          </div>
+          <div class="gate-steps">
+            {
+              EGRESS.rows.map((row, i) => (
+                <div class:list={['gate-step', `is-${row.state}`]} style={`--i:${i}`}>
+                  <span class="gate-actor">{row.actor}</span>
+                  <span class="gate-state">{row.label}</span>
+                  <span class="gate-text">{row.text}</span>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+        <p class="gate-caption reveal">{EGRESS.caption}</p>
       </div>
     </section>
 
-    <!-- Operations: the same governed agents, beyond code into infrastructure.
-         Plain (not --alt) so it flows out of the plain Security section and lets
-         Browser resume the alternating band rhythm. -->
-    <section id={OPERATIONS.id} class="section">
+    <!-- Station 2b, Operations: the same governed agents, beyond code into
+         infrastructure. A quieter coda to Security on the same boundary. -->
+    <section id={OPERATIONS.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
           <p class="kicker">{OPERATIONS.kicker}</p>
@@ -199,62 +234,36 @@ import {
             ))
           }
         </div>
+        <p class="section-coda reveal">{OPERATIONS.closing}</p>
       </div>
     </section>
 
-    <!-- Runs in a browser -->
-    <section id={BROWSER.id} class="section section--alt">
-      <div class="container">
-        <div class="section-head reveal">
-          <h2>{BROWSER.title}</h2>
-          <p class="lead">{BROWSER.lead}</p>
-        </div>
-        <div class="feature-grid feature-grid--3" data-stagger>
-          {
-            BROWSER.cards.map((card) => (
-              <div class="feature-col">
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </div>
-            ))
-          }
-        </div>
-      </div>
-    </section>
-
-    <!-- The platform -->
-    <section id={PLATFORM.id} class="section">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{PLATFORM.kicker}</p>
-          <h2>{PLATFORM.title}</h2>
-          <p class="lead">{PLATFORM.lead}</p>
-        </div>
-        <div class="card-grid card-grid--2" data-stagger>
-          {
-            PLATFORM.cards.map((card) => (
-              <div class="card">
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </div>
-            ))
-          }
-        </div>
-        <div class="agent-chips reveal" aria-label="Supported coding agents">
-          {AGENTS.map((agent) => <span>{agent}</span>)}
-        </div>
-      </div>
-    </section>
-
-    <!-- Context: agents read the open web through browser isolation, distilled to
-         agent-ready markdown. Plain section (follows the plain Platform section;
-         Pipeline resumes the alternating band). -->
+    <!-- Station 3, Context: the open web, rendered clean, never trusted. The
+         isolation pipe is a peer-level proof artifact above the detail cards. -->
     <section id={CONTEXT.id} class="section">
       <div class="container">
         <div class="section-head reveal">
           <p class="kicker">{CONTEXT.kicker}</p>
           <h2>{CONTEXT.title}</h2>
           <p class="lead">{CONTEXT.lead}</p>
+        </div>
+        <div class="context-pipe reveal">
+          <div class="flow" data-proof>
+            {
+              CONTEXT.pipe.map((node, i) => (
+                <Fragment>
+                  <div class:list={['flow-node', { 'is-accent': node.accent }]} style={`--i:${i}`}>
+                    {node.label}
+                    <small>{node.sub}</small>
+                  </div>
+                  {i < CONTEXT.pipe.length - 1 && (
+                    <div class="flow-arrow" style={`--i:${i}`}>{node.edge && <span>{node.edge}</span>}</div>
+                  )}
+                </Fragment>
+              ))
+            }
+          </div>
+          <p class="pipe-note">{CONTEXT.pipeNote}</p>
         </div>
         <div class="card-grid card-grid--3" data-stagger>
           {
@@ -270,7 +279,10 @@ import {
       </div>
     </section>
 
-    <!-- Your pipeline -->
+    <!-- Station 4, Pipeline: the parallel review board. Six specialist agents
+         on one diff at once, two catching a finding and re-proving it, all
+         converging on one human triage gate. "One engineer, many agents" made
+         literal. -->
     <section id={PIPELINE.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
@@ -278,14 +290,12 @@ import {
           <p class="lead">{PIPELINE.lead}</p>
         </div>
 
-        <!-- Parallel review board: six specialist agents on one diff at once,
-             two catching a finding and re-proving it, converging on one human
-             triage gate. data-proof streams the lanes in on scroll-in. -->
         <div class="review-board reveal" data-proof>
           <div class="board-pr">
-            <span class="board-pr-id">PR #207 · payments-service</span>
+            <span class="board-pr-id">{SPINE.pr} · {SPINE.service}</span>
             <span class="board-pr-trigger">{PIPELINE.trigger}</span>
           </div>
+          <div class="board-dispatch" aria-hidden="true">{PIPELINE.dispatch}</div>
           <div class="board-lanes">
             {
               PIPELINE.lanes.map((lane, i) => (
@@ -322,7 +332,8 @@ import {
       </div>
     </section>
 
-    <!-- Cost -->
+    <!-- Station 5, Cost: no unattributed dollar. The ledger is the literal bill
+         for the spine run, closing on zero unattributed. -->
     <section id={COST.id} class="section">
       <div class="container">
         <div class="section-head reveal">
@@ -331,8 +342,13 @@ import {
           <p class="lead">{COST.lead}</p>
         </div>
         <!-- Attribution ledger: every line carries an owner; the last total
-             reads zero unattributed. data-proof streams the rows + totals in. -->
+             reads zero unattributed. The rows are a sample of the run; the
+             totals cover all of it (the sample note reconciles the two). -->
         <div class="ledger reveal" data-proof>
+          <div class="ledger-meta">
+            <span class="ledger-meta-id">{COST.ledger.meta}</span>
+            <span class="ledger-meta-sample">{COST.ledger.sample}</span>
+          </div>
           <div class="ledger-head" aria-hidden="true">
             <span class="lc-time">{COST.ledger.columns[0]}</span>
             <span class="lc-user">{COST.ledger.columns[1]}</span>
@@ -380,7 +396,8 @@ import {
       </div>
     </section>
 
-    <!-- Your cloud -->
+    <!-- Tenancy: your cloud, the trust close. Resolves the boundary thesis: the
+         boundary is yours, not Codeflare's. -->
     <section id={TENANCY.id} class="section section--alt">
       <div class="container">
         <div class="split">
@@ -389,7 +406,7 @@ import {
             <p class="lead" set:html={TENANCY.lead} />
           </div>
           <div class="split-aside reveal">
-            <ul class="checklist">
+            <ul class="checklist checklist--mono">
               {
                 TENANCY.checklist.map((item) => (
                   <li>
@@ -404,7 +421,53 @@ import {
       </div>
     </section>
 
-    <!-- FAQ -->
+    <!-- The payoff band: the platform, placed after the governance spine so
+         capability reads as the payoff the boundary makes safe. -->
+    <section id={PLATFORM.id} class="section">
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="kicker">{PLATFORM.kicker}</p>
+          <h2>{PLATFORM.title}</h2>
+          <p class="lead">{PLATFORM.lead}</p>
+        </div>
+        <div class="card-grid card-grid--2" data-stagger>
+          {
+            PLATFORM.cards.map((card) => (
+              <div class="card">
+                <h3>{card.title}</h3>
+                <p>{card.body}</p>
+              </div>
+            ))
+          }
+        </div>
+        <div class="agent-chips reveal" aria-label="Supported coding agents">
+          {AGENTS.map((agent) => <span>{agent}</span>)}
+        </div>
+      </div>
+    </section>
+
+    <!-- Runs in a browser: the calm tail, deliberately quieter than the
+         instrument stations so the page decompresses. -->
+    <section id={BROWSER.id} class="section section--alt">
+      <div class="container">
+        <div class="section-head reveal">
+          <h2>{BROWSER.title}</h2>
+          <p class="lead">{BROWSER.lead}</p>
+        </div>
+        <div class="feature-grid feature-grid--3" data-stagger>
+          {
+            BROWSER.cards.map((card) => (
+              <div class="feature-col">
+                <h3>{card.title}</h3>
+                <p>{card.body}</p>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ: the answers, up front (the four governance questions lead). -->
     <section id={FAQ_SECTION.id} class="section">
       <div class="container">
         <div class="section-head reveal">

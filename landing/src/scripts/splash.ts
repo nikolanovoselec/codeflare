@@ -59,7 +59,7 @@ function initFlareFluid(): void {
 
   // Switch the page onto its glass surfaces only now that the fluid is actually
   // live: the veil and the translucent panels key off html.flare-on, so a
-  // no-WebGL / reduced-motion / touch visitor keeps the solid default styles.
+  // no-WebGL or reduced-motion visitor keeps the solid default styles.
   document.documentElement.classList.add('flare-on');
 
   // Touch devices have no cursor, so drive the fluid from page scroll: a virtual

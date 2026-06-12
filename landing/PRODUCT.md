@@ -85,12 +85,16 @@ and a single gradient accent word carries the name.
 ## Design Principles
 
 1. **Show the engine working, then speak plainly.** A single legible terminal demo proves
-   real agentic capability up front; a few mono proof artifacts (the self-healing
-   enforcement gate that visibly fails then corrects, the parallel review board of six
-   reviewer lanes, the cost attribution ledger closing on zero unattributed, the boundary
-   data-path) turn the load-bearing claims into evidence rather than feature cards. The
-   prose between them stays calm and specific. Showing the agent fail and be corrected is
-   the move neither competitor dares; it is what makes the autonomy credible.
+   real agentic capability up front, and the mono proof artifacts below are camera angles
+   on that same run, not unrelated widgets: one pull request (the spine) is followed from
+   intent to merge through the self-healing enforcement gate that visibly fails then
+   corrects, the boundary data-path with its denied paths at equal weight, the egress
+   strip where a DLP redaction is shown happening, the browser-isolation context pipe, the
+   parallel review board of six reviewer lanes, and the cost ledger closing on zero
+   unattributed. The same IDs recur in each, so the page reads as a system of record, not
+   a demo reel. The prose between them stays calm and specific. Showing the agent fail and
+   be corrected, and a model call inspected mid-flight, are the moves neither competitor
+   dares; they are what make the autonomy credible.
 2. **One engineer, many agents.** The 10× operating model — parallel autonomous
    sessions under one person's judgment — is the idea the page must land.
 3. **Structural trust.** Security claims are architecture ("the environment ceases to

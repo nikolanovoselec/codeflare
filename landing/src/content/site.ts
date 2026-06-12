@@ -18,6 +18,10 @@ export interface Cta {
 export interface Stat {
   value: string;
   label: string;
+  /** Mono channel micro-cap above the value (e.g. Gateway). */
+  cap: string;
+  /** The governance-anchor tile (AI Gateway 100%) carries the one coral tick. */
+  anchor?: boolean;
 }
 
 export interface Card {
@@ -47,6 +51,16 @@ export interface GateStep {
   actor: string;
   /** fail = drift caught (coral), work = agent correcting (cyan), pass = green. */
   state: 'fail' | 'work' | 'pass';
+  text: string;
+}
+
+/** A row in the egress-inspection strip (security section proof artifact):
+ *  one outbound model call inspected at the AI Gateway boundary. */
+export interface EgressRow {
+  actor: string;
+  /** pass = control satisfied (green); redact = DLP masked a field (amber). */
+  state: 'pass' | 'redact';
+  label: string;
   text: string;
 }
 
@@ -83,7 +97,7 @@ export interface TopicOption {
 
 /** A single static terminal line with its display tone (CSS suffix). */
 export interface TranscriptLine {
-  tone: 'cmd' | 'agent' | 'ok' | 'dim' | 'warn';
+  tone: 'cmd' | 'agent' | 'ok' | 'dim' | 'warn' | 'deny';
   text: string;
 }
 
@@ -109,28 +123,46 @@ export const HERO = {
   secondaryCta: { label: 'See the shift', href: '#shift' } satisfies Cta,
 };
 
+/**
+ * The spine: one real pull request followed from intent to merge across the
+ * whole page. The same IDs recur verbatim in the hero terminal, the enforcement
+ * gate, the review board, and the cost ledger, so four proof artifacts read as
+ * four camera angles on one change moving through the engine. Sourced once here
+ * so the IDs can never drift out of sync between artifacts.
+ */
+export const SPINE = {
+  req: 'REQ-PAY-014',
+  ac: 'AC3',
+  criterion: 'AC3: duplicate payment requests stay idempotent',
+  pr: 'PR #207',
+  user: 'a.chen',
+  team: 'payments',
+  service: 'payments-service',
+};
+
 export const TERMINAL = {
-  title: 'codeflare · payments-service',
+  title: `codeflare · ${SPINE.service}`,
   lines: [
-    { tone: 'cmd', text: '/sdd init' },
-    { tone: 'agent', text: '✻ bootstrapping spec-driven development' },
-    { tone: 'dim', text: '  knowledge graph: 1,284 nodes · 37 ADRs indexed' },
-    { tone: 'ok', text: '✓ 14 requirements pinned to acceptance criteria' },
-    { tone: 'cmd', text: 'implement REQ-PAY-014' },
-    { tone: 'agent', text: '✻ tests first · 9 cases, then the code' },
-    { tone: 'ok', text: '✓ 9/9 green · spec + TDD compliance enforced' },
-    { tone: 'agent', text: '✻ PR boundary · /review --deep · 6 agents' },
-    { tone: 'ok', text: '✓ findings auto-fixed · verified vs code + docs' },
-    { tone: 'dim', text: '  41 model calls → AI Gateway · guardrails + DLP' },
-    { tone: 'ok', text: '✓ PR #207 ready for human triage · CI green' },
+    { tone: 'cmd', text: `/sdd implement ${SPINE.req}  acceptance criteria: 3` },
+    { tone: 'agent', text: '✻ session: ephemeral container in your tenancy, destroyed on exit' },
+    { tone: 'agent', text: '✻ tests first: 9 cases written, then the implementation' },
+    { tone: 'warn', text: '⚠ spec-enforce: AC3 not covered by a test, drift is a blocking finding' },
+    { tone: 'agent', text: '✻ agent corrects to the plan, writes the missing idempotency case' },
+    { tone: 'ok', text: '✓ re-verified: AC3 covered, 10 of 10 green, zero deviation from spec' },
+    { tone: 'agent', text: '✻ PR boundary: /review --deep, 6 reviewer agents in parallel' },
+    { tone: 'deny', text: '✕ egress: direct provider call denied, rerouted through your AI Gateway' },
+    { tone: 'dim', text: '  41 model calls: guardrails on, DLP on egress, every token attributed' },
+    { tone: 'dim', text: '  context: 2 external docs read through isolated browsers, clean markdown' },
+    { tone: 'ok', text: '✓ specification, implementation and documentation aligned' },
+    { tone: 'ok', text: `✓ ${SPINE.pr} ready for human triage, CI green, the merge is yours` },
   ] satisfies TranscriptLine[],
 };
 
 export const STATS: Stat[] = [
-  { value: '100%', label: 'of agent LLM traffic through your AI Gateway' },
-  { value: '0', label: 'lines of code on the endpoint device' },
-  { value: '0', label: 'standing infrastructure between sessions' },
-  { value: '10×', label: 'one engineer steering parallel agents' },
+  { value: '100%', cap: 'Gateway', anchor: true, label: 'of agent LLM traffic through your AI Gateway' },
+  { value: '0', cap: 'Endpoint', label: 'lines of code on the endpoint device' },
+  { value: '0', cap: 'Infra', label: 'standing infrastructure between sessions' },
+  { value: '10×', cap: 'Orchestration', label: 'one engineer steering parallel agents' },
 ];
 
 export const SHIFT = {
@@ -158,7 +190,7 @@ export const SHIFT = {
       'Engineers steer intent and make the calls',
       'Runs in your cloud, reached from any browser',
       'Every request through your AI Gateway, governed and attributed',
-      'Verified by review pipelines and your CI',
+      'Verified by review pipelines and your CI, then handed to a person for the merge',
     ],
   } satisfies ComparisonColumn,
 };
@@ -199,9 +231,12 @@ export const METHOD = {
   // (proof artifact), not a flat log. This is the move neither competitor dares:
   // showing the agent fail, then the platform catch and fix it.
   gate: {
-    req: 'REQ-PAY-014',
-    criterion: 'AC3: duplicate payment requests stay idempotent',
-    pr: 'PR #207',
+    req: SPINE.req,
+    criterion: SPINE.criterion,
+    pr: SPINE.pr,
+    caption:
+      'Drift is a blocking finding. The agent is corrected and re-verified. ' +
+      'Specification, implementation and documentation aligned, enforced not hoped for.',
     steps: [
       { actor: 'spec-enforce', state: 'fail', text: 'AC3 is not covered by a test' },
       { actor: 'tdd-enforce', state: 'fail', text: 'an assertion-free test is rejected as theater' },
@@ -236,7 +271,7 @@ export const SECURITY = {
     },
     {
       title: 'Egress governed below the agent',
-      tag: 'egress',
+      tag: 'guardrails + DLP',
       body:
         'LLM traffic is intercepted beneath the container and routed through your AI Gateway, ' +
         'where guardrails, DLP, and rate controls apply. Agents physically cannot reach ' +
@@ -269,7 +304,29 @@ export const BOUNDARY_BLOCKED = [
   'Lateral move to a peer session: impossible',
   'Source code on the endpoint device: none',
   'Reach to an unapproved endpoint: blocked',
+  'Privilege escalation: nothing to escalate into',
 ];
+
+/** Egress-inspection strip: one outbound model call inspected at the boundary,
+ *  turning DLP and guardrails into auditable evidence rather than asserted
+ *  claims. Structural twin of the enforcement gate; the DLP redaction is the
+ *  one amber beat. */
+export const EGRESS = {
+  call: `${SPINE.pr} · POST /v1/chat/completions → gateway`,
+  rows: [
+    { actor: 'guardrails', state: 'pass', label: 'passed', text: 'prompt and tool calls within policy' },
+    {
+      actor: 'DLP',
+      state: 'redact',
+      label: 'redacted',
+      text: '1 cardholder PAN masked before the request leaves the boundary',
+    },
+    { actor: 'route', state: 'pass', label: 'approved', text: 'sent to an approved model, every token attributed' },
+  ] satisfies EgressRow[],
+  caption:
+    'One model call, inspected: guardrails pass, DLP redacts one PAN, the route is approved. ' +
+    'Nothing leaves the boundary unseen.',
+};
 
 export const OPERATIONS = {
   id: 'operations',
@@ -305,6 +362,9 @@ export const OPERATIONS = {
         'tenancy. No unsigned access, no shadow operations.',
     },
   ] satisfies Card[],
+  closing:
+    'Same boundary, same attribution, same human triage gate. The engine operates the systems, ' +
+    'it does not only author the code.',
 };
 
 export const BROWSER = {
@@ -403,6 +463,16 @@ export const CONTEXT = {
         'durable, queryable knowledge. What the agent reasons over is signal, kept inside your boundary.',
     },
   ] satisfies Card[],
+  // Browser isolation as a peer-level proof artifact, not buried card prose: the
+  // open web crosses an isolation boundary the remote page never breaches, then
+  // resolves to agent-ready markdown. Reuses the boundary-flow node idiom.
+  pipe: [
+    { label: 'source URL', sub: 'the open web', accent: false, edge: 'fetch' },
+    { label: 'Isolated browser', sub: 'runs JS, resolves gated content', accent: true, edge: 'distill' },
+    { label: 'Structured markdown', sub: 'into the agent and the graph', accent: false, edge: '' },
+  ],
+  pipeNote:
+    'The page renders inside a throwaway isolated browser and never touches the agent container or your network.',
 };
 
 export const PIPELINE = {
@@ -435,6 +505,7 @@ export const PIPELINE = {
   // in parallel, two of them catching and re-proving a finding, all converging
   // on a single human triage gate. Makes "one engineer, many agents" literal.
   trigger: 'on pull_request → /review --deep',
+  dispatch: `${SPINE.pr} · 6 lanes dispatched · 1 human gate`,
   lanes: [
     { agent: 'code-reviewer', result: 'finding', note: '2 findings, both fixed in-session' },
     { agent: 'security-reviewer', result: 'clean', note: 'no injection, no secret exposure' },
@@ -459,6 +530,12 @@ export const COST = {
   // The attribution claim made concrete: an audited ledger where every line
   // carries an owner, and the last total reads zero unattributed.
   ledger: {
+    // Bound to the spine run so the ledger reads as the literal bill for PR #207,
+    // not a generic table. The rows are a representative sample; the totals cover
+    // the whole run, so the sample note reconciles the two (the visible rows sum
+    // to less than the totals by design).
+    meta: `${SPINE.pr} · ${SPINE.user} · ${SPINE.team}`,
+    sample: 'showing 4 of 41 model calls · totals cover the full run',
     columns: ['time', 'user', 'team', 'agent', 'route', 'cost'],
     rows: [
       { time: '09:41:03', user: 'a.chen', team: 'payments', agent: 'spec-enforce', route: 'gateway / openai', cost: '$0.08' },

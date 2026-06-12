@@ -9,6 +9,7 @@ import {
   BROWSER,
   CONTACT_FORM,
   COST,
+  EGRESS,
   FAQ_ITEMS,
   HERO,
   CONTEXT,
@@ -19,6 +20,7 @@ import {
   PIPELINE,
   SECURITY,
   SHIFT,
+  SPINE,
   STATS,
   TENANCY,
   TERMINAL,
@@ -57,6 +59,22 @@ describe('landing page (REQ-LANDING-001)', () => {
     // The page hosts the flare-fluid mount point (a fixed full-page layer; the
     // canvas is injected client-side on desktop).
     expect(html).toContain('data-flare-fluid');
+    // The hero spine strip names the run as the page's quiet table of contents.
+    expect(html).toContain('hero-spine');
+    expect(text).toContain(SPINE.req);
+    expect(text).toContain(SPINE.pr);
+  });
+
+  it('renders the hero transcript as the governed run: a visible drift, an egress denial, and the alignment refrain', () => {
+    // The enforcement narrative the buyer must see: spec-enforce catches a drift,
+    // a direct provider call is denied, and the verbatim alignment line lands.
+    expect(html).toContain('t-warn');
+    expect(html).toContain('t-deny');
+    expect(text).toContain('drift is a blocking finding');
+    expect(text).toContain('direct provider call denied');
+    expect(text).toContain('specification, implementation and documentation aligned');
+    // The same spine PR closes the transcript.
+    expect(text).toContain(SPINE.pr);
   });
 
   it('exposes a launch path into the app (Sign in -> /login)', () => {
@@ -80,12 +98,16 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(html).toContain('id="contact"');
   });
 
-  it('renders the stat band with every value and label', () => {
+  it('renders the stat band with every value, channel cap, and label', () => {
     expect(html).toContain('class="stats');
     for (const stat of STATS) {
       expect(html).toContain(stat.value);
       expect(text).toContain(stat.label);
+      expect(text).toContain(stat.cap);
     }
+    // The AI Gateway tile is the governance anchor (the one coral tick).
+    expect(html).toContain('is-anchor');
+    expect(STATS.some((s) => s.anchor)).toBe(true);
   });
 
   it('renders the shift comparison with both columns of points', () => {
@@ -118,6 +140,11 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(METHOD.gate.steps.some((s) => s.state === 'fail')).toBe(true);
     expect(html).toContain('is-fail');
     expect(html).toContain('is-pass');
+    // The gate caption states the enforcement refrain in plain words, and the
+    // three pillars render as numbered clauses of a control (not a card grid).
+    expect(text).toContain(METHOD.gate.caption.slice(0, 40));
+    expect(text).toContain('Specification, implementation and documentation aligned');
+    expect(html).toContain('method-clauses');
   });
 
   it('renders the security cards and the boundary flow diagram', () => {
@@ -139,6 +166,20 @@ describe('landing page (REQ-LANDING-001)', () => {
     }
   });
 
+  it('renders the egress-inspection strip: one model call with guardrails pass, a DLP redaction, and an approved route', () => {
+    // DLP and guardrails become auditable evidence, not asserted claims.
+    expect(text).toContain(EGRESS.call);
+    for (const row of EGRESS.rows) {
+      expect(text).toContain(row.actor);
+      expect(text).toContain(row.text);
+    }
+    // The one amber beat: a DLP redaction rendered as a first-class state.
+    expect(EGRESS.rows.some((r) => r.state === 'redact')).toBe(true);
+    expect(html).toContain('is-redact');
+    expect(html).toContain('gate egress');
+    expect(text).toContain(EGRESS.caption.slice(0, 40));
+  });
+
   it('renders the operations section: infrastructure beyond code via zero-trust tunnels', () => {
     expect(html).toContain('id="operations"');
     expect(text).toContain(OPERATIONS.kicker);
@@ -150,6 +191,8 @@ describe('landing page (REQ-LANDING-001)', () => {
       expect(text).toContain(card.title);
       expect(text).toContain(card.body.slice(0, 40));
     }
+    // The coda ties operations back to the same governed boundary as model traffic.
+    expect(text).toContain(OPERATIONS.closing.slice(0, 40));
   });
 
   it('renders the context section: browser-isolated web ingestion to agent-ready markdown', () => {
@@ -164,6 +207,13 @@ describe('landing page (REQ-LANDING-001)', () => {
       expect(text).toContain(card.title);
       expect(text).toContain(card.body.slice(0, 40));
     }
+    // The isolation pipe is a peer-level proof artifact: each node plus the
+    // load-bearing guarantee that the remote page never touches the container.
+    expect(html).toContain('context-pipe');
+    for (const node of CONTEXT.pipe) {
+      expect(text).toContain(node.label);
+    }
+    expect(text).toContain(CONTEXT.pipeNote.slice(0, 40));
   });
 
   it('renders the browser, platform, pipeline, cost, and tenancy sections', () => {
@@ -179,8 +229,13 @@ describe('landing page (REQ-LANDING-001)', () => {
       expect(text).toContain(layer.body.slice(0, 40));
     }
     // The attribution ledger: every line carries an owner, and the closing
-    // total reads zero unattributed (the load-bearing cost claim).
+    // total reads zero unattributed (the load-bearing cost claim). The ledger is
+    // bound to the spine run, and the sample note reconciles the visible rows
+    // with the full-run totals.
     expect(html).toContain('ledger-totals');
+    expect(html).toContain('ledger-meta');
+    expect(text).toContain(COST.ledger.meta);
+    expect(text).toContain(COST.ledger.sample);
     for (const row of COST.ledger.rows) {
       expect(text).toContain(row.agent);
     }
@@ -193,6 +248,9 @@ describe('landing page (REQ-LANDING-001)', () => {
   it('renders the parallel review board: every reviewer lane, a caught finding, and the human triage verdict', () => {
     expect(html).toContain('review-board');
     expect(text).toContain(PIPELINE.trigger);
+    // The overhead conductor label makes the fan-out under one human gate explicit.
+    expect(html).toContain('board-dispatch');
+    expect(text).toContain(PIPELINE.dispatch);
     for (const lane of PIPELINE.lanes) {
       expect(html).toContain(lane.agent);
       expect(text).toContain(lane.note);

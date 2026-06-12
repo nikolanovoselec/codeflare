@@ -4,7 +4,7 @@
  * legible static terminal showing a real Codeflare session (feature built,
  * tested, reviewed, shipped through the pipeline, container destroyed).
  */
-import { HERO, TERMINAL } from '../content/site';
+import { HERO, TERMINAL, SPINE } from '../content/site';
 ---
 
 <header class="hero">
@@ -31,6 +31,16 @@ import { HERO, TERMINAL } from '../content/site';
           {TERMINAL.lines.map((line) => <span class={`t-line t-${line.tone}`}>{line.text}</span>)}
           <span class="t-line t-cmd"><span class="t-caret" aria-hidden="true"></span></span>
         </div>
+      </div>
+      <!-- The spine as the page's quiet table of contents: one run, named once,
+           that every proof artifact below is a camera angle on. -->
+      <div class="hero-spine" aria-hidden="true">
+        <span class="hero-spine-id">{SPINE.req}</span>
+        <span class="hero-spine-step">spec</span>
+        <span class="hero-spine-step">build</span>
+        <span class="hero-spine-step">prove</span>
+        <span class="hero-spine-step">ship</span>
+        <span class="hero-spine-id">{SPINE.pr}</span>
       </div>
     </div>
   </div>

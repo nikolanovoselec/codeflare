@@ -26,14 +26,19 @@ reserved for ONE legible terminal demo (the hero) and two static code snippets
 engineering. A single locked accent, generous whitespace, hairline borders, one
 corner-radius scale. Each section uses a distinct layout family (stat band,
 two-column compare, and a set of mono "proof artifacts" that show the engine
-working rather than describing it: a spec-driven-development "method" section
-whose self-healing enforcement gate visibly fails and then corrects a drift,
-security cards + a boundary data-path flow that also names what it makes
-impossible, an operations section on policy-scoped infrastructure access, a
-context section on browser-isolated web ingestion to agent-ready markdown, a
-parallel review board of six reviewer lanes converging on one human triage gate,
-a cost attribution ledger that closes on zero unattributed, feature columns,
-cost layers, tenancy checklist, FAQ accordion).
+working rather than describing it, all bound to one spine PR (`REQ-PAY-014` /
+`PR #207`, sourced once in `site.ts`) so they read as camera angles on one run:
+a spec-driven-development "method" section whose self-healing enforcement gate
+visibly fails and then corrects a drift, with the three pillars as numbered
+clauses; security cards + a boundary data-path flow that also names what it makes
+impossible, plus an egress-inspection strip showing one model call inspected
+(guardrails pass, a DLP redaction, route approved); an operations section on
+policy-scoped infrastructure access; a context section whose browser-isolation
+pipe distils the open web to agent-ready markdown; a parallel review board of six
+reviewer lanes converging on one human triage gate; a cost attribution ledger
+that closes on zero unattributed, feature columns, cost layers, tenancy
+checklist, FAQ accordion). The governance sections carry the page; the platform
+capability sections follow as the payoff the boundary makes safe.
 The full page renders statically with no JS (every proof artifact ships its
 resolved final state in the markup). The motion: a quiet scroll-reveal, a
 scramble on the single hero accent word (the Codeflare ScrambleText effect, ported

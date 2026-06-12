@@ -342,6 +342,41 @@ svg {
   margin-top: clamp(2.75rem, 6vw, 4.25rem);
 }
 
+/* Spine strip under the terminal: the run named once, as a quiet TOC. The IDs
+   are coral; the four verbs between them are dim mono steps. */
+.hero-spine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+  margin-top: 1.1rem;
+  padding-left: 0.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+
+.hero-spine > * {
+  position: relative;
+}
+
+.hero-spine > * + *::before {
+  content: '·';
+  position: absolute;
+  left: -0.55rem;
+  color: var(--text-dimmed);
+}
+
+.hero-spine-id {
+  color: var(--accent);
+}
+
+.hero-spine-step {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-dimmed);
+}
+
 /* --------------------------------------------------------------------------
    Terminal demo (the one mono moment)
    -------------------------------------------------------------------------- */
@@ -422,6 +457,10 @@ svg {
   color: var(--term-warn);
 }
 
+.t-deny {
+  color: var(--accent);
+}
+
 .t-caret {
   display: inline-block;
   width: 0.5rem;
@@ -455,17 +494,52 @@ svg {
   padding: clamp(1.4rem, 4vw, 2.1rem);
 }
 
+/* Mono channel micro-cap above each value: the four tiles read as instrument
+   gauges (Gateway / Endpoint / Infra / Orchestration), not a SaaS stat strip. */
+.stat-cap {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+  margin-bottom: 0.9rem;
+}
+
 .stat-value {
+  position: relative;
   font-family: var(--font-mono);
   font-size: clamp(2rem, 1.4rem + 2.4vw, 2.9rem);
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: -0.03em;
   line-height: 1;
+  padding-bottom: 0.7rem;
+}
+
+/* A short baseline tick under the value seats it on a scale. The AI Gateway
+   100% tile (the governance anchor) carries the one coral tick. */
+.stat-value::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1.5rem;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+.stat.is-anchor .stat-cap {
+  color: var(--accent);
+}
+
+.stat.is-anchor .stat-value::after {
+  width: 2.25rem;
+  background: var(--accent);
 }
 
 .stat-label {
-  margin-top: 0.7rem;
+  margin-top: 0.75rem;
   font-size: var(--fs-small);
   color: var(--text-muted);
   max-width: 26ch;
@@ -822,6 +896,19 @@ svg {
   color: var(--text-muted);
   font-size: var(--fs-small);
   margin-top: 0.1rem;
+}
+
+/* Tenancy manifest: set in mono so the trust close echoes the instrument
+   grammar of the proof artifacts above it. */
+.checklist--mono li {
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  letter-spacing: -0.01em;
+}
+
+.checklist--mono li span {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
 }
 
 /* --------------------------------------------------------------------------
@@ -1313,6 +1400,106 @@ svg {
     proof-pulse 0.7s var(--ease-out) calc(var(--i) * 0.18s + 0.3s);
 }
 
+/* Mono caption beneath a gate / egress strip: the refrain stated in plain words,
+   aligned with the artifact above it. */
+.gate-caption {
+  max-width: 48rem;
+  margin-top: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+/* ---- Security: egress-inspection strip (structural twin of the gate) ----
+   One amber beat: the DLP redaction. Everything else passes green. */
+@keyframes proof-pulse-warn {
+  40% {
+    background: rgb(251 191 36 / 0.1);
+  }
+}
+
+.gate.egress {
+  margin-top: clamp(2rem, 5vw, 3rem);
+}
+
+.gate-step.is-redact .gate-actor,
+.gate-step.is-redact .gate-state {
+  color: var(--term-warn);
+}
+.gate-step.is-redact .gate-state {
+  border-color: rgb(251 191 36 / 0.34);
+}
+
+.gate.is-live .gate-step.is-redact {
+  animation:
+    proof-row 0.5s var(--ease-out) backwards,
+    proof-pulse-warn 0.7s var(--ease-out) calc(var(--i) * 0.18s + 0.3s);
+}
+
+/* ---- Method: the three pillars as numbered clauses of a control ---- */
+.method-clauses {
+  list-style: none;
+  counter-reset: clause;
+  padding: 0;
+  margin-top: clamp(2rem, 5vw, 3rem);
+  display: grid;
+  gap: clamp(1.5rem, 4vw, 2.25rem);
+  max-width: var(--measure);
+}
+
+.method-clauses li {
+  counter-increment: clause;
+  position: relative;
+  padding-left: 3rem;
+}
+
+.method-clauses li::before {
+  content: counter(clause, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 0.15rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.method-clauses li h3 {
+  font-size: var(--fs-h3);
+  margin-bottom: 0.4rem;
+}
+
+.method-clauses li p {
+  font-size: 0.97rem;
+  color: var(--text-secondary);
+}
+
+/* Mono coda line closing a station (Operations) without a fresh artifact. */
+.section-coda {
+  margin-top: clamp(1.75rem, 4vw, 2.5rem);
+  max-width: var(--measure);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+/* ---- Context: browser-isolation pipe (peer-level proof artifact) ---- */
+.context-pipe {
+  max-width: 34rem;
+  margin: 0 auto clamp(2.5rem, 5vw, 3.5rem);
+}
+
+.pipe-note {
+  margin: 1rem auto 0;
+  max-width: 30rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
 /* ---- Security: boundary data-path proof + denied paths ---- */
 .flow.is-live .flow-node {
   animation: proof-row 0.5s var(--ease-out) backwards;
@@ -1383,6 +1570,17 @@ svg {
   margin-left: auto;
   color: var(--text-muted);
   font-size: 0.72rem;
+}
+
+/* Overhead conductor label: the fan-out under one human gate, made explicit. */
+.board-dispatch {
+  padding: 0.5rem 1.1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-dimmed);
 }
 
 .board-lane {
@@ -1503,6 +1701,31 @@ svg {
   font-family: var(--font-mono);
 }
 
+/* Run identity: binds the ledger to the spine PR and reconciles the sample
+   rows with the full-run totals. */
+.ledger-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.9rem;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ledger-meta-id {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.ledger-meta-sample {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
 .ledger-head,
 .ledger-row {
   display: grid;
@@ -1605,10 +1828,11 @@ svg {
    Page-wide flare-fluid field + glass surfaces
 
    A fixed full-viewport WebGL canvas (injected by splash.ts into .flare-field)
-   sits behind every section as a cursor-reactive background, with a readability
-   veil above it. All of this activates only once the fluid is actually live:
-   splash.ts sets html.flare-on, so touch / no-WebGL / reduced-motion visitors
-   keep the solid default surfaces and never see a darkened, empty field.
+   sits behind every section as a cursor- and scroll-reactive background (cursor
+   on desktop, page scroll on touch), with a readability veil above it. All of
+   this activates only once the fluid is actually live: splash.ts sets
+   html.flare-on, so no-WebGL / reduced-motion visitors keep the solid default
+   surfaces and never see a darkened, empty field.
    -------------------------------------------------------------------------- */
 .flare-field {
   position: fixed;
