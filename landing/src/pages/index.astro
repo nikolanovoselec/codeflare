@@ -14,6 +14,7 @@ import {
   AGENTS,
   STATS,
   SHIFT,
+  METHOD,
   SECURITY,
   BOUNDARY_FLOW,
   BROWSER,
@@ -79,8 +80,44 @@ import {
       </div>
     </section>
 
+    <!-- The method: spec-driven development, enforced -->
+    <section id={METHOD.id} class="section section--alt">
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="kicker">{METHOD.kicker}</p>
+          <h2>{METHOD.title}</h2>
+          <p class="lead">{METHOD.lead}</p>
+        </div>
+        <div class="card-grid card-grid--3 reveal">
+          {
+            METHOD.pillars.map((card) => (
+              <div class="card">
+                <h3>{card.title}</h3>
+                <p>{card.body}</p>
+              </div>
+            ))
+          }
+        </div>
+        <div class="code-block method-trace reveal">
+          {
+            METHOD.trace.map((line) => (
+              <span
+                class:list={[
+                  'cl',
+                  { 'cl-head': line.kind === 'head', 'cl-ok': line.kind === 'ok', 'cl-warn': line.kind === 'warn' },
+                ]}
+              >
+                {line.strong && <strong>{line.strong}</strong>}
+                {line.text}
+              </span>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
     <!-- Security -->
-    <section id={SECURITY.id} class="section section--alt">
+    <section id={SECURITY.id} class="section">
       <div class="container">
         <div class="split">
           <div class="section-head reveal" style="margin-bottom:0">
@@ -124,7 +161,7 @@ import {
     </section>
 
     <!-- Runs in a browser -->
-    <section id={BROWSER.id} class="section">
+    <section id={BROWSER.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
           <h2>{BROWSER.title}</h2>
@@ -144,7 +181,7 @@ import {
     </section>
 
     <!-- The platform -->
-    <section id={PLATFORM.id} class="section section--alt">
+    <section id={PLATFORM.id} class="section">
       <div class="container">
         <div class="section-head reveal">
           <p class="kicker">{PLATFORM.kicker}</p>
@@ -168,7 +205,7 @@ import {
     </section>
 
     <!-- Your pipeline -->
-    <section id={PIPELINE.id} class="section">
+    <section id={PIPELINE.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
           <h2>{PIPELINE.title}</h2>
@@ -202,7 +239,7 @@ import {
     </section>
 
     <!-- Cost -->
-    <section id={COST.id} class="section section--alt">
+    <section id={COST.id} class="section">
       <div class="container">
         <div class="section-head reveal">
           <p class="kicker">{COST.kicker}</p>
@@ -223,7 +260,7 @@ import {
     </section>
 
     <!-- Your cloud -->
-    <section id={TENANCY.id} class="section">
+    <section id={TENANCY.id} class="section section--alt">
       <div class="container">
         <div class="split">
           <div class="section-head reveal" style="margin-bottom:0">
@@ -247,7 +284,7 @@ import {
     </section>
 
     <!-- FAQ -->
-    <section id={FAQ_SECTION.id} class="section section--alt">
+    <section id={FAQ_SECTION.id} class="section">
       <div class="container">
         <div class="section-head reveal">
           <h2>{FAQ_SECTION.title}</h2>
@@ -266,7 +303,7 @@ import {
     </section>
 
     <!-- Contact -->
-    <section id={CONTACT_FORM.id} class="section">
+    <section id={CONTACT_FORM.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
           <h2>{CONTACT_FORM.title}</h2>

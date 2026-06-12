@@ -14,20 +14,23 @@ Strict separation of concerns; each layer changes independently:
 | Global styles | `src/styles/global.css` | Layout and component styles; resolves through tokens. Mobile-first. |
 | Content | `src/content/site.ts` | All copy, typed. Components never carry their own text. |
 | Integration config | `src/config.ts` | Every Worker endpoint / app link the page touches. |
-| Logic | `src/scripts/contact-controller.ts` | The one browser module: pure, unit-tested contact payload + submission logic. |
+| Logic | `src/scripts/*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; plus `scramble.ts`, the presentational hero accent-word effect (reduced-motion safe). |
 | Components | `src/components/*.astro` | `Hero`, `ContactForm`, `Footer`. Markup rendering content data. |
 | Pages | `src/pages/*.astro` | `index.astro` (composition), `privacy.astro`. |
 
 ## Design
 
 Calm, confident enterprise dark-tech. Sans-serif carries all prose; monospace is
-reserved for ONE legible terminal demo (the hero) and one static review-pipeline
-code snippet, where it signals real engineering. A single locked accent, generous
-whitespace, hairline borders, one corner-radius scale. Each section uses a
-distinct layout family (stat band, two-column compare, security cards + a boundary
-data-path flow diagram, feature columns, point list + code block, cost layers,
-tenancy checklist, FAQ accordion). The full page renders statically with no JS;
-a quiet scroll-reveal (Motion, vanilla) is the only animation and collapses under
+reserved for ONE legible terminal demo (the hero) and two static code snippets
+(the review pipeline and the spec/TDD enforcement trace), where it signals real
+engineering. A single locked accent, generous whitespace, hairline borders, one
+corner-radius scale. Each section uses a distinct layout family (stat band,
+two-column compare, a spec-driven-development "method" section with pillar cards +
+an enforcement trace, security cards + a boundary data-path flow diagram, feature
+columns, point list + code block, cost layers, tenancy checklist, FAQ accordion).
+The full page renders statically with no JS; the only animation is a quiet
+scroll-reveal plus a reduced-motion-safe scramble on the single hero accent word
+(the Codeflare ScrambleText effect, ported to vanilla DOM), both collapsing under
 `prefers-reduced-motion`. Product brief and voice in `PRODUCT.md`.
 
 ## Build & serving

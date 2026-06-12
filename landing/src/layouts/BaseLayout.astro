@@ -49,6 +49,10 @@ const {
   <body>
     <slot />
     <script>
+      // Hero accent-word scramble (perpetual four-phase idle loop; reduced-motion safe).
+      import '../scripts/scramble';
+    </script>
+    <script>
       // Entrance wiring: .reveal elements fade up on first view. Content is
       // visible by default; JS applies the hidden state and immediately
       // animates, never a CSS opacity:0 default (no-JS and reduced-motion

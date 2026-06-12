@@ -302,6 +302,20 @@ svg {
   color: transparent;
 }
 
+/* Scramble word spans (JS-created): fixed-width boxes so the churning glyphs
+   never reflow the headline. Each carries its own gradient clip because the
+   parent's clip does not paint through child boxes. */
+.scramble-word {
+  display: inline-block;
+  white-space: nowrap;
+  text-align: left;
+  vertical-align: baseline;
+  background: var(--flare-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 .hero-sub {
   font-size: var(--fs-lead);
   color: var(--text-secondary);
@@ -781,6 +795,21 @@ svg {
 
 .code-block .cl-ok strong {
   color: var(--text-primary);
+}
+
+.code-block .cl-warn::before {
+  content: '! ';
+  color: var(--term-warn);
+}
+
+.code-block .cl-warn strong {
+  color: var(--text-primary);
+}
+
+/* The method section's self-healing enforcement trace sits below the pillars */
+.method-trace {
+  margin-top: clamp(2rem, 5vw, 3rem);
+  max-width: 46rem;
 }
 
 /* --------------------------------------------------------------------------

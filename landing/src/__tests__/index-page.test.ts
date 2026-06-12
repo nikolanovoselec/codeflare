@@ -9,6 +9,7 @@ import {
   COST,
   FAQ_ITEMS,
   HERO,
+  METHOD,
   NAV_LINKS,
   PLATFORM,
   PIPELINE,
@@ -47,6 +48,8 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(text).toContain(HERO.sub.slice(0, 50));
     expect(html).toContain(`href="${HERO.primaryCta.href}"`);
     expect(html).toContain(`href="${HERO.secondaryCta.href}"`);
+    // The flare word carries the scramble hook (the effect itself is client-only).
+    expect(html).toContain('data-scramble');
   });
 
   it('renders the one terminal demo statically (legible with no JS)', () => {
@@ -82,13 +85,31 @@ describe('landing page (REQ-LANDING-001)', () => {
     }
   });
 
+  it('renders the method section: spec-driven development as a standout with the self-healing trace', () => {
+    expect(html).toContain('id="method"');
+    expect(text).toContain(METHOD.kicker);
+    expect(text).toContain(METHOD.title);
+    for (const pillar of METHOD.pillars) {
+      expect(text).toContain(pillar.title);
+      expect(text).toContain(pillar.body.slice(0, 40));
+    }
+    // The enforcement trace renders a flagged drift (warn) and its correction (ok).
+    expect(html).toContain('cl-warn');
+    for (const line of METHOD.trace) {
+      if (line.strong) expect(html).toContain(line.strong);
+    }
+  });
+
   it('renders the security cards and the boundary flow diagram', () => {
     for (const card of SECURITY.cards) {
       expect(text).toContain(card.title);
       expect(text).toContain(card.body.slice(0, 50));
     }
     expect(text).toContain('Ephemeral container');
+    // The gateway is named explicitly as the AI Gateway, with its controls.
     expect(text).toContain('Your AI Gateway');
+    expect(text).toContain('guardrails');
+    expect(text).toContain('DLP');
     expect(html).toContain('data-topic="security-compliance"');
   });
 

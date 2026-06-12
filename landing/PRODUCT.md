@@ -34,8 +34,13 @@ load-bearing selling point (verbatim from the founder):
   compliance guarantees.
 - **Scaffolding that superpowers coding agents** (highest focus): enterprise tooling,
   30+ skills, specialist subagents, knowledge-graph memory, data persistence, MCP tooling.
+- **Spec-driven development, enforced** (highest focus): work begins as requirements with
+  acceptance criteria; Codeflare both develops under SDD and *enforces* SDD + TDD compliance
+  at every PR boundary — a self-healing loop that gives autonomous agents no room to drift
+  from the plan.
 - **Integration into existing CI/CD workflows** (highest focus): agents are citizens of
-  the customer's pipeline — branches, PRs, CI gates, autonomous review at PR boundaries.
+  the customer's pipeline — branches, PRs, CI gates, a /review --deep 6-agent review at PR
+  boundaries, human triage owning the merge.
 - **Total cost control and visibility**: environment cost plus inference cost through
   dynamic routing, cost and rate limiting — all the way down to each coding agent's
   consumption inside each CLI tool; attributed per user / team / department / group via
@@ -74,8 +79,10 @@ speaks in confident prose. The flare gradient is energy under control, used once
    sessions under one person's judgment — is the idea the page must land.
 3. **Structural trust.** Security claims are architecture ("the environment ceases to
    exist"), never policy promises. Copy and visuals show boundaries, not badges.
-4. **Motion with intent, used sparingly.** A quiet scroll-reveal and nothing more;
-   content is never gated behind animation; full prefers-reduced-motion fallback.
+4. **Motion with intent, used sparingly.** A quiet scroll-reveal plus one perpetual
+   scramble on the single hero accent word (the Codeflare ScrambleText effect); nothing
+   else moves. Content is never gated behind animation; full prefers-reduced-motion
+   fallback stops both.
 5. **Sans prose, mono for proof.** All copy is set in a clean sans; monospace is
    reserved for the single terminal demo and the code snippet, where it signals real
    engineering. Generous whitespace; one accent, locked.
@@ -83,7 +90,7 @@ speaks in confident prose. The flare gradient is energy under control, used once
 ## Accessibility & Inclusion
 
 - WCAG 2.1 AA: body text ≥4.5:1 against backgrounds, large text ≥3:1.
-- `prefers-reduced-motion: reduce` honored everywhere: static transcript, no parallax,
-  crossfades only.
+- `prefers-reduced-motion: reduce` honored everywhere: static transcript, the hero accent
+  word stays static (no scramble), no parallax, crossfades only.
 - All content readable with JavaScript disabled (transcripts render statically).
 - Keyboard-navigable nav and FAQ; visible focus states; mobile-first responsive.

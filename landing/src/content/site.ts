@@ -42,9 +42,9 @@ export interface FaqItem {
   answer: string;
 }
 
-/** A line in the static review-pipeline snippet. */
+/** A line in a static code snippet (review pipeline, enforcement trace). */
 export interface SnippetLine {
-  kind: 'head' | 'ok';
+  kind: 'head' | 'ok' | 'warn';
   strong?: string;
   text: string;
 }
@@ -62,6 +62,7 @@ export interface TranscriptLine {
 
 export const NAV_LINKS: NavLink[] = [
   { label: 'The shift', href: '#shift' },
+  { label: 'Method', href: '#method' },
   { label: 'Security', href: '#security' },
   { label: 'Pipeline', href: '#pipeline' },
   { label: 'Cost', href: '#cost' },
@@ -81,23 +82,24 @@ export const HERO = {
 };
 
 export const TERMINAL = {
-  title: 'codeflare/payments-service',
+  title: 'codeflare · payments-service',
   lines: [
-    { tone: 'cmd', text: 'implement rate limiting on the refunds endpoint' },
-    { tone: 'agent', text: '✻ planning · querying knowledge graph' },
-    { tone: 'dim', text: '  loaded ADR-12 and REQ-API-031 acceptance criteria' },
-    { tone: 'agent', text: '✻ writing tests first · 6 cases' },
-    { tone: 'ok', text: '✓ 142 tests passed' },
-    { tone: 'agent', text: '✻ review: code · security · spec · docs' },
-    { tone: 'ok', text: '✓ all reviewers pass · CI green' },
-    { tone: 'dim', text: '  38 llm requests → your gateway, attributed' },
-    { tone: 'ok', text: '✓ PR #214 ready for human judgment' },
-    { tone: 'warn', text: '✓ container destroyed · zero residue' },
+    { tone: 'cmd', text: '/sdd init' },
+    { tone: 'agent', text: '✻ bootstrapping spec-driven development' },
+    { tone: 'dim', text: '  knowledge graph: 1,284 nodes · 37 ADRs indexed' },
+    { tone: 'ok', text: '✓ 14 requirements pinned to acceptance criteria' },
+    { tone: 'cmd', text: 'implement REQ-PAY-014' },
+    { tone: 'agent', text: '✻ tests first · 9 cases, then the code' },
+    { tone: 'ok', text: '✓ 9/9 green · spec + TDD compliance enforced' },
+    { tone: 'agent', text: '✻ PR boundary · /review --deep · 6 agents' },
+    { tone: 'ok', text: '✓ findings auto-fixed · verified vs code + docs' },
+    { tone: 'dim', text: '  41 model calls → AI Gateway · guardrails + DLP' },
+    { tone: 'ok', text: '✓ PR #207 ready for human triage · CI green' },
   ] satisfies TranscriptLine[],
 };
 
 export const STATS: Stat[] = [
-  { value: '100%', label: 'of agent LLM traffic routed through your gateway' },
+  { value: '100%', label: 'of agent LLM traffic through your AI Gateway' },
   { value: '0', label: 'lines of code on the endpoint device' },
   { value: '0', label: 'standing infrastructure between sessions' },
   { value: '10×', label: 'one engineer steering parallel agents' },
@@ -127,10 +129,51 @@ export const SHIFT = {
       'Agents plan, build, test, document, and ship',
       'Engineers steer intent and make the calls',
       'Runs in your cloud, reached from any browser',
-      'Every request through your gateway, attributed',
+      'Every request through your AI Gateway, governed and attributed',
       'Verified by review pipelines and your CI',
     ],
   } satisfies ComparisonColumn,
+};
+
+export const METHOD = {
+  id: 'method',
+  kicker: 'The method',
+  title: 'Spec-driven development, enforced.',
+  lead:
+    'Codeflare does not just let agents write code. Every change is governed by a ' +
+    'specification and proven by tests, with enforcement that leaves the agent no room ' +
+    'to drift from the plan.',
+  pillars: [
+    {
+      title: 'The plan is a spec',
+      body:
+        'Work begins as requirements with acceptance criteria, not a loose prompt. ' +
+        '/sdd init bootstraps a repository into a spec-driven framework, grounded in a ' +
+        'knowledge graph of your code, decisions, and docs. You approve the intent before a line is written.',
+    },
+    {
+      title: 'Compliance is enforced, not hoped for',
+      body:
+        'At every PR boundary the spec and TDD enforcers check the diff against its ' +
+        'requirements and reject test theater. Drift from the plan is a blocking finding, ' +
+        'not a polite suggestion the agent is free to ignore.',
+    },
+    {
+      title: 'A self-healing loop',
+      body:
+        'Findings route straight back to the agent, which corrects to the spec and ' +
+        're-verifies against the codebase and the documentation. Nothing merges until what ' +
+        'was built matches what was specified.',
+    },
+  ] satisfies Card[],
+  // A drift caught and corrected: the self-healing loop made concrete.
+  trace: [
+    { kind: 'head', text: 'PR #207 · spec + TDD enforcement' },
+    { kind: 'warn', strong: 'spec-enforce', text: ' REQ-PAY-014 AC3 not covered by a test' },
+    { kind: 'warn', strong: 'tdd-enforce', text: ' 1 assertion-free test rejected as theater' },
+    { kind: 'ok', strong: 'agent', text: ' corrected to plan · AC3 now verified' },
+    { kind: 'ok', strong: 'merge', text: ' allowed · zero deviations from the spec' },
+  ] satisfies SnippetLine[],
 };
 
 export const SECURITY = {
@@ -159,7 +202,8 @@ export const SECURITY = {
       title: 'Egress governed below the agent',
       tag: 'egress',
       body:
-        'LLM traffic is intercepted beneath the container. Agents physically cannot reach ' +
+        'LLM traffic is intercepted beneath the container and routed through your AI Gateway, ' +
+        'where guardrails, DLP, and rate controls apply. Agents physically cannot reach ' +
         'unapproved endpoints, and provider credentials never enter the container.',
     },
     {
@@ -178,7 +222,7 @@ export const BOUNDARY_FLOW = [
   { label: 'Browser', sub: 'zero footprint', accent: false, edge: 'TLS' },
   { label: 'Cloudflare Access', sub: 'your IdP', accent: false, edge: 'authenticated' },
   { label: 'Ephemeral container', sub: 'your tenancy · destroyed on exit', accent: true, edge: 'intercepted' },
-  { label: 'Your AI Gateway', sub: 'approved models only', accent: false, edge: '' },
+  { label: 'Your AI Gateway', sub: 'guardrails · DLP · approved models', accent: false, edge: '' },
 ];
 
 export const BROWSER = {
@@ -255,28 +299,30 @@ export const PIPELINE = {
       title: 'Native git and CI/CD',
       body:
         'Agents push branches, open PRs, and wait on your GitHub Actions like any engineer. ' +
-        'Nothing merges without CI green.',
+        'Nothing merges without CI green and your branch protections satisfied.',
     },
     {
-      title: 'Autonomous review at PR boundaries',
+      title: 'Deep review at every PR boundary',
       body:
-        'Every pull request fires a review pipeline: code, security, spec, and documentation ' +
-        'findings filed and fixed before a human spends a minute.',
+        'Each pull request fires /review --deep: six specialist agents check code, security, ' +
+        'spec, tests, docs, and end-to-end behavior, filing and fixing findings before a human looks.',
     },
     {
-      title: 'Tests before trust',
+      title: 'Humans own the judgment',
       body:
-        'Test-driven discipline is enforced, not encouraged. Review tooling rejects test ' +
-        'theater: tests that cannot fail do not count.',
+        'Agents prepare the work; people make the call. Every change lands in a human triage ' +
+        'queue with the full review trail attached, and the merge is always yours.',
     },
   ] satisfies Card[],
   snippet: [
-    { kind: 'head', text: 'on pull_request → review pipeline' },
+    { kind: 'head', text: 'on pull_request → /review --deep' },
     { kind: 'ok', strong: 'code-reviewer', text: ' 2 findings, both fixed in-session' },
     { kind: 'ok', strong: 'security-reviewer', text: ' no injection, no secret exposure' },
     { kind: 'ok', strong: 'spec-reviewer', text: ' REQ-PAY-014 acceptance criteria verified' },
-    { kind: 'ok', strong: 'doc-updater', text: ' api-reference.md updated in same commit' },
-    { kind: 'ok', strong: 'CI green', text: ' ready for human judgment' },
+    { kind: 'ok', strong: 'tdd-enforce', text: ' tests fail when the impl is broken' },
+    { kind: 'ok', strong: 'doc-updater', text: ' api-reference.md updated in the same commit' },
+    { kind: 'ok', strong: 'deep-reviewer', text: ' behavior matches the spec, end to end' },
+    { kind: 'ok', strong: 'CI green', text: ' ready for human triage' },
   ] satisfies SnippetLine[],
 };
 
@@ -297,9 +343,9 @@ export const COST = {
     {
       name: 'inference',
       body:
-        'Every request flows through your AI Gateway carrying metadata, so inference cost is ' +
-        'visible per user, team, and department. Dynamic routing steers each group to its ' +
-        'approved models, and smart routing fails over when a provider degrades.',
+        'Every request flows through your AI Gateway, where guardrails and DLP apply and ' +
+        'metadata makes inference cost visible per user, team, and department. Dynamic routing ' +
+        'steers each group to its approved models, and smart routing fails over when a provider degrades.',
     },
     {
       name: 'agent consumption',
@@ -320,7 +366,7 @@ export const TENANCY = {
   checklist: [
     { label: 'Identity', note: 'your IdP' },
     { label: 'Storage', note: 'your R2, your keys' },
-    { label: 'Gateway', note: 'your models, your rates' },
+    { label: 'AI Gateway', note: 'guardrails, DLP, your rates' },
     { label: 'Domain', note: 'yours' },
   ],
 };
@@ -342,8 +388,9 @@ export const FAQ_ITEMS: FaqItem[] = [
     question: 'How do agents reach LLM providers?',
     answer:
       'Not directly. All model traffic is intercepted at the platform layer and routed through ' +
-      'your AI Gateway with your keys. You pick approved models per group, set rate limits, and ' +
-      'see attributed spend. Provider outages fail over automatically, and provider credentials never enter the container.',
+      'your AI Gateway with your keys, where guardrails and DLP apply. You pick approved models per ' +
+      'group, set rate limits, and see attributed spend. Provider outages fail over automatically, ' +
+      'and provider credentials never enter the container.',
   },
   {
     question: 'How does authentication work with our IdP?',
@@ -368,7 +415,7 @@ export const FAQ_ITEMS: FaqItem[] = [
     question: 'What does it cost to run?',
     answer:
       'Pay-per-use on your own Cloudflare bill: container minutes while sessions run, storage ' +
-      'per byte, and your negotiated model rates through the gateway. No per-seat licenses, no ' +
+      'per byte, and your negotiated model rates through the AI Gateway. No per-seat licenses, no ' +
       'idle fleet, and no vendor margin on your inference.',
   },
   {
