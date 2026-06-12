@@ -432,6 +432,25 @@ svg {
   white-space: pre;
 }
 
+/* Phone: the transcript wraps instead of scrolling sideways (the old overflow).
+   A hanging indent keeps a wrapped continuation aligned under the line's text,
+   past the leading glyph, and a slightly smaller mono fits more per line.
+   Desktop keeps single-line `pre`; the terminal is wide enough there. */
+@media (max-width: 680px) {
+  .terminal-body {
+    overflow-x: hidden;
+    font-size: 0.74rem;
+    padding: 1rem 1.05rem 1.2rem;
+  }
+
+  .t-line {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    padding-left: 2ch;
+    text-indent: -2ch;
+  }
+}
+
 .t-cmd {
   color: var(--text-primary);
 }
@@ -476,157 +495,107 @@ svg {
   }
 }
 
-/* --------------------------------------------------------------------------
-   Stat band
-   -------------------------------------------------------------------------- */
-.stats {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1px;
-  background: var(--border-subtle);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.stat {
-  background: var(--bg-base);
-  padding: clamp(1.4rem, 4vw, 2.1rem);
-}
-
-/* Mono channel micro-cap above each value: the four tiles read as instrument
-   gauges (Gateway / Endpoint / Infra / Orchestration), not a SaaS stat strip. */
-.stat-cap {
-  display: block;
+/* Coding-agent statusline footer under a terminal: context / model / reasoning,
+   the segments a real session shows. The hero foot is gently animated by
+   agentfoot.ts (context ticks, an occasional compaction beat); static and fully
+   legible without JS and under reduced motion. */
+.terminal-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.85rem;
+  padding: 0.62rem 1.25rem 0.72rem;
+  border-top: 1px solid var(--border-subtle);
+  background: rgb(var(--white-rgb) / 0.012);
   font-family: var(--font-mono);
-  font-size: 0.62rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
   color: var(--text-muted);
-  margin-bottom: 0.9rem;
 }
 
-.stat-value {
+.tf-seg {
   position: relative;
-  font-family: var(--font-mono);
-  font-size: clamp(2rem, 1.4rem + 2.4vw, 2.9rem);
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.03em;
-  line-height: 1;
-  padding-bottom: 0.7rem;
+  white-space: nowrap;
 }
 
-/* A short baseline tick under the value seats it on a scale. The AI Gateway
-   100% tile (the governance anchor) carries the one coral tick. */
-.stat-value::after {
-  content: '';
+/* A faint dot between segments, like a real statusline (skipped before the first). */
+.tf-seg + .tf-seg::before {
+  content: '·';
   position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 1.5rem;
-  height: 1px;
-  background: var(--border-strong);
+  left: -0.48rem;
+  color: var(--text-dimmed);
 }
 
-.stat.is-anchor .stat-cap {
+.tf-ctx {
+  color: var(--text-secondary);
+}
+
+.tf-dot {
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--term-green);
+  margin-right: 0.42rem;
+  vertical-align: middle;
+}
+
+.tf-note {
+  color: var(--text-dimmed);
+}
+
+/* The occasional compaction beat: the reasoning segment swaps to a coral
+   "compacting" tint for a couple of seconds (agentfoot.ts toggles the class). */
+.terminal-foot.is-compacting [data-tf-reason] {
   color: var(--accent);
 }
 
-.stat.is-anchor .stat-value::after {
-  width: 2.25rem;
-  background: var(--accent);
+/* One-shot line typing: when proof.ts arms a terminal on scroll-in, its lines
+   reveal in sequence (caret-led). The default (no .is-live) is the resolved
+   static transcript, so it stays fully legible with no JS and under reduced
+   motion (proof.ts never arms there). */
+.terminal.is-live .t-line {
+  animation: term-type 0.28s var(--ease-out) backwards;
+  animation-delay: calc(var(--i) * 0.09s);
 }
 
-.stat-label {
-  margin-top: 0.75rem;
-  font-size: var(--fs-small);
-  color: var(--text-muted);
-  max-width: 26ch;
-}
-
-@media (min-width: 900px) {
-  .stats {
-    grid-template-columns: repeat(4, 1fr);
+@keyframes term-type {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
 /* --------------------------------------------------------------------------
-   Compare (the shift)
+   Feature terminals (the shift, shown as terminals)
    -------------------------------------------------------------------------- */
-.compare {
+.feature-terminals {
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--gap);
 }
 
-.compare-col {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  padding: clamp(1.5rem, 4vw, 2rem);
-  background: var(--bg-surface);
+/* Compact relatives of the hero terminal: lighter shadow (four of them), tighter
+   body, smaller foot. They inherit the .terminal chrome and the .t-* tones. */
+.feature-terminal {
+  box-shadow: 0 18px 40px -28px rgb(0 0 0 / 0.6);
 }
 
-.compare-col.is-new {
-  border-color: var(--accent-line);
-  background: var(--bg-elevated);
+.feature-terminal .terminal-body {
+  padding: 0.95rem 1.1rem 1.1rem;
+  line-height: 1.7;
 }
 
-.compare-col h3 {
-  font-size: var(--fs-h3);
-  margin-bottom: 1.25rem;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
+.feature-terminal .terminal-foot {
+  font-size: 0.64rem;
 }
 
-.compare-tag {
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  padding: 0.2rem 0.5rem;
-  border-radius: 999px;
-  border: 1px solid var(--border-default);
-  color: var(--text-muted);
-}
-
-.compare-col.is-new .compare-tag {
-  border-color: var(--accent-line);
-  color: var(--accent);
-}
-
-.compare-list {
-  list-style: none;
-  padding: 0;
-  display: grid;
-  gap: 0.85rem;
-}
-
-.compare-list li {
-  position: relative;
-  padding-left: 1.6rem;
-  font-size: 0.95rem;
-  color: var(--text-secondary);
-}
-
-.compare-col.is-old .compare-list li::before {
-  content: '-';
-  position: absolute;
-  left: 0;
-  color: var(--text-dimmed);
-}
-
-.compare-col.is-new .compare-list li::before {
-  content: '✓';
-  position: absolute;
-  left: 0;
-  color: var(--accent);
-  font-size: 0.85rem;
-}
-
-@media (min-width: 900px) {
-  .compare {
+@media (min-width: 760px) {
+  .feature-terminals {
     grid-template-columns: 1fr 1fr;
   }
 }
@@ -1898,18 +1867,14 @@ svg {
    carry the backdrop blur. Stat tiles, flow nodes, and form inputs keep solid
    fills — their muted small labels / input text need full opaque contrast. */
 .flare-on .card,
-.flare-on .compare-col.is-old,
 .flare-on .agent-chips span,
 .flare-on .contact-form {
   background: var(--glass-panel);
 }
 
-.flare-on .compare-col.is-new {
-  background: var(--glass-elevated);
-}
-
 .flare-on .flow,
 .flare-on .hero .terminal,
+.flare-on .feature-terminal,
 .flare-on .gate,
 .flare-on .review-board,
 .flare-on .ledger {
@@ -1918,6 +1883,7 @@ svg {
 
 .flare-on .flow,
 .flare-on .hero .terminal,
+.flare-on .feature-terminal,
 .flare-on .contact-form,
 .flare-on .gate,
 .flare-on .review-board,

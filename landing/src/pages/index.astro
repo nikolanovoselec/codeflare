@@ -12,6 +12,7 @@
  */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Hero from '../components/Hero.astro';
+import FeatureTerminals from '../components/FeatureTerminals.astro';
 import ContactForm from '../components/ContactForm.astro';
 import Footer from '../components/Footer.astro';
 import { APP_LINKS } from '../config';
@@ -19,7 +20,6 @@ import {
   NAV_LINKS,
   AGENTS,
   SPINE,
-  STATS,
   SHIFT,
   METHOD,
   SECURITY,
@@ -55,41 +55,16 @@ import {
   <main id="top">
     <Hero />
 
-    <!-- Stat band: the run in four instrument readings; the AI Gateway 100%
-         leads and carries the one coral governance tick. -->
-    <section class="section section--alt">
-      <div class="container">
-        <div class="stats" data-stagger>
-          {
-            STATS.map((stat) => (
-              <div class:list={['stat', { 'is-anchor': stat.anchor }]}>
-                <span class="stat-cap">{stat.cap}</span>
-                <div class="stat-value">{stat.value}</div>
-                <p class="stat-label">{stat.label}</p>
-              </div>
-            ))
-          }
-        </div>
-      </div>
-    </section>
-
-    <!-- The shift -->
+    <!-- The shift: the assistant-to-engine leap shown the way the page trades,
+         as terminals. Four short feature terminals (gateway, session, review,
+         spec) replace the old stat band and the old checkmark comparison. -->
     <section id={SHIFT.id} class="section">
       <div class="container">
         <div class="section-head reveal">
           <h2>{SHIFT.title}</h2>
           <p class="lead" set:html={SHIFT.lead} />
         </div>
-        <div class="compare reveal">
-          <div class="compare-col is-old">
-            <h3>{SHIFT.assistant.title} <span class="compare-tag">{SHIFT.assistant.tag}</span></h3>
-            <ul class="compare-list">{SHIFT.assistant.points.map((p) => <li>{p}</li>)}</ul>
-          </div>
-          <div class="compare-col is-new">
-            <h3>{SHIFT.engine.title} <span class="compare-tag">{SHIFT.engine.tag}</span></h3>
-            <ul class="compare-list">{SHIFT.engine.points.map((p) => <li>{p}</li>)}</ul>
-          </div>
-        </div>
+        <FeatureTerminals />
       </div>
     </section>
 

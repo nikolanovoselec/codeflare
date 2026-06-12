@@ -15,25 +15,10 @@ export interface Cta {
   href: string;
 }
 
-export interface Stat {
-  value: string;
-  label: string;
-  /** Mono channel micro-cap above the value (e.g. Gateway). */
-  cap: string;
-  /** The governance-anchor tile (AI Gateway 100%) carries the one coral tick. */
-  anchor?: boolean;
-}
-
 export interface Card {
   title: string;
   body: string;
   tag?: string;
-}
-
-export interface ComparisonColumn {
-  title: string;
-  tag: string;
-  points: string[];
 }
 
 export interface CostLayer {
@@ -101,6 +86,26 @@ export interface TranscriptLine {
   text: string;
 }
 
+/** A coding-agent statusline footer under a terminal: context / model /
+ *  reasoning, the segments a real session shows. The hero foot is gently
+ *  animated (context ticks, an occasional compaction beat); reduced motion
+ *  leaves it static. */
+export interface TerminalFoot {
+  ctx: string;
+  model: string;
+  reason: string;
+  note?: string;
+}
+
+/** A compact feature terminal: one codeflare capability shown as a real
+ *  command and its output, with a one-line caption foot. The grid of these
+ *  replaces the old stat band and the old checkmark comparison. */
+export interface FeatureTerminal {
+  title: string;
+  lines: TranscriptLine[];
+  foot: string;
+}
+
 export const NAV_LINKS: NavLink[] = [
   { label: 'The shift', href: '#shift' },
   { label: 'Method', href: '#method' },
@@ -142,26 +147,75 @@ export const SPINE = {
 export const TERMINAL = {
   title: `codeflare · ${SPINE.service}`,
   lines: [
-    { tone: 'cmd', text: `/sdd implement ${SPINE.req}  acceptance criteria: 3` },
-    { tone: 'agent', text: '✻ session: ephemeral container in your tenancy, destroyed on exit' },
-    { tone: 'agent', text: '✻ tests first: 9 cases written, then the implementation' },
-    { tone: 'warn', text: '⚠ spec-enforce: AC3 not covered by a test, drift is a blocking finding' },
-    { tone: 'agent', text: '✻ agent corrects to the plan, writes the missing idempotency case' },
-    { tone: 'ok', text: '✓ re-verified: AC3 covered, 10 of 10 green, zero deviation from spec' },
-    { tone: 'agent', text: '✻ PR boundary: /review --deep, 6 reviewer agents in parallel' },
-    { tone: 'deny', text: '✕ egress: direct provider call denied, rerouted through your AI Gateway' },
-    { tone: 'dim', text: '  41 model calls: guardrails on, DLP on egress, every token attributed' },
-    { tone: 'dim', text: '  context: 2 external docs read through isolated browsers, clean markdown' },
+    { tone: 'cmd', text: `/sdd implement ${SPINE.req} · AC: 3` },
+    { tone: 'agent', text: '✻ ephemeral container in your tenancy, gone on exit' },
+    { tone: 'agent', text: '✻ tests first: 9 cases, then the implementation' },
+    { tone: 'warn', text: '⚠ spec-enforce: AC3 uncovered, drift is a blocking finding' },
+    { tone: 'agent', text: '✻ agent corrects to the plan, writes the missing case' },
+    { tone: 'ok', text: '✓ re-verified: AC3 covered, 10 of 10 green, zero drift' },
+    { tone: 'agent', text: '✻ PR boundary: /review --deep, 6 agents in parallel' },
+    { tone: 'deny', text: '✕ direct provider call denied, rerouted to your AI Gateway' },
+    { tone: 'dim', text: '  41 model calls: DLP on egress, every token attributed' },
     { tone: 'ok', text: '✓ specification, implementation and documentation aligned' },
-    { tone: 'ok', text: `✓ ${SPINE.pr} ready for human triage, CI green, the merge is yours` },
+    { tone: 'ok', text: `✓ ${SPINE.pr} ready for triage, CI green, the merge is yours` },
   ] satisfies TranscriptLine[],
+  foot: {
+    ctx: 'context 18%',
+    model: 'opus-4.8',
+    reason: 'reasoning high',
+    note: SPINE.service,
+  } satisfies TerminalFoot,
 };
 
-export const STATS: Stat[] = [
-  { value: '100%', cap: 'Gateway', anchor: true, label: 'of agent LLM traffic through your AI Gateway' },
-  { value: '0', cap: 'Endpoint', label: 'lines of code on the endpoint device' },
-  { value: '0', cap: 'Infra', label: 'standing infrastructure between sessions' },
-  { value: '10×', cap: 'Orchestration', label: 'one engineer steering parallel agents' },
+/**
+ * Feature terminals: four short, real moments from inside the boundary, each
+ * one codeflare capability shown as a command and its output. They replace the
+ * old big-number stat band and the old checkmark comparison with the proof
+ * idiom the page already trades in. The spine IDs recur so they read as the
+ * same governed run from four more angles. Lines are kept short so they wrap
+ * cleanly on a phone instead of scrolling sideways.
+ */
+export const FEATURE_TERMINALS: FeatureTerminal[] = [
+  {
+    title: 'codeflare · gateway',
+    lines: [
+      { tone: 'cmd', text: 'agent → api.openai.com' },
+      { tone: 'deny', text: '✕ direct egress denied' },
+      { tone: 'dim', text: '→ rerouted · your AI Gateway' },
+      { tone: 'ok', text: '✓ 41 calls · every token attributed' },
+    ],
+    foot: 'guardrails on · DLP on egress · your keys',
+  },
+  {
+    title: 'codeflare · session',
+    lines: [
+      { tone: 'cmd', text: 'open session' },
+      { tone: 'agent', text: '✻ ephemeral container · your tenancy' },
+      { tone: 'ok', text: '✓ 0 lines on the endpoint device' },
+      { tone: 'ok', text: '✓ destroyed on exit · 0 standing infra' },
+    ],
+    foot: 'a browser · your IdP · zero footprint',
+  },
+  {
+    title: `codeflare · ${SPINE.pr}`,
+    lines: [
+      { tone: 'cmd', text: 'on pull_request → /review --deep' },
+      { tone: 'agent', text: '✻ 6 reviewer agents · in parallel' },
+      { tone: 'warn', text: '⚠ 2 findings · fixed in-session' },
+      { tone: 'ok', text: "✓ CI green · the merge is a human's" },
+    ],
+    foot: 'code · security · spec · tests · docs · e2e',
+  },
+  {
+    title: 'codeflare · spec',
+    lines: [
+      { tone: 'cmd', text: `/sdd implement ${SPINE.req}` },
+      { tone: 'warn', text: '⚠ AC3 not covered · blocking' },
+      { tone: 'agent', text: '✻ agent corrects to the plan' },
+      { tone: 'ok', text: '✓ 10 of 10 green · zero drift' },
+    ],
+    foot: 'spec · tests · docs, aligned and enforced',
+  },
 ];
 
 export const SHIFT = {
@@ -169,29 +223,8 @@ export const SHIFT = {
   title: 'Decades of SDLC. One generational leap.',
   lead:
     'Coding assistants made typing faster. Codeflare changes what an engineer <em>is</em>: ' +
-    'the agents do the building, the engineer specifies, steers, and judges.',
-  assistant: {
-    title: 'Coding assistant',
-    tag: 'before',
-    points: [
-      'Autocompletes while a human types',
-      'Suggestions accepted one by one',
-      'Lives on a managed developer workstation',
-      'Untracked keys, unattributed token spend',
-      'Trusted because a human glanced at it',
-    ],
-  } satisfies ComparisonColumn,
-  engine: {
-    title: 'Agentic coding engine',
-    tag: 'codeflare',
-    points: [
-      'Agents plan, build, test, document, and ship',
-      'Engineers steer intent and make the calls',
-      'Runs in your cloud, reached from any browser',
-      'Every request through your AI Gateway, governed and attributed',
-      'Verified by review pipelines and your CI, then handed to a person for the merge',
-    ],
-  } satisfies ComparisonColumn,
+    'agents build, test, govern, and ship; the engineer specifies, steers, and judges. ' +
+    'Four moments from inside the boundary.',
 };
 
 export const METHOD = {

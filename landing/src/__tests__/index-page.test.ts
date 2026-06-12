@@ -11,6 +11,7 @@ import {
   COST,
   EGRESS,
   FAQ_ITEMS,
+  FEATURE_TERMINALS,
   HERO,
   CONTEXT,
   METHOD,
@@ -21,7 +22,6 @@ import {
   SECURITY,
   SHIFT,
   SPINE,
-  STATS,
   TENANCY,
   TERMINAL,
 } from '../content/site';
@@ -98,25 +98,29 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(html).toContain('id="contact"');
   });
 
-  it('renders the stat band with every value, channel cap, and label', () => {
-    expect(html).toContain('class="stats');
-    for (const stat of STATS) {
-      expect(html).toContain(stat.value);
-      expect(text).toContain(stat.label);
-      expect(text).toContain(stat.cap);
+  it('renders the shift as a feature-terminal grid: every tile title, line, and caption foot', () => {
+    expect(html).toContain('id="shift"');
+    expect(text).toContain(SHIFT.title);
+    expect(html).toContain('feature-terminals');
+    for (const ft of FEATURE_TERMINALS) {
+      expect(text).toContain(ft.title);
+      expect(text).toContain(ft.foot);
+      for (const line of ft.lines) {
+        // Some lines carry an apostrophe Astro escapes, so assert on the
+        // entity-decoded copy rather than the raw HTML.
+        expect(text).toContain(line.text);
+      }
     }
-    // The AI Gateway tile is the governance anchor (the one coral tick).
-    expect(html).toContain('is-anchor');
-    expect(STATS.some((s) => s.anchor)).toBe(true);
   });
 
-  it('renders the shift comparison with both columns of points', () => {
-    for (const point of SHIFT.assistant.points) {
-      expect(text).toContain(point);
-    }
-    for (const point of SHIFT.engine.points) {
-      expect(text).toContain(point);
-    }
+  it('renders the hero terminal agent statusline foot (context, model, reasoning)', () => {
+    expect(html).toContain('data-agentfoot');
+    expect(text).toContain(TERMINAL.foot.ctx);
+    expect(text).toContain(TERMINAL.foot.model);
+    expect(text).toContain(TERMINAL.foot.reason);
+    // The animated segments expose hooks the static foot resolves on its own.
+    expect(html).toContain('data-tf-ctx');
+    expect(html).toContain('data-tf-reason');
   });
 
   it('renders the method section: spec-driven development as a standout with the self-healing trace', () => {
