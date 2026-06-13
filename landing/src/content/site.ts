@@ -176,8 +176,8 @@ export const TERMINAL = {
   // / no JS: run[0] is the server-rendered resting state, fully legible.
   run: [
     'spec-driven · enforced, not suggested',
-    'legacy · bootstrapped to an SDD baseline',
-    'zero trust · the architecture, not a policy',
+    'legacy codebase · bootstrapped to an SDD baseline',
+    'zero trust · the architecture, not only a policy',
     'ephemeral, runs everywhere and nowhere',
     'the open web · distilled, and driven',
     'agents · citizens of your pipeline',

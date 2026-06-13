@@ -541,6 +541,26 @@ svg {
   }
 }
 
+/* Hero terminal never scrolls sideways: a long transcript line reflows the way a
+   real terminal wraps it, with a hanging indent so the continuation aligns past
+   the leading glyph. (The orchestration tree keeps its own `pre`/scroll, since
+   its columns must line up.) The capability reel takes the agent voice colour
+   ("✻ ephemeral container" tone), not the brighter command white. */
+.hero-terminal .terminal-body {
+  overflow-x: hidden;
+}
+
+.hero-terminal .t-line {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  padding-left: 2ch;
+  text-indent: -2ch;
+}
+
+.hero-terminal .ft-typed {
+  color: var(--term-cyan);
+}
+
 .t-cmd {
   color: var(--text-primary);
 }
