@@ -94,8 +94,17 @@ describe('User Profile Routes', () => {
     });
 
     it('returns onboardingActive true when ONBOARDING_LANDING_PAGE is active', async () => {
+      // Onboarding mode now applies the active-tier gate (REQ-AUTH-020), so the
+      // mock user must be active for GET /user to return 200; a tier-less user is
+      // correctly 403'd here, the same as a pending onboarding visitor.
       mockAuthenticateRequest.mockResolvedValue({
-        user: { email: 'test@example.com', authenticated: true, role: 'user' },
+        user: {
+          email: 'test@example.com',
+          authenticated: true,
+          role: 'user',
+          accessTier: 'advanced',
+          subscriptionTier: 'advanced',
+        },
         bucketName: 'codeflare-abc123',
       });
 

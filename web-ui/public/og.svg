@@ -14,9 +14,12 @@
   <rect width="1200" height="630" fill="url(#bg)"/>
   <rect width="1200" height="630" fill="url(#glow)"/>
 
-  <!-- Brand lockup: coral mark + wordmark -->
-  <rect x="80" y="72" width="46" height="46" rx="11" fill="#ff5c3c"/>
-  <text x="144" y="106" font-family="JetBrains Mono" font-size="38" font-weight="700" fill="#fafafa" letter-spacing="-1">codeflare</text>
+  <!-- Brand lockup: the Codeflare code-glyph mark (coral tile, dark glyph) + wordmark -->
+  <rect x="80" y="58" width="64" height="64" rx="15" fill="#ff5c3c"/>
+  <g transform="translate(92,70) scale(1.667)">
+    <path d="M12.89,3L14.85,3.4L11.11,21L9.15,20.6L12.89,3M19.59,12L16,8.41V5.58L22.42,12L16,18.41V15.58L19.59,12M1.58,12L8,5.58V8.41L4.41,12L8,15.58V18.41L1.58,12Z" fill="#0a0a0c"/>
+  </g>
+  <text x="166" y="104" font-family="JetBrains Mono" font-size="40" font-weight="700" fill="#fafafa" letter-spacing="-1">codeflare</text>
 
   <!-- Positioning -->
   <text x="80" y="296" font-family="JetBrains Mono" font-size="21" font-weight="700" fill="#ff5c3c" letter-spacing="6">NOT A CODING ASSISTANT</text>

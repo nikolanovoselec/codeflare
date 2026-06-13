@@ -452,6 +452,7 @@ Architectural principles and design rationale.
 - [REQ-TERM-010](../../sdd/spec/terminal.md#req-term-010-session-presets-saved-tab-configurations) - Session presets (saved tab configurations)
 - [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving) - Mode-aware public landing serving
 - [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline) - Demo-request contact pipeline (contact relay data flow)
+- [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) - Landing social-share and search metadata (discoverability documents, JSON-LD, OG card)
 - [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-and-access-request-flow) - Onboarding `/login` serving and post-OAuth access-request flow
 
 ---

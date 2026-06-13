@@ -9,6 +9,7 @@ Environment variables, secrets, CORS configuration, and API token permissions.
 ## Contents
 
 - [Environment Variables](#environment-variables)
+- [SEO / Discoverability](#seo--discoverability)
 - [Secrets](#secrets)
 - [Enterprise Mode Runtime Configuration](#enterprise-mode-runtime-configuration)
 - [CORS](#cors)
@@ -101,6 +102,16 @@ These env vars tune the graphify knowledge-graph build/update tooling. All are o
 | `GRAPHIFY_ARCH_EXTRA_EXCLUDES` | Additional shell-split gitignore-style patterns appended to Pi Architecture graph filters when a repo needs local noise reduction beyond the generic tests/docs/generated/config exclusions. | (unset) | no | `preseed/agents/pi/scripts/build-graphify-architecture.sh` | [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) |
 | `GRAPHIFY_ARCH_KEEP_ISOLATES` | When truthy (`1`, `true`, `yes`), keeps isolated files in Pi Architecture graph output instead of omitting them from the module dependency map. | unset (omit isolates) | no | `preseed/agents/pi/scripts/build-graphify-architecture.sh` | [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) |
 | `GRAPHIFY_SEMANTIC_MAX_PARALLEL` | Maximum number of semantic-extraction Task subagents dispatched per wave by the `/graphify` skill. Caps the parallel fan-out on full-semantic builds so a dense repo (with hundreds of non-code files) cannot flood the Task-tool concurrency or trip Anthropic API rate limits in a single burst. Higher values finish a build faster; lower values smooth the rate-limit / token-budget surface. | `10` | no | `preseed/agents/claude/skills/graphify/SKILL.md` Step B2 | (graphify skill operational knob) |
+
+---
+
+## SEO / Discoverability
+
+No environment variable governs the discoverability documents ([REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata)); these are operator-facing constants and assets, called out here because a fork or alternate-domain deployment must know they exist.
+
+- **Canonical origin** — the `robots.txt` / `sitemap.xml` / `llms.txt` served by the Worker, and the JSON-LD + canonical/OG tags emitted by the landing, all use the origin **hardcoded** to `https://codeflare.ch` (`CANONICAL_ORIGIN` in `src/lib/seo.ts`, mirrored in `landing/src/layouts/BaseLayout.astro`). This is intentional: an integration/staging host must not advertise itself as canonical or get indexed as duplicate content. A fork that deploys to a different root domain must update this constant before shipping.
+- **OG / social-share image** — served as a static asset from `web-ui/public/og.png` (1200x630) at `/og.png`, with the editable source at `web-ui/public/og.svg`. Replace these to customise the social-share card.
+- **Mode gating** — the root documents are served only when the public marketing landing is active (SaaS or onboarding mode); default/enterprise (private app) deployments return a disallow-all `robots.txt` and 404 the sitemap/llms, so a private deployment is never advertised to crawlers.
 
 ---
 

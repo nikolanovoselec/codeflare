@@ -16,6 +16,7 @@ Complete API endpoint reference for the Codeflare Worker.
 - [Billing](#billing)
 - [Deploy Keys](#deploy-keys)
 - [Public (Unauthenticated)](#public-unauthenticated)
+- [Discoverability Documents](#discoverability-documents)
 - [Setup](#setup)
 - [Storage (R2 File Browser)](#storage-r2-file-browser)
 - [Presets](#presets)
@@ -140,6 +141,16 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | POST | `/public/waitlist` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Waitlist signup with Turnstile (rate-limited 1/day by IP) |
 | GET | `/public/contact-config` | none | [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline) | Turnstile site key for the landing contact form (SaaS or onboarding mode) |
 | POST | `/public/contact` | none | [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Demo-request submission: Turnstile-verified, relayed to admins as email, never persisted (rate-limited 5/min) |
+
+### Discoverability Documents
+
+Served at the deployment root by the Worker (in `src/index.ts`, before the setup-completion gate so crawlers reach them on a fresh instance). The response depends on deployment mode; content is built by pure functions in `src/lib/seo.ts`, with the canonical origin hardcoded to `https://codeflare.ch` so integration/staging hosts never advertise themselves as canonical.
+
+| Method | Endpoint | Public mode (SaaS / onboarding) | Private mode (default / enterprise) | Implements |
+|--------|----------|----------|----------|------------|
+| GET | `/robots.txt` | `200` — allows the marketing surface, excludes `/app /api /auth /login /setup`, points at `/sitemap.xml` | `200` — disallow-all | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) |
+| GET | `/sitemap.xml` | `200` — canonical marketing routes (login excluded, it is noindex) | `404` | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) |
+| GET | `/llms.txt` | `200` — llmstxt.org-convention product summary | `404` | [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) |
 
 ### Setup
 

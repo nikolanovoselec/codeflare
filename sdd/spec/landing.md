@@ -149,6 +149,6 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** [Metadata render tests](../../landing/src/__tests__/index-page.test.ts)
+**Verification:** [Metadata render tests](../../landing/src/__tests__/index-page.test.ts), [SEO document unit tests](../../src/__tests__/lib/seo.test.ts), [Worker discoverability serving tests](../../src/__tests__/index.test.ts)
 
 **Status:** Implemented
