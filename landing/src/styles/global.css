@@ -119,70 +119,6 @@ svg {
   margin-bottom: clamp(1.75rem, 3vw, 2.5rem);
 }
 
-/* --------------------------------------------------------------------------
-   Station spine: a quiet vertical thread numbering the instrument stations
-   (method -> cost), the SDLC journey the page already is. Each instrument
-   section carries a data-station and renders a small mono marker above its
-   heading. Mobile: marker inline above the heading, no vertical line (avoid
-   clutter); the number still reads as wayfinding. Desktop: the marker sits in
-   the left editorial column and a hairline thread connects consecutive stations.
-   -------------------------------------------------------------------------- */
-.station-marker {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  margin-bottom: 0.85rem;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.station-n {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.station-label {
-  color: var(--text-muted);
-}
-
-/* Desktop: the spine is a hairline running down the instrument run, aligned to
-   the marker column in the section's left gutter, with the marker pulled into
-   that column so the numbers stack as a continuous thread. */
-@media (min-width: 1040px) {
-  section[data-station] {
-    position: relative;
-  }
-
-  section[data-station]::before {
-    content: '';
-    position: absolute;
-    left: clamp(1.25rem, 5vw, 2.25rem);
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background: var(--border-default);
-  }
-
-  section[data-station] .station-marker {
-    position: relative;
-    padding-left: 1.4rem;
-  }
-
-  section[data-station] .station-marker::before {
-    content: '';
-    position: absolute;
-    left: -0.21rem;
-    top: 0.45rem;
-    width: 0.42rem;
-    height: 0.42rem;
-    border-radius: 50%;
-    background: var(--accent);
-  }
-}
-
 .kicker {
   display: inline-block;
   font-size: var(--fs-kicker);
@@ -862,6 +798,21 @@ svg {
   max-width: 48rem;
 }
 
+/* Desktop: two columns so each question sits in a narrower track, which pulls the
+   "+" marker back beside its question instead of stranding it across a wide row.
+   Row-major flow keeps natural reading order (Q1 top-left, Q2 top-right, ...);
+   align-items:start lets an opened answer grow its own cell without dragging its
+   row-mate. */
+@media (min-width: 760px) {
+  .faq {
+    max-width: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: clamp(2rem, 5vw, 4rem);
+    align-items: start;
+  }
+}
+
 .faq-item {
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -1041,37 +992,50 @@ svg {
   align-items: center;
 }
 
-/* The footer is now one quiet centered line whose product name perpetually
-   scrambles (#3): no logo, no nav links, no GitHub mark. */
+/* One uniform footer line: a single font, size, weight, tracking and colour
+   (the ai-news-digest footer treatment) so "Built with Codeflare" and the
+   copyright read as one quiet line, not four mismatched fragments. No "·"
+   separator (the two lines space apart). The product name still perpetually
+   scrambles but in the same treatment as the rest, not its own font/colour. */
 .footer-copy {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   justify-content: center;
-  gap: 0.4rem;
+  gap: 0.4rem 1.4rem;
   margin: 0;
-  font-size: var(--fs-small);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--text-muted);
 }
 
-.footer-built-label {
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.7rem;
+.footer-line {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
 }
 
-.footer-codeflare {
-  font-family: var(--font-mono);
-  color: var(--text-secondary);
+.footer-gm-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.18s var(--ease-out);
 }
 
-/* Neutralise the hero scramble word's coral gradient in the footer: the
-   scrambling name here stays understated mono, in the muted line colour. */
+.footer-gm-link:hover {
+  border-color: currentColor;
+}
+
+/* The scrambling product name inherits the footer line treatment (same font,
+   size, colour); only the hero coral gradient is neutralised. */
 .footer-codeflare.scramble-word,
 .footer-codeflare .scramble-word {
   background: none;
   -webkit-text-fill-color: currentColor;
-  color: var(--text-secondary);
+  color: inherit;
 }
 
 /* --------------------------------------------------------------------------
@@ -1343,19 +1307,23 @@ svg {
     proof-pulse 0.7s var(--ease-out) calc(var(--i) * 0.18s + 0.3s);
 }
 
-/* Thin in-terminal divider + sub-label introducing the egress rows inside the
-   merged security boundary terminal (#7): the boundary's structural rows above,
-   one real call obeying it below, in one receipt. */
-.gate-subhead {
-  padding: 0.5rem 1.1rem;
+/* The one outbound call, rendered as a left-aligned command echo (not a centered
+   footer) above a thin divider, introducing the egress rows that inspect it
+   inside the same merged boundary terminal (#7): boundary rows above, one real
+   call obeying the boundary below, in one receipt. */
+.gate-echo {
+  padding: 0.7rem 1.1rem;
   border-top: 1px solid var(--border-subtle);
-  border-bottom: 1px solid var(--border-subtle);
   background: rgb(255 255 255 / 0.015);
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.06em;
-  color: var(--term-dim);
-  text-align: center;
+  font-size: var(--fs-mono);
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+}
+
+.gate-echo-prompt {
+  color: var(--accent);
+  margin-right: 0.35ch;
 }
 
 /* ---- Security: egress rows inside the boundary terminal (structural twin of
@@ -1402,9 +1370,54 @@ svg {
   color: var(--text-secondary);
 }
 
-/* ---- Context: browser-isolation proof terminal (peer-level proof artifact) ---- */
-.context-terminal {
-  max-width: 56rem;
+/* --------------------------------------------------------------------------
+   Proof pairs: a narrative feature terminal at ~half width with its prose
+   beside it, alternating sides down the page, mirroring the hero mechanism.
+   Normalizes the legacy + context terminals (formerly an odd 56rem in-between
+   width) into the page's paired-terminal rhythm. Stacks on mobile (prose first).
+   -------------------------------------------------------------------------- */
+.proof-pair {
+  display: grid;
+  gap: clamp(1.75rem, 4vw, 2.5rem);
+}
+
+.proof-pair + .proof-pair {
+  margin-top: clamp(2.75rem, 6vw, 4.5rem);
+}
+
+.proof-copy {
+  max-width: 44rem;
+}
+
+.proof-copy .lead {
+  margin-top: 1rem;
+}
+
+/* The narrative terminal never scrolls sideways at half width: long transcript
+   lines reflow with a hanging indent, the way the hero terminal wraps. */
+.proof-terminal .terminal-body {
+  overflow-x: hidden;
+}
+
+.proof-terminal .t-line {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  padding-left: 2ch;
+  text-indent: -2ch;
+}
+
+@media (min-width: 980px) {
+  .proof-pair {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.02fr);
+    align-items: center;
+    gap: clamp(2.5rem, 5vw, 4.5rem);
+  }
+
+  /* Flip: terminal on the left, prose on the right. Source order stays prose
+     first, so mobile always leads with the copy. */
+  .proof-pair--flip .proof-copy {
+    order: 2;
+  }
 }
 
 /* ---- Pipeline: parallel review board (shares .terminal chrome) ---- */

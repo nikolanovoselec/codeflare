@@ -173,6 +173,57 @@ describe('Edge-level setup redirect', () => {
     expect(mockAssets.fetch).toHaveBeenCalled();
   });
 
+  // REQ-LANDING-003: discoverability documents served at the deployment root,
+  // mode-aware (public marketing surface advertises indexable docs; private
+  // app deployments disallow all crawling and expose no sitemap/llms).
+  it('REQ-LANDING-003: serves an indexable robots.txt with the sitemap in a public mode', async () => {
+    const { env, mockAssets } = createMockEnv();
+    env.SAAS_MODE = 'active';
+
+    const response = await worker.fetch(new Request('https://example.com/robots.txt'), env, createMockCtx());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toContain('text/plain');
+    const body = await response.text();
+    expect(body).toContain('Allow: /');
+    expect(body).toContain('Sitemap: https://codeflare.ch/sitemap.xml');
+    // Served before the setup gate and without touching the SPA assets.
+    expect(mockAssets.fetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-LANDING-003: serves a disallow-all robots.txt with no sitemap in a private (default) mode', async () => {
+    const { env } = createMockEnv();
+    // Neither SaaS nor onboarding: a private app deployment.
+
+    const response = await worker.fetch(new Request('https://example.com/robots.txt'), env, createMockCtx());
+
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain('Disallow: /');
+    expect(body).not.toContain('Sitemap:');
+  });
+
+  it('REQ-LANDING-003: serves sitemap.xml + llms.txt in a public mode and 404s them in a private mode', async () => {
+    const { env } = createMockEnv();
+    env.ONBOARDING_LANDING_PAGE = 'active';
+
+    const sitemap = await worker.fetch(new Request('https://example.com/sitemap.xml'), env, createMockCtx());
+    expect(sitemap.status).toBe(200);
+    expect(sitemap.headers.get('Content-Type')).toContain('application/xml');
+    expect(await sitemap.text()).toContain('<loc>https://codeflare.ch/</loc>');
+
+    const llms = await worker.fetch(new Request('https://example.com/llms.txt'), env, createMockCtx());
+    expect(llms.status).toBe(200);
+    expect(await llms.text()).toMatch(/^# Codeflare/);
+
+    // Private deployment: the marketing-only documents do not exist.
+    const { env: privateEnv } = createMockEnv();
+    const sitemap404 = await worker.fetch(new Request('https://example.com/sitemap.xml'), privateEnv, createMockCtx());
+    expect(sitemap404.status).toBe(404);
+    const llms404 = await worker.fetch(new Request('https://example.com/llms.txt'), privateEnv, createMockCtx());
+    expect(llms404.status).toBe(404);
+  });
+
   it('does NOT affect WebSocket upgrade requests', async () => {
     const { env, mockKV } = createMockEnv();
     mockKV.get.mockResolvedValue(null);

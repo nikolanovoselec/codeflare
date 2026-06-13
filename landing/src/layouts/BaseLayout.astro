@@ -11,6 +11,9 @@ interface Props {
    *  passes "noindex, nofollow" so auth URLs (with ?status / ?error) stay out
    *  of search results. */
   robots?: string;
+  /** Optional page-specific schema.org entity (e.g. SoftwareApplication on the
+   *  home page) merged into the site-wide Organization + WebSite JSON-LD graph. */
+  jsonLd?: Record<string, unknown>;
 }
 
 // REQ-LANDING-003: the landing page carries the canonical external metadata
@@ -20,7 +23,37 @@ const {
   description = 'This is not a coding assistant. Codeflare is the enterprise agentic coding engine: autonomous agents that build, review, test, and ship inside your cloud boundary, governed, attributed, and encrypted.',
   canonical = 'https://codeflare.ch/',
   robots,
+  jsonLd,
 } = Astro.props;
+
+// REQ-LANDING-003: site-wide structured data (schema.org) so search engines and
+// LLMs resolve Codeflare to a named Organization + WebSite, with an optional
+// page-specific entity grafted on. JSON-LD is a data block (not executed), so it
+// is unaffected by the landing's script-src 'self' CSP.
+const orgId = 'https://codeflare.ch/#organization';
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Organization',
+      '@id': orgId,
+      name: 'Codeflare',
+      url: 'https://codeflare.ch/',
+      logo: 'https://codeflare.ch/icon-512.png',
+      description:
+        'The enterprise agentic coding engine: autonomous agents that build, review, test, and ship inside your own cloud boundary, governed, attributed, and encrypted.',
+      sameAs: ['https://github.com/nikolanovoselec/codeflare'],
+    },
+    {
+      '@type': 'WebSite',
+      '@id': 'https://codeflare.ch/#website',
+      url: 'https://codeflare.ch/',
+      name: 'Codeflare',
+      publisher: { '@id': orgId },
+    },
+    ...(jsonLd ? [jsonLd] : []),
+  ],
+};
 ---
 
 <!doctype html>
@@ -33,6 +66,8 @@ const {
     {robots && <meta name="robots" content={robots} />}
     <link rel="canonical" href={canonical} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#0a0a0c" />
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Codeflare" />
@@ -51,6 +86,8 @@ const {
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content="https://codeflare.ch/og.png" />
     <meta name="twitter:image:alt" content="Codeflare: the enterprise agentic coding engine." />
+
+    <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
   </head>
   <body>
     <!-- Page-wide flare-fluid signature: the WebGL canvas is injected here and a

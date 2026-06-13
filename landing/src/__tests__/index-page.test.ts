@@ -154,11 +154,8 @@ describe('landing page (REQ-LANDING-001)', () => {
     }
   });
 
-  it('REQ-LANDING-001: method section renders the station marker, pillars, and the self-healing enforcement gate', () => {
+  it('REQ-LANDING-001: method section renders the pillars and the self-healing enforcement gate', () => {
     expect(html).toContain('id="method"');
-    // Station marker must be in the DOM for the spine to function.
-    expect(html).toContain(`data-station="${METHOD.station.n}"`);
-    expect(text).toContain(METHOD.station.label);
     // Both pillars must render — stripping one removes half the method narrative.
     for (const pillar of METHOD.pillars) {
       expect(text).toContain(pillar.title);
@@ -179,21 +176,19 @@ describe('landing page (REQ-LANDING-001)', () => {
     // The caption is the enforcement refrain. Assert the characteristic phrase
     // that cannot accidentally appear from any other element on the page.
     expect(text).toContain('Drift is a blocking finding');
-    // The method body must NOT carry a coral numbered counter.  The spec removed
-    // li::before numbering from method-clauses in favour of the station spine.
-    // Asserting method-clauses still renders (the <ol> exists) but that no
-    // list-item counter style leaks into the page via an inline counter-reset
-    // attribute verifies the implementation without reading CSS.
+    // The method body must NOT carry a coral numbered counter.  The clauses read
+    // as plain label-and-prose pillars with no decorative ordinal. Asserting
+    // method-clauses still renders (the <ol> exists) but that no list-item counter
+    // style leaks into the page via an inline counter-reset attribute verifies the
+    // implementation without reading CSS.
     expect(html).toContain('method-clauses');
-    // No inline counter-reset style on the <ol> — the spec mandates the counter
-    // lives only in the station spine now, not inside the method body.
+    // No inline counter-reset style on the <ol> — the method clauses read as plain
+    // label-and-prose pillars, with no decorative numbered counter of their own.
     expect(html).not.toMatch(/method-clauses[^>]*style="[^"]*counter/);
   });
 
   it('REQ-LANDING-001: security section renders exactly ONE merged terminal containing both boundary rows and egress rows', () => {
     expect(html).toContain('id="security"');
-    // The station marker verifies the spine is present on the section.
-    expect(html).toContain(`data-station="${SECURITY.station.n}"`);
     // The boundary gate class must be present — it is the merged container.
     expect(html).toContain('gate boundary');
     // Boundary rows: at least one pass and one deny, with rendered actor/label/text.
@@ -204,15 +199,19 @@ describe('landing page (REQ-LANDING-001)', () => {
     }
     expect(html).toContain('is-deny');
     expect(html).toContain('is-pass');
-    // The egress sub-section is introduced by gate-subhead — its absence means
-    // the merge did not happen and security reads as boundary-only.
-    expect(html).toContain('gate-subhead');
+    // The one outbound call is introduced by a left-aligned command echo (gate-echo),
+    // not a centered footer-in-the-middle; its absence means the merge did not happen
+    // and security reads as boundary-only.
+    expect(html).toContain('gate-echo');
     // Egress rows render inside the same terminal — the call identifier must appear.
     expect(text).toContain(EGRESS.call);
     for (const row of EGRESS.rows) {
       expect(text).toContain(row.actor);
       expect(text).toContain(row.text);
     }
+    // The egress rows animate (roll) like the boundary rows above, not sit static:
+    // the egress list must carry the data-roll hook proof.ts arms.
+    expect(html).toMatch(/gate-echo[\s\S]*?data-roll/);
     // The DLP redaction is the one amber beat — must be a first-class state.
     expect(html).toContain('is-redact');
     // ONE merged foot covers both: the security caption closes the whole receipt.
@@ -224,11 +223,8 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(text).toContain('your AI Gateway');
   });
 
-  it('REQ-LANDING-001: legacy station renders between method and security with the /sdd init + /sdd clean transcript', () => {
+  it('REQ-LANDING-001: legacy section renders between method and security with the /sdd init + /sdd clean transcript', () => {
     expect(html).toContain('id="legacy"');
-    // Station marker verifies the spine is threaded through this section.
-    expect(html).toContain(`data-station="${LEGACY.station.n}"`);
-    expect(text).toContain(LEGACY.station.label);
     expect(text).toContain(LEGACY.title);
     // The terminal must carry both rescue commands — deleting either removes half
     // the rescue narrative the spec mandates.
@@ -240,27 +236,32 @@ describe('landing page (REQ-LANDING-001)', () => {
     }
     // The terminal closes on a normalised in-chrome foot.
     expect(text).toContain(LEGACY.terminal.foot);
-    // The legacy section must appear BEFORE security in the document order.
+    // The legacy section must appear BEFORE security in the document order, and the
+    // legacy terminal is now paired with prose (proof-pair), not an odd-width box.
     const legacyPos = html.indexOf('id="legacy"');
     const securityPos = html.indexOf('id="security"');
     expect(legacyPos).toBeGreaterThan(0);
     expect(legacyPos).toBeLessThan(securityPos);
+    const legacySection = html.slice(legacyPos, securityPos);
+    expect(legacySection).toContain('proof-pair');
+    expect(legacySection).toContain('proof-terminal');
   });
 
-  it('REQ-LANDING-001: station spine numbers every section 01-11 in document order, merged bands folded in', () => {
-    // Every section now carries a station ordinal (the owner wants no un-numbered
-    // floaters); the merged bands (operations, tenancy, runs-everywhere, trusted)
-    // fold into a numbered station as sub-content rather than carrying their own.
-    const stationAttrs = [...html.matchAll(/data-station="(\d+)"/g)].map((m) => m[1]);
-    expect(stationAttrs).toEqual([
-      '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11',
-    ]);
-    // Each station marker element must be in the DOM, one per numbered station.
-    const markerCount = [...html.matchAll(/class="station-marker"/g)].length;
-    expect(markerCount).toBe(11);
-    // Render order: 01 shift, 02 spec, 03 rescue, 04 boundary, 05 web, 06 review,
-    // 07 agents (orchestration), 08 spend, 09 platform, 10 proof, 11 answers. The
-    // ordered sequence asserted above is the render-order proof.
+  it('REQ-LANDING-001: the numbered station spine is gone; sections render as calm peers in document order', () => {
+    // The owner dropped the 01-11 numbered station spine (an AI-tell). Guard against
+    // the markers creeping back, and assert the sections still render in the intended
+    // order, cued now by alternating backgrounds rather than ordinals.
+    expect(html).not.toContain('station-marker');
+    expect(html).not.toMatch(/data-station=/);
+    const order = [
+      'shift', 'method', 'legacy', 'security', 'context', 'pipeline',
+      'orchestration', 'cost', 'platform', 'dogfood', 'faq', 'contact',
+    ];
+    const positions = order.map((id) => html.indexOf(`id="${id}"`));
+    for (const p of positions) expect(p).toBeGreaterThan(0);
+    for (let i = 1; i < positions.length; i++) {
+      expect(positions[i]).toBeGreaterThan(positions[i - 1]);
+    }
   });
 
   it('REQ-LANDING-001: every instrument terminal closes on a normalised in-chrome terminal-foot element', () => {
@@ -289,7 +290,7 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(text).toContain(DOGFOOD.cta.label);
   });
 
-  it('REQ-LANDING-001: the Trusted-by strip renders the Swiss Post logo + label in the proof station, before the contact CTA', () => {
+  it('REQ-LANDING-001: the Trusted-by strip renders the Swiss Post logo + label in the proof section, before the contact CTA', () => {
     // The label + the actual logo asset must render — a missing src is a broken
     // proof, and alt text is required for the logo to be accessible.
     expect(text).toContain(TRUSTED.label);
@@ -307,11 +308,10 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(trustedPos).toBeLessThan(contactPos);
   });
 
-  it('REQ-LANDING-001: orchestration is its own dynamic station (07) with normal agent commands, between review and spend', () => {
-    // The operator "Running N agents" view is now its own station, relocated out
+  it('REQ-LANDING-001: orchestration is its own dynamic section with normal agent commands, between review and spend', () => {
+    // The operator "Running N agents" view is now its own section, relocated out
     // from under the review board (the two stacked terminals read as redundant).
     expect(html).toContain('id="orchestration"');
-    expect(html).toContain(`data-station="${ORCHESTRATION.station.n}"`);
     expect(text).toContain(ORCHESTRATION.title);
     expect(html).toContain('terminal orch');
     expect(text).toContain(ORCHESTRATION.header);
@@ -336,7 +336,7 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(html).toContain('data-activities');
     // It is armed as a proof artifact too (proof.ts reveals it on scroll-in).
     expect(html).toMatch(/class="terminal orch[^"]*"\s+data-proof/);
-    // Position: after the review station, before the spend station.
+    // Position: after the review section, before the spend section.
     const orchPos = html.indexOf('id="orchestration"');
     const pipelinePos = html.indexOf('id="pipeline"');
     const costPos = html.indexOf('id="cost"');
@@ -361,8 +361,8 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(html).toMatch(/<a[^>]*href="https:\/\/graymatter\.ch"[^>]*>Gray Matter GmbH<\/a>/);
   });
 
-  it('REQ-LANDING-001: operations folds into the boundary station (04) as sub-content, not its own numbered section', () => {
-    // Operations is now sub-content of the boundary station, so the standalone
+  it('REQ-LANDING-001: operations folds into the boundary section as sub-content, not its own section', () => {
+    // Operations is now sub-content of the boundary section, so the standalone
     // section is gone and the content renders inside security as a .substation.
     expect(html).not.toContain('id="operations"');
     expect(html).toContain('substation');
@@ -372,8 +372,8 @@ describe('landing page (REQ-LANDING-001)', () => {
     for (const card of OPERATIONS.cards) {
       expect(text).toContain(card.title);
     }
-    // It belongs to station 04: its content sits within the security section,
-    // between the boundary station and the next station (context).
+    // It belongs to the security section: its content sits within it, between the
+    // boundary terminal and the next section (context).
     const opsPos = html.indexOf(OPERATIONS.title);
     const securityPos = html.indexOf('id="security"');
     const contextPos = html.indexOf('id="context"');
@@ -381,9 +381,9 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(opsPos).toBeLessThan(contextPos);
   });
 
-  it('REQ-LANDING-001: tenancy and runs-everywhere fold into numbered stations as sub-content (nothing floats)', () => {
-    // Tenancy belongs to the spend station (08): standalone section gone, content
-    // renders within cost, before the platform station.
+  it('REQ-LANDING-001: tenancy and runs-everywhere fold into their parent sections as sub-content (nothing floats)', () => {
+    // Tenancy belongs to the spend (cost) section: standalone section gone, content
+    // renders within cost, before the platform section.
     expect(html).not.toContain('id="tenancy"');
     expect(text).toContain(TENANCY.title);
     const tenancyPos = html.indexOf(TENANCY.title);
@@ -391,8 +391,8 @@ describe('landing page (REQ-LANDING-001)', () => {
     const platformPos = html.indexOf('id="platform"');
     expect(tenancyPos).toBeGreaterThan(costPos);
     expect(tenancyPos).toBeLessThan(platformPos);
-    // Runs-everywhere belongs to the platform station (09): standalone section
-    // gone, content renders within platform, before the answers (FAQ) station.
+    // Runs-everywhere belongs to the platform section: standalone section gone,
+    // content renders within platform, before the answers (FAQ) section.
     expect(html).not.toContain('id="browser"');
     expect(text).toContain(BROWSER.title);
     for (const card of BROWSER.cards) {
@@ -404,20 +404,25 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(browserPos).toBeLessThan(faqPos);
   });
 
-  it('REQ-LANDING-001: context section renders the isolation proof terminal with in-chrome foot', () => {
+  it('REQ-LANDING-001: context section renders the isolation proof terminal as a proof-pair with in-chrome foot', () => {
     expect(html).toContain('id="context"');
-    // Station marker verifies the spine runs through context.
-    expect(html).toContain(`data-station="${CONTEXT.station.n}"`);
+    // The narrative terminal is now paired with prose (proof-pair / proof-terminal),
+    // normalized to the page's paired-terminal rhythm instead of an odd 56rem box.
+    const contextPos = html.indexOf('id="context"');
+    const pipelinePos = html.indexOf('id="pipeline"');
+    const contextSection = html.slice(contextPos, pipelinePos);
+    expect(contextSection).toContain('proof-pair');
+    expect(contextSection).toContain('proof-terminal');
     // The proof terminal must render with every line — it is the isolation claim.
-    expect(html).toContain('context-terminal');
     for (const line of CONTEXT.terminal.lines) {
       expect(text).toContain(line.text);
     }
     expect(text).toContain(CONTEXT.terminal.foot);
-    // Station 05 also carries the agent-steered e2e substation (the "drive"
-    // surface beside the "read"/markdown one): its heading and every transcript
-    // line must render, including the pass/fail verdict lines.
+    // The section also carries the agent-steered e2e proof (the "drive" surface
+    // beside the "read"/markdown one), paired and flipped: its heading and every
+    // transcript line must render, including the pass/fail verdict lines.
     expect(text).toContain(CONTEXT.e2e.heading);
+    expect(contextSection).toContain('proof-pair--flip');
     for (const line of CONTEXT.e2e.terminal.lines) {
       expect(text).toContain(line.text);
     }
@@ -426,8 +431,7 @@ describe('landing page (REQ-LANDING-001)', () => {
 
   it('REQ-LANDING-001: parallel review board renders lanes, a caught finding, and the human triage verdict', () => {
     expect(html).toContain('review-board');
-    // Station marker on the pipeline section.
-    expect(html).toContain(`data-station="${PIPELINE.station.n}"`);
+    expect(html).toContain('id="pipeline"');
     expect(html).toContain('board-dispatch');
     for (const lane of PIPELINE.lanes) {
       expect(html).toContain(lane.agent);
@@ -440,7 +444,7 @@ describe('landing page (REQ-LANDING-001)', () => {
   });
 
   it('REQ-LANDING-001: cost section renders the attribution ledger with zero unattributed total', () => {
-    expect(html).toContain(`data-station="${COST.station.n}"`);
+    expect(html).toContain('id="cost"');
     // The ledger is the literal bill — every agent row must appear.
     expect(html).toContain('ledger-totals');
     expect(html).toContain('ledger-meta');
@@ -527,6 +531,27 @@ describe('landing page metadata (REQ-LANDING-003)', () => {
 
   it('REQ-LANDING-003: meta description contains the enterprise positioning phrase', () => {
     expect(html).toMatch(/<meta name="description" content="[^"]*agentic coding engine[^"]*"/);
+  });
+
+  it('REQ-LANDING-003: emits a valid JSON-LD graph naming the Organization, WebSite, and SoftwareApplication', () => {
+    const match = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+    expect(match).not.toBeNull();
+    const data = JSON.parse(match![1]) as { '@graph': Array<Record<string, unknown>> };
+    const types = data['@graph'].map((node) => node['@type']);
+    expect(types).toContain('Organization');
+    expect(types).toContain('WebSite');
+    // The home page grafts on the product entity.
+    expect(types).toContain('SoftwareApplication');
+    const org = data['@graph'].find((node) => node['@type'] === 'Organization') as
+      | { name?: string; sameAs?: string[] }
+      | undefined;
+    expect(org?.name).toBe('Codeflare');
+    expect(org?.sameAs).toContain('https://github.com/nikolanovoselec/codeflare');
+  });
+
+  it('REQ-LANDING-003: declares a theme-color and an apple-touch-icon for mobile share/install surfaces', () => {
+    expect(html).toContain('name="theme-color"');
+    expect(html).toContain('rel="apple-touch-icon"');
   });
 });
 

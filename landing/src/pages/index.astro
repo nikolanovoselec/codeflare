@@ -41,7 +41,18 @@ import {
 } from '../content/site';
 ---
 
-<BaseLayout>
+<BaseLayout
+  jsonLd={{
+    '@type': 'SoftwareApplication',
+    name: 'Codeflare',
+    applicationCategory: 'DeveloperApplication',
+    operatingSystem: 'Cloud',
+    url: 'https://codeflare.ch/',
+    description:
+      'The enterprise agentic coding engine: autonomous coding agents that build, review, test, and ship inside your own cloud boundary, governed by spec-driven and test-driven enforcement, attributed, and encrypted.',
+    publisher: { '@id': 'https://codeflare.ch/#organization' },
+  }}
+>
   <nav class="site-nav">
     <div class="container">
       <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span>codeflare</a>
@@ -60,10 +71,9 @@ import {
     <!-- The shift: the assistant-to-engine leap shown the way the page trades,
          as terminals. Four short feature terminals (gateway, session, review,
          spec) replace the old stat band and the old checkmark comparison. -->
-    <section id={SHIFT.id} class="section" data-station={SHIFT.station.n}>
+    <section id={SHIFT.id} class="section">
       <div class="container">
         <div class="section-head reveal">
-          <p class="station-marker"><span class="station-n">{SHIFT.station.n}</span><span class="station-label">{SHIFT.station.label}</span></p>
           <h2>{SHIFT.title}</h2>
           <p class="lead" set:html={SHIFT.lead} />
         </div>
@@ -71,14 +81,12 @@ import {
       </div>
     </section>
 
-    <!-- Station 01, Method: spec-driven development, enforced. The gate (the
+    <!-- Method: spec-driven development, enforced. The gate (the
          receipt) precedes the prose, and the two pillars read as plain
-         label-and-prose clauses; the page-wide station spine now carries the
-         numbering, so the method body has no numbered clauses of its own. -->
-    <section id={METHOD.id} class="section section--alt" data-station={METHOD.station.n}>
+         label-and-prose clauses, with no numbered counters of their own. -->
+    <section id={METHOD.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
-          <p class="station-marker"><span class="station-n">{METHOD.station.n}</span><span class="station-label">{METHOD.station.label}</span></p>
           <h2>{METHOD.title}</h2>
           <p class="lead">{METHOD.lead}</p>
         </div>
@@ -122,39 +130,39 @@ import {
       </div>
     </section>
 
-    <!-- Station 02, Legacy: legacy code, made safe for agents. /sdd init turns a
+    <!-- Legacy: legacy code, made safe for agents. /sdd init turns a
          legacy codebase into a spec-driven baseline and /sdd clean realigns a
          drifted spec, in the page's existing terminal idiom (context grammar). -->
-    <section id={LEGACY.id} class="section" data-station={LEGACY.station.n}>
+    <section id={LEGACY.id} class="section">
       <div class="container">
-        <div class="section-head reveal">
-          <p class="station-marker"><span class="station-n">{LEGACY.station.n}</span><span class="station-label">{LEGACY.station.label}</span></p>
-          <h2>{LEGACY.title}</h2>
-          <p class="lead">{LEGACY.lead}</p>
-        </div>
-        <div class="terminal feature-terminal context-terminal reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="terminal-title">{LEGACY.terminal.title}</span>
+        <div class="proof-pair">
+          <div class="proof-copy reveal">
+            <h2>{LEGACY.title}</h2>
+            <p class="lead">{LEGACY.lead}</p>
           </div>
-          <div class="terminal-body">
-            {LEGACY.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
-          </div>
-          <div class="terminal-foot tf-static">
-            <span class="tf-seg">{LEGACY.terminal.foot}</span>
+          <div class="terminal feature-terminal proof-terminal reveal" data-proof>
+            <div class="terminal-bar">
+              <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+              <span class="terminal-title">{LEGACY.terminal.title}</span>
+            </div>
+            <div class="terminal-body">
+              {LEGACY.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
+            </div>
+            <div class="terminal-foot tf-static">
+              <span class="tf-seg">{LEGACY.terminal.foot}</span>
+            </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Station 03, Security: zero trust is the architecture. One merged receipt:
+    <!-- Security: zero trust is the architecture. One merged receipt:
          the boundary's approved and impossible paths, a thin in-terminal divider,
          then one real call obeying the boundary, closing on a single in-chrome
          foot (security + egress folded into one terminal, #7). -->
-    <section id={SECURITY.id} class="section section--alt" data-station={SECURITY.station.n}>
+    <section id={SECURITY.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
-          <p class="station-marker"><span class="station-n">{SECURITY.station.n}</span><span class="station-label">{SECURITY.station.label}</span></p>
           <h2>{SECURITY.title}</h2>
           <p class="lead">{SECURITY.lead}</p>
           <p class="micro-cta">
@@ -181,8 +189,8 @@ import {
               ))
             }
           </div>
-          <div class="gate-subhead">one call leaves the boundary · {EGRESS.call}</div>
-          <div class="gate-steps">
+          <div class="gate-echo"><span class="gate-echo-prompt" aria-hidden="true">❯</span> {EGRESS.call}</div>
+          <div class="gate-steps" data-roll>
             {
               EGRESS.rows.map((row, i) => (
                 <div class:list={['gate-step', `is-${row.state}`]} style={`--i:${i}`}>
@@ -195,9 +203,9 @@ import {
           </div>
           <div class="terminal-foot tf-static"><span class="tf-seg">{SECURITY.boundary.caption}</span></div>
         </div>
-        <!-- Operations folded into the boundary station as sub-content: the same
+        <!-- Operations folded into the boundary section as sub-content: the same
              governed agents beyond code into infrastructure, on the same boundary,
-             so it visually belongs to station 04 instead of floating un-numbered. -->
+             so it reads as part of this section rather than a section of its own. -->
         <div class="section-head substation reveal">
           <h3>{OPERATIONS.title}</h3>
           <p class="lead">{OPERATIONS.lead}</p>
@@ -215,60 +223,66 @@ import {
       </div>
     </section>
 
-    <!-- Station 04, Context: the open web, rendered clean, never trusted. One
+    <!-- Context: the open web, rendered clean, never trusted. One
          real fetch from the spine run shown as a proof terminal. -->
-    <section id={CONTEXT.id} class="section" data-station={CONTEXT.station.n}>
+    <section id={CONTEXT.id} class="section">
       <div class="container">
-        <div class="section-head reveal">
-          <p class="station-marker"><span class="station-n">{CONTEXT.station.n}</span><span class="station-label">{CONTEXT.station.label}</span></p>
-          <h2>{CONTEXT.title}</h2>
-          <p class="lead">{CONTEXT.lead}</p>
-        </div>
-        <div class="terminal feature-terminal context-terminal reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="terminal-title">{CONTEXT.terminal.title}</span>
+        <!-- The open web read clean: prose beside one real fetch, the narrative
+             terminal at half width (paired like the hero) so it normalizes with
+             the page's other paired terminals instead of an odd in-between box. -->
+        <div class="proof-pair">
+          <div class="proof-copy reveal">
+            <h2>{CONTEXT.title}</h2>
+            <p class="lead">{CONTEXT.lead}</p>
           </div>
-          <div class="terminal-body">
-            {CONTEXT.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
-          </div>
-          <div class="terminal-foot tf-static">
-            <span class="tf-seg">{CONTEXT.terminal.foot}</span>
+          <div class="terminal feature-terminal proof-terminal reveal" data-proof>
+            <div class="terminal-bar">
+              <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+              <span class="terminal-title">{CONTEXT.terminal.title}</span>
+            </div>
+            <div class="terminal-body">
+              {CONTEXT.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
+            </div>
+            <div class="terminal-foot tf-static">
+              <span class="tf-seg">{CONTEXT.terminal.foot}</span>
+            </div>
           </div>
         </div>
 
-        <!-- Substation of station 05: the other Browser Run surface. The same
-             throwaway browser the agent reads as markdown, it also DRIVES, an
-             agent-steered semantic e2e at a mobile viewport that judges the
-             deployed app against intent. The deny line is a real finding this
-             repo's own landing QA caught. Belongs to station 05, not floating. -->
-        <div class="section-head substation reveal">
-          <h3>{CONTEXT.e2e.heading}</h3>
-          <p class="lead">{CONTEXT.e2e.lead}</p>
-        </div>
-        <div class="terminal feature-terminal context-terminal reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="terminal-title">{CONTEXT.e2e.terminal.title}</span>
+        <!-- The other Browser Run surface, paired and flipped (terminal left): the
+             same throwaway browser the agent reads, it also DRIVES, an agent-steered
+             semantic e2e at a mobile viewport that judges the deployed app against
+             intent (the deny line is a real clip this repo's own landing QA caught).
+             The h3 keeps it subordinate to the section's web fetch; the flip gives
+             the section its own internal left/right alternation. -->
+        <div class="proof-pair proof-pair--flip">
+          <div class="proof-copy reveal">
+            <h3>{CONTEXT.e2e.heading}</h3>
+            <p class="lead">{CONTEXT.e2e.lead}</p>
           </div>
-          <div class="terminal-body">
-            {CONTEXT.e2e.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
-          </div>
-          <div class="terminal-foot tf-static">
-            <span class="tf-seg">{CONTEXT.e2e.terminal.foot}</span>
+          <div class="terminal feature-terminal proof-terminal reveal" data-proof>
+            <div class="terminal-bar">
+              <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+              <span class="terminal-title">{CONTEXT.e2e.terminal.title}</span>
+            </div>
+            <div class="terminal-body">
+              {CONTEXT.e2e.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
+            </div>
+            <div class="terminal-foot tf-static">
+              <span class="tf-seg">{CONTEXT.e2e.terminal.foot}</span>
+            </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Station 05, Pipeline: the parallel review board. Six specialist agents
+    <!-- Pipeline: the parallel review board. Six specialist agents
          on one diff at once, two catching a finding and re-proving it, all
          converging on one human triage gate. "One engineer, many agents" made
          literal. -->
-    <section id={PIPELINE.id} class="section section--alt" data-station={PIPELINE.station.n}>
+    <section id={PIPELINE.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
-          <p class="station-marker"><span class="station-n">{PIPELINE.station.n}</span><span class="station-label">{PIPELINE.station.label}</span></p>
           <h2>{PIPELINE.title}</h2>
           <p class="lead">{PIPELINE.lead}</p>
         </div>
@@ -306,16 +320,15 @@ import {
       </div>
     </section>
 
-    <!-- Station 07, Orchestration: the operator's live view of the same review,
-         relocated out from under the board into its own station and made dynamic.
+    <!-- Orchestration: the operator's live view of the same review,
+         relocated out from under the board into its own section and made dynamic.
          orch.ts ticks each agent's tool-use / token counters and advances its
          activity line so it reads as a running feed, not a frozen screenshot.
          data-proof reveals the lines once on scroll-in; data-orch arms the live
          ticking. Reduced motion / no JS: the resolved values stand. -->
-    <section id={ORCHESTRATION.id} class="section" data-station={ORCHESTRATION.station.n}>
+    <section id={ORCHESTRATION.id} class="section">
       <div class="container">
         <div class="section-head reveal">
-          <p class="station-marker"><span class="station-n">{ORCHESTRATION.station.n}</span><span class="station-label">{ORCHESTRATION.station.label}</span></p>
           <h2>{ORCHESTRATION.title}</h2>
           <p class="lead">{ORCHESTRATION.lead}</p>
         </div>
@@ -345,12 +358,11 @@ import {
       </div>
     </section>
 
-    <!-- Station 06, Cost: no unattributed spend. The ledger is the literal bill
+    <!-- Cost: no unattributed spend. The ledger is the literal bill
          for the spine run, closing on zero unattributed. -->
-    <section id={COST.id} class="section section--alt" data-station={COST.station.n}>
+    <section id={COST.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
-          <p class="station-marker"><span class="station-n">{COST.station.n}</span><span class="station-label">{COST.station.label}</span></p>
           <h2>{COST.title}</h2>
           <p class="lead">{COST.lead}</p>
         </div>
@@ -407,9 +419,9 @@ import {
             ))
           }
         </div>
-        <!-- Tenancy folded into the spend station as sub-content: the spend and
-             the cloud it lands in are one story (your account), so it belongs to
-             station 08 instead of floating un-numbered. -->
+        <!-- Tenancy folded into the spend section as sub-content: the spend and
+             the cloud it lands in are one story (your account), so it reads as part
+             of this section rather than a section of its own. -->
         <div class="split substation">
           <div class="section-head reveal" style="margin-bottom:0">
             <h3>{TENANCY.title}</h3>
@@ -431,13 +443,12 @@ import {
       </div>
     </section>
 
-    <!-- Station 09, Platform: the payoff band, after the governance spine so
+    <!-- Platform: the payoff band, after the governance sections so
          capability reads as the payoff the boundary makes safe. The browser-runs-
-         everywhere story folds in as sub-content so it belongs to the station. -->
-    <section id={PLATFORM.id} class="section" data-station={PLATFORM.station.n}>
+         everywhere story folds in as sub-content so it reads as part of this section. -->
+    <section id={PLATFORM.id} class="section">
       <div class="container">
         <div class="section-head reveal">
-          <p class="station-marker"><span class="station-n">{PLATFORM.station.n}</span><span class="station-label">{PLATFORM.station.label}</span></p>
           <h2>{PLATFORM.title}</h2>
           <p class="lead">{PLATFORM.lead}</p>
         </div>
@@ -454,7 +465,7 @@ import {
         <div class="agent-chips reveal" aria-label="Supported coding agents">
           {AGENTS.map((agent) => <span>{agent}</span>)}
         </div>
-        <!-- Runs-everywhere folded into the platform station as sub-content. -->
+        <!-- Runs-everywhere folded into the platform section as sub-content. -->
         <div class="section-head substation reveal">
           <h3>{BROWSER.title}</h3>
           <p class="lead">{BROWSER.lead}</p>
@@ -472,15 +483,13 @@ import {
       </div>
     </section>
 
-    <!-- Station 10, Answers: the FAQ, the four governance questions lead. -->
-    <!-- Station 10, Proof: this very page is a Codeflare-governed requirement.
+    <!-- Proof: this very page is a Codeflare-governed requirement.
          The proof is real (the @impl / @test anchors live in sdd/spec/landing.md),
          the Swiss Post customer band folds in as its social-proof tail. It sits
          before the FAQ so the dogfood proof lands before the closing answers. -->
-    <section id={DOGFOOD.id} class="section section--alt" data-station={DOGFOOD.station.n}>
+    <section id={DOGFOOD.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
-          <p class="station-marker"><span class="station-n">{DOGFOOD.station.n}</span><span class="station-label">{DOGFOOD.station.label}</span></p>
           <h2>{DOGFOOD.title}</h2>
           <p class="lead">{DOGFOOD.lead}</p>
         </div>
@@ -501,9 +510,9 @@ import {
         <p class="micro-cta dogfood-cta reveal">
           <a href={DOGFOOD.cta.href} target="_blank" rel="noopener">{DOGFOOD.cta.label}</a>
         </p>
-        <!-- Trusted-by folded into the proof station: a single national-institution
-             customer as the social-proof tail of the dogfood argument, a quiet
-             band (belongs to station 10). The logo links to the customer site. -->
+        <!-- Trusted-by folded into the proof section: a single national-institution
+             customer as the social-proof tail of the dogfood argument, a quiet band
+             that reads as part of this section. The logo links to the customer site. -->
         <div class="trusted-section substation">
           <p class="trusted-label reveal">{TRUSTED.label}</p>
           <div class="trusted-logos reveal">
@@ -528,10 +537,9 @@ import {
       </div>
     </section>
 
-    <section id={FAQ_SECTION.id} class="section" data-station={FAQ_SECTION.station.n}>
+    <section id={FAQ_SECTION.id} class="section">
       <div class="container">
         <div class="section-head reveal">
-          <p class="station-marker"><span class="station-n">{FAQ_SECTION.station.n}</span><span class="station-label">{FAQ_SECTION.station.label}</span></p>
           <h2>{FAQ_SECTION.title}</h2>
         </div>
         <div class="faq reveal">
@@ -635,24 +643,27 @@ import {
     line-height: 1.4;
   }
 
-  /* Sub-content folded into a numbered station (operations under 04, tenancy
-     under 08, runs-everywhere under 09, trusted under 10): a thin divider plus a
-     smaller heading, so the block reads as part of the station above it instead
-     of floating as an un-numbered section of its own. */
+  /* Sub-content folded into the section above it (operations under security,
+     tenancy under cost, runs-everywhere under platform, trusted under proof): a
+     thin divider plus a smaller heading, so the block reads as part of that
+     section instead of floating as a section of its own. */
   .substation {
-    margin-top: clamp(3rem, 6vw, 5rem);
-    padding-top: clamp(2rem, 5vw, 3.5rem);
+    margin-top: clamp(2.5rem, 5vw, 4rem);
+    padding-top: clamp(1.75rem, 4vw, 2.75rem);
     border-top: 1px solid var(--border-subtle);
   }
 
+  /* Subordinate to the section's h2 (--fs-h2, up to 2.6rem) yet above the card
+     h3s (--fs-h3): the size step is the signal that this block belongs to the
+     section above it rather than opening a new one. */
   .substation h3 {
-    font-size: clamp(1.35rem, 3.2vw, 1.95rem);
-    line-height: 1.15;
+    font-size: clamp(1.25rem, 2.6vw, 1.6rem);
+    line-height: 1.2;
     letter-spacing: -0.01em;
     margin: 0 0 0.75rem;
   }
 
-  /* The trusted-by band, folded into the proof station, keeps its own top divider
+  /* The trusted-by band, folded into the proof section, keeps its own top divider
      from .substation but drops the extra inter-section padding above the logos. */
   .trusted-section.substation {
     text-align: center;

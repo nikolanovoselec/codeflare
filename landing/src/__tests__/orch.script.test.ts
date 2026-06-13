@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * Behavioral DOM tests for orch.ts (the orchestration station live feed).
+ * Behavioral DOM tests for orch.ts (the orchestration section live feed).
  *
  * The visible behavior is: each agent row's activity line advances through its
  * real command list and its tool-use / token counters tick up, so the "Running

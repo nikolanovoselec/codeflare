@@ -113,11 +113,16 @@ export interface FeatureTerminal {
   loop?: string[];
 }
 
+// The nav doubles as the page's lens on the five enterprise concerns for
+// agentic coding: Velocity (the leap), Quality (correct, spec-aligned, reviewed
+// output), Security (the zero-trust boundary), Control (you own intent and the
+// merge), and Cost (no unattributed spend). Each label points at the section
+// that proves it; labels are the category, the section headline is the claim.
 export const NAV_LINKS: NavLink[] = [
-  { label: 'The shift', href: '#shift' },
-  { label: 'Method', href: '#method' },
+  { label: 'Velocity', href: '#shift' },
+  { label: 'Quality', href: '#method' },
   { label: 'Security', href: '#security' },
-  { label: 'Pipeline', href: '#pipeline' },
+  { label: 'Control', href: '#pipeline' },
   { label: 'Cost', href: '#cost' },
 ];
 
@@ -170,7 +175,7 @@ export const TERMINAL = {
     reason: 'reasoning high',
     note: SPINE.service,
   } satisfies TerminalFoot,
-  // The hero prompt's bottom line is a capability reel: one highlight per station,
+  // The hero prompt's bottom line is a capability reel: one highlight per beat,
   // typed/held/deleted and shuffled on each load (data-ft-once + data-ft-shuffle in
   // Hero.astro: shuffle, type, hold, advance, stop on the last beat). Reduced motion
   // / no JS: run[0] is the server-rendered resting state, fully legible.
@@ -245,7 +250,6 @@ export const FEATURE_TERMINALS: FeatureTerminal[] = [
 
 export const SHIFT = {
   id: 'shift',
-  station: { n: '01', label: 'shift' },
   title: 'Decades of SDLC. One generational leap.',
   lead:
     'Coding assistants made typing faster. Codeflare changes what an engineer <em>is</em>: ' +
@@ -255,7 +259,6 @@ export const SHIFT = {
 
 export const METHOD = {
   id: 'method',
-  station: { n: '02', label: 'spec' },
   title: 'Spec-driven development, enforced.',
   lead:
     'Codeflare does not just let agents write code. Every change is governed by a ' +
@@ -298,7 +301,7 @@ export const METHOD = {
 };
 
 /**
- * Legacy-rescue station: the enterprise blocker is not greenfield, it is the
+ * Legacy rescue: the enterprise blocker is not greenfield, it is the
  * code you already have. /sdd init reverse-engineers a legacy codebase into a
  * spec-driven baseline, and /sdd clean realigns a spec that has drifted. The
  * behavior is real (sdd-init Import/Resume modes, sdd-clean rescue); the counts
@@ -306,7 +309,6 @@ export const METHOD = {
  */
 export const LEGACY = {
   id: 'legacy',
-  station: { n: '03', label: 'rescue' },
   title: 'Legacy code, made safe for agents.',
   lead:
     'Autonomy is easy on greenfield; the hard part is the code you already have. ' +
@@ -330,7 +332,6 @@ export const LEGACY = {
 
 export const SECURITY = {
   id: 'security',
-  station: { n: '04', label: 'boundary' },
   title: 'Zero trust is the architecture, not just a policy.',
   lead:
     'Autonomous agents are only safe inside structural boundaries. Codeflare makes the ' +
@@ -350,10 +351,10 @@ export const SECURITY = {
       { actor: 'lateral move', state: 'deny', label: 'impossible', text: 'nothing to escalate into, nowhere to go' },
       { actor: 'exfiltration', state: 'deny', label: 'none', text: 'source never touches the endpoint device' },
     ] satisfies BoundaryRow[],
-    // The boundary and one real call through it now read as one receipt: the
-    // egress rows render below a thin divider inside this same terminal, and the
-    // merged caption closes the single terminal (see #7 in the round-2 owner
-    // feedback). The sub-label is rendered from EGRESS.call in the template.
+    // The boundary and one real call through it now read as one receipt: a
+    // left-aligned command echo (EGRESS.call) above a thin divider issues the
+    // call, the egress rows inspect it below, and the merged caption closes the
+    // single terminal (see #7 in the round-2 owner feedback).
     caption: 'The boundary is yours, and nothing leaves it unseen.',
   },
 };
@@ -385,7 +386,6 @@ export const GITHUB_URL = 'https://github.com/nikolanovoselec/codeflare';
  *  this is the most credible artifact on the page: it is literally true. */
 export const DOGFOOD = {
   id: 'dogfood',
-  station: { n: '10', label: 'proof' },
   title: 'Codeflare built this page.',
   lead:
     'This landing page is REQ-LANDING-001 in the Codeflare specification, built and shipped by ' +
@@ -458,7 +458,6 @@ export const BROWSER = {
 
 export const PLATFORM = {
   id: 'platform',
-  station: { n: '09', label: 'platform' },
   title: 'Agents arrive equipped, not naive.',
   lead:
     'Every session is seeded with enterprise scaffolding the moment it starts, so agents ' +
@@ -493,7 +492,6 @@ export const PLATFORM = {
 
 export const CONTEXT = {
   id: 'context',
-  station: { n: '05', label: 'web' },
   title: 'The open web, distilled.',
   lead:
     'Agents read the open web the way a person would, through a throwaway isolated browser: the ' +
@@ -518,7 +516,7 @@ export const CONTEXT = {
   // The OTHER Browser Run surface: the same throwaway browser the agent reads
   // with, it also DRIVES. An agent-steered semantic e2e at a mobile viewport,
   // judging the deployed app against intent (the deny line is a real clip this
-  // repo's own landing QA caught and filed). Shown as a substation of station 05.
+  // repo's own landing QA caught and filed). Shown beside the web-fetch terminal as a paired proof.
   e2e: {
     heading: "And it doesn't just read. It drives.",
     lead:
@@ -541,7 +539,6 @@ export const CONTEXT = {
 
 export const PIPELINE = {
   id: 'pipeline',
-  station: { n: '06', label: 'review' },
   title: 'Agents become citizens of your pipeline.',
   lead:
     'No shadow toolchain. Agents work through your git, your CI, and your branch protections, ' +
@@ -565,7 +562,7 @@ export const PIPELINE = {
   },
 };
 
-/** A live agent in the orchestration tree (its own station's proof artifact):
+/** A live agent in the orchestration tree (its own section's proof artifact):
  *  the real "● Running N agents…" operator view of the PR-boundary review, with
  *  per-agent tool-use and token counters and a current-activity sub-line. The
  *  counters and activity tick live in the browser (orch.ts); the values here are
@@ -583,13 +580,12 @@ export interface AgentRun {
  * The orchestration view: the same parallel review as the board, shown the way
  * the operator watches it run, three report-only reviewers on one diff at once,
  * each with its own tool-use / token counters and current activity, plus the
- * real keyboard affordances. Its own station now (07), and live: orch.ts ticks
+ * real keyboard affordances. Its own section now, and live: orch.ts ticks
  * the counters and advances each agent's activity so it reads as a running feed
  * instead of a frozen screenshot.
  */
 export const ORCHESTRATION = {
   id: 'orchestration',
-  station: { n: '07', label: 'agents' },
   title: 'Watch the work, not the weeds.',
   lead:
     'The same review, the way the operator watches it run: three reviewers on one diff at once, ' +
@@ -639,7 +635,6 @@ export const ORCHESTRATION = {
 
 export const COST = {
   id: 'cost',
-  station: { n: '08', label: 'spend' },
   title: 'No unattributed spend.',
   lead:
     'From the infrastructure minute to the inference token to what each agent consumes, ' +
@@ -705,7 +700,6 @@ export const TENANCY = {
 
 export const FAQ_SECTION = {
   id: 'faq',
-  station: { n: '11', label: 'answers' },
   title: 'The answers, up front.',
 };
 

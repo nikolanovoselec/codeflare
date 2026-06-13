@@ -33,6 +33,7 @@ import { SETUP_KEYS } from './lib/kv-keys';
 import { verifySessionJWT, shouldRefreshJWT, signSessionJWT, SESSION_JWT_AUD, cookieDomainAttr } from './lib/session-jwt';
 import { warnIfNoEncryptionKey } from './lib/kv-crypto';
 import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from './lib/onboarding';
+import { buildRobotsTxt, buildSitemapXml, buildLlmsTxt } from './lib/seo';
 import { isActiveUser } from './lib/access-tier';
 import { getEffectiveTier } from './lib/subscription';
 import authApiRoutes from './routes/auth';
@@ -346,8 +347,35 @@ export default {
       return app.fetch(request, env, ctx);
     }
 
-    // Setup redirect: if setup is not complete, redirect non-setup pages to /setup
     const path = url.pathname;
+
+    // Discoverability documents (REQ-LANDING-003) served at the deployment root,
+    // before the setup gate so crawlers reach them on a fresh instance. They are
+    // mode-aware: the public marketing landing (SaaS or onboarding) advertises an
+    // indexable robots.txt + sitemap.xml + llms.txt; default and enterprise
+    // deployments are private apps and return a disallow-all robots with no
+    // sitemap or llms manifest.
+    if (path === '/robots.txt' || path === '/sitemap.xml' || path === '/llms.txt') {
+      const publicMode = isSaasModeActive(env.SAAS_MODE) || onboardingLandingActive;
+      if (path === '/robots.txt') {
+        return withSecurityHeaders(new Response(buildRobotsTxt(publicMode), {
+          headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+        }));
+      }
+      if (!publicMode) {
+        return withSecurityHeaders(new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }));
+      }
+      if (path === '/sitemap.xml') {
+        return withSecurityHeaders(new Response(buildSitemapXml(), {
+          headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+        }));
+      }
+      return withSecurityHeaders(new Response(buildLlmsTxt(), {
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+      }));
+    }
+
+    // Setup redirect: if setup is not complete, redirect non-setup pages to /setup
     if (path !== '/setup' && !path.startsWith('/setup/')) {
       // Check setup status (with in-memory cache)
       if (getSetupCompleteCache() === null) {
