@@ -638,7 +638,7 @@ None.
 
 <!-- @test: landing/src/__tests__/login-page.test.ts (REQ-AUTH-020 describe -> Container render: GitHub sign-in href /auth/github/login + four enterprise SSO expand-to-CTA controls + ?status=requested confirmation state + robots noindex -> AC1,AC2,AC3) -->
 <!-- @test: landing/src/__tests__/login.script.test.ts (REQ-AUTH-020 describe -> ?status / ?error param state handling reshapes the page -> AC3) -->
-<!-- @test: landing/src/__tests__/contact-controller.test.ts (REQ-AUTH-020 describe -> pickDeepLinkTopic preselects the enterprise-deployment topic from ?topic= -> AC2) -->
+<!-- @test: landing/src/__tests__/contact-controller.test.ts (contact-controller (REQ-LANDING-002) describe / pickDeepLinkTopic describe -> returns the enterprise-deployment topic from ?topic= and rejects crafted values -> REQ-AUTH-020 AC2) -->
 <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 describe -> /login rewrite to /landing/login/ in onboarding mode + callback mode-aware redirect + access-request record + emails + sendAccessRequestConfirmation -> AC1,AC3,AC4) -->
 ### REQ-AUTH-020: Onboarding-mode landing-integrated login and access-request flow
 

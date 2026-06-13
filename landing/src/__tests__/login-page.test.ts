@@ -22,7 +22,7 @@ beforeAll(async () => {
   text = decodeEntities(html);
 });
 
-describe('onboarding login page', () => {
+describe('onboarding login page (REQ-AUTH-020)', () => {
   it('GitHub is the single primary action and links to the OAuth entry route', () => {
     // The href is the load-bearing part: a wrong/empty href is a dead sign-in
     // button. Assert the exact OAuth entry route, not just that "github" appears.
