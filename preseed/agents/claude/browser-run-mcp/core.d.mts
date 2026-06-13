@@ -39,5 +39,9 @@ export function executeBrowserAction(opts: {
   fetchImpl?: FetchLike;
 }): Promise<BrowserActionOutcome>;
 
-export const TOOLS: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+export const TOOLS: Array<{
+  name: string;
+  description: string;
+  inputSchema: { type: string; properties: Record<string, unknown>; required?: string[] };
+}>;
 export const TOOL_NAMES: Set<string>;

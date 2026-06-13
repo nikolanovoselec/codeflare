@@ -167,6 +167,8 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 ### REQ-BROWSER-005: Claude browser-run MCP server (read-surface parity)
 
 <!-- @impl: preseed/agents/claude/browser-run-mcp/index.mjs -->
+<!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs -->
+<!-- @impl: preseed/agents/claude/browser-run-mcp/core.d.mts -->
 <!-- @impl: preseed/agents/claude/browser-run-mcp/package.json -->
 <!-- @impl: Dockerfile -->
 <!-- @impl: entrypoint.sh -->
