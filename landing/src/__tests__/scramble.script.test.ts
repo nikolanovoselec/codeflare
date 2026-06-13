@@ -67,38 +67,37 @@ afterEach(() => {
 });
 
 describe('scramble.ts (REQ-LANDING-001)', () => {
-  it('REQ-LANDING-001: after a full hold->scramble->decrypt->swap cycle the span returns to the exact target text', async () => {
+  it('REQ-LANDING-001: the span scrambles away from the target and then converges back to the exact target', async () => {
+    // A real convergence proof: the span must both DEVIATE (the animation ran) and
+    // then RETURN to the exact target (the swap phase resets current=chars.slice()).
+    // toContain(target) alone would be theater - setupElement writes the target
+    // synchronously, so it is present before any animation runs. We require an
+    // actual deviation followed by an exact return to target.
     const target = 'governed';
     buildScrambleFixture(target);
     mockMatchMedia(false);
     mockFontsReady();
 
     await import('../scripts/scramble');
-
-    // fonts.ready resolves -> requestAnimationFrame -> start() -> animateWord()
-    // Flush the microtask queue so the .then() callback runs.
     await Promise.resolve();
-    // Flush requestAnimationFrame — vitest fake timers handle rAF.
     vi.runAllTicks();
 
-    // Advance well past one full cycle (hold + scramble + decrypt + swap).
-    vi.advanceTimersByTime(ONE_CYCLE_MS);
-
-    // After the swap phase resets current = chars.slice(), every word span's
-    // textContent must be the target word.  Collect all .scramble-word spans.
-    const spans = document.querySelectorAll<HTMLElement>('.scramble-word');
-    // At least one word span must exist (setupElement created them).
-    expect(spans.length).toBeGreaterThan(0);
-
-    // Reconstruct what the full element reads as by joining all span text.
-    // Non-word tokens (whitespace) are text nodes; word tokens are in spans.
-    // The full element textContent must contain the target word somewhere.
-    const allText = Array.from(document.querySelectorAll('[data-scramble]'))
-      .map((el) => el.textContent)
-      .join('');
-
-    // The element's textContent must equal the target after convergence.
-    expect(allText).toContain(target);
+    let sawDeviation = false;
+    let convergedAfterDeviation = false;
+    for (let t = 0; t < ONE_CYCLE_MS * 2; t += 50) {
+      vi.advanceTimersByTime(50);
+      const span = document.querySelector<HTMLElement>('.scramble-word');
+      if (!span || !span.textContent) continue;
+      if (span.textContent !== target) {
+        sawDeviation = true;
+      } else if (sawDeviation) {
+        convergedAfterDeviation = true;
+        break;
+      }
+    }
+    // The animation actually ran (deviated) AND the swap phase restored the target.
+    expect(sawDeviation).toBe(true);
+    expect(convergedAfterDeviation).toBe(true);
   });
 
   it('REQ-LANDING-001: the word span actually deviates from the target during the scramble phase', async () => {

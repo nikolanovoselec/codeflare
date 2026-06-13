@@ -93,40 +93,38 @@ describe('proof.ts (REQ-LANDING-001)', () => {
     expect(roll.children[0].textContent).not.toBe(originalFirst);
   });
 
-  it('REQ-LANDING-001: re-entrancy guard (dataset.rolling) prevents a double cycle mid-tick', async () => {
-    const { roll } = buildProofArtifact(4);
+  it('REQ-LANDING-001: re-entrancy guard - a second rollOnce while a cycle is in flight starts no new cycle', async () => {
+    // The production interval (2600ms) never lands inside a cycle (~840ms), so the
+    // guard can only be exercised directly. Drive rollOnce twice synchronously via
+    // the test seam: the first arms a cycle (rolling=1, one scheduled timeout); the
+    // second must early-return on the guard and schedule nothing. The list is
+    // standalone (not inside [data-proof]) so the module's own auto-roll never runs
+    // on it and cannot pollute the scheduled-timeout count.
+    const list = document.createElement('ul');
+    for (let i = 0; i < 4; i++) {
+      const li = document.createElement('li');
+      li.textContent = `row-${i}`;
+      list.appendChild(li);
+    }
+    document.body.appendChild(list);
     mockMatchMedia(false);
     removeIntersectionObserver();
-
-    // Mock getBoundingClientRect so rollOnce can measure height without a real layout.
     Element.prototype.getBoundingClientRect = vi.fn().mockReturnValue({
-      height: 120,
-      width: 300,
-      top: 0,
-      left: 0,
-      right: 300,
-      bottom: 120,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
+      height: 120, width: 300, top: 0, left: 0, right: 300, bottom: 120, x: 0, y: 0, toJSON: () => ({}),
     });
 
-    await import('../scripts/proof');
+    const mod = await import('../scripts/proof');
+    const rollOnce = mod.__rollTest.rollOnce;
 
-    // Fire the first tick.
-    vi.advanceTimersByTime(ROLL_FIRST_MS);
-
-    // At this point rolling=1 is set.  Manually set rolling=1 to simulate a
-    // mid-cycle state, then advance another ROLL_EVERY_MS.  The second tick
-    // must be a no-op — the child order should not change again.
-    roll.dataset.rolling = '1';
-    const orderAfterFirstTick = Array.from(roll.children).map((c) => c.textContent);
-
-    vi.advanceTimersByTime(ROLL_EVERY_MS);
-
-    const orderAfterSecondTick = Array.from(roll.children).map((c) => c.textContent);
-    // The re-entrancy guard must prevent mutation while rolling=1 is held.
-    expect(orderAfterSecondTick).toEqual(orderAfterFirstTick);
+    const spy = vi.spyOn(window, 'setTimeout');
+    rollOnce(list);
+    expect(list.dataset.rolling).toBe('1'); // first call armed a cycle
+    const scheduledAfterFirst = spy.mock.calls.length;
+    rollOnce(list); // guarded: rolling==='1' -> early return, schedules nothing
+    const scheduledAfterSecond = spy.mock.calls.length;
+    // If the guard were removed, the second call would schedule another cycle.
+    expect(scheduledAfterSecond).toBe(scheduledAfterFirst);
+    spy.mockRestore();
   });
 
   it('REQ-LANDING-001: a [data-roll] list with fewer than 3 children is not rolled', async () => {

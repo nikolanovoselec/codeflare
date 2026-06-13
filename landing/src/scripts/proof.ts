@@ -88,6 +88,11 @@ function startRoll(el: HTMLElement): void {
   }, ROLL_FIRST_MS);
 }
 
+/** Test seam: the re-entrancy guard fires only when a tick lands inside an
+ *  in-flight cycle, which the production interval never does, so the guard can
+ *  only be exercised by calling rollOnce directly. Not used at runtime. */
+export const __rollTest = { rollOnce };
+
 if (reduced) {
   // Static markup is already the resolved artifact; no motion to arm.
 } else if (!('IntersectionObserver' in window)) {

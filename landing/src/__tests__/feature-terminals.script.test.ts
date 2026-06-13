@@ -24,6 +24,9 @@ function buildFixture(loop: string[]): { term: HTMLElement; typed: HTMLElement }
   term.setAttribute('data-ft-loop', JSON.stringify(loop));
   const typed = document.createElement('span');
   typed.setAttribute('data-ft-typed', '');
+  // Mirror the server-rendered resting state (Astro renders loop[0] into the slot)
+  // so the reduced-motion path (script no-ops) correctly leaves loop[0] in place.
+  typed.textContent = loop[0];
   term.appendChild(typed);
   document.body.appendChild(term);
   return { term, typed };
