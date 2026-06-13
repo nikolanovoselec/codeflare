@@ -128,6 +128,7 @@ export const HERO = {
   headline: { plain: 'This is not', flare: 'a coding assistant.' },
   sub:
     'Autonomous agents that build, review, test, and ship inside your enterprise boundary. ' +
+    'Spec, tests and docs stay aligned at every pull request. ' +
     'One engineer, the output of a team.',
   primaryCta: { label: 'Book a demo', href: '#contact' } satisfies Cta,
   secondaryCta: { label: 'See the shift', href: '#shift' } satisfies Cta,
@@ -169,6 +170,16 @@ export const TERMINAL = {
     reason: 'reasoning high',
     note: SPINE.service,
   } satisfies TerminalFoot,
+  // The hero prompt line cycles real commands (typed, held, deleted, next) via
+  // the shared feature-terminal engine, so the hero reads as one engineer
+  // working a capability tour while the spine transcript above stays put.
+  loop: [
+    '/sdd init legacy-payments',
+    'fetch docs.vendor.com → graph',
+    '/review --deep · 6 agents',
+    'gh pr create develop → main',
+    'deploy integration',
+  ],
 };
 
 /**
@@ -237,6 +248,7 @@ export const SHIFT = {
 
 export const METHOD = {
   id: 'method',
+  station: { n: '01', label: 'spec' },
   title: 'Spec-driven development, enforced.',
   lead:
     'Codeflare does not just let agents write code. Every change is governed by a ' +
@@ -278,9 +290,41 @@ export const METHOD = {
   },
 };
 
+/**
+ * Legacy-rescue station: the enterprise blocker is not greenfield, it is the
+ * code you already have. /sdd init reverse-engineers a legacy codebase into a
+ * spec-driven baseline, and /sdd clean realigns a spec that has drifted. The
+ * behavior is real (sdd-init Import/Resume modes, sdd-clean rescue); the counts
+ * are illustrative, consistent with the page's other example figures.
+ */
+export const LEGACY = {
+  id: 'legacy',
+  station: { n: '02', label: 'rescue' },
+  title: 'Legacy code, made safe for agents.',
+  lead:
+    'Autonomy is easy on greenfield; the hard part is the code you already have. ' +
+    '/sdd init reverse-engineers a legacy codebase into a spec-driven baseline (requirements, ' +
+    'acceptance criteria, a knowledge graph) so agents can work it autonomously without drifting. ' +
+    '/sdd clean brings a spec that has drifted back into alignment.',
+  terminal: {
+    title: 'codeflare · /sdd init',
+    lines: [
+      { tone: 'cmd', text: '/sdd init --import legacy-payments' },
+      { tone: 'agent', text: '✻ reading the codebase · building the knowledge graph' },
+      { tone: 'agent', text: '✻ enumerating behavior → requirements with acceptance criteria' },
+      { tone: 'warn', text: '⚠ 38 requirements drafted · 12 flagged for triage' },
+      { tone: 'ok', text: '✓ spec baseline committed · agents can work it safely' },
+      { tone: 'cmd', text: '/sdd clean' },
+      { tone: 'ok', text: '✓ drifted spec realigned to the code · enforced from here' },
+    ] satisfies TranscriptLine[],
+    foot: 'legacy in · spec-driven baseline out',
+  },
+};
+
 export const SECURITY = {
   id: 'security',
-  title: 'Zero trust is the architecture, not a policy.',
+  station: { n: '03', label: 'boundary' },
+  title: 'Zero trust is the architecture, not just a policy.',
   lead:
     'Autonomous agents are only safe inside structural boundaries. Codeflare makes the ' +
     'dangerous paths impossible to express, not merely discouraged: one session, ' +
@@ -299,7 +343,11 @@ export const SECURITY = {
       { actor: 'lateral move', state: 'deny', label: 'impossible', text: 'nothing to escalate into, nowhere to go' },
       { actor: 'exfiltration', state: 'deny', label: 'none', text: 'source never touches the endpoint device' },
     ] satisfies BoundaryRow[],
-    caption: 'The boundary is yours, and it holds by construction.',
+    // The boundary and one real call through it now read as one receipt: the
+    // egress rows render below a thin divider inside this same terminal, and the
+    // merged caption closes the single terminal (see #7 in the round-2 owner
+    // feedback). The sub-label is rendered from EGRESS.call in the template.
+    caption: 'The boundary is yours, and nothing leaves it unseen.',
   },
 };
 
@@ -332,17 +380,19 @@ export const DOGFOOD = {
   id: 'dogfood',
   title: 'Codeflare built this page.',
   lead:
-    'This landing page is a requirement in the Codeflare specification, built and shipped by ' +
-    'Codeflare under the same enforcement shown above. The anchors below are real.',
+    'This landing page is REQ-LANDING-001 in the Codeflare specification, built and shipped by ' +
+    'Codeflare under the same enforcement shown above. Every anchor below is real.',
   terminalTitle: 'REQ-LANDING-001 · sdd/spec/landing.md',
   lines: [
-    { tone: 'cmd', text: 'grep "@impl|@test" REQ-LANDING-001' },
+    { tone: 'cmd', text: 'sdd status REQ-LANDING-001' },
+    { tone: 'ok', text: '✓ Status: Implemented' },
     { tone: 'dim', text: '@impl landing/src/pages/index.astro' },
     { tone: 'dim', text: '@impl landing/src/components/FeatureTerminals.astro' },
-    { tone: 'dim', text: '@impl landing/src/scripts/agentfoot.ts' },
+    { tone: 'dim', text: '@impl landing/src/content/site.ts' },
     { tone: 'dim', text: '@test landing/src/__tests__/index-page.test.ts' },
-    { tone: 'ok', text: '✓ implemented · enforced at every PR boundary' },
+    { tone: 'ok', text: '✓ shipped via PR #533 · reviewed at the boundary · CI green' },
   ] satisfies TranscriptLine[],
+  foot: 'real anchors · enforced at every PR boundary',
   cta: { label: 'See it on GitHub', href: GITHUB_URL },
 };
 
@@ -434,6 +484,7 @@ export const PLATFORM = {
 
 export const CONTEXT = {
   id: 'context',
+  station: { n: '04', label: 'web' },
   title: 'The open web, rendered clean.',
   lead:
     'Agents pull in external content through isolated browsers. JavaScript-heavy pages and ' +
@@ -457,6 +508,7 @@ export const CONTEXT = {
 
 export const PIPELINE = {
   id: 'pipeline',
+  station: { n: '05', label: 'review' },
   title: 'Agents become citizens of your pipeline.',
   lead:
     'No shadow toolchain. Agents work through your git, your CI, and your branch protections, ' +
@@ -482,7 +534,8 @@ export const PIPELINE = {
 
 export const COST = {
   id: 'cost',
-  title: 'No unattributed dollar in the system.',
+  station: { n: '06', label: 'spend' },
+  title: 'No unattributed spend.',
   lead:
     'From the infrastructure minute to the inference token to what each agent consumes, ' +
     'visibility and control at every layer, in your own cloud account.',
@@ -621,10 +674,3 @@ export const CONTACT_FORM = {
   topics: CONTACT_TOPICS.map((value) => ({ value, label: TOPIC_LABELS[value] })) satisfies TopicOption[],
 };
 
-export const FOOTER = {
-  links: [
-    { label: 'Book a demo', href: '#contact' },
-    { label: 'FAQ', href: '#faq' },
-    { label: 'Privacy', href: '/privacy' },
-  ] satisfies NavLink[],
-};

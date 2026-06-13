@@ -22,6 +22,7 @@ import {
   SPINE,
   SHIFT,
   METHOD,
+  LEGACY,
   SECURITY,
   EGRESS,
   OPERATIONS,
@@ -67,19 +68,22 @@ import {
       </div>
     </section>
 
-    <!-- Station 1, Method: spec-driven development, enforced. The gate (the
-         receipt) precedes the prose, and the three pillars read as numbered
-         clauses of a control, not a feature-card grid. -->
-    <section id={METHOD.id} class="section section--alt">
+    <!-- Station 01, Method: spec-driven development, enforced. The gate (the
+         receipt) precedes the prose, and the two pillars read as plain
+         label-and-prose clauses; the page-wide station spine now carries the
+         numbering, so the method body has no numbered clauses of its own. -->
+    <section id={METHOD.id} class="section section--alt" data-station={METHOD.station.n}>
       <div class="container">
         <div class="section-head reveal">
+          <p class="station-marker"><span class="station-n">{METHOD.station.n}</span><span class="station-label">{METHOD.station.label}</span></p>
           <h2>{METHOD.title}</h2>
           <p class="lead">{METHOD.lead}</p>
         </div>
         <!-- Self-healing enforcement gate: a drift caught and corrected at the PR
              boundary. Static markup is the resolved state; data-proof replays the
              fail -> correct -> pass sequence once on scroll-in. The only place an
-             agent visibly fails, which is the point. -->
+             agent visibly fails, which is the point. The gate caption is the
+             terminal's in-chrome foot, matching every other terminal on the page. -->
         <div class="terminal gate reveal" data-proof>
           <div class="terminal-bar">
             <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
@@ -100,8 +104,8 @@ import {
               ))
             }
           </div>
+          <div class="terminal-foot tf-static"><span class="tf-seg">{METHOD.gate.caption}</span></div>
         </div>
-        <p class="gate-caption reveal">{METHOD.gate.caption}</p>
         <ol class="method-clauses" data-stagger>
           {
             METHOD.pillars.map((card) => (
@@ -115,21 +119,49 @@ import {
       </div>
     </section>
 
-    <!-- Station 2, Security: zero trust is the architecture. The boundary
-         data-path and the denied paths beside it carry equal weight; the egress
-         strip below turns DLP and guardrails into auditable evidence. -->
-    <section id={SECURITY.id} class="section">
+    <!-- Station 02, Legacy: legacy code, made safe for agents. /sdd init turns a
+         legacy codebase into a spec-driven baseline and /sdd clean realigns a
+         drifted spec, in the page's existing terminal idiom (context grammar). -->
+    <section id={LEGACY.id} class="section" data-station={LEGACY.station.n}>
       <div class="container">
         <div class="section-head reveal">
+          <p class="station-marker"><span class="station-n">{LEGACY.station.n}</span><span class="station-label">{LEGACY.station.label}</span></p>
+          <h2>{LEGACY.title}</h2>
+          <p class="lead">{LEGACY.lead}</p>
+        </div>
+        <div class="terminal feature-terminal context-terminal reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="terminal-title">{LEGACY.terminal.title}</span>
+          </div>
+          <div class="terminal-body">
+            {LEGACY.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
+          </div>
+          <div class="terminal-foot tf-static">
+            <span class="tf-seg">{LEGACY.terminal.foot}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Station 03, Security: zero trust is the architecture. One merged receipt:
+         the boundary's approved and impossible paths, a thin in-terminal divider,
+         then one real call obeying the boundary, closing on a single in-chrome
+         foot (security + egress folded into one terminal, #7). -->
+    <section id={SECURITY.id} class="section" data-station={SECURITY.station.n}>
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="station-marker"><span class="station-n">{SECURITY.station.n}</span><span class="station-label">{SECURITY.station.label}</span></p>
           <h2>{SECURITY.title}</h2>
           <p class="lead">{SECURITY.lead}</p>
           <p class="micro-cta">
             <a href="#contact" data-topic="security-compliance">{SECURITY.microCta}</a>
           </p>
         </div>
-        <!-- Boundary: the approved paths and the paths the architecture makes
-             impossible, in one gate (the same grammar as the enforcement gate
-             and the egress strip), so security reads as one coherent receipt. -->
+        <!-- Boundary + egress as one terminal: the approved paths and the paths
+             the architecture makes impossible (rolled in), a divider, then one
+             outbound model call obeying the boundary (the DLP redaction is the
+             one amber beat), under a single normalized in-chrome foot. -->
         <div class="terminal gate boundary reveal" data-proof>
           <div class="terminal-bar">
             <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
@@ -146,18 +178,8 @@ import {
               ))
             }
           </div>
-        </div>
-        <p class="gate-caption reveal">{SECURITY.boundary.caption}</p>
-        <!-- Egress-inspection strip: one outbound model call inspected at the
-             boundary. The DLP redaction is the one amber beat; data-proof
-             replays the rows once on scroll-in. -->
-        <div class="terminal gate egress reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="gate-req">egress</span>
-            <span class="gate-crit">{EGRESS.call}</span>
-          </div>
-          <div class="gate-steps" data-roll>
+          <div class="gate-subhead">one call through it · {EGRESS.call}</div>
+          <div class="gate-steps">
             {
               EGRESS.rows.map((row, i) => (
                 <div class:list={['gate-step', `is-${row.state}`]} style={`--i:${i}`}>
@@ -168,13 +190,14 @@ import {
               ))
             }
           </div>
+          <div class="terminal-foot tf-static"><span class="tf-seg">{SECURITY.boundary.caption}</span></div>
         </div>
-        <p class="gate-caption reveal">{EGRESS.caption}</p>
       </div>
     </section>
 
-    <!-- Station 2b, Operations: the same governed agents, beyond code into
-         infrastructure. A quieter coda to Security on the same boundary. -->
+    <!-- Operations: the same governed agents, beyond code into infrastructure.
+         A quieter un-numbered coda to Security on the same boundary; the station
+         spine skips it so the page decompresses. -->
     <section id={OPERATIONS.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
@@ -194,11 +217,12 @@ import {
       </div>
     </section>
 
-    <!-- Station 3, Context: the open web, rendered clean, never trusted. One
+    <!-- Station 04, Context: the open web, rendered clean, never trusted. One
          real fetch from the spine run shown as a proof terminal. -->
-    <section id={CONTEXT.id} class="section">
+    <section id={CONTEXT.id} class="section" data-station={CONTEXT.station.n}>
       <div class="container">
         <div class="section-head reveal">
+          <p class="station-marker"><span class="station-n">{CONTEXT.station.n}</span><span class="station-label">{CONTEXT.station.label}</span></p>
           <h2>{CONTEXT.title}</h2>
           <p class="lead">{CONTEXT.lead}</p>
         </div>
@@ -217,13 +241,14 @@ import {
       </div>
     </section>
 
-    <!-- Station 4, Pipeline: the parallel review board. Six specialist agents
+    <!-- Station 05, Pipeline: the parallel review board. Six specialist agents
          on one diff at once, two catching a finding and re-proving it, all
          converging on one human triage gate. "One engineer, many agents" made
          literal. -->
-    <section id={PIPELINE.id} class="section section--alt">
+    <section id={PIPELINE.id} class="section section--alt" data-station={PIPELINE.station.n}>
       <div class="container">
         <div class="section-head reveal">
+          <p class="station-marker"><span class="station-n">{PIPELINE.station.n}</span><span class="station-label">{PIPELINE.station.label}</span></p>
           <h2>{PIPELINE.title}</h2>
           <p class="lead">{PIPELINE.lead}</p>
         </div>
@@ -260,11 +285,12 @@ import {
       </div>
     </section>
 
-    <!-- Station 5, Cost: no unattributed dollar. The ledger is the literal bill
+    <!-- Station 06, Cost: no unattributed spend. The ledger is the literal bill
          for the spine run, closing on zero unattributed. -->
-    <section id={COST.id} class="section">
+    <section id={COST.id} class="section" data-station={COST.station.n}>
       <div class="container">
         <div class="section-head reveal">
+          <p class="station-marker"><span class="station-n">{COST.station.n}</span><span class="station-label">{COST.station.label}</span></p>
           <h2>{COST.title}</h2>
           <p class="lead">{COST.lead}</p>
         </div>
@@ -434,6 +460,7 @@ import {
             </div>
             <span class={`t-line t-${DOGFOOD.lines[DOGFOOD.lines.length - 1].tone}`} style={`--i:${DOGFOOD.lines.length - 1}`}>{DOGFOOD.lines[DOGFOOD.lines.length - 1].text}</span>
           </div>
+          <div class="terminal-foot tf-static"><span class="tf-seg">{DOGFOOD.foot}</span></div>
         </div>
         <p class="micro-cta dogfood-cta reveal">
           <a href={DOGFOOD.cta.href} target="_blank" rel="noopener">{DOGFOOD.cta.label}</a>

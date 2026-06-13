@@ -79,7 +79,7 @@
   --fs-kicker: 0.75rem;
 
   /* Spacing rhythm */
-  --section-y: clamp(3.5rem, 2.25rem + 4.5vw, 6rem);
+  --section-y: clamp(3rem, 2rem + 4vw, 5.5rem);
   --gap: clamp(1rem, 0.6rem + 1.5vw, 1.75rem);
 
   /* Layout */

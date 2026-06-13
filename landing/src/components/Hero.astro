@@ -24,14 +24,14 @@ import { HERO, TERMINAL, SPINE } from '../content/site';
     </div>
 
     <div class="hero-terminal reveal">
-      <div class="terminal" data-proof>
+      <div class="terminal" data-proof data-ft-loop={JSON.stringify(TERMINAL.loop)}>
         <div class="terminal-bar">
           <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
           <span class="terminal-title">{TERMINAL.title}</span>
         </div>
         <div class="terminal-body">
           {TERMINAL.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
-          <span class="t-line t-cmd" style={`--i:${TERMINAL.lines.length}`}><span class="t-caret" aria-hidden="true"></span></span>
+          <span class="t-line t-cmd" style={`--i:${TERMINAL.lines.length}`}><span class="ft-typed" data-ft-typed>{TERMINAL.loop[0]}</span><span class="t-caret" aria-hidden="true"></span></span>
         </div>
         <!-- Coding-agent statusline: context / model / reasoning, gently animated
              (context ticks, an occasional compaction beat) by agentfoot.ts;

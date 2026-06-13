@@ -119,6 +119,70 @@ svg {
   margin-bottom: clamp(1.75rem, 3vw, 2.5rem);
 }
 
+/* --------------------------------------------------------------------------
+   Station spine: a quiet vertical thread numbering the instrument stations
+   (method -> cost), the SDLC journey the page already is. Each instrument
+   section carries a data-station and renders a small mono marker above its
+   heading. Mobile: marker inline above the heading, no vertical line (avoid
+   clutter); the number still reads as wayfinding. Desktop: the marker sits in
+   the left editorial column and a hairline thread connects consecutive stations.
+   -------------------------------------------------------------------------- */
+.station-marker {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.85rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.station-n {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.station-label {
+  color: var(--text-muted);
+}
+
+/* Desktop: the spine is a hairline running down the instrument run, aligned to
+   the marker column in the section's left gutter, with the marker pulled into
+   that column so the numbers stack as a continuous thread. */
+@media (min-width: 1040px) {
+  section[data-station] {
+    position: relative;
+  }
+
+  section[data-station]::before {
+    content: '';
+    position: absolute;
+    left: clamp(1.25rem, 5vw, 2.25rem);
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border-default);
+  }
+
+  section[data-station] .station-marker {
+    position: relative;
+    padding-left: 1.4rem;
+  }
+
+  section[data-station] .station-marker::before {
+    content: '';
+    position: absolute;
+    left: -0.21rem;
+    top: 0.45rem;
+    width: 0.42rem;
+    height: 0.42rem;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+}
+
 .kicker {
   display: inline-block;
   font-size: var(--fs-kicker);
@@ -946,55 +1010,11 @@ svg {
 .site-footer .container {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
-}
-
-.footer-top {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.footer-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.5rem;
-  list-style: none;
-  padding: 0;
-}
-
-.footer-links a {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-}
-
-.footer-links a:hover {
-  color: var(--text-primary);
-}
-
-/* The "built with" close, modelled on the graymatter footer: a GitHub mark +
-   repo link, and beneath it one quiet centered line whose product name
-   perpetually scrambles. */
-.footer-built {
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 0.85rem;
-  text-align: center;
 }
 
-.footer-gh {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-}
-
-.footer-gh:hover {
-  color: var(--text-primary);
-}
-
+/* The footer is now one quiet centered line whose product name perpetually
+   scrambles (#3): no logo, no nav links, no GitHub mark. */
 .footer-copy {
   display: inline-flex;
   flex-wrap: wrap;
@@ -1024,14 +1044,6 @@ svg {
   background: none;
   -webkit-text-fill-color: currentColor;
   color: var(--text-secondary);
-}
-
-@media (min-width: 760px) {
-  .footer-top {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
 }
 
 /* --------------------------------------------------------------------------
@@ -1303,27 +1315,24 @@ svg {
     proof-pulse 0.7s var(--ease-out) calc(var(--i) * 0.18s + 0.3s);
 }
 
-/* Mono caption beneath a gate / egress strip: the refrain stated in plain words,
-   aligned with the artifact above it. */
-.gate-caption {
-  max-width: 48rem;
-  margin-top: 1rem;
+/* Thin in-terminal divider + sub-label introducing the egress rows inside the
+   merged security boundary terminal (#7): the boundary's structural rows above,
+   one real call obeying it below, in one receipt. */
+.gate-subhead {
+  padding: 0.55rem 1.1rem;
+  border-top: 1px solid var(--border-subtle);
   font-family: var(--font-mono);
-  font-size: 0.74rem;
-  line-height: 1.7;
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
   color: var(--text-muted);
 }
 
-/* ---- Security: egress-inspection strip (structural twin of the gate) ----
-   One amber beat: the DLP redaction. Everything else passes green. */
+/* ---- Security: egress rows inside the boundary terminal (structural twin of
+   the gate). One amber beat: the DLP redaction. Everything else passes green. */
 @keyframes proof-pulse-warn {
   40% {
     background: rgb(251 191 36 / 0.1);
   }
-}
-
-.gate.egress {
-  margin-top: clamp(1.25rem, 3vw, 2rem);
 }
 
 .gate-step.is-redact .gate-actor,
@@ -1340,32 +1349,16 @@ svg {
     proof-pulse-warn 0.7s var(--ease-out) calc(var(--i) * 0.18s + 0.3s);
 }
 
-/* ---- Method: the three pillars as numbered clauses of a control ---- */
+/* ---- Method: the two pillars as plain label-and-prose clauses. The page-wide
+   station spine now carries the numbering, so the method body has no coral
+   counter of its own (#8). ---- */
 .method-clauses {
   list-style: none;
-  counter-reset: clause;
   padding: 0;
   margin-top: clamp(1.5rem, 3vw, 2.25rem);
   display: grid;
   gap: clamp(1.5rem, 4vw, 2.25rem);
   max-width: var(--measure);
-}
-
-.method-clauses li {
-  counter-increment: clause;
-  position: relative;
-  padding-left: 3rem;
-}
-
-.method-clauses li::before {
-  content: counter(clause, decimal-leading-zero);
-  position: absolute;
-  left: 0;
-  top: 0.15rem;
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--accent);
 }
 
 .method-clauses li h3 {

@@ -15,6 +15,7 @@ import {
   FEATURE_TERMINALS,
   HERO,
   CONTEXT,
+  LEGACY,
   METHOD,
   NAV_LINKS,
   OPERATIONS,
@@ -64,6 +65,12 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(html).toContain('hero-spine');
     expect(text).toContain(SPINE.req);
     expect(text).toContain(SPINE.pr);
+    // The hero terminal carries a live prompt loop (the shared feature-terminal
+    // engine): the resting state is the first looped command, typed after the
+    // transcript with the same ft-typed/caret markup as the feature terminals.
+    expect(html).toContain('data-ft-loop');
+    expect(html).toContain('data-ft-typed');
+    expect(text).toContain(TERMINAL.loop[0]);
   });
 
   it('renders the hero transcript as the governed run: a visible drift, an egress denial, and the alignment refrain', () => {
@@ -150,7 +157,7 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(html).toContain('method-clauses');
   });
 
-  it('renders the security boundary as one gate: approved and impossible paths, plus the egress strip', () => {
+  it('renders the security boundary as one merged gate: approved and impossible paths, then the egress call, under one foot', () => {
     expect(html).toContain('id="security"');
     expect(text).toContain(SECURITY.title);
     expect(html).toContain('data-topic="security-compliance"');
@@ -167,26 +174,39 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(SECURITY.boundary.rows.some((r) => r.state === 'pass')).toBe(true);
     expect(SECURITY.boundary.rows.some((r) => r.state === 'deny')).toBe(true);
     expect(html).toContain('is-deny');
+    // Security + egress are now ONE terminal: a single in-chrome foot carries the
+    // merged caption, and there is no separate egress terminal.
     expect(text).toContain(SECURITY.boundary.caption.slice(0, 40));
+    expect(html).toContain('gate-subhead');
+    expect(html).not.toContain('gate egress');
     // The AI Gateway is named as the egress control.
     expect(text).toContain('your AI Gateway');
   });
 
-  it('renders the dogfood proof: this page as REQ-LANDING-001 with real anchors and a GitHub link', () => {
+  it('renders the dogfood proof: this page as REQ-LANDING-001 with real anchors, an in-chrome foot, and a GitHub link', () => {
     expect(html).toContain('id="dogfood"');
     expect(text).toContain(DOGFOOD.title);
     expect(text).toContain(DOGFOOD.terminalTitle);
     for (const line of DOGFOOD.lines) {
       expect(text).toContain(line.text);
     }
-    // The CTA and the nav/footer link out to the public repo.
+    // The amplified transcript names the requirement status and the shipping PR.
+    expect(text).toContain('Status: Implemented');
+    expect(text).toContain('PR #533');
+    // The terminal closes on a normalized in-chrome foot like every other one.
+    expect(text).toContain(DOGFOOD.foot);
+    // The dogfood CTA is now the page's only GitHub link (the footer no longer
+    // carries one); it points at the public repo.
     expect(html).toContain(`href="${GITHUB_URL}"`);
     expect(text).toContain(DOGFOOD.cta.label);
   });
 
-  it('renders the egress-inspection strip: one model call with guardrails pass, a DLP redaction, and an approved route', () => {
-    // DLP and guardrails become auditable evidence, not asserted claims.
+  it('renders the egress rows inside the merged boundary terminal: guardrails pass, a DLP redaction, and an approved route', () => {
+    // DLP and guardrails become auditable evidence, not asserted claims. The
+    // egress call now renders as a sub-labelled rows block inside the one
+    // security boundary terminal (#7), introduced by the gate-subhead.
     expect(text).toContain(EGRESS.call);
+    expect(html).toContain('gate-subhead');
     for (const row of EGRESS.rows) {
       expect(text).toContain(row.actor);
       expect(text).toContain(row.text);
@@ -194,8 +214,6 @@ describe('landing page (REQ-LANDING-001)', () => {
     // The one amber beat: a DLP redaction rendered as a first-class state.
     expect(EGRESS.rows.some((r) => r.state === 'redact')).toBe(true);
     expect(html).toContain('is-redact');
-    expect(html).toContain('gate egress');
-    expect(text).toContain(EGRESS.caption.slice(0, 40));
   });
 
   it('renders the operations section: infrastructure beyond code via zero-trust tunnels', () => {
@@ -287,6 +305,49 @@ describe('landing page (REQ-LANDING-001)', () => {
     for (const topic of CONTACT_FORM.topics) {
       expect(html).toContain(`value="${topic.value}"`);
     }
+  });
+
+  it('renders the legacy-rescue station between method and security: the /sdd init + /sdd clean transcript', () => {
+    expect(html).toContain('id="legacy"');
+    expect(text).toContain(LEGACY.title);
+    expect(text).toContain(LEGACY.lead.slice(0, 40));
+    expect(text).toContain(LEGACY.terminal.title);
+    for (const line of LEGACY.terminal.lines) {
+      expect(text).toContain(line.text);
+    }
+    // The terminal closes on a normalized in-chrome foot.
+    expect(text).toContain(LEGACY.terminal.foot);
+    // Both rescue motions are shown: bootstrapping a baseline and realigning drift.
+    expect(text).toContain('/sdd init --import legacy-payments');
+    expect(text).toContain('/sdd clean');
+  });
+
+  it('renders the station spine: a numbered marker on each instrument station, in render order', () => {
+    expect(html).toContain('station-marker');
+    // The instrument stations carry data-station and their marker number; the
+    // numbering runs in render order (method -> legacy -> security -> context ->
+    // pipeline -> cost) and the calmer tail stays un-numbered.
+    for (const section of [METHOD, LEGACY, SECURITY, CONTEXT, PIPELINE, COST]) {
+      expect(html).toContain(`data-station="${section.station.n}"`);
+      expect(text).toContain(section.station.label);
+    }
+    expect([METHOD, LEGACY, SECURITY, CONTEXT, PIPELINE, COST].map((s) => s.station.n)).toEqual([
+      '01',
+      '02',
+      '03',
+      '04',
+      '05',
+      '06',
+    ]);
+  });
+
+  it('drops the GitHub link from the footer (the dogfood CTA is now the only one)', () => {
+    // The footer is one quiet centered line: no GitHub mark or repo link.
+    expect(html).not.toContain('footer-gh');
+    expect(html).not.toContain('Codeflare on GitHub');
+    // The page still links to the repo exactly once, via the dogfood CTA.
+    const occurrences = html.split(`href="${GITHUB_URL}"`).length - 1;
+    expect(occurrences).toBe(1);
   });
 
   it('drops the old terminal-session chrome (no status bar, fleet, or animated transcript)', () => {
