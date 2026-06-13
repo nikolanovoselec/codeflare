@@ -332,6 +332,12 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(ghOccurrences).toBe(1);
   });
 
+  it('REQ-LANDING-001: footer links the Gray Matter wordmark to graymatter.ch', () => {
+    // The copyright wordmark is a real link to the company site, not plain text.
+    // A regression that drops the link (or points it elsewhere) fails this.
+    expect(html).toMatch(/<a[^>]*href="https:\/\/graymatter\.ch"[^>]*>Gray Matter GmbH<\/a>/);
+  });
+
   it('REQ-LANDING-001: operations section renders via zero-trust tunnel capability cards', () => {
     expect(html).toContain('id="operations"');
     // The load-bearing capability phrase — if the template renders a different
