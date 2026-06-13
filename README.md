@@ -214,7 +214,7 @@ Modes are additive flags; pick the one that matches your deployment. A flag left
 | Mode | Turn on with | What it adds | Authentication |
 |---|---|---|---|
 | **Default** | *(nothing)* | The baseline above | Cloudflare Access |
-| **Onboarding** | `ONBOARDING_LANDING_PAGE=active` | Public waitlist landing page at `/` with Turnstile CAPTCHA | Cloudflare Access |
+| **Onboarding** | `ONBOARDING_LANDING_PAGE=active` | Public marketing landing at `/`, a landing-styled `/login` with GitHub sign-in, and a post-sign-in access-request flow; Turnstile CAPTCHA on public forms | Cloudflare Access (`/login` GitHub OAuth requires `OAUTH_CLIENT_ID`) |
 | **SaaS** | `SAAS_MODE=active` | Custom login page, JIT user provisioning, 8-tier subscriptions, Stripe billing, usage tracking, `/admin/users` | GitHub OAuth *or* Cloudflare Access |
 | **Enterprise** | `ENTERPRISE_MODE=active` | Single-tenant in **your** Cloudflare account; all users unlimited + Pro; LLM traffic routed through **your** AI Gateway | Cloudflare Access |
 
@@ -223,7 +223,7 @@ Modes are additive flags; pick the one that matches your deployment. A flag left
 | Mode | What to set | Auto-configured by the wizard |
 |---|---|---|
 | **Default** | Nothing beyond the two required secrets | CF Access app, groups, policies |
-| **Onboarding** | `ONBOARDING_LANDING_PAGE=active`; optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
+| **Onboarding** | `ONBOARDING_LANDING_PAGE=active`; optionally `RESEND_API_KEY` and the `OAUTH_*` secrets (to enable `/login` GitHub sign-in) | CF Access, Turnstile keys |
 | **SaaS + GitHub OAuth** | `SAAS_MODE=active`; `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`; optionally `STRIPE_*`, `RESEND_API_KEY`, `MAX_INSTANCES` | Turnstile keys (GitHub OAuth handles auth) |
 | **SaaS + CF Access** | `SAAS_MODE=active`; optionally `STRIPE_*`, `RESEND_API_KEY`, `MAX_INSTANCES` | CF Access, Turnstile keys |
 | **Enterprise** | `ENTERPRISE_MODE=active`; `AIG_GATEWAY_URL` + `AIG_TOKEN`; optionally `AIG_LANGUAGE_MODEL` | CF Access; AI Gateway config in the Cloudflare dashboard |
@@ -250,14 +250,16 @@ All optional. **Type** is where the value goes in GitHub.
 </details>
 
 <details>
-<summary><strong>Onboarding mode — public waitlist</strong></summary>
+<summary><strong>Onboarding mode — public landing, login, and access requests</strong></summary>
 
 Set `ONBOARDING_LANDING_PAGE=active`. Turnstile CAPTCHA keys are auto-created by the wizard — no manual setup.
 
+Unauthenticated `/` serves the public marketing landing (the same page SaaS mode serves), and `/login` is served from the landing's design system with a GitHub sign-in plus enterprise-SSO request affordances. When a GitHub sign-in resolves to a user who isn't yet approved, the Worker records an access request (idempotent), emails the operators and the visitor, and shows a "request submitted" confirmation — instead of dropping them at a subscribe page. The `/login` GitHub sign-in requires the `OAUTH_*` secrets (see SaaS mode); without them, authentication stays on Cloudflare Access. A `POST /public/waitlist` signup endpoint remains available in onboarding mode.
+
 | Setting | Type | Required? | Effect |
 |---|---|---|---|
-| `ONBOARDING_LANDING_PAGE` | Variable | to enable | `active` shows a public waitlist page at `/`. Unset/`inactive` → `/` redirects to the app |
-| `RESEND_API_KEY` | Secret | recommended | [Resend](https://resend.com) API key ([resend.com/api-keys](https://resend.com/api-keys)) for waitlist welcome emails. When unset, signups still work; no email is sent |
+| `ONBOARDING_LANDING_PAGE` | Variable | to enable | `active` serves the public marketing landing at `/` and the landing-styled `/login`. Unset/`inactive` → `/` redirects to the app |
+| `RESEND_API_KEY` | Secret | recommended | [Resend](https://resend.com) API key ([resend.com/api-keys](https://resend.com/api-keys)) for waitlist welcome and access-request emails. When unset, signups and access requests still work; no email is sent |
 | `RESEND_EMAIL` | Secret | optional | Sender identity (e.g. `Codeflare <hello@yourdomain.com>`). Must be a verified Resend sender. Defaults to `Codeflare <onboarding@resend.dev>` |
 
 </details>
