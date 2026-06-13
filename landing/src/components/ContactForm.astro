@@ -47,7 +47,8 @@ import { CONTACT_FORM } from '../content/site';
 </div>
 
 <script>
-  import { buildContactPayload, submitContact } from '../scripts/contact-controller';
+  import { buildContactPayload, submitContact, pickDeepLinkTopic } from '../scripts/contact-controller';
+  import { CONTACT_TOPICS } from '../../../src/lib/contact-topics';
   import { ENDPOINTS } from '../config';
 
   interface TurnstileApi {
@@ -110,6 +111,14 @@ import { CONTACT_FORM } from '../content/site';
     // Micro-conversion links elsewhere on the page (e.g. "request the
     // security brief") preselect their topic before jumping to the form.
     const topicSelect = document.getElementById('cf-topic') as HTMLSelectElement | null;
+
+    // A cross-page CTA (e.g. the enterprise SSO buttons on /login) can deep-link
+    // here with ?topic=<value>; preselect it when it is a real option.
+    const deepLinkTopic = pickDeepLinkTopic(window.location.search, CONTACT_TOPICS);
+    if (deepLinkTopic && topicSelect) {
+      topicSelect.value = deepLinkTopic;
+    }
+
     document.addEventListener('click', (event) => {
       const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[data-topic]');
       if (link && topicSelect) {

@@ -26,6 +26,8 @@ import {
   SPINE,
   TENANCY,
   TERMINAL,
+  TRUSTED,
+  ORCHESTRATION,
 } from '../content/site';
 
 let html: string;
@@ -277,6 +279,46 @@ describe('landing page (REQ-LANDING-001)', () => {
     // The dogfood CTA href must point at the public repo.
     expect(html).toContain(`href="${GITHUB_URL}"`);
     expect(text).toContain(DOGFOOD.cta.label);
+  });
+
+  it('REQ-LANDING-001: the Trusted-by strip renders the Swiss Post logo + label, placed just before the contact CTA', () => {
+    // The label + the actual logo asset must render — a missing src is a broken
+    // proof, and alt text is required for the logo to be accessible.
+    expect(text).toContain(TRUSTED.label);
+    expect(html).toContain(`src="${TRUSTED.logo.src}"`);
+    expect(html).toContain(`alt="${TRUSTED.logo.alt}"`);
+    // Placement (owner's choice): after the dogfood proof, immediately before the
+    // contact section. Use the logo asset's position so it is class-name agnostic.
+    const trustedPos = html.indexOf(TRUSTED.logo.src);
+    const dogfoodPos = html.indexOf('id="dogfood"');
+    const contactPos = html.indexOf('id="contact"');
+    expect(trustedPos).toBeGreaterThan(dogfoodPos);
+    expect(trustedPos).toBeLessThan(contactPos);
+  });
+
+  it('REQ-LANDING-001: the pipeline section renders the live agent-orchestration proof terminal', () => {
+    // A second camera angle on the PR #207 review: the operator "Running N agents"
+    // view with per-agent tool-use + token counters and the real keyboard
+    // affordances. The counters/affordances are orchestration-unique, so this
+    // cannot pass off the board lanes above.
+    expect(html).toContain('terminal orch');
+    expect(text).toContain(ORCHESTRATION.header);
+    expect(text).toContain(ORCHESTRATION.hint); // ctrl+o to expand
+    expect(text).toContain(ORCHESTRATION.footHint); // ctrl+b to run in background
+    for (const agent of ORCHESTRATION.agents) {
+      expect(text).toContain(agent.agent);
+      expect(text).toContain(agent.toolUses);
+      expect(text).toContain(agent.tokens);
+      expect(text).toContain(agent.activity);
+    }
+    // It is armed as a proof artifact (proof.ts plays it on scroll-in).
+    expect(html).toMatch(/class="terminal orch[^"]*"\s+data-proof/);
+    // It lives inside the pipeline station, before the cost station.
+    const orchPos = html.indexOf(ORCHESTRATION.footHint);
+    const pipelinePos = html.indexOf('id="pipeline"');
+    const costPos = html.indexOf('id="cost"');
+    expect(orchPos).toBeGreaterThan(pipelinePos);
+    expect(orchPos).toBeLessThan(costPos);
   });
 
   it('REQ-LANDING-001: footer carries NO GitHub link and NO nav links — only the BUILT WITH line', () => {

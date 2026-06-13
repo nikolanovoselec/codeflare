@@ -149,6 +149,27 @@ export async function sendWelcomeEmail(opts: {
 }
 
 /**
+ * Send a confirmation email to a user who just requested Codeflare access
+ * (onboarding mode). Non-fatal — returns false on missing config / API error.
+ */
+export async function sendAccessRequestConfirmation(opts: {
+  userEmail: string;
+  env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
+}): Promise<boolean> {
+  const safeEmail = escapeXml(opts.userEmail);
+  return sendEmail({
+    to: [opts.userEmail],
+    subject: 'We received your Codeflare access request',
+    html: [
+      '<h2>Access request received</h2>',
+      `<p>Hi ${safeEmail},</p>`,
+      "<p>We've received your Codeflare access request; you'll hear from us when your workspace is approved.</p>",
+    ].join('\n'),
+    env: opts.env,
+  });
+}
+
+/**
  * Send a subscription confirmation or plan change email.
  */
 export async function sendSubscriptionEmail(opts: {

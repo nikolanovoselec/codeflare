@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildContactPayload, submitContact } from '../scripts/contact-controller';
+import { buildContactPayload, submitContact, pickDeepLinkTopic } from '../scripts/contact-controller';
 import { CONTACT_TOPICS } from '../../../src/lib/contact-topics';
 
 function formDataFrom(entries: Record<string, string>): FormData {
@@ -118,6 +118,29 @@ describe('contact-controller (REQ-LANDING-002)', () => {
 
       expect(result.ok).toBe(false);
       expect(result.message.toLowerCase()).toContain('network');
+    });
+  });
+
+  describe('pickDeepLinkTopic', () => {
+    it('returns the topic when the query value is an allowed option (the enterprise CTA path)', () => {
+      expect(pickDeepLinkTopic('?topic=enterprise-deployment', CONTACT_TOPICS)).toBe('enterprise-deployment');
+    });
+
+    it('ignores a topic that is not an allowed option (a crafted URL cannot inject one)', () => {
+      expect(pickDeepLinkTopic('?topic=delete-everything', CONTACT_TOPICS)).toBeNull();
+    });
+
+    it('returns null when no topic param is present', () => {
+      expect(pickDeepLinkTopic('?utm=x', CONTACT_TOPICS)).toBeNull();
+      expect(pickDeepLinkTopic('', CONTACT_TOPICS)).toBeNull();
+    });
+
+    it('only ever returns a value the backend schema accepts', () => {
+      for (const topic of CONTACT_TOPICS) {
+        const picked = pickDeepLinkTopic(`?topic=${topic}`, CONTACT_TOPICS);
+        expect(picked).not.toBeNull();
+        expect(CONTACT_TOPICS).toContain(picked!);
+      }
     });
   });
 });

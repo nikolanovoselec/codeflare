@@ -36,6 +36,8 @@ import {
   FAQ_ITEMS,
   CONTACT_FORM,
   DOGFOOD,
+  ORCHESTRATION,
+  TRUSTED,
 } from '../content/site';
 ---
 
@@ -282,6 +284,36 @@ import {
             <span class="verdict-note">{PIPELINE.verdict.note}</span>
           </div>
         </div>
+
+        <!-- The same parallel review, the operator's live view: "Running N agents"
+             with per-agent tool-use + token counters and the real keyboard
+             affordances. A second camera angle on the running PR #207, and a
+             literal dogfood: this is a Codeflare PR-boundary review in flight. -->
+        <div class="terminal orch reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="board-pr-id">{SPINE.pr} · {SPINE.service}</span>
+            <span class="board-pr-trigger">live</span>
+          </div>
+          <div class="terminal-body">
+            <span class="t-line orch-head"><span class="orch-dot" aria-hidden="true">●</span> {ORCHESTRATION.header}… <span class="orch-hint">({ORCHESTRATION.hint})</span></span>
+            {
+              ORCHESTRATION.agents.map((agent, i) => {
+                const last = i === ORCHESTRATION.agents.length - 1;
+                return (
+                  <Fragment>
+                    <span class="t-line">
+                      <span class="orch-branch" aria-hidden="true">{last ? '└ ' : '├ '}</span><span class="orch-agent">{agent.agent}</span><span class="orch-meta"> ({agent.task}) · {agent.toolUses} · {agent.tokens}</span>
+                    </span>
+                    <span class="t-line orch-sub"><span class="orch-branch" aria-hidden="true">{last ? '  └ ' : '│ └ '}</span>{agent.activity}</span>
+                  </Fragment>
+                );
+              })
+            }
+            <span class="t-line orch-hint">({ORCHESTRATION.footHint})</span>
+          </div>
+          <div class="terminal-foot tf-static"><span class="tf-seg">{ORCHESTRATION.foot}</span></div>
+        </div>
       </div>
     </section>
 
@@ -468,6 +500,24 @@ import {
       </div>
     </section>
 
+    <!-- Trusted by: a single national-institution customer, the social proof
+         placed right before the contact CTA as a quiet, calm closing band. -->
+    <section class="section trusted-section">
+      <div class="container">
+        <p class="trusted-label reveal">{TRUSTED.label}</p>
+        <div class="trusted-logos reveal">
+          <img
+            class="trusted-logo"
+            src={TRUSTED.logo.src}
+            alt={TRUSTED.logo.alt}
+            width="120"
+            height="120"
+            loading="lazy"
+          />
+        </div>
+      </div>
+    </section>
+
     <!-- Contact -->
     <section id={CONTACT_FORM.id} class="section">
       <div class="container">
@@ -481,3 +531,53 @@ import {
 
   <Footer />
 </BaseLayout>
+
+<style>
+  /* Trusted-by social-proof strip: a quiet, centered band before the contact CTA. */
+  .trusted-section {
+    text-align: center;
+  }
+
+  .trusted-label {
+    margin: 0 0 1.5rem;
+    font-size: var(--fs-kicker);
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--text-muted);
+  }
+
+  .trusted-logos {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(1.5rem, 4vw, 3rem);
+    flex-wrap: wrap;
+  }
+
+  .trusted-logo {
+    height: clamp(60px, 12vw, 88px);
+    width: auto;
+  }
+
+  /* Orchestration terminal: the "Running N agents" operator tree. Reuses the
+     terminal chrome; these tones colour the live agent rows over the mono body. */
+  .orch-head {
+    color: var(--text-secondary);
+  }
+
+  .orch-dot {
+    color: var(--term-green);
+  }
+
+  .orch-agent {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .orch-meta,
+  .orch-sub,
+  .orch-hint,
+  .orch-branch {
+    color: var(--term-dim);
+  }
+</style>

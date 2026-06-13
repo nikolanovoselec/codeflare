@@ -13,6 +13,7 @@ For authentication modes and user identity flow, see [Authentication](authentica
 ## Contents
 
 - [Authentication Gate](#authentication-gate)
+- [Onboarding Access Request (OAuth-Gated)](#onboarding-access-request-oauth-gated)
 - [API Token Containment](#api-token-containment)
 - [Enterprise Mode: Credential Containment and CA Trust](#enterprise-mode-credential-containment-and-ca-trust)
 - [Container Auth Token (REQ-SEC-012)](#container-auth-token-req-sec-012)
@@ -33,6 +34,12 @@ All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by one of tw
 - **SaaS mode (GitHub OIDC):** Worker-managed session cookies (`codeflare_session`, HMAC-SHA256). CF Access is bypassed at runtime when `OAUTH_CLIENT_ID` is configured.
 
 In SaaS mode the Cloudflare service token (`CF-Access-Client-Id`/`CF-Access-Client-Secret`) is accepted only for unattended admin automation and is never treated as a user identity (see [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) and [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing), [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order)); user-facing surfaces still require a session cookie.
+
+## Onboarding Access Request (OAuth-Gated)
+
+In onboarding mode, a GitHub OAuth callback that resolves to a non-approved user records an access request and emails the operators ([REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-and-access-request-flow)). This auto-request path applies **no** Turnstile re-challenge — unlike the public contact / waitlist relay ([REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline)), where the submitter is anonymous and CAPTCHA is the abuse gate. Here the request is only reachable after a completed GitHub OAuth handshake, so the human is already IdP-authenticated and the GitHub identity is the abuse gate; a Turnstile prompt would be redundant. The four enterprise SSO buttons on the onboarding login page are contact-form deep links, not identity providers, and start no OIDC handshake.
+
+The email path reuses the shared `sendEmail` helper (`src/lib/email.ts`) via `sendAccessRequestConfirmation` to send an admin notification and a user confirmation through Resend. Delivery is best-effort and fire-and-forget: a Resend failure or a missing `RESEND_API_KEY` does not block the sign-in redirect, and the email body carries no internal system details. The branch never runs in SaaS mode (which keeps the `/app/subscribe` redirect) or enterprise mode.
 
 ## API Token Containment
 
@@ -348,6 +355,7 @@ Every entry carries an inline comment recording the affected package, the impact
 - [REQ-OPS-019](../../sdd/spec/operations.md#req-ops-019-security-posture-scanning-workflows) - Security-posture scanning workflows
 - [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing) - Service token authentication scoped to automation, not user identity (AD68)
 - [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order) - Auth resolution order: service token resolves to admin automation ahead of SaaS/Access (AD68)
+- [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-and-access-request-flow) - Onboarding access request is OAuth-gated (no Turnstile re-challenge); confirmation emails via Resend
 - [REQ-SEC-001](../../sdd/spec/security.md#req-sec-001-authenticated-endpoints-reject-unauthenticated-requests) - Authenticated endpoints reject unauthenticated requests
 - [REQ-SEC-003](../../sdd/spec/security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket) - Per-user R2 tokens scoped to user bucket
 - [REQ-SEC-004](../../sdd/spec/security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract) - Credential encryption-at-rest cryptographic contract

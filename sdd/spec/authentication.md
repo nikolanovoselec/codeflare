@@ -633,3 +633,45 @@ None.
 **Verification:** [Automated test](../../src/__tests__/routes/user-profile.test.ts)
 
 **Status:** Implemented
+
+---
+
+<!-- @test: landing/src/__tests__/login-page.test.ts (REQ-AUTH-020 describe -> Container render: GitHub sign-in href /auth/github/login + four enterprise SSO expand-to-CTA controls + ?status=requested confirmation state + robots noindex -> AC1,AC2,AC3) -->
+<!-- @test: landing/src/__tests__/login.script.test.ts (REQ-AUTH-020 describe -> ?status / ?error param state handling reshapes the page -> AC3) -->
+<!-- @test: landing/src/__tests__/contact-controller.test.ts (REQ-AUTH-020 describe -> pickDeepLinkTopic preselects the enterprise-deployment topic from ?topic= -> AC2) -->
+<!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 describe -> /login rewrite to /landing/login/ in onboarding mode + callback mode-aware redirect + access-request record + emails + sendAccessRequestConfirmation -> AC1,AC3,AC4) -->
+### REQ-AUTH-020: Onboarding-mode landing-integrated login and access-request flow
+
+<!-- @impl: landing/src/pages/login.astro -->
+<!-- @impl: landing/src/scripts/login.ts -->
+<!-- @impl: landing/src/content/site.ts -->
+<!-- @impl: src/index.ts -->
+<!-- @impl: src/routes/github-auth.ts -->
+<!-- @impl: src/lib/email.ts -->
+<!-- @impl: landing/src/components/ContactForm.astro -->
+<!-- @impl: landing/src/scripts/contact-controller.ts -->
+
+**Intent:** In onboarding mode, sign-in shares the marketing landing's design system: visitors get a GitHub sign-in plus enterprise-SSO request affordances on a landing-built `/login` page, and a GitHub OAuth that does not resolve to an approved user records an access request and tells the visitor it was received, rather than dropping them at a subscribe page.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In onboarding mode (`ONBOARDING_LANDING_PAGE` active, `SAAS_MODE` not active) the Worker serves the landing-built Astro login page at `/login` (rewriting the asset request to `/landing/login/`), carrying the same design tokens, fonts, and mouse-splash signature as the marketing landing; in SaaS mode `/login` is unchanged and continues to serve the SPA login.
+2. The page offers a GitHub sign-in linking to `/auth/github/login` and four enterprise SSO buttons (Microsoft Entra ID, Okta, Ping Identity, Google Workspace) rendered as expand-to-CTA controls that deep-link to the contact form with `topic=enterprise-deployment` (preselected via `pickDeepLinkTopic`); these controls never start an OIDC flow.
+3. After GitHub OAuth, an active-tier user is redirected to `/app/`; a non-approved user in onboarding mode has an access request recorded on their stored record (pending tier plus `requestedAt`, idempotent across repeat sign-ins), admin and user confirmation emails are sent via Resend (`sendAccessRequestConfirmation`), and the user is redirected to `/login?status=requested`, which the page reshapes into a "request submitted" confirmation state.
+4. The onboarding access-request branch never runs in SaaS mode (which keeps the existing `/app/subscribe` redirect for pending users) or in enterprise mode.
+
+**Constraints:**
+
+- The enterprise SSO buttons are contact-form deep links, not identity providers; no real OIDC handshake is configured for them.
+- The access-request branch is reached only after a completed GitHub OAuth, so the human is already authenticated; no Turnstile re-challenge is applied on this path.
+- Email delivery is best-effort via the shared `sendEmail` helper; a Resend failure or missing `RESEND_API_KEY` does not block the redirect.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-013](#req-auth-013-custom-branded-login-page), [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving)
+
+**Verification:** [Login page render tests](../../landing/src/__tests__/login-page.test.ts), [Onboarding login route tests](../../src/__tests__/routes/onboarding-login.test.ts)
+
+**Status:** Implemented

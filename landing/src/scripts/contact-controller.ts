@@ -25,6 +25,17 @@ export const SUCCESS_MESSAGE = "Thank you for reaching out. We'll get back to yo
 const GENERIC_ERROR = 'Something went wrong. Please try again in a moment.';
 const NETWORK_ERROR = 'Network error. Please check your connection and try again.';
 
+/**
+ * Resolve a deep-link topic preselect from a URL query string, e.g. a cross-page
+ * CTA navigating to /landing/?topic=enterprise-deployment#contact (the enterprise
+ * SSO buttons on /login). Returns the topic only when it is one of the allowed
+ * values, so a crafted URL can never preselect an option the form does not offer.
+ */
+export function pickDeepLinkTopic(search: string, valid: readonly string[]): ContactTopic | null {
+  const value = new URLSearchParams(search).get('topic');
+  return value !== null && valid.includes(value) ? (value as ContactTopic) : null;
+}
+
 export function buildContactPayload(form: FormData, turnstileToken: string): ContactPayload {
   const field = (name: string): string => String(form.get(name) ?? '').trim();
   const company = field('company');

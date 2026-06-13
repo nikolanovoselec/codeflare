@@ -9,9 +9,12 @@ import type { Env } from '../types';
 import { signSessionJWT, SESSION_JWT_AUD, cookieDomainAttr } from '../lib/session-jwt';
 import { createLogger } from '../lib/logger';
 import { toError } from '../lib/error-types';
-import { parseUserRecord } from '../lib/user-record';
+import { parseUserRecord, updateUserRecord } from '../lib/user-record';
 import { getBaseUrl, SETUP_KEYS } from '../lib/kv-keys';
-import { isActiveTier } from '../lib/subscription';
+import { isActiveTier, isEnterpriseMode } from '../lib/subscription';
+import { isOnboardingLandingPageActive, isSaasModeActive } from '../lib/onboarding';
+import { getAdminEmails } from '../lib/access-policy';
+import { sendAccessRequestNotification, sendAccessRequestConfirmation } from '../lib/email';
 import { signOauthState, verifyOauthState, parseOauthState, claimOauthNonce } from '../lib/oauth-state';
 import { createRateLimiter } from '../middleware/rate-limit';
 
@@ -179,9 +182,57 @@ app.get('/callback', callbackRateLimiter, async (c) => {
   );
 
   // Determine redirect based on user state
-  const userRecord = parseUserRecord(await c.env.KV.get(`user:${email.toLowerCase().trim()}`, 'json'));
+  const normalizedEmail = email.toLowerCase().trim();
+  const userRecord = parseUserRecord(await c.env.KV.get(`user:${normalizedEmail}`, 'json'));
   const isActive = userRecord ? isActiveTier(userRecord.subscriptionTier) : false;
-  const redirectTo = isActive ? `${base}/app/` : `${base}/app/subscribe`;
+
+  // Onboarding mode (no SaaS, non-enterprise): a non-active visitor who signs in
+  // is submitting an access request, not subscribing. Idempotently record the
+  // request, notify the admin, confirm to the user, and land on the login page's
+  // "request submitted" confirmation state. SaaS / default modes are unchanged.
+  const onboardingAccessRequest =
+    !isActive &&
+    isOnboardingLandingPageActive(c.env.ONBOARDING_LANDING_PAGE) &&
+    !isSaasModeActive(c.env.SAAS_MODE) &&
+    !isEnterpriseMode(c.env);
+
+  let redirectTo: string;
+  if (isActive) {
+    redirectTo = `${base}/app/`;
+  } else if (onboardingAccessRequest) {
+    // Idempotency: only stamp + notify the first time. A user record with
+    // requestedAt already set means the request was already submitted.
+    if (!userRecord?.requestedAt) {
+      const requestedAt = new Date().toISOString();
+      // Mirror /request-access: ensure a pending user record exists carrying
+      // requestedAt. updateUserRecord merges onto whatever exists (or {}),
+      // so first-time onboarding users get a pending record provisioned here.
+      await updateUserRecord(c.env.KV, normalizedEmail, {
+        ...(userRecord ? {} : { addedBy: 'github-oauth', addedAt: requestedAt, role: 'user', accessTier: 'pending', subscriptionTier: 'pending' }),
+        requestedAt,
+      });
+      try {
+        const adminEmails = await getAdminEmails(c.env.KV);
+        await sendAccessRequestNotification({
+          userEmail: normalizedEmail,
+          requestedAt,
+          remoteIp: null,
+          adminEmails,
+          env: c.env,
+        });
+      } catch (err) {
+        logger.error('Failed to send onboarding access request notification', toError(err));
+      }
+      try {
+        await sendAccessRequestConfirmation({ userEmail: normalizedEmail, env: c.env });
+      } catch (err) {
+        logger.error('Failed to send onboarding access request confirmation', toError(err));
+      }
+    }
+    redirectTo = `${base}/login?status=requested`;
+  } else {
+    redirectTo = `${base}/app/subscribe`;
+  }
 
   const domainAttr = cookieDomainAttr(await c.env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN));
   c.header('Set-Cookie', `codeflare_session=${jwt}; HttpOnly; Secure; SameSite=Lax; Path=/${domainAttr}; Max-Age=3600`);

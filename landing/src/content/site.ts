@@ -532,6 +532,55 @@ export const PIPELINE = {
   },
 };
 
+/** A live agent in the orchestration tree (pipeline section proof artifact):
+ *  the real "● Running N agents…" operator view of the PR-boundary review, with
+ *  per-agent tool-use and token counters and a current-activity sub-line. This
+ *  is a faithful render of an actual Codeflare review run (the report-only
+ *  reviewers running in parallel on one diff). */
+export interface AgentRun {
+  agent: string;
+  task: string;
+  toolUses: string;
+  tokens: string;
+  activity: string;
+}
+
+/**
+ * The orchestration view: the same parallel review as the board above, shown the
+ * way the operator sees it run, three report-only reviewers on one diff at once,
+ * each with its live tool-use / token counters and current activity, plus the
+ * real keyboard affordances. A second camera angle on PR #207, the running one.
+ */
+export const ORCHESTRATION = {
+  header: 'Running 3 agents',
+  hint: 'ctrl+o to expand',
+  agents: [
+    {
+      agent: 'code-reviewer',
+      task: 'Code review · round 2 + tests',
+      toolUses: '13 tool uses',
+      tokens: '45.0k tokens',
+      activity: 'Reading 8 files…',
+    },
+    {
+      agent: 'spec-reviewer',
+      task: 'Spec review · round-2 delta',
+      toolUses: '2 tool uses',
+      tokens: '36.6k tokens',
+      activity: 'ctx_batch_execute (MCP)',
+    },
+    {
+      agent: 'doc-updater',
+      task: 'Doc review · round-2 delta',
+      toolUses: '4 tool uses',
+      tokens: '34.2k tokens',
+      activity: 'ctx_batch_execute (MCP)',
+    },
+  ] satisfies AgentRun[],
+  footHint: 'ctrl+b to run in background',
+  foot: 'three reviewers · one diff · in parallel',
+};
+
 export const COST = {
   id: 'cost',
   station: { n: '06', label: 'spend' },
@@ -653,6 +702,18 @@ export const FAQ_ITEMS: FaqItem[] = [
   },
 ];
 
+/** Social proof: a single national-institution customer, shown as a calm
+ *  "Trusted by" strip just before the contact CTA. One logo, centered; the
+ *  asset ships from the landing public root. */
+export const TRUSTED = {
+  label: 'Trusted by',
+  logo: {
+    src: '/landing/customers/swiss-post.svg',
+    alt: 'Swiss Post',
+    name: 'Swiss Post',
+  },
+};
+
 const TOPIC_LABELS: Record<ContactTopic, string> = {
   'enterprise-deployment': 'Enterprise deployment',
   'pilot-poc': 'Pilot / proof of concept',
@@ -672,5 +733,64 @@ export const CONTACT_FORM = {
       'Your data is never sold or shared.',
   ],
   topics: CONTACT_TOPICS.map((value) => ({ value, label: TOPIC_LABELS[value] })) satisfies TopicOption[],
+};
+
+/** An enterprise SSO provider button. The buttons look real but are CTAs: the
+ *  product offers GitHub sign-in today; enterprise SSO is a sales conversation,
+ *  so tapping one expands a "get in touch" panel rather than starting an OIDC
+ *  flow. `id` drives the monogram chip and a stable data attribute for tests. */
+export interface SsoProvider {
+  id: string;
+  name: string;
+}
+
+/**
+ * The onboarding-mode sign-in page (landing/src/pages/login.astro), served at
+ * /login when the deployment runs in onboarding mode. Same design system as the
+ * marketing landing (tokens, fonts, splash) so the two flow into one another.
+ * Everyone enters via GitHub: an approved account goes straight to the app, a
+ * new visitor is told their access request was submitted and is emailed a
+ * confirmation. Enterprise SSO is shown as expand-to-CTA buttons that deep-link
+ * to the contact form. No em/en dashes in any rendered copy.
+ */
+export const LOGIN = {
+  title: 'Sign in to Codeflare',
+  sub: 'Autonomous coding agents, governed inside your boundary.',
+  github: { label: 'Continue with GitHub', href: '/auth/github/login' },
+  ssoHeading: 'Enterprise SSO',
+  ssoProviders: [
+    { id: 'entra', name: 'Microsoft Entra ID' },
+    { id: 'okta', name: 'Okta' },
+    { id: 'ping', name: 'Ping Identity' },
+    { id: 'google', name: 'Google Workspace' },
+  ] satisfies SsoProvider[],
+  sso: {
+    body:
+      'Single sign-on with your identity provider is available on Codeflare Enterprise. ' +
+      'Tell us which provider you run and we will set it up with you.',
+    cta: { label: 'Get in touch', href: '/landing/?topic=enterprise-deployment#contact' },
+  },
+  helper:
+    "New here? Continue with GitHub to request access. " +
+    "We'll email you when your workspace is approved.",
+  // The post-OAuth "access request submitted" state (login.astro reads ?status=requested).
+  requested: {
+    title: 'Access request submitted',
+    body:
+      "Thanks for your interest. We've emailed you a confirmation, and you'll hear from us " +
+      'when your workspace is approved.',
+  },
+  back: { label: 'Back to codeflare.ch', href: '/landing/' },
+  // OAuth-flow error copy, keyed by the ?error=<code> the Worker redirects with.
+  // Hyphen codes are Worker-emitted; underscore codes pass through from GitHub.
+  errors: {
+    'session-expired': 'Your sign-in took too long. Please try again.',
+    'no-verified-email':
+      'Your GitHub account has no verified primary email. Verify it on GitHub and try again.',
+    access_denied: 'Sign-in was cancelled.',
+    redirect_uri_mismatch: 'Sign-in configuration error. Please contact support.',
+    application_suspended: 'The sign-in app is suspended. Please contact support.',
+    default: 'Sign-in failed. Please try again.',
+  } as Record<string, string>,
 };
 

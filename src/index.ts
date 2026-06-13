@@ -399,6 +399,14 @@ export default {
       }
     }
 
+    // Onboarding mode: serve the prerendered Astro login page at /login
+    // (assets under /landing/login/). In SaaS mode /login falls through to the
+    // SPA unchanged. If the landing build is absent, ASSETS not_found_handling
+    // falls back to the SPA index.html — graceful degrade.
+    if ((path === '/login' || path === '/login/') && onboardingLandingActive && !isSaasModeActive(env.SAAS_MODE)) {
+      assetRequest = new Request(new URL('/landing/login/', url).toString(), request);
+    }
+
     // For all other routes, serve from static assets
     // With not_found_handling = "single-page-application", missing routes get index.html
     const assetResponse = await env.ASSETS.fetch(assetRequest);
