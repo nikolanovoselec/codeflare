@@ -1327,12 +1327,15 @@ svg {
    merged security boundary terminal (#7): the boundary's structural rows above,
    one real call obeying it below, in one receipt. */
 .gate-subhead {
-  padding: 0.55rem 1.1rem;
+  padding: 0.5rem 1.1rem;
   border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgb(255 255 255 / 0.015);
   font-family: var(--font-mono);
   font-size: 0.7rem;
-  letter-spacing: 0.02em;
-  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  color: var(--term-dim);
+  text-align: center;
 }
 
 /* ---- Security: egress rows inside the boundary terminal (structural twin of

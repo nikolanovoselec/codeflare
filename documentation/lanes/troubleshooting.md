@@ -41,7 +41,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
-API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/auth/*", "/api/*", "/public/*", "/health"]` in `[assets]` section of `wrangler.toml`.
+API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/health", "/landing/*"]` in the `[assets]` section of `wrangler.toml` (any control-plane path missing from this list is served as a static SPA asset at the edge without the Worker running; `/login` missing breaks the onboarding login rewrite, `/api/*` missing breaks setup/auth).
 
 ### `/setup` Shows "Access Denied"
 

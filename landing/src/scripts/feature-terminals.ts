@@ -21,6 +21,10 @@ if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     // beat instead of deleting and cycling. The feature terminals omit this and
     // keep looping.
     const once = term.hasAttribute('data-ft-once');
+    // Shuffle mode (the hero): randomise the beat order on each load so the reel
+    // reads differently every visit. Opt-in via data-ft-shuffle; the feature tiles
+    // omit it and keep their authored order.
+    const shuffle = term.hasAttribute('data-ft-shuffle');
     let loop: string[] = [];
     try {
       loop = JSON.parse(term.getAttribute('data-ft-loop') ?? '[]');
@@ -28,6 +32,18 @@ if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       loop = [];
     }
     if (!typed || loop.length === 0) return;
+
+    if (shuffle && loop.length > 1) {
+      // Fisher-Yates over a copy so the original attribute order is untouched.
+      loop = loop.slice();
+      for (let i = loop.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [loop[i], loop[j]] = [loop[j], loop[i]];
+      }
+      // Reflect the shuffled head as the resting/initial beat so the first paint
+      // matches what types next.
+      typed.textContent = loop[0];
+    }
 
     let wi = 0;
     let ci = loop[0].length;

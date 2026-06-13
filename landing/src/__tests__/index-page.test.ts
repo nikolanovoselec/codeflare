@@ -74,12 +74,15 @@ describe('landing page (REQ-LANDING-001)', () => {
     const parsed: string[] = JSON.parse(loopValue);
     // The full run sequence must be serialised — deleting one from site.ts fails here.
     expect(parsed).toEqual(TERMINAL.run);
-    // The hero plays once and rests on the final beat (the merge): data-ft-once
-    // marks no-loop, so the hero is a single coherent run, not a cycling reel.
+    // The hero plays once (types through the reel and stops, no infinite loop):
+    // data-ft-once marks no loop-back. data-ft-shuffle randomises the beat order
+    // on each load so the capability reel reads differently every visit.
     expect(html).toContain('data-ft-once');
+    expect(html).toContain('data-ft-shuffle');
     // The typed slot renders with the first command as its initial text content.
     expect(html).toContain('data-ft-typed');
-    // The server-rendered resting state is run[0] so the page is legible without JS.
+    // The server-rendered resting state is run[0] so the page is legible without JS
+    // (the shuffle is client-side only; SSR always emits the authored run[0]).
     expect(text).toContain(TERMINAL.run[0]);
   });
 
@@ -89,9 +92,9 @@ describe('landing page (REQ-LANDING-001)', () => {
     // the proof the copy promises.
     expect(html).toContain('t-warn');
     expect(html).toContain('t-deny');
-    expect(text).toContain('drift is a blocking finding');
+    expect(text).toContain('drift · blocking finding');
     expect(text).toContain('direct provider call denied');
-    expect(text).toContain('specification, implementation and documentation aligned');
+    expect(text).toContain('spec · code · docs aligned');
     // The spine PR must close the transcript — it is the claim that the run shipped.
     expect(text).toContain(SPINE.pr);
   });
@@ -256,7 +259,7 @@ describe('landing page (REQ-LANDING-001)', () => {
     const markerCount = [...html.matchAll(/class="station-marker"/g)].length;
     expect(markerCount).toBe(11);
     // Render order: 01 shift, 02 spec, 03 rescue, 04 boundary, 05 web, 06 review,
-    // 07 agents (orchestration), 08 spend, 09 platform, 10 answers, 11 proof. The
+    // 07 agents (orchestration), 08 spend, 09 platform, 10 proof, 11 answers. The
     // ordered sequence asserted above is the render-order proof.
   });
 
@@ -286,12 +289,15 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(text).toContain(DOGFOOD.cta.label);
   });
 
-  it('REQ-LANDING-001: the Trusted-by strip renders the Swiss Post logo + label, placed just before the contact CTA', () => {
+  it('REQ-LANDING-001: the Trusted-by strip renders the Swiss Post logo + label in the proof station, before the contact CTA', () => {
     // The label + the actual logo asset must render — a missing src is a broken
     // proof, and alt text is required for the logo to be accessible.
     expect(text).toContain(TRUSTED.label);
     expect(html).toContain(`src="${TRUSTED.logo.src}"`);
     expect(html).toContain(`alt="${TRUSTED.logo.alt}"`);
+    // The logo links to the customer's site, opened safely in a new tab.
+    expect(html).toContain(`href="${TRUSTED.logo.href}"`);
+    expect(html).toMatch(/<a[^>]*href="https:\/\/www\.post\.ch"[^>]*rel="noopener noreferrer"/);
     // Placement (owner's choice): after the dogfood proof, immediately before the
     // contact section. Use the logo asset's position so it is class-name agnostic.
     const trustedPos = html.indexOf(TRUSTED.logo.src);

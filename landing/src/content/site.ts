@@ -145,7 +145,7 @@ export const SPINE = {
   req: 'REQ-PAY-014',
   ac: 'AC3',
   pr: 'PR #207',
-  user: 'a.chen',
+  user: 't.anderson',
   team: 'payments',
   service: 'payments-service',
 };
@@ -153,15 +153,15 @@ export const SPINE = {
 export const TERMINAL = {
   title: `codeflare · ${SPINE.service}`,
   lines: [
-    { tone: 'cmd', text: `/sdd implement ${SPINE.req}` },
+    { tone: 'cmd', text: `${SPINE.user}@metacortex.ai $ /sdd implement ${SPINE.req}` },
     { tone: 'agent', text: '✻ ephemeral container · your tenancy' },
-    { tone: 'agent', text: '✻ tests first, then the code' },
-    { tone: 'warn', text: '⚠ drift is a blocking finding' },
-    { tone: 'agent', text: '✻ agent corrects · re-verified 10/10' },
+    { tone: 'agent', text: '✻ TDD enforced, tests are the contract between specs, docs and code' },
+    { tone: 'warn', text: '⚠ drift · blocking finding' },
+    { tone: 'agent', text: '✻ isolated browser launched, markdown extracted' },
     { tone: 'cmd', text: '/review --deep · 6 agents' },
     { tone: 'deny', text: '✕ direct provider call denied' },
-    { tone: 'dim', text: '  → your AI Gateway · DLP on egress' },
-    { tone: 'ok', text: '✓ specification, implementation and documentation aligned' },
+    { tone: 'dim', text: '  → redirected to AI Gateway, DLP enforced, guardrails deployed' },
+    { tone: 'ok', text: '✓ spec · code · docs aligned' },
     { tone: 'ok', text: `✓ ${SPINE.pr} ready · CI green · you merge` },
   ] satisfies TranscriptLine[],
   foot: {
@@ -170,16 +170,21 @@ export const TERMINAL = {
     reason: 'reasoning high',
     note: SPINE.service,
   } satisfies TerminalFoot,
-  // The hero prompt types one coherent run of the spine PR and rests on the
-  // merge (data-ft-once in Hero.astro: type, hold, advance, stop). The hero
-  // reads as a single engineer taking REQ-PAY-014 from intent to merge, not a
-  // looping capability reel. Reduced motion / no JS: the first beat is shown.
+  // The hero prompt's bottom line is a capability reel: one highlight per station,
+  // typed/held/deleted and shuffled on each load (data-ft-once + data-ft-shuffle in
+  // Hero.astro: shuffle, type, hold, advance, stop on the last beat). Reduced motion
+  // / no JS: run[0] is the server-rendered resting state, fully legible.
   run: [
-    '/sdd implement REQ-PAY-014',
-    'tests first → 10 of 10 green',
-    'drift caught → agent corrects',
-    '/review --deep · 6 agents · clean',
-    'gh pr merge 207 → main',
+    'spec-driven · enforced, not suggested',
+    'legacy · bootstrapped to an SDD baseline',
+    'zero trust · the architecture, not a policy',
+    'ephemeral, runs everywhere and nowhere',
+    'the open web · distilled, and driven',
+    'agents · citizens of your pipeline',
+    'drift impossible by design',
+    'knowledge graph · skills and tools · MCP',
+    'cost attributed · dynamically routed',
+    'codeflare built this page',
   ],
 };
 
@@ -358,7 +363,7 @@ export const SECURITY = {
  *  claims. Structural twin of the enforcement gate; the DLP redaction is the
  *  one amber beat. */
 export const EGRESS = {
-  call: `${SPINE.pr} · POST /v1/chat/completions → gateway`,
+  call: 'POST /v1/chat/completions',
   rows: [
     { actor: 'guardrails', state: 'pass', label: 'passed', text: 'prompt and tool calls within policy' },
     {
@@ -380,7 +385,7 @@ export const GITHUB_URL = 'https://github.com/nikolanovoselec/codeflare';
  *  this is the most credible artifact on the page: it is literally true. */
 export const DOGFOOD = {
   id: 'dogfood',
-  station: { n: '11', label: 'proof' },
+  station: { n: '10', label: 'proof' },
   title: 'Codeflare built this page.',
   lead:
     'This landing page is REQ-LANDING-001 in the Codeflare specification, built and shipped by ' +
@@ -650,10 +655,10 @@ export const COST = {
     sample: 'showing 4 of 41 model calls · totals cover the full run',
     columns: ['time', 'user', 'team', 'agent', 'route', 'cost'],
     rows: [
-      { time: '09:41:03', user: 'a.chen', team: 'payments', agent: 'spec-enforce', route: 'gateway / openai', cost: '$0.08' },
-      { time: '09:41:11', user: 'a.chen', team: 'payments', agent: 'code-reviewer', route: 'gateway / anthropic', cost: '$0.21' },
-      { time: '09:41:19', user: 'a.chen', team: 'payments', agent: 'container', route: 'cf-containers', cost: '$0.03' },
-      { time: '09:41:25', user: 'a.chen', team: 'payments', agent: 'browser-fetch', route: 'isolated-render', cost: '$0.01' },
+      { time: '09:41:03', user: 't.anderson', team: 'payments', agent: 'spec-enforce', route: 'gateway / openai', cost: '$0.08' },
+      { time: '09:41:11', user: 't.anderson', team: 'payments', agent: 'code-reviewer', route: 'gateway / anthropic', cost: '$0.21' },
+      { time: '09:41:19', user: 't.anderson', team: 'payments', agent: 'container', route: 'cf-containers', cost: '$0.03' },
+      { time: '09:41:25', user: 't.anderson', team: 'payments', agent: 'browser-fetch', route: 'isolated-render', cost: '$0.01' },
     ] satisfies LedgerRow[],
     totals: [
       { label: 'environment', value: '$0.34' },
@@ -700,7 +705,7 @@ export const TENANCY = {
 
 export const FAQ_SECTION = {
   id: 'faq',
-  station: { n: '10', label: 'answers' },
+  station: { n: '11', label: 'answers' },
   title: 'The answers, up front.',
 };
 
@@ -763,6 +768,7 @@ export const TRUSTED = {
     src: '/landing/customers/swiss-post.svg',
     alt: 'Swiss Post',
     name: 'Swiss Post',
+    href: 'https://www.post.ch',
   },
 };
 

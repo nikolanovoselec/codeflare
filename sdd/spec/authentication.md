@@ -640,12 +640,14 @@ None.
 <!-- @test: landing/src/__tests__/login.script.test.ts (REQ-AUTH-020 describe -> ?status / ?error param state handling reshapes the page -> AC3) -->
 <!-- @test: landing/src/__tests__/contact-controller.test.ts (contact-controller (REQ-LANDING-002) describe / pickDeepLinkTopic describe -> returns the enterprise-deployment topic from ?topic= and rejects crafted values -> REQ-AUTH-020 AC2) -->
 <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 describe -> /login rewrite to /landing/login/ in onboarding mode + callback mode-aware redirect + access-request record + emails + sendAccessRequestConfirmation -> AC1,AC3,AC4) -->
+<!-- @test: host/__tests__/wrangler-run-worker-first.test.js (wrangler run_worker_first control-plane routes describe -> /login is in run_worker_first so the onboarding rewrite runs at the edge instead of the SPA asset being served directly -> AC1) -->
 ### REQ-AUTH-020: Onboarding-mode landing-integrated login and access-request flow
 
 <!-- @impl: landing/src/pages/login.astro -->
 <!-- @impl: landing/src/scripts/login.ts -->
 <!-- @impl: landing/src/content/site.ts -->
 <!-- @impl: src/index.ts -->
+<!-- @impl: wrangler.toml -->
 <!-- @impl: src/routes/github-auth.ts -->
 <!-- @impl: src/lib/email.ts -->
 <!-- @impl: landing/src/components/ContactForm.astro -->
@@ -667,6 +669,7 @@ None.
 - The enterprise SSO buttons are contact-form deep links, not identity providers; no real OIDC handshake is configured for them.
 - The access-request branch is reached only after a completed GitHub OAuth, so the human is already authenticated; no Turnstile re-challenge is applied on this path.
 - Email delivery is best-effort via the shared `sendEmail` helper; a Resend failure or missing `RESEND_API_KEY` does not block the redirect.
+- The `/login` rewrite only executes if `/login` is listed in the Cloudflare Assets `run_worker_first` allowlist (`wrangler.toml`); without it the asset layer serves the SPA `index.html` at the edge and the Worker never runs for `/login`, so AC1 silently fails in production while the worker-level unit test still passes.
 
 **Priority:** P1
 

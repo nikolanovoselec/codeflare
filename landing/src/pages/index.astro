@@ -181,7 +181,7 @@ import {
               ))
             }
           </div>
-          <div class="gate-subhead">one call through it · {EGRESS.call}</div>
+          <div class="gate-subhead">one call leaves the boundary · {EGRESS.call}</div>
           <div class="gate-steps">
             {
               EGRESS.rows.map((row, i) => (
@@ -332,9 +332,7 @@ import {
                 const last = i === ORCHESTRATION.agents.length - 1;
                 return (
                   <Fragment>
-                    <span class="t-line orch-agent-line" data-orch-agent data-activities={JSON.stringify(agent.activities)}>
-                      <span class="orch-branch" aria-hidden="true">{last ? '└ ' : '├ '}</span><span class="orch-agent">{agent.agent}</span><span class="orch-meta"> ({agent.task}) · <span data-orch-tooluses>{agent.toolUses}</span> tool uses · <span data-orch-tokens>{agent.tokens.toFixed(1)}</span>k tokens</span>
-                    </span>
+                    <span class="t-line orch-agent-line" data-orch-agent data-activities={JSON.stringify(agent.activities)}><span class="orch-branch" aria-hidden="true">{last ? '└ ' : '├ '}</span><span class="orch-agent">{agent.agent}</span><span class="orch-meta"> ({agent.task}) · <span data-orch-tooluses>{agent.toolUses}</span> tool uses · <span data-orch-tokens>{agent.tokens.toFixed(1)}</span>k tokens</span></span>
                     <span class="t-line orch-sub"><span class="orch-branch" aria-hidden="true">{last ? '  └ ' : '│ └ '}</span><span data-orch-activity>{agent.activities[0]}</span></span>
                   </Fragment>
                 );
@@ -475,30 +473,11 @@ import {
     </section>
 
     <!-- Station 10, Answers: the FAQ, the four governance questions lead. -->
-    <section id={FAQ_SECTION.id} class="section section--alt" data-station={FAQ_SECTION.station.n}>
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="station-marker"><span class="station-n">{FAQ_SECTION.station.n}</span><span class="station-label">{FAQ_SECTION.station.label}</span></p>
-          <h2>{FAQ_SECTION.title}</h2>
-        </div>
-        <div class="faq reveal">
-          {
-            FAQ_ITEMS.map((item) => (
-              <details class="faq-item">
-                <summary>{item.question}</summary>
-                <p class="faq-answer">{item.answer}</p>
-              </details>
-            ))
-          }
-        </div>
-      </div>
-    </section>
-
-    <!-- Station 11, Proof: this very page is a Codeflare-governed requirement.
+    <!-- Station 10, Proof: this very page is a Codeflare-governed requirement.
          The proof is real (the @impl / @test anchors live in sdd/spec/landing.md),
-         the Swiss Post customer band folds in as its social-proof tail, and it
-         leads straight into the contact CTA as the closing argument. -->
-    <section id={DOGFOOD.id} class="section" data-station={DOGFOOD.station.n}>
+         the Swiss Post customer band folds in as its social-proof tail. It sits
+         before the FAQ so the dogfood proof lands before the closing answers. -->
+    <section id={DOGFOOD.id} class="section section--alt" data-station={DOGFOOD.station.n}>
       <div class="container">
         <div class="section-head reveal">
           <p class="station-marker"><span class="station-n">{DOGFOOD.station.n}</span><span class="station-label">{DOGFOOD.station.label}</span></p>
@@ -524,19 +503,46 @@ import {
         </p>
         <!-- Trusted-by folded into the proof station: a single national-institution
              customer as the social-proof tail of the dogfood argument, a quiet
-             band before the contact close (belongs to station 11). -->
+             band (belongs to station 10). The logo links to the customer site. -->
         <div class="trusted-section substation">
           <p class="trusted-label reveal">{TRUSTED.label}</p>
           <div class="trusted-logos reveal">
-            <img
-              class="trusted-logo"
-              src={TRUSTED.logo.src}
-              alt={TRUSTED.logo.alt}
-              width="72"
-              height="72"
-              loading="lazy"
-            />
+            <a
+              class="trusted-logo-link"
+              href={TRUSTED.logo.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`${TRUSTED.logo.name} (opens in a new tab)`}
+            >
+              <img
+                class="trusted-logo"
+                src={TRUSTED.logo.src}
+                alt={TRUSTED.logo.alt}
+                width="72"
+                height="72"
+                loading="lazy"
+              />
+            </a>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section id={FAQ_SECTION.id} class="section" data-station={FAQ_SECTION.station.n}>
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="station-marker"><span class="station-n">{FAQ_SECTION.station.n}</span><span class="station-label">{FAQ_SECTION.station.label}</span></p>
+          <h2>{FAQ_SECTION.title}</h2>
+        </div>
+        <div class="faq reveal">
+          {
+            FAQ_ITEMS.map((item) => (
+              <details class="faq-item">
+                <summary>{item.question}</summary>
+                <p class="faq-answer">{item.answer}</p>
+              </details>
+            ))
+          }
         </div>
       </div>
     </section>
@@ -582,6 +588,16 @@ import {
     width: auto;
   }
 
+  /* The logo links to the customer site; a quiet hover signals it is clickable. */
+  .trusted-logo-link {
+    display: inline-flex;
+    transition: opacity 0.2s ease;
+  }
+
+  .trusted-logo-link:hover {
+    opacity: 0.7;
+  }
+
   /* Orchestration terminal: the "Running N agents" operator tree. Reuses the
      terminal chrome; these tones colour the live agent rows over the mono body. */
   .orch-head {
@@ -602,6 +618,21 @@ import {
   .orch-hint,
   .orch-branch {
     color: var(--term-dim);
+  }
+
+  /* The agent tree relies on box-drawing connectors (├ │ └) lining up across
+     lines. `pre` preserves the leading-space indentation each row needs; a tighter
+     line-height closes the vertical gaps so the bars read as continuous lines; and
+     horizontal scroll keeps the tree intact on a phone instead of wrapping (which
+     misaligned the connectors). Scoped to the orch terminal so other terminals
+     keep their phone wrapping. */
+  .orch .terminal-body {
+    overflow-x: auto;
+  }
+
+  .orch .t-line {
+    white-space: pre;
+    line-height: 1.4;
   }
 
   /* Sub-content folded into a numbered station (operations under 04, tenancy

@@ -154,8 +154,33 @@ describe('feature-terminals.ts (REQ-LANDING-001)', () => {
     // throws on runaway timers); terminating at all is itself proof of no loop-back.
     vi.runAllTimers();
 
-    // The hero rests on the last beat (the merge), legible and final.
+    // The hero rests on the last beat, legible and final.
     expect(typed.textContent).toBe('final');
+  });
+
+  it('REQ-LANDING-001: a data-ft-shuffle terminal randomises the beat order (deterministic with a stubbed RNG)', async () => {
+    const run = ['one', 'two', 'final'];
+    const { typed } = buildFixture(run);
+    const term = document.querySelector('[data-ft-loop]') as HTMLElement;
+    term.setAttribute('data-ft-once', '');
+    term.setAttribute('data-ft-shuffle', '');
+    mockMatchMedia(false);
+    // Fisher-Yates with Math.random()===0 maps ['one','two','final'] -> ['two','final','one'].
+    const rng = vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    await import('../scripts/feature-terminals');
+
+    // The shuffle runs at import time: the resting/initial beat is the shuffled
+    // head ('two'), not the authored loop[0] ('one'). That divergence is the proof
+    // the shuffle fired (a no-shuffle run would still read 'one' here).
+    expect(typed.textContent).toBe('two');
+
+    // Play-once still holds under shuffle: draining every timer terminates and
+    // rests on the shuffled last beat ('one'), never looping back.
+    vi.runAllTimers();
+    expect(typed.textContent).toBe('one');
+
+    rng.mockRestore();
   });
 
   it('REQ-LANDING-001: a terminal with invalid JSON in data-ft-loop is skipped gracefully', async () => {
