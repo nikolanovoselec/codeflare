@@ -641,6 +641,9 @@ None.
 <!-- @test: landing/src/__tests__/contact-controller.test.ts (contact-controller (REQ-LANDING-002) describe / pickDeepLinkTopic describe -> returns the enterprise-deployment topic from ?topic= and rejects crafted values -> REQ-AUTH-020 AC2) -->
 <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 describe -> /login rewrite to /landing/login/ in onboarding mode + callback mode-aware redirect + access-request record + emails + sendAccessRequestConfirmation -> AC1,AC3,AC4) -->
 <!-- @test: host/__tests__/wrangler-run-worker-first.test.js (wrangler run_worker_first control-plane routes describe -> /login is in run_worker_first so the onboarding rewrite runs at the edge instead of the SPA asset being served directly -> AC1) -->
+<!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-020 onboarding mode trusts the codeflare_session cookie describe -> valid session authenticates with SAAS inactive + onboarding active, not trusted when neither mode active, AuthError when JWT secret missing, no fallthrough to CF Access on invalid session -> AC5) -->
+<!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser REQ-AUTH-020 -> active tier passes and pending is 403 PENDING in onboarding mode with SAAS inactive -> AC5) -->
+<!-- @test: src/__tests__/lib/onboarding.test.ts (isSessionOidcMode REQ-AUTH-020 describe -> true for SaaS or onboarding, false when both inactive -> AC5) -->
 ### REQ-AUTH-020: Onboarding-mode landing-integrated login and access-request flow
 
 <!-- @impl: landing/src/pages/login.astro -->
@@ -652,6 +655,9 @@ None.
 <!-- @impl: src/lib/email.ts -->
 <!-- @impl: landing/src/components/ContactForm.astro -->
 <!-- @impl: landing/src/scripts/contact-controller.ts -->
+<!-- @impl: src/lib/onboarding.ts::isSessionOidcMode -->
+<!-- @impl: src/lib/access.ts::validateSessionOidc -->
+<!-- @impl: src/middleware/auth.ts::requireActiveUser -->
 
 **Intent:** In onboarding mode, sign-in shares the marketing landing's design system: visitors get a GitHub sign-in plus enterprise-SSO request affordances on a landing-built `/login` page, and a GitHub OAuth that does not resolve to an approved user records an access request and tells the visitor it was received, rather than dropping them at a subscribe page.
 
@@ -663,10 +669,12 @@ None.
 2. The page offers a GitHub sign-in linking to `/auth/github/login` and four enterprise SSO buttons (Microsoft Entra ID, Okta, Ping Identity, Google Workspace) rendered as expand-to-CTA controls that deep-link to the contact form with `topic=enterprise-deployment` (preselected via `pickDeepLinkTopic`); these controls never start an OIDC flow.
 3. After GitHub OAuth, an active-tier user is redirected to `/app/`; a non-approved user in onboarding mode has an access request recorded on their stored record (pending tier plus `requestedAt`, idempotent across repeat sign-ins), admin and user confirmation emails are sent via Resend (`sendAccessRequestConfirmation`), and the user is redirected to `/login?status=requested`, which the page reshapes into a "request submitted" confirmation state.
 4. The onboarding access-request branch never runs in SaaS mode (which keeps the existing `/app/subscribe` redirect for pending users) or in enterprise mode.
+5. In onboarding mode the app trusts and refreshes the `codeflare_session` cookie that the GitHub callback issues, via the same app-owned GitHub-OIDC path used in SaaS mode (gated by `isSessionOidcMode` = `SAAS_MODE` active OR `ONBOARDING_LANDING_PAGE` active). So an approved (active) user reaches `/app` after sign-in, and the active-tier middleware (`requireActiveUser`) also applies in onboarding, keeping `/app` approved-users-only (a pending visitor holding a session is still gated out of app APIs). Enterprise / default deployments continue to authenticate via Cloudflare Access and are unaffected.
 
 **Constraints:**
 
 - The enterprise SSO buttons are contact-form deep links, not identity providers; no real OIDC handshake is configured for them.
+- Onboarding sign-in is backed by the app's own GitHub OAuth (the `codeflare_session` path), not Cloudflare Access. The GitHub OAuth App's authorization callback URL must therefore match the deployment's own domain (`https://<domain>/auth/github/callback`). A classic GitHub OAuth App permits only one callback URL, so each deployment domain (e.g. integration vs production) needs its own OAuth App; pointing one app's callback at a different domain makes GitHub bounce sign-in back to the registered domain.
 - The access-request branch is reached only after a completed GitHub OAuth, so the human is already authenticated; no Turnstile re-challenge is applied on this path.
 - Email delivery is best-effort via the shared `sendEmail` helper; a Resend failure or missing `RESEND_API_KEY` does not block the redirect.
 - The `/login` rewrite only executes if `/login` is listed in the Cloudflare Assets `run_worker_first` allowlist (`wrangler.toml`); without it the asset layer serves the SPA `index.html` at the edge and the Worker never runs for `/login`, so AC1 silently fails in production while the worker-level unit test still passes.

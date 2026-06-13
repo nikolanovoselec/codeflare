@@ -299,6 +299,48 @@ describe('Three-tier auth middleware (SaaS mode) / REQ-AUTH-005 (requireIdentity
       const body = await res.json() as { code: string };
       expect(body.code).toBe('PENDING');
     });
+
+    // REQ-AUTH-020: the tier gate also applies in onboarding mode (SAAS inactive),
+    // so /app stays approved-users-only — an approved (active) user passes, a
+    // pending onboarding visitor with a session cookie is still blocked.
+    it('REQ-AUTH-020: allows active tier through in onboarding mode (SAAS inactive)', async () => {
+      mockAuthResult.user = {
+        email: 'approved@example.com',
+        authenticated: true,
+        role: 'user',
+        accessTier: 'advanced',
+        subscriptionTier: 'advanced',
+      };
+
+      const app = createApp(requireActiveUser, { ONBOARDING_LANDING_PAGE: 'active', SAAS_MODE: 'inactive' });
+      const res = await app.request('/test', {
+        headers: { 'cf-access-authenticated-user-email': 'approved@example.com' },
+      });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('REQ-AUTH-020: blocks pending users with 403 PENDING in onboarding mode (SAAS inactive)', async () => {
+      mockAuthResult.user = {
+        email: 'pending@example.com',
+        authenticated: true,
+        role: 'user',
+        accessTier: 'pending',
+        subscriptionTier: 'pending',
+      };
+
+      const app = createApp(requireActiveUser, { ONBOARDING_LANDING_PAGE: 'active', SAAS_MODE: 'inactive' });
+      const res = await app.request('/test', {
+        headers: {
+          'cf-access-authenticated-user-email': 'pending@example.com',
+          'Accept': 'application/json',
+        },
+      });
+
+      expect(res.status).toBe(403);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('PENDING');
+    });
   });
 
   // ===========================================================================

@@ -91,8 +91,8 @@ describe('onboarding login page (REQ-AUTH-020)', () => {
     // The flare-fluid mount-point comes from BaseLayout; its presence is what makes
     // the login share the marketing page's cursor splash (seamless flow requirement).
     expect(html).toContain('data-flare-fluid');
-    // The shared brand mark anchors the card.
-    expect(html).toContain('brand-mark');
+    // The card leads with the title (the redundant codeflare wordmarks were removed
+    // for a cleaner page); the "Sign in to Codeflare" title carries the brand.
     expect(text).toContain(LOGIN.title);
   });
 

@@ -824,8 +824,8 @@ export const LOGIN = {
   ] satisfies SsoProvider[],
   sso: {
     body:
-      'Single sign-on with your identity provider is available on Codeflare Enterprise. ' +
-      'Tell us which provider you run and we will set it up with you.',
+      'is wired in when Codeflare Enterprise is deployed into your own cloud account, ' +
+      'where your identity provider and access policies are configured. That is why it starts with a conversation.',
     cta: { label: 'Get in touch', href: '/landing/?topic=enterprise-deployment#contact' },
   },
   helper:

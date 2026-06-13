@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isOnboardingLandingPageActive, isSaasModeActive } from '../../lib/onboarding';
+import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from '../../lib/onboarding';
 
 describe('isOnboardingLandingPageActive / REQ-SETUP-003 (three deploy modes: Default / Onboarding / SaaS)', () => {
   it('returns true only for active (case-insensitive)', () => {
@@ -52,6 +52,21 @@ describe('deployment mode helpers - REQ-SETUP-003 AC4 binding semantics', () => 
   it('REQ-SETUP-003 AC2: ONBOARDING_LANDING_PAGE=active activates onboarding mode independently of SAAS_MODE', () => {
     expect(isOnboardingLandingPageActive('active')).toBe(true);
     expect(isSaasModeActive(undefined)).toBe(false);
+  });
+});
+
+describe('isSessionOidcMode / REQ-AUTH-020 (app-owned codeflare_session trust)', () => {
+  it('is true when SaaS mode is active', () => {
+    expect(isSessionOidcMode({ SAAS_MODE: 'active', ONBOARDING_LANDING_PAGE: 'inactive' })).toBe(true);
+  });
+
+  it('is true when onboarding mode is active (the bug this fixes: SaaS inactive)', () => {
+    expect(isSessionOidcMode({ SAAS_MODE: 'inactive', ONBOARDING_LANDING_PAGE: 'active' })).toBe(true);
+  });
+
+  it('is false when both are inactive (CF Access / default mode owns auth)', () => {
+    expect(isSessionOidcMode({ SAAS_MODE: 'inactive', ONBOARDING_LANDING_PAGE: 'inactive' })).toBe(false);
+    expect(isSessionOidcMode({})).toBe(false);
   });
 });
 

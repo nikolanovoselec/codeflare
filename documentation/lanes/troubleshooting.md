@@ -55,6 +55,16 @@ Stale `setup:auth_domain` (JWT mismatch), stale `setup:access_aud`, or email cas
 
 Browser retained stale Access session. Test in incognito. Clear CF Access cookies. Confirm one managed app with correct destinations.
 
+### Onboarding GitHub Sign-in Bounces to the Landing / `/app` Shows "Authentication required"
+
+**Symptom:** In onboarding mode (`ONBOARDING_LANDING_PAGE=active`, `SAAS_MODE=inactive`), clicking "Continue with GitHub" lands the user back on the marketing landing, and visiting `/app` shows "Authentication Error: Authentication required. Please refresh the page." `/auth/github/login` itself 302s to GitHub correctly.
+
+**Cause (two independent failure modes):**
+1. **App-owned session not trusted in onboarding (code).** The onboarding GitHub callback issues a `codeflare_session` cookie, but the access layer (`getUserFromRequest` / `validateSessionOidc`), the session-refresh in `index.ts`, and the `requireActiveUser` tier gate only honour that cookie in an *app-owned OIDC mode* (`isSessionOidcMode` = `SAAS_MODE` active OR `ONBOARDING_LANDING_PAGE` active; [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-and-access-request-flow) AC5). If a deployment somehow runs the callback without onboarding/SaaS being active at the access layer, `/app` rejects the session and the SPA bounces to the landing.
+2. **GitHub OAuth App callback domain mismatch (config).** The OAuth App's authorization callback URL must equal `https://<this-domain>/auth/github/callback`. If it points at a different domain (e.g. the production `codeflare.ch` app reused on the integration `codeflare.novoselec.ch` domain), GitHub bounces sign-in back to the *registered* domain. A classic OAuth App allows one callback URL, so each deployment domain needs its own App (see `OAUTH_CLIENT_ID` in [configuration.md](./configuration.md)).
+
+**Fix:** (1) is fixed in code (onboarding is included in `isSessionOidcMode`). For (2), point the deployment's `OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET` at an OAuth App whose callback is this domain. Quick check: `curl -sI https://<domain>/auth/github/login` should 302 to `github.com/login/oauth/authorize` with `redirect_uri=https://<domain>/auth/github/callback`; that `redirect_uri` host must match the OAuth App's registered callback.
+
 ### Container Stuck at "Waiting for Services"
 
 The loading screen waits for both R2 sync and PTY pre-warm to complete before signalling ready. Check `GET /api/container/startup-status?sessionId=xxx` and inspect the `details.syncError` field.

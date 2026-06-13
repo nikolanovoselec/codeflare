@@ -659,3 +659,99 @@ describe('REQ-AUTH-011: Auth resolution order', () => {
     expect(user.email).toBe('');
   });
 });
+
+// ===========================================================================
+// REQ-AUTH-020: Onboarding mode trusts the app-owned GitHub OIDC session.
+// The onboarding GitHub callback issues a codeflare_session cookie, so the
+// access layer must trust it even though SAAS_MODE is inactive — otherwise an
+// approved user can never reach /app in onboarding (the regression this guards).
+// ===========================================================================
+describe('REQ-AUTH-020: onboarding mode trusts the codeflare_session cookie', () => {
+  let mockKV: ReturnType<typeof createMockKV>;
+
+  beforeEach(() => {
+    mockKV = createMockKV();
+    vi.clearAllMocks();
+    resetAuthConfigCache();
+  });
+
+  function makeEnv(overrides: Partial<Env> = {}): Env {
+    return { KV: mockKV as unknown as KVNamespace, ...overrides } as Env;
+  }
+
+  it('REQ-AUTH-020: valid codeflare_session authenticates in onboarding mode (SAAS inactive)', async () => {
+    const env = makeEnv({
+      SAAS_MODE: 'inactive',
+      ONBOARDING_LANDING_PAGE: 'active',
+      OAUTH_CLIENT_ID: 'gh-client-id',
+      OAUTH_JWT_SECRET: TEST_JWT_SECRET,
+    });
+    const token = await signSessionJWT(
+      { email: 'approved@example.com', sub: 'gh-7', ghLogin: 'approved', aud: SESSION_JWT_AUD },
+      TEST_JWT_SECRET,
+    );
+    const request = new Request('http://localhost/app', {
+      headers: { Cookie: `codeflare_session=${token}` },
+    });
+
+    const user = await getUserFromRequest(request, env);
+
+    expect(user.authenticated).toBe(true);
+    expect(user.email).toBe('approved@example.com');
+  });
+
+  it('REQ-AUTH-020: the session is NOT trusted when neither SaaS nor onboarding is active', async () => {
+    // Regression guard: the cookie is trusted only in app-owned OIDC modes.
+    const env = makeEnv({
+      SAAS_MODE: 'inactive',
+      ONBOARDING_LANDING_PAGE: 'inactive',
+      OAUTH_CLIENT_ID: 'gh-client-id',
+      OAUTH_JWT_SECRET: TEST_JWT_SECRET,
+    });
+    const token = await signSessionJWT(
+      { email: 'approved@example.com', sub: 'gh-7', ghLogin: 'approved', aud: SESSION_JWT_AUD },
+      TEST_JWT_SECRET,
+    );
+    const request = new Request('http://localhost/app', {
+      headers: { Cookie: `codeflare_session=${token}` },
+    });
+
+    const user = await getUserFromRequest(request, env);
+
+    // validateSessionOidc returns null → CF Access (none) → pre-setup (no header) → unauthenticated.
+    expect(user.authenticated).toBe(false);
+  });
+
+  it('REQ-AUTH-020: throws AuthError when onboarding is active but OAUTH_JWT_SECRET is missing', async () => {
+    const env = makeEnv({
+      ONBOARDING_LANDING_PAGE: 'active',
+      OAUTH_CLIENT_ID: 'gh-client-id',
+      // OAUTH_JWT_SECRET intentionally absent
+    });
+    const request = new Request('http://localhost/app', {
+      headers: { Cookie: 'codeflare_session=some-token' },
+    });
+
+    await expect(getUserFromRequest(request, env)).rejects.toBeInstanceOf(AuthError);
+  });
+
+  it('REQ-AUTH-020: onboarding OIDC branch does not fall through to CF Access on an invalid session', async () => {
+    const env = makeEnv({
+      ONBOARDING_LANDING_PAGE: 'active',
+      OAUTH_CLIENT_ID: 'gh-client-id',
+      OAUTH_JWT_SECRET: TEST_JWT_SECRET,
+    });
+    const request = new Request('http://localhost/app', {
+      headers: {
+        Cookie: 'codeflare_session=invalid.jwt.token',
+        // Must be ignored — onboarding OIDC does not fall through to CF Access.
+        'cf-access-authenticated-user-email': 'attacker@evil.com',
+      },
+    });
+
+    const user = await getUserFromRequest(request, env);
+
+    expect(user.authenticated).toBe(false);
+    expect(user.email).toBe('');
+  });
+});

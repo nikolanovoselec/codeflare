@@ -9,7 +9,7 @@
 import { Context, Next } from 'hono';
 import { authenticateRequest } from '../lib/access';
 import { ForbiddenError } from '../lib/error-types';
-import { isSaasModeActive } from '../lib/onboarding';
+import { isSessionOidcMode } from '../lib/onboarding';
 import { isActiveTier, getEffectiveTier, isEnterpriseMode } from '../lib/subscription';
 import type { Env, AccessUser } from '../types';
 
@@ -37,9 +37,10 @@ export async function requireIdentity(c: Context<{ Bindings: Env; Variables: Aut
 }
 
 /**
- * requireActiveUser — authenticate + enforce access-tier gate when SAAS_MODE is active.
+ * requireActiveUser — authenticate + enforce the access-tier gate in the
+ * app-owned OIDC modes (SaaS and onboarding; REQ-AUTH-020).
  *
- * In SaaS mode:
+ * In SaaS / onboarding mode:
  *   - active tier (free/trial/standard/advanced/max/unlimited/undefined) → pass through
  *   - pending tier → 403 { code: 'PENDING' }
  *   - blocked tier → 403 { code: 'BLOCKED' }
@@ -47,7 +48,7 @@ export async function requireIdentity(c: Context<{ Bindings: Env; Variables: Aut
  * Note: HTML redirect to /app/subscribe for pending users is handled in index.ts routing,
  * not here. This middleware always returns JSON 403.
  *
- * When SAAS_MODE is not set, behaves identically to requireIdentity (backward compat).
+ * In CF Access / enterprise / default modes, behaves identically to requireIdentity.
  */
 export async function requireActiveUser(c: Context<{ Bindings: Env; Variables: AuthVariables }>, next: Next) {
   const { user, bucketName } = await authenticateRequest(c.req.raw, c.env);
@@ -55,8 +56,11 @@ export async function requireActiveUser(c: Context<{ Bindings: Env; Variables: A
   c.set('bucketName', bucketName);
 
   // Enterprise deploys: every user is treated as active (unlimited tier), so the
-  // pending/blocked 403 gate is skipped entirely. No-op when the flag is unset.
-  if (isSaasModeActive(c.env.SAAS_MODE) && !isEnterpriseMode(c.env)) {
+  // pending/blocked 403 gate is skipped entirely. The tier gate applies in the
+  // app-owned OIDC modes (SaaS and onboarding; REQ-AUTH-020) so /app stays
+  // approved-users-only — a pending onboarding visitor who has a session cookie
+  // is still blocked from app APIs. No-op in CF Access / default modes.
+  if (isSessionOidcMode(c.env) && !isEnterpriseMode(c.env)) {
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
     // isActiveTier: blocked/pending → false (403), active tiers → true (pass)
     // Note: canLogin in tier config controls authentication (pending=true → can see subscribe page).

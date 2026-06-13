@@ -3,7 +3,7 @@ import { verifyAccessJWT } from './jwt';
 import { verifySessionJWT, SESSION_JWT_AUD } from './session-jwt';
 import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';
-import { isSaasModeActive } from './onboarding';
+import { isSaasModeActive, isSessionOidcMode } from './onboarding';
 import { isEnterpriseMode } from './subscription';
 import { sendWelcomeEmail } from './email';
 import { parseUserRecord } from './user-record';
@@ -102,9 +102,11 @@ function getCookieValue(cookieHeader: string | null, key: string): string | null
  * 1. Service token (X-Service-Auth header) - for API/CLI/E2E clients.
  *    Constant-time comparison against SERVICE_AUTH_SECRET. Returns admin role.
  *
- * 2. SaaS mode + GitHub OIDC (codeflare_session cookie) - when SAAS_MODE=active
- *    and OAUTH_CLIENT_ID is set. HMAC-SHA256 JWT signed by OAUTH_JWT_SECRET.
- *    Replaces CF Access for SaaS deployments.
+ * 2. App-owned GitHub OIDC (codeflare_session cookie) - when SAAS_MODE=active
+ *    OR ONBOARDING_LANDING_PAGE=active, and OAUTH_CLIENT_ID is set. HMAC-SHA256
+ *    JWT signed by OAUTH_JWT_SECRET. Replaces CF Access for SaaS and onboarding
+ *    deployments (REQ-AUTH-020: the onboarding GitHub callback issues this same
+ *    session, so onboarding must trust it here too).
  *
  * 3. CF Access JWT (cf-access-jwt-assertion header or CF_Authorization cookie) -
  *    default/non-SaaS mode. Verified via JWKS from the CF Access auth domain.
@@ -235,20 +237,21 @@ async function validateServiceAuthHeader(request: Request, env?: Env): Promise<A
 }
 
 /**
- * SaaS mode + GitHub OIDC: verify codeflare_session cookie (HMAC JWT).
- * This replaces CF Access JWT verification when OAUTH_CLIENT_ID is configured.
+ * App-owned GitHub OIDC: verify the codeflare_session cookie (HMAC JWT). Active
+ * in SaaS mode AND onboarding mode (REQ-AUTH-020) — both issue this session via
+ * the GitHub callback. Replaces CF Access JWT verification when OAUTH_CLIENT_ID
+ * is configured.
  *
- * Returns an {@link AccessUser} when SaaS OIDC is the active auth path (the
- * caller must NOT fall through to CF Access in that case), or `null` when SaaS
- * OIDC is not configured. Throws when SaaS mode is active but the JWT secret is
- * missing.
+ * Returns an {@link AccessUser} when app-owned OIDC is the active auth path (the
+ * caller must NOT fall through to CF Access in that case), or `null` when it is
+ * not configured. Throws when the mode is active but the JWT secret is missing.
  */
-async function validateSaasOidc(request: Request, env?: Env): Promise<AccessUser | null> {
-  if (!(env && isSaasModeActive(env.SAAS_MODE) && env.OAUTH_CLIENT_ID)) {
+async function validateSessionOidc(request: Request, env?: Env): Promise<AccessUser | null> {
+  if (!(env && isSessionOidcMode(env) && env.OAUTH_CLIENT_ID)) {
     return null;
   }
   if (!env.OAUTH_JWT_SECRET) {
-    throw new AuthError('SaaS mode active but OAUTH_JWT_SECRET not configured');
+    throw new AuthError('App-owned OIDC mode active but OAUTH_JWT_SECRET not configured');
   }
   const sessionToken = getCookieValue(request.headers.get('Cookie'), 'codeflare_session');
   if (!sessionToken) {
@@ -314,8 +317,8 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
   const serviceAuthResult = await validateServiceAuthHeader(request, env);
   if (serviceAuthResult) return serviceAuthResult;
 
-  const saasResult = await validateSaasOidc(request, env);
-  if (saasResult) return saasResult;
+  const sessionResult = await validateSessionOidc(request, env);
+  if (sessionResult) return sessionResult;
 
   const cfAccessResult = await verifyCfAccessJwt(jwtToken, config);
   if (cfAccessResult) return cfAccessResult;

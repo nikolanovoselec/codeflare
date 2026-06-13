@@ -32,7 +32,7 @@ import { authenticateRequest } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
 import { verifySessionJWT, shouldRefreshJWT, signSessionJWT, SESSION_JWT_AUD, cookieDomainAttr } from './lib/session-jwt';
 import { warnIfNoEncryptionKey } from './lib/kv-crypto';
-import { isOnboardingLandingPageActive, isSaasModeActive } from './lib/onboarding';
+import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from './lib/onboarding';
 import { isActiveUser } from './lib/access-tier';
 import { getEffectiveTier } from './lib/subscription';
 import authApiRoutes from './routes/auth';
@@ -136,8 +136,8 @@ app.use('*', async (c, next) => {
 // SaaS mode: cookie refresh middleware - extends session when < 15 min remaining
 app.use('*', async (c, next) => {
   await next();
-  // Only refresh for SaaS OIDC mode
-  if (!isSaasModeActive(c.env.SAAS_MODE) || !c.env.OAUTH_CLIENT_ID || !c.env.OAUTH_JWT_SECRET) return;
+  // Only refresh app-owned OIDC sessions (SaaS or onboarding; REQ-AUTH-020)
+  if (!isSessionOidcMode(c.env) || !c.env.OAUTH_CLIENT_ID || !c.env.OAUTH_JWT_SECRET) return;
   const cookieHeader = c.req.header('Cookie');
   if (!cookieHeader) return;
   const match = cookieHeader.match(/codeflare_session=([^;]+)/);

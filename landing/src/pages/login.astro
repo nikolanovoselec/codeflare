@@ -27,20 +27,16 @@ const GITHUB_PATH =
   canonical="https://codeflare.ch/login/"
   robots="noindex, nofollow"
 >
-  <nav class="site-nav">
+  <nav class="site-nav login-nav">
     <div class="container">
-      <a class="brand" href="/landing/"><span class="brand-mark" aria-hidden="true"></span>codeflare</a>
-      <div class="nav-right">
-        <a class="btn btn-ghost btn-sm" href={LOGIN.back.href}>{LOGIN.back.label}</a>
-      </div>
+      <a class="btn btn-ghost btn-sm login-back" href={LOGIN.back.href}>
+        <span class="login-back-arrow" aria-hidden="true">&larr;</span> {LOGIN.back.label}
+      </a>
     </div>
   </nav>
 
   <main class="login-main">
     <div class="login-card reveal">
-      <a class="login-brand" href="/landing/" aria-label="Codeflare">
-        <span class="brand-mark" aria-hidden="true"></span><span>codeflare</span>
-      </a>
       <h1 class="login-title">{LOGIN.title}</h1>
       <p class="login-sub">{LOGIN.sub}</p>
 
@@ -119,25 +115,6 @@ const GITHUB_PATH =
 
   .login-card {
     text-align: center;
-  }
-
-  /* The wordmark, larger than the nav brand, anchors the card. */
-  .login-brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.55rem;
-    font-family: var(--font-mono);
-    font-size: 1.15rem;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    color: var(--text-primary);
-    text-decoration: none;
-    margin-bottom: 1.75rem;
-  }
-
-  .login-brand .brand-mark {
-    width: 1.4rem;
-    height: 1.4rem;
   }
 
   .login-title {
