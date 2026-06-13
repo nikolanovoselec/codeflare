@@ -141,6 +141,23 @@ describe('feature-terminals.ts (REQ-LANDING-001)', () => {
     expect(typed.textContent).toBe('initial');
   });
 
+  it('REQ-LANDING-001: a data-ft-once terminal (the hero) types through the run and rests on the final beat, no loop-back', async () => {
+    const run = ['one', 'two', 'final'];
+    const { typed } = buildFixture(run);
+    // The only difference from the looping feature tiles: the hero is play-once.
+    (document.querySelector('[data-ft-loop]') as HTMLElement).setAttribute('data-ft-once', '');
+    mockMatchMedia(false);
+
+    await import('../scripts/feature-terminals');
+
+    // Drain every scheduled timer. If once-mode looped, this never settles (vitest
+    // throws on runaway timers); terminating at all is itself proof of no loop-back.
+    vi.runAllTimers();
+
+    // The hero rests on the last beat (the merge), legible and final.
+    expect(typed.textContent).toBe('final');
+  });
+
   it('REQ-LANDING-001: a terminal with invalid JSON in data-ft-loop is skipped gracefully', async () => {
     const term = document.createElement('div');
     term.setAttribute('data-ft-loop', 'not-json');

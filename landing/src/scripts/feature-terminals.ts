@@ -17,6 +17,10 @@ const GAP_MS = 360;
 if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
   document.querySelectorAll<HTMLElement>('[data-ft-loop]').forEach((term, idx) => {
     const typed = term.querySelector<HTMLElement>('[data-ft-typed]');
+    // Play-once mode (the hero): type through the sequence and rest on the final
+    // beat instead of deleting and cycling. The feature terminals omit this and
+    // keep looping.
+    const once = term.hasAttribute('data-ft-once');
     let loop: string[] = [];
     try {
       loop = JSON.parse(term.getAttribute('data-ft-loop') ?? '[]');
@@ -33,6 +37,8 @@ if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     const step = () => {
       const word = loop[wi];
       if (phase === 'hold') {
+        // Play-once: the final beat is the resting state; do not delete or cycle.
+        if (once && wi === loop.length - 1) return;
         phase = 'delete';
         window.setTimeout(step, HOLD_MS + idx * 120);
         return;

@@ -14,7 +14,7 @@ A real-browser WebFetch fallback for advanced-mode agents, backed by Cloudflare 
 
 ### Out of Scope
 
-- **End-to-end / UI testing** -- Browser Run is a content-retrieval fallback, not a test runner; it does not drive the user's own app under test or assert on UI.
+- **Scripted test-runner / fixed-assertion e2e** -- Browser Run is not a Playwright/Cypress replacement for deterministic, repeatable assertions; those stay in the CI suite. Agent-driven *semantic* e2e (drive the user's own deployed app and judge it against intent) IS in scope -- see [REQ-BROWSER-004](#req-browser-004-agent-semantic-e2e-via-browser-run).
 - **In-browser code-execution sandbox** -- The browser loads public web targets only; it is not a sandbox for executing user or agent code.
 - **Authenticated / private targets** -- Only public targets are loaded; the fallback does not log in to walled sites on the user's behalf.
 - **Persistent browser sessions** -- No long-lived browser state, cookie jars, or profiles are retained across sessions. The Pi wrapper performs one-shot fetches, not interactive navigation.
@@ -119,6 +119,40 @@ A real-browser WebFetch fallback for advanced-mode agents, backed by Cloudflare 
 **Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-AGENT-007](agents.md#req-agent-007-multi-agent-adaptation-pipeline)
 
 **Verification:** Partly automated — `src/__tests__/lib/agent-seed-manifest.test.ts` asserts the `browser-run` skill is present in the generated Pi seed (AC4, skill-presence). The extension's runtime tool behavior is a Pi-runtime preseed artifact outside the Worker test suite, verified by review and by exercising the tools in an advanced Pi session.
+
+**Status:** Partial
+
+---
+
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-BROWSER-004 describe -> browser-e2e seeded for Claude (chrome-devtools) + Pi (native) advanced mode -> AC1..AC4) -->
+### REQ-BROWSER-004: Agent Semantic e2e via Browser Run
+
+<!-- @impl: preseed/agents/claude/skills/browser-e2e/SKILL.md -->
+<!-- @impl: preseed/agents/pi/skills/browser-e2e/SKILL.md -->
+<!-- @impl: preseed/agents/claude/manifest.json -->
+<!-- @impl: preseed/agents/pi/manifest.json -->
+
+**Intent:** An agent should be able to verify the team's own deployed app by judgment — navigate it in a real browser, observe what actually rendered, and decide whether it meets the acceptance criteria — as a complement to scripted CI e2e that catches the "renders but wrong" class of defect (visual regressions, broken responsive layout, behavior that passes a fixed assertion but is wrong) which selector assertions miss.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A `browser-e2e` skill is seeded (advanced mode) for Claude Code, positioning the interactive `chrome-devtools` surface (navigate / interact / observe / screenshot / measure) as a semantic verifier of the user's own deployed app, distinct from the `browser-run` fetch fallback, and requiring a pass/fail verdict per acceptance criterion backed by observed evidence.
+2. A dedicated Pi `browser-e2e` skill is seeded (advanced mode) using the Pi-native Browser Run tools (`browser_markdown` / `browser_content` / `browser_scrape`) to verify rendered page state by judgment; it states Pi's one-shot limitation (no interactive multi-step flows) and directs URL-reachable state checks instead.
+3. Both skills scope targets to public / deployed URLs (Browser Run is remote and cannot reach localhost or private hosts) and to the user's own app under test, and both state that deterministic invariants remain in the CI suite.
+4. The skills are seeded through the preseed manifest pipeline ([REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)); no new runtime tools or container dependencies are added — Claude reuses `chrome-devtools-mcp` ([REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp)) and Pi reuses its native tools ([REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper)).
+
+**Constraints:**
+
+- Reuses the existing Browser Run wiring; the only new artifacts are the two skill files plus their manifest entries.
+- Gated identically to the rest of Browser Run: advanced mode plus a Cloudflare token carrying the `Browser Rendering - Edit` scope ([REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)).
+
+**Priority:** P2
+
+**Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper)
+
+**Verification:** Partly automated — `src/__tests__/lib/agent-seed-manifest.test.ts` asserts the `browser-e2e` skill is seeded for Claude and Pi (advanced mode) with the correct per-agent surface (Claude names chrome-devtools; Pi names the native tools and omits chrome-devtools). The skills' runtime behavior is a preseed artifact verified by review and by dogfooding (this repo's own landing QA was run this way).
 
 **Status:** Partial
 

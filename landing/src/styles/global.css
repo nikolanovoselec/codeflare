@@ -608,6 +608,14 @@ svg {
   white-space: nowrap;
 }
 
+/* Single prose-caption feet (.tf-static, used by every terminal's in-chrome
+   caption) wrap instead of clipping mid-word on narrow viewports. The animated
+   multi-segment statusline (.terminal-foot without .tf-static, e.g. the hero)
+   keeps per-segment nowrap; its segments are short and wrap between each other. */
+.tf-static .tf-seg {
+  white-space: normal;
+}
+
 /* A faint dot between segments, like a real statusline (skipped before the first). */
 .tf-seg + .tf-seg::before {
   content: '·';

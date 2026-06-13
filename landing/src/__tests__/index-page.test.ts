@@ -72,12 +72,15 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(loopMatch).not.toBeNull();
     const loopValue = loopMatch![1].replace(/&quot;/g, '"');
     const parsed: string[] = JSON.parse(loopValue);
-    // All loop commands must be serialised — deleting one from site.ts would fail here.
-    expect(parsed).toEqual(TERMINAL.loop);
+    // The full run sequence must be serialised — deleting one from site.ts fails here.
+    expect(parsed).toEqual(TERMINAL.run);
+    // The hero plays once and rests on the final beat (the merge): data-ft-once
+    // marks no-loop, so the hero is a single coherent run, not a cycling reel.
+    expect(html).toContain('data-ft-once');
     // The typed slot renders with the first command as its initial text content.
     expect(html).toContain('data-ft-typed');
-    // The server-rendered resting state is loop[0] so the page is legible without JS.
-    expect(text).toContain(TERMINAL.loop[0]);
+    // The server-rendered resting state is run[0] so the page is legible without JS.
+    expect(text).toContain(TERMINAL.run[0]);
   });
 
   it('REQ-LANDING-001: hero transcript contains the governed-run narrative (drift warn, egress deny, alignment ok)', () => {
@@ -241,18 +244,20 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(legacyPos).toBeLessThan(securityPos);
   });
 
-  it('REQ-LANDING-001: station spine numbers exactly six instrument sections 01-06 in document order', () => {
-    // Each instrument section must carry data-station with the correct ordinal.
-    // This is a rendering assertion: if the template omits data-station from any
-    // section the attribute count drops and the test fails.
+  it('REQ-LANDING-001: station spine numbers every section 01-11 in document order, merged bands folded in', () => {
+    // Every section now carries a station ordinal (the owner wants no un-numbered
+    // floaters); the merged bands (operations, tenancy, runs-everywhere, trusted)
+    // fold into a numbered station as sub-content rather than carrying their own.
     const stationAttrs = [...html.matchAll(/data-station="(\d+)"/g)].map((m) => m[1]);
-    expect(stationAttrs).toEqual(['01', '02', '03', '04', '05', '06']);
-    // Each station marker element must be in the DOM.
+    expect(stationAttrs).toEqual([
+      '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11',
+    ]);
+    // Each station marker element must be in the DOM, one per numbered station.
     const markerCount = [...html.matchAll(/class="station-marker"/g)].length;
-    expect(markerCount).toBe(6);
-    // The render order is the canonical spine order: method, legacy, security,
-    // context, pipeline, cost.  Asserting the sequence of data-station values
-    // (already done above) is the render-order proof.
+    expect(markerCount).toBe(11);
+    // Render order: 01 shift, 02 spec, 03 rescue, 04 boundary, 05 web, 06 review,
+    // 07 agents (orchestration), 08 spend, 09 platform, 10 answers, 11 proof. The
+    // ordered sequence asserted above is the render-order proof.
   });
 
   it('REQ-LANDING-001: every instrument terminal closes on a normalised in-chrome terminal-foot element', () => {
@@ -296,25 +301,37 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(trustedPos).toBeLessThan(contactPos);
   });
 
-  it('REQ-LANDING-001: the pipeline section renders the live agent-orchestration proof terminal', () => {
-    // A second camera angle on the PR #207 review: the operator "Running N agents"
-    // view with per-agent tool-use + token counters and the real keyboard
-    // affordances. The counters/affordances are orchestration-unique, so this
-    // cannot pass off the board lanes above.
+  it('REQ-LANDING-001: orchestration is its own dynamic station (07) with normal agent commands, between review and spend', () => {
+    // The operator "Running N agents" view is now its own station, relocated out
+    // from under the review board (the two stacked terminals read as redundant).
+    expect(html).toContain('id="orchestration"');
+    expect(html).toContain(`data-station="${ORCHESTRATION.station.n}"`);
+    expect(text).toContain(ORCHESTRATION.title);
     expect(html).toContain('terminal orch');
     expect(text).toContain(ORCHESTRATION.header);
     expect(text).toContain(ORCHESTRATION.hint); // ctrl+o to expand
     expect(text).toContain(ORCHESTRATION.footHint); // ctrl+b to run in background
     for (const agent of ORCHESTRATION.agents) {
       expect(text).toContain(agent.agent);
-      expect(text).toContain(agent.toolUses);
-      expect(text).toContain(agent.tokens);
-      expect(text).toContain(agent.activity);
+      // Resolved counters render as numbers (orch.ts ticks them live).
+      expect(text).toContain(String(agent.toolUses));
+      expect(text).toContain(agent.tokens.toFixed(1));
+      // activities[0] is the resolved, no-JS activity line.
+      expect(text).toContain(agent.activities[0]);
     }
-    // It is armed as a proof artifact (proof.ts plays it on scroll-in).
+    // The activity lines are ordinary agent commands now, not ctx-mode internals.
+    expect(text).not.toContain('ctx_batch_execute');
+    // The live-feed hooks orch.ts drives must be present (counters + activity).
+    expect(html).toContain('data-orch');
+    expect(html).toContain('data-orch-agent');
+    expect(html).toContain('data-orch-tooluses');
+    expect(html).toContain('data-orch-tokens');
+    expect(html).toContain('data-orch-activity');
+    expect(html).toContain('data-activities');
+    // It is armed as a proof artifact too (proof.ts reveals it on scroll-in).
     expect(html).toMatch(/class="terminal orch[^"]*"\s+data-proof/);
-    // It lives inside the pipeline station, before the cost station.
-    const orchPos = html.indexOf(ORCHESTRATION.footHint);
+    // Position: after the review station, before the spend station.
+    const orchPos = html.indexOf('id="orchestration"');
     const pipelinePos = html.indexOf('id="pipeline"');
     const costPos = html.indexOf('id="cost"');
     expect(orchPos).toBeGreaterThan(pipelinePos);
@@ -338,14 +355,47 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(html).toMatch(/<a[^>]*href="https:\/\/graymatter\.ch"[^>]*>Gray Matter GmbH<\/a>/);
   });
 
-  it('REQ-LANDING-001: operations section renders via zero-trust tunnel capability cards', () => {
-    expect(html).toContain('id="operations"');
-    // The load-bearing capability phrase — if the template renders a different
-    // section the capability claim disappears.
+  it('REQ-LANDING-001: operations folds into the boundary station (04) as sub-content, not its own numbered section', () => {
+    // Operations is now sub-content of the boundary station, so the standalone
+    // section is gone and the content renders inside security as a .substation.
+    expect(html).not.toContain('id="operations"');
+    expect(html).toContain('substation');
+    expect(text).toContain(OPERATIONS.title);
+    // The load-bearing capability phrase must survive the merge.
     expect(text).toContain('zero-trust');
     for (const card of OPERATIONS.cards) {
       expect(text).toContain(card.title);
     }
+    // It belongs to station 04: its content sits within the security section,
+    // between the boundary station and the next station (context).
+    const opsPos = html.indexOf(OPERATIONS.title);
+    const securityPos = html.indexOf('id="security"');
+    const contextPos = html.indexOf('id="context"');
+    expect(opsPos).toBeGreaterThan(securityPos);
+    expect(opsPos).toBeLessThan(contextPos);
+  });
+
+  it('REQ-LANDING-001: tenancy and runs-everywhere fold into numbered stations as sub-content (nothing floats)', () => {
+    // Tenancy belongs to the spend station (08): standalone section gone, content
+    // renders within cost, before the platform station.
+    expect(html).not.toContain('id="tenancy"');
+    expect(text).toContain(TENANCY.title);
+    const tenancyPos = html.indexOf(TENANCY.title);
+    const costPos = html.indexOf('id="cost"');
+    const platformPos = html.indexOf('id="platform"');
+    expect(tenancyPos).toBeGreaterThan(costPos);
+    expect(tenancyPos).toBeLessThan(platformPos);
+    // Runs-everywhere belongs to the platform station (09): standalone section
+    // gone, content renders within platform, before the answers (FAQ) station.
+    expect(html).not.toContain('id="browser"');
+    expect(text).toContain(BROWSER.title);
+    for (const card of BROWSER.cards) {
+      expect(text).toContain(card.title);
+    }
+    const browserPos = html.indexOf(BROWSER.title);
+    const faqPos = html.indexOf('id="faq"');
+    expect(browserPos).toBeGreaterThan(platformPos);
+    expect(browserPos).toBeLessThan(faqPos);
   });
 
   it('REQ-LANDING-001: context section renders the isolation proof terminal with in-chrome foot', () => {

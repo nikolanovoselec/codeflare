@@ -198,6 +198,23 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(gemini!.content).not.toContain('~/.claude/');
   });
 
+  it('REQ-BROWSER-004: the browser-e2e skill is seeded for Claude (interactive) and Pi (native), advanced mode', () => {
+    // Claude drives the interactive surface (chrome-devtools): the skill must reach
+    // .claude and name that surface, so the agent knows what tools to use.
+    const claudeE2e = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.claude/skills/browser-e2e/SKILL.md');
+    expect(claudeE2e).toBeDefined();
+    expect(claudeE2e!.modes).toContain('advanced');
+    expect(claudeE2e!.content).toContain('chrome-devtools');
+    // The feature is semantic e2e (judgment), distinct from the browser-run fetch
+    // fallback — the skill must position itself as a verify-by-judgment complement.
+    expect(claudeE2e!.content.toLowerCase()).toContain('semantic');
+    // Pi reaches the same capability through its native one-shot tools, advanced mode.
+    const piE2e = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/skills/browser-e2e/SKILL.md');
+    expect(piE2e).toBeDefined();
+    expect(piE2e!.modes).toContain('advanced');
+    expect(piE2e!.content).toContain('browser_markdown');
+  });
+
   it('Pi has skills, native runtime extensions, and subagent definitions', () => {
     const piDocs = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/'));
     const skills = piDocs.filter((d) => d.key.startsWith('.pi/agent/skills/'));
@@ -237,6 +254,14 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // are emitted directly (not transformed from Claude), so the Pi manifest -> seed pipeline
     // must surface them.
     expect(skills.map((d) => d.key)).toContain('.pi/agent/skills/review/SKILL.md');
+    // Browser e2e (REQ-BROWSER-004): Pi gets its DEDICATED native skill (one-shot
+    // fetch + judge), emitted from the Pi manifest, not the transformed Claude one.
+    // It must speak the Pi-native tools and must NOT reference chrome-devtools (the
+    // Claude-only surface) — proof the line-489 native-skip used the right source.
+    const piBrowserE2e = skills.find((d) => d.key === '.pi/agent/skills/browser-e2e/SKILL.md');
+    expect(piBrowserE2e).toBeDefined();
+    expect(piBrowserE2e!.content).toContain('browser_markdown');
+    expect(piBrowserE2e!.content).not.toContain('chrome-devtools');
     // The five Pi tool-extension skills ship a "when to use which tool" guide; the
     // manifest -> seed pipeline must surface each one (advisor is codeflare-authored
     // for the @juicesharp/rpiv-advisor extension, which ships no skill of its own).

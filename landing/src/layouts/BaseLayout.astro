@@ -85,6 +85,13 @@ const {
       import '../scripts/proof';
     </script>
     <script>
+      // Orchestration station: ticks each agent's tool-use / token counters and
+      // advances its activity line so the "Running N agents" view reads as a live
+      // feed. Pauses off-screen and when the tab is hidden (reduced-motion safe;
+      // the resolved counters and first activity stand otherwise).
+      import '../scripts/orch';
+    </script>
+    <script>
       // Entrance wiring: .reveal elements fade up on first view. Content is
       // visible by default; JS applies the hidden state and immediately
       // animates, never a CSS opacity:0 default (no-JS and reduced-motion

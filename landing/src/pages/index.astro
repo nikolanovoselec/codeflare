@@ -60,9 +60,10 @@ import {
     <!-- The shift: the assistant-to-engine leap shown the way the page trades,
          as terminals. Four short feature terminals (gateway, session, review,
          spec) replace the old stat band and the old checkmark comparison. -->
-    <section id={SHIFT.id} class="section">
+    <section id={SHIFT.id} class="section" data-station={SHIFT.station.n}>
       <div class="container">
         <div class="section-head reveal">
+          <p class="station-marker"><span class="station-n">{SHIFT.station.n}</span><span class="station-label">{SHIFT.station.label}</span></p>
           <h2>{SHIFT.title}</h2>
           <p class="lead" set:html={SHIFT.lead} />
         </div>
@@ -150,7 +151,7 @@ import {
          the boundary's approved and impossible paths, a thin in-terminal divider,
          then one real call obeying the boundary, closing on a single in-chrome
          foot (security + egress folded into one terminal, #7). -->
-    <section id={SECURITY.id} class="section" data-station={SECURITY.station.n}>
+    <section id={SECURITY.id} class="section section--alt" data-station={SECURITY.station.n}>
       <div class="container">
         <div class="section-head reveal">
           <p class="station-marker"><span class="station-n">{SECURITY.station.n}</span><span class="station-label">{SECURITY.station.label}</span></p>
@@ -194,16 +195,11 @@ import {
           </div>
           <div class="terminal-foot tf-static"><span class="tf-seg">{SECURITY.boundary.caption}</span></div>
         </div>
-      </div>
-    </section>
-
-    <!-- Operations: the same governed agents, beyond code into infrastructure.
-         A quieter un-numbered coda to Security on the same boundary; the station
-         spine skips it so the page decompresses. -->
-    <section id={OPERATIONS.id} class="section section--alt">
-      <div class="container">
-        <div class="section-head reveal">
-          <h2>{OPERATIONS.title}</h2>
+        <!-- Operations folded into the boundary station as sub-content: the same
+             governed agents beyond code into infrastructure, on the same boundary,
+             so it visually belongs to station 04 instead of floating un-numbered. -->
+        <div class="section-head substation reveal">
+          <h3>{OPERATIONS.title}</h3>
           <p class="lead">{OPERATIONS.lead}</p>
         </div>
         <div class="feature-grid feature-grid--2" data-stagger>
@@ -285,11 +281,23 @@ import {
           </div>
         </div>
 
-        <!-- The same parallel review, the operator's live view: "Running N agents"
-             with per-agent tool-use + token counters and the real keyboard
-             affordances. A second camera angle on the running PR #207, and a
-             literal dogfood: this is a Codeflare PR-boundary review in flight. -->
-        <div class="terminal orch reveal" data-proof>
+      </div>
+    </section>
+
+    <!-- Station 07, Orchestration: the operator's live view of the same review,
+         relocated out from under the board into its own station and made dynamic.
+         orch.ts ticks each agent's tool-use / token counters and advances its
+         activity line so it reads as a running feed, not a frozen screenshot.
+         data-proof reveals the lines once on scroll-in; data-orch arms the live
+         ticking. Reduced motion / no JS: the resolved values stand. -->
+    <section id={ORCHESTRATION.id} class="section" data-station={ORCHESTRATION.station.n}>
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="station-marker"><span class="station-n">{ORCHESTRATION.station.n}</span><span class="station-label">{ORCHESTRATION.station.label}</span></p>
+          <h2>{ORCHESTRATION.title}</h2>
+          <p class="lead">{ORCHESTRATION.lead}</p>
+        </div>
+        <div class="terminal orch reveal" data-proof data-orch>
           <div class="terminal-bar">
             <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
             <span class="board-pr-id">{SPINE.pr} · {SPINE.service}</span>
@@ -302,10 +310,10 @@ import {
                 const last = i === ORCHESTRATION.agents.length - 1;
                 return (
                   <Fragment>
-                    <span class="t-line">
-                      <span class="orch-branch" aria-hidden="true">{last ? '└ ' : '├ '}</span><span class="orch-agent">{agent.agent}</span><span class="orch-meta"> ({agent.task}) · {agent.toolUses} · {agent.tokens}</span>
+                    <span class="t-line orch-agent-line" data-orch-agent data-activities={JSON.stringify(agent.activities)}>
+                      <span class="orch-branch" aria-hidden="true">{last ? '└ ' : '├ '}</span><span class="orch-agent">{agent.agent}</span><span class="orch-meta"> ({agent.task}) · <span data-orch-tooluses>{agent.toolUses}</span> tool uses · <span data-orch-tokens>{agent.tokens.toFixed(1)}</span>k tokens</span>
                     </span>
-                    <span class="t-line orch-sub"><span class="orch-branch" aria-hidden="true">{last ? '  └ ' : '│ └ '}</span>{agent.activity}</span>
+                    <span class="t-line orch-sub"><span class="orch-branch" aria-hidden="true">{last ? '  └ ' : '│ └ '}</span><span data-orch-activity>{agent.activities[0]}</span></span>
                   </Fragment>
                 );
               })
@@ -319,7 +327,7 @@ import {
 
     <!-- Station 06, Cost: no unattributed spend. The ledger is the literal bill
          for the spine run, closing on zero unattributed. -->
-    <section id={COST.id} class="section" data-station={COST.station.n}>
+    <section id={COST.id} class="section section--alt" data-station={COST.station.n}>
       <div class="container">
         <div class="section-head reveal">
           <p class="station-marker"><span class="station-n">{COST.station.n}</span><span class="station-label">{COST.station.label}</span></p>
@@ -379,16 +387,12 @@ import {
             ))
           }
         </div>
-      </div>
-    </section>
-
-    <!-- Tenancy: your cloud, the trust close. Resolves the boundary thesis: the
-         boundary is yours, not Codeflare's. -->
-    <section id={TENANCY.id} class="section section--alt">
-      <div class="container">
-        <div class="split">
+        <!-- Tenancy folded into the spend station as sub-content: the spend and
+             the cloud it lands in are one story (your account), so it belongs to
+             station 08 instead of floating un-numbered. -->
+        <div class="split substation">
           <div class="section-head reveal" style="margin-bottom:0">
-            <h2>{TENANCY.title}</h2>
+            <h3>{TENANCY.title}</h3>
             <p class="lead" set:html={TENANCY.lead} />
           </div>
           <div class="split-aside reveal">
@@ -407,11 +411,13 @@ import {
       </div>
     </section>
 
-    <!-- The payoff band: the platform, placed after the governance spine so
-         capability reads as the payoff the boundary makes safe. -->
-    <section id={PLATFORM.id} class="section">
+    <!-- Station 09, Platform: the payoff band, after the governance spine so
+         capability reads as the payoff the boundary makes safe. The browser-runs-
+         everywhere story folds in as sub-content so it belongs to the station. -->
+    <section id={PLATFORM.id} class="section" data-station={PLATFORM.station.n}>
       <div class="container">
         <div class="section-head reveal">
+          <p class="station-marker"><span class="station-n">{PLATFORM.station.n}</span><span class="station-label">{PLATFORM.station.label}</span></p>
           <h2>{PLATFORM.title}</h2>
           <p class="lead">{PLATFORM.lead}</p>
         </div>
@@ -428,15 +434,9 @@ import {
         <div class="agent-chips reveal" aria-label="Supported coding agents">
           {AGENTS.map((agent) => <span>{agent}</span>)}
         </div>
-      </div>
-    </section>
-
-    <!-- Runs in a browser: the calm tail, deliberately quieter than the
-         instrument stations so the page decompresses. -->
-    <section id={BROWSER.id} class="section section--alt">
-      <div class="container">
-        <div class="section-head reveal">
-          <h2>{BROWSER.title}</h2>
+        <!-- Runs-everywhere folded into the platform station as sub-content. -->
+        <div class="section-head substation reveal">
+          <h3>{BROWSER.title}</h3>
           <p class="lead">{BROWSER.lead}</p>
         </div>
         <div class="feature-grid feature-grid--3" data-stagger>
@@ -452,10 +452,11 @@ import {
       </div>
     </section>
 
-    <!-- FAQ: the answers, up front (the four governance questions lead). -->
-    <section id={FAQ_SECTION.id} class="section">
+    <!-- Station 10, Answers: the FAQ, the four governance questions lead. -->
+    <section id={FAQ_SECTION.id} class="section section--alt" data-station={FAQ_SECTION.station.n}>
       <div class="container">
         <div class="section-head reveal">
+          <p class="station-marker"><span class="station-n">{FAQ_SECTION.station.n}</span><span class="station-label">{FAQ_SECTION.station.label}</span></p>
           <h2>{FAQ_SECTION.title}</h2>
         </div>
         <div class="faq reveal">
@@ -471,12 +472,14 @@ import {
       </div>
     </section>
 
-    <!-- Dogfood: this very page is a Codeflare-governed requirement. The proof
-         is real (the @impl / @test anchors live in sdd/spec/landing.md), and it
+    <!-- Station 11, Proof: this very page is a Codeflare-governed requirement.
+         The proof is real (the @impl / @test anchors live in sdd/spec/landing.md),
+         the Swiss Post customer band folds in as its social-proof tail, and it
          leads straight into the contact CTA as the closing argument. -->
-    <section id={DOGFOOD.id} class="section section--alt">
+    <section id={DOGFOOD.id} class="section" data-station={DOGFOOD.station.n}>
       <div class="container">
         <div class="section-head reveal">
+          <p class="station-marker"><span class="station-n">{DOGFOOD.station.n}</span><span class="station-label">{DOGFOOD.station.label}</span></p>
           <h2>{DOGFOOD.title}</h2>
           <p class="lead">{DOGFOOD.lead}</p>
         </div>
@@ -497,29 +500,27 @@ import {
         <p class="micro-cta dogfood-cta reveal">
           <a href={DOGFOOD.cta.href} target="_blank" rel="noopener">{DOGFOOD.cta.label}</a>
         </p>
-      </div>
-    </section>
-
-    <!-- Trusted by: a single national-institution customer, the social proof
-         placed right before the contact CTA as a quiet, calm closing band. -->
-    <section class="section trusted-section">
-      <div class="container">
-        <p class="trusted-label reveal">{TRUSTED.label}</p>
-        <div class="trusted-logos reveal">
-          <img
-            class="trusted-logo"
-            src={TRUSTED.logo.src}
-            alt={TRUSTED.logo.alt}
-            width="72"
-            height="72"
-            loading="lazy"
-          />
+        <!-- Trusted-by folded into the proof station: a single national-institution
+             customer as the social-proof tail of the dogfood argument, a quiet
+             band before the contact close (belongs to station 11). -->
+        <div class="trusted-section substation">
+          <p class="trusted-label reveal">{TRUSTED.label}</p>
+          <div class="trusted-logos reveal">
+            <img
+              class="trusted-logo"
+              src={TRUSTED.logo.src}
+              alt={TRUSTED.logo.alt}
+              width="72"
+              height="72"
+              loading="lazy"
+            />
+          </div>
         </div>
       </div>
     </section>
 
     <!-- Contact -->
-    <section id={CONTACT_FORM.id} class="section">
+    <section id={CONTACT_FORM.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
           <h2>{CONTACT_FORM.title}</h2>
@@ -579,5 +580,28 @@ import {
   .orch-hint,
   .orch-branch {
     color: var(--term-dim);
+  }
+
+  /* Sub-content folded into a numbered station (operations under 04, tenancy
+     under 08, runs-everywhere under 09, trusted under 11): a thin divider plus a
+     smaller heading, so the block reads as part of the station above it instead
+     of floating as an un-numbered section of its own. */
+  .substation {
+    margin-top: clamp(3rem, 6vw, 5rem);
+    padding-top: clamp(2rem, 5vw, 3.5rem);
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .substation h3 {
+    font-size: clamp(1.35rem, 3.2vw, 1.95rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0 0 0.75rem;
+  }
+
+  /* The trusted-by band, folded into the proof station, keeps its own top divider
+     from .substation but drops the extra inter-section padding above the logos. */
+  .trusted-section.substation {
+    text-align: center;
   }
 </style>

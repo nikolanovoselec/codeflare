@@ -170,15 +170,16 @@ export const TERMINAL = {
     reason: 'reasoning high',
     note: SPINE.service,
   } satisfies TerminalFoot,
-  // The hero prompt line cycles real commands (typed, held, deleted, next) via
-  // the shared feature-terminal engine, so the hero reads as one engineer
-  // working a capability tour while the spine transcript above stays put.
-  loop: [
-    '/sdd init legacy-payments',
-    'fetch docs.vendor.com → graph',
-    '/review --deep · 6 agents',
-    'gh pr create develop → main',
-    'deploy integration',
+  // The hero prompt types one coherent run of the spine PR and rests on the
+  // merge (data-ft-once in Hero.astro: type, hold, advance, stop). The hero
+  // reads as a single engineer taking REQ-PAY-014 from intent to merge, not a
+  // looping capability reel. Reduced motion / no JS: the first beat is shown.
+  run: [
+    '/sdd implement REQ-PAY-014',
+    'tests first → 10 of 10 green',
+    'drift caught → agent corrects',
+    '/review --deep · 6 agents · clean',
+    'gh pr merge 207 → main',
   ],
 };
 
@@ -239,6 +240,7 @@ export const FEATURE_TERMINALS: FeatureTerminal[] = [
 
 export const SHIFT = {
   id: 'shift',
+  station: { n: '01', label: 'shift' },
   title: 'Decades of SDLC. One generational leap.',
   lead:
     'Coding assistants made typing faster. Codeflare changes what an engineer <em>is</em>: ' +
@@ -248,7 +250,7 @@ export const SHIFT = {
 
 export const METHOD = {
   id: 'method',
-  station: { n: '01', label: 'spec' },
+  station: { n: '02', label: 'spec' },
   title: 'Spec-driven development, enforced.',
   lead:
     'Codeflare does not just let agents write code. Every change is governed by a ' +
@@ -299,7 +301,7 @@ export const METHOD = {
  */
 export const LEGACY = {
   id: 'legacy',
-  station: { n: '02', label: 'rescue' },
+  station: { n: '03', label: 'rescue' },
   title: 'Legacy code, made safe for agents.',
   lead:
     'Autonomy is easy on greenfield; the hard part is the code you already have. ' +
@@ -323,7 +325,7 @@ export const LEGACY = {
 
 export const SECURITY = {
   id: 'security',
-  station: { n: '03', label: 'boundary' },
+  station: { n: '04', label: 'boundary' },
   title: 'Zero trust is the architecture, not just a policy.',
   lead:
     'Autonomous agents are only safe inside structural boundaries. Codeflare makes the ' +
@@ -378,6 +380,7 @@ export const GITHUB_URL = 'https://github.com/nikolanovoselec/codeflare';
  *  this is the most credible artifact on the page: it is literally true. */
 export const DOGFOOD = {
   id: 'dogfood',
+  station: { n: '11', label: 'proof' },
   title: 'Codeflare built this page.',
   lead:
     'This landing page is REQ-LANDING-001 in the Codeflare specification, built and shipped by ' +
@@ -450,6 +453,7 @@ export const BROWSER = {
 
 export const PLATFORM = {
   id: 'platform',
+  station: { n: '09', label: 'platform' },
   title: 'Agents arrive equipped, not naive.',
   lead:
     'Every session is seeded with enterprise scaffolding the moment it starts, so agents ' +
@@ -484,23 +488,25 @@ export const PLATFORM = {
 
 export const CONTEXT = {
   id: 'context',
-  station: { n: '04', label: 'web' },
-  title: 'The open web, rendered clean.',
+  station: { n: '05', label: 'web' },
+  title: 'The open web, distilled.',
   lead:
-    'Agents pull in external content through isolated browsers. JavaScript-heavy pages and ' +
-    'interactive, gated content resolve to their real text, distilled into structured markdown ' +
-    'built for agent ingestion.',
+    'Agents read the open web the way a person would, through a throwaway isolated browser: the ' +
+    'JavaScript runs, the login gate resolves, and a heavy page comes back as clean structured ' +
+    'markdown. A 1.9 MB page becomes 12 kB an agent can actually read, so its context goes to your ' +
+    'work, not the markup.',
   // One real fetch from the spine run shown as a proof terminal: the open web
   // crosses an isolation boundary the remote page never breaches, then resolves
-  // to agent-ready markdown. The page's native proof grammar, not a diagram.
+  // to agent-ready markdown. The headline beat is the context-economics win: a
+  // heavy page reduced to a fraction an agent can read without drowning.
   terminal: {
     title: 'codeflare · web',
     lines: [
       { tone: 'cmd', text: 'agent → docs.vendor.com/idempotency-keys' },
-      { tone: 'agent', text: '✻ rendered in a throwaway browser · isolated' },
-      { tone: 'ok', text: '✓ JS run · login gate resolved · real text' },
-      { tone: 'deny', text: '✕ scripts, chrome, trackers · never cross' },
-      { tone: 'ok', text: '✓ 1.9 MB page → 12 kB markdown · into the graph' },
+      { tone: 'agent', text: '✻ throwaway browser · JS runs · gate resolved' },
+      { tone: 'deny', text: '✕ scripts · trackers · page chrome · never cross' },
+      { tone: 'ok', text: '✓ 1.9 MB page → 12 kB clean markdown' },
+      { tone: 'ok', text: '✓ into the graph · context spent on the work' },
     ] satisfies TranscriptLine[],
     foot: 'throwaway per fetch · never your network · never the container',
   },
@@ -508,7 +514,7 @@ export const CONTEXT = {
 
 export const PIPELINE = {
   id: 'pipeline',
-  station: { n: '05', label: 'review' },
+  station: { n: '06', label: 'review' },
   title: 'Agents become citizens of your pipeline.',
   lead:
     'No shadow toolchain. Agents work through your git, your CI, and your branch protections, ' +
@@ -532,49 +538,72 @@ export const PIPELINE = {
   },
 };
 
-/** A live agent in the orchestration tree (pipeline section proof artifact):
+/** A live agent in the orchestration tree (its own station's proof artifact):
  *  the real "● Running N agents…" operator view of the PR-boundary review, with
- *  per-agent tool-use and token counters and a current-activity sub-line. This
- *  is a faithful render of an actual Codeflare review run (the report-only
- *  reviewers running in parallel on one diff). */
+ *  per-agent tool-use and token counters and a current-activity sub-line. The
+ *  counters and activity tick live in the browser (orch.ts); the values here are
+ *  the resolved no-JS state and the starting point for the animation. activities
+ *  are ordinary agent commands, the way an operator would see them scroll. */
 export interface AgentRun {
   agent: string;
   task: string;
-  toolUses: string;
-  tokens: string;
-  activity: string;
+  toolUses: number;
+  tokens: number; // thousands of tokens; rendered as `${tokens.toFixed(1)}k`
+  activities: string[]; // activities[0] is the resolved/no-JS line; orch.ts cycles the rest
 }
 
 /**
- * The orchestration view: the same parallel review as the board above, shown the
- * way the operator sees it run, three report-only reviewers on one diff at once,
- * each with its live tool-use / token counters and current activity, plus the
- * real keyboard affordances. A second camera angle on PR #207, the running one.
+ * The orchestration view: the same parallel review as the board, shown the way
+ * the operator watches it run, three report-only reviewers on one diff at once,
+ * each with its own tool-use / token counters and current activity, plus the
+ * real keyboard affordances. Its own station now (07), and live: orch.ts ticks
+ * the counters and advances each agent's activity so it reads as a running feed
+ * instead of a frozen screenshot.
  */
 export const ORCHESTRATION = {
+  id: 'orchestration',
+  station: { n: '07', label: 'agents' },
+  title: 'Watch the work, not the weeds.',
+  lead:
+    'The same review, the way the operator watches it run: three reviewers on one diff at once, ' +
+    'each with its own tool-use and token counters ticking as they work. Expand any agent to read ' +
+    'along, or send the run to the background and get pinged when it lands.',
   header: 'Running 3 agents',
   hint: 'ctrl+o to expand',
   agents: [
     {
       agent: 'code-reviewer',
       task: 'Code review · round 2 + tests',
-      toolUses: '13 tool uses',
-      tokens: '45.0k tokens',
-      activity: 'Reading 8 files…',
+      toolUses: 13,
+      tokens: 45.0,
+      activities: [
+        'Reading src/payments/idempotency.ts',
+        'grep -rn "Idempotency-Key" src/',
+        'Running 12 tests…',
+        'Writing 2 findings',
+      ],
     },
     {
       agent: 'spec-reviewer',
       task: 'Spec review · round-2 delta',
-      toolUses: '2 tool uses',
-      tokens: '36.6k tokens',
-      activity: 'ctx_batch_execute (MCP)',
+      toolUses: 2,
+      tokens: 36.6,
+      activities: [
+        'Reading sdd/spec/payments.md',
+        'Checking AC3 acceptance criteria',
+        'Verifying REQ-PAY-014 coverage',
+      ],
     },
     {
       agent: 'doc-updater',
       task: 'Doc review · round-2 delta',
-      toolUses: '4 tool uses',
-      tokens: '34.2k tokens',
-      activity: 'ctx_batch_execute (MCP)',
+      toolUses: 4,
+      tokens: 34.2,
+      activities: [
+        'Reading documentation/api-reference.md',
+        'Editing api-reference.md',
+        'Checking REQ backlinks',
+      ],
     },
   ] satisfies AgentRun[],
   footHint: 'ctrl+b to run in background',
@@ -583,7 +612,7 @@ export const ORCHESTRATION = {
 
 export const COST = {
   id: 'cost',
-  station: { n: '06', label: 'spend' },
+  station: { n: '08', label: 'spend' },
   title: 'No unattributed spend.',
   lead:
     'From the infrastructure minute to the inference token to what each agent consumes, ' +
@@ -649,6 +678,7 @@ export const TENANCY = {
 
 export const FAQ_SECTION = {
   id: 'faq',
+  station: { n: '10', label: 'answers' },
   title: 'The answers, up front.',
 };
 

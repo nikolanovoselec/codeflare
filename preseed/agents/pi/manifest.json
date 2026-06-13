@@ -14,6 +14,11 @@
       "advanced"
     ]
   },
+  "skills/browser-e2e/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/startup-header.ts": {
     "modes": [
       "default",
