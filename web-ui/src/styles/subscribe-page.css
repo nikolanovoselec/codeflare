@@ -59,7 +59,7 @@
 .subscribe-action-button {
   display: inline-block; padding: var(--space-3) var(--space-8);
   background: var(--color-accent); border: 1px solid rgba(59, 130, 246, 0.5); border-radius: var(--radius-xl);
-  color: var(--color-text-primary); font-size: var(--text-base); font-weight: var(--font-medium);
+  color: var(--color-accent-contrast); font-size: var(--text-base); font-weight: var(--font-medium);
   text-decoration: none; cursor: pointer;
   box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
   transition: all 150ms ease-out; margin-bottom: var(--space-4);
@@ -241,7 +241,7 @@
   cursor: pointer; transition: all 150ms ease;
 }
 .subscribe-tier-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.2); }
-.subscribe-tier-btn--primary { background: var(--color-accent); border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25); }
+.subscribe-tier-btn--primary { background: var(--color-accent); color: var(--color-accent-contrast); border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25); }
 .subscribe-tier-btn--primary:hover:not(:disabled) { background: #2563eb; border-color: rgba(59, 130, 246, 0.7); box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35); }
 .subscribe-tier-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
