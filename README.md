@@ -214,7 +214,7 @@ Modes are additive flags; pick the one that matches your deployment. A flag left
 | Mode | Turn on with | What it adds | Authentication |
 |---|---|---|---|
 | **Default** | *(nothing)* | The baseline above | Cloudflare Access |
-| **Onboarding** | `ONBOARDING_LANDING_PAGE=active` | Public marketing landing at `/`, a landing-styled `/login` with GitHub sign-in, and a post-sign-in access-request flow; Turnstile CAPTCHA on public forms | Cloudflare Access (`/login` GitHub OAuth requires `OAUTH_CLIENT_ID`) |
+| **Onboarding** | `ONBOARDING_LANDING_PAGE=active` | Public marketing landing at `/`, a landing-styled `/login` with GitHub sign-in, and a post-sign-in access-request flow; Turnstile CAPTCHA on public forms | Cloudflare Access (`/login` GitHub OAuth needs the `OAUTH_*` secrets, same three as SaaS mode) |
 | **SaaS** | `SAAS_MODE=active` | Custom login page, JIT user provisioning, 8-tier subscriptions, Stripe billing, usage tracking, `/admin/users` | GitHub OAuth *or* Cloudflare Access |
 | **Enterprise** | `ENTERPRISE_MODE=active` | Single-tenant in **your** Cloudflare account; all users unlimited + Pro; LLM traffic routed through **your** AI Gateway | Cloudflare Access |
 
