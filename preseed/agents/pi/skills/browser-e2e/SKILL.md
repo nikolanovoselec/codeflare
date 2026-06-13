@@ -1,42 +1,42 @@
 ---
 name: browser-e2e
-description: Verify your own deployed app by semantic judgment of its rendered state, using the Pi-native Browser Run tools (browser_markdown / browser_content / browser_scrape). Fetch the real, JS-executed page and judge whether it meets the acceptance criteria — a judgment-based complement to scripted CI e2e that catches "renders but wrong" which selector assertions miss. Activates after a deploy/preview, when verifying a deployed page against intent.
+description: Drive your own deployed app in a real browser (Cloudflare Browser Run, via the chrome-devtools server reached through the pi-mcp-adapter `mcp` proxy) and verify it by semantic judgment — navigate, interact, emulate a mobile viewport, observe what actually rendered, and decide whether it meets the acceptance criteria. A judgment-based complement to scripted CI e2e: catches "renders but looks wrong / behaves wrong" that selector assertions miss. Activates after a deploy/preview, when verifying UI behavior against intent.
 ---
 
 # Browser e2e (Pi)
 
-Verify your **own** deployed app by judgment, not brittle selectors: fetch the real, JavaScript-executed page through Cloudflare Browser Run and decide whether what rendered satisfies the requirement. Exposed as **native Pi tools** (`browser_markdown`, `browser_content`, `browser_scrape`) — no MCP.
+Verify your **own** deployed app the way a person would: open it in a real browser, interact with it, look at what actually rendered, and judge whether it satisfies the requirement — instead of asserting on brittle selectors. Backed by Cloudflare Browser Run (headless Chrome) through the **`chrome-devtools`** server, which Pi reaches via the **`mcp` proxy** (the `pi-mcp-adapter`). Pi has full parity with Claude Code here — same interactive toolset.
 
-This is the **semantic** half of e2e. A scripted test in CI proves a fixed invariant and breaks when the copy changes; this proves *"did the page actually render the right thing?"* and survives wording/layout changes. Use both: deterministic invariants belong in CI; judgment belongs here.
+This is the **semantic** half of e2e. A scripted test in CI proves a fixed invariant (`expect(price).toBe('$9')`) and breaks when the copy changes; this proves *"does the thing actually work and look right?"* and survives wording/layout changes. Use both: deterministic invariants belong in CI; judgment ("the login flows seamlessly from the landing", "this caption is clipped mid-word on mobile", "the empty state reads wrong") belongs here.
 
-Only available in Pro (advanced) sessions with a Cloudflare API token carrying the **Browser Rendering – Edit** scope. If the `browser_*` tools are not present, browser e2e is not enabled — fall back to reasoning over the code and CI.
+Only available in Pro (advanced) sessions with a Cloudflare API token carrying the **Browser Rendering – Edit** scope. If the `mcp` proxy can't reach a `chrome-devtools` server, browser e2e is not enabled — you can still do a **read-only** check with the native `browser_markdown` (judge rendered content/structure), but you cannot drive a flow; otherwise fall back to reasoning over the code and CI.
 
-## What Pi can and cannot do here
+## Two depths — pick by what the acceptance criterion needs
 
-- **Can:** fetch the fully-rendered state of a deployed page (after JS runs) and judge its content/structure against the acceptance criteria. `browser_markdown` for the readable result, `browser_content` for the rendered HTML/DOM, `browser_scrape` for specific elements by CSS selector.
-- **Cannot:** click, type, or walk a multi-step flow — the Pi tools are **one-shot fetches**, not an interactive session. (Claude Code's `browser-e2e` skill, via chrome-devtools, drives interactive flows.) To check a post-action state with Pi, navigate directly to the resulting URL (e.g. `/login?status=requested`) and judge what renders.
+- **Read-only state check** (cheap): the AC is about *rendered content/structure* (right copy, expected elements, a URL-reachable state like `?status=requested`). Use native `browser_markdown` / `browser_scrape` — no live session. Don't open chrome-devtools for this.
+- **Interactive flow / visual** (chrome-devtools): the AC needs *clicking through steps*, *a screenshot*, or a *specific viewport*. Use the chrome-devtools tools via the proxy.
 
-## When to use
+## How to use (interactive, via the `mcp` proxy)
 
-- **After you deploy a preview / integration build**, to confirm a page renders the right content and structure before declaring it done.
-- To verify an **acceptance criterion** about rendered output (the right copy, the expected elements present, an error/empty state showing correctly) where a fixed assertion would be brittle.
-- To check a state reachable by URL (query-param states, deep links) without a scripted harness.
+Drive the `chrome-devtools` server's tools through the adapter `mcp` proxy (see the `pi-mcp-adapter` skill for proxy mechanics — list the server's tools, then call them):
 
-Not a replacement for CI: keep deterministic, repeatable checks as scripted tests. This is for the judgment a fixed assertion can't make.
+1. `resize_page` to a mobile viewport (e.g. `390 x 844`) — or `emulate` — when verifying responsive behavior. **Check mobile first.**
+2. `navigate_page` to the deployed URL. For JS-heavy pages, let it settle (wait for network idle) before reading.
+3. `take_snapshot` to read the rendered accessibility tree, or `evaluate_script` to pull concrete facts from the live DOM (computed styles, element counts, `scrollWidth > clientWidth` for overflow, an image's `naturalWidth` to confirm it loaded).
+4. `take_screenshot` to judge anything visual — layout, spacing, clipping, on-brand feel.
+5. `click` / `fill` to walk a flow, re-observing after each step.
+6. **Judge against the requirement and report a verdict**: pass/fail per acceptance criterion, each backed by what you observed (a screenshot, a measured value, the rendered text) — not "the selector existed".
+
+Example task: *"e2e test codeflare.novoselec.ch from a mobile device viewport"* → `resize_page` to 390×844 → `navigate_page` → `take_snapshot` + `take_screenshot` → walk the sign-in / contact flow with `click`/`fill` → verdict per AC, with screenshots.
 
 ## Targets
 
-- **Public / deployed URLs only.** Browser Run is remote, so it **cannot reach `localhost`, private IPs, or container-internal ports** — point it at the deployed preview/integration URL, not a local dev server.
-- Your **own** application under test (or a target you're authorized to drive). Crawling third-party sites is the `browser-run` fetch fallback, not this.
-
-## How to use
-
-1. `browser_markdown` (or `browser_content` for DOM structure) on the deployed URL, with `wait_until: "networkidle0"` for JS-heavy pages so content has rendered.
-2. `browser_scrape` with CSS selectors to pull the specific elements an acceptance criterion is about (headings, a form's fields, an error banner).
-3. **Judge against the requirement and report a verdict**: pass/fail per acceptance criterion, each backed by what you observed in the rendered output — not "the selector existed".
+- **Public / deployed URLs only.** Browser Run is remote (Cloudflare's edge), so it **cannot reach `localhost`, private IPs, or container-internal ports** — point it at the deployed preview/integration URL, not a local dev server.
+- Your **own** application under test (or a target you're authorized to drive). This is not for crawling third-party sites — that's the `browser-run` fetch fallback.
+- Prefer non-destructive paths. If a flow mutates state, use disposable/test data and say so.
 
 ## Notes
 
-- Keep requests narrow (markdown over full HTML, scoped selectors) to protect the context window.
-- The verdict is the deliverable. "Looks fine" is not a verdict; cite the rendered text or element you checked.
+- Extract just what you need (snapshot/evaluate/targeted screenshot) rather than dumping whole pages, to protect the context window.
+- The verdict is the deliverable. "Looks fine" is not a verdict; "AC2 fails: on a 390px viewport the foot caption is clipped after 'corrected, an…' — screenshot attached" is.
 - Findings you confirm here are real findings — fix them (or file them), don't just note them.

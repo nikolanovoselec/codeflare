@@ -54,6 +54,9 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 | `CLOUDFLARE_API_TOKEN` | Yes | `deploy.yml`, `e2e.yml` | Wrangler CLI auth, KV operations, container push, worker deploy, secret management |
 | `CLOUDFLARE_ACCOUNT_ID` | Yes | `deploy.yml`, `e2e.yml` | Identifies the Cloudflare account for all API operations |
 | `RESEND_API_KEY` | If onboarding or SaaS mode active | `deploy.yml` | Notification emails via Resend (waitlist submissions + access requests) |
+| `OAUTH_CLIENT_ID` | If onboarding or SaaS mode active | `deploy.yml` | GitHub OAuth app client id; injected as a worker `--var` for the sign-in flow |
+| `OAUTH_CLIENT_SECRET` | If onboarding or SaaS mode active | `deploy.yml` | GitHub OAuth app client secret; set as a worker secret via `wrangler secret put` |
+| `OAUTH_JWT_SECRET` | If onboarding or SaaS mode active | `deploy.yml` | Signs the post-OAuth session JWT; set as a worker secret via `wrangler secret put` |
 | `CF_ACCESS_CLIENT_ID` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token ID for E2E auth |
 | `CF_ACCESS_CLIENT_SECRET` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token secret; also used as `SERVICE_AUTH_SECRET` worker secret and KV seeding |
 | `DOCKERHUB_USERNAME` | For Docker Hub fallback | `deploy-dockerhub.yml` | Docker Hub account that owns the image repo |
@@ -66,7 +69,7 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 | `CLOUDFLARE_WORKER_NAME` | `codeflare` | `deploy.yml`, `e2e.yml` | Worker name for deploy and E2E target resolution | Hardcoded fallback in workflow |
 | `RUNNER` | `ubuntu-latest` | All workflows | GitHub Actions runner label (self-hosted support) | Hardcoded fallback in workflow |
 | `E2E_BASE_URL` | - | `e2e.yml` | Base URL of deployed worker for E2E tests | Set per environment |
-| `ONBOARDING_LANDING_PAGE` | `inactive` | `deploy.yml` | Enables public waitlist landing page via `--var` | Hardcoded fallback in workflow |
+| `ONBOARDING_LANDING_PAGE` | `inactive` | `deploy.yml` | Enables the public landing + onboarding `/login` via `--var`; when `active`, also triggers GitHub OAuth provisioning, so the three `OAUTH_*` secrets above are required | Hardcoded fallback in workflow |
 | `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB, 6 GB) | `deploy.yml` | Container instance size (low/default/high/saas). All tiers default to 10 max instances | Defaults to `default` in deploy step |
 | `MAX_INSTANCES` | unset (10) | `deploy.yml` | Override container max_instances. Must be a positive integer | Passed via env to avoid shell injection |
 | `CLAUDE_CODE_CACHE_BUSTER` | `inactive` | `deploy.yml` | When `active`, writes `.cache-bust` to invalidate AI agent Docker layer | Not set by default |

@@ -236,6 +236,28 @@ import {
             <span class="tf-seg">{CONTEXT.terminal.foot}</span>
           </div>
         </div>
+
+        <!-- Substation of station 05: the other Browser Run surface. The same
+             throwaway browser the agent reads as markdown, it also DRIVES, an
+             agent-steered semantic e2e at a mobile viewport that judges the
+             deployed app against intent. The deny line is a real finding this
+             repo's own landing QA caught. Belongs to station 05, not floating. -->
+        <div class="section-head substation reveal">
+          <h3>{CONTEXT.e2e.heading}</h3>
+          <p class="lead">{CONTEXT.e2e.lead}</p>
+        </div>
+        <div class="terminal feature-terminal context-terminal reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="terminal-title">{CONTEXT.e2e.terminal.title}</span>
+          </div>
+          <div class="terminal-body">
+            {CONTEXT.e2e.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
+          </div>
+          <div class="terminal-foot tf-static">
+            <span class="tf-seg">{CONTEXT.e2e.terminal.foot}</span>
+          </div>
+        </div>
       </div>
     </section>
 

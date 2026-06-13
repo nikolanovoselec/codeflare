@@ -12,6 +12,11 @@ This is the **semantic** half of e2e. A scripted Playwright test in CI proves a 
 
 Only available in Pro (advanced) sessions with a Cloudflare API token carrying the **Browser Rendering – Edit** scope. If you don't see `mcp__chrome-devtools__*` tools (`navigate_page`, `take_snapshot`, `take_screenshot`, `click`, `fill`, `evaluate_script`, `emulate`), browser e2e is not enabled — fall back to reasoning over the code and CI.
 
+## Two depths — pick by what the acceptance criterion needs
+
+- **Read-only state check** (cheap): the AC is about *rendered content/structure* (right copy, expected elements, a URL-reachable state like `?status=requested`). Use the cheap `browser-run` MCP tools — `browser_markdown` / `browser_scrape` — for a one-shot read, no live session. Don't open chrome-devtools for this.
+- **Interactive flow / visual** (chrome-devtools): the AC needs *clicking through steps*, *a screenshot*, or a *specific viewport*. Use the `chrome-devtools` tools below. That's the rest of this skill.
+
 ## When to use
 
 - **After you deploy a preview / integration build**, to confirm a change behaves and looks right before declaring it done.

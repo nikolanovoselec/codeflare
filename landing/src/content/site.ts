@@ -510,6 +510,28 @@ export const CONTEXT = {
     ] satisfies TranscriptLine[],
     foot: 'throwaway per fetch · never your network · never the container',
   },
+  // The OTHER Browser Run surface: the same throwaway browser the agent reads
+  // with, it also DRIVES. An agent-steered semantic e2e at a mobile viewport,
+  // judging the deployed app against intent (the deny line is a real clip this
+  // repo's own landing QA caught and filed). Shown as a substation of station 05.
+  e2e: {
+    heading: "And it doesn't just read. It drives.",
+    lead:
+      'The same throwaway browser runs your e2e. Tell an agent to test a deployed flow ' +
+      'from a mobile viewport and it navigates, taps, screenshots, and judges what ' +
+      'rendered against the acceptance criteria, the way a person would.',
+    terminal: {
+      title: 'codeflare · e2e',
+      lines: [
+        { tone: 'cmd', text: 'agent → e2e codeflare.ch/login · from mobile' },
+        { tone: 'agent', text: '✻ throwaway browser · 390x844 viewport' },
+        { tone: 'agent', text: '✻ navigate · screenshot · tap "Continue with GitHub"' },
+        { tone: 'ok', text: '✓ AC1 · OAuth reached, the flow is seamless' },
+        { tone: 'deny', text: '✕ AC2 · foot caption clips at 390px · fix filed' },
+      ] satisfies TranscriptLine[],
+      foot: 'the agent drives and judges the page, not a brittle selector',
+    },
+  },
 };
 
 export const PIPELINE = {

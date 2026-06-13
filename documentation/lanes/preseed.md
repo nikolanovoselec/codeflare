@@ -245,7 +245,7 @@ All preseed content is deployed via the manifest pipeline:
   skills), vault-operations, vault-note-capture, spec-enforce,
   spec-enforce-ac, spec-enforce-truth, doc-enforce, doc-enforce-lanes,
   doc-enforce-shape, doc-enforce-truth, tdd-enforce,
-  git-review-pipeline, graphify, browser-run (advanced only, Claude Code only),
+  git-review-pipeline, graphify, browser-run + browser-e2e (advanced only, both agents),
   emil-design-eng, design-taste-frontend (design prose, all agents),
   impeccable (design skill + offline detector, advanced only, Claude + Pi
   only — Pi gets a dedicated verbatim copy, not the prose-transformed lane)
@@ -269,22 +269,29 @@ All preseed content is deployed via the manifest pipeline:
   graphify-session-start.sh, graphify-clone-prompt.sh,
   graph-first-nudge.sh, safe-graphify-update.sh)
 - Pi-native runtime assets include package config and package lock. (Graphify
-  tools ship as the native extension `extensions/graphify-native.ts`, not a
-  seeded `mcp.json` — Pi has no MCP client.)
+  tools ship as the native extension `extensions/graphify-native.ts` rather than
+  through the MCP adapter — a Pi-native first-class choice. Pi DOES consume MCP
+  servers via the `pi-mcp-adapter`: it reaches `consult-llm` and `chrome-devtools`
+  through the `mcp` proxy, wired into `~/.pi/agent/mcp.json` by `entrypoint.sh`.)
 
   Extension files deploy Pi-specific runtime behavior:
   `codeflare-commands.ts` provides `/debug`, `/deploy`, and `/brainstorm`;
   durable review-job helpers enforce PR-boundary review; `startup-header.ts`
   replaces Pi's startup header; `local-statusline.ts` preserves extension
-  status rows in default and advanced modes; `browser-run.ts` (advanced only)
-  registers native `browser_markdown`, `browser_content`, and `browser_scrape`
-  tools that call the Cloudflare Browser Run REST Quick Actions — Pi's
-  equivalent of Claude Code's `chrome-devtools-mcp` MCP server, self-gated on
-  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The `browser-run` skill
-  (Claude Code) and `browser-run.ts` extension (Pi) position Browser Run as the
-  last-resort web fetcher — `WebFetch`/`ctx_fetch_and_index` → `curl` → Browser
-  Run, reserved for JS-rendered or bot-protected pages — per the decision tree
-  in the skill's "When to use" section.
+  status rows in default and advanced modes; `browser-run.ts` + its pure
+  `browser-run-helpers.ts` (advanced only) register native `browser_markdown`,
+  `browser_content`, and `browser_scrape` tools that call the Cloudflare Browser
+  Run REST Quick Actions (the cheap one-shot READ surface), self-gated on
+  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Browser Run has two surfaces
+  and both agents have both: the READ surface above (Pi native tools; for Claude
+  Code a sibling `browser-run` MCP server built from
+  `preseed/agents/claude/browser-run-mcp/`, registered in `~/.claude.json`) and the
+  INTERACTIVE `chrome-devtools` surface (navigate / click / screenshot / viewport —
+  for Claude a registered MCP server, for Pi bridged in via the `pi-mcp-adapter`).
+  The `browser-run` skill (both agents) frames the cost/context decision (cheap
+  markdown read first, the interactive browser only when a page must be driven),
+  and `browser-e2e` (both agents) drives the interactive surface to verify a
+  deployed app by judgment, including from a mobile viewport.
 
   Native skill overrides include graphify
   ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch)

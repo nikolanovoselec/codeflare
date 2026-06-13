@@ -9,6 +9,11 @@
       "advanced"
     ]
   },
+  "extensions/browser-run-helpers.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/browser-run/SKILL.md": {
     "modes": [
       "advanced"

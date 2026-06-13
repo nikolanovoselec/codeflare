@@ -408,6 +408,14 @@ describe('landing page (REQ-LANDING-001)', () => {
       expect(text).toContain(line.text);
     }
     expect(text).toContain(CONTEXT.terminal.foot);
+    // Station 05 also carries the agent-steered e2e substation (the "drive"
+    // surface beside the "read"/markdown one): its heading and every transcript
+    // line must render, including the pass/fail verdict lines.
+    expect(text).toContain(CONTEXT.e2e.heading);
+    for (const line of CONTEXT.e2e.terminal.lines) {
+      expect(text).toContain(line.text);
+    }
+    expect(text).toContain(CONTEXT.e2e.terminal.foot);
   });
 
   it('REQ-LANDING-001: parallel review board renders lanes, a caught finding, and the human triage verdict', () => {

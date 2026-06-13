@@ -2272,15 +2272,17 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 # WebFetch fallback for bot-protection, login walls, redirect chains, and
 # JS-only pages. (Implements REQ-BROWSER-001 / REQ-BROWSER-003)
 #
-# Per-agent transport differs because the agents differ in MCP support:
-#   - Claude Code: chrome-devtools-mcp (Cloudflare's canonical MCP client path)
-#     pointed at the Browser Run CDP /devtools WebSocket, registered HERE in
-#     ~/.claude.json.
-#   - Pi: a NATIVE wrapper extension (preseed/agents/pi/extensions/browser-run.ts,
-#     seeded to ~/.pi/agent/extensions/) that calls the Browser Run REST Quick
-#     Actions. Pi does not consume MCP servers, so it gets native browser_*
-#     tools instead — no wiring needed here; the extension self-gates on the
-#     same CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID env vars.
+# Both coding agents get the SAME chrome-devtools-mcp server pointed at the
+# Browser Run CDP /devtools WebSocket, so both have full interactive control
+# (navigate, click, fill, take_screenshot, take_snapshot, resize_page for a
+# mobile viewport) — the foundation the browser-e2e skill rests on:
+#   - Claude Code: registered in ~/.claude.json mcpServers (canonical MCP path).
+#   - Pi: registered in ~/.pi/agent/mcp.json; Pi's pi-mcp-adapter bridges it in
+#     (reachable through the `mcp` proxy tool), exactly as consult-llm is wired
+#     for Pi above. lifecycle:lazy so an idle session does not pin a remote
+#     browser open. Pi ALSO keeps its native browser_* tools (the REST Quick
+#     Actions wrapper in preseed/agents/pi/extensions/browser-run.ts) as the
+#     cheap one-shot read path — markdown/content/scrape with no CDP session.
 #   - GitHub Copilot: deferred (not wired yet).
 #
 # CDP endpoint (Claude):
@@ -2323,8 +2325,49 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
         echo "$BROWSER_MCP_CLAUDE" | jq '.' > "$USER_CLAUDE_JSON"
     fi
     echo "[entrypoint] chrome-devtools MCP server registered in .claude.json (Cloudflare Browser Run)"
-    # Pi gets native browser_* tools via its preseeded extension (self-gated on
-    # the same env vars); nothing to wire here.
+
+    # Pi (~/.pi/agent/mcp.json) - the SAME chrome-devtools server, bridged in by
+    # the pi-mcp-adapter (reachable via the `mcp` proxy). Mirrors the Claude merge
+    # above and the consult-llm Pi merge in configure_consult_llm. lifecycle:lazy
+    # connects on first use and disconnects on idle, so an idle Pi session does
+    # not hold a remote browser open. Pi keeps its native browser_* tools too (the
+    # cheap one-shot REST read path); chrome-devtools adds the interactive flow.
+    BROWSER_MCP_PI=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
+        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.1.1",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],lifecycle:"lazy"}}}')
+    PI_MCP_JSON="$USER_HOME/.pi/agent/mcp.json"
+    mkdir -p "$USER_HOME/.pi/agent"
+    if [ -f "$PI_MCP_JSON" ]; then
+        TMP_JSON=$(mktemp)
+        if jq --argjson mcp "$BROWSER_MCP_PI" '. * $mcp' "$PI_MCP_JSON" > "$TMP_JSON" 2>/dev/null; then
+            mv "$TMP_JSON" "$PI_MCP_JSON"
+        else
+            echo "[entrypoint] WARNING: Could not merge chrome-devtools MCP config into Pi mcp.json (malformed?)"
+            rm -f "$TMP_JSON"
+        fi
+    else
+        echo "$BROWSER_MCP_PI" | jq '.' > "$PI_MCP_JSON"
+    fi
+    echo "[entrypoint] chrome-devtools MCP server registered in Pi mcp.json (Cloudflare Browser Run)"
+
+    # Claude (~/.claude.json) - the cheap one-shot page-read surface (markdown /
+    # content / scrape), giving Claude parity with Pi's native browser_* tools.
+    # Backed by /opt/codeflare/browser-run-mcp (built in the Dockerfile). The CF
+    # token + account are passed in the server's scoped env. With this, both
+    # agents have BOTH surfaces: interactive (chrome-devtools) + markdown (REST).
+    BROWSER_RUN_MCP_CLAUDE=$(jq -n --arg tok "$CLOUDFLARE_API_TOKEN" --arg acct "$CLOUDFLARE_ACCOUNT_ID" \
+        '{mcpServers:{"browser-run":{command:"node",args:["/opt/codeflare/browser-run-mcp/index.mjs"],env:{CLOUDFLARE_API_TOKEN:$tok,CLOUDFLARE_ACCOUNT_ID:$acct}}}}')
+    if [ -f "$USER_CLAUDE_JSON" ]; then
+        TMP_JSON=$(mktemp)
+        if jq --argjson mcp "$BROWSER_RUN_MCP_CLAUDE" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
+            mv "$TMP_JSON" "$USER_CLAUDE_JSON"
+        else
+            echo "[entrypoint] WARNING: Could not merge browser-run MCP config into .claude.json (malformed?)"
+            rm -f "$TMP_JSON"
+        fi
+    else
+        echo "$BROWSER_RUN_MCP_CLAUDE" | jq '.' > "$USER_CLAUDE_JSON"
+    fi
+    echo "[entrypoint] browser-run MCP server registered in .claude.json (Cloudflare Browser Run markdown/content/scrape)"
 fi
 
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)

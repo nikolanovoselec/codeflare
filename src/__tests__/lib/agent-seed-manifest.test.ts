@@ -198,7 +198,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(gemini!.content).not.toContain('~/.claude/');
   });
 
-  it('REQ-BROWSER-004: the browser-e2e skill is seeded for Claude (interactive) and Pi (native), advanced mode', () => {
+  it('REQ-BROWSER-004: the browser-e2e skill is seeded for Claude and Pi (both interactive), advanced mode', () => {
     // Claude drives the interactive surface (chrome-devtools): the skill must reach
     // .claude and name that surface, so the agent knows what tools to use.
     const claudeE2e = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.claude/skills/browser-e2e/SKILL.md');
@@ -208,11 +208,40 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // The feature is semantic e2e (judgment), distinct from the browser-run fetch
     // fallback — the skill must position itself as a verify-by-judgment complement.
     expect(claudeE2e!.content.toLowerCase()).toContain('semantic');
-    // Pi reaches the same capability through its native one-shot tools, advanced mode.
+    // Pi now has FULL parity: it drives the same chrome-devtools surface through the
+    // pi-mcp-adapter (REQ-BROWSER-006), so its e2e skill must name chrome-devtools
+    // (interactive) AND keep browser_markdown as the cheap read-only path.
     const piE2e = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/skills/browser-e2e/SKILL.md');
     expect(piE2e).toBeDefined();
     expect(piE2e!.modes).toContain('advanced');
+    expect(piE2e!.content).toContain('chrome-devtools');
     expect(piE2e!.content).toContain('browser_markdown');
+    // AC3: both skills scope to public/deployed targets (call out localhost as
+    // unreachable) and keep deterministic invariants in CI.
+    for (const e2e of [claudeE2e!, piE2e!]) {
+      expect(e2e.content).toContain('localhost');
+      expect(e2e.content).toContain('CI');
+    }
+  });
+
+  it('REQ-BROWSER-005/006: the browser-run skill carries BOTH surfaces for each agent (cheap markdown + interactive chrome-devtools)', () => {
+    // After symmetry: every agent has a cheap one-shot read surface
+    // (browser_markdown/content/scrape) AND the interactive chrome-devtools surface.
+    // The browser-run decision skill must name both so the agent picks the cheaper.
+    const claudeRun = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.claude/skills/browser-run/SKILL.md');
+    expect(claudeRun).toBeDefined();
+    expect(claudeRun!.modes).toContain('advanced');
+    expect(claudeRun!.content).toContain('browser_markdown');
+    expect(claudeRun!.content).toContain('chrome-devtools');
+    const piRun = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/skills/browser-run/SKILL.md');
+    expect(piRun).toBeDefined();
+    expect(piRun!.modes).toContain('advanced');
+    expect(piRun!.content).toContain('browser_markdown');
+    expect(piRun!.content).toContain('chrome-devtools');
+    // REQ-005 AC4 / REQ-006 AC3: the skill frames an explicit decision order so the
+    // agent reaches for the cheap read surface before the expensive interactive one.
+    expect(claudeRun!.content).toContain('Decision order');
+    expect(piRun!.content).toContain('Decision order');
   });
 
   it('Pi has skills, native runtime extensions, and subagent definitions', () => {
@@ -223,6 +252,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const scripts = piDocs.filter((d) => d.key.startsWith('.pi/agent/scripts/'));
     expect(skills.length).toBeGreaterThan(0);
     expect(extensions.map((d) => d.key).sort()).toEqual([
+      '.pi/agent/extensions/browser-run-helpers.ts',
       '.pi/agent/extensions/browser-run.ts',
       '.pi/agent/extensions/codeflare-commands.ts',
       '.pi/agent/extensions/codeflare-pi.ts',
@@ -254,14 +284,15 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // are emitted directly (not transformed from Claude), so the Pi manifest -> seed pipeline
     // must surface them.
     expect(skills.map((d) => d.key)).toContain('.pi/agent/skills/review/SKILL.md');
-    // Browser e2e (REQ-BROWSER-004): Pi gets its DEDICATED native skill (one-shot
-    // fetch + judge), emitted from the Pi manifest, not the transformed Claude one.
-    // It must speak the Pi-native tools and must NOT reference chrome-devtools (the
-    // Claude-only surface) — proof the line-489 native-skip used the right source.
+    // Browser e2e (REQ-BROWSER-004): Pi gets its DEDICATED skill, emitted from the
+    // Pi manifest, not the transformed Claude one (proof the line-489 native-skip
+    // used the right source). Pi now has full parity — it drives chrome-devtools
+    // through the pi-mcp-adapter (REQ-BROWSER-006) — so the skill must name BOTH
+    // chrome-devtools (interactive) and browser_markdown (the cheap read path).
     const piBrowserE2e = skills.find((d) => d.key === '.pi/agent/skills/browser-e2e/SKILL.md');
     expect(piBrowserE2e).toBeDefined();
     expect(piBrowserE2e!.content).toContain('browser_markdown');
-    expect(piBrowserE2e!.content).not.toContain('chrome-devtools');
+    expect(piBrowserE2e!.content).toContain('chrome-devtools');
     // The five Pi tool-extension skills ship a "when to use which tool" guide; the
     // manifest -> seed pipeline must surface each one (advisor is codeflare-authored
     // for the @juicesharp/rpiv-advisor extension, which ships no skill of its own).

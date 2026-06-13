@@ -330,6 +330,23 @@ RUN npm install -g consult-llm-mcp@2.13.4 && \
     rm -rf /root/.npm
 
 # ---------------------------------------------------------------------------
+# Claude-side Browser Run MCP server (REQ-BROWSER-005). The analog of Pi's
+# native browser-run.ts extension: exposes the Cloudflare Browser Run REST Quick
+# Actions (markdown / content / scrape) as MCP tools so Claude has the same cheap
+# one-shot page-read surface Pi has. chrome-devtools-mcp gives Claude the
+# interactive surface; this gives it the clean HTML->Markdown / scrape surface.
+# Registered in ~/.claude.json by entrypoint.sh under the same advanced + CF-token
+# gate. The @modelcontextprotocol/sdk version in package.json is pinned (exact)
+# and shadow-tracked by bump-shadow-pins.yml. Built here so the runtime invokes
+# `node /opt/codeflare/browser-run-mcp/index.mjs` with no per-session npm fetch.
+COPY preseed/agents/claude/browser-run-mcp/ /opt/codeflare/browser-run-mcp/
+RUN cd /opt/codeflare/browser-run-mcp && \
+    npm install --omit=dev --no-audit --no-fund && \
+    node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => console.log('[Dockerfile] browser-run-mcp imports cleanly')).catch(e => { console.error('[Dockerfile] FATAL: browser-run-mcp import failed:', e.message); process.exit(1); })" && \
+    npm cache clean --force && \
+    rm -rf /root/.npm
+
+# ---------------------------------------------------------------------------
 # Install graphify (Python knowledge-graph tool) globally via uv.
 # Implements REQ-AGENT-023.
 #

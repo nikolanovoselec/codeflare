@@ -1,0 +1,13 @@
+{
+  "name": "codeflare-browser-run-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude-side Browser Run MCP server: Cloudflare Browser Run REST Quick Actions (markdown/content/scrape) as MCP tools. The analog of Pi's native browser-run extension.",
+  "bin": {
+    "codeflare-browser-run-mcp": "index.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0"
+  }
+}

@@ -1,35 +1,34 @@
 ---
 name: browser-run
-description: Use a real headless browser (Cloudflare Browser Run, via the chrome-devtools MCP server) as a fallback when WebFetch is blocked by bot protection, login walls, redirects, or JavaScript-only rendering. Activates when WebFetch fails or returns unusable content for a public URL.
-version: 1.0.0
+description: Read or drive public web pages with a real headless browser (Cloudflare Browser Run). Two surfaces — a cheap one-shot Markdown/HTML/scrape read (browser_markdown / browser_content / browser_scrape) and the interactive chrome-devtools browser (navigate / click / screenshot). Use when WebFetch is blocked by bot protection, login walls, redirects, or JavaScript-only rendering, or when you need to interact with a page.
+version: 2.0.0
 ---
 
 # Browser Run (Claude Code)
 
-A real-browser fallback for fetching public web pages that `WebFetch` can't read — bot-protected pages, JS-only / single-page apps, redirect chains, and pages that need a real engine to render. Backed by Cloudflare Browser Run (headless Chrome) and exposed through the **`chrome-devtools` MCP server** (registered in `~/.claude.json`).
+A real headless browser (Cloudflare Browser Run, headless Chrome) for public web pages that `WebFetch` can't read or that you need to *interact* with. There are **two surfaces**, and picking the cheaper one is the whole point of this skill — a real browser session is the most expensive way to touch a page.
 
-Only available in Pro (advanced) sessions when a Cloudflare API token with the **Browser Rendering – Edit** scope is configured. If you don't see `chrome-devtools` MCP tools (e.g. `mcp__chrome-devtools__navigate_page`, `take_snapshot`, `take_screenshot`, `evaluate_script`), Browser Run is not enabled for this session — fall back to WebFetch only.
+| Surface | Tools | Cost | Use it for |
+|---|---|---|---|
+| **Markdown / read** (one-shot) | `browser_markdown`, `browser_content`, `browser_scrape` (the `browser-run` MCP server) | Cheap — one request, no live session | **Reading** a page: article/doc content, verifying rendered text/structure, pulling specific elements. The default when you just need to *see what the page says*. |
+| **Interactive** | `mcp__chrome-devtools__*` (`navigate_page`, `take_snapshot`, `take_screenshot`, `click`, `fill`, `evaluate_script`, `resize_page`/`emulate`) | Expensive — holds a remote Chrome/CDP session | **Driving** a page: multi-step flows, clicking/typing, screenshots, viewport testing, e2e. |
 
-## When to use
+Both are Pro (advanced) only, and only when a Cloudflare API token with the **Browser Rendering – Edit** scope is configured. If you see neither the `browser_*` tools nor `mcp__chrome-devtools__*`, Browser Run is not enabled — fall back to `WebFetch` only.
 
-The `chrome-devtools` browser is the **last resort** — a real Chrome engine is the most expensive way to read a page. Use the cheaper tools first:
+## Decision order (cheapest that does the job)
 
-1. **Static / normal page** → `WebFetch`, or `ctx_fetch_and_index` (context-mode) when the page is large or you only want specific facts (it keeps the bytes out of your context). Fast and cheap.
+1. **Static / normal page** → `WebFetch`, or `ctx_fetch_and_index` (context-mode) when the page is large or you only want specific facts (keeps the bytes out of your context). Fast and cheap.
 2. **Raw HTTP / JSON API** → `curl` via Bash.
-3. **Use the `chrome-devtools` browser ONLY when** the page is **JavaScript-only / a SPA** (content materializes after JS runs) or is **bot-protected / CAPTCHA / redirect-walled**, so `WebFetch` returns an error, an anti-bot page, or empty/unrendered HTML. Don't retry `WebFetch` on a page you already know needs JS — go straight to the browser tools.
-4. Public URLs only. Never point Browser Run at internal hosts, `localhost`, private IPs, or anything requiring the user's session/credentials.
+3. **Blocked or JS-only, but you only need to READ it** → `browser_markdown` (clean Markdown — smallest, best for content), `browser_content` (rendered HTML/DOM), or `browser_scrape` (specific CSS selectors). One-shot, no session — **prefer this over chrome-devtools whenever you don't need to interact.** Don't retry `WebFetch` on a page you already know needs JS.
+4. **You need to INTERACT** — navigate a multi-step flow, click/fill, take a screenshot, test a viewport → the `chrome-devtools` browser. This is where e2e lives; see the `browser-e2e` skill.
+5. Public URLs only. Never point Browser Run at internal hosts, `localhost`, private IPs, or anything requiring the user's session/credentials.
 
 ## How to use
 
-The `chrome-devtools` MCP server drives a remote Chrome over the Chrome DevTools Protocol. Typical flow:
-
-1. `navigate_page` to the target URL (for JS-heavy pages, let it settle / wait for network idle).
-2. `take_snapshot` to read the rendered accessibility tree / text content, or `evaluate_script` to pull specific values from the DOM.
-3. `take_screenshot` only when a visual is genuinely needed.
-
-Keep it to read-only navigation and extraction — this is a fetch fallback, not an end-to-end testing harness. Don't perform logins, form submissions against third-party sites, or any state-changing actions.
+- **Read:** `browser_markdown { "url": "https://example.com/guide" }`. For JS-heavy / SPA pages pass `wait_until: "networkidle0"` so content has rendered. Narrow huge pages with `browser_scrape` + selectors.
+- **Interact:** `navigate_page` → `take_snapshot` / `evaluate_script` to observe → `take_screenshot` when a visual is needed → `click` / `fill` to step. Keep a fetch task read-only; full flows belong in `browser-e2e`.
 
 ## Notes
 
-- Prefer extracting just the content you need (snapshot/evaluate) over dumping whole pages, to protect the context window.
+- Extract just what you need (markdown, scoped selectors, targeted snapshot) over dumping whole pages — protect the context window. Output is capped (~120k chars).
 - The browser is remote (Cloudflare's edge), so it bypasses container egress limits but is still subject to the target site's own access controls.
