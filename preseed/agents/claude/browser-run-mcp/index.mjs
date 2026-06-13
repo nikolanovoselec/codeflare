@@ -30,13 +30,31 @@ const server = new Server({ name: "browser-run", version: "1.0.0" }, { capabilit
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 
-server.setRequestHandler(CallToolRequestSchema, async (req) => {
+server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
   const name = req.params.name;
   const args = req.params.arguments ?? {};
   if (!TOOL_NAMES.has(name)) {
     return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
-  const outcome = await executeBrowserAction({ tool: name, params: args, accountId: ACCOUNT_ID, token: TOKEN });
+  // Parity with the Pi extension's credential self-gate: entrypoint only registers
+  // this server when both are present, but fail clearly rather than emit a confusing
+  // Cloudflare auth error if it is ever started without them.
+  if (!TOKEN || !ACCOUNT_ID) {
+    return {
+      content: [
+        { type: "text", text: "Browser Run is not configured: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set." },
+      ],
+      isError: true,
+    };
+  }
+  // Forward the request's AbortSignal so a cancelled tool call aborts the fetch.
+  const outcome = await executeBrowserAction({
+    tool: name,
+    params: args,
+    accountId: ACCOUNT_ID,
+    token: TOKEN,
+    signal: extra?.signal,
+  });
   return outcome.isError
     ? { content: [{ type: "text", text: outcome.text }], isError: true }
     : { content: [{ type: "text", text: outcome.text }] };

@@ -186,6 +186,13 @@ describe('shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automa
     assert.match(body, /npm view consult-llm-mcp version/, 'consult-llm-mcp job must check the npm registry');
   });
 
+  test('AC2: @modelcontextprotocol/sdk (browser-run-mcp package.json) is watched', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    assert.match(body, /^\s+browser-run-mcp:/m, 'bump-shadow-pins.yml must declare a `browser-run-mcp:` job');
+    assert.match(body, /npm view @modelcontextprotocol\/sdk version/, 'browser-run-mcp job must check the npm registry');
+    assert.match(body, /preseed\/agents\/claude\/browser-run-mcp\/package\.json/, 'browser-run-mcp job must read+write the pin from the server package.json');
+  });
+
   test('AC3: SHA256 is invalidated on Dockerfile bumps', () => {
     const body = readWorkflow('bump-shadow-pins.yml');
     assert.match(body, /NEEDS_UPDATE_SEE_PR_BODY/, 'Dockerfile bump jobs must invalidate SHA256 with placeholder');

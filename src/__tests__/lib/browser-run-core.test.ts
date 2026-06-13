@@ -34,12 +34,16 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
     it('leaves a short string untouched', () => {
       expect(mod.truncate('hello')).toBe('hello');
     });
-    it('truncates an over-cap string and reports the dropped count', () => {
-      const big = 'a'.repeat(mod.MAX_OUTPUT_CHARS + 25);
+    it('caps an over-cap string at the limit and reports the dropped count', () => {
+      const overage = 50_000;
+      const big = 'a'.repeat(mod.MAX_OUTPUT_CHARS + overage);
       const out = mod.truncate(big);
-      expect(out.length).toBeLessThan(big.length);
-      expect(out).toContain('truncated 25 chars');
+      // The kept content ends exactly at the cap; the marker follows it.
+      expect(out.indexOf('\n\n[... truncated')).toBe(mod.MAX_OUTPUT_CHARS);
+      expect(out).toContain(`truncated ${overage} chars`);
       expect(out).toContain('browser_scrape');
+      // With a large overage the marker cannot outweigh the dropped content.
+      expect(out.length).toBeLessThan(big.length);
     });
     it('never splits a surrogate pair at the boundary', () => {
       const emoji = '😀'; // one code point, two UTF-16 units

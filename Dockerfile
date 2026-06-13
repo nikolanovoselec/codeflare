@@ -337,7 +337,8 @@ RUN npm install -g consult-llm-mcp@2.13.4 && \
 # interactive surface; this gives it the clean HTML->Markdown / scrape surface.
 # Registered in ~/.claude.json by entrypoint.sh under the same advanced + CF-token
 # gate. The @modelcontextprotocol/sdk version in package.json is pinned (exact)
-# and shadow-tracked by bump-shadow-pins.yml. Built here so the runtime invokes
+# and shadow-pinned (the `browser-run-mcp` job in bump-shadow-pins.yml bumps it
+# weekly; no lockfile, invisible to Dependabot). Built here so the runtime invokes
 # `node /opt/codeflare/browser-run-mcp/index.mjs` with no per-session npm fetch.
 COPY preseed/agents/claude/browser-run-mcp/ /opt/codeflare/browser-run-mcp/
 RUN cd /opt/codeflare/browser-run-mcp && \

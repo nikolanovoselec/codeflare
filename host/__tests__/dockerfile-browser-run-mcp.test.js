@@ -43,12 +43,12 @@ describe('Dockerfile Claude browser-run MCP server (REQ-BROWSER-005)', () => {
     );
   });
 
-  it('pins the MCP SDK to an exact version (shadow-trackable, reproducible)', () => {
+  it('pins the MCP SDK to an exact version (shadow-pinned, reproducible)', () => {
     const v = pkg.dependencies['@modelcontextprotocol/sdk'];
     assert.ok(v, 'server package.json must depend on @modelcontextprotocol/sdk');
     assert.ok(
       /^\d+\.\d+\.\d+$/.test(v),
-      `@modelcontextprotocol/sdk must be pinned exact (no ^ or ~); got ${JSON.stringify(v)}`,
+      `@modelcontextprotocol/sdk must be pinned exact (no ^ or ~) so the browser-run-mcp shadow-pin job can watch it; got ${JSON.stringify(v)}`,
     );
   });
 

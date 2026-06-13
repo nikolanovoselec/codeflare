@@ -128,7 +128,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 ---
 
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 / REQ-AGENT-007 / REQ-AGENT-030 describe -> REQ-BROWSER-004 it -> AC1..AC4) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe -> REQ-BROWSER-004 it -> AC1..AC4) -->
 ### REQ-BROWSER-004: Agent Semantic e2e via Browser Run
 
 <!-- @impl: preseed/agents/claude/skills/browser-e2e/SKILL.md -->
@@ -162,7 +162,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 ---
 
-<!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core: claude/browser-run-mcp/core describe + twins-are-equivalent describe -> AC1,AC3) -->
+<!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core: claude/browser-run-mcp/core describe + twins are equivalent describe -> AC1,AC3) -->
 <!-- @test: host/__tests__/dockerfile-browser-run-mcp.test.js (Dockerfile Claude browser-run MCP server describe -> AC1) -->
 ### REQ-BROWSER-005: Claude browser-run MCP server (read-surface parity)
 
@@ -185,7 +185,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Constraints:**
 
-- The `@modelcontextprotocol/sdk` version is pinned (exact) in the server's `package.json` and shadow-tracked, following the `consult-llm-mcp` build pattern.
+- The `@modelcontextprotocol/sdk` version is pinned (exact) in the server's `package.json` and shadow-pinned by the `browser-run-mcp` job in `bump-shadow-pins.yml` ([REQ-OPS-020](operations.md#req-ops-020-shadow-pin-version-bump-automation)), following the `consult-llm-mcp` build pattern.
 - The token must carry the `Browser Rendering - Edit` scope ([REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)).
 
 **Priority:** P2
@@ -199,7 +199,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 ---
 
 <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring describe -> registers chrome-devtools for Pi in mcp.json with lifecycle lazy / gating -> AC1,AC4) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 / REQ-AGENT-007 / REQ-AGENT-030 describe -> REQ-BROWSER-005/006 it + pi-mcp-adapter skill present -> AC2,AC3) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe -> REQ-BROWSER-005/006 it + pi-mcp-adapter skill present -> AC2,AC3) -->
 ### REQ-BROWSER-006: Pi interactive browser via chrome-devtools through the pi-mcp-adapter
 
 <!-- @impl: entrypoint.sh -->

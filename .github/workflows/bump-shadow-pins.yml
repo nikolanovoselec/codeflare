@@ -902,3 +902,104 @@ jobs:
             --head "${{ steps.branch.outputs.branch }}" \
             --title "chore(deps): bump consult-llm-mcp $CUR -> $LAT" \
             --body "$BODY"
+
+  browser-run-mcp:
+    # The Claude-side browser-run MCP server pins @modelcontextprotocol/sdk exact
+    # in preseed/agents/claude/browser-run-mcp/package.json. That dir has no
+    # lockfile and is not covered by Dependabot or the pi-preseed job (which only
+    # reads the Pi package.json), so this job bumps it weekly.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Diff @modelcontextprotocol/sdk pin against npm latest
+        id: ver
+        run: |
+          set -euo pipefail
+          PKG=preseed/agents/claude/browser-run-mcp/package.json
+          CURRENT=$(jq -r '.dependencies["@modelcontextprotocol/sdk"]' "$PKG")
+          LATEST=$(npm view @modelcontextprotocol/sdk version)
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already on $LATEST, nothing to do."
+          else
+            echo "Bumping $CURRENT -> $LATEST"
+          fi
+
+      - name: Skip if a branch for this version already exists
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        run: |
+          BRANCH="bump/browser-run-mcp-sdk-${{ steps.ver.outputs.latest }}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply bump
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "${{ steps.branch.outputs.branch }}"
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const f = 'preseed/agents/claude/browser-run-mcp/package.json';
+          const cur = process.env.CUR;
+          const lat = process.env.LAT;
+          const before = fs.readFileSync(f, 'utf-8');
+          const after = before.replace(`"@modelcontextprotocol/sdk": "${cur}"`, `"@modelcontextprotocol/sdk": "${lat}"`);
+          if (before !== after) { fs.writeFileSync(f, after); console.log(`updated ${f}`); }
+          NODE
+
+          git add preseed/agents/claude/browser-run-mcp/package.json
+          if git diff --cached --quiet; then
+            echo "Nothing changed (replacement found nothing) - aborting."
+            exit 1
+          fi
+          git commit -m "chore(deps): bump @modelcontextprotocol/sdk (browser-run-mcp) $CUR -> $LAT"
+          git push -u origin "${{ steps.branch.outputs.branch }}"
+        env:
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+
+      - name: Open PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          BODY=$(cat <<EOF
+          Auto-generated bump of \`@modelcontextprotocol/sdk\` (the Claude-side \`browser-run\` MCP server) from \`$CUR\` to \`$LAT\`.
+
+          The version is pinned exact in \`preseed/agents/claude/browser-run-mcp/package.json\`; that dir has no lockfile and is not covered by Dependabot or the \`pi-preseed\` job, so \`bump-shadow-pins.yml\` opens this PR weekly.
+
+          Files updated:
+          - \`preseed/agents/claude/browser-run-mcp/package.json\` (\`@modelcontextprotocol/sdk\` \`$CUR\` -> \`$LAT\`)
+
+          ## Test plan
+          - [ ] CI green (Docker build installs the new SDK; the browser-run-mcp import smoke test passes)
+          - [ ] Smoke test on integration: \`browser_markdown\` responds on Claude Code
+          EOF
+          )
+          gh pr create \
+            --base develop \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --title "chore(deps): bump @modelcontextprotocol/sdk (browser-run-mcp) $CUR -> $LAT" \
+            --body "$BODY"
