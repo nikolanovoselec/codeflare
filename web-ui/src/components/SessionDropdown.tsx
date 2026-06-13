@@ -82,7 +82,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
           onClick={() => setShowCreateDialog(!showCreateDialog())}
         >
           <Icon path={mdiPlus} size={16} />
-          <span>{sessionStore.preseedUpgrading ? 'Upgrading...' : 'New Session'}</span>
+          <span>{sessionStore.preseedUpgrading ? 'Upgrading' : 'New Session'}</span>
         </button>
 
         <div class="session-dropdown__list">

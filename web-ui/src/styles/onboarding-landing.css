@@ -220,7 +220,7 @@
 .onboarding-btn-primary {
   border: 0;
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-accent-contrast);
 }
 
 .onboarding-btn-primary:hover:not(:disabled) {

@@ -35,13 +35,20 @@
      Colors - Accent (HSL-based — change --accent-hue to retheme)
      ========================================================================== */
 
-  --accent-hue: 217;
-  --accent-s: 91%;
-  --accent-l: 60%;
+  --accent-hue: 10;
+  --accent-s: 100%;
+  --accent-l: 62%;
 
   --color-accent: hsl(var(--accent-hue), var(--accent-s), var(--accent-l));
   --color-accent-hover: hsl(var(--accent-hue), var(--accent-s), 53%);
   --color-accent-muted: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.15);
+
+  /* Foreground to place ON the accent (e.g. the New Session button). Bright
+     accents (the coral default, yellows, light greens) need a near-black
+     foreground for contrast; dark/saturated accents need white. applyAccentColor
+     recomputes this from the active accent (YIQ brightness); this default tracks
+     the coral default above. */
+  --color-accent-contrast: #160a06;
 
   /* ==========================================================================
      Colors - Semantic

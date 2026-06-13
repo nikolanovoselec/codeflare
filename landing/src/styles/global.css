@@ -667,8 +667,14 @@ svg {
   border-top: 1px solid var(--border-subtle);
 }
 
-.feature-col:last-child {
-  border-bottom: 1px solid var(--border-subtle);
+/* No outer bookend hairlines on the stacked (mobile) grid: the first card drops
+   its top rule and the last keeps none, so a grid never stacks a second line
+   against the section divider or substation rule directly above or below it
+   (the doubled "two lines, nothing between" case). Cards stay separated by their
+   internal top hairlines; the section/substation provides the outer line.
+   Desktop (>=760px) replaces all of these with vertical rules anyway. */
+.feature-col:first-child {
+  border-top: none;
 }
 
 .feature-col h3 {

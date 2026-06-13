@@ -462,32 +462,22 @@ export const PLATFORM = {
   lead:
     'Every session is seeded with enterprise scaffolding the moment it starts, so agents ' +
     'already know your standards, your patterns, and your history.',
-  cards: [
-    {
-      title: 'Any agent, one engine',
-      body:
-        'Claude Code, Codex, Copilot, Pi, Antigravity, OpenCode. The governance, scaffolding, ' +
-        'and isolation are identical regardless of which agent does the work.',
-    },
-    {
-      title: '30+ skills on demand',
-      body:
-        'Spec-driven development, CI monitoring, deployment patterns, security checklists: ' +
-        'operational knowledge agents load when needed instead of rediscovering.',
-    },
-    {
-      title: '11 specialist subagents',
-      body:
-        'Architect, code reviewer, security reviewer, spec enforcer, TDD guide and more: ' +
-        'autonomous specialists the lead agent delegates to, in parallel.',
-    },
-    {
-      title: 'Knowledge-graph memory',
-      body:
-        'Repositories, documents, and decisions ingested into a queryable graph, so agents ' +
-        'recall last quarter’s architecture decision instead of contradicting it.',
-    },
-  ] satisfies Card[],
+  // The "arrives equipped" proof, shown the way the rest of the page trades: a
+  // session boot log. Each capability is loaded before the first prompt and rolls
+  // in as a checklist (data-roll) in the terminal idiom, so this section carries a
+  // live artifact like every other one instead of a wall of prose cards.
+  seed: {
+    title: 'codeflare · session',
+    meta: 'cold start → equipped',
+    rows: [
+      { actor: 'scaffolding', label: 'attached', text: 'your standards, patterns, and history' },
+      { actor: 'skills', label: '30+', text: 'spec-driven dev · CI · deploy · security, loaded on demand' },
+      { actor: 'subagents', label: '11', text: 'architect · reviewer · security · TDD guide, delegated in parallel' },
+      { actor: 'memory', label: 'graph', text: 'repos · docs · decisions, queryable, so prior calls still hold' },
+      { actor: 'any agent', label: 'one engine', text: 'identical governance whichever agent does the work' },
+    ],
+    caption: 'every session · identical governance, scaffolding, and isolation',
+  },
 };
 
 export const CONTEXT = {

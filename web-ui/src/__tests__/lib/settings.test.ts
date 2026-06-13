@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { loadSettings, saveSettings, hexToHSL, isValidHex, defaultSettings, applyAccentColor } from '../../lib/settings';
+import { loadSettings, saveSettings, hexToHSL, isValidHex, defaultSettings, applyAccentColor, accentContrast } from '../../lib/settings';
 
 describe('settings', () => {
   beforeEach(() => {
@@ -120,6 +120,25 @@ describe('settings', () => {
     });
   });
 
+  describe('accentContrast', () => {
+    it('returns warm near-black for bright accents', () => {
+      expect(accentContrast('#ff5c3c')).toBe('#160a06'); // coral default (YIQ ~137)
+      expect(accentContrast('#ffffff')).toBe('#160a06'); // white
+      expect(accentContrast('#22c55e')).toBe('#160a06'); // light green
+    });
+
+    it('returns near-white for dark / deeply saturated accents', () => {
+      expect(accentContrast('#ff0000')).toBe('#fafafa'); // pure red (YIQ ~76)
+      expect(accentContrast('#000000')).toBe('#fafafa'); // black
+      expect(accentContrast('#3b82f6')).toBe('#fafafa'); // the old blue default
+    });
+
+    it('handles 3-digit hex and hex without #', () => {
+      expect(accentContrast('#f00')).toBe('#fafafa');
+      expect(accentContrast('ffffff')).toBe('#160a06');
+    });
+  });
+
   describe('applyAccentColor', () => {
     it('sets CSS custom properties for valid hex', () => {
       applyAccentColor('#ff0000');
@@ -129,12 +148,21 @@ describe('settings', () => {
       expect(root.getPropertyValue('--accent-l')).toBe('50%');
     });
 
+    it('sets a readable --color-accent-contrast for the active accent', () => {
+      const root = document.documentElement.style;
+      applyAccentColor('#ff5c3c'); // bright coral -> near-black foreground
+      expect(root.getPropertyValue('--color-accent-contrast')).toBe('#160a06');
+      applyAccentColor('#ff0000'); // dark-ish red -> near-white foreground
+      expect(root.getPropertyValue('--color-accent-contrast')).toBe('#fafafa');
+    });
+
     it('removes CSS custom properties when no color provided', () => {
       // First set, then clear
       applyAccentColor('#ff0000');
       applyAccentColor(undefined);
       const root = document.documentElement.style;
       expect(root.getPropertyValue('--accent-hue')).toBe('');
+      expect(root.getPropertyValue('--color-accent-contrast')).toBe('');
     });
 
     it('removes CSS custom properties for invalid hex', () => {
@@ -142,6 +170,7 @@ describe('settings', () => {
       applyAccentColor('not-a-color');
       const root = document.documentElement.style;
       expect(root.getPropertyValue('--accent-hue')).toBe('');
+      expect(root.getPropertyValue('--color-accent-contrast')).toBe('');
     });
   });
 });

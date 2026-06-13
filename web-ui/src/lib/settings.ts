@@ -49,6 +49,28 @@ export function isValidHex(hex: string): boolean {
   return /^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$/.test(clean);
 }
 
+/**
+ * Pick a readable foreground to place ON the accent. Bright accents (the coral
+ * default, yellows, light greens) read better with a warm near-black; dark or
+ * deeply saturated accents need white. Uses the classic YIQ brightness threshold
+ * (>= 128 = light background -> dark text). Expects a valid hex.
+ */
+export function accentContrast(hex: string): string {
+  const clean = hex.replace(/^#/, '');
+  let r: number, g: number, b: number;
+  if (clean.length === 3) {
+    r = parseInt(clean[0] + clean[0], 16);
+    g = parseInt(clean[1] + clean[1], 16);
+    b = parseInt(clean[2] + clean[2], 16);
+  } else {
+    r = parseInt(clean.slice(0, 2), 16);
+    g = parseInt(clean.slice(2, 4), 16);
+    b = parseInt(clean.slice(4, 6), 16);
+  }
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 128 ? '#160a06' : '#fafafa';
+}
+
 /** Apply accent color to CSS custom properties, or reset to defaults */
 export function applyAccentColor(hexColor?: string): void {
   const root = document.documentElement.style;
@@ -58,12 +80,14 @@ export function applyAccentColor(hexColor?: string): void {
       root.setProperty('--accent-hue', String(hsl.h));
       root.setProperty('--accent-s', `${hsl.s}%`);
       root.setProperty('--accent-l', `${hsl.l}%`);
+      root.setProperty('--color-accent-contrast', accentContrast(hexColor));
       return;
     }
   }
   root.removeProperty('--accent-hue');
   root.removeProperty('--accent-s');
   root.removeProperty('--accent-l');
+  root.removeProperty('--color-accent-contrast');
 }
 
 export const defaultSettings: Settings = {

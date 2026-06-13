@@ -198,12 +198,13 @@ describe('SessionDropdown', () => {
       (sessionStore as any)._setPreseedUpgrading(false);
     });
 
-    it('disables New Session button and shows Upgrading... during preseed upgrade', () => {
+    it('disables New Session button and shows Upgrading during preseed upgrade', () => {
       (sessionStore as any)._setPreseedUpgrading(true);
       render(() => <SessionDropdown {...defaultProps} />);
       const btn = screen.getByTestId('session-dropdown-new');
       expect(btn).toBeDisabled();
-      expect(btn.textContent).toContain('Upgrading...');
+      expect(btn.textContent).toContain('Upgrading');
+      expect(btn.textContent).not.toContain('...');
     });
 
     it('enables New Session button when preseed upgrade is not running', () => {

@@ -128,6 +128,7 @@ export interface SessionState {
   maxSessions: number;
   preseedUpgrading: boolean;
   enterpriseMode: boolean;
+  saasMode: boolean;
 }
 
 const [state, setState] = createStore<SessionState>({
@@ -144,6 +145,7 @@ const [state, setState] = createStore<SessionState>({
   maxSessions: 3,
   preseedUpgrading: false,
   enterpriseMode: false,
+  saasMode: false,
 });
 
 // Auth expiry detection — set when background polling gets a 401/auth redirect.
@@ -600,6 +602,8 @@ export const sessionStore = {
   get preseedUpgrading() { return state.preseedUpgrading; },
   get enterpriseMode() { return state.enterpriseMode; },
   setEnterpriseMode: (value: boolean) => setState('enterpriseMode', value),
+  get saasMode() { return state.saasMode; },
+  setSaasMode: (value: boolean) => setState('saasMode', value),
   get r2Ready() { return isR2Ready(); },
   startR2Polling,
   stopR2Polling,

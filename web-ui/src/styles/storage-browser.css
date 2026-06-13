@@ -360,7 +360,7 @@
 
 .storage-action-btn--download {
   background: var(--color-accent);
-  color: white;
+  color: var(--color-accent-contrast);
 }
 
 .storage-action-btn--download:hover {

@@ -29,7 +29,11 @@ vi.mock('../../components/Icon', () => ({
   default: (props: any) => <svg data-testid="icon" data-path={props.path} />
 }));
 
-import DashboardCard from '../../components/TipsRotator';
+vi.mock('../../stores/session', () => ({
+  sessionStore: { saasMode: false },
+}));
+
+import DashboardCard, { filterTips } from '../../components/TipsRotator';
 
 describe('TipsRotator (DashboardCard)', () => {
   beforeEach(() => {
@@ -80,5 +84,29 @@ describe('TipsRotator (DashboardCard)', () => {
 
     const icon = screen.getByTestId('tips-card').querySelector('[data-testid="icon"]');
     expect(icon).toBeInTheDocument();
+  });
+});
+
+describe('filterTips (mode-aware)', () => {
+  const hasText = (tips: { text: string }[], needle: string) =>
+    tips.some((t) => t.text.includes(needle));
+
+  it('hides SaaS-only tips (Pro mode, Usage page) outside SaaS mode', () => {
+    const tips = filterTips(false);
+    expect(hasText(tips, 'Pro mode')).toBe(false);
+    expect(hasText(tips, 'Usage page')).toBe(false);
+  });
+
+  it('keeps SaaS-only tips in SaaS mode', () => {
+    const tips = filterTips(true);
+    expect(hasText(tips, 'Pro mode')).toBe(true);
+    expect(hasText(tips, 'Usage page')).toBe(true);
+  });
+
+  it('includes the engine-capability tips in every mode (subagents, browser, knowledge graph)', () => {
+    const tips = filterTips(false);
+    expect(hasText(tips, 'delegate')).toBe(true);
+    expect(hasText(tips, 'browser')).toBe(true);
+    expect(hasText(tips, 'knowledge graph')).toBe(true);
   });
 });

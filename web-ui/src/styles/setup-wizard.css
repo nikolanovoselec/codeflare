@@ -112,7 +112,7 @@
           padding: 10px 16px;
           font-size: var(--text-sm);
           font-weight: var(--font-medium);
-          color: var(--color-text-primary);
+          color: var(--color-accent-contrast);
           background: var(--color-accent);
           border: none;
           border-radius: var(--radius-md);

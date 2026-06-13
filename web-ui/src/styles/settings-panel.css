@@ -524,7 +524,7 @@
 
 .session-mode-option--selected {
   background: var(--color-accent);
-  color: var(--color-text-primary);
+  color: var(--color-accent-contrast);
 }
 
 .session-mode-option:not(.session-mode-option--selected):hover {
@@ -577,7 +577,7 @@
 
 .scope-tier-option--selected {
   background: var(--color-accent);
-  color: var(--color-text-primary);
+  color: var(--color-accent-contrast);
 }
 
 .scope-tier-option:not(.scope-tier-option--selected):hover {
@@ -791,7 +791,7 @@
   background: var(--color-accent);
   border: none;
   border-radius: var(--radius-lg);
-  color: white;
+  color: var(--color-accent-contrast);
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   cursor: pointer;

@@ -452,15 +452,28 @@ import {
           <h2>{PLATFORM.title}</h2>
           <p class="lead">{PLATFORM.lead}</p>
         </div>
-        <div class="feature-grid feature-grid--2" data-stagger>
-          {
-            PLATFORM.cards.map((card) => (
-              <div class="feature-col">
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </div>
-            ))
-          }
+        <!-- Arrives-equipped proof: a session boot log in the page's terminal
+             idiom. Each capability rolls in (data-roll) as a loaded checklist row,
+             so the section carries a live artifact like every other one instead of
+             a wall of prose cards. -->
+        <div class="terminal gate seed reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="gate-req">{PLATFORM.seed.title}</span>
+            <span class="gate-pr">{PLATFORM.seed.meta}</span>
+          </div>
+          <div class="gate-steps" data-roll>
+            {
+              PLATFORM.seed.rows.map((row, i) => (
+                <div class="gate-step" style={`--i:${i}`}>
+                  <span class="gate-actor">{row.actor}</span>
+                  <span class="gate-state">{row.label}</span>
+                  <span class="gate-text">{row.text}</span>
+                </div>
+              ))
+            }
+          </div>
+          <div class="terminal-foot tf-static"><span class="tf-seg">{PLATFORM.seed.caption}</span></div>
         </div>
         <div class="agent-chips reveal" aria-label="Supported coding agents">
           {AGENTS.map((agent) => <span>{agent}</span>)}

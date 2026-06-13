@@ -67,9 +67,24 @@ function initFlareFluid(): void {
   // so the flare lives and streams while reading. rAF-throttled; the first call
   // only primes the pointer (no splat).
   if (!finePointer) {
+    // While a finger is actually on the screen, the simulation's own touch
+    // handlers already drive the flare from the finger position (clientX/Y minus
+    // the canvas rect — the same path the SPA uses). The scroll sweep below is
+    // only an ambient fallback for when no finger is down (momentum / programmatic
+    // scroll). Without this guard a swipe fires both at once and the Lissajous
+    // splat — which is unrelated to the finger — wins, so the flare lands at the
+    // wrong coordinates instead of under the finger. Suppress the sweep during an
+    // active touch so the finger is the sole driver, matching the SPA.
+    let touchActive = false;
+    const endTouch = () => { touchActive = false; };
+    window.addEventListener('touchstart', () => { touchActive = true; }, { passive: true });
+    window.addEventListener('touchend', endTouch, { passive: true });
+    window.addEventListener('touchcancel', endTouch, { passive: true });
+
     let queued = false;
     const sweep = () => {
       queued = false;
+      if (touchActive) return; // finger drives the flare during an active swipe
       const y = window.scrollY;
       const xFrac = 0.5 + 0.32 * Math.sin(y / 320);
       const yFrac = 0.5 + 0.3 * Math.cos(y / 240);

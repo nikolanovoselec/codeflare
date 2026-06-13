@@ -109,7 +109,7 @@
   width: 100%;
   padding: var(--space-3);
   background: var(--color-accent);
-  color: var(--color-text-primary);
+  color: var(--color-accent-contrast);
   border: none;
   border-radius: var(--radius-md);
   font-size: var(--text-sm);

@@ -47,7 +47,7 @@
 .file-preview-download-btn {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #fff;
+  color: var(--color-accent-contrast);
 }
 
 .file-preview-download-btn:hover {

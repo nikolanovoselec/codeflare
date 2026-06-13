@@ -6,12 +6,16 @@ import { useScrambleText } from '../lib/use-scramble-text';
 import { DEV_QUOTES } from '../lib/quotes';
 import { formatRelativeTime } from '../lib/format';
 import { loadSettings } from '../lib/settings';
+import { sessionStore } from '../stores/session';
 import type { SessionWithStatus } from '../types';
 import '../styles/dashboard-card.css';
 
 interface Tip {
   text: string;
   category: 'mobile' | 'desktop' | 'general';
+  /** Tip references a SaaS-only concept (Pro mode, metered usage). Hidden in
+   *  onboarding, enterprise, and default deployments, which have no such thing. */
+  saasOnly?: boolean;
 }
 
 const ALL_TIPS: Tip[] = [
@@ -40,12 +44,20 @@ const ALL_TIPS: Tip[] = [
   { text: 'Use GitHub Actions to build and deploy \u2014 ask your agent to set it up', category: 'general' },
   { text: 'Connect your GitHub account in Settings to push code from every session', category: 'general' },
   { text: 'Connect your Cloudflare account in Settings to deploy from every session', category: 'general' },
-  { text: 'Switch to Pro mode in Settings to unlock persistent memory across sessions', category: 'general' },
+  { text: 'Switch to Pro mode in Settings to unlock persistent memory across sessions', category: 'general', saasOnly: true },
   { text: 'Change your idle timeout in Settings \u2014 from 5 minutes to 2 hours', category: 'general' },
-  { text: 'Check your compute usage on the Usage page', category: 'general' },
+  { text: 'Check your compute usage on the Usage page', category: 'general', saasOnly: true },
   { text: 'Your files sync to R2 every 60 seconds \u2014 safe even if your session dies', category: 'general' },
   { text: 'Ask your agent to build a Cloudflare Workers project and deploy it for you', category: 'general' },
   { text: 'Try Spec-Driven Development \u2014 type /sdd init in Claude Code to get started', category: 'general' },
+  // Engine capabilities present in every deployment mode.
+  { text: 'Ask the lead agent to delegate: architect, code reviewer, security, and a TDD guide work in parallel', category: 'general' },
+  { text: 'Open a pull request and the code, spec, and doc reviewers run in parallel before you merge', category: 'general' },
+  { text: 'Agents can drive a real browser and test your deployed app end to end \u2014 just describe the flow', category: 'general' },
+  { text: 'Your repos, docs, and decisions become a queryable knowledge graph the agent recalls across sessions', category: 'general' },
+  { text: 'Close the tab and the session keeps working \u2014 reconnect from any device to steer it', category: 'general' },
+  { text: 'Agents load skills on demand: spec-driven dev, CI monitoring, deploys, and security checklists', category: 'general' },
+  { text: 'Pick any agent \u2014 Claude Code, Codex, Copilot, Pi \u2014 the governance and scaffolding stay identical', category: 'general' },
 ];
 
 /** Fisher-Yates shuffle — returns a new shuffled array */
@@ -58,11 +70,14 @@ function shuffle<T>(arr: T[]): T[] {
   return result;
 }
 
-function filterTips(): Tip[] {
+export function filterTips(saasMode: boolean): Tip[] {
   const touch = isTouchDevice();
-  const filtered = ALL_TIPS.filter(
-    (tip) => tip.category === 'general' || (touch ? tip.category === 'mobile' : tip.category === 'desktop'),
-  );
+  const filtered = ALL_TIPS.filter((tip) => {
+    // SaaS-only tips (Pro mode, metered usage) make no sense in onboarding,
+    // enterprise, or default deployments, which have no such concept.
+    if (tip.saasOnly && !saasMode) return false;
+    return tip.category === 'general' || (touch ? tip.category === 'mobile' : tip.category === 'desktop');
+  });
   return shuffle(filtered);
 }
 
@@ -73,7 +88,7 @@ interface DashboardCardProps {
 }
 
 const TipsCard: Component = () => {
-  const tips = filterTips();
+  const tips = filterTips(sessionStore.saasMode);
   const [index, setIndex] = createSignal(0);
 
   const currentText = createMemo(() => tips[index()]?.text ?? '');

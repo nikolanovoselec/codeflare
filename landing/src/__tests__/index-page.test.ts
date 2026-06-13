@@ -404,6 +404,40 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(browserPos).toBeLessThan(faqPos);
   });
 
+  it('REQ-LANDING-001: platform section carries the session-boot seed terminal (a live artifact, not prose cards)', () => {
+    // The "arrives equipped" proof is a rolling boot log in the terminal idiom,
+    // inside the platform section, so this section reads like every other one
+    // instead of a wall of feature cards.
+    const platformPos = html.indexOf('id="platform"');
+    const dogfoodPos = html.indexOf('id="dogfood"');
+    const seedTitlePos = html.indexOf(PLATFORM.seed.title);
+    expect(seedTitlePos).toBeGreaterThan(platformPos);
+    expect(seedTitlePos).toBeLessThan(dogfoodPos);
+    // Every capability row renders its actor + description (deleting one from
+    // site.ts fails here — not theater).
+    for (const row of PLATFORM.seed.rows) {
+      expect(text).toContain(row.actor);
+      expect(text).toContain(row.text);
+    }
+    expect(text).toContain(PLATFORM.seed.caption);
+    // It is a scroll-revealed proof artifact (data-proof) whose rows roll in
+    // (data-roll), reusing the gate idiom.
+    const platformBlock = html.slice(platformPos, dogfoodPos);
+    expect(platformBlock).toContain('data-proof');
+    expect(platformBlock).toContain('data-roll');
+    expect(platformBlock).toContain('gate-step');
+    // The old prose-card grid is gone from this section.
+    expect(platformBlock).not.toContain('feature-grid--2');
+    // No em/en dashes anywhere in the rendered seed copy (CI tripwire parity).
+    const seedCopy = [
+      PLATFORM.seed.title,
+      PLATFORM.seed.meta,
+      PLATFORM.seed.caption,
+      ...PLATFORM.seed.rows.flatMap((r) => [r.actor, r.label, r.text]),
+    ].join(' ');
+    expect(seedCopy).not.toMatch(/[—–]/);
+  });
+
   it('REQ-LANDING-001: context section renders the isolation proof terminal as a proof-pair with in-chrome foot', () => {
     expect(html).toContain('id="context"');
     // The narrative terminal is now paired with prose (proof-pair / proof-terminal),

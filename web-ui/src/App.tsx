@@ -54,6 +54,7 @@ const AppContent: Component = () => {
       setOnboardingActive(user.onboardingActive);
       setEnterpriseMode(user.enterpriseMode);
       sessionStore.setEnterpriseMode(user.enterpriseMode === true);
+      sessionStore.setSaasMode(user.saasMode === true);
       if (user.workerName) storageStore.setWorkerName(user.workerName);
 
       // SaaS mode redirect priority:

@@ -270,7 +270,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     }
                   }}
                 >
-                  {sessionStore.preseedUpgrading ? 'Upgrading...' : '+ New Session'}
+                  {sessionStore.preseedUpgrading ? 'Upgrading' : '+ New Session'}
                 </button>
             </div>
 
