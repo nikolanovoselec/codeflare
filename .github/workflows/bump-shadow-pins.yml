@@ -9,6 +9,9 @@ name: Bump Shadow Pins
 #   so no Dockerfile literal to bump)
 # - zoxide, yazi, lazygit, silverbullet (GitHub release binaries pinned in Dockerfile)
 # - consult-llm-mcp npm package (pinned `npm install -g` literal in Dockerfile)
+# - browser-run-mcp: @modelcontextprotocol/sdk pin in
+#   preseed/agents/claude/browser-run-mcp/package.json (baked into the image; no
+#   Dockerfile literal — the job reads/bumps the package.json pin via jq)
 # - pi-preseed: EVERY dependency in preseed/agents/pi/package.json (the @juicesharp
 #   rpiv family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents, context-mode)
 #   — each is also a literal install spec in entrypoint.sh + baked into the seed
