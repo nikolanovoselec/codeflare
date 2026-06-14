@@ -649,13 +649,15 @@ import {
     }
   }
 
-  /* Mixed marks (square) and wordmarks (wide) share one strip: a moderate
-     height with a max-width cap keeps the wide ones from dominating, and
-     object-fit contain preserves each aspect ratio. */
+  /* All four are compact, text-free brand marks: three square (Gray Matter,
+     Swiss Post, ZT Solutions) and one wide cloud (Cloudflare). One shared
+     height normalizes their visual size the way a clean logo wall does;
+     object-fit contain preserves each mark's aspect, and the max-width cap
+     keeps the wide cloud from dominating the row. */
   .trusted-logo {
-    height: clamp(40px, 8vw, 56px);
+    height: clamp(34px, 7vw, 42px);
     width: auto;
-    max-width: clamp(130px, 30vw, 200px);
+    max-width: 104px;
     object-fit: contain;
   }
 
@@ -707,13 +709,12 @@ import {
   }
 
   /* Sub-content folded into the section above it (operations under security,
-     tenancy under cost, runs-everywhere under platform, trusted under proof): a
-     thin divider plus a smaller heading, so the block reads as part of that
-     section instead of floating as a section of its own. */
+     tenancy under cost, runs-everywhere under platform, trusted under proof):
+     separated by space alone, never a rule, so it reads as the same section
+     continuing rather than a block walled off by a gray line. The shared
+     section tint already groups it with the content above. */
   .substation {
-    margin-top: clamp(2.5rem, 5vw, 4rem);
-    padding-top: clamp(1.75rem, 4vw, 2.75rem);
-    border-top: 1px solid var(--border-subtle);
+    margin-top: clamp(3rem, 6vw, 5rem);
   }
 
   /* Subordinate to the section's h2 (--fs-h2, up to 2.6rem) yet above the card

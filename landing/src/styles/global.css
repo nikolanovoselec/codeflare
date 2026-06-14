@@ -25,6 +25,9 @@ html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
   scroll-padding-top: calc(var(--nav-height) + 1rem);
+  /* Lets block-size animate to/from `auto`, which powers the disclosure
+     open/close animations (FAQ, login SSO) via ::details-content. */
+  interpolate-size: allow-keywords;
 }
 
 body {
@@ -109,9 +112,11 @@ svg {
   padding-block: var(--section-y);
 }
 
+/* Alternating sections are separated by their background tint and the section
+   vertical rhythm alone, never a drawn rule. The subtle surface tint is enough
+   to read one section ending and the next beginning. */
 .section--alt {
   background: var(--bg-surface);
-  border-block: 1px solid var(--border-subtle);
 }
 
 .section-head {
@@ -297,10 +302,13 @@ svg {
   z-index: 1;
 }
 
-/* Desktop: headline copy and the terminal sit side by side, so the terminal is
-   a natural ~half-width window (the short transcript fills it) instead of a wide
-   box with dead space on the right. Mobile stacks: copy, then terminal below. */
-@media (min-width: 980px) {
+/* Tablet/foldable and up: headline copy and the terminal sit side by side, so
+   the terminal is a natural ~half-width window (the short transcript fills it)
+   instead of a wide box with dead space on the right. The 820px breakpoint (down
+   from 980) catches the ~873px unfolded-foldable and landscape-tablet width,
+   where a single column left the copy stranded at ~half width with empty space
+   beside it. Below 820, copy stacks above the terminal. */
+@media (min-width: 820px) {
   .hero .container {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.02fr);
@@ -660,21 +668,14 @@ svg {
 .feature-grid {
   display: grid;
   grid-template-columns: 1fr;
+  gap: clamp(1.4rem, 4vw, 2rem);
 }
 
+/* Stacked (mobile) cards are separated by grid gap, never a horizontal rule.
+   Desktop (>=760px) sets vertical rules between columns (below), which are
+   column separators, not the horizontal dividers we avoid. */
 .feature-col {
-  padding-block: clamp(1.2rem, 3vw, 1.5rem);
-  border-top: 1px solid var(--border-subtle);
-}
-
-/* No outer bookend hairlines on the stacked (mobile) grid: the first card drops
-   its top rule and the last keeps none, so a grid never stacks a second line
-   against the section divider or substation rule directly above or below it
-   (the doubled "two lines, nothing between" case). Cards stay separated by their
-   internal top hairlines; the section/substation provides the outer line.
-   Desktop (>=760px) replaces all of these with vertical rules anyway. */
-.feature-col:first-child {
-  border-top: none;
+  padding-block: 0;
 }
 
 .feature-col h3 {
@@ -734,7 +735,7 @@ svg {
   min-width: 0;
 }
 
-@media (min-width: 900px) {
+@media (min-width: 820px) {
   .split {
     grid-template-columns: 1.05fr 0.95fr;
   }
@@ -757,12 +758,7 @@ svg {
   grid-template-columns: 7rem 1fr;
   gap: 1rem;
   align-items: baseline;
-  padding-block: 0.9rem;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.manifest-row:last-child {
-  border-bottom: 1px solid var(--border-subtle);
+  padding-block: 0.7rem;
 }
 
 .manifest dt {
@@ -804,23 +800,44 @@ svg {
   max-width: 48rem;
 }
 
-/* Desktop: two columns so each question sits in a narrower track, which pulls the
-   "+" marker back beside its question instead of stranding it across a wide row.
-   Row-major flow keeps natural reading order (Q1 top-left, Q2 top-right, ...);
-   align-items:start lets an opened answer grow its own cell without dragging its
-   row-mate. */
+/* Desktop: CSS multi-column flow (not a grid). Items flow down each column, so
+   when one expands it simply pushes the items below it within its own column.
+   A grid paired each row's heights and left a gap beside an opened item; column
+   flow has no rows, so there is never an empty gap. break-inside keeps each
+   question+answer whole. */
 @media (min-width: 760px) {
   .faq {
     max-width: none;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    column-gap: clamp(2rem, 5vw, 4rem);
-    align-items: start;
+    columns: 2;
+    column-gap: clamp(2.5rem, 6vw, 4.5rem);
   }
 }
 
+/* No hairline between questions (the gray rule the page avoids); the summary's
+   own vertical padding separates them. break-inside keeps an item from being
+   split across columns. */
 .faq-item {
-  border-bottom: 1px solid var(--border-subtle);
+  break-inside: avoid;
+}
+
+/* Animate the FAQ (and login SSO, same rule below) open/close. ::details-content
+   is the wrapper the browser generates around a <details>'s collapsible content;
+   interpolate-size (set on html) lets block-size transition to/from auto.
+   Browsers without ::details-content support (e.g. Firefox) snap open, which is
+   an acceptable fallback. Reduced-motion users get the snap too. */
+@media (prefers-reduced-motion: no-preference) {
+  .faq-item::details-content,
+  .sso-item::details-content {
+    block-size: 0;
+    overflow: hidden;
+    transition:
+      block-size 0.3s var(--ease-out),
+      content-visibility 0.3s allow-discrete;
+  }
+  .faq-item[open]::details-content,
+  .sso-item[open]::details-content {
+    block-size: auto;
+  }
 }
 
 .faq-item summary {
@@ -867,11 +884,22 @@ svg {
   display: grid;
   grid-template-columns: 1fr;
   gap: clamp(2rem, 5vw, 3.5rem);
+  align-items: start;
+}
+
+/* Wide screens: the intro copy sits left, the form right, so neither is
+   stranded. Below 820 (phones, portrait tablets) they stack, copy then form.
+   Matches the hero/split breakpoint so the whole page changes shape at once. */
+@media (min-width: 820px) {
+  .contact-grid {
+    grid-template-columns: 0.82fr 1.18fr;
+    gap: clamp(2.5rem, 5vw, 4rem);
+  }
 }
 
 .contact-aside p {
   color: var(--text-secondary);
-  max-width: 38ch;
+  max-width: 42ch;
 }
 
 .contact-aside .aside-note {
@@ -987,8 +1015,9 @@ svg {
 /* --------------------------------------------------------------------------
    Footer
    -------------------------------------------------------------------------- */
+/* Separated from the last section by a subtle tint step, not a rule. */
 .site-footer {
-  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
   padding-block: clamp(2.5rem, 5vw, 3.5rem);
 }
 
