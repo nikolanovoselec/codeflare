@@ -160,9 +160,8 @@ export const HERO = {
   // build -> ship), where (your trust boundary), and the differentiator a coding
   // assistant cannot claim (an enforcement loop that makes drift impossible).
   definition:
-    "It's a platform where autonomous agents build, review, test, and ship inside your own " +
-    'trust boundary, with an enforcement loop that keeps spec, tests, and code in lockstep ' +
-    'so drift is impossible.',
+    'Codeflare runs autonomous coding agents inside your own cloud. Each change is backed by a ' +
+    'spec, proven by tests, documented, and handed to your team as a pull request to merge.',
   primaryCta: { label: 'Book a demo', href: '#contact' } satisfies Cta,
   secondaryCta: { label: 'See the shift', href: '#shift' } satisfies Cta,
 };
@@ -210,7 +209,7 @@ export const TERMINAL = {
   run: [
     'spec-driven · enforced, not suggested',
     'legacy codebase · bootstrapped to an SDD baseline',
-    'agents · citizens of your pipeline',
+    'agents · inside your pipeline, not around it',
     'drift impossible by design',
     'knowledge graph · skills and tools · MCP',
     'cost attributed · dynamically routed',
@@ -275,34 +274,35 @@ export const FEATURE_TERMINALS: FeatureTerminal[] = [
 
 export const SHIFT = {
   id: 'shift',
-  title: 'Decades of software delivery. One generational leap.',
+  title: 'The bottleneck was never typing speed.',
   lead:
-    'Coding assistants made typing faster. Codeflare changes what an engineer <em>is</em>: ' +
-    'you specify, steer, and judge; agents do the rest. ' +
-    'Four moments from inside the boundary.',
+    'A faster autocomplete just gets you to the next decision sooner. Codeflare moves the whole ' +
+    'job into one controlled run: you write the requirement, agents implement it, and you review ' +
+    'the evidence before it merges. The four below are snapshots of a governed run: egress, ' +
+    'isolation, review, and spec.',
 };
 
 export const METHOD = {
   id: 'method',
-  title: 'Spec-driven development, enforced.',
+  title: 'Spec, tests, and docs, enforced as one.',
   lead:
-    'Codeflare does not just let agents write code. Every change is governed by a ' +
-    'specification and proven by tests, with enforcement that leaves the agent no room ' +
-    'to drift from the plan.',
+    'Every run starts from requirements with acceptance criteria. At the pull request, Codeflare ' +
+    'checks the diff against that contract and sends failures back to the agent until the code, ' +
+    'its tests, and the docs all agree.',
   pillars: [
     {
-      title: 'The plan is a spec',
+      title: 'Approve the intent first',
       body:
-        'Work begins as requirements with acceptance criteria, not a loose prompt. ' +
-        '/sdd init bootstraps a repository into a spec-driven framework, grounded in a ' +
-        'knowledge graph of your code, decisions, and docs. You approve the intent before a line is written.',
+        'Before any code, a requirement and its acceptance criteria are written down. ' +
+        '/sdd init bootstraps the repo into that spec-driven framework, backed by a knowledge ' +
+        'graph of your code and decisions, so the agent builds against intent you already approved.',
     },
     {
       title: 'Enforcement is a loop',
       body:
-        'At every PR boundary the spec and TDD enforcers check the diff against its ' +
-        'requirements and reject test theater. Findings route straight back to the agent, ' +
-        'which corrects and re-verifies; nothing merges until what was built matches what was specified.',
+        'At every PR boundary, spec and TDD enforcers check the diff against its requirements ' +
+        'and reject test theater. Findings route back to the agent, which fixes and re-verifies, ' +
+        'and nothing merges until the build matches the spec.',
     },
   ] satisfies Card[],
   // The self-healing loop made concrete: a drift caught at the PR boundary and
@@ -334,12 +334,11 @@ export const METHOD = {
  */
 export const LEGACY = {
   id: 'legacy',
-  title: 'Legacy code, transformed into an agentic baseline.',
+  title: 'Legacy code, reverse-engineered into a spec-driven baseline.',
   lead:
-    'Autonomy is easy on greenfield; the hard part is the code you already have. ' +
-    '/sdd init reverse-engineers a legacy codebase into a spec-driven baseline (requirements, ' +
-    'acceptance criteria, a knowledge graph) so agents can work it autonomously without drifting. ' +
-    '/sdd clean brings a spec that has drifted back into alignment.',
+    'Point /sdd init at an existing repo and it reverse-engineers the requirements, acceptance ' +
+    'criteria, and knowledge graph an agent needs to work the code without drifting. ' +
+    '/sdd clean brings a drifted spec back into line.',
   terminal: {
     title: 'codeflare · /sdd init',
     lines: [
@@ -357,12 +356,12 @@ export const LEGACY = {
 
 export const SECURITY = {
   id: 'security',
-  title: 'Zero trust is the architecture, not just a policy.',
+  title: 'Built on a zero-trust foundation.',
   lead:
-    'Autonomous agents are only safe inside structural boundaries. Codeflare makes the ' +
-    'dangerous paths impossible to express, not merely discouraged: one session, ' +
-    'everything it may do, and everything it cannot.',
-  microCta: 'Request the security and compliance briefing',
+    'Every dangerous path is closed at the architecture level. A session authenticates through ' +
+    'your IdP, runs in an isolated container in your tenancy, and reaches models only through ' +
+    'your AI Gateway.',
+  microCta: 'Request the security architecture briefing',
   // The boundary as one proof artifact: the approved paths (pass) and the paths
   // the architecture makes impossible (deny), in the same gate grammar as the
   // enforcement gate and egress strip, so security reads as one coherent receipt.
@@ -401,7 +400,7 @@ export const EGRESS = {
     },
     { actor: 'route', state: 'pass', label: 'approved', text: 'sent to an approved model, every token attributed' },
   ] satisfies EgressRow[],
-  caption: 'Nothing leaves the boundary unseen.',
+  caption: 'No model call leaves the boundary without inspection and an owner.',
 };
 
 /** A row in the MCP-portal artifact (the tool-governance proof terminal). Same
@@ -424,11 +423,11 @@ export interface McpRow {
  */
 export const MCP = {
   id: 'mcp',
-  title: 'Every tool an agent can reach, governed.',
+  title: 'Every tool call, attributed to a known identity.',
   lead:
-    'An agent is only as safe as the tools it can call. Codeflare puts your MCP servers behind ' +
-    'one governed portal: every tool call is made as the signed-in user, least privilege, fully ' +
-    'attributed. Code mode collapses the whole surface into a single typed interface the agent drives in isolation.',
+    'An agent is only as safe as the tools it can reach. Codeflare routes every MCP server ' +
+    'through one portal where each call runs as the signed-in user, scoped to least privilege ' +
+    'and logged by name. Code mode folds the surface into one typed `code` tool in a sandbox.',
   portal: {
     title: 'mcp portal · one endpoint',
     rows: [
@@ -439,7 +438,7 @@ export const MCP = {
       { actor: 'sandbox', state: 'pass', label: 'isolated', text: 'agent-written code runs in a throwaway worker' },
       { actor: 'audit', state: 'pass', label: 'attributed', text: 'every tool call logged to your tenancy, by name' },
     ] satisfies McpRow[],
-    caption: 'Less surface exposed to the model · more control over what it can do.',
+    caption: 'One portal · least privilege · every call attributed',
   },
 };
 
@@ -453,8 +452,8 @@ export const DOGFOOD = {
   id: 'dogfood',
   title: 'Codeflare built this page.',
   lead:
-    'This landing page is REQ-LANDING-001 in the Codeflare specification, built and shipped by ' +
-    'Codeflare under the same enforcement shown above. Every anchor below is real.',
+    'The page you are reading is REQ-LANDING-001 in the Codeflare spec. It shipped through the ' +
+    'same spec, test, and review gates described above, and every anchor below points at the real file.',
   terminalTitle: 'REQ-LANDING-001 · sdd/spec/landing.md',
   lines: [
     { tone: 'cmd', text: 'sdd status REQ-LANDING-001' },
@@ -475,24 +474,24 @@ export const OPERATIONS = {
   // Nested terminal-path tag: one level under the security section's own "~/security",
   // so the path depth marks this as a sub-section (the "~/" prefix is added in CSS).
   tag: 'security/operations',
-  title: 'Not just code. The systems behind it.',
+  title: 'The same agents operate your infrastructure.',
   lead:
-    'The same governed agents that ship code can operate the infrastructure it runs on: ' +
-    'orchestrate environments, patch fleets, run migrations, drive incident response.',
+    'The same session model works past the repo. Agents reach approved infrastructure through ' +
+    'zero-trust tunnels to run scoped commands, apply patches, handle migrations, and drive ' +
+    'incident response, with an audit trail behind every action.',
   cards: [
     {
       title: 'Policy-scoped zero-trust tunnels',
       body:
-        'Agents reach internal hosts, databases, and control planes through tunnels gated by ' +
-        'zero-trust access policy. A session sees only what its group is entitled to, never the ' +
-        'flat network: no standing VPN to over-grant, no credentials living in the container.',
+        'Internal hosts, databases, and control planes sit behind zero-trust access policy. ' +
+        'A session gets only the routes its group is allowed, never the flat network. No broad ' +
+        'VPN grant, and no credential living in the container.',
     },
     {
-      title: 'Every action attributed',
+      title: 'Logged to your tenancy',
       body:
-        'Each connection and command flows through the same audited, attributed path as model ' +
-        'traffic. Who reached what, when, and under which policy is written to your logs, in your ' +
-        'tenancy. No unsigned access, no shadow operations.',
+        'Every connection and command flows through the same attributed path as model traffic, ' +
+        'written to your logs in your tenancy: who reached what, when, and under which policy.',
     },
   ] satisfies Card[],
 };
@@ -500,38 +499,40 @@ export const OPERATIONS = {
 export const BROWSER = {
   id: 'browser',
   tag: 'platform/runs-everywhere',
-  title: 'It runs in a browser. So it runs everywhere.',
+  title: 'No client to install. Just a browser.',
   lead:
-    'The engine already runs in your cloud; a session is just a URL. The endpoint device ' +
-    'becomes a window, not an asset to manage.',
+    'Codeflare runs in your cloud. The laptop or phone in front of an engineer is only a window ' +
+    'onto the session, with no local toolchain to install, patch, or wipe.',
   cards: [
     {
-      title: 'Nothing to deploy',
+      title: 'Ready in seconds',
       body:
-        'No golden images, no workstation builds, no local toolchains to patch. Full Linux ' +
-        'environments with every agent pre-installed, ready in seconds.',
+        'A full Linux environment with every supported agent preinstalled boots in seconds. ' +
+        'No golden images to maintain, no workstation build, no local toolchain to patch.',
     },
     {
-      title: 'Onboarding is IAM configuration',
+      title: 'Access starts in your IdP',
       body:
-        'Add a user to the access group in your identity provider. Day-one productivity for ' +
-        'hires, same-day offboarding with nothing to reclaim or wipe.',
+        'Add an engineer to the right group in your identity provider and they are productive ' +
+        'on day one. Remove the membership and access is gone the same day, with no device to ' +
+        'reclaim or wipe.',
     },
     {
-      title: 'Steer from any device',
+      title: 'Check in from anywhere',
       body:
-        'Autonomous sessions keep working whether you watch or not. Review findings and ' +
-        'redirect agents from a laptop, a tablet, or a phone.',
+        'Long-running sessions keep working whether you watch or not. Review findings, redirect ' +
+        'an agent, or approve the next step from whatever device you have on you.',
     },
   ] satisfies Card[],
 };
 
 export const PLATFORM = {
   id: 'platform',
-  title: 'Agents arrive equipped, not naive.',
+  title: 'Your context, guidelines, and best practices, preloaded.',
   lead:
-    'Every session is seeded with enterprise scaffolding the moment it starts, so agents ' +
-    'already know your standards, your patterns, and your history.',
+    'A session starts knowing your conventions, your codebase, and your past decisions, not as ' +
+    'a blank slate. Skills load on demand and specialist reviewers stand ready, the same way ' +
+    'for every supported agent.',
   // The "arrives equipped" proof, shown the way the rest of the page trades: a
   // session boot log. Each capability is loaded before the first prompt and rolls
   // in as a checklist (data-roll) in the terminal idiom, so this section carries a
@@ -546,18 +547,17 @@ export const PLATFORM = {
       { actor: 'memory', label: 'graph', text: 'repos · docs · decisions, queryable, so prior calls still hold' },
       { actor: 'any agent', label: 'one engine', text: 'identical governance whichever agent does the work' },
     ],
-    caption: 'every session · identical governance, scaffolding, and isolation',
+    caption: 'every session · same context · same controls · same isolation',
   },
 };
 
 export const CONTEXT = {
   id: 'context',
-  title: 'The open web, distilled.',
+  title: 'The web, the way an agent reads it.',
   lead:
-    'Agents read the open web the way a person would, through a throwaway isolated browser: the ' +
-    'JavaScript runs, the login gate resolves, and a heavy page comes back as clean structured ' +
-    'markdown. A 1.9 MB page becomes 12 kB an agent can actually read, so its context goes to your ' +
-    'work, not the markup.',
+    "Heavy pages are mostly chrome an agent can't use. Codeflare loads each one in an isolated, " +
+    'ephemeral browser, runs the scripts, resolves the gate, and returns clean markdown, turning ' +
+    'a 1.9 MB page into 12 kB worth reading.',
   // One real fetch from the spine run shown as a proof terminal: the open web
   // crosses an isolation boundary the remote page never breaches, then resolves
   // to agent-ready markdown. The headline beat is the context-economics win: a
@@ -578,12 +578,12 @@ export const CONTEXT = {
   // judging the deployed app against intent (the deny line is a real clip this
   // repo's own landing QA caught and filed). Shown beside the web-fetch terminal as a paired proof.
   e2e: {
-    tag: 'context/drives',
-    heading: "And it doesn't just read. It drives.",
+    tag: 'context/automation',
+    heading: 'From reading pages to driving them.',
     lead:
-      'The same throwaway browser runs your e2e. Tell an agent to test a deployed flow ' +
-      'from a mobile viewport and it navigates, taps, screenshots, and judges what ' +
-      'rendered against the acceptance criteria, the way a person would.',
+      'Hand an agent a deployed flow and a mobile viewport, and the same isolated browser runs ' +
+      'the end-to-end test: it navigates, taps, captures each screen, and judges the result ' +
+      'against the acceptance criteria.',
     terminal: {
       title: 'codeflare · e2e',
       lines: [
@@ -600,10 +600,10 @@ export const CONTEXT = {
 
 export const PIPELINE = {
   id: 'pipeline',
-  title: 'Agents become citizens of your pipeline.',
+  title: 'Agents work inside your pipeline, not around it.',
   lead:
-    'No shadow toolchain. Agents work through your git, your CI, and your branch protections, ' +
-    'subject to the same gates as your engineers. Humans own intent and the merge.',
+    'There is no shadow toolchain. Every agent change moves through your git, your CI, and your ' +
+    'branch protections, then a panel of specialist reviewers, before a human approves the merge.',
   // The PR-boundary review as a board: six specialist agents reviewing one diff
   // in parallel, two of them catching and re-proving a finding, all converging
   // on a single human triage gate. Makes "one engineer, many agents" literal.
@@ -647,11 +647,11 @@ export interface AgentRun {
  */
 export const ORCHESTRATION = {
   id: 'orchestration',
-  title: 'Watch the work, not the weeds.',
+  title: 'Watch every agent work in real time.',
   lead:
-    'The same review, the way the operator watches it run: three reviewers on one diff at once, ' +
-    'each with its own tool-use and token counters ticking as they work. Expand any agent to read ' +
-    'along, or send the run to the background and get pinged when it lands.',
+    "This is the operator's view of the same review: three reviewers on one diff at once, each " +
+    "showing what it's doing and spending as it goes. Follow any one closely, or send the run " +
+    'to the background and move on to the next task.',
   header: 'Running 3 agents',
   hint: 'ctrl+o to expand',
   agents: [
@@ -696,10 +696,10 @@ export const ORCHESTRATION = {
 
 export const COST = {
   id: 'cost',
-  title: 'No unattributed spend.',
+  title: 'Every spend has a known actor.',
   lead:
-    'From the infrastructure minute to the inference token to what each agent consumes, ' +
-    'visibility and control at every layer, in your own cloud account.',
+    'Codeflare records cost where it is created: container time, browser work, tool calls, and ' +
+    'model tokens. Each line rolls up to a user, team, agent, and route in your own cloud account.',
   // The attribution claim made concrete: an audited ledger where every line
   // carries an owner, and the last total reads zero unattributed.
   ledger: {
@@ -727,20 +727,21 @@ export const COST = {
     {
       title: 'Environment',
       body:
-        'Serverless pay-per-use in your tenancy: containers exist only while sessions run, ' +
-        'hibernate to zero when idle, and land in your cloud account as line items.',
+        'Containers run in your tenancy, exist only while a session is active, and hibernate to ' +
+        'zero when idle. The spend lands in your cloud account as line items, not in a vendor black box.',
     },
     {
       title: 'Inference',
       body:
-        'Every request flows through your AI Gateway, where cost is visible per user, team, and ' +
-        'department. Each group is routed to its approved models, with failover when a provider degrades.',
+        'Model traffic runs through your AI Gateway. Spend is visible by user, team, and group; ' +
+        'each group is pinned to its approved models; and traffic fails over automatically when a ' +
+        'provider degrades.',
     },
     {
       title: 'Agent tools',
       body:
-        'Interception sits below the container, so CLI tools cannot bypass it. Every token any ' +
-        'agent consumes joins the same attributed stream. No shadow AI spend.',
+        'Because interception runs below the container, no CLI tool can slip past it. Every token ' +
+        'an agent burns lands in the same attributed stream as the rest.',
     },
   ] satisfies Card[],
 };
@@ -748,10 +749,11 @@ export const COST = {
 export const TENANCY = {
   id: 'tenancy',
   tag: 'cost/tenancy',
-  title: 'Runs where your data lives.',
+  title: 'Deployed in your own cloud account.',
   lead:
     'Codeflare deploys into <strong>your own cloud account</strong>, with no vendor in the ' +
-    'data path. A guided wizard takes a fresh account to a running engine.',
+    'data path. Source, sessions, and model traffic stay inside your trust boundary, and a ' +
+    'guided setup takes a fresh account to a running engine.',
 };
 
 export const FAQ_SECTION = {
@@ -763,9 +765,9 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'Where does our code and data live?',
     answer:
-      'Inside your own cloud account: workspace storage in your object-storage buckets, metadata in ' +
-      'your key-value store, sessions in containers under your tenancy. Codeflare is software you ' +
-      'run, not a service that holds your data. Storage is encrypted at rest, with customer-provided key options.',
+      'Inside your own cloud account. Workspace storage uses your object-storage buckets, metadata ' +
+      'your key-value store, and sessions run in containers under your tenancy. Codeflare is software ' +
+      'you operate, so we never hold your code. Storage is encrypted at rest, with customer-provided key options.',
   },
   {
     question: 'How do agents reach LLM providers?',
@@ -784,9 +786,9 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'What stops an agent from escalating privileges?',
     answer:
-      'Structure, not policy. Each session runs in its own ephemeral container with no peers to ' +
-      'move to and no standing infrastructure to persist on, behind zero-trust access. When the ' +
-      'session ends, the container is destroyed.',
+      'Hard infrastructure boundaries. Each session runs in its own ephemeral container behind ' +
+      'zero-trust access, with no peers to move to and no standing infrastructure to persist on. ' +
+      'When the session ends, the container is destroyed.',
   },
   {
     question: 'Which coding agents are supported?',
@@ -804,8 +806,9 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'Does this replace our existing SDLC tooling?',
     answer:
-      'No, it works through it. Agents use your git hosting, your CI, your deploy pipelines, and ' +
-      'your branch protections. The autonomous review pipeline adds gates; it does not remove any.',
+      'It works through your existing tooling rather than replacing it. Agents commit through your ' +
+      'git, run your CI, and obey your branch protections; the review pipeline layers extra gates ' +
+      'on top and removes none of yours.',
   },
 ];
 
@@ -842,11 +845,11 @@ const TOPIC_LABELS: Record<ContactTopic, string> = {
 
 export const CONTACT_FORM = {
   id: 'contact',
-  title: 'Bring agentic coding inside your boundary.',
+  title: 'Deploy Codeflare in your environment.',
   aside: [
-    'Whether you are evaluating agentic coding for the first time, planning a pilot, or need a ' +
-      'security and compliance briefing, let\'s talk about your environment specifically.',
-    'Your message goes directly to the team that builds Codeflare. Expect a reply within 1-2 ' +
+    "Whether you're new to autonomous coding agents, scoping a pilot, or reviewing the security " +
+      "model, tell us about your environment and we'll take it from there.",
+    'Your message goes directly to the team that builds Codeflare. Expect a reply within 1 to 2 ' +
       'business days. Submissions are protected against bots and are not stored. ' +
       'Your data is never sold or shared.',
   ],
@@ -873,7 +876,7 @@ export interface SsoProvider {
  */
 export const LOGIN = {
   title: 'Sign in to Codeflare',
-  sub: 'Autonomous coding agents, governed inside your boundary.',
+  sub: 'Autonomous coding agents, running in your own cloud, under your control.',
   github: { label: 'Continue with GitHub', href: '/auth/github/login' },
   ssoHeading: 'Enterprise SSO',
   ssoProviders: [
@@ -884,8 +887,8 @@ export const LOGIN = {
   ] satisfies SsoProvider[],
   sso: {
     body:
-      'is wired in when Codeflare Enterprise is deployed into your own cloud account, ' +
-      'where your identity provider and access policies are configured. That is why it starts with a conversation.',
+      "comes with Codeflare Enterprise, set up when it's deployed into your own cloud account " +
+      'alongside your identity provider and access policies. That is why it starts with a conversation.',
     cta: { label: 'Get in touch', href: '/landing/?topic=enterprise-deployment#contact' },
   },
   helper:

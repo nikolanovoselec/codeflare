@@ -306,7 +306,7 @@ describe('landing page (REQ-LANDING-001)', () => {
     // Sub-sections carry a nested terminal-path tag one level deeper than their parent
     // section (e.g. "security/operations" under "~/security"), so the path depth marks
     // them as sub-sections rather than new sections. The "~/" prefix is added in CSS.
-    for (const subTag of ['security/operations', 'context/drives', 'cost/tenancy', 'platform/runs-everywhere']) {
+    for (const subTag of ['security/operations', 'context/automation', 'cost/tenancy', 'platform/runs-everywhere']) {
       expect(html, `missing nested sub-section tag ${subTag}`).toContain(subTag);
     }
   });
