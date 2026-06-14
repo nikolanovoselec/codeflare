@@ -637,8 +637,9 @@ import {
   }
 
   /* Four mixed-width logos wrap unevenly (3 + 1) on a phone; a 2-column grid
-     keeps them balanced 2x2 and centered. */
-  @media (max-width: 600px) {
+     keeps them balanced 2x2 and centered. 680px matches the page's phone
+     breakpoint (global.css). */
+  @media (max-width: 680px) {
     .trusted-logos {
       display: grid;
       grid-template-columns: 1fr 1fr;
