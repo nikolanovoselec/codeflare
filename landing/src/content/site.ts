@@ -419,8 +419,8 @@ export interface McpRow {
  * collapse behind one portal endpoint; every call is made as the signed-in user
  * with least privilege and is attributed; and code mode collapses the whole tool
  * surface into a single typed `code` tool the agent drives in an isolated worker.
- * Rendered as a dynamic proof terminal (rolling steps + a code-mode echo), the
- * page's terminal idiom, not prose.
+ * Rendered as a dynamic proof terminal (rolling governance rows in the gate
+ * grammar), the page's terminal idiom, not prose.
  */
 export const MCP = {
   id: 'mcp',
