@@ -33,7 +33,8 @@
   },
   "overrides": {
     "minimatch": ">=10.2.1",
-    "glob": ">=11.0.0"
+    "glob": ">=11.0.0",
+    "esbuild": ">=0.28.1"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.16.14",
