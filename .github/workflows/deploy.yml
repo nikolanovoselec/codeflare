@@ -326,7 +326,23 @@ jobs:
           echo "local_ref=${IMAGE_NAME}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Free disk space for Trivy scan
-        run: docker builder prune -af && rm -rf /tmp/trivy-* || true
+        # Trivy exports the full uncompressed image to a temp dir before
+        # analyzing layers; on this self-hosted runner the root fs fills with
+        # container images accumulated across deploys (the post-deploy prune
+        # only runs on success, so a failed run leaves its image behind, and a
+        # prior environment's image is still resident), so the export dies with
+        # "no space left on device". Reclaim space first: build cache, dangling
+        # images, and every *-container image except the one we just built,
+        # plus any stale Trivy/export temp dirs.
+        run: |
+          KEEP="${{ steps.docker-build.outputs.local_ref }}"
+          docker builder prune -af || true
+          docker image prune -f || true
+          docker images --format '{{.Repository}}:{{.Tag}}' \
+            | grep -- '-container:' | grep -vxF "$KEEP" \
+            | xargs -r docker rmi -f || true
+          rm -rf /tmp/trivy-* /tmp/docker-export-* || true
+          df -h / /tmp 2>/dev/null || true
 
       - name: Scan container image for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
