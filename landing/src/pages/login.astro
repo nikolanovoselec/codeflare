@@ -30,7 +30,19 @@ const GITHUB_PATH =
   <nav class="site-nav login-nav">
     <div class="container">
       <a class="btn btn-ghost btn-sm login-back" href={LOGIN.back.href}>
-        <span class="login-back-arrow" aria-hidden="true">&larr;</span> {LOGIN.back.label}
+        <svg
+          class="login-back-arrow"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M13 8H3.5" />
+          <path d="M8 3.5 3.5 8 8 12.5" />
+        </svg>{LOGIN.back.label}
       </a>
     </div>
   </nav>
@@ -113,20 +125,16 @@ const GITHUB_PATH =
     justify-content: center;
   }
 
-  /* The back link is a flex button (.btn sets align-items:center). Center the
-     arrow by making it its own flex box that hugs the glyph (line-height:1,
-     inline-flex), so the parent's cross-axis centering aligns the arrow ink to
-     the label at any viewport. The earlier em-transform nudge was tuned on
-     desktop and drifted on mobile (3x DPR glyph hinting); this carries no
-     viewport-dependent magic number. */
-  .login-back {
-    align-items: center;
-  }
-
+  /* The back arrow is an inline SVG, not the &larr; font glyph: a glyph's ink
+     position inside the line box is font-metric-dependent and rounds differently
+     at fractional DPR, so box-centering it held on desktop but drifted on tablet
+     and mobile. The SVG geometry is vertically symmetric in its viewBox, so the
+     flex button's own align-items:center (from .btn) lands it on the label's
+     optical centre identically at every viewport and DPR, with no magic number. */
   .login-back-arrow {
-    display: inline-flex;
-    align-items: center;
-    line-height: 1;
+    width: 0.95em;
+    height: 0.95em;
+    flex-shrink: 0;
   }
 
   .login-card {
