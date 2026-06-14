@@ -291,7 +291,12 @@ All preseed content is deployed via the manifest pipeline:
   The `browser-run` skill (both agents) frames the cost/context decision (cheap
   markdown read first, the interactive browser only when a page must be driven),
   and `browser-e2e` (both agents) drives the interactive surface to verify a
-  deployed app by judgment, including from a mobile viewport.
+  deployed app by judgment, including from a mobile viewport. Every file under
+  `preseed/agents/pi/extensions/` is loaded by the Pi extension scanner and must
+  export a default factory function; pure helper modules (e.g.
+  `browser-run-helpers.ts`, `graphify-helpers.ts`) therefore export a no-op
+  default factory alongside their named exports, or Pi aborts startup with
+  `Extension does not export a valid factory function`.
 
   Native skill overrides include graphify
   ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch)

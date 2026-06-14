@@ -22,7 +22,7 @@ Codeflare supports two fundamentally different authentication flows:
 
 | | CF Access (with GitHub as IdP) | Direct GitHub OAuth |
 |---|---|---|
-| **When** | Default, onboarding, or SaaS without `OAUTH_CLIENT_ID` | SaaS mode with `OAUTH_CLIENT_ID` configured |
+| **When** | Default/enterprise, or SaaS without `OAUTH_CLIENT_ID` | SaaS or onboarding mode with `OAUTH_CLIENT_ID` configured (onboarding uses a landing-integrated `/login`) |
 | **Auth layer** | Cloudflare Access (external service) | Worker handles auth directly |
 | **Login page** | CF Access branded login page | Codeflare login page (`/login`) |
 | **GitHub role** | One of several IdPs configured in CF Access dashboard | The sole auth provider, managed by the Worker |

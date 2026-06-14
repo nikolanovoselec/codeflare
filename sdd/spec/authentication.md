@@ -291,11 +291,11 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
-<!-- @test: src/__tests__/routes/auth-redirects.test.ts (GET /logout describe -> SaaS mode + onboarding mode (OAuth configured) redirect to the GitHub logout route not CF Access + redirects to CF Access logout URL when auth_domain set + redirects to request host origin when not set + encodes returnTo with custom_domain -> AC2, AC3, AC4 backend dispatch by mode) -->
 ### REQ-AUTH-009: Logout dispatches by mode
 
 <!-- @impl: src/routes/auth-redirects.ts -->
 <!-- @impl: src/routes/github-auth.ts -->
+<!-- @test: src/__tests__/routes/auth-redirects.test.ts (GET /logout describe -> SaaS mode + onboarding mode (OAuth configured) redirect to the GitHub logout route not CF Access + redirects to CF Access logout URL when auth_domain set + redirects to request host origin when not set + encodes returnTo with custom_domain -> AC1, AC2, AC3, AC4 backend dispatch by mode) -->
 
 **Intent:** Logout correctly terminates the session regardless of the active authentication mode, with a single frontend endpoint that dispatches to the appropriate backend flow.
 
@@ -304,7 +304,7 @@ None. Authentication is foundational; other domains depend on it.
 **Acceptance Criteria:**
 
 1. The frontend triggers logout via a single endpoint, irrespective of deployment mode.
-2. In any mode that issues the app's own GitHub-OIDC session (SaaS or onboarding), the backend redirects to the GitHub logout route, which clears the session credential and returns the user to the login page. Onboarding must not be sent to the CF Access logout endpoint, which rejects the returnTo as an invalid redirect URL.
+2. In any mode that issues the app's own GitHub-OIDC session (SaaS or onboarding), the backend redirects to the GitHub logout route, which clears the session credential and returns the user to the login page; it must not redirect to the CF Access logout endpoint.
 3. In CF Access mode, the backend redirects through CF Access's system logout endpoint so CF Access clears its own credential.
 4. The dispatch decision is made by the backend based on the current deployment configuration, not by the frontend.
 
@@ -312,6 +312,7 @@ None. Authentication is foundational; other domains depend on it.
 
 - Logout redirect responses carry the full security header set.
 - After logout, the user always lands on the appropriate login page for the deployment mode.
+- The CF Access logout endpoint rejects a `returnTo` pointing at an onboarding/SaaS origin as an invalid redirect URL, so any mode issuing a `codeflare_session` must use the GitHub logout path instead.
 
 **Priority:** P0
 
