@@ -49,7 +49,7 @@ The frontend always calls `/auth/logout` - the backend dispatches to the correct
 
 ### Direct GitHub OAuth Flow
 
-When `SAAS_MODE=active` and `OAUTH_CLIENT_ID` is configured, the Worker handles the entire OAuth flow:
+When `SAAS_MODE=active` or `ONBOARDING_LANDING_PAGE=active`, and `OAUTH_CLIENT_ID` is configured, the Worker handles the entire OAuth flow:
 
 ```
 User clicks "Sign in with GitHub" on /login
