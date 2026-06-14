@@ -163,7 +163,6 @@ export const HERO = {
     "It's a platform where autonomous agents build, review, test, and ship inside your own " +
     'trust boundary, with an enforcement loop that keeps spec, tests, and code in lockstep ' +
     'so drift is impossible.',
-  sub: 'One engineer, the output of a team.',
   primaryCta: { label: 'Book a demo', href: '#contact' } satisfies Cta,
   secondaryCta: { label: 'See the shift', href: '#shift' } satisfies Cta,
 };
@@ -335,7 +334,7 @@ export const METHOD = {
  */
 export const LEGACY = {
   id: 'legacy',
-  title: 'Legacy code, made safe for agents.',
+  title: 'Legacy code, transformed into an agentic baseline.',
   lead:
     'Autonomy is easy on greenfield; the hard part is the code you already have. ' +
     '/sdd init reverse-engineers a legacy codebase into a spec-driven baseline (requirements, ' +
@@ -440,7 +439,6 @@ export const MCP = {
       { actor: 'sandbox', state: 'pass', label: 'isolated', text: 'agent-written code runs in a throwaway worker' },
       { actor: 'audit', state: 'pass', label: 'attributed', text: 'every tool call logged to your tenancy, by name' },
     ] satisfies McpRow[],
-    echo: 'const pr = await github.getPR(207); await slack.post(pr.title)',
     caption: 'Less surface exposed to the model · more control over what it can do.',
   },
 };
@@ -748,12 +746,6 @@ export const TENANCY = {
   lead:
     'Codeflare deploys into <strong>your own cloud account</strong>, with no vendor in the ' +
     'data path. A guided wizard takes a fresh account to a running engine.',
-  manifest: [
-    { label: 'Identity', note: 'your IdP' },
-    { label: 'Storage', note: 'your buckets, your keys' },
-    { label: 'AI Gateway', note: 'guardrails, DLP, your rates' },
-    { label: 'Domain', note: 'yours' },
-  ],
 };
 
 export const FAQ_SECTION = {

@@ -1,6 +1,6 @@
 ---
 name: browser-e2e
-description: Drive your own deployed app in a real browser (Cloudflare Browser Run, via the chrome-devtools server reached through the pi-mcp-adapter `mcp` proxy) and verify it by semantic judgment — navigate, interact, emulate a mobile viewport, observe what actually rendered, and decide whether it meets the acceptance criteria. A judgment-based complement to scripted CI e2e: catches "renders but looks wrong / behaves wrong" that selector assertions miss. Activates after a deploy/preview, when verifying UI behavior against intent.
+description: "Drive your own deployed app in a real browser (Cloudflare Browser Run, via the chrome-devtools server reached through the pi-mcp-adapter `mcp` proxy) and verify it by semantic judgment — navigate, interact, emulate a mobile viewport, observe what actually rendered, and decide whether it meets the acceptance criteria. A judgment-based complement to scripted CI e2e: catches \"renders but looks wrong / behaves wrong\" that selector assertions miss. Activates after a deploy/preview, when verifying UI behavior against intent."
 ---
 
 # Browser e2e (Pi)

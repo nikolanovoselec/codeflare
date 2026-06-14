@@ -359,14 +359,6 @@ svg {
   line-height: 1.5;
 }
 
-.hero-sub {
-  font-size: var(--fs-lead);
-  color: var(--text-secondary);
-  max-width: 42ch;
-  margin-top: 0.9rem;
-  line-height: 1.5;
-}
-
 .hero-cta {
   display: flex;
   flex-wrap: wrap;
@@ -435,6 +427,13 @@ svg {
   box-shadow: 0 18px 40px -28px rgb(0 0 0 / 0.6);
 }
 
+/* One header treatment for every terminal, modelled on the hero terminal's bar:
+   dots + a calm muted mono-ui title, optionally a right-pushed (margin-left:auto)
+   meta in the same muted tone. The artifact terminals (gate / board / ledger /
+   orch / mcp) used to colour their ids coral or white and size their metas down
+   to micro-uppercase, which read as a different header per section; they now all
+   inherit this one muted mono-ui combination so the headers align across the page
+   (the load-bearing ids like REQ-PAY-014 / PR #207 stay, just in the calm tone). */
 .terminal-bar {
   display: flex;
   align-items: center;
@@ -445,6 +444,7 @@ svg {
   background: rgb(var(--white-rgb) / 0.015);
   font-family: var(--font-mono);
   font-size: var(--fs-mono-ui);
+  color: var(--text-muted);
 }
 
 .terminal-dots {
@@ -694,12 +694,19 @@ svg {
   padding-block: 0;
 }
 
+/* Card / sub-block label: the anchor that keeps the under-terminal prose blocks
+   (operations, tenancy, runs-everywhere) legible as label -> body rather than two
+   runs of similar text. Same body size as the paragraph but a clear heading
+   weight + primary colour + a small uppercase tracking lift, so the eye reads it
+   as the heading of its column without needing a bespoke in-between font size. */
 .feature-col h3 {
-  font-size: var(--fs-body);
-  font-weight: 650;
-  line-height: 1.4;
-  letter-spacing: -0.011em;
-  margin-bottom: 0.5rem;
+  font-size: var(--fs-small);
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  margin-bottom: 0.65rem;
 }
 
 .feature-col p {
@@ -729,64 +736,6 @@ svg {
     border-left: none;
     padding-left: 0;
   }
-}
-
-/* --------------------------------------------------------------------------
-   Split layout (copy + aside artifact)
-   -------------------------------------------------------------------------- */
-.split {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: clamp(2rem, 5vw, 3.5rem);
-  align-items: center;
-}
-
-/* Grid children holding a scrollable mono block (terminal / flow / review board)
-   MUST be allowed to shrink below their content's min-content width. Without
-   min-width:0 a `white-space:pre` line forces the 1fr track wider than the
-   viewport, blowing out the page horizontally on mobile (the old pipeline mono
-   snippet did exactly this). With it, overflow-x:auto scrolls the block locally. */
-.split > *,
-.split-aside {
-  min-width: 0;
-}
-
-@media (min-width: 820px) {
-  .split {
-    grid-template-columns: 1.05fr 0.95fr;
-  }
-  .split--reverse .split-aside {
-    order: -1;
-  }
-}
-
-/* --------------------------------------------------------------------------
-   Tenancy manifest: a bare hairline mono key/value record (keys recede, the
-   "yours" column carries the weight), echoing the proof-artifact grammar above.
-   -------------------------------------------------------------------------- */
-.manifest {
-  margin: 0;
-  font-family: var(--font-mono);
-}
-
-.manifest-row {
-  display: grid;
-  grid-template-columns: 7rem 1fr;
-  gap: 1rem;
-  align-items: baseline;
-  padding-block: 0.7rem;
-}
-
-.manifest dt {
-  font-size: var(--fs-mono-ui);
-  letter-spacing: 0.02em;
-  color: var(--text-muted);
-}
-
-.manifest dd {
-  margin: 0;
-  font-size: var(--fs-small);
-  color: var(--text-primary);
 }
 
 /* --------------------------------------------------------------------------
@@ -913,7 +862,13 @@ svg {
   }
 }
 
+/* The contact section has no section-head lead; its intro paragraph IS the lead,
+   so it takes the same --fs-lead as every other section's lead (it had sat at
+   body size, an awkward near-miss against the small note below it). The note is
+   then clearly fine print at --fs-small, so the two read as an intentional
+   lead -> fine-print step rather than two almost-but-not-quite-equal sizes (#22). */
 .contact-aside p {
+  font-size: var(--fs-lead);
   color: var(--text-secondary);
   max-width: 42ch;
 }
@@ -1252,19 +1207,14 @@ svg {
   margin-top: clamp(1.25rem, 3vw, 2rem);
 }
 
+/* Header ids/metas share the bar's muted mono-ui tone (normalized chrome, #17);
+   the bar sets the colour/size, so these only carry their layout role. */
 .gate-req {
-  color: var(--accent);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-.gate-crit {
-  color: var(--text-secondary);
+  letter-spacing: 0.02em;
 }
 
 .gate-pr {
   margin-left: auto;
-  color: var(--text-muted);
 }
 
 .gate-step {
@@ -1463,16 +1413,9 @@ svg {
   margin-bottom: 0;
 }
 
-.board-pr-id {
-  color: var(--text-primary);
-  font-weight: 600;
-  font-size: var(--fs-mono-ui);
-}
-
+/* Inherit the bar's muted mono-ui tone (#17); only the trigger's right-push remains. */
 .board-pr-trigger {
   margin-left: auto;
-  color: var(--text-muted);
-  font-size: var(--fs-mono-ui);
 }
 
 /* Overhead conductor label: the fan-out under one human gate, made explicit. */
@@ -1600,20 +1543,10 @@ svg {
   font-family: var(--font-mono);
 }
 
-/* Run identity: binds the ledger to the spine PR and reconciles the sample
-   rows with the full-run totals. */
-.ledger-meta-id {
-  color: var(--text-primary);
-  font-weight: 600;
-  font-size: var(--fs-mono-ui);
-}
-
+/* Run identity + sample note bind the ledger to the spine PR; both inherit the
+   bar's muted mono-ui tone (#17), the sample note pushed to the right edge. */
 .ledger-meta-sample {
   margin-left: auto;
-  color: var(--text-muted);
-  font-size: var(--fs-mono-micro);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
 }
 
 .ledger-head,

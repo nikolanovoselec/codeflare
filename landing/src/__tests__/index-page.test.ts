@@ -493,7 +493,7 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(seedCopy).not.toMatch(/[—–]/);
   });
 
-  it('REQ-LANDING-001: MCP section renders a dynamic governance terminal with the code-mode echo and every governance row', () => {
+  it('REQ-LANDING-001: MCP section renders a dynamic governance terminal with the code-mode row and every governance row', () => {
     expect(html).toContain('id="mcp"');
     const mcpPos = html.indexOf('id="mcp"');
     const dogfoodPos = html.indexOf('id="dogfood"');
@@ -517,13 +517,10 @@ describe('landing page (REQ-LANDING-001)', () => {
     // beat) and code mode collapsing the whole tool surface.
     expect(mcpText).toContain('as the user');
     expect(MCP.portal.rows.some((r) => r.actor === 'code mode')).toBe(true);
-    // The code-mode echo (the agent writing typed JS over MCP tools) renders.
-    expect(mcpText).toContain(MCP.portal.echo);
     expect(mcpText).toContain(MCP.portal.caption);
     // No em/en dashes anywhere in the MCP copy (CI tripwire parity with seed copy).
     const mcpCopy = [
       MCP.portal.title,
-      MCP.portal.echo,
       MCP.portal.caption,
       ...MCP.portal.rows.flatMap((r) => [r.actor, r.label, r.text]),
     ].join(' ');

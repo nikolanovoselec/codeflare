@@ -113,13 +113,20 @@ const GITHUB_PATH =
     justify-content: center;
   }
 
-  /* The back arrow (←) sits a hair below the label's optical centre because Inter
-     centres arrow glyphs on the math axis, which is below the cap-centre the label
-     reads from; lift it so the glyph lines up with the text in the flex button. */
+  /* The back link is a flex button (.btn sets align-items:center). Center the
+     arrow by making it its own flex box that hugs the glyph (line-height:1,
+     inline-flex), so the parent's cross-axis centering aligns the arrow ink to
+     the label at any viewport. The earlier em-transform nudge was tuned on
+     desktop and drifted on mobile (3x DPR glyph hinting); this carries no
+     viewport-dependent magic number. */
+  .login-back {
+    align-items: center;
+  }
+
   .login-back-arrow {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
     line-height: 1;
-    transform: translateY(-0.06em);
   }
 
   .login-card {

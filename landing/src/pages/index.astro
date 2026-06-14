@@ -134,8 +134,8 @@ import {
       </div>
     </section>
 
-    <!-- Legacy: legacy code, made safe for agents. /sdd init turns a
-         legacy codebase into a spec-driven baseline and /sdd clean realigns a
+    <!-- Legacy: legacy code transformed into an agentic baseline. /sdd init turns
+         a legacy codebase into a spec-driven baseline and /sdd clean realigns a
          drifted spec, in the page's existing terminal idiom (context grammar). -->
     <section id={LEGACY.id} class="section">
       <div class="container">
@@ -424,24 +424,14 @@ import {
         </div>
         <!-- Tenancy folded into the spend section as sub-content: the spend and
              the cloud it lands in are one story (your account), so it reads as part
-             of this section rather than a section of its own. -->
-        <div class="split substation">
-          <div class="section-head reveal" style="margin-bottom:0">
-            <h3>{TENANCY.title}</h3>
-            <p class="lead" set:html={TENANCY.lead} />
-          </div>
-          <div class="split-aside reveal">
-            <dl class="manifest">
-              {
-                TENANCY.manifest.map((item) => (
-                  <div class="manifest-row">
-                    <dt>{item.label}</dt>
-                    <dd>{item.note}</dd>
-                  </div>
-                ))
-              }
-            </dl>
-          </div>
+             of this section rather than a section of its own. A plain sub-head +
+             lead (the same .section-head.substation as operations / runs-everywhere);
+             the bare key/value manifest it used to carry ("Identity · your IdP",
+             "Storage · your buckets", ...) duplicated the boundary terminal's own
+             "your IdP / your tenancy / your AI Gateway" rows, so it is dropped. -->
+        <div class="section-head substation reveal">
+          <h3>{TENANCY.title}</h3>
+          <p class="lead" set:html={TENANCY.lead} />
         </div>
       </div>
     </section>
@@ -504,8 +494,8 @@ import {
          proof terminal in the boundary's gate grammar: many MCP servers collapse
          to one endpoint, every call is made as the signed-in user (least
          privilege, attributed), and code mode collapses the whole tool surface
-         into one typed `code` tool the agent writes (the echo) and runs in
-         isolation. data-proof/data-roll arm the live roll; no JS of its own. -->
+         into one typed `code` tool the agent runs in isolation (the "40 -> 1"
+         row). data-proof/data-roll arm the live roll; no JS of its own. -->
     <section id={MCP.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
@@ -529,7 +519,6 @@ import {
               ))
             }
           </div>
-          <div class="gate-echo"><span class="gate-echo-prompt" aria-hidden="true">❯</span> {MCP.portal.echo}</div>
           <div class="terminal-foot tf-static"><span class="tf-seg">{MCP.portal.caption}</span></div>
         </div>
       </div>
@@ -739,6 +728,16 @@ import {
      section tint already groups it with the content above. */
   .substation {
     margin-top: clamp(3rem, 6vw, 5rem);
+  }
+
+  /* When a substation sub-head directly follows a terminal (context: the e2e
+     "And it doesn't just read. It drives." head under the web-fetch terminal;
+     security: operations under the boundary terminal), the full substation gap
+     read as a section break and severed the section. A terminal is already a
+     self-contained box, so a tighter gap keeps the sub-head reading as a
+     continuation of the same section rather than a new one. */
+  .terminal + .substation {
+    margin-top: clamp(1.75rem, 4vw, 2.75rem);
   }
 
   /* Sub-block heading: the SAME --fs-h3 as the card / clause headings, so the
